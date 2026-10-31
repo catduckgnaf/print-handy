@@ -308,7 +308,10 @@ def _stub_print_now(folder):
     return stub
 
 
-def run_case(case, work, *, real_slicer=False, state_file=FIXTURE_STATE, in_gateway_env=False, transport="hermes", audit_started=None, auto=True):
+BUILT = "built"  # default: printer state produced by the real create_spool and bind_slot flows (#594)
+
+
+def run_case(case, work, *, real_slicer=False, state_file=BUILT, in_gateway_env=False, transport="hermes", audit_started=None, auto=True):
     """Run the case end to end and return what happened. `work` is a fresh directory.
 
     Everything the flow writes (archive, receipts, claims) goes under `work`, except state in
@@ -325,6 +328,14 @@ def run_case(case, work, *, real_slicer=False, state_file=FIXTURE_STATE, in_gate
         raise ValueError("the gateway environment check is Hermes only")
     if transport == "hermes":
         install_clarify_stand_in()
+    spoolman = None
+    if state_file == BUILT and not in_gateway_env:
+        # The slot map the journey slices from is made by production spool code, not handwritten JSON.
+        from . import spool_fixture
+        Path(work).mkdir(parents=True, exist_ok=True)
+        (Path(work) / "built-state").mkdir(exist_ok=True)
+        state_file, spoolman = spool_fixture.build_state(Path(work) / "built-state", FIXTURE_STATE)
+    spoolman_calls_built = len(spoolman.calls) if spoolman else 0
     from print_handy.core import background_slice, model_job, orca_adapter, prepared_intake, printer_state, source_colors
     from print_handy.hermes import _config, print_next, print_records
 
@@ -421,7 +432,8 @@ def run_case(case, work, *, real_slicer=False, state_file=FIXTURE_STATE, in_gate
         state = printer_state.load()
     return S(outcome=outcome, receipt=receipt, job=job, state=state, adapter=adapter, starts=starts, events=events,
              slice_starts=slice_starts, state_root=state_root, receipts=receipts, archive=archive,
-             gcodes=[Path(g) for g in receipt.get("gcodes", [])], audit_started=audit_started)
+             gcodes=[Path(g) for g in receipt.get("gcodes", [])], audit_started=audit_started,
+             spoolman=spoolman, spoolman_calls_built=spoolman_calls_built, state_file=state_file)
 
 
 async def _noop_receipt(*args, **kwargs):
