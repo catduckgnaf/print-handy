@@ -1495,16 +1495,20 @@ def platform_sized_video(path, max_bytes=None):
     kbps = max(200, int(max_bytes * 8 * 0.90 / duration / 1000))
     encoder = _timelapse_encoder()
     for attempt_kbps in (kbps, int(kbps * 0.7)):
-        partial = target.with_name(f".{target.name}.partial.mp4")
+        partial = timelapse_encode.unique_partial(target)
         used = encoder
         try:
-            _encode_sized(source, partial, attempt_kbps, encoder)
-        except Exception:
-            if encoder == "cpu":
-                raise
-            log(f"timelapse {encoder} encode failed for {source.name}; retrying with the CPU encoder")
-            used = "cpu"
-            _encode_sized(source, partial, attempt_kbps, "cpu")
+            try:
+                _encode_sized(source, partial, attempt_kbps, encoder)
+            except Exception:
+                if encoder == "cpu":
+                    raise
+                log(f"timelapse {encoder} encode failed for {source.name}; retrying with the CPU encoder")
+                used = "cpu"
+                _encode_sized(source, partial, attempt_kbps, "cpu")
+        except BaseException:
+            partial.unlink(missing_ok=True)
+            raise
         if partial.stat().st_size <= max_bytes:
             os.replace(partial, target)
             log(f"timelapse shrunk {source.stat().st_size} -> {target.stat().st_size} bytes at {attempt_kbps}k ({used})")

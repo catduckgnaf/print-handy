@@ -409,3 +409,94 @@ def test_real_ffmpeg_assembles_frames_under_cap(tmp_path):
                            "-show_entries", "stream=codec_name,width", "-of", "csv=p=0",
                            str(target)], capture_output=True, text=True, check=True).stdout
     assert "h264" in info and int(info.strip().split(",")[-1]) <= 1280
+
+
+# --------------------------------------------------------------- #706 render collision
+
+REAL = Path(__file__).parent / "fixtures" / "timelapse_real"
+
+
+def _real_tools():
+    return shutil.which("ffmpeg") and shutil.which("ffprobe")
+
+
+def test_unique_partial_paths_never_collide(tmp_path):
+    target = tmp_path / "timelapse.mp4"
+    a, b = timelapse_encode.unique_partial(target), timelapse_encode.unique_partial(target)
+    assert a != b and a.parent == b.parent == tmp_path
+
+
+def test_validate_video_rejects_streamless_and_garbage_files(tmp_path):
+    bad = tmp_path / "bad.mp4"
+    bad.write_bytes(b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2" + b"\x00" * 4096)
+    assert timelapse_encode.validate_video(bad) is False
+    assert timelapse_encode.validate_video(tmp_path / "missing.mp4") is False
+
+
+@pytest.mark.skipif(not _real_tools(), reason="ffmpeg/ffprobe not available")
+def test_real_captured_frames_encode_fully_decodes(tmp_path):
+    """Frames from the real Print #64 capture (AD5X camera JPEGs, yuvj422p 1280x720)."""
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    for src in sorted(REAL.glob("frame-*.jpg")):
+        shutil.copy(src, frames / src.name)
+    count = len(list(frames.glob("frame-*.jpg")))
+    assert count >= 10
+    target = tmp_path / "timelapse.mp4"
+    out = timelapse_encode.assemble_frames(
+        frames, target, max_bytes=9_500_000, preference="cpu",
+        probe=live_stream.EncoderProbe(encoders=frozenset({"libx264"})))
+    assert out == target
+    assert timelapse_encode.validate_video(target, min_frames=count)
+    info = json.loads(subprocess.run(
+        ["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries",
+         "stream=codec_name,width,height,nb_read_frames", "-of", "json", str(target)],
+        capture_output=True, text=True, check=True).stdout)["streams"][0]
+    assert info["codec_name"] == "h264" and int(info["nb_read_frames"]) == count
+
+
+@pytest.mark.skipif(not _real_tools(), reason="ffmpeg/ffprobe not available")
+def test_concurrent_renders_of_one_job_leave_a_decodable_video(tmp_path):
+    """The Print #64 collision: two renders of one capture at once."""
+    import threading
+    root = Path(tmp_path) / "timelapse"
+    directory = write_capture(root, "job-9", job_key="job:9", filename="can.gcode", frames=1)
+    for src in sorted(REAL.glob("frame-*.jpg")):
+        shutil.copy(src, directory / "frames" / src.name)
+    count = len(list((directory / "frames").glob("frame-*.jpg")))
+    data = capture_data(tmp_path)
+    results = []
+
+    def render():
+        results.append(timelapse_encode.captured_video("job:9", data=data, max_bytes=9_500_000))
+
+    threads = [threading.Thread(target=render) for _ in range(3)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    target = directory / "timelapse.mp4"
+    assert results == [target] * 3
+    assert timelapse_encode.validate_video(target, min_frames=count)
+    assert not list(directory.glob(".timelapse.mp4.*partial.mp4"))
+
+
+@pytest.mark.skipif(not _real_tools(), reason="ffmpeg/ffprobe not available")
+def test_corrupt_cached_video_is_rerendered_not_attached(tmp_path):
+    root = Path(tmp_path) / "timelapse"
+    directory = write_capture(root, "job-8", job_key="job:8", filename="can.gcode", frames=1)
+    for src in sorted(REAL.glob("frame-*.jpg")):
+        shutil.copy(src, directory / "frames" / src.name)
+    count = len(list((directory / "frames").glob("frame-*.jpg")))
+    target = directory / "timelapse.mp4"
+    target.write_bytes(b"\x00\x00\x00\x18ftypisom" + b"\x00" * 8_000)  # streamless, like the live file
+    out = timelapse_encode.captured_video("job:8", data=capture_data(tmp_path), max_bytes=9_500_000)
+    assert out == target and timelapse_encode.validate_video(target, min_frames=count)
+
+
+def test_undecodable_encoder_output_is_discarded(tmp_path):
+    frames = make_frames(tmp_path)
+    fake = FakeEncode()
+    out = timelapse_encode.assemble_frames(
+        frames, tmp_path / "tl.mp4", max_bytes=9_500_000, preference="cpu",
+        probe=probe(), run=fake, validate=lambda path: False)
+    assert out is None and not (tmp_path / "tl.mp4").exists()
+    assert not list(tmp_path.glob(".tl.mp4.*partial.mp4"))
