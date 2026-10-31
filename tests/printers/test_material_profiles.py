@@ -104,6 +104,43 @@ def test_bambu_lab_keeps_its_checked_vendor_profiles_and_everyone_else_uses_the_
     assert all(adapter_for(model).vendor_material_profiles is False for model in FAMILIES)
 
 
+@pytest.mark.parametrize("material,nozzle_type,base,expected", [
+    ("PLA", "brass", 210, 210), ("Silk PLA", "hardened_steel", 220, 225),
+    ("PETG", "stainless_steel", 240, 245), ("ABS", "tungsten_carbide", 245, 245),
+    ("TPU", "ruby", 230, 230), ("ASA", "diamond", 260, 260),
+])
+def test_material_and_nozzle_type_compose_in_slice(slice_inputs, material, nozzle_type, base, expected):
+    state = stale_state(material)
+    state["nozzle"] = {**state.get("nozzle", {}), "type": nozzle_type, "diameter_mm": 0.4}
+    assert slice_inputs.slice("flashforge.ad5x", state)[0] == expected
+
+
+@pytest.mark.parametrize("material,target,low,high", [
+    ("PLA", 180, 180, 240), ("PETG", 270, 190, 270),
+])
+def test_vendor_profile_range_includes_explicit_spool_target(slice_inputs, monkeypatch, material, target, low, high):
+    # Exercise the vendor branch with an isolated checked-profile-shaped fixture, not a real vendor file.
+    from . import test_slice_temperatures as temperature_tests
+    adapter = adapter_for("flashforge.ad5x")
+    template = json.loads((adapter.templates_dir() / "filament.json").read_text())
+    template.update({"filament_type": [material], "nozzle_temperature_range_low": ["190"],
+                     "nozzle_temperature_range_high": ["240"]})
+    vendor = slice_inputs.tmp / "vendor_filament.json"
+    vendor.write_text(json.dumps(template))
+    monkeypatch.setattr(adapter, "vendor_material_profiles", True)
+    monkeypatch.setattr(adapter, "filament_template", lambda *args: vendor)
+    monkeypatch.setattr(temperature_tests, "adapter_for", lambda model: adapter)
+    state = stale_state(material)
+    state["nozzle"] = {**state.get("nozzle", {}), "type": "brass", "diameter_mm": 0.4}
+    slice_inputs.spools[17] = {"id": 17, "filament": {"material": material,
+                                 "settings_extruder_temp": target, "settings_bed_temp": 60}}
+    nozzle, _, filament = slice_inputs.slice("flashforge.ad5x", state)
+    assert nozzle == target
+    assert filament["nozzle_temperature_range_low"] == [str(low)]
+    assert filament["nozzle_temperature_range_high"] == [str(high)]
+    assert json.loads(vendor.read_text()) == template
+
+
 def test_family_overrides_do_not_touch_the_template_and_report_unknown_families():
     from print_handy.core import filament_families
     template = json.loads((ROOT / "print_handy/templates/orca/flashforge_ad5x/filament.json").read_text())
