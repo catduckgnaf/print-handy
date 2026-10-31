@@ -140,6 +140,9 @@ EXEMPTIONS = {
     ("timelapse", "vertical_short_mode"): (frozenset({"webui"}), "#657"),
     ("timelapse", "vertical_short_overlay"): (frozenset({"webui"}), "#657"),
     ("webui", "access_token_env"): (frozenset({"webui"}), "#286"),
+    # Deliberately not editable from the Web UI it protects: turning auth
+    # off is a file/env decision, never a click on the page it unlocks.
+    ("webui", "require_auth"): (frozenset({"webui"}), "#286"),
 }
 # --- end of EXEMPTIONS ------------------------------------------------------
 
