@@ -5,6 +5,7 @@
 - Web UI auth opt-out: `webui.require_auth` (`PRINT_HANDY__WEBUI__REQUIRE_AUTH`, default `true`). Set `false` on a trusted network and the Web UI starts on a LAN bind with no access token and no login; a token left set is ignored. The Docker gate logs `authentication OFF` at start. Not editable from the Web UI itself.
 - One "Print started" post per start: the start claim and recorded start message now match the printer's 3MF unpack path (`3mf_print/X.gcode`), so the listener edits the intake's post instead of posting a second one.
 - "Preparing to start" shows the nozzle and bed targets read from the uploaded G-code.
+- One "Print complete" post per print: the complete -> standby announcer pass no longer re-drives a timelapse render that is still running in the same process (it rendered twice and posted once without the video). A pending video after a real listener restart is still re-driven.
 - A bare printer record holding the seeded family default (PLA 210/60) no longer overrides a variant spool's temperature (Silk PLA slices at 220 °C).
 
 # Version 2.2.3

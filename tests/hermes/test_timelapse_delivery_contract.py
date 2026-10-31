@@ -49,6 +49,13 @@ RENDERED = f"timelapse_{GCODE}_20261026_1712.mp4"
 DRIFTED = f"timelapse_{GCODE}.mp4"  # no render timestamp: the matcher must refuse it
 
 
+@pytest.fixture(autouse=True)
+def _fresh_postprocess_claims():
+    mel._POSTPROCESS_ACTIVE.clear()
+    yield
+    mel._POSTPROCESS_ACTIVE.clear()
+
+
 class InlineThread:
     """Run the postprocess synchronously, like a thread that finished."""
 
@@ -187,6 +194,7 @@ def test_restart_during_render_wait_still_attaches_timelapse(world, monkeypatch)
     state["phase"] = "complete"
     mel.run_announcer("completion")  # arms pending + marker; thread never runs
     assert not any("MEDIA:" in m for m in sent)
+    mel._POSTPROCESS_ACTIVE.clear()  # the restart is a new process
     monkeypatch.setattr(mel.threading, "Thread", InlineThread)
     mel.run_announcer("restart")
     media = [m for m in sent if "MEDIA:" in m and ".mp4" in m]

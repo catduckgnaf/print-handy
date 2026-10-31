@@ -925,11 +925,15 @@ def run_announcer(reason):
             # (#373). Claim the key first so a later pass cannot re-drive it
             # twice; the postprocess's own fallbacks post text (with the
             # reason) if the video still cannot be attached.
-            state = announcer.load_state()
-            announcer.clear_pending_timelapse_job_key(state, tl_key)
-            announcer.save_state(state)
-            threading.Thread(target=_timelapse_postprocess, args=(tl_key, pending, None, None),
-                             daemon=True, name="timelapse-postprocess-retry").start()
+            # A render for this key still running in this process is the
+            # original postprocess, not a restart: leave it to post once.
+            if _claim_postprocess(tl_key):
+                state = announcer.load_state()
+                announcer.clear_pending_timelapse_job_key(state, tl_key)
+                announcer.save_state(state)
+                _start_postprocess(tl_key, pending, None, None, "timelapse-postprocess-retry", claimed=True)
+            else:
+                log(f"timelapse postprocess for {tl_key!r} still running; not re-driving it")
             try:
                 with contextlib.redirect_stdout(io.StringIO()):
                     announcer.main()
@@ -995,8 +999,7 @@ def run_announcer(reason):
             post_plate_picker(plan_id)
         return
     # Rendering can take minutes; leave the websocket loop alone and post once when done.
-    threading.Thread(target=_timelapse_postprocess, args=(job_key, message, plan_id, tl_plan), daemon=True,
-                     name="timelapse-postprocess").start()
+    _start_postprocess(job_key, message, plan_id, tl_plan, "timelapse-postprocess")
 
 
 def _short_meta(job_key):
@@ -1113,6 +1116,40 @@ def _capture_outcome_text():
     return "in-container capture produced no video for this job"
 
 
+# Job keys whose completion video leg is running in this process. The
+# complete -> standby transition triggers a second announcer pass while the
+# first render is still running; without this, that pass took the pending
+# video key for a listener restart, started a second render of the same
+# frames, and posted "Print complete" twice (one copy without the video).
+_POSTPROCESS_LOCK = threading.Lock()
+_POSTPROCESS_ACTIVE = set()
+
+
+def _claim_postprocess(job_key):
+    """Reserve the video leg for job_key; False when one is already running."""
+    if not job_key:
+        return True
+    with _POSTPROCESS_LOCK:
+        if job_key in _POSTPROCESS_ACTIVE:
+            return False
+        _POSTPROCESS_ACTIVE.add(job_key)
+        return True
+
+
+def _release_postprocess(job_key):
+    with _POSTPROCESS_LOCK:
+        _POSTPROCESS_ACTIVE.discard(job_key)
+
+
+def _start_postprocess(job_key, completion_message, plan_id, tl_plan, name, claimed=False):
+    if not claimed and not _claim_postprocess(job_key):
+        log(f"timelapse postprocess already running for {job_key!r}; not starting a second one")
+        return False
+    threading.Thread(target=_timelapse_postprocess, args=(job_key, completion_message, plan_id, tl_plan),
+                     daemon=True, name=name).start()
+    return True
+
+
 def _timelapse_postprocess(job_key, completion_message, plan_id=None, tl_plan=None):
     try:
         if tl_plan:
@@ -1123,6 +1160,7 @@ def _timelapse_postprocess(job_key, completion_message, plan_id=None, tl_plan=No
         # The picker follows the completion/timelapse post, whatever happened to the video.
         if plan_id:
             post_plate_picker(plan_id)
+        _release_postprocess(job_key)
 
 
 def _plan_timelapse_post(job_key, completion_message, tl_plan):

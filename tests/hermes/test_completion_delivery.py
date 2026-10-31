@@ -45,3 +45,55 @@ def test_video_success_acknowledges_pending_completion(monkeypatch, tmp_path):
     listener._timelapse_post("stand", "Print complete: Stand")
     assert not announcer.load_state().get("pending_completion_message")
     assert announcer.load_state()["announced_completion"] is True
+
+
+def test_standby_pass_does_not_rerun_a_running_video_leg(monkeypatch, tmp_path):
+    """complete -> standby re-ran the announcer while the first render was
+    still running; it re-drove the pending video key and posted twice."""
+    import threading
+    announcer = listener.announcer
+    monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "announcement.json")
+    monkeypatch.setattr(announcer, "main", lambda: None)
+    monkeypatch.setattr(listener, "log", lambda text: None)
+    announcer.save_state({"job_key": "stand", "pending_completion_message": "Print complete: Stand",
+                          "pending_timelapse_job_key": "stand"})
+    release = threading.Event()
+    legs = []
+
+    def leg(job_key, message):
+        legs.append(job_key)
+        release.wait(5)
+        listener._post_completion(message, message)
+
+    posts = []
+    monkeypatch.setattr(listener, "_timelapse_post", leg)
+    monkeypatch.setattr(listener, "post", lambda text: posts.append(text) or True)
+    assert listener._start_postprocess("stand", "Print complete: Stand", None, None, "first")
+    listener.run_announcer("standby")
+    assert posts == []
+    assert announcer.pending_timelapse_job_key(announcer.load_state()) == "stand"
+    release.set()
+    for thread in threading.enumerate():
+        if thread.name == "first":
+            thread.join(5)
+    assert legs == ["stand"]
+    assert posts == ["Print complete: Stand"]
+    assert not listener._POSTPROCESS_ACTIVE
+
+
+def test_restart_still_redrives_a_pending_video_leg(monkeypatch, tmp_path):
+    announcer = listener.announcer
+    monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "announcement.json")
+    monkeypatch.setattr(announcer, "main", lambda: None)
+    monkeypatch.setattr(listener, "log", lambda text: None)
+    announcer.save_state({"job_key": "stand", "pending_completion_message": "Print complete: Stand",
+                          "pending_timelapse_job_key": "stand"})
+    started = []
+    monkeypatch.setattr(listener, "_timelapse_post", lambda key, message: started.append(key))
+    listener.run_announcer("restart")
+    for thread in __import__("threading").enumerate():
+        if thread.name == "timelapse-postprocess-retry":
+            thread.join(5)
+    assert started == ["stand"]
+    assert not announcer.pending_timelapse_job_key(announcer.load_state())
+    assert not listener._POSTPROCESS_ACTIVE
