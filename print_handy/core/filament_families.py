@@ -82,10 +82,17 @@ def apply_family_overrides(template: dict, material: str, nozzle_temp=None) -> t
     else:
         data.update(row)
         note = f"{family} settings applied over the printer's {own or 'template'} filament profile"
-    if nozzle_temp is not None:
-        low, high = _number(data.get(_RANGE_LOW)), _number(data.get(_RANGE_HIGH))
-        if low is not None and nozzle_temp < low:
-            data[_RANGE_LOW] = [format(int(nozzle_temp), "d")]
-        if high is not None and nozzle_temp > high:
-            data[_RANGE_HIGH] = [format(int(nozzle_temp), "d")]
+    include_nozzle_temperature(data, nozzle_temp)
     return data, note
+
+
+def include_nozzle_temperature(data: dict, nozzle_temp) -> None:
+    """Widen an existing slicer range to include the integer target sent to Orca."""
+    if nozzle_temp is None:
+        return
+    target = int(nozzle_temp)
+    low, high = _number(data.get(_RANGE_LOW)), _number(data.get(_RANGE_HIGH))
+    if low is not None and target < low:
+        data[_RANGE_LOW] = [str(target)]
+    if high is not None and target > high:
+        data[_RANGE_HIGH] = [str(target)]

@@ -1119,7 +1119,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
           f"bed {temps_c['bed']} °C ({resolution.get('source')})", flush=True)
     template_filament = json.loads(Path(filament_template).read_text())
     from .nozzle import effective_nozzle_temperature
-    from .filament_families import apply_family_overrides
+    from .filament_families import apply_family_overrides, include_nozzle_temperature
     from .filament_color import slot_hex
     from .printer_state import material_adjustments, multicolor_slot_temperatures
 
@@ -1135,6 +1135,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         nozzle_temp = effective_nozzle_temperature(nozzle_type, float(temps_c['nozzle']))
         if printer.vendor_material_profiles:
             data, note = copy.deepcopy(template_filament), 'vendor filament profile'
+            include_nozzle_temperature(data, nozzle_temp)
         else:
             data, note = apply_family_overrides(template_filament, material, nozzle_temp)
         data.update({'filament_type': [material], 'filament_density': [str(density)],
