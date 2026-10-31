@@ -2,7 +2,9 @@
 
 # Unreleased
 
-Nothing yet.
+- One "Print started" post per start: the start claim and recorded start message now match the printer's 3MF unpack path (`3mf_print/X.gcode`), so the listener edits the intake's post instead of posting a second one.
+- "Preparing to start" shows the nozzle and bed targets read from the uploaded G-code.
+- A bare printer record holding the seeded family default (PLA 210/60) no longer overrides a variant spool's temperature (Silk PLA slices at 220 °C).
 
 # Version 2.2.3
 

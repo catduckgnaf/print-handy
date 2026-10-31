@@ -2486,7 +2486,13 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
         print_no = json.loads(jp.read_text()).get('print_number')
         # Just the status: the estimate and slot mapping were on the confirmation the operator just answered.
-        prep_msg = ' · '.join(['Preparing to start'] + ([f'Print #{print_no}'] if print_no else []))
+        # The targets the uploaded file heats to, so a wrong temperature is caught before warmup.
+        targets = ''
+        with contextlib.suppress(Exception):
+            from ..hermes.print_control import start_targets_text
+            targets = start_targets_text(Path(first).read_text(errors='replace'))
+        prep_msg = ' · '.join(['Preparing to start'] + ([f'Print #{print_no}'] if print_no else [])
+                              + ([targets] if targets else []))
         mj._timing(jp, 'intake_start_tapped')
         receipt['retry_target'] = target
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')

@@ -505,6 +505,44 @@ def next_copy_question(target: dict[str, Any]) -> str:
     return question + "\nConfirm the bed is clear."
 
 
+def gcode_start_targets(text: str) -> dict[str, float]:
+    """Nozzle and bed targets the G-code's start sequence sets, read from the file that is uploaded.
+
+    START_PRINT/PRINT_START arguments win; otherwise the first M104/M109 and M140/M190 S values.
+    Missing values are left out, never guessed.
+    """
+    targets: dict[str, float] = {}
+    for line in str(text or "").splitlines()[:4000]:
+        line = line.split(";", 1)[0].strip()
+        if not line:
+            continue
+        word = line.split()[0].upper()
+        if word in ("START_PRINT", "PRINT_START"):
+            for key, names in (("nozzle", ("EXTRUDER_TEMP", "HOTEND", "EXTRUDER")), ("bed", ("BED_TEMP", "BED"))):
+                for name in names:
+                    m = re.search(rf"\b{name}=(\d+(?:\.\d+)?)", line, re.I)
+                    if m and float(m.group(1)) > 0:
+                        targets[key] = float(m.group(1))
+                        break
+            if len(targets) == 2:
+                break
+        elif word in ("M104", "M109", "M140", "M190"):
+            key = "nozzle" if word in ("M104", "M109") else "bed"
+            m = re.search(r"\bS(\d+(?:\.\d+)?)", line)
+            if key not in targets and m and float(m.group(1)) > 0:
+                targets[key] = float(m.group(1))
+        elif word.startswith("G1") and targets:
+            break
+    return targets
+
+
+def start_targets_text(text: str) -> str:
+    """'Nozzle 220 °C · Bed 60 °C' for the Preparing to start post, or '' when the file sets neither."""
+    targets = gcode_start_targets(text)
+    parts = [f"{label} {targets[key]:g} °C" for key, label in (("nozzle", "Nozzle"), ("bed", "Bed")) if key in targets]
+    return " · ".join(parts)
+
+
 def start_estimate_text(target: dict[str, Any], seconds, grams) -> str:
     """The estimate clause of the 'Preparing to start' post for a (re)print.
 

@@ -287,7 +287,13 @@ def take_start_message(filename: str, now: float | None = None) -> str | None:
     """The recorded start message id for this file, consumed so a replay cannot edit it twice."""
     now = time.time() if now is None else now
     rows = _read_start_messages()
-    row = rows.pop(Path(str(filename or "")).name, None)
+    name = str(filename or "")
+    key = Path(name).name
+    if key not in rows:
+        # Recorded under the uploaded name; the listener asks with the printer's path (3mf_print/X.gcode).
+        from ..core.launch_state import same_remote
+        key = next((k for k in rows if same_remote(name, k) or same_remote(Path(name).name, k)), key)
+    row = rows.pop(key, None)
     ts = _timestamp(row.get("ts") or 0) if isinstance(row, dict) else None
     if ts is None or not 0 <= now - ts < START_MESSAGE_TTL_S:
         return None

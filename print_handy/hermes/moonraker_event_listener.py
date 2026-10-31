@@ -1848,8 +1848,17 @@ def start_claim_time(filename, now=None):
         return None
     if not isinstance(claims, dict):
         return None
-    ts = claims.get(Path(str(filename or "")).name)
-    return ts if isinstance(ts, (int, float)) and 0 <= now - ts < START_CLAIM_TTL_S else None
+    # print-now claims the uploaded name (X.gcode.3mf); the printer reports the path it runs, which
+    # for a ZMod 3MF is 3mf_print/X.gcode. Matching only the basename missed that and posted a
+    # second "Print started" beside the intake's (2026-10-31, Print #64).
+    from ..core.launch_state import same_remote
+    name = str(filename or "")
+    for key in (Path(name).name, *claims):
+        ts = claims.get(key)
+        if (isinstance(ts, (int, float)) and 0 <= now - ts < START_CLAIM_TTL_S
+                and (key == Path(name).name or same_remote(name, key) or same_remote(Path(name).name, key))):
+            return ts
+    return None
 
 
 def start_claimed(filename, now=None):
