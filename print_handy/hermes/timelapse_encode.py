@@ -36,8 +36,13 @@ says so too).
 """
 from __future__ import annotations
 
+import contextlib
+import fcntl
+import json
 import os
 import subprocess
+import tempfile
+import threading
 from pathlib import Path
 
 from .. import live_stream
@@ -106,6 +111,82 @@ def capture_preference(data=None) -> str:
     return value if value in ("auto", "vaapi", "nvenc", "qsv", "cpu") else "auto"
 
 
+def unique_partial(target) -> Path:
+    """A fresh, private temp output path beside target (same filesystem for os.replace).
+
+    A fixed ``.<name>.partial.mp4`` let two overlapping renders of one job
+    open the same inode: the first finished and os.replace()d it into
+    place while the second kept writing (and finally rewrote the moov
+    for +faststart) into the now-final file, leaving a video with no
+    streams (Print #64). Each writer gets its own file instead, so a
+    losing writer can only ever corrupt its own temp.
+    """
+    target = Path(target)
+    fd, name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".partial.mp4", dir=target.parent)
+    os.close(fd)
+    os.chmod(name, 0o644)
+    return Path(name)
+
+
+def validate_video(path, *, ffmpeg=None, run=None, min_frames=1) -> bool:
+    """True only when path fully decodes to at least min_frames video frames.
+
+    Probes for a video stream, then decodes the whole file to a null sink
+    with ffmpeg's error level on; any decode error, an empty stream list
+    or a short frame count is invalid. Never raises.
+    """
+    run = run or subprocess.run
+    ffmpeg = str(ffmpeg or _ffmpeg())
+    ffprobe = str(Path(ffmpeg).with_name("ffprobe")) if "/" in ffmpeg else "ffprobe"
+    try:
+        path = Path(path)
+        if not path.is_file() or path.stat().st_size <= 0:
+            return False
+        probed = run([ffprobe, "-v", "error", "-select_streams", "v:0", "-count_frames",
+                      "-show_entries", "stream=codec_name,width,height,nb_read_frames",
+                      "-of", "json", str(path)],
+                     capture_output=True, text=True, timeout=300, check=True)
+        streams = json.loads(probed.stdout or "{}").get("streams") or []
+        if not streams or int(streams[0].get("width") or 0) <= 0:
+            return False
+        if int(streams[0].get("nb_read_frames") or 0) < min_frames:
+            return False
+        decoded = run([ffmpeg, "-v", "error", "-i", str(path), "-f", "null", "-"],
+                      capture_output=True, text=True, timeout=600)
+        return decoded.returncode == 0 and not (decoded.stderr or "").strip()
+    except Exception:
+        return False
+
+
+_RENDER_LOCKS: dict = {}
+_RENDER_LOCKS_GUARD = threading.Lock()
+
+
+@contextlib.contextmanager
+def render_lock(target):
+    """Serialise renders of one output file across threads AND processes.
+
+    Waiters block, then find the winner's finished video and reuse it.
+    """
+    key = str(Path(target).resolve())
+    with _RENDER_LOCKS_GUARD:
+        thread_lock = _RENDER_LOCKS.setdefault(key, threading.Lock())
+    with thread_lock:
+        handle = None
+        try:
+            try:
+                handle = open(Path(target).with_name(f".{Path(target).name}.lock"), "a")
+                fcntl.flock(handle, fcntl.LOCK_EX)
+            except OSError:
+                handle = None  # in-process lock still holds; never fail the render over a lock file
+            yield
+        finally:
+            if handle is not None:
+                with contextlib.suppress(OSError):
+                    fcntl.flock(handle, fcntl.LOCK_UN)
+                handle.close()
+
+
 def _ffmpeg():
     name = _config.ffmpeg_bin()
     import shutil
@@ -124,7 +205,7 @@ def _encode_frames_once(frames_dir, partial, kbps, vendor, *, fps, ffmpeg, run):
 
 
 def assemble_frames(frames_dir, target, *, max_bytes, preference="auto", fps=PLAYBACK_FPS,
-                    probe=None, ffmpeg=None, run=None, log=None) -> Path | None:
+                    probe=None, ffmpeg=None, run=None, log=None, validate=None) -> Path | None:
     """Assemble frames into target under max_bytes, or None on total failure.
 
     Candidates run in selection order; each gets the two-attempt
@@ -143,7 +224,21 @@ def assemble_frames(frames_dir, target, *, max_bytes, preference="auto", fps=PLA
         return None
     duration = max(1.0, len(frames) / float(fps or PLAYBACK_FPS))
     kbps = max(200, int(max_bytes * 8 * 0.90 / duration / 1000))
-    partial = target.with_name(f".{target.name}.partial.mp4")
+    if validate is None:
+        # Injected fake runners write placeholder bytes; only the real
+        # ffmpeg path can be held to a real decode.
+        validate = (lambda path: validate_video(path, ffmpeg=ffmpeg, min_frames=len(frames))) \
+            if run is subprocess.run else (lambda path: True)
+    partial = unique_partial(target)
+    try:
+        return _assemble(frames_dir, target, partial, frames, kbps, max_bytes, preference, fps,
+                         probe, ffmpeg, run, log, validate)
+    finally:
+        partial.unlink(missing_ok=True)
+
+
+def _assemble(frames_dir, target, partial, frames, kbps, max_bytes, preference, fps,
+              probe, ffmpeg, run, log, validate):
     for candidate in candidates(preference, probe, ffmpeg=ffmpeg, run=run):
         for attempt_kbps in (kbps, int(kbps * 0.7)):
             try:
@@ -153,6 +248,10 @@ def assemble_frames(frames_dir, target, *, max_bytes, preference="auto", fps=PLA
                 log(f"timelapse encode with {candidate.encoder} failed: {exc!r}")
                 break  # this encoder is done; fall through to the next candidate
             if partial.is_file() and 0 < partial.stat().st_size <= max_bytes:
+                if not validate(partial):
+                    log(f"timelapse encode with {candidate.encoder} produced an undecodable "
+                        f"video; discarding it")
+                    break
                 os.replace(partial, target)
                 log(f"timelapse assembled {len(frames)} frame(s) -> {target} "
                     f"({target.stat().st_size} bytes, {candidate.encoder} at {attempt_kbps}k)")
@@ -284,11 +383,27 @@ def captured_video(job_key, *, data=None, max_bytes, log=None, probe=None,
         if directory is None:
             return None
         target = directory / "timelapse.mp4"
-        if target.is_file() and 0 < target.stat().st_size <= max_bytes:
+        real = run is None
+        count = len(list((directory / "frames").glob("frame-*.jpg")))
+
+        def reusable() -> bool:
+            if not (target.is_file() and 0 < target.stat().st_size <= max_bytes):
+                return False
+            # A cached video is only reused when it still fully decodes:
+            # an earlier colliding render may have left a stream-less file.
+            return validate_video(target, ffmpeg=ffmpeg, min_frames=count) if real else True
+
+        if reusable():
             return target
-        return assemble_frames(directory / "frames", target, max_bytes=max_bytes,
-                               preference=capture_preference(data), probe=probe,
-                               ffmpeg=ffmpeg, run=run, log=log)
+        with render_lock(target):
+            if reusable():  # a concurrent render finished while we waited
+                return target
+            if target.exists():
+                log(f"cached timelapse {target} failed validation; re-rendering")
+                target.unlink(missing_ok=True)
+            return assemble_frames(directory / "frames", target, max_bytes=max_bytes,
+                                   preference=capture_preference(data), probe=probe,
+                                   ffmpeg=ffmpeg, run=run, log=log)
     except Exception as exc:  # the completion post must never see this fail
         log(f"captured timelapse unavailable for {job_key!r}: {exc!r}")
         return None
