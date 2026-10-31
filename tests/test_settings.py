@@ -224,7 +224,7 @@ class OverrideTests(unittest.TestCase):
                           "capture_interval_s", "capture_max_frames", "capture_max_bytes",
                           "capture_encoder"},
             "logging": {"level", "format", "file", "levels"},
-            "webui": {"enabled", "host", "port", "access_token_env"},
+            "webui": {"enabled", "host", "port", "access_token_env", "require_auth"},
             "live_stream": {"enabled", "voice_channel_id", "auto_start_on_print", "max_height", "fps",
                             "max_bitrate_kbps", "encoder", "empty_timeout_s", "activity_origin", "port"},
             "notify": {"mqtt_enabled", "mqtt_host", "mqtt_port", "mqtt_topic", "mqtt_username",

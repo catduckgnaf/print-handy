@@ -189,7 +189,7 @@ class DockerHealthcheckLiveRowTests(unittest.TestCase):
         with mock.patch.dict(os.environ, env), \
                 mock.patch.object(module, "listener_required", return_value=False), \
                 mock.patch.object(module, "webui_config",
-                                  return_value=(False, "127.0.0.1", 0, "WEBUI_ACCESS_TOKEN")), \
+                                  return_value=(False, "127.0.0.1", 0, "WEBUI_ACCESS_TOKEN", True)), \
                 mock.patch.object(module.urllib.request, "urlopen", urlopen), \
                 contextlib.redirect_stdout(out):
             code = module.main()

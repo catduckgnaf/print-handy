@@ -159,6 +159,7 @@ Schema, validation limits and TOML migration: [CONFIGURATION-YAML.md](CONFIGURAT
 | `webui.host` | `PRINT_HANDY__WEBUI__HOST` | `127.0.0.1` | Host the Web UI binds to when enabled; a plain IP address or hostname |
 | `webui.port` | `PRINT_HANDY__WEBUI__PORT` | `0` | Port the Web UI binds to when enabled; `0` means no port has been chosen yet |
 | `webui.access_token_env` | `PRINT_HANDY__WEBUI__ACCESS_TOKEN_ENV` | `WEBUI_ACCESS_TOKEN` | Name of the environment variable holding the optional Web UI access token; the token itself is never a setting |
+| `webui.require_auth` | `PRINT_HANDY__WEBUI__REQUIRE_AUTH` | `true` | `false` turns the access token off entirely, even on a LAN bind: anyone who can reach the port can use the Web UI, printer controls included. Only for a network you trust; not editable from the Web UI |
 | `live_stream.enabled` | `PRINT_HANDY__LIVE_STREAM__ENABLED` | `false` | Live camera viewing in Discord (#311) switch; off by default, and `/print-live` only reports that while disabled |
 | `live_stream.voice_channel_id` | `PRINT_HANDY__LIVE_STREAM__VOICE_CHANNEL_ID` | empty | The one Discord voice channel the live Activity is launched in; the bot never names another channel. Keep it a private channel (see DISCORD-BOT-SETUP.md) |
 | `live_stream.auto_start_on_print` | `PRINT_HANDY__LIVE_STREAM__AUTO_START_ON_PRINT` | `false` | Offer the live view automatically when a print starts; the viewing session itself still starts only from Discord |

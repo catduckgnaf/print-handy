@@ -132,7 +132,8 @@ def main():
     # sent when the environment carries one, matching the server's rule
     # that a configured token guards every route.
     try:
-        webui_enabled, webui_host, webui_port, webui_env_name = webui_config()
+        (webui_enabled, webui_host, webui_port, webui_env_name,
+         webui_require_auth) = webui_config()
         webui_resolved = True
     except settings.SettingsError as exc:
         print(f"FAIL  webui: configuration unresolved: {exc}")
@@ -140,7 +141,8 @@ def main():
     # #440: an enabled Web UI the gate blocked (non-loopback bind without
     # a token) was never started; that is a healthy, reported state with
     # the fix in the gate's message, not a probe failure.
-    webui_blocked = (start_blocked(webui_host, webui_port, webui_env_name)
+    webui_blocked = (start_blocked(webui_host, webui_port, webui_env_name,
+                                   require_auth=webui_require_auth)
                      if webui_resolved and webui_enabled and webui_port > 0 else None)
     if webui_blocked:
         print(f"ok  webui: not started: {webui_blocked}")
