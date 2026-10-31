@@ -8,7 +8,7 @@
 
 **Prepare and manage 3D prints from Discord, Telegram or Matrix. Just Drop a link or a file, answer a few questions and you are done!**
 
-Current release: **2.2.2**
+Current release: **2.2.3**
 
 [Get started](#get-started-with-docker) · [See it in action](#see-it-in-action) · [Documentation](https://catduckgnaf.github.io/print-handy-docs/) · [Contribute](CONTRIBUTING.md) · [Releases](https://github.com/catduckgnaf/print-handy/releases)
 
@@ -98,7 +98,7 @@ services:
 In `.env`, tell it which image to run and where its data lives:
 
 ```ini
-PRINT_HANDY_IMAGE=ghcr.io/catduckgnaf/print-handy:2.2.2
+PRINT_HANDY_IMAGE=ghcr.io/catduckgnaf/print-handy:2.2.3
 PRINT_HANDY_DATA=./data
 ```
 
