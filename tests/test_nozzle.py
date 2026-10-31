@@ -415,3 +415,35 @@ def test_orca_adapter_thermal_and_flow_adjustments(tmp_path, monkeypatch):
     assert fallback_machine["nozzle_type"] == "stainless_steel"
 
 
+
+
+def test_shipped_offsets_match_the_nozzle_data_defaults():
+    """config/home.yaml and home.toml ship [nozzle_temp_offsets] and override nozzles.toml. They once
+    shipped 0.0 for every type, which silently turned off the #513 steel compensation (+5 C)."""
+    import tomllib
+    from pathlib import Path
+
+    import yaml
+
+    root = Path(__file__).resolve().parents[1]
+    data = tomllib.loads((root / "print_handy" / "data" / "nozzles.toml").read_text())["types"]
+    expected = {name: float(values["temp_offset_c"]) for name, values in data.items()}
+    shipped_yaml = yaml.safe_load((root / "config" / "home.yaml").read_text())["nozzle_temp_offsets"]
+    shipped_toml = tomllib.loads((root / "config" / "home.toml").read_text())["nozzle_temp_offsets"]
+    assert {k: float(v) for k, v in shipped_yaml.items()} == expected
+    assert {k: float(v) for k, v in shipped_toml.items()} == expected
+    loaded = settings.load(local=False, environ={})["nozzle_temp_offsets"]
+    assert loaded["hardened_steel"] == loaded["stainless_steel"] == 5.0
+
+
+def test_shipped_offsets_raise_a_steel_nozzle_by_five(monkeypatch):
+    """With the shipped settings (no test pin), a steel nozzle slices 5 C above the material baseline."""
+    from print_handy.core import nozzle
+
+    shipped = settings.load(local=False, environ={})
+    monkeypatch.setattr(settings, "current", lambda: shipped)
+    assert nozzle.effective_nozzle_temperature("stainless_steel", 210) == 215
+    assert nozzle.effective_nozzle_temperature("hardened_steel", 220) == 225
+    assert nozzle.effective_nozzle_temperature("brass", 210) == 210
+    assert nozzle.effective_nozzle_temperature("tungsten_carbide", 210) == 210
+

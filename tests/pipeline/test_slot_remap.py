@@ -1,6 +1,7 @@
 """Tests for slot remapping without physical slot changes (Part B)."""
 import copy
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -168,6 +169,8 @@ def test_cli_remap_slot_subcommand(tmp_path):
         env={
             "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
             "PRINT_HANDY_CONFIG": str(test_config),
+            # the conftest pin for fixtures with literal temperatures (see tests/conftest.py)
+            **{k: v for k, v in os.environ.items() if k.startswith("PRINT_HANDY__NOZZLE_TEMP_OFFSETS__")},
         },
     )
     assert run.returncode == 0
