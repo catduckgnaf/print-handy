@@ -14,6 +14,7 @@ from unittest import mock
 import pytest
 
 from print_handy.core import launch_state, model_job
+from print_handy.printers import flashforge
 from print_handy.printers.flashforge.zmod import screen as zmod_screen
 
 PRINTER = "http://m"  # the moonraker_url the mocked hardware record reports
@@ -330,6 +331,7 @@ def octoprint(tmp_path):
     st = {"temps_c": {"bed": 60, "nozzle": 210}, "nozzle": {"type": "hardened_steel"}}
     with mock.patch.object(model_job.printers, "current", return_value=fake), \
          mock.patch.object(model_job.printer_state, "load", return_value=st), \
+         mock.patch.object(model_job, "_with_gcode_temperatures", side_effect=lambda state, text: state), \
          mock.patch.object(model_job, "verify_gcode"), \
          mock.patch.object(model_job, "record_start", return_value="/vault/x.md"):
         fake.root = tmp_path
@@ -368,7 +370,9 @@ mapped_history = []  # Moonraker /server/history/list jobs in the mapped fixture
 
 @pytest.fixture
 def mapped(tmp_path):
-    native = mock.Mock()
+    # spec the real ZMod native module: a bare Mock() accepted any attribute, so a call to a function that
+    # does not exist (or was renamed) passed silently.
+    native = mock.Mock(spec=flashforge.zmod)
     native.normalize_mapping.side_effect = lambda m, st: {"0": 1}
     native.require_idle_settled.return_value = True
     native.require_idle_screenless.side_effect = native_idle.require_idle_screenless

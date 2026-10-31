@@ -18,6 +18,7 @@ from pathlib import Path
 import sys
 import time
 from types import SimpleNamespace
+from typing import NamedTuple
 from urllib.parse import urlsplit
 
 from .. import diagnostics, logs, printers, settings
@@ -1132,6 +1133,42 @@ def _raw_preupload_refusal(tail):
     return next((ln for ln in reversed(lines) if ln.startswith('REFUSED:')), '')
 
 
+START_PENDING_MESSAGE = ('Start sent, but the printer has not confirmed it yet. It is probably still heating '
+                         'and preparing, which can take several minutes. I will post here when it starts '
+                         'printing. Do not send it again.')
+
+
+class StartClass(NamedTuple):
+    status: str          # the receipt status: STARTED, START_PENDING or START_REFUSED
+    started: bool | None  # None while unresolved
+    outcome: str | None  # 'unknown' while unresolved, else the outcome phase
+    unknown: bool
+    pending: bool
+
+
+def classify_start(ok, tail):
+    """How the intake reads one finished print-now run: from its exit status and its uniform
+    `START READBACK {phase}` outcome line (the mapped native route's `MAPPED START READBACK` too).
+
+    A start the printer has not confirmed (awaiting_confirmation, preparing_or_unresolved), or a failure
+    that is not an explicit REFUSED line, is START_PENDING: "Print started" is never posted for it. Only
+    a confirmed phase (executing, preparing) or an exit 0 with no outcome line (older runs) is STARTED.
+    """
+    outcome = print_next.start_outcome(tail)
+    phase = str(outcome.get('phase') or '')
+    unknown = (print_next.start_unresolved(outcome) or print_next.outcome_unreadable(tail)
+               or (not ok and not _safe_preupload_refusal(tail)))
+    pending = unknown or phase in ('preparing', 'executing')
+    return StartClass('START_PENDING' if unknown else 'STARTED' if ok or pending else 'START_REFUSED',
+                      None if unknown else bool(ok or pending), 'unknown' if unknown else phase or None,
+                      unknown, pending)
+
+
+def _printer_rejected(raw):
+    """The refusal line of a start the printer itself rejected: the file was uploaded, nothing started."""
+    return str(raw or '').startswith('REFUSED: the printer rejected the start request')
+
+
 def _safe_preupload_refusal(tail):
     """Only an explicit terminal REFUSED line confirms nothing uploaded or started."""
     raw = _raw_preupload_refusal(tail)
@@ -1150,6 +1187,10 @@ def _refusal_text(tail):
         return (f"Didn't start: an earlier start ({held.group(1)}) was never confirmed, so nothing new "
                 "starts until it is settled. It clears by itself once the printer reports that file; "
                 "if it never printed, run `reconcile-launch --not-started`, then press Retry.")
+    rejected = re.match(r'REFUSED: the printer rejected the start request \((.+?)\)\. ', raw)
+    if rejected:
+        return (f"Didn't start: the printer rejected the start request ({rejected.group(1)}). "
+                "The file is on the printer, but nothing is printing. Fix that, then press Retry.")
     targets = {name.casefold(): float(value) for name, value in _HEATER_TARGET.findall(raw) if float(value) > 0}
     if targets:
         heaters = []
@@ -2456,25 +2497,14 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                     print_next.start(target), allow_stop=True,
                                     refusal_context=start_context)
         mj._timing(jp, 'intake_start_returned', ok=bool(ok))
-        phase = ''
-        for line in reversed(str(tail).splitlines()):
-            if 'MAPPED START READBACK ' not in line:
-                continue
-            try:
-                phase = str(json.loads(line.split('MAPPED START READBACK ', 1)[1]).get('phase') or '')
-            except (ValueError, AttributeError):
-                pass
-            break
-        unknown = (phase in ('preparing_or_unresolved', 'awaiting_confirmation')
-                   or (not ok and not _safe_preupload_refusal(tail)))
-        pending = unknown or phase in ('preparing', 'executing')
-        receipt.update(status=('START_PENDING' if unknown else 'STARTED' if ok or pending else 'START_REFUSED'),
-                       started=None if unknown else bool(ok or pending),
-                       start_outcome='unknown' if unknown else phase or None)
+        started_as = classify_start(ok, tail)
+        unknown, pending = started_as.unknown, started_as.pending
+        receipt.update(status=started_as.status, started=started_as.started, start_outcome=started_as.outcome)
         if not ok and not pending:
             raw = _raw_preupload_refusal(tail)
             logger.warning('print start refused detail=%s', logs.redact(raw or str(tail)))
-            receipt.update(start_refusal_detail=str(tail), uploaded=False if raw else None,
+            receipt.update(start_refusal_detail=str(tail),
+                           uploaded=(True if _printer_rejected(raw) else False) if raw else None,
                            start_prompt_message_id=start_context.get('start_prompt_message_id', ''))
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
         warming = ok and print_next.still_preparing(tail)
@@ -2483,9 +2513,7 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         # only that start defers its roast (#374).
         remote = print_next.started_file(tail) if warming else None
         if unknown:
-            message = ('Start sent, but the printer has not confirmed it yet. It is probably still heating '
-                       'and preparing, which can take several minutes. I will post here when it starts '
-                       'printing. Do not send it again.')
+            message = START_PENDING_MESSAGE
         elif ok or pending:
             message = print_summary.format_started(exact_job, exact_plate) + later
             if remote is None:

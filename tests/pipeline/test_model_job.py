@@ -17,7 +17,7 @@ from unittest import mock
 
 from print_handy import settings
 from print_handy.printers.flashforge.zmod import stock
-from print_handy.core import _external, model_job
+from print_handy.core import _external, launch_state, model_job
 
 from .helpers import external
 
@@ -883,13 +883,17 @@ class EnglishAndPrintNowTests(unittest.TestCase):
              mock.patch.object(model_job, "_mr") as mr, \
              mock.patch.object(model_job, "_wait_printing", return_value="standby"), \
              mock.patch.object(model_job, "record_start"):
-            with self.assertRaisesRegex(SystemExit, "The printer did not start the print, and it was not retried"):
-                model_job.print_now(self._gcode(d))
+            out = model_job.print_now(self._gcode(d))
+            self.assertEqual(out["phase"], "awaiting_confirmation")  # never "failed" without this file saying so
         # One start POST, then the #84 status readback. Not a second start.
         # (_zmod_version pinned unknown: this choreography is the plain .gcode path's.)
-        self.assertEqual(mr.call_count, 2)
-        self.assertEqual(mr.call_args_list[0].args[1], "/printer/print/start")
-        self.assertIn("/printer/objects/query", mr.call_args_list[1].args[1])
+        # A read-only heater baseline before the start (evidence for a lost response), exactly one start POST, then the readback.
+        paths = [c.args[1] for c in mr.call_args_list]
+        self.assertEqual(paths.count("/printer/print/start"), 1)
+        self.assertEqual(len(paths), 3)
+        self.assertIn("extruder=target", paths[0])
+        self.assertEqual(paths[1], "/printer/print/start")
+        self.assertIn("/printer/objects/query", paths[2])
 
     def test_printer_phase_accepts_print_start_preparation_signals(self):
         payload = {'result': {'status': {
@@ -921,9 +925,13 @@ class EnglishAndPrintNowTests(unittest.TestCase):
                 self.assertEqual(out['phase'], 'awaiting_confirmation')
                 self.assertEqual(out['message'], 'submitted, awaiting confirmation')
                 # One start POST, then the #84 status readback. Not a second start.
-                self.assertEqual(mr.call_count, 2)
-                self.assertEqual(mr.call_args_list[0].args[1], "/printer/print/start")
-                self.assertIn("/printer/objects/query", mr.call_args_list[1].args[1])
+                # A read-only heater baseline before the start (evidence for a lost response), exactly one start POST, then the readback.
+                paths = [c.args[1] for c in mr.call_args_list]
+                self.assertEqual(paths.count("/printer/print/start"), 1)
+                self.assertEqual(len(paths), 3)
+                self.assertIn("extruder=target", paths[0])
+                self.assertEqual(paths[1], "/printer/print/start")
+                self.assertIn("/printer/objects/query", paths[2])
 
     def test_z_offset_notice_only_when_start_print_lacks_z_offset(self):
         plain = "START_PRINT EXTRUDER_TEMP=220 BED_TEMP=60\n"
@@ -1019,9 +1027,12 @@ class EnglishAndPrintNowTests(unittest.TestCase):
             g = self._gcode(d)
             sha = model_job.file_sha256(g)
             expected_remote = f"{g.stem}_{sha}{g.suffix}"
-            with self.assertRaisesRegex(SystemExit, "The printer did not start the print"):
-                model_job.print_now(g)
+            # An idle printer that still shows a previous file is not proof the accepted start failed: the
+            # lease stays uncertain, and the claim is freed so the listener can post the start.
+            out = model_job.print_now(g)
+            self.assertEqual(out["phase"], "awaiting_confirmation")
             self.assertNotIn(expected_remote, json.loads((Path(d) / "claims.json").read_text()))
+            self.assertEqual([r["phase"] for r in launch_state.pending()], ["uncertain"])
 
     def test_print_now_artifact_identity_and_readback_hash_success(self):
         with tempfile.TemporaryDirectory() as d, \
@@ -1051,8 +1062,9 @@ class EnglishAndPrintNowTests(unittest.TestCase):
                 start_calls = [c for c in mock_mr.call_args_list if c.args[1] == "/printer/print/start"]
                 self.assertEqual(len(start_calls), 1)
                 self.assertEqual(start_calls[0], mock.call(mock.ANY, "/printer/print/start", data={"filename": expected_remote}))
+                # The heater baseline before the start, then the one readback.
                 query_calls = [c for c in mock_mr.call_args_list if "/printer/objects/query" in c.args[1]]
-                self.assertEqual(len(query_calls), 1)
+                self.assertEqual(len(query_calls), 2)
                 self.assertEqual(out["file"], expected_remote)
 
     def test_print_now_rejects_upload_target_mismatch(self):
@@ -1386,13 +1398,17 @@ class EnglishAndPrintNowTests(unittest.TestCase):
              mock.patch.object(model_job.subprocess, "run", side_effect=mock_upload_run), \
              mock.patch.object(model_job, "_mr") as mr, \
              mock.patch.object(model_job, "_wait_printing", return_value="standby"):
-            with self.assertRaisesRegex(SystemExit, "The printer did not start the print"):
-                model_job.print_now(self._gcode(d))
+            out = model_job.print_now(self._gcode(d))
+            self.assertEqual(out["phase"], "awaiting_confirmation")
         # One start POST, then the #84 status readback. Not a second start.
         # (_zmod_version pinned unknown: this choreography is the plain .gcode path's.)
-        self.assertEqual(mr.call_count, 2)
-        self.assertEqual(mr.call_args_list[0].args[1], "/printer/print/start")
-        self.assertIn("/printer/objects/query", mr.call_args_list[1].args[1])
+        # A read-only heater baseline before the start (evidence for a lost response), exactly one start POST, then the readback.
+        paths = [c.args[1] for c in mr.call_args_list]
+        self.assertEqual(paths.count("/printer/print/start"), 1)
+        self.assertEqual(len(paths), 3)
+        self.assertIn("extruder=target", paths[0])
+        self.assertEqual(paths[1], "/printer/print/start")
+        self.assertIn("/printer/objects/query", paths[2])
 
     def test_fetch_print_now_without_filament_selection_fails_closed_naming_command(self):
         source_job = {"slug": "offline-test", "site": "makerworld", "model_id": "123", "title": "Offline Test", "sources": [{"filename": "test.3mf", "title": "Test source", "site_nozzle_mm": 0.4, "plates": [], "materials": ["PLA"]}]}
@@ -2186,7 +2202,7 @@ def test_assign_print_number_appends_once_and_ignores_scratch_jobs(tmp_path, mon
 
 def test_shared_extruder_total_is_split_across_parts_and_checked_against_model_page():
     """Valentines stand regression: 5 parts on one guessed extruder showed 5 x 247.8 g = 1,239 g."""
-    from print_handy.core import model_job as mj
+    from print_handy.core import launch_state, model_job as mj
     parts = [{'key': f'p{i}', 'source_extruder': 1, 'volume_mm3': v} for i, v in enumerate([10, 10, 30, 50, 100])]
     manifest = {'parts': parts, 'filament_stats': {'total_g': 247.8, 'extruders': {1: {'g': 247.8}}, 'estimated': True}}
     pick = {'slot': 1, 'color': 'white', 'material': 'PLA', 'spoolman_id': 13}

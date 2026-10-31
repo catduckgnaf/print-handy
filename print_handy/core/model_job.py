@@ -5741,7 +5741,7 @@ def _wait_printing(st, remote, wait_s, prep_check=None):
             except Exception: pass
         if time.monotonic()-t0 > 20 and busy != "Printing": return state  # settled, not printing
         time.sleep(1)
-    return state
+    return "busy" if state == "printing" else state  # printing some other file is not this start
 
 
 def live_snapshot(st):
@@ -5857,17 +5857,310 @@ def _moonraker_started_files(st):
         return []
 
 
+def _read_start_readback(st, remote, *, native=True):
+    """(readable, readback): one status read after a start request that did not answer cleanly.
+
+    The readback is classified only when print_stats names this exact upload (never another job's);
+    it is None when the printer shows a different file, and `readable` is False when it could not be read.
+    """
+    try:
+        query = "/printer/objects/query?print_stats&extruder&heater_bed&virtual_sdcard&idle_timeout&webhooks&toolhead"
+        snap = _mr(st, query + ("&zmod_ifs" if native else ""))  # generic Klipper has no ZMod objects
+        ps = (snap.get("result", {}).get("status", {}) or {}).get("print_stats") or {}
+        if not _native_file_matches(ps.get("filename"), remote):
+            return True, None
+        return True, classify_start_readback(snap)
+    except Exception:
+        return False, None
+
+
 def _reconcile_native_submission(st, remote):
     """Read status once after lost POST response; never attribute heaters alone to this job."""
-    try:
-        snap = _mr(st, "/printer/objects/query?print_stats&extruder&heater_bed&virtual_sdcard&idle_timeout&webhooks&toolhead&zmod_ifs")
-        status = snap.get("result", {}).get("status", {})
-        ps = status.get("print_stats") or {}
-        if not _native_file_matches(ps.get("filename"), remote):
-            return None
-        return classify_start_readback(snap)
-    except Exception:
+    return _read_start_readback(st, remote)[1]
+
+
+def _reconcile_lost_start(st, remote, *, heaters_were_off=True, native=True):
+    """What the printer says about one start request whose response was lost or rejected.
+
+    Shared by the mapped native path (#688) and the generic Moonraker path. Evidence, in order: the printer
+    reports this exact file (launch_state.same_remote via the readback), then heater targets set from a
+    baseline that proved every heater was off before the request, else nothing: pending. Heater targets
+    alone never count when the baseline was not proven, since they may belong to unrelated work.
+
+    Returns the outcome fields (phase, outcome, accepted, started, message, optional readback) plus `quiet`:
+    True only when the printer was readable, does not report this file and has no heater target, which is
+    what lets an HTTP 4xx answer be treated as "definitely not started".
+    """
+    readable, readback = _read_start_readback(st, remote, native=native)
+    heating = _preparation_evidence(st) if readback is None else None
+    quiet = readable and readback is None and heating is False
+    if readback is None and heaters_were_off and heating is True:
+        # The idle guard proved every heater target was 0 before this one submission, so targets set now
+        # are this job's preparation (2026-10-30: the screenless SET_ZCOLOR POST held open through warmup
+        # and timed out after 30 s).
+        return {'phase': 'preparing', 'outcome': 'preparing', 'accepted': True, 'started': True,
+                'preparation_evidence': True, 'quiet': False,
+                'message': 'start response was lost; the printer is heating for this job'}
+    if readback is None:
+        return {'phase': 'preparing_or_unresolved', 'outcome': 'unknown', 'accepted': False, 'started': False,
+                'quiet': quiet,
+                'message': 'start response was lost; printer status does not yet identify this file; do not resubmit'}
+    fields = {'readback': readback._asdict(), 'quiet': False}
+    if readback.outcome == 'printing':
+        return {'phase': 'executing', 'outcome': 'printing', 'accepted': True, 'started': True,
+                'message': readback.message, **fields}
+    if readback.outcome == 'preparing':
+        return {'phase': 'preparing', 'outcome': 'preparing', 'accepted': True, 'started': True,
+                'message': readback.message, **fields}
+    return {'phase': 'preparing_or_unresolved', 'outcome': 'unknown', 'accepted': False, 'started': False,
+            'message': 'the submitted file is visible but start progress is unresolved; do not resubmit', **fields}
+
+
+def _start_rejection(exc):
+    """The printer's own words when `exc` is a definitive refusal of the start request, else None.
+
+    Only an HTTP 4xx answer qualifies: the request arrived, was read and was refused (Moonraker 400
+    "Must home", 404 file not found). A timeout, a reset connection and every 5xx may have reached a
+    printer that went on to start, so they stay uncertain. 408, 425 and 429 describe the transport,
+    not the printer's decision, and stay uncertain too.
+    """
+    if not isinstance(exc, urllib.error.HTTPError) or not 400 <= exc.code < 500 or exc.code in (408, 425, 429):
         return None
+    detail = ""
+    try:
+        body = json.loads(exc.read().decode("utf-8", "replace"))
+        error = body.get("error") if isinstance(body, dict) else None
+        detail = error.get("message") if isinstance(error, dict) else (error if isinstance(error, str) else "")
+    except Exception:
+        pass
+    return f"HTTP {exc.code}: {' '.join(str(detail or exc.reason or 'rejected').split())}"[:300]
+
+
+def _settle_lost_start(lease, st, remote, exc, *, base, heaters_were_off, first_command=True, native=True):
+    """Settle a start request that raised `exc`: returns (out, rejection).
+
+    Anything but a clean 4xx on the first command leaves the lease uncertain (never released by guessing)
+    and reconciles from the printer, like the mapped native path always did. A 4xx answer on a printer
+    that shows nothing happening releases the lease and the start claim and returns (None, message):
+    the caller ends as REFUSED, with the printer's words. A 4xx on a printer that shows activity is
+    uncertain after all.
+    """
+    rejection = _start_rejection(exc) if first_command else None
+    if rejection is None:
+        lease.uncertain(f'start request response lost: {exc!r}')
+    # Moonraker answers 400 when a macro errors partway, heaters left on: after a rejection only a
+    # readback naming this exact file may say started; heater targets alone are never evidence.
+    verdict = _reconcile_lost_start(st, remote, heaters_were_off=heaters_were_off and rejection is None,
+                                    native=native)
+    quiet = verdict.pop('quiet')
+    if rejection is not None:
+        if quiet:
+            lease.release()  # the printer refused it and shows no sign of work: nothing started
+            release_start_announcement(remote)
+            return None, rejection
+        lease.uncertain(f'start request rejected ({rejection}) but the printer shows activity: {exc!r}')
+    out = {**base, **verdict}
+    if not out['accepted']:
+        lease.uncertain(out['message'])
+        # Nobody has announced this start, so let the listener post the "Print started" card
+        # when print_stats reaches this file.
+        release_start_announcement(remote)
+    return out, rejection
+
+
+def _rejected_start_message(rejection):
+    return (f"REFUSED: the printer rejected the start request ({rejection}). "
+            "The file was uploaded but nothing started.")
+
+
+START_OUTCOME_MARK = "START READBACK "  # "MAPPED START READBACK " contains it, so one parser reads both
+_OUTCOME_KEYS = ("phase", "outcome", "started", "accepted", "file", "method", "message")
+
+
+def _emit_start_outcome(out, mark=START_OUTCOME_MARK, compact=True):
+    """The one uniform outcome line every launch ends with: `START READBACK {json with phase}`.
+
+    prepared_intake and print_next read the phase from it to tell a confirmed start from an unresolved one.
+    """
+    line = {k: out[k] for k in _OUTCOME_KEYS if k in out} if compact else dict(out)
+    if isinstance(line.get('message'), str):
+        line['message'] = line['message'][:200]
+    print(mark + json.dumps(line, default=str), flush=True)
+
+
+def _emit_mapped_outcome(out):
+    """The mapped route's outcome: the bulky record on an earlier `MAPPED START DETAIL` line (the checkpoint
+    file holds it too), then the compact `MAPPED START READBACK` line last. print_next keeps only the last
+    1500 characters of output, so the line the intake parses must stay short."""
+    print('MAPPED START DETAIL ' + json.dumps(out, default=str), flush=True)
+    _emit_start_outcome(out, mark='MAPPED START READBACK ')
+
+
+def _uncertain_after_submission(lease, remote, exc, *, method, phase='awaiting_confirmation', extra=None,
+                                mark=START_OUTCOME_MARK):
+    """A failure after the start request went out (a readback that raised, a Klippy restart, a 503).
+
+    The printer may be starting, so nothing is retried: the lease becomes uncertain, the start-announcement
+    claim is released (nobody announced this start; the listener posts it when the printer reaches the
+    file, which is what the chat was told), and the run ends with a clean UNCERTAIN line and outcome.
+    """
+    reason = ' '.join(str(exc).split()) or type(exc).__name__
+    try:
+        lease.uncertain(f'readback after the start request failed: {reason}')
+    except Exception as lease_exc:
+        logger.warning('could not mark the lease uncertain: %s', lease_exc)
+    release_start_announcement(remote)
+    message = f'the start was sent, but reading the printer back failed ({reason}); do not resubmit'
+    out = {**(extra or {}), 'started': False, 'accepted': False, 'file': remote, 'method': method,
+           'phase': phase, 'outcome': 'unknown', 'message': message}
+    print('UNCERTAIN: ' + message, flush=True)
+    if extra is not None:
+        print(mark.replace('READBACK', 'DETAIL') + json.dumps(out, default=str), flush=True)
+    _emit_start_outcome(out, mark=mark)
+    return out
+
+
+def _submission_failed(lease, remote, label, exc):
+    """Upload or start raised for a transport whose client collapses both into one step: uncertain,
+    claim released, outcome line printed, never resubmitted. Raises."""
+    lease.uncertain(f"{label} submission did not complete: {exc!r}")
+    release_start_announcement(remote)
+    _emit_start_outcome({'started': False, 'accepted': False, 'file': remote, 'phase': 'awaiting_confirmation',
+                         'outcome': 'unknown', 'message': f'{label} submission did not complete; do not resubmit'})
+    if isinstance(exc, RuntimeError):
+        raise SystemExit(f"{label} submission failed or uncertain: {exc}. Do not resubmit without "
+                         "checking printer status.") from exc
+    raise exc
+
+
+# Start confirmation by polling (#271 for Bambu, now every transport): one immediate readback after the
+# start request is not evidence either way, since a printer takes seconds to minutes to report the file.
+START_CONFIRM_DEFAULT_S = 45
+START_CONFIRM_POLL_S = 3
+# Normalized states that mean "accepted, still starting" (heating the bed, running its calibration).
+START_TRANSITIONAL_STATES = frozenset({"heating", "calibrate_doing", "busy", "preparing", "starting"})
+
+
+def _start_confirm_window_s():
+    """How long a non-Bambu start is polled (Bambu has [bambu] start_confirm_s)."""
+    return float(START_CONFIRM_DEFAULT_S)
+
+
+class StartPoll(NamedTuple):
+    confirmed: bool    # the printer reports this file printing or preparing
+    preparing: bool    # ... and is still in a transitional state (heating, calibrating)
+    live: dict         # the last readable normalized status
+    snapshots: int
+    window_s: float
+
+
+def _reports_started(live, remote):
+    """Printing or a transitional state, naming this upload (launch_state.same_remote)."""
+    state = live.get("state")
+    return ((state == "printing" or state in START_TRANSITIONAL_STATES)
+            and launch_state.same_remote(live.get("filename"), remote))
+
+
+def _poll_start_confirmation(read_status, remote, *, window_s=None, poll_s=START_CONFIRM_POLL_S,
+                             reports=_reports_started, job_path=None, stage="start_confirm",
+                             evidence_of=None, on_snapshot=None):
+    """Poll `read_status()` (a normalized status dict) until `reports(live, remote)` or `window_s` ends.
+
+    Never raises for a bad read: an exception counts as a snapshot, the window keeps running and the last
+    readable status is what is reported. Every snapshot is written to the job's TIMING.jsonl so an
+    unconfirmed start leaves evidence of what the printer said. Both clock hooks are module attributes so
+    tests drive the window without sleeping.
+    """
+    window_s = _start_confirm_window_s() if window_s is None else float(window_s)
+    started = _confirm_clock()
+    deadline = started + window_s
+    last_good, snapshots = {}, 0
+    while True:
+        snapshots += 1
+        error = None
+        try:
+            live = read_status()
+            if not isinstance(live, dict):
+                raise RuntimeError("the printer returned no readable status")
+            last_good = live
+        except Exception as exc:
+            live, error = {}, " ".join(str(exc).split()) or type(exc).__name__
+        evidence = {"snapshot": snapshots, "elapsed_s": round(_confirm_clock() - started, 1),
+                    **(evidence_of(live) if evidence_of else {"state": live.get("state"), "file": live.get("filename")})}
+        if error:
+            evidence["error"] = error
+        if on_snapshot:
+            on_snapshot(evidence)
+        _timing(job_path, stage, **evidence)
+        if reports(live, remote):
+            return StartPoll(True, live.get("state") in START_TRANSITIONAL_STATES, live, snapshots, window_s)
+        remaining = deadline - _confirm_clock()
+        if remaining <= 0:
+            return StartPoll(False, False, last_good, snapshots, window_s)
+        _confirm_sleep(min(poll_s, remaining))
+
+
+def _settle_polled_start(lease, poll, remote, *, method, uncertain_detail=None, **extra):
+    """The lease and the outcome dict for a polled start.
+
+    Confirmed (printing, or accepted and still heating/calibrating) releases the lease: the busy printer
+    refuses another start. Anything else leaves it uncertain and frees the start claim so the listener
+    posts the start when the printer reaches the file. Nothing here ever resubmits.
+    """
+    if poll.confirmed:
+        lease.release()
+        if poll.preparing:
+            phase, outcome = "preparing", "preparing"
+            message = "printer accepted the job and is preparing (heating/calibrating); not a failure; do not resubmit"
+        else:
+            phase, outcome, message = "executing", "printing", "printing"
+    else:
+        lease.uncertain(uncertain_detail or (
+            f"submitted, awaiting confirmation; printer reported state {poll.live.get('state') or 'unknown'}, "
+            f"file {poll.live.get('filename') or 'none'!r} on the last of {poll.snapshots} snapshot(s) "
+            f"over {poll.window_s:g}s"))
+        release_start_announcement(remote)
+        phase, outcome = "awaiting_confirmation", "unconfirmed"
+        message = "submitted, awaiting confirmation; do not resubmit"
+    return {"started": poll.confirmed, "accepted": True, "file": remote, "method": method, "phase": phase,
+            "outcome": outcome, "live": poll.live, "message": message, **extra}
+
+
+def _announce_polled_outcome(out):
+    """The legacy human line plus the uniform outcome line, last so a 6-line tail always holds it."""
+    print(("PRINT STARTED " if out["phase"] == "executing" else "START SUBMITTED; AWAITING CONFIRMATION ")
+          + json.dumps(out, default=str))
+    _emit_start_outcome(out)
+
+
+CHECKPOINT_NOT_SENT = ("rejected", "not_submitted")  # launch attempts that provably never reached the printer
+
+
+def _require_launch_checkpoint_clear(checkpoint, reprint):
+    """`<plate>.launch.json` records one launch attempt (print-again reads it too), so it is never deleted.
+
+    An earlier attempt's file must not stop a deliberate reprint (multi-copy plates, "Print again"): the
+    operator's new bed-clear approval is exactly that decision, and the printer lease already refused if
+    the earlier attempt is still unsettled. It does stop an unapproved replay of the same artifact, and
+    an attempt that never reached the printer never blocks anything.
+    """
+    if not checkpoint.exists():
+        return
+    try:
+        phase = json.loads(checkpoint.read_text()).get('phase')
+    except (OSError, ValueError):
+        phase = None
+    if phase in CHECKPOINT_NOT_SENT or reprint:
+        return
+    raise RuntimeError('mapped submission checkpoint exists; reconcile or pass an explicit reprint approval '
+                       'instead of replaying')
+
+
+def _write_checkpoint(checkpoint, data):
+    try:
+        checkpoint.write_text(json.dumps(data, indent=2) + '\n')
+    except OSError as exc:
+        logger.warning('could not write the launch checkpoint %s: %s', checkpoint, exc)
 
 
 def _check_mapped_slot_color(slot, tool, live_raw, expected):
@@ -5970,11 +6263,13 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
     lease = launch_state.acquire(_printer_key(st, job), job_json=job_path, gcode_sha256=sha, remote=remote,
                                  observed_file=(status.get('print_stats') or {}).get('filename'),
                                  started_files=lambda: _moonraker_started_files(st))
+    checkpoint, checkpoint_data = g.with_suffix('.launch.json'), None
     try:
         # Again inside the lease: the first read may predate another job's start.
         require_idle()
         if job_path is not None:
             _consume_approval(job_path, job, g, reprint=reprint)
+        _require_launch_checkpoint_clear(checkpoint, reprint)
         slots_used = sorted(set(mapped.values()))
         if len(slots_used) > 1:
             print('WARNING: MULTI-SLOT JOB: automatic Spoolman usage deduction disabled; aggregate usage cannot be safely apportioned to selected spools.', flush=True)
@@ -6011,12 +6306,11 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
         if delivery: _note_delivery_format(job, job_path, delivery)
         command = (f'SET_ZCOLOR FILENAME={remote} SILENT=1 AUTO_ASSIGN=0 LEVELING=0 ' +
                    ' '.join(f'T{tool}={slot}' for tool, slot in sorted(mapping.items())))
-        checkpoint = g.with_suffix('.launch.json')
-        if checkpoint.exists():
-            raise RuntimeError('mapped submission checkpoint exists; reconcile instead of replaying')
+        # One checkpoint per launch attempt: keyed by this lease's token, so a deliberate reprint
+        # replaces the earlier attempt's record instead of colliding with it.
         checkpoint_data = {'phase': 'submission_pending', 'command': command, 'sha256': sha,
                            'file': remote, 'artifact': str(g), 'submission_count': 1,
-                           'accepted': False, 'started': False}
+                           'accepted': False, 'started': False, 'lease_token': lease.token}
         checkpoint.write_text(json.dumps(checkpoint_data, indent=2) + '\n')
         # This path posts its own start card, so the listener must not post a second one
         # when native preparation (heating, leveling) finishes minutes later (2026-10-11 duplicate).
@@ -6026,70 +6320,67 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
         _publish_job_card(st, job, remote, g.read_text(errors="ignore"))
     except BaseException:
         lease.release()  # nothing was sent to start
+        release_start_announcement(remote)  # the claim was taken in the block above
+        if checkpoint_data is not None:
+            _write_checkpoint(checkpoint, {**checkpoint_data, 'phase': 'not_submitted'})
         raise
     lease.submitting()
     try:
         receipt = _mr(st, '/printer/gcode/script', data={'script': command})
     except Exception as exc:
-        lease.uncertain(f'start request response lost: {exc!r}')
         _timing(job_path, 'start_response_lost', detail=type(exc).__name__)
-        # A synchronous POST can time out after Moonraker accepted SET_ZCOLOR.
-        # Reconcile by this exact submitted file only; heater targets alone may belong
-        # to unrelated work and are never attribution evidence.
-        readback = _reconcile_native_submission(st, remote)
-        if readback is None and _preparation_evidence(st) is True:
-            # The idle guard proved every heater target was 0 before this one submission,
-            # so targets set now are this job's preparation (2026-10-30: the screenless
-            # SET_ZCOLOR POST held open through warmup and timed out after 30 s).
-            out = {**checkpoint_data, 'phase': 'preparing', 'outcome': 'preparing',
-                   'accepted': True, 'started': True, 'preparation_evidence': True,
-                   'message': 'start response was lost; the printer is heating for this job'}
-        elif readback is None:
-            out = {**checkpoint_data, 'phase': 'preparing_or_unresolved', 'outcome': 'unknown',
-                   'accepted': False, 'started': False,
-                   'message': 'start response was lost; printer status does not yet identify this file; do not resubmit'}
-        elif readback.outcome == 'printing':
-            out = {**checkpoint_data, 'phase': 'executing', 'outcome': 'printing',
-                   'accepted': True, 'started': True, 'readback': readback._asdict(),
-                   'message': readback.message}
-        elif readback.outcome == 'preparing':
-            out = {**checkpoint_data, 'phase': 'preparing', 'outcome': 'preparing',
-                   'accepted': True, 'started': True, 'readback': readback._asdict(),
-                   'message': readback.message}
-        else:
-            out = {**checkpoint_data, 'phase': 'preparing_or_unresolved', 'outcome': 'unknown',
-                   'accepted': False, 'started': False, 'readback': readback._asdict(),
-                   'message': 'the submitted file is visible but start progress is unresolved; do not resubmit'}
-        checkpoint.write_text(json.dumps(out, indent=2) + '\n')
+        # A synchronous POST can time out after Moonraker accepted SET_ZCOLOR. Reconcile by this exact
+        # submitted file only (_settle_lost_start); heater targets alone may belong to unrelated work and
+        # are never attribution evidence. The idle guard proved the heaters were off before this request.
+        out, rejection = _settle_lost_start(lease, st, remote, exc, base=checkpoint_data, heaters_were_off=True)
+        if out is None:
+            _write_checkpoint(checkpoint, {**checkpoint_data, 'phase': 'rejected', 'rejection': rejection})
+            raise SystemExit(_rejected_start_message(rejection)) from exc
         if out['accepted']:
             # The POST response was lost: preserve the duplicate guard until
             # explicit reconciliation, even if a matching readback is active.
+            _write_checkpoint(checkpoint, out)
             try:
                 out['record_path'] = str(record_start(g, remote))
             except Exception as record_exc:
                 logger.warning('start record failed after reconciled submission: %s', record_exc)
-            checkpoint.write_text(json.dumps(out, indent=2) + '\n')
-        else:
-            lease.uncertain(out['message'])
-            # Nobody has announced this start, so let the listener post the
-            # "Print started" card when print_stats reaches this file.
-            release_start_announcement(remote)
-        print('MAPPED START READBACK ' + json.dumps(out), flush=True)
+        _write_checkpoint(checkpoint, out)
+        _emit_mapped_outcome(out)
         return out
     _timing(job_path, 'start_submitted')
-    # Number at submission, not at "printing": native preparation can outlast the readback
-    # and the listener's completion card only reads the registry (2026-10-14: 6 unnumbered).
-    print_no = _assign_print_number(job_path)
     out = {'accepted': False, 'started': False, 'phase': 'submitted_unconfirmed',
            'file': remote, 'artifact': str(g), 'sha256': sha, 'mapping': mapping,
-           'command': command, 'receipt': receipt, 'submission_count': 1, 'print_number': print_no}
+           'command': command, 'receipt': receipt, 'submission_count': 1, 'print_number': None,
+           'lease_token': lease.token}
+    try:
+        return _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_path, delivery)
+    except Exception as exc:
+        # The request is out: a transient 503 or a Klippy restart while reading back is not a traceback
+        # and not a refusal. Uncertain, never resubmitted, claim freed for the listener.
+        out = _uncertain_after_submission(lease, remote, exc, method='mapped_native',
+                                          phase='preparing_or_unresolved', extra=dict(out),
+                                          mark='MAPPED START READBACK ')
+        _write_checkpoint(checkpoint, out)
+        return out
+
+
+def _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_path, delivery):
+    """Everything after the one SET_ZCOLOR request was accepted: number, record, wait, classify, settle."""
+    # Number at submission, not at "printing": native preparation can outlast the readback
+    # and the listener's completion card only reads the registry (2026-10-14: 6 unnumbered).
+    try:
+        out['print_number'] = _assign_print_number(job_path)
+    except Exception as exc:
+        logger.warning('could not assign a print number: %s', exc)
     if delivery:
         out['delivery_format'] = delivery
-    checkpoint = g.with_suffix('.launch.json')
-    checkpoint.write_text(json.dumps(out, indent=2) + '\n')
+    _write_checkpoint(checkpoint, out)
     print('MAPPED START SUBMITTED ' + json.dumps(out), flush=True)
     # Record immediately so a long native preparation cannot lose its start record.
-    out['record_path'] = str(record_start(g, remote))
+    try:
+        out['record_path'] = str(record_start(g, remote))
+    except Exception as exc:
+        logger.warning('start record failed after submission: %s', exc)
     state = _wait_printing(st, remote, wait_s, prep_check=_preparation_evidence)
     readback = None
     try:
@@ -6116,13 +6407,13 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
                    phase='preparing' if is_prep else 'preparing_or_unresolved',
                    outcome=outcome_val,
                    message=msg, preparation_evidence=preparing)
+    _write_checkpoint(checkpoint, out)
     if out['accepted']:
         lease.release()  # accepted; the busy printer now refuses another start
     else:
         lease.uncertain(out['message'])  # reconciled when the printer reports this file
         release_start_announcement(remote)  # unannounced: the listener posts the start card
-    checkpoint.write_text(json.dumps(out, indent=2) + '\n')
-    print('MAPPED START READBACK ' + json.dumps(out), flush=True)
+    _emit_mapped_outcome(out)
     return out
 
 
@@ -6272,25 +6563,12 @@ def _print_octoprint(adapter, state, gcode, job, job_path, wait_s, reprint):
         except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
         client.start(remote, temps['bed'], hotend)
     except BaseException as exc:
-        lease.uncertain(f'OctoPrint submission did not complete: {exc!r}')
-        if isinstance(exc, RuntimeError):
-            raise SystemExit(f'OctoPrint submission failed or uncertain: {exc}. Do not resubmit without checking printer status.') from exc
-        raise
-    # Accepted is not proof of printing. No resubmission on delayed readback.
-    live = {}
-    try:
-        live = adapter.normalize_status(client.status())
-    except RuntimeError:
-        pass
-    confirmed = live.get('state') == 'printing' and live.get('filename') == remote
-    if confirmed:
-        lease.release()
-    else:
-        lease.uncertain('submitted, awaiting confirmation')
-    out = {'started': confirmed, 'accepted': True, 'file': remote, 'method': 'octoprint',
-           'phase': 'executing' if confirmed else 'awaiting_confirmation',
-           'outcome': 'printing' if confirmed else 'unconfirmed', 'live': live,
-           'message': 'printing' if confirmed else 'submitted, awaiting confirmation; do not resubmit'}
+        _submission_failed(lease, remote, 'OctoPrint', exc)
+    # Accepted is not proof of printing: poll the readback over the confirmation window. No resubmission.
+    poll = _poll_start_confirmation(lambda: adapter.normalize_status(client.status()), remote,
+                                    job_path=job_path, stage='octoprint_start_confirm')
+    out = _settle_polled_start(lease, poll, remote, method='octoprint')
+    confirmed = out['started']
     if confirmed:
         try:
             out['record_path'] = record_start(gcode, remote)
@@ -6307,7 +6585,7 @@ def _print_octoprint(adapter, state, gcode, job, job_path, wait_s, reprint):
             octo_watch.start_monitor(adapter, remote)
         except Exception as exc:
             print(f"WARNING: timelapse monitor did not start: {exc}")
-    print(('PRINT STARTED ' if confirmed else 'START SUBMITTED; AWAITING CONFIRMATION ') + json.dumps(out))
+    _announce_polled_outcome(out)
     return out
 
 
@@ -6342,37 +6620,24 @@ def _bambu_reports_file(live, remote):
 def _confirm_bambu_start(client, adapter, remote, job_path, window_s, poll_s=BAMBU_START_POLL_S):
     """Poll status snapshots until the printer reports `remote` running or preparing, or `window_s` ends.
 
-    Returns (confirmed, last normalized status, snapshots taken). Every snapshot is logged at INFO
-    and written to the job's TIMING.jsonl (state, gcode_state, file, print_stage) so an unconfirmed start
-    leaves evidence of what the printer said, not just that it said nothing (#271). A read error
-    counts as a snapshot and the window keeps running; the last readable status is what is reported.
+    Returns (confirmed, last normalized status, snapshots taken). The shared poll
+    (_poll_start_confirmation) does the work; Bambu adds its own evidence fields (gcode_state, print_stage)
+    and matcher (_bambu_reports_file). Every snapshot is logged at INFO and written to the job's
+    TIMING.jsonl so an unconfirmed start leaves evidence of what the printer said, not just that it said
+    nothing (#271). A read error counts as a snapshot and the window keeps running.
     """
-    started = _confirm_clock()
-    deadline = started + window_s
-    last_good, snapshots = {}, 0
-    while True:
-        snapshots += 1
-        error = None
-        try:
-            live = adapter.normalize_status(client.snapshot())
-            last_good = live
-        except RuntimeError as exc:
-            live, error = {}, " ".join(str(exc).split())
-        evidence = {"snapshot": snapshots, "elapsed_s": round(_confirm_clock() - started, 1),
-                    "state": live.get("state"), "gcode_state": live.get("gcode_state"),
-                    "file": live.get("filename"), "print_stage": live.get("stage")}
-        if error:
-            evidence["error"] = error
+    def log(evidence):
+        error = evidence.get("error")
         logger.info("Bambu start confirmation snapshot %d at %ss: state=%s gcode_state=%s file=%r stage=%s%s",
-                    snapshots, evidence["elapsed_s"], evidence["state"], evidence["gcode_state"],
+                    evidence["snapshot"], evidence["elapsed_s"], evidence["state"], evidence["gcode_state"],
                     evidence["file"], evidence["print_stage"], f" error={error}" if error else "")
-        _timing(job_path, "bambu_start_confirm", **evidence)
-        if _bambu_reports_file(live, remote):
-            return True, live, snapshots
-        remaining = deadline - _confirm_clock()
-        if remaining <= 0:
-            return False, last_good, snapshots
-        _confirm_sleep(min(poll_s, remaining))
+
+    poll = _poll_start_confirmation(
+        lambda: adapter.normalize_status(client.snapshot()), remote, window_s=window_s, poll_s=poll_s,
+        reports=_bambu_reports_file, job_path=job_path, stage="bambu_start_confirm", on_snapshot=log,
+        evidence_of=lambda live: {"state": live.get("state"), "gcode_state": live.get("gcode_state"),
+                                  "file": live.get("filename"), "print_stage": live.get("stage")})
+    return poll.confirmed, poll.live, poll.snapshots
 
 
 def _print_bambu(adapter, state, gcode, job, job_path, wait_s, reprint):
@@ -6460,28 +6725,20 @@ def _print_bambu(adapter, state, gcode, job, job_path, wait_s, reprint):
         except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
         client.start_print(remote, ams_mapping=ams_map)
     except BaseException as exc:
-        lease.uncertain(f"Bambu Lab submission did not complete: {exc!r}")
-        if isinstance(exc, RuntimeError):
-            raise SystemExit(f"Bambu Lab submission failed or uncertain: {exc}. Do not resubmit without "
-                             "checking printer status.") from exc
-        raise
+        _submission_failed(lease, remote, "Bambu Lab", exc)
     # Accepted is not proof of printing. No resubmission on delayed readback: the printer is polled
     # over the confirmation window (#271) and the lease stays uncertain if it never reports this file.
     window_s = _bambu_start_confirm_window()
     confirmed, live, snapshots = _confirm_bambu_start(client, adapter, remote, job_path, window_s)
-    if confirmed:
-        lease.release()
-    else:
-        lease.uncertain("submitted, awaiting confirmation; printer reported state "
-                        f"{live.get('state') or 'unknown'} ({live.get('gcode_state') or 'no gcode_state'}), "
-                        f"file {live.get('filename') or 'none'!r} on the last of {snapshots} snapshot(s) "
-                        f"over {window_s:g}s")
-    out = {"started": confirmed, "accepted": True, "file": remote, "method": "bambulab_lan",
-           "phase": "executing" if confirmed else "awaiting_confirmation",
-           "outcome": "printing" if confirmed else "unconfirmed", "live": live,
-           "ams_mapping": ams_map, "ams_mapping_source": ams_source,
-           "confirmation": {"snapshots": snapshots, "window_s": window_s},
-           "message": "printing" if confirmed else "submitted, awaiting confirmation; do not resubmit"}
+    poll = StartPoll(confirmed, False, live, snapshots, window_s)
+    out = _settle_polled_start(
+        lease, poll, remote, method="bambulab_lan",
+        uncertain_detail=("submitted, awaiting confirmation; printer reported state "
+                          f"{live.get('state') or 'unknown'} ({live.get('gcode_state') or 'no gcode_state'}), "
+                          f"file {live.get('filename') or 'none'!r} on the last of {snapshots} snapshot(s) "
+                          f"over {window_s:g}s"),
+        ams_mapping=ams_map, ams_mapping_source=ams_source,
+        confirmation={"snapshots": snapshots, "window_s": window_s})
     if confirmed:
         try:
             out["record_path"] = record_start(gcode, remote)
@@ -6497,7 +6754,7 @@ def _print_bambu(adapter, state, gcode, job, job_path, wait_s, reprint):
             bambu_watch.start_monitor(adapter, remote)
         except Exception as exc:
             print(f"WARNING: camera monitor did not start: {exc}")
-    print(("PRINT STARTED " if confirmed else "START SUBMITTED; AWAITING CONFIRMATION ") + json.dumps(out))
+    _announce_polled_outcome(out)
     return out
 
 
@@ -6558,25 +6815,11 @@ def _print_elegoo_sdcp(adapter, state, gcode, job, job_path, wait_s, reprint):
         except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
         client.start_print(remote)
     except BaseException as exc:
-        lease.uncertain(f"SDCP submission did not complete: {exc!r}")
-        if isinstance(exc, RuntimeError):
-            raise SystemExit(f"SDCP submission failed or uncertain: {exc}. Do not resubmit without "
-                             "checking printer status.") from exc
-        raise
-    live = {}
-    try:
-        live = adapter.normalize_status(client.status())
-    except RuntimeError:
-        pass
-    confirmed = live.get("state") == "printing" and live.get("filename") == remote
-    if confirmed:
-        lease.release()
-    else:
-        lease.uncertain("submitted, awaiting confirmation")
-    out = {"started": confirmed, "accepted": True, "file": remote, "method": "elegoo_sdcp",
-           "phase": "executing" if confirmed else "awaiting_confirmation",
-           "outcome": "printing" if confirmed else "unconfirmed", "live": live,
-           "message": "printing" if confirmed else "submitted, awaiting confirmation; do not resubmit"}
+        _submission_failed(lease, remote, "SDCP", exc)
+    poll = _poll_start_confirmation(lambda: adapter.normalize_status(client.status()), remote,
+                                    job_path=job_path, stage="sdcp_start_confirm")
+    out = _settle_polled_start(lease, poll, remote, method="elegoo_sdcp")
+    confirmed = out["started"]
     if confirmed:
         try:
             out["record_path"] = record_start(gcode, remote)
@@ -6596,7 +6839,7 @@ def _print_elegoo_sdcp(adapter, state, gcode, job, job_path, wait_s, reprint):
             elegoo_watch.start_monitor(adapter, remote)
         except Exception as exc:
             print(f"WARNING: timelapse monitor did not start: {exc}")
-    print(("PRINT STARTED " if confirmed else "START SUBMITTED; AWAITING CONFIRMATION ") + json.dumps(out))
+    _announce_polled_outcome(out)
     return out
 
 
@@ -6657,25 +6900,11 @@ def _print_prusa(adapter, state, gcode, job, job_path, wait_s, reprint):
         except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
         client.start_print(remote)
     except BaseException as exc:
-        lease.uncertain(f"PrusaLink submission did not complete: {exc!r}")
-        if isinstance(exc, RuntimeError):
-            raise SystemExit(f"PrusaLink submission failed or uncertain: {exc}. Do not resubmit without "
-                             "checking printer status.") from exc
-        raise
-    live = {}
-    try:
-        live = adapter.normalize_status(client.snapshot())
-    except RuntimeError:
-        pass
-    confirmed = live.get("state") == "printing" and live.get("filename") == remote
-    if confirmed:
-        lease.release()
-    else:
-        lease.uncertain("submitted, awaiting confirmation")
-    out = {"started": confirmed, "accepted": True, "file": remote, "method": "prusalink",
-           "phase": "executing" if confirmed else "awaiting_confirmation",
-           "outcome": "printing" if confirmed else "unconfirmed", "live": live,
-           "message": "printing" if confirmed else "submitted, awaiting confirmation; do not resubmit"}
+        _submission_failed(lease, remote, "PrusaLink", exc)
+    poll = _poll_start_confirmation(lambda: adapter.normalize_status(client.snapshot()), remote,
+                                    job_path=job_path, stage="prusalink_start_confirm")
+    out = _settle_polled_start(lease, poll, remote, method="prusalink")
+    confirmed = out["started"]
     if confirmed:
         try:
             out["record_path"] = record_start(gcode, remote)
@@ -6693,7 +6922,7 @@ def _print_prusa(adapter, state, gcode, job, job_path, wait_s, reprint):
             prusa_watch.start_monitor(adapter, remote)
         except Exception as exc:
             print(f"WARNING: timelapse monitor did not start: {exc}")
-    print(("PRINT STARTED " if confirmed else "START SUBMITTED; AWAITING CONFIRMATION ") + json.dumps(out))
+    _announce_polled_outcome(out)
     return out
 
 
@@ -6777,25 +7006,11 @@ def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprin
         except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
         client.print_gcode(remote)
     except BaseException as exc:
-        lease.uncertain(f"stock Flashforge submission did not complete: {exc!r}")
-        if isinstance(exc, RuntimeError):
-            raise SystemExit(f"stock Flashforge submission failed or uncertain: {exc}. Do not resubmit without "
-                             "checking printer status.") from exc
-        raise
-    live = {}
-    try:
-        live = adapter.normalize_status(client.detail())
-    except RuntimeError:
-        pass
-    confirmed = live.get("state") == "printing" and live.get("filename") == remote
-    if confirmed:
-        lease.release()
-    else:
-        lease.uncertain("submitted, awaiting confirmation")
-    out = {"started": confirmed, "accepted": True, "file": remote, "method": "flashforge_stock",
-           "phase": "executing" if confirmed else "awaiting_confirmation",
-           "outcome": "printing" if confirmed else "unconfirmed", "live": live,
-           "message": "printing" if confirmed else "submitted, awaiting confirmation; do not resubmit"}
+        _submission_failed(lease, remote, "stock Flashforge", exc)
+    poll = _poll_start_confirmation(lambda: adapter.normalize_status(client.detail()), remote,
+                                    job_path=job_path, stage="flashforge_stock_start_confirm")
+    out = _settle_polled_start(lease, poll, remote, method="flashforge_stock")
+    confirmed = out["started"]
     if confirmed:
         try:
             out["record_path"] = record_start(gcode, remote)
@@ -6813,7 +7028,7 @@ def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprin
             stock_watch.start_monitor(adapter, remote)
         except Exception as exc:
             print(f"WARNING: timelapse monitor did not start: {exc}")
-    print(("PRINT STARTED " if confirmed else "START SUBMITTED; AWAITING CONFIRMATION ") + json.dumps(out))
+    _announce_polled_outcome(out)
     return out
 
 
@@ -6824,6 +7039,35 @@ def _require_idle(st):
     if st.get("display_off") == 0 and state not in ("standby", "complete", "cancelled", "error"):
         raise SystemExit(f"REFUSED: native printer state is {state!r} for {fn}; nothing uploaded or started.")
     return state,fn,busy
+
+
+def _confirm_generic_start(st, remote, wait_s, lease):
+    """Wait for the one accepted start to show as printing: (out, readback, state).
+
+    Only a readback naming THIS file counts (launch_state.same_remote): printing, or preparing (lease
+    released, claim kept: the start card is posted), or failed/cancelled (lease released, REFUSED-style
+    SystemExit). Anything else, including a still-idle printer, a stale previous filename or an unreadable
+    status, leaves the lease uncertain and frees the claim for the listener: after a 200 the printer may
+    still be starting. `out` is None when printing. A readback exception propagates to the caller, which
+    settles it as uncertain.
+    """
+    state = _wait_printing(st, remote, wait_s)
+    readable, readback = _read_start_readback(st, remote, native=False)
+    if state == "printing" or (readback and readback.outcome == "printing"):
+        return None, readback, state
+    if readback and readback.outcome == "preparing":
+        lease.release()  # accepted; the busy printer now refuses another start
+        return {"started": True, "accepted": True, "phase": "preparing", "outcome": "preparing", "file": remote,
+                "method": "print/start", "message": readback.message}, readback, state
+    if readback and readback.outcome == "failed":
+        release_start_announcement(remote)
+        lease.release()  # the printer reports this file's start failed
+        raise SystemExit("The printer did not start the print, and it was not retried. "
+                         "Check the printer screen before trying again." + _detail_tail(readback.message))
+    lease.uncertain("submitted, awaiting confirmation")  # reconciled when the printer reports this file
+    release_start_announcement(remote)
+    return {"started": False, "accepted": True, "phase": "awaiting_confirmation", "outcome": "unconfirmed",
+            "file": remote, "method": "print/start", "message": "submitted, awaiting confirmation"}, readback, state
 
 
 def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None):
@@ -7005,54 +7249,51 @@ def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, r
         _publish_job_card(st, job, remote, text)
     except BaseException:
         lease.release()  # nothing was sent to start
+        release_start_announcement(remote)  # the claim was taken in the block above
         raise
+    # Baseline for the lost-response reconcile: heater targets seen later prove this start only if every
+    # heater was off before it. Read-only; unreadable counts as not proven.
+    heaters_were_off = _preparation_evidence(st) is False
     lease.submitting()
+    sent = 0
     try:
         for command in adapter.moonraker_start_commands(remote):
             _mr(st, command["path"], data=command["body"])
+            sent += 1
     except BaseException as exc:
-        lease.uncertain(f"start request did not complete: {exc!r}")
-        raise
+        if not isinstance(exc, Exception):
+            lease.uncertain(f"start request did not complete: {exc!r}")
+            raise
+        _timing(job_path, 'start_response_lost', detail=type(exc).__name__)
+        # The 30 s POST can time out after Moonraker accepted it, like the mapped native route's:
+        # reconcile from the printer (exact file, else heater evidence, else pending). An HTTP 4xx
+        # answer to the first command is a refusal and ends as REFUSED with the printer's message.
+        out, rejection = _settle_lost_start(lease, st, remote, exc, heaters_were_off=heaters_were_off,
+                                            first_command=sent == 0, native=False,
+                                            base={"file": remote, "method": "print/start"})
+        if out is None:
+            raise SystemExit(_rejected_start_message(rejection)) from exc
+        if out["accepted"]:
+            try:
+                out["record_path"] = str(record_start(g, remote))
+            except Exception as record_exc:
+                print(f"WARNING: print start record failed: {record_exc}")
+        print("START SUBMITTED; AWAITING CONFIRMATION " + json.dumps(out), flush=True)
+        _emit_start_outcome(out)
+        return out
     _timing(job_path, 'start_submitted')
     print("START REQUEST ACCEPTED " + json.dumps({"file": remote, "printing_confirmed": False}), flush=True)
-    method="print/start"; state=_wait_printing(st,remote,wait_s)
-    readback = None
+    method="print/start"
     try:
-        snap = _mr(st, "/printer/objects/query?print_stats&extruder&heater_bed&virtual_sdcard&idle_timeout&webhooks&toolhead")
-        readback = classify_start_readback(snap)
-    except Exception:
-        pass
-    if state!="printing" and not (readback and readback.outcome == "printing"):
-        if readback and readback.outcome == "preparing":
-            out = {"started": True, "accepted": True, "phase": "preparing", "outcome": "preparing", "file": remote,
-                   "message": readback.message}
-            lease.release()  # accepted; the busy printer now refuses another start
-            print("START SUBMITTED; AWAITING CONFIRMATION " + json.dumps(out), flush=True)
-            return out
-        # Do not retry a still-running preparation sequence or call it a failure.
-        pending_state,pending_file,pending_busy=_printer_phase(st)
-        if pending_busy == "Printing" and pending_state not in ("error", "cancelled"):
-            # Keep the claim: the start card is already posted and the listener would
-            # otherwise post a duplicate when preparation reaches "printing".
-            out = {"started": True, "accepted": True, "phase": "preparing", "outcome": "preparing", "file": remote,
-                   "message": "printer accepted the job and is preparing (heating/loading); not a failure; do not resubmit"}
-            lease.release()
-            print("START SUBMITTED; AWAITING CONFIRMATION " + json.dumps(out), flush=True)
-            return out
-        # An unreadable/ambiguous delayed readback after the one start request is
-        # not evidence of rejection. Preserve the claim and report uncertainty.
-        if pending_state not in ("error", "cancelled") and pending_file in (None, ""):
-            out = {"started": False, "accepted": True, "phase": "awaiting_confirmation", "outcome": "unconfirmed", "file": remote,
-                   "message": "submitted, awaiting confirmation"}
-            lease.uncertain("submitted, awaiting confirmation")  # reconciled when the printer reports this file
-            print("START SUBMITTED; AWAITING CONFIRMATION " + json.dumps(out), flush=True)
-            return out
-    if state!="printing" and not (readback and readback.outcome == "printing"):
-        release_start_announcement(remote)
-        lease.release()  # the printer reports the start failed
-        fail_msg = readback.message if (readback and readback.outcome == "failed") else f"printer state is {state!r} after {method}"
-        raise SystemExit("The printer did not start the print, and it was not retried. "
-                         "Check the printer screen before trying again." + _detail_tail(fail_msg))
+        out, readback, state = _confirm_generic_start(st, remote, wait_s, lease)
+    except Exception as exc:
+        # The request is out: a transient 503 or a Klippy restart while reading back is neither a
+        # traceback nor a refusal. Uncertain, never resubmitted, claim freed for the listener.
+        return _uncertain_after_submission(lease, remote, exc, method=method)
+    if out is not None:
+        print("START SUBMITTED; AWAITING CONFIRMATION " + json.dumps(out), flush=True)
+        _emit_start_outcome(out)
+        return out
     lease.release()  # printing; the busy printer now refuses another start
     record_path=None
     try: record_path=record_start(g, remote)
@@ -7064,7 +7305,8 @@ def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, r
     est=gcode_estimate_s(text); fg=_filament_total_g(text)
     warm=5*60; now=datetime.now(ZoneInfo(TIMEZONE))
     title=(job or {}).get("title") or g.stem
-    print_no=_assign_print_number(job_path)
+    try: print_no=_assign_print_number(job_path)
+    except Exception as e: print_no=None; print(f"WARNING: could not assign a print number: {e}")
     out={"started":True,"title":title,"print_number":print_no,"file":remote,"method":method,
          "phase":"executing","outcome":"printing","message":(readback.message if readback else "printing"),
          "extrusion_confirmed":bool(readback and (readback.evidence or {}).get("extrusion_confirmed")),
@@ -7083,6 +7325,7 @@ def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, r
                                nozzle_mm=(st.get("nozzle") or {}).get("diameter_mm"), calibration=adapter.has_native_screen)
     print("PRINT STARTED " + json.dumps(out))
     print(out["details"])
+    _emit_start_outcome(out)  # last, so a short tail always carries the phase
     return out
 
 

@@ -13,7 +13,8 @@ database and disables the per-printer layout (tests and operator overrides).
 
 Lease phases: ``leased`` (checks and upload, nothing started), ``submitting`` (persisted before the
 start request), ``uncertain`` (sent, outcome unknown). A confirmed or failed start deletes the row.
-An unfinished ``leased`` row whose process is gone is released: nothing was sent. A ``submitting``
+An unfinished ``leased`` row whose process is gone, or that is older than LEASED_TTL_S (a container
+restart leaves a foreign hostname or a recycled PID that looks alive), is released: nothing was sent. A ``submitting``
 or ``uncertain`` row is never released by guessing and never replayed. It is reconciled when the
 printer reports that exact file, now or in its job history since the lease, or by the operator with
 ``model_job reconcile-launch``.
@@ -117,6 +118,28 @@ def record_consumed(con, job_json, gcode_sha256, kind, when):
     con.execute("INSERT INTO approvals VALUES (?,?,?,?,?)", (str(job_json), gcode_sha256, kind, when, os.getpid()))
 
 
+# A ``leased`` row is pre-submission only: nothing was sent to the printer. Its owner is judged by
+# hostname and PID, which a container restart defeats (the hostname may be unchanged or foreign, and
+# a recycled PID answers kill(pid, 0)), so a leased row also expires after this long. Real launches
+# spend seconds to a few minutes in that phase (the upload has a 300 s cap). ``submitting`` and
+# ``uncertain`` rows never expire: something may have been sent.
+LEASED_TTL_S = 15 * 60
+
+
+def _leased_abandoned(row, unknown=True, now=None):
+    """Whether a ``leased`` row can be released: its owner is gone, or it cannot be checked (another
+    host or container) and outlived LEASED_TTL_S. A live process on this host never expires."""
+    if not _owner_alive(row, unknown):
+        return True
+    if row["host"] == socket.gethostname():
+        return False  # a live process on this host is the owner, however long it has been
+    try:
+        updated = datetime.strptime(row["updated_at"] or row["leased_at"], "%Y-%m-%dT%H:%M:%S%z").timestamp()
+    except (TypeError, ValueError):
+        return False  # an unreadable stamp cannot prove expiry
+    return (time.time() if now is None else now) - updated > LEASED_TTL_S
+
+
 def _owner_alive(row, unknown=True):
     """Whether the lease's process still runs. Another host or container cannot be checked: unknown."""
     if row["host"] != socket.gethostname():
@@ -132,7 +155,8 @@ def _owner_alive(row, unknown=True):
 
 def same_remote(reported, remote):
     """Whether a file name the printer reports is this upload: the exact name or a documented
-    Klipper path for it, including ZMod's 3MF unpack path (X.gcode.3mf -> 3mf_print/X.gcode)."""
+    Klipper path for it, including ZMod's 3MF unpack path (X.gcode.3mf -> 3mf_print/X.gcode) and
+    the bare project name a Bambu printer shows for a package (X.gcode.3mf -> X)."""
     reported = str(reported or "").replace("\\\\", "/").lstrip("/")
     remote = str(remote or "").replace("\\\\", "/").lstrip("/")
     if not remote:
@@ -140,7 +164,10 @@ def same_remote(reported, remote):
     expected = {remote}
     if remote.endswith(".gcode.3mf"):
         unpacked = remote[:-4]
-        expected.update({unpacked, "3mf_print/" + unpacked, "gcodes/" + unpacked})
+        # Bambu reports the bare project name (subtask_name) for the package it was sent.
+        expected.update({unpacked, "3mf_print/" + unpacked, "gcodes/" + unpacked, remote[:-len(".gcode.3mf")]})
+    elif remote.endswith(".3mf"):
+        expected.add(remote[:-len(".3mf")])
     elif remote.endswith(".gcode"):
         expected.update({"gcodes/" + remote, "3mf_print/" + remote})
     return reported in expected
@@ -187,15 +214,17 @@ class Lease:
     def __init__(self, printer, token):
         self.printer, self.token = printer, token
 
-    def _set(self, phase, detail=None):
+    def _set(self, phase, detail=None, required=False):
         with transaction(self.printer) as con:
-            con.execute("UPDATE leases SET phase=?, detail=?, updated_at=? WHERE printer=? AND token=?",
-                        (phase, detail, _now(), self.printer, self.token))
+            changed = con.execute("UPDATE leases SET phase=?, detail=?, updated_at=? WHERE printer=? AND token=?",
+                                  (phase, detail, _now(), self.printer, self.token)).rowcount
+        if required and not changed:
+            raise SystemExit("REFUSED: this launch lost its printer lease before sending; nothing started.")
 
     def submitting(self):
         """Persist before the external start request: from here a crash is uncertain, not retried."""
         global _SUBMITTED
-        self._set("submitting")
+        self._set("submitting", required=True)  # a stolen lease must stop the launch before the request
         _SUBMITTED = True
 
 
@@ -232,7 +261,7 @@ def acquire(printer, *, job_json=None, gcode_sha256=None, remote=None, observed_
     with transaction(printer) as con:
         row = con.execute("SELECT * FROM leases WHERE printer=?", (printer,)).fetchone()
         if row is not None:
-            if row["phase"] == "leased" and not _owner_alive(row):
+            if row["phase"] == "leased" and _leased_abandoned(row):
                 print(f"LAUNCH LEASE RELEASED: an earlier launch stopped before submission ({_describe(row)}).", flush=True)
             elif row["phase"] != "leased" and reached_printer(row, observed_file, started_files):
                 print(f"LAUNCH RECONCILED: the printer reports {row['remote']}, so the earlier {row['phase']} "
@@ -279,7 +308,7 @@ def resolve(printer, outcome):
         row = con.execute("SELECT * FROM leases WHERE printer=?", (printer,)).fetchone()
         if row is None:
             raise SystemExit("No launch is pending on this printer; nothing to reconcile.")
-        if row["phase"] == "leased" and _owner_alive(row, unknown=False):  # the operator vouches for other hosts
+        if row["phase"] == "leased" and not _leased_abandoned(row, unknown=False):  # the operator vouches for other hosts
             raise SystemExit(f"REFUSED: that launch is still running ({_describe(row)}); nothing changed.")
         con.execute("DELETE FROM leases WHERE printer=?", (printer,))
     out = dict(row, reconciled=outcome, reconciled_at=_now())

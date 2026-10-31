@@ -173,6 +173,54 @@ START_MESSAGES = _config.state_file("PRINT_HANDY_START_MESSAGES", "print_handy_s
 START_MESSAGE_TTL_S = float(_config.cfg()["listener"]["start_claim_ttl_s"])
 
 
+# The uniform outcome line print-now ends with: `START READBACK {json with phase}`. The mapped native route's
+# older "MAPPED START READBACK {...}" contains the same marker, so one parser reads both.
+OUTCOME_MARK = "START READBACK "
+# Phases that mean the start was sent but the printer has not confirmed it.
+UNRESOLVED_PHASES = frozenset({"awaiting_confirmation", "preparing_or_unresolved", "submitted_unconfirmed"})
+
+
+def start_outcome(detail: str) -> dict[str, Any]:
+    """The last `START READBACK {json}` object in print-now's output, or {} when there is none."""
+    for line in reversed(str(detail or "").splitlines()):
+        at = line.find(OUTCOME_MARK)
+        if at < 0:
+            continue
+        try:
+            value = json.loads(line[at + len(OUTCOME_MARK):])
+        except ValueError:
+            return {}
+        return value if isinstance(value, dict) else {}
+    return {}
+
+
+def outcome_unreadable(detail: str) -> bool:
+    """Whether the output carries a START READBACK fragment that does not parse (a cut-off or damaged line).
+
+    The intake treats that as unresolved, never as started: the line existed, so a phase was reported.
+    """
+    for line in reversed(str(detail or "").splitlines()):
+        if "READBACK" not in line:
+            continue
+        at = line.find("{")
+        if at < 0:
+            return True
+        try:
+            return not isinstance(json.loads(line[at:]), dict)
+        except ValueError:
+            return True
+    return False
+
+
+def start_unresolved(outcome: Mapping[str, Any]) -> bool:
+    """Whether a parsed outcome says the start was sent but is not confirmed (awaiting_confirmation,
+    preparing_or_unresolved). The phase decides; without one, an unknown/unconfirmed outcome does."""
+    phase = str(outcome.get("phase") or "")
+    if phase:
+        return phase in UNRESOLVED_PHASES
+    return outcome.get("outcome") in ("unknown", "unconfirmed")
+
+
 def still_preparing(detail: str) -> bool:
     """print-now accepted the start but native heating/leveling is still running.
 
@@ -182,16 +230,8 @@ def still_preparing(detail: str) -> bool:
     text = str(detail or "")
     if PREPARING_MARK in text or SUBMITTED_MARK in text:
         return True
-    # The AD5X mapped native route reports "MAPPED START READBACK {...}" with phase preparing.
-    for line in reversed(text.splitlines()):
-        if "MAPPED START READBACK" not in line or "{" not in line:
-            continue
-        try:
-            value = json.loads(line[line.find("{"):])
-        except ValueError:
-            return False
-        return isinstance(value, dict) and value.get("started") and value.get("outcome") != "printing"
-    return False
+    outcome = start_outcome(text)
+    return bool(outcome.get("started")) and outcome.get("outcome") != "printing"
 
 
 def started_file(detail: str) -> str | None:

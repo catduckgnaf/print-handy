@@ -57,3 +57,30 @@ _config.set_override(TEST_SETTINGS)
 def _isolated_launch_state(tmp_path, monkeypatch):
     """Printer leases and consumed approvals live in a per-test database, never the profile's."""
     monkeypatch.setenv("PRINT_HANDY_LAUNCH_DB", str(tmp_path / "print_handy_launches.sqlite3"))
+
+
+class _FakeStartClock:
+    """A start-confirmation window that costs no wall time: each sleep advances the clock."""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+@pytest.fixture(autouse=True)
+def _instant_start_confirmation(monkeypatch):
+    """Every transport polls its start readback over a window (model_job._poll_start_confirmation).
+
+    Tests drive that window on a fake clock instead of sleeping; one that wants to assert on the clock
+    patches _confirm_clock and _confirm_sleep itself, which wins over this default.
+    """
+    from print_handy.core import model_job
+    clock = _FakeStartClock()
+    monkeypatch.setattr(model_job, "_confirm_clock", clock)
+    monkeypatch.setattr(model_job, "_confirm_sleep", clock.sleep)
+    return clock

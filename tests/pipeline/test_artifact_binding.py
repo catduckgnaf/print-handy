@@ -136,10 +136,16 @@ def test_callback_swap_stale_refusal_and_reslice_launch(tmp_path, monkeypatch):
     command = submissions[0]['script']
     assert command.startswith('SET_ZCOLOR ') and command.count('SET_ZCOLOR') == 1
     assert 'T0=1' in command and 'T0=4' not in command and 'AUTO_ASSIGN=0' in command
-    # Replays cannot resubmit: the approval is single use, and the checkpoint
-    # refuses even an explicit reprint approval until reconciled.
+    # A replay cannot resubmit: the approval is single use.
     with pytest.raises(SystemExit, match='already used'):
         mj.print_now(str(jp))
-    with pytest.raises(RuntimeError, match='checkpoint exists'):
-        mj.print_now(str(jp), reprint=True)
     assert len(submissions) == 1
+    # The checkpoint records one launch attempt (print-again reads it), so it stays; but it must not
+    # outlive its attempt as a block: an explicit reprint (a new bed-clear approval, multi-copy plates)
+    # is a new attempt and replaces it. Only an unapproved replay is refused (test_launch_state).
+    first_attempt = json.loads(g.with_suffix('.launch.json').read_text())
+    assert first_attempt['accepted'] is True and first_attempt['lease_token']
+    out = mj.print_now(str(jp), reprint=True)
+    assert len(submissions) == 2 and out['submission_count'] == 1
+    second_attempt = json.loads(g.with_suffix('.launch.json').read_text())
+    assert second_attempt['lease_token'] != first_attempt['lease_token']
