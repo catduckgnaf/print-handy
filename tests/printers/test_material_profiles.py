@@ -109,7 +109,12 @@ def test_bambu_lab_keeps_its_checked_vendor_profiles_and_everyone_else_uses_the_
     ("PETG", "stainless_steel", 240, 245), ("ABS", "tungsten_carbide", 245, 245),
     ("TPU", "ruby", 230, 230), ("ASA", "diamond", 260, 260),
 ])
-def test_material_and_nozzle_type_compose_in_slice(slice_inputs, material, nozzle_type, base, expected):
+def test_material_and_nozzle_type_compose_in_slice(slice_inputs, monkeypatch, material, nozzle_type, base, expected):
+    # The shared legacy fixtures deliberately zero steel offsets. Exercise the
+    # shipped defaults here without inheriting that test-only override.
+    config = settings.current()
+    monkeypatch.setattr(settings, "current", lambda: {**config, "nozzle_temp_offsets": {}})
+    assert expected - base == (5 if nozzle_type in {"hardened_steel", "stainless_steel"} else 0)
     state = stale_state(material)
     state["nozzle"] = {**state.get("nozzle", {}), "type": nozzle_type, "diameter_mm": 0.4}
     assert slice_inputs.slice("flashforge.ad5x", state)[0] == expected
