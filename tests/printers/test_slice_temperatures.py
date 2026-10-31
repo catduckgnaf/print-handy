@@ -256,3 +256,22 @@ def test_offline_verification_checks_the_slot_job_at_its_own_temperature(tmp_pat
         message = str(exc)
     temperature_errors = [m for m in ("startup heater prefix", "START_PRINT matching") if m in message]
     assert (temperature_errors == []) is ok, message
+
+
+def test_bare_seeded_pla_default_does_not_hold_for_the_active_silk_spool():
+    """Live AD5X 2026-10-31 (Print #64): active spool IS slot 2 Silk PLA #17, temps_c 210/60 with no
+    temperature_resolution (the seeded PLA default). It must resolve to Silk's 220, not slice at 210."""
+    from print_handy.core import printer_state
+    state = operator_record()
+    state["spool"] = {**state["spool"], "spoolman_id": 17}
+    temps, resolution = printer_state.slice_temperatures(state)
+    assert temps == {"nozzle": 220, "bed": 60}
+    assert resolution["material"] == "Silk PLA"
+
+
+def test_bare_explicit_legacy_temperatures_still_hold():
+    from print_handy.core import printer_state
+    state = operator_record()
+    state["spool"] = {**state["spool"], "spoolman_id": 17}
+    state["temps_c"] = {"nozzle": 225, "bed": 55}
+    assert printer_state.slice_temperatures(state)[0] == {"nozzle": 225, "bed": 55}

@@ -323,6 +323,18 @@ def resolve_material_temperatures(material, filament, config=None):
     return family, result, sources
 
 
+def _is_seeded_default(material, stored):
+    """True when stored temps equal the unadjusted family default for material while its
+    variant adjustment would change them: a seeded value, not explicit legacy temperatures."""
+    try:
+        family, targets, _ = resolve_material_temperatures(material, {})
+        base = resolve_material_temperatures(family, {})[1]
+    except (ValueError, RuntimeError):
+        return False
+    same = all(int(stored.get(k) or -1) == int(base[k]) for k in ("nozzle", "bed"))
+    return same and (targets["nozzle"], targets["bed"]) != (base["nozzle"], base["bed"])
+
+
 def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True):
     """Nozzle/bed targets for slicing the job's selected spool, resolved from that spool.
 
@@ -346,6 +358,10 @@ def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True
         if stored:
             return dict(stored), resolution  # _material_temperature_contract reports the missing material
         raise RuntimeError("selected spool has no material; cannot determine safe temperatures")
+    if filament is None and stored_ok and stored and not resolution and _is_seeded_default(material, stored):
+        # A bare record holding exactly the family default (what seeding writes: 210/60 for
+        # every PLA) is not an operator choice; Silk PLA sliced at 210 °C on 2026-10-31 (#64).
+        stored_ok = False
     if filament is None and stored_ok and stored and (not resolution or (
             resolution.get("material") == material and resolution.get("spoolman_id") == spool.get("spoolman_id"))):
         return dict(stored), resolution

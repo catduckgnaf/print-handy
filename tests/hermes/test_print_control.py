@@ -393,3 +393,10 @@ def test_next_copy_question_and_prompt_show_remaining_figures(tmp_path):
     unknown = print_control.next_copy_question(
         {"copy_number": 2, "copies": 3, "title": "Hook", "gcode": str(tmp_path / "gone.gcode")})
     assert unknown == "Print copy 2 of 3 of Hook?\nConfirm the bed is clear."
+
+
+def test_start_targets_text_reads_the_uploaded_gcode():
+    gcode = "; h\nM190 S60\nM104 S210 T0\nSTART_PRINT BED_TEMP=60 EXTRUDER_TEMP=220 MESH=auto\nG1 X1\n"
+    assert print_control.start_targets_text(gcode) == "Nozzle 220 °C · Bed 60 °C"
+    assert print_control.start_targets_text("M140 S65\nM104 S235\nG28\nG1 X1\n") == "Nozzle 235 °C · Bed 65 °C"
+    assert print_control.start_targets_text("G28\nG1 X1\n") == ""
