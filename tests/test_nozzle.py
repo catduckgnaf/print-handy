@@ -434,3 +434,16 @@ def test_shipped_offsets_match_the_nozzle_data_defaults():
     assert {k: float(v) for k, v in shipped_toml.items()} == expected
     loaded = settings.load(local=False, environ={})["nozzle_temp_offsets"]
     assert loaded["hardened_steel"] == loaded["stainless_steel"] == 5.0
+
+
+def test_shipped_offsets_raise_a_steel_nozzle_by_five(monkeypatch):
+    """With the shipped settings (no test pin), a steel nozzle slices 5 C above the material baseline."""
+    from print_handy.core import nozzle
+
+    shipped = settings.load(local=False, environ={})
+    monkeypatch.setattr(settings, "current", lambda: shipped)
+    assert nozzle.effective_nozzle_temperature("stainless_steel", 210) == 215
+    assert nozzle.effective_nozzle_temperature("hardened_steel", 220) == 225
+    assert nozzle.effective_nozzle_temperature("brass", 210) == 210
+    assert nozzle.effective_nozzle_temperature("tungsten_carbide", 210) == 210
+
