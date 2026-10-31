@@ -17,7 +17,7 @@ import subprocess
 # Slicer triangle painting only (Bambu/Orca paint_color, PrusaSlicer
 # mmu_segmentation): the painted-region pipeline can split exactly these.
 # Core 3MF materials (basematerials/colorgroup with object pid/pindex) are
-# per-object author colours, read by _core_material_colors; they are not
+# per-object author colors, read by _core_material_colors; they are not
 # paint (#711). Before #711 they set painted with no palette, which asked an
 # unanswerable 'painted:unknown' question and then rejected every answer.
 _PAINT_TAGS = ()
@@ -285,11 +285,11 @@ def _annotate_parts(archive, names, parts, filaments):
 
 
 def _core_material_colors(root, objects, parts):
-    """Author colours from core 3MF materials (#711): object pid/pindex into basematerials/colorgroup.
+    """Author colors from core 3MF materials (#711): object pid/pindex into basematerials/colorgroup.
 
-    Plain 3MF exports (Blender, Fusion, generators) carry per-object colours
+    Plain 3MF exports (Blender, Fusion, generators) carry per-object colors
     here instead of a slicer palette. Display only; a part that already has a
-    slicer palette colour keeps it.
+    slicer palette color keeps it.
     """
     groups = {}
     for node in root.iter():
@@ -317,7 +317,7 @@ def _core_material_colors(root, objects, parts):
         color = color_of(objects.get(part.get('part_id'))) or color_of(objects.get(part.get('object_id')))
         if color:
             found[id(part)] = color
-    if len(set(found.values())) > 1:  # one colour everywhere tells the operator nothing
+    if len(set(found.values())) > 1:  # one color everywhere tells the operator nothing
         for part in parts:
             if id(part) in found:
                 part['author_color'] = found[id(part)]

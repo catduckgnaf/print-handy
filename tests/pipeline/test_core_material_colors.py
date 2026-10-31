@@ -1,8 +1,8 @@
-"""Core 3MF material colours (#711).
+"""Core 3MF material colors (#711).
 
-Plain 3MF exports carry per-object colours as <basematerials>/<colorgroup>
+Plain 3MF exports carry per-object colors as <basematerials>/<colorgroup>
 referenced by object pid/pindex, with no slicer palette. They must read as
-author colours on ordinary per-part questions, never as triangle paint (which
+author colors on ordinary per-part questions, never as triangle paint (which
 asked an unanswerable 'painted:unknown' question and rejected every answer).
 Every model here is generated in the test, so it is CC0 and public.
 """
