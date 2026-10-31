@@ -32,7 +32,8 @@ def test_mesh_bodies_are_skipped_but_mesh_presence_is_kept():
 
 def test_paint_detection_matches_tags_and_attributes():
     from print_handy.core import source_colors as sc
-    assert sc._has_paint(b'<m:basematerials id="1">')
+    # Core 3MF materials are author colours, not paint (#711).
+    assert not sc._has_paint(b'<m:basematerials id="1">')
     assert sc._has_paint(b'<triangle v1="0" paint_color="4"/>')
-    assert sc._has_paint(b'<triangle v1="0" p1="2"/>')
+    assert not sc._has_paint(b'<triangle v1="0" p1="2"/>')
     assert not sc._has_paint(b'<triangle v1="0" v2="1"/><colorgroupish>')
