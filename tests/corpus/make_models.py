@@ -204,6 +204,61 @@ def write_3mf(path, shapes, plates, palette, support=False, *, omit_plate_metada
             archive.writestr(info, files[name])
 
 
+def write_core_3mf(path, shapes, *, style="basematerials", triangle_colors=None):
+    """Plain core 3MF (no slicer metadata), the shape Blender/Fusion/generators export (#711, #714).
+
+    shapes: [(name, hex color or None, mesh, (x, y))]. style "basematerials" puts
+    every shape as a component of one assembly with object pid/pindex into
+    <basematerials>; "colorgroup" uses separate build items with m:colorgroup.
+    triangle_colors: per-triangle core colors on the first shape (p1 index list).
+    """
+    palette = []
+    for _, color, _, _ in shapes:
+        if color and color not in palette:
+            palette.append(color)
+    for color in triangle_colors or ():
+        if color not in palette:
+            palette.append(color)
+    if style == "colorgroup":
+        res = ['<m:colorgroup id="1">'] + [f'<m:color color="{c}FF"/>' for c in palette] + ['</m:colorgroup>']
+    else:
+        res = ['<basematerials id="1">'] + [f'<base name="{c}" displaycolor="{c}"/>' for c in palette] + ['</basematerials>']
+    out = ['<?xml version="1.0" encoding="UTF-8"?>',
+           f'<model unit="millimeter" xml:lang="en-US" xmlns="{NS}" '
+           'xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02">',
+           '<metadata name="Title">Corpus core 3MF (CC0)</metadata>', '<resources>'] + res
+    for index, (name, color, (vertices, faces), (x, y)) in enumerate(shapes):
+        prop = f' pid="1" pindex="{palette.index(color)}"' if color else ""
+        out.append(f'<object id="{index + 2}" name="{html.escape(name, quote=True)}" type="model"{prop}><mesh><vertices>')
+        out += [f'<vertex x="{vx + x:.4f}" y="{vy + y:.4f}" z="{vz:.4f}"/>' for vx, vy, vz in vertices]
+        out.append('</vertices><triangles>')
+        for t, (a, b, c) in enumerate(faces):
+            extra = ""
+            if index == 0 and triangle_colors:
+                extra = f' pid="1" p1="{palette.index(triangle_colors[t % len(triangle_colors)])}"'
+            out.append(f'<triangle v1="{a}" v2="{b}" v3="{c}"{extra}/>')
+        out.append('</triangles></mesh></object>')
+    count = len(shapes)
+    if style == "colorgroup":
+        build = [f'<item objectid="{i + 2}"/>' for i in range(count)]
+    else:
+        out.append(f'<object id="{count + 2}" name="Assembly" type="model"><components>'
+                   + "".join(f'<component objectid="{i + 2}"/>' for i in range(count)) + '</components></object>')
+        build = [f'<item objectid="{count + 2}"/>']
+    out += ['</resources><build>'] + build + ['</build></model>']
+    files = {
+        "[Content_Types].xml": '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>',
+        "_rels/.rels": '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>',
+        "3D/3dmodel.model": "\n".join(out),
+    }
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name in sorted(files):
+            info = zipfile.ZipInfo(name, STAMP)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info, files[name])
+
+
 def torus_triangles(major_radius=28.0, minor_radius=9.7, major_segments=1000, minor_segments=500):
     """Stream a 75.4 x 75.4 x 19.4 mm torus as exactly one million facets."""
     tau = 2 * math.pi
@@ -282,6 +337,17 @@ def build():
     write_3mf(cases / "missing-plate-metadata/model.3mf",
               [("No plate metadata", 1, box(24, 18, 8), (40, 50))],
               [("One plate", [0])], [palette[0]], omit_plate_metadata=True)
+    # Plain core 3MFs with core material colors and no slicer metadata (#711, #714).
+    write_core_3mf(cases / "core-basematerials-parts/model.3mf",
+                   [("body", "#FAF9F7", box(30, 30, 20), (40, 60)), ("hat", "#383845", box(20, 20, 15), (80, 60)),
+                    ("band", "#FFB3C4", box(20, 6, 4), (120, 60)), ("gold", "#067749", cylinder(5, 4), (40, 110))])
+    write_core_3mf(cases / "core-colorgroup-items/model.3mf",
+                   [("Left", "#FFFFFF", box(25, 25, 8), (40, 60)), ("Middle", "#000000", box(25, 25, 8), (80, 60)),
+                    ("Right", "#FF80C0", box(25, 25, 8), (120, 60))], style="colorgroup")
+    write_core_3mf(cases / "core-one-color/model.3mf",
+                   [("Gear", "#C0392B", cylinder(15, 6), (50, 60)), ("Axle", "#C0392B", cylinder(4, 20), (100, 60))])
+    write_core_3mf(cases / "core-triangle-colors/model.3mf",
+                   [("Checker", None, box(30, 30, 10), (60, 60))], triangle_colors=["#FFFFFF", "#000000"])
     quantity_parts = [("Quantity A", 1, box(35, 30, 8), (35, 40)),
                       ("Quantity B", 1, box(35, 30, 8), (95, 40))]
     write_3mf(cases / "copies-multiple-plates/model.3mf", quantity_parts,

@@ -182,6 +182,8 @@ def test_checked_in_models_match_the_generator(tmp_path, monkeypatch):
             ("unicode-part-extra-plate", ".3mf"), ("rotation-fit", ".3mf"),
             ("duplicate-part-names", ".3mf"), ("missing-plate-metadata", ".3mf"),
             ("copies-multiple-plates", ".3mf"),
+            ("core-basematerials-parts", ".3mf"), ("core-colorgroup-items", ".3mf"),
+            ("core-one-color", ".3mf"), ("core-triangle-colors", ".3mf"),
             ("stl-must-shrink", ".stl"), ("stl-needs-supports", ".stl"),
             ("stl-single-part", ".stl"), ("stl-thin-footprint", ".stl"),
             ("stl-ascii", ".stl"), ("stl-text-solid-header", ".stl"), ("stl-tiny", ".stl"),
