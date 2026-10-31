@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 DEFAULT_BASELINE = Path(__file__).with_name("timing_baseline.json")
-METRICS = ("wall_s", "first_prompt_s")
+METRICS = ("wall_s", "first_prompt_s", "fit_check_s")
 
 
 def key(row):
@@ -63,6 +63,10 @@ def check(rows, baseline):
         if row.get("result") in ("FAIL", "ERROR", "XPASS"):
             problems.append(f"{k}: flow result {row.get('result')} ({row.get('error', '')})")
             continue
+        # Separate absolute ceiling on the bed fit check, enforced even for a case with no baseline.
+        budget = baseline.get("fit_check_budget_s")
+        if budget is not None and row.get("fit_check_s") is not None and row["fit_check_s"] > float(budget):
+            problems.append(f"{k}: fit_check_s {row['fit_check_s']:.2f}s > fit-check budget {float(budget):.2f}s")
         entry = cases.get(k)
         if entry is None:
             problems.append(f"{k}: no baseline; record one with --record and review it")
@@ -86,6 +90,8 @@ def record(rows, old=None):
     """A proposed baseline from a run. Entries that got slower keep raised_from and need a reason."""
     old = old or {}
     out = {"tolerance": old.get("tolerance", 0.25), "slack_s": old.get("slack_s", 1.0), "cases": {}}
+    if "fit_check_budget_s" in old:
+        out["fit_check_budget_s"] = old["fit_check_budget_s"]
     for row in rows:
         if row.get("result") not in ("PASS", "XFAIL"):
             continue
@@ -93,7 +99,7 @@ def record(rows, old=None):
         entry = {m: round(row[m], 2) for m in METRICS if row.get(m) is not None}
         prev = old.get("cases", {}).get(k)
         if prev and any(entry.get(m, 0) > prev.get(m, 0) for m in METRICS):
-            entry["raised_from"] = {m: prev.get(m) for m in METRICS}
+            entry["raised_from"] = {m: prev.get(m) for m in METRICS if m in prev}
             entry["reason"] = prev.get("reason", "")
         out["cases"][k] = entry
     return out

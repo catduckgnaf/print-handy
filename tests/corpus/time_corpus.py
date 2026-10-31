@@ -37,7 +37,14 @@ def _phases(run):
     def first(kind):
         return next((t - t0 for t, e in zip(times, events) if e[0] == kind), None)
 
+    fit_s, opened = 0.0, None
+    for t, e in zip(times, events):
+        if e[0] == "fit_check_start":
+            opened = t
+        elif e[0] == "fit_check_end" and opened is not None:
+            fit_s, opened = fit_s + (t - opened), None
     return {
+        "fit_check_s": fit_s if any(e[0] == "fit_check_end" for e in events) else None,
         "first_prompt_s": first("prompt"),
         "audit_start_s": first("audit_start"),
         "slice_start_s": first("slice_start"),
