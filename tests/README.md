@@ -153,3 +153,26 @@ remainder), and the Matrix message-ordering flake root cause (scope 4).
   (A1 primary; fallback with a dead Orca command) are strict xfails
   against #434; the fix removes the markers. The A1 guard's
   Orca-only generator rule is the second layer #434 must reconcile.
+
+## What runs when, and what is not covered (#594)
+
+| Tier | Where | What it pins |
+| --- | --- | --- |
+| Every PR | `ci.yml` | Everything under `tests/` with the fake slicer, including `tests/corpus/test_journey_matrix.py` (pinned fit option x color mode inventory), `test_spool_fixture.py` (state built by the real `create_spool` and `bind_slot`), and `test_timing_gate.py`. |
+| Every PR | `ci.yml` real Orca job | The generated CC0 corpus under `tests/corpus/cases` sliced by real Orca. |
+| Every PR | `ci.yml` timing job | Median of 3 repeats against `timing_baseline.json`: `wall_s`, `first_prompt_s`, `fit_check_s`, plus the absolute `fit_check_budget_s` ceiling, which is enforced even for a case with no baseline entry. |
+| Weekly | `model-corpus.yml` | The downloaded public model corpus, sharded. |
+| Live only, not in CI | operator | Real printer, real Spoolman and Moonraker, real Discord, the private Duplo 3MF. |
+
+Journey matrix: the rows in `test_journey_matrix.py` are the combinations the intake really offers, found by running
+it. Combinations that are not offered (for example a split for a single oversized part, or a color-mode prompt for a
+one-part model) are listed in `UNSUPPORTED` with the reason instead of being invented.
+
+Fit-check time: `harness.FIT_CHECK_STEPS` names the offloaded bed fit probes. `time_corpus` sums their duration into
+`fit_check_s`. This measures the fit probes inside the fake Discord flow on a CI runner, not a user's wall clock.
+
+Known gaps, still open on #594: the private Duplo per-part rearrange model is not in CI (the public stand-in in
+`tests/pipeline/test_fit_auto_rearrange.py` covers the logic only); the matrix does not cross every fit option with
+every color mode, only the supported subset above; the main corpus default state file is still the handwritten
+`printer_hardware.json`, and only the spool fixture tests use the built state; restart 503 coverage here is the
+Spoolman bind refusal, not a gateway restart or an ack-before-slow-work test.
