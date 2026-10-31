@@ -21,6 +21,7 @@ SUPPORTED = [
     ("split-plan", ONE, "split 2 plates", "STARTED", "split"),
     ("split-plan", GROUP, "split 2 plates", "STARTED", "split"),
     ("split-plan", ONE, "rotated 90", "STARTED", None),
+    ("split-plan", GROUP, "rotated 90", "STARTED", "split"),  # per-part resized job: one fitted plate per slot
     ("many-parts", ONE, None, "STARTED", None),
     ("many-parts", GROUP, None, "STARTED", "merge"),
     ("many-parts", EACH, None, "STARTED", "merge"),
@@ -28,6 +29,7 @@ SUPPORTED = [
 ]
 # Combinations the product does not offer in this harness, with the reason (documented, not run).
 UNSUPPORTED = {
+    ("split-plan", "every part individually"): "two parts only offer one color, choose colors, or cancel; the per-part button needs three or more parts",
     ("must-shrink", "color-mode prompt"): "single-part model: no color-mode prompt is asked",
     ("must-shrink", "split"): "a single part larger than the bed has no split option, only shrink",
     ("many-parts", "fit prompt"): "8 small parts fit one bed: no fit prompt is shown",
@@ -69,6 +71,32 @@ def test_journey(row, tmp_path):
     assert result.gcodes, "a started journey leaves sliced G-code"
     mode = (result.job.get("plate_merge") or {}).get("mode") or result.job.get("plate_mode")
     assert mode == plate_mode, (case_name, color, fit, mode)
+    # The chosen fit option decides scale and plate count; nothing is left implicit.
+    scale = result.receipt.get("scale") or 1.0
+    if fit and "split" in fit:
+        assert scale == 1.0 and len(result.gcodes) == 2, (scale, result.gcodes)
+    elif fit and "rotated" in fit:
+        assert 0.95 <= scale < 1.0 and len(result.gcodes) == 1, (scale, result.gcodes)
+    elif fit:
+        assert 0.78 <= scale <= 0.84 and len(result.gcodes) == 1, (scale, result.gcodes)
+    else:
+        assert scale == 1.0
+    assert len(result.starts) == 1, "exactly one start per journey"
+    for row in harness.gcode_checks(result):
+        assert row["mapping"], "embedded tool to slot map"
+        assert row["guard"].status != "blocked"
+
+
+@pytest.mark.parametrize("case_name", ["must-shrink", "split-plan"])
+def test_cancelling_the_fit_prompt_slices_nothing_and_starts_nothing(case_name, tmp_path):
+    case = next(harness.load_case(f) for f in harness.case_dirs() if f.name == case_name)
+    case.clicks = [{"question": "Inspected", "button": ONE}, {"question": "Choose", "button": "White"},
+                   {"question": "does not fit", "button": "Cancel"}]
+    result = harness.run_case(case, tmp_path)
+    assert any("does not fit" in q["question"] for q in result.adapter.questions)
+    assert result.receipt.get("status") != "STARTED", result.receipt
+    assert not result.starts and not result.slice_starts and not result.gcodes
+    assert not [e for e in result.events if e[0] == "slice"], "no slicer run after a refused fit"
 
 
 def test_inventory_is_pinned():
