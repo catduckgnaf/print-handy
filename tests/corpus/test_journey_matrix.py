@@ -4,8 +4,7 @@ Every row drives the production intake on a generated CC0 model with the fake Di
 is only listed when the prompts it needs are really offered; UNSUPPORTED documents combinations the
 product does not offer, so nobody has to invent them. Adding a row means a new, reviewed line here.
 """
-import tempfile
-from pathlib import Path
+from types import SimpleNamespace as S
 
 import pytest
 
@@ -33,7 +32,8 @@ UNSUPPORTED = {
     ("must-shrink", "color-mode prompt"): "single-part model: no color-mode prompt is asked",
     ("must-shrink", "split"): "a single part larger than the bed has no split option, only shrink",
     ("many-parts", "fit prompt"): "8 small parts fit one bed: no fit prompt is shown",
-    ("duplo-rearrange", "fake slicer"): "per-part rearrange needs the private Duplo model and the real slicer geometry",
+    ("duplo-rearrange", "private geometry"): "private Duplo is not in CI; generated four-part rearrange is exercised below, not excluded",
+    ("split-plan", "shrink button"): "the offered buttons are split, rotated 96.3%, and cancel; shrink is not a separate button for this geometry",
 }
 
 
@@ -97,6 +97,24 @@ def test_cancelling_the_fit_prompt_slices_nothing_and_starts_nothing(case_name, 
     assert result.receipt.get("status") != "STARTED", result.receipt
     assert not result.starts and not result.slice_starts and not result.gcodes
     assert not [e for e in result.events if e[0] == "slice"], "no slicer run after a refused fit"
+
+
+@pytest.mark.parametrize("color", [
+    pytest.param(ONE, marks=pytest.mark.xfail(strict=True, reason=(
+        "one-color auto-rearrange rewrites the source but leaves color_decisions bound to the original "
+        "SHA256; slice_model rejects it before slicing (#594 phase 2 product defect)"))), GROUP])
+def test_generated_rearrange_journey(color, tmp_path):
+    from . import make_models
+    model = tmp_path / "rearrange.3mf"
+    make_models.write_3mf(model,
+        [(f"Part {i}", 1, make_models.box(30, 20, 5), (i * 100, 0)) for i in range(4)],
+        [("Plate 1", list(range(4)))], [("#FFFFFF", "PLA")])
+    case = S(name="generated-rearrange", model=model, clicks=clicks(color, None))
+    result = harness.run_case(case, tmp_path / "run")
+    assert result.receipt.get("fit_auto_rearranged") is True
+    assert result.receipt.get("scale") == 1.0
+    assert result.receipt.get("status") == "STARTED", result.receipt
+    assert len(result.gcodes) == 1 and len(result.starts) == 1
 
 
 def test_inventory_is_pinned():

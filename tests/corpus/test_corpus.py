@@ -169,9 +169,9 @@ def test_discord_flow(case, tmp_path):
 
 
 def _assert_flow_built_state(run):
-    """The journey sliced from slots made by create_spool and bind_slot, and never touched Spoolman again (#594)."""
+    """Slots came from create_spool/bind_slot; later bookkeeping stays inside the same fake."""
     assert run.spoolman is not None, "default corpus state must be built by the real spool flows"
-    assert len(run.spoolman.calls) == run.spoolman_calls_built, run.spoolman.calls[run.spoolman_calls_built:]
+    assert all(method == "GET" for method, _ in run.spoolman.calls[run.spoolman_calls_built:]), run.spoolman.calls
     slots = run.state["filament_slots"]
     assert sorted(slots) == ["1", "2", "3", "4"]
     assert [slots[k]["spoolman_id"] for k in "1234"] == [1, 2, 3, 4]

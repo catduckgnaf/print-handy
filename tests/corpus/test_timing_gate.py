@@ -88,3 +88,6 @@ def test_missing_fit_measurement_fails_for_required_case_only():
     assert check([fit_row(0.5)], req) == []
     assert check([row(4.0)], BASE) == []  # not required: no measurement is fine
     assert record([row(4.0)], req)["fit_check_required"] == ["single-part/hermes"]
+    from tests.corpus.timing_gate import median_rows
+    merged = median_rows([[fit_row(0.5)], [row(4.0)], [fit_row(0.6)]])
+    assert any("not measured" in p for p in check(merged, req))

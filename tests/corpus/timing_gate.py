@@ -45,7 +45,9 @@ def median_rows(runs):
         row = dict(bad or group[0], repeats=len(group))
         for metric in METRICS:
             values = [r[metric] for r in group if r.get(metric) is not None]
-            if values:
+            if metric == "fit_check_s" and len(values) != len(group):
+                row[metric] = None  # one omitted repeat must not be hidden by the median
+            elif values:
                 row[metric] = statistics.median(values)
         out.append(row)
     return out

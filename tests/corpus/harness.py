@@ -405,7 +405,19 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, in_gateway_env=
         patch(model_job, "verify_gcode", offline_verify)
         patch(print_next, "start", start)
         patch(prepared_intake.print_summary, "find_job", find_job)
-        enter(mock.patch("urllib.request.urlopen", side_effect=AssertionError("corpus flow reached the network")))
+        patch(prepared_intake._external.load("moonraker_event_listener"), "generate_roast", lambda *a, **kw: "")
+        network_attempts = []
+
+        def reject_network(*args, **kwargs):
+            network_attempts.append(getattr(args[0], "full_url", str(args[0])) if args else "unknown")
+            raise AssertionError("corpus flow reached the network")
+
+        # The print lifecycle reads cached spool data through the shared client too.
+        # Serve that expected bookkeeping request from the same fake used to build the slots.
+        from print_handy.core import spoolman_client
+        if spoolman is not None:
+            patch(spoolman_client, "request", lambda method, path, body=None, **kw: spoolman(method, path, body))
+        enter(mock.patch("urllib.request.urlopen", side_effect=reject_network))
         if real_slicer:
             # Flatpak Orca cannot see /tmp, and the fit probe writes its scratch files to tempfile's dir.
             (WORK / "tmp").mkdir(parents=True, exist_ok=True)
@@ -430,6 +442,8 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, in_gateway_env=
         receipt = json.loads(receipts[-1].read_text()) if receipts else {}
         job = json.loads(Path(receipt["job_json"]).read_text()) if receipt.get("job_json") else {}
         state = printer_state.load()
+        if spoolman is not None:
+            assert not network_attempts, f"corpus attempted unexpected network I/O: {network_attempts}"
     return S(outcome=outcome, receipt=receipt, job=job, state=state, adapter=adapter, starts=starts, events=events,
              slice_starts=slice_starts, state_root=state_root, receipts=receipts, archive=archive,
              gcodes=[Path(g) for g in receipt.get("gcodes", [])], audit_started=audit_started,

@@ -175,7 +175,9 @@ Phase 2 additions (#594):
 
 - Flow-built state: `harness.run_case` now defaults to a slot map produced by the real `create_spool` and `bind_slot`
   against fake Spoolman (`spool_fixture.build_state`). Every corpus case on both transports slices from it, and
-  `_assert_flow_built_state` fails if the state was not built that way or any journey made a Spoolman call afterwards.
+  `_assert_flow_built_state` fails if the state was not built that way or later fake bookkeeping mutates it.
+  The shared Spoolman client serves lifecycle GETs from that same fake. Unexpected urllib network attempts in
+  default flow-built journeys fail even if production code catches the transport exception; roast generation is stubbed.
   Deliberate invalid-state cases still pass an explicit handwritten state file. Gateway-env runs keep the handwritten file.
 - Journey matrix: added rotate (fits at about 0.95 to 1.0 scale, one plate), group-color split (scale 1.0, two plates)
   and per-journey scale, plate count, exactly one start and embedded tool to slot mapping assertions. Cancelling the
@@ -187,13 +189,21 @@ Phase 2 additions (#594):
   intake wizards, alert resume/pause/cancel.
 - Fit-check time: `timing_baseline.json` has `fit_check_required`, the ten case/transport rows that run the bed fit check.
   A required row with no `fit_check_s` measurement fails the gate, so omission cannot pass silently. The 10 s
-  `fit_check_budget_s` ceiling stays PROVISIONAL: the fake-flow probes measure about 0.01 to 0.05 s locally, which cannot
-  justify a tighter number for a real runner. It was not recalibrated.
+  `fit_check_budget_s` ceiling stays PROVISIONAL. Inspected #709 run [41242041079](https://github.com/catduckgnaf/print-handy/actions/runs/41242041079),
+  artifact `discord-timing`: three repeats of 54 flows, 30 non-null fit measurements across ten case/transport keys,
+  0.00219–0.02180 s (median 0.00776 s), `real_slicer=false`. This is useful mock-runner evidence but cannot calibrate a
+  real-Orca or Discord network budget. Missing measurements in any repeat remain missing after median aggregation.
 
-Known gaps, still open on #594: the private Duplo per-part rearrange model is not in CI (the public stand-in in
-`tests/pipeline/test_fit_auto_rearrange.py` covers the logic only); shrink, rotate and split are covered on public
-cases but not every fit option crosses every color mode, because the product does not offer all of them (see
-`UNSUPPORTED`); product gap found by the ack tests: the spool-question same and cancel handlers do the printer or
-Spoolman call before responding, so they can pass Discord's 3 s window (strict xfail, no production change in this
-test-only phase); the original five failures were not replayed on 2.1.9; fit_check_s is uncalibrated against real
-runner data; restart 503 coverage is the Spoolman bind refusal, not a gateway restart.
+- Generated rearrange: four CC0 parts authored across 330 mm exercise automatic 100% rearrange without private Duplo.
+  Group-color completes one plate. One-color reproduces a production defect: `slice_model` rejects the rearranged
+  source with `color decisions must bind the exact source SHA256`. Its success assertion stays strict-xfail; no
+  production handler or hash guard was changed. This disproves the old blanket UNSUPPORTED exclusion.
+
+Known gaps, still open on #594: the private Duplo model is not in CI; the new generated rearrange journeys use a
+mock slicer and do not establish real-Orca rearrange coverage. Shrink, rotate and split are covered on public
+cases but not every fit option crosses every color mode (see `UNSUPPORTED` for model-specific unavailable buttons).
+Painted-fit and distinct per-part slot mapping across all fits remain incomplete. Product gaps: one-color
+rearrange's source hash binding and spool-question same/cancel doing printer or Spoolman work before responding
+(strict xfails, no production changes). Other handler families listed above have no new ordering proof.
+The original five failures were not replayed on 2.1.9; fit_check_s has mock-runner evidence only; restart 503
+coverage is the Spoolman bind refusal, not a gateway restart.
