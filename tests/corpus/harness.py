@@ -116,6 +116,11 @@ def case_dirs():
     return public + sorted(private)
 
 
+# The bed fit probes the intake offloads; their summed duration is the fit-check time (#594).
+FIT_CHECK_STEPS = frozenset({"fit_options", "orca_plate_capacity", "per_part_fit_options",
+                             "full_size_split_possible", "probe_single_plate_rearrange", "full_size_one_plate"})
+
+
 def load_case(folder):
     folder = Path(folder)
     data = tomllib.loads((folder / "case.toml").read_text())
@@ -353,6 +358,12 @@ def run_case(case, work, *, real_slicer=False, state_file=FIXTURE_STATE, in_gate
             if audit_started is not None:
                 audit_started.append(("audit_start", time.monotonic()))
             events.append(("audit_start", str(args[0]) if args else ""))
+        if getattr(func, "__name__", "") in FIT_CHECK_STEPS:
+            events.append(("fit_check_start", func.__name__))
+            try:
+                return await asyncio.to_thread(func, *args, **kwargs)
+            finally:
+                events.append(("fit_check_end", func.__name__))
         return await asyncio.to_thread(func, *args, **kwargs)
 
     def offline_verify(out):
