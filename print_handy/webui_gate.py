@@ -39,7 +39,7 @@ LOOPBACK_NAMES = frozenset({"localhost"})
 
 
 def webui_config(data=None):
-    """(enabled, host, port, access_token_env) from the resolved settings.
+    """(enabled, host, port, access_token_env, require_auth) from the resolved settings.
 
     Settings problems propagate as SettingsError, the gate's unresolved
     case (#256). docker/healthcheck.py reuses this for its Web UI row so
@@ -48,7 +48,8 @@ def webui_config(data=None):
     data = settings.load() if data is None else data
     webui = data["webui"]
     return (bool(webui["enabled"]), str(webui["host"]),
-            int(webui["port"] or 0), str(webui["access_token_env"]))
+            int(webui["port"] or 0), str(webui["access_token_env"]),
+            bool(webui.get("require_auth", True)))
 
 
 def is_loopback(host):
@@ -61,7 +62,7 @@ def is_loopback(host):
         return False
 
 
-def start_blocked(host, port, env_name, environ=None):
+def start_blocked(host, port, env_name, environ=None, require_auth=True):
     """Why an enabled Web UI must not start, or None when it may (#440).
 
     The one blocked case: a non-loopback bind with no access token in
@@ -69,10 +70,12 @@ def start_blocked(host, port, env_name, environ=None):
     that bind itself; the gate reports it first so the supervised
     container degrades to "no Web UI" with guidance instead of halting.
     docker/healthcheck.py mirrors this through the same helper so the
-    probe and the supervisor can never disagree.
+    probe and the supervisor can never disagree. ``require_auth`` false
+    is the operator's explicit opt-out ([webui] require_auth): nothing
+    is blocked then.
     """
     environ = os.environ if environ is None else environ
-    if is_loopback(host) or (environ.get(env_name) or ""):
+    if not require_auth or is_loopback(host) or (environ.get(env_name) or ""):
         return None
     return (f"webui gate: enabled on {host}:{port} but ${env_name} is empty: "
             f"a non-loopback Web UI requires an access token, so it was not "
@@ -84,23 +87,28 @@ def start_blocked(host, port, env_name, environ=None):
 
 def decide(data=None, environ=None):
     """0 when the supervisor should start the Web UI, 3 when it should not."""
-    enabled, host, port, env_name = webui_config(data)
+    enabled, host, port, env_name, require_auth = webui_config(data)
     if not (enabled and port > 0):
         return 3
-    return 3 if start_blocked(host, port, env_name, environ) else 0
+    return 3 if start_blocked(host, port, env_name, environ, require_auth) else 0
 
 
 def main():
     try:
-        enabled, host, port, env_name = webui_config()
+        enabled, host, port, env_name, require_auth = webui_config()
     except settings.SettingsError as exc:
         print(f"webui gate: configuration unresolved: {exc}", file=sys.stderr)
         return 2
     if enabled and port > 0:
-        blocked = start_blocked(host, port, env_name)
+        blocked = start_blocked(host, port, env_name, require_auth=require_auth)
         if blocked:
             print(blocked)
             return 3
+        if not require_auth:
+            print(f"webui gate: enabled on {host}:{port} with authentication OFF "
+                  f"([webui] require_auth = false): anyone who can reach the port "
+                  f"can use the Web UI")
+            return 0
         print(f"webui gate: enabled on {host}:{port}")
         return 0
     if enabled:

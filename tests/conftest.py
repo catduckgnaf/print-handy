@@ -18,6 +18,13 @@ import pytest
 # minimum values by tests/slicer/test_spacing_minimums_real.py (real Orca), and
 # fit behavior at the minimum preset by tests/pipeline/test_fit_auto_rearrange.py.
 os.environ.setdefault("PRINT_HANDY__LAYOUT__SPACING", "medium")
+# Likewise the temperature fixtures (fake slicer G-code, recorded starts, "stock" nozzles that resolve to
+# steel) were authored while the shipped config zeroed the #513 steel offsets. Pin them to 0 so those
+# fixtures keep their literal temperatures. The offsets are covered by tests/test_nozzle.py, the shipped
+# values by test_shipped_offsets_match_the_nozzle_data_defaults and the shipped behavior end to end by
+# test_shipped_offsets_raise_a_steel_nozzle_by_five.
+for _steel in ("HARDENED_STEEL", "STAINLESS_STEEL"):
+    os.environ.setdefault(f"PRINT_HANDY__NOZZLE_TEMP_OFFSETS__{_steel}", "0")
 
 from print_handy import settings  # noqa: E402
 from print_handy.hermes import _config

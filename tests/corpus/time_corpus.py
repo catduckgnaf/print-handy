@@ -21,6 +21,11 @@ from pathlib import Path
 
 from . import harness
 
+# Same pin as tests/conftest.py: the corpus fixtures carry literal temperatures from before the shipped
+# #513 steel offsets took effect.
+for _steel in ("HARDENED_STEEL", "STAINLESS_STEEL"):
+    os.environ.setdefault(f"PRINT_HANDY__NOZZLE_TEMP_OFFSETS__{_steel}", "0")
+
 
 def _phases(run):
     events = run.events
