@@ -15,8 +15,8 @@ model = "flashforge.ad5x"
 # Opt-in compensation offsets; every nozzle type defaults to 0 °C.
 [nozzle_temp_offsets]
 brass = 0.0
-hardened_steel = 0.0
-stainless_steel = 0.0
+hardened_steel = 5.0
+stainless_steel = 5.0
 ruby = 0.0
 tungsten_carbide = 0.0
 diamond = 0.0

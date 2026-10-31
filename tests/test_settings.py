@@ -416,7 +416,7 @@ class OverrideTests(unittest.TestCase):
         for bad in ({"mystery": 1}, {"brass": 16}, {"brass": True}):
             with self.subTest(offsets=bad), self.assertRaises(settings.SettingsError):
                 validate({**base, "nozzle_temp_offsets": bad})
-        valid = settings.load(local=self.toml("[nozzle_temp_offsets]\nhardened_steel = 5\n"))
+        valid = settings.load(local=self.toml("[nozzle_temp_offsets]\nhardened_steel = 5\n"), environ={})
         self.assertEqual(valid["nozzle_temp_offsets"]["hardened_steel"], 5.0)
 
     def test_relative_templates_resolve_from_the_repo(self):
