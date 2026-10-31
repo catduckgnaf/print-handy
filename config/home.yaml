@@ -7,8 +7,8 @@ printer:
   model: flashforge.ad5x
 nozzle_temp_offsets:
   brass: 0.0
-  hardened_steel: 0.0
-  stainless_steel: 0.0
+  hardened_steel: 5.0
+  stainless_steel: 5.0
   ruby: 0.0
   tungsten_carbide: 0.0
   diamond: 0.0
