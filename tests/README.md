@@ -177,7 +177,8 @@ Phase 2 additions (#594):
   against fake Spoolman (`spool_fixture.build_state`). Every corpus case on both transports slices from it, and
   `_assert_flow_built_state` fails if the state was not built that way or later fake bookkeeping mutates it.
   The shared Spoolman client serves lifecycle GETs from that same fake. Unexpected urllib network attempts in
-  default flow-built journeys fail even if production code catches the transport exception; roast generation is stubbed.
+  default flow-built journeys fail even if production code catches the transport exception; roast generation and
+  the multicolor summary's live purge-mode lookup are stubbed (purge mode is explicitly unavailable).
   Deliberate invalid-state cases still pass an explicit handwritten state file. Gateway-env runs keep the handwritten file.
 - Journey matrix: added rotate (fits at about 0.95 to 1.0 scale, one plate), group-color split (scale 1.0, two plates)
   and per-journey scale, plate count, exactly one start and embedded tool to slot mapping assertions. Cancelling the
