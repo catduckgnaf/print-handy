@@ -113,9 +113,12 @@ def access_token(data, environ=None):
 
     Only the name is a setting (``[webui] access_token_env``); the value
     comes from the environment and is never a setting, like every other
-    Print Handy secret.
+    Print Handy secret. With ``[webui] require_auth`` false the token is
+    deliberately ignored, so "" is returned even when it is set.
     """
     environ = os.environ if environ is None else environ
+    if not data["webui"].get("require_auth", True):
+        return ""
     return environ.get(data["webui"]["access_token_env"]) or ""
 
 
@@ -132,11 +135,12 @@ def check_start(data, environ=None):
             "webui: not started: [webui] port is 0 (unset); set a port above 0 to run it")
     host = webui["host"]
     token = access_token(data, environ)
-    if not is_loopback(host) and not token:
+    if webui.get("require_auth", True) and not is_loopback(host) and not token:
         raise WebUIServerError(
             f"webui: refusing to bind {host}: a non-loopback bind requires an "
             f"access token in ${webui['access_token_env']} (the environment variable "
-            f"[webui] access_token_env names); set the token or bind 127.0.0.1")
+            f"[webui] access_token_env names); set the token, bind 127.0.0.1, or "
+            f"set [webui] require_auth = false on a trusted network")
     return host, port, token
 
 
@@ -695,7 +699,7 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     cfg_host, cfg_port, token = check_start(data, environ)
     bind_host = cfg_host if host is None else host
     bind_port = cfg_port if port is None else int(port)
-    if not is_loopback(bind_host) and not token:
+    if data["webui"].get("require_auth", True) and not is_loopback(bind_host) and not token:
         raise WebUIServerError(
             f"webui: refusing to bind {bind_host}: a non-loopback bind requires an "
             f"access token in ${data['webui']['access_token_env']}")

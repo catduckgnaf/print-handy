@@ -136,6 +136,7 @@ The token's value is a secret held only in the environment variable named by `we
 
 - **Loopback bind** (`127.0.0.1`, another loopback address, `::1`, or `localhost`): the token is optional. If the named environment variable is set, the token is still required for requests.
 - **Any other bind host:** the token is required. If it is empty, the server refuses to start.
+- **`webui.require_auth = false`** (`PRINT_HANDY__WEBUI__REQUIRE_AUTH=false`): the explicit opt-out for a network you trust. The token is neither required nor checked on any bind host, even if it is set, and there is no login page. Anyone who can reach the port gets the whole Web UI, including printer controls and configuration writes (the per-form `_csrf` check still applies). The Docker gate logs `authentication OFF` at every start. The setting is deliberately not a Web UI field: turning auth off is a file or environment decision.
 - Requests that need the access token send it as the `X-WebUI-Token` header. For example:
 
   ```bash

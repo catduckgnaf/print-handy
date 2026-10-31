@@ -75,6 +75,9 @@ webui:
   host: "127.0.0.1"
   port: 0
   access_token_env: WEBUI_ACCESS_TOKEN
+  # false turns the access token off entirely, even on a LAN bind: anyone who
+  # can reach the port gets the Web UI. Only for a network you trust.
+  require_auth: true
 agent:
   # Stray-chat agent lane (#524 stage 3): an agent endpoint — any
   # OpenAI-compatible chat completions URL, e.g. a Hermes agent behind

@@ -28,7 +28,7 @@ class WebuiGateDecisionTests(unittest.TestCase):
     def test_enabled_with_a_port_starts(self):
         self.assertEqual(webui_gate.decide(data(True, 8080)), 0)
         self.assertEqual(webui_gate.webui_config(data(True, 8080)),
-                         (True, "127.0.0.1", 8080, "WEBUI_ACCESS_TOKEN"))
+                         (True, "127.0.0.1", 8080, "WEBUI_ACCESS_TOKEN", True))
 
     def test_disabled_never_starts(self):
         self.assertEqual(webui_gate.decide(data(False, 8080)), 3)
@@ -52,6 +52,21 @@ class WebuiGateDecisionTests(unittest.TestCase):
         # Loopback never needs a token.
         self.assertEqual(webui_gate.decide(data(True, 8088), environ={}), 0)
 
+    def test_require_auth_false_starts_a_lan_bind_without_a_token(self):
+        open_lan = data(True, 8088, host="0.0.0.0")
+        open_lan["webui"]["require_auth"] = False
+        self.assertEqual(webui_gate.decide(open_lan, environ={}), 0)
+        self.assertIsNone(webui_gate.start_blocked(
+            "0.0.0.0", 8088, "WEBUI_ACCESS_TOKEN", environ={}, require_auth=False))
+
+    def test_cli_warns_loudly_when_auth_is_off(self):
+        out = io.StringIO()
+        with mock.patch.object(webui_gate, "webui_config",
+                               return_value=(True, "0.0.0.0", 8088, "WEBUI_ACCESS_TOKEN", False)), \
+                contextlib.redirect_stdout(out):
+            self.assertEqual(webui_gate.main(), 0)
+        self.assertIn("authentication OFF", out.getvalue())
+
 
 class WebuiGateCliTests(unittest.TestCase):
     def run_gate(self, config):
@@ -59,11 +74,11 @@ class WebuiGateCliTests(unittest.TestCase):
             return webui_gate.main()
 
     def test_enabled_with_a_port_is_zero(self):
-        self.assertEqual(self.run_gate((True, "127.0.0.1", 8080, "WEBUI_ACCESS_TOKEN")), 0)
+        self.assertEqual(self.run_gate((True, "127.0.0.1", 8080, "WEBUI_ACCESS_TOKEN", True)), 0)
 
     def test_disabled_and_portless_are_three(self):
-        for config in ((False, "127.0.0.1", 8080, "WEBUI_ACCESS_TOKEN"),
-                       (True, "127.0.0.1", 0, "WEBUI_ACCESS_TOKEN")):
+        for config in ((False, "127.0.0.1", 8080, "WEBUI_ACCESS_TOKEN", True),
+                       (True, "127.0.0.1", 0, "WEBUI_ACCESS_TOKEN", True)):
             with self.subTest(config=config):
                 self.assertEqual(self.run_gate(config), 3)
 
@@ -79,7 +94,7 @@ class WebuiGateCliTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {}, clear=False), \
                 contextlib.redirect_stdout(out):
             os.environ.pop("WEBUI_ACCESS_TOKEN", None)
-            code = self.run_gate((True, "0.0.0.0", 8088, "WEBUI_ACCESS_TOKEN"))
+            code = self.run_gate((True, "0.0.0.0", 8088, "WEBUI_ACCESS_TOKEN", True))
         self.assertEqual(code, 3)
         text = out.getvalue()
         self.assertIn("WEBUI_ACCESS_TOKEN is empty", text)
@@ -117,7 +132,7 @@ class DockerHealthcheckWebuiRowTests(unittest.TestCase):
     def test_disabled_webui_is_an_ok_skip(self):
         module = load_docker_healthcheck()
         with mock.patch.object(module, "webui_config",
-                               return_value=(False, "127.0.0.1", 0, "WEBUI_ACCESS_TOKEN")):
+                               return_value=(False, "127.0.0.1", 0, "WEBUI_ACCESS_TOKEN", True)):
             code, out = self.run_main(module, mock.Mock(return_value=self.ok_response()))
         self.assertEqual(code, 0)
         self.assertIn("ok  webui: disabled", out)
@@ -125,7 +140,7 @@ class DockerHealthcheckWebuiRowTests(unittest.TestCase):
     def test_enabled_but_portless_is_an_ok_skip(self):
         module = load_docker_healthcheck()
         with mock.patch.object(module, "webui_config",
-                               return_value=(True, "127.0.0.1", 0, "WEBUI_ACCESS_TOKEN")):
+                               return_value=(True, "127.0.0.1", 0, "WEBUI_ACCESS_TOKEN", True)):
             code, out = self.run_main(module, mock.Mock(return_value=self.ok_response()))
         self.assertEqual(code, 0)
         self.assertIn("ok  webui: enabled but no port chosen; not started", out)
@@ -159,7 +174,7 @@ class DockerHealthcheckWebuiRowTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("WEBUI_ACCESS_TOKEN", None)
             with mock.patch.object(module, "webui_config",
-                                   return_value=(True, "0.0.0.0", 8088, "WEBUI_ACCESS_TOKEN")):
+                                   return_value=(True, "0.0.0.0", 8088, "WEBUI_ACCESS_TOKEN", True)):
                 code, out = self.run_main(module, urlopen)
         self.assertEqual(code, 0)
         self.assertIn("ok  webui: not started: webui gate: enabled on 0.0.0.0:8088", out)
@@ -174,7 +189,7 @@ class DockerHealthcheckWebuiRowTests(unittest.TestCase):
                 urlopen, probed = self.urlopen_for(status)
                 with mock.patch.dict(os.environ, {"WEBUI_ACCESS_TOKEN": "tok"}), \
                         mock.patch.object(module, "webui_config",
-                                          return_value=(True, "0.0.0.0", 8080, "WEBUI_ACCESS_TOKEN")):
+                                          return_value=(True, "0.0.0.0", 8080, "WEBUI_ACCESS_TOKEN", True)):
                     code, out = self.run_main(module, urlopen)
                 self.assertEqual(code, 0)
                 self.assertIn(f"ok  webui: serving on 0.0.0.0:8080 (HTTP {status})", out)
@@ -185,7 +200,7 @@ class DockerHealthcheckWebuiRowTests(unittest.TestCase):
         module = load_docker_healthcheck()
         urlopen, _probed = self.urlopen_for(urllib.error.URLError("refused"))
         with mock.patch.object(module, "webui_config",
-                               return_value=(True, "127.0.0.1", 8080, "WEBUI_ACCESS_TOKEN")):
+                               return_value=(True, "127.0.0.1", 8080, "WEBUI_ACCESS_TOKEN", True)):
             code, out = self.run_main(module, urlopen)
         self.assertEqual(code, 1)
         self.assertIn("FAIL  webui:", out)

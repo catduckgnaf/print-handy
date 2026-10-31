@@ -201,6 +201,31 @@ class ServerStartTests(unittest.TestCase):
         host, port, token = server.check_start(data, {"WEBUI_ACCESS_TOKEN": TOKEN})
         self.assertEqual((host, port, token), ("0.0.0.0", 8765, TOKEN))
 
+    def test_require_auth_false_binds_the_lan_without_a_token(self):
+        # The operator's explicit opt-out: a LAN bind starts with no token,
+        # and a token left in the environment is ignored rather than half-used.
+        with tempfile.TemporaryDirectory() as tmp:
+            data = load_settings(tmp, "webui:\n  enabled: true\n  host: 0.0.0.0\n"
+                                      "  port: 8765\n  require_auth: false\n")
+        self.assertEqual(server.check_start(data, {}), ("0.0.0.0", 8765, ""))
+        self.assertEqual(server.check_start(data, {"WEBUI_ACCESS_TOKEN": TOKEN}),
+                         ("0.0.0.0", 8765, ""))
+        self.assertEqual(server.access_token(data, {"WEBUI_ACCESS_TOKEN": TOKEN}), "")
+
+    def test_require_auth_defaults_on(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = load_settings(tmp, "webui:\n  enabled: true\n  host: 0.0.0.0\n  port: 8765\n")
+        self.assertIs(data["webui"]["require_auth"], True)
+        with self.assertRaises(server.WebUIServerError) as caught:
+            server.check_start(data, {})
+        self.assertIn("require_auth", str(caught.exception))
+
+    def test_require_auth_must_be_a_boolean(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(Exception) as caught:
+                load_settings(tmp, "webui:\n  require_auth: \"no\"\n")
+        self.assertIn("require_auth", str(caught.exception))
+
     def test_loopback_detection(self):
         for host in ("127.0.0.1", "127.5.0.9", "::1", "localhost"):
             self.assertTrue(server.is_loopback(host), host)

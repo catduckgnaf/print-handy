@@ -2,7 +2,7 @@
 
 # Unreleased
 
-Nothing yet.
+- Web UI auth opt-out: `webui.require_auth` (`PRINT_HANDY__WEBUI__REQUIRE_AUTH`, default `true`). Set `false` on a trusted network and the Web UI starts on a LAN bind with no access token and no login; a token left set is ignored. The Docker gate logs `authentication OFF` at start. Not editable from the Web UI itself.
 
 # Version 2.2.3
 
