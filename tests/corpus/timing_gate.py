@@ -67,6 +67,9 @@ def check(rows, baseline):
         budget = baseline.get("fit_check_budget_s")
         if budget is not None and row.get("fit_check_s") is not None and row["fit_check_s"] > float(budget):
             problems.append(f"{k}: fit_check_s {row['fit_check_s']:.2f}s > fit-check budget {float(budget):.2f}s")
+        # A case listed as fit-check-required must report a measurement; omission is not a pass.
+        if k in baseline.get("fit_check_required", []) and row.get("fit_check_s") is None:
+            problems.append(f"{k}: fit_check_s was not measured but this case must run the bed fit check")
         entry = cases.get(k)
         if entry is None:
             problems.append(f"{k}: no baseline; record one with --record and review it")
@@ -92,6 +95,8 @@ def record(rows, old=None):
     out = {"tolerance": old.get("tolerance", 0.25), "slack_s": old.get("slack_s", 1.0), "cases": {}}
     if "fit_check_budget_s" in old:
         out["fit_check_budget_s"] = old["fit_check_budget_s"]
+    if "fit_check_required" in old:
+        out["fit_check_required"] = old["fit_check_required"]
     for row in rows:
         if row.get("result") not in ("PASS", "XFAIL"):
             continue

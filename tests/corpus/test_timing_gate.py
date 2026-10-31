@@ -80,3 +80,11 @@ def test_fit_check_is_measured_from_the_real_intake_flow(tmp_path):
     row_ = time_corpus.run_one(case, "hermes", False, tmp_path)
     assert row_["result"] == "PASS", row_
     assert row_["fit_check_s"] is not None and 0 <= row_["fit_check_s"] <= row_["wall_s"]
+
+
+def test_missing_fit_measurement_fails_for_required_case_only():
+    req = dict(BASE, fit_check_required=["single-part/hermes"])
+    assert any("not measured" in p for p in check([row(4.0)], req))
+    assert check([fit_row(0.5)], req) == []
+    assert check([row(4.0)], BASE) == []  # not required: no measurement is fine
+    assert record([row(4.0)], req)["fit_check_required"] == ["single-part/hermes"]

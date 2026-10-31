@@ -218,6 +218,18 @@
   }
  },
  "fit_check_budget_s": 10.0,
+ "fit_check_required": [
+  "must-shrink/hermes",
+  "must-shrink/standalone",
+  "rotation-fit/hermes",
+  "rotation-fit/standalone",
+  "split-plan/hermes",
+  "split-plan/standalone",
+  "stl-must-shrink/hermes",
+  "stl-must-shrink/standalone",
+  "stl-tall/hermes",
+  "stl-tall/standalone"
+ ],
  "slack_s": 1.0,
  "tolerance": 0.25
 }

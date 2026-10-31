@@ -171,8 +171,29 @@ one-part model) are listed in `UNSUPPORTED` with the reason instead of being inv
 Fit-check time: `harness.FIT_CHECK_STEPS` names the offloaded bed fit probes. `time_corpus` sums their duration into
 `fit_check_s`. This measures the fit probes inside the fake Discord flow on a CI runner, not a user's wall clock.
 
+Phase 2 additions (#594):
+
+- Flow-built state: `harness.run_case` now defaults to a slot map produced by the real `create_spool` and `bind_slot`
+  against fake Spoolman (`spool_fixture.build_state`). Every corpus case on both transports slices from it, and
+  `_assert_flow_built_state` fails if the state was not built that way or any journey made a Spoolman call afterwards.
+  Deliberate invalid-state cases still pass an explicit handwritten state file. Gateway-env runs keep the handwritten file.
+- Journey matrix: added rotate (fits at about 0.95 to 1.0 scale, one plate), group-color split (scale 1.0, two plates)
+  and per-journey scale, plate count, exactly one start and embedded tool to slot mapping assertions. Cancelling the
+  fit prompt slices nothing, starts nothing and uploads nothing. These run the fake slicer: they prove the Discord and
+  pipeline journey, not real slicing. Real Orca per PR covers the generated corpus in the `ci.yml` real Orca job.
+- Ack order: `tests/hermes/test_component_ack_order.py` checks the interaction response is sent before the slow call
+  for plate confirm and intake Retry (passing), and for spool-question same and cancel (strict xfail, see below).
+  These are ordering tests with a fake Discord, not a real 3 s network proof. Not covered: insertion, new-spool and
+  intake wizards, alert resume/pause/cancel.
+- Fit-check time: `timing_baseline.json` has `fit_check_required`, the ten case/transport rows that run the bed fit check.
+  A required row with no `fit_check_s` measurement fails the gate, so omission cannot pass silently. The 10 s
+  `fit_check_budget_s` ceiling stays PROVISIONAL: the fake-flow probes measure about 0.01 to 0.05 s locally, which cannot
+  justify a tighter number for a real runner. It was not recalibrated.
+
 Known gaps, still open on #594: the private Duplo per-part rearrange model is not in CI (the public stand-in in
-`tests/pipeline/test_fit_auto_rearrange.py` covers the logic only); the matrix does not cross every fit option with
-every color mode, only the supported subset above; the main corpus default state file is still the handwritten
-`printer_hardware.json`, and only the spool fixture tests use the built state; restart 503 coverage here is the
-Spoolman bind refusal, not a gateway restart or an ack-before-slow-work test.
+`tests/pipeline/test_fit_auto_rearrange.py` covers the logic only); shrink, rotate and split are covered on public
+cases but not every fit option crosses every color mode, because the product does not offer all of them (see
+`UNSUPPORTED`); product gap found by the ack tests: the spool-question same and cancel handlers do the printer or
+Spoolman call before responding, so they can pass Discord's 3 s window (strict xfail, no production change in this
+test-only phase); the original five failures were not replayed on 2.1.9; fit_check_s is uncalibrated against real
+runner data; restart 503 coverage is the Spoolman bind refusal, not a gateway restart.
