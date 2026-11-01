@@ -1,12 +1,19 @@
 """Per-Z analysis helpers for issue #721 (controlled per-height cooling / speed test).
 
 Pure functions only: build the controlled STL fixtures and read Orca G-code back as
-per-layer records (Z, fan, feature types, outer-wall feedrates, accelerations), so the
-real-slicer tests can answer, from sliced output rather than assertion:
+per-layer records, so the real-slicer tests can answer, from sliced output rather
+than assertion:
 
 - does layer-time cooling / slowdown engage on short top layers?
 - does bridge / overhang fan engage where bridges occur high in the print?
 - is outer-wall speed / acceleration constant with height?
+
+Fan handling: Orca sets the part fan with M106 and may leave it unchanged for many
+layers (the PLA templates run fan_min_speed == fan_max_speed == 100%), so the
+analyzer tracks the active fan state across the whole file — including the header
+before the first layer — and attributes that state to each layer and feature.
+Outer-wall feeds count only extruding moves (a G1 with an E parameter); travel
+moves under the same feature comment are not wall speed.
 """
 import re
 
@@ -51,27 +58,44 @@ _TYPE_RE = re.compile(r"^;TYPE:(.+)$")
 _MOVE_RE = re.compile(r"^G1\s+(.*)$")
 _PARAM_RE = re.compile(r"([XYZEF])(-?\d+(?:\.\d+)?)")
 _ACCEL_RE = re.compile(r"^M204\s+.*?[PS](\d+(?:\.\d+)?)")
+_CONFIG_RE = re.compile(r"^;\s*([a-z_0-9]+)\s*=\s*(\S.*)$")
 
 
 def analyze_gcode(text):
     """Split Orca G-code into per-layer records.
 
-    Returns a list of dicts: {z, fans: [part-fan values 0-255 in order], types: set,
-    outer_wall_feeds: [mm/min], bridge_fan_max: float|None, accelerations: set}.
+    Each record: {z, fan_states: [active part-fan values seen in the layer],
+    types: set of feature names, outer_wall_feeds: [mm/min, extruding moves only],
+    bridge_fan_max: active fan while a bridge feature was printing (or None when the
+    layer has no bridge feature), accelerations: set from M204}.
     The part fan is M106 with no P index or P1; other indices are auxiliary/exhaust.
     """
     layers = []
     current = None
     feature = None
+    fan_state = None
 
     def new_layer(z):
-        return {"z": z, "fans": [], "types": set(), "outer_wall_feeds": [],
+        return {"z": z, "fan_states": [], "types": set(), "outer_wall_feeds": [],
                 "bridge_fan_max": None, "accelerations": set()}
 
     for raw in text.splitlines():
         line = raw.strip()
+        m = _FAN_RE.match(line)
+        if m and m.group(2) is not None and m.group(1) in (None, "1"):
+            fan_state = float(m.group(2))
+            if current is not None:
+                current["fan_states"].append(fan_state)
+            continue
+        if line.startswith("M107"):
+            fan_state = 0.0
+            if current is not None:
+                current["fan_states"].append(fan_state)
+            continue
         if line == ";LAYER_CHANGE":
             current = new_layer(None)
+            if fan_state is not None:
+                current["fan_states"].append(fan_state)
             layers.append(current)
             feature = None
             continue
@@ -87,31 +111,34 @@ def analyze_gcode(text):
         if m:
             feature = m.group(1).strip()
             current["types"].add(feature)
-            continue
-        m = _FAN_RE.match(line)
-        if m:
-            index, value = m.group(1), m.group(2)
-            if value is not None and index in (None, "1"):
-                v = float(value)
-                current["fans"].append(v)
-                if feature and "bridge" in feature.lower():
-                    current["bridge_fan_max"] = max(v, current["bridge_fan_max"] or 0.0)
-            continue
-        if line.startswith("M107"):
-            current["fans"].append(0.0)
+            if "bridge" in feature.lower() and fan_state is not None:
+                current["bridge_fan_max"] = max(fan_state, current["bridge_fan_max"] or 0.0)
             continue
         m = _ACCEL_RE.match(line)
         if m:
             current["accelerations"].add(float(m.group(1)))
             continue
         m = _MOVE_RE.match(line)
-        if m and feature and "outer" in feature.lower():
+        if m:
             params = dict(_PARAM_RE.findall(m.group(1)))
-            if "F" in params:
-                current["outer_wall_feeds"].append(float(params["F"]))
             if current["z"] is None and "Z" in params:
                 current["z"] = float(params["Z"])
+            if feature and "outer" in feature.lower() and "E" in params and "F" in params:
+                current["outer_wall_feeds"].append(float(params["F"]))
+            if feature and "bridge" in feature.lower() and fan_state is not None:
+                current["bridge_fan_max"] = max(fan_state, current["bridge_fan_max"] or 0.0)
     return [layer for layer in layers if layer["z"] is not None]
+
+
+def footer_config(text):
+    """The `; key = value` config block Orca appends to its G-code (single values:
+    evidence of whether a setting is constant for the whole print)."""
+    config = {}
+    for raw in text.splitlines():
+        m = _CONFIG_RE.match(raw.strip())
+        if m:
+            config[m.group(1)] = m.group(2).strip()
+    return config
 
 
 def band(layers, z_min, z_max):
@@ -119,7 +146,7 @@ def band(layers, z_min, z_max):
 
 
 def fan_max(layers):
-    values = [v for layer in layers for v in layer["fans"]]
+    values = [v for layer in layers for v in layer["fan_states"]]
     return max(values) if values else None
 
 

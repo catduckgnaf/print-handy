@@ -20,7 +20,7 @@ import pytest
 
 from print_handy import settings
 from tests.slicer.per_z_analysis import (FIXTURES, analyze_gcode, band, fan_max,
-                                         outer_wall_feed_range, write_fixture)
+                                         footer_config, outer_wall_feed_range, write_fixture)
 
 REAL = os.environ.get("PRINT_HANDY_REAL_SLICER") == "1"
 WORK = settings.ROOT / ".slicer-work"
@@ -47,7 +47,8 @@ def _slice(printer_key, fixture_name, tmp):
     out.mkdir()
     adapter = printers.get(printer_key, settings.current())
     gcode, _prov, _cfgs = orca_adapter.slice_model(stl, out, dict(STATE), adapter=adapter)
-    return analyze_gcode(gcode.read_text(errors="replace"))
+    text = gcode.read_text(errors="replace")
+    return analyze_gcode(text), footer_config(text)
 
 
 @pytest.mark.skipif(not REAL, reason="set PRINT_HANDY_REAL_SLICER=1 to slice with the real Orca CLI")
@@ -55,7 +56,7 @@ def _slice(printer_key, fixture_name, tmp):
 def test_layer_time_cooling_engages_on_short_top_layers(printer_key):
     WORK.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(dir=WORK) as tmp:
-        layers = _slice(printer_key, "small_top", Path(tmp))
+        layers, _cfg = _slice(printer_key, "small_top", Path(tmp))
     base = band(layers, 2, 18)
     top = band(layers, 80, 100)
     base_fan, top_fan = fan_max(base), fan_max(top)
@@ -77,12 +78,17 @@ def test_layer_time_cooling_engages_on_short_top_layers(printer_key):
 def test_bridge_fan_engages_high_in_the_print(printer_key):
     WORK.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(dir=WORK) as tmp:
-        layers = _slice(printer_key, "tall_bridge_top", Path(tmp))
+        layers, _cfg = _slice(printer_key, "tall_bridge_top", Path(tmp))
     high = band(layers, 115, 128)
-    bridge_fans = [layer["bridge_fan_max"] for layer in high if layer["bridge_fan_max"] is not None]
-    print(f"\n#721 {printer_key} tall_bridge_top: bridge fan values near top: {bridge_fans}")
-    assert bridge_fans, "no bridge feature fan recorded near the top of the bridge fixture"
-    assert max(bridge_fans) >= 128, "bridge fan did not engage strongly high in the print"
+    bridge_layers = [layer for layer in high
+                     if any("bridge" in t.lower() for t in layer["types"])]
+    bridge_fans = [layer["bridge_fan_max"] for layer in bridge_layers
+                   if layer["bridge_fan_max"] is not None]
+    print(f"\n#721 {printer_key} tall_bridge_top: bridge layers near top: {len(bridge_layers)}; "
+          f"fan during bridges: {bridge_fans}")
+    assert bridge_layers, "Orca produced no bridge feature near the top of the bridge fixture"
+    assert bridge_fans and max(bridge_fans) >= 128, (
+        "the part fan was not strongly on while bridges printed high in the print")
 
 
 @pytest.mark.skipif(not REAL, reason="set PRINT_HANDY_REAL_SLICER=1 to slice with the real Orca CLI")
@@ -90,10 +96,12 @@ def test_bridge_fan_engages_high_in_the_print(printer_key):
 def test_outer_wall_speed_and_acceleration_recorded_across_height(printer_key):
     WORK.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(dir=WORK) as tmp:
-        layers = _slice(printer_key, "tall_thin", Path(tmp))
+        layers, config = _slice(printer_key, "tall_thin", Path(tmp))
     low = outer_wall_feed_range(band(layers, 2, 46))
     high = outer_wall_feed_range(band(layers, 94, 140))
     accels = sorted({a for layer in layers for a in layer["accelerations"]})
     print(f"\n#721 {printer_key} tall_thin: outer-wall feed low={low} high={high}; "
-          f"accelerations={accels}")
+          f"M204 accelerations={accels}; footer outer_wall_speed="
+          f"{config.get('outer_wall_speed')} outer_wall_acceleration="
+          f"{config.get('outer_wall_acceleration')}")
     assert low[0] is not None and high[0] is not None, "outer-wall moves missing in a height band"
