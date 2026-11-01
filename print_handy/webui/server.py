@@ -383,7 +383,7 @@ class _Handler(BaseHTTPRequestHandler):
                 # First-run setup (#708): nothing but the setup page until
                 # the operator sets a password or chooses to leave it open.
                 if path == "/setup":
-                    self._send(200, pages.render_setup_page(self.server.form_token),
+                    self._send(200, pages.render_setup_page(self.server.setup_token),
                                "text/html; charset=utf-8")
                 elif self._browser_navigation(path):
                     self._redirect("/setup")
@@ -590,8 +590,11 @@ class _Handler(BaseHTTPRequestHandler):
     def _setup_submit(self):
         """POST /setup: save a password or the affirmative open choice.
 
-        Needs the page's form token, so a cross-origin page cannot answer
-        setup for the operator. Only the first completed setup counts;
+        Needs the setup page's own token, so a cross-origin page cannot
+        answer setup for the operator. That token is separate from the
+        config form token and authorizes nothing else: the setup page is
+        served to anyone before setup, so its token must never open a
+        config or debug write once a password protects the Web UI. Only the first completed setup counts;
         later posts (setup already done) just go to the status page.
         """
         form, error = self._read_form()
@@ -599,7 +602,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(error[0], {"ok": False, "reason": error[1]})
             return
         provided = (form.get(pages.CSRF_FIELD) or [""])[0]
-        if not (provided and hmac.compare_digest(provided, self.server.form_token)):
+        if not (provided and hmac.compare_digest(provided, self.server.setup_token)):
             self._json(403, {"ok": False, "reason": "missing or wrong form token: reload /setup"})
             return
         data = self.server.settings_data
@@ -618,7 +621,7 @@ class _Handler(BaseHTTPRequestHandler):
                 else:
                     raise access_module.AccessError("Choose one of the two options.")
             except access_module.AccessError as exc:
-                self._send(400, pages.render_setup_page(self.server.form_token, error=str(exc)),
+                self._send(400, pages.render_setup_page(self.server.setup_token, error=str(exc)),
                            "text/html; charset=utf-8")
                 return
             self.server.access = access_module.resolve(data, self.server.bind_host,
@@ -850,6 +853,9 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     # Per-server form token for config POSTs (pages.CSRF_FIELD): generated
     # here, kept only in memory, never the access token.
     server.form_token = secrets.token_urlsafe(32)
+    # First-run setup's own CSRF token (#708): shown to unauthenticated
+    # visitors on /setup, so it is never the config form token above.
+    server.setup_token = secrets.token_urlsafe(32)
     # Browser login sessions: {session id: expiry epoch}. Memory only —
     # a restart signs everyone out; nothing about a session is persisted.
     server.sessions = {}

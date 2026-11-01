@@ -157,6 +157,20 @@ class SetupFlowTests(unittest.TestCase):
         # Setup is done: /setup no longer offers a choice.
         self.assertEqual(self.request(port, "GET", "/setup", headers={"Cookie": cookie})[0], 303)
 
+    def test_setup_token_cannot_write_config_after_a_password_is_set(self):
+        # Review finding on #737: /setup is served to anyone before setup, so
+        # its token must not authorize /config or /debug writes afterwards.
+        httpd, port, _ = self.start()
+        setup_token = self.form_token(port)
+        self.assertNotEqual(setup_token, httpd.form_token)
+        self.post_setup(port, **{pages.CSRF_FIELD: setup_token, "choice": "password",
+                                 "password": PASSWORD, "password_again": PASSWORD})
+        for path, body in (("/debug", {"action": "on"}), ("/config/preview", {}), ("/config", {})):
+            with self.subTest(path=path):
+                code, _, _ = self.request(port, "POST", path, headers=FORM,
+                                          body=urlencode({pages.CSRF_FIELD: setup_token, **body}))
+                self.assertEqual(code, 403)
+
     def test_choosing_open_needs_the_box_ticked(self):
         httpd, port, _ = self.start()
         token = self.form_token(port)
