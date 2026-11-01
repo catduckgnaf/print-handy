@@ -141,3 +141,34 @@ def test_upload_refuses_bad_filenames_before_any_request(tmp_path, bad):
     with pytest.raises(OctoPrintError, match="invalid OctoPrint upload filename"):
         client.upload(package, bad)
     assert seen == []
+
+
+def test_set_targets_posts_one_command_per_requested_heater():
+    seen = []
+    client = _client([b"", b""], seen)
+    client.set_targets(hotend_c=210, bed_c=60)
+    assert [req.full_url for req in seen] == [
+        "http://octo.test:5000/api/printer/tool",
+        "http://octo.test:5000/api/printer/bed",
+    ]
+    assert json.loads(seen[0].data) == {"command": "target", "targets": {"tool0": 210}}
+    assert json.loads(seen[1].data) == {"command": "target", "target": 60}
+
+
+def test_set_targets_single_heater_and_zero_is_off():
+    seen = []
+    client = _client([b""], seen)
+    client.set_targets(bed_c=0)
+    assert len(seen) == 1
+    assert json.loads(seen[0].data) == {"command": "target", "target": 0}
+
+
+@pytest.mark.parametrize("kwargs", [{}, {"hotend_c": "210"}, {"hotend_c": True},
+                                    {"bed_c": -1}, {"bed_c": 301},
+                                    {"hotend_c": float("nan")}])
+def test_set_targets_refuses_bad_values_before_any_request(kwargs):
+    seen = []
+    client = _client([], seen)
+    with pytest.raises(OctoPrintError):
+        client.set_targets(**kwargs)
+    assert seen == []
