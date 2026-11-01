@@ -24,6 +24,22 @@
    "first_prompt_s": 0.02,
    "wall_s": 0.05
   },
+  "core-multiproperties-texture/hermes": {
+   "first_prompt_s": 0.03,
+   "wall_s": 0.11
+  },
+  "core-multiproperties-texture/standalone": {
+   "first_prompt_s": 0.03,
+   "wall_s": 0.14
+  },
+  "prusa-mmu-project/hermes": {
+   "first_prompt_s": 0.02,
+   "wall_s": 0.13
+  },
+  "prusa-mmu-project/standalone": {
+   "first_prompt_s": 0.02,
+   "wall_s": 0.14
+  },
   "core-one-color/hermes": {
    "first_prompt_s": 0.03,
    "wall_s": 0.08

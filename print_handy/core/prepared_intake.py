@@ -1769,6 +1769,15 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         saved_decisions = job.get('color_decisions') if job.get('resumed_from') else None
         if saved_decisions:
             decisions = saved_decisions
+        elif any(row['key'] == 'painted:unknown' for row in questions):
+            # Painted source with no readable palette (#717): the regions
+            # cannot be told apart, so never ask an unanswerable region
+            # question. Offer the one answer that can print.
+            count = len(manifest['parts'])
+            prompt = (f"Inspected {count} part{'s' if count != 1 else ''}: {names}. This file has painted "
+                      'color regions but no readable color palette, so the regions cannot be kept apart. '
+                      'Print it in one color for everything?')
+            mode = 1 + await _ask(adapter, source, key, prompt, ['One color for everything'], timeout)
         elif questions and (len(manifest['parts']) > 1 or manifest['painted']):
             options = ['Keep distinct source regions' if manifest['painted'] else 'Choose colors for these parts',
                        'One color for everything']
@@ -1818,7 +1827,11 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                     choices[decision_key] = picked
             decisions['choices'] = choices
         else:
-            decisions['selection'] = selections[await _ask(adapter, source, key, f'Choose the color for {names}', labels, timeout)]
+            # Core face colors print as one color, and the operator is told (#714).
+            from .source_colors import FACE_COLORS_NOTE
+            note = f' {FACE_COLORS_NOTE}' if manifest.get('face_colors_ignored') else ''
+            decisions['selection'] = selections[await _ask(adapter, source, key, f'Choose the color for {names}.{note}'
+                                                           if note else f'Choose the color for {names}', labels, timeout)]
         latest = json.loads(jp.read_text())
         if saved_decisions:
             if (latest.get('intake_id') != iid

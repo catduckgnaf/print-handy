@@ -201,6 +201,7 @@ def test_checked_in_models_match_the_generator(tmp_path, monkeypatch):
             ("copies-multiple-plates", ".3mf"),
             ("core-basematerials-parts", ".3mf"), ("core-colorgroup-items", ".3mf"),
             ("core-one-color", ".3mf"), ("core-triangle-colors", ".3mf"),
+            ("core-multiproperties-texture", ".3mf"), ("prusa-mmu-project", ".3mf"),
             ("stl-must-shrink", ".stl"), ("stl-needs-supports", ".stl"),
             ("stl-single-part", ".stl"), ("stl-thin-footprint", ".stl"),
             ("stl-ascii", ".stl"), ("stl-text-solid-header", ".stl"), ("stl-tiny", ".stl"),
