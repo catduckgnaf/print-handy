@@ -7,6 +7,8 @@ The Web UI is an optional local page for two jobs:
 - **Status:** whether Print Handy, its bot, printer listener and Spoolman are up, plus the doctor checks.
 - **Configuration:** a picker-based editor for the catalogued settings in the same YAML settings file Print Handy already loads.
 
+Its HTTP API also serves external consumers (the Home Assistant integration, dashboards): read-only per-printer status for every caller with the access token, and — only when `[webui] controls_enabled` is turned on — the [printer control API](#printer-control-api).
+
 It is **off by default**. While `[webui] enabled` is false, or no port has been chosen, the standalone server does not start and nothing listens. In the combined Docker container, the supervisor likewise starts no Web UI child in that state.
 
 The YAML file remains the only source of truth. The Web UI does not keep a second copy of the configuration: its status comes from the effective settings, and a confirmed configuration save writes only the settings-file layer — the file named by `PRINT_HANDY_CONFIG`, or `config/local.yaml` when no file is named. See [YAML configuration](CONFIGURATION-YAML.md) for the full precedence order.
@@ -19,6 +21,10 @@ The YAML file remains the only source of truth. The Web UI does not keep a secon
 | `GET /config` | The picker configuration page |
 | `GET /api/status` | The same status snapshot as JSON |
 | `GET /api/printers/<id>/status` | One roster printer's live status as JSON: its identity plus the adapter's normalized status (`state`, `filename`, `progress`, temperatures, and any target/ETA/layer fields that printer's adapter reports). An unknown id is a 404; a printer that cannot be reached answers with `state: "unavailable"` instead of an error |
+| `POST /api/printers/<id>/pause` | Pause that printer's print. Only while `[webui] controls_enabled` is true; see [Printer control API](#printer-control-api) |
+| `POST /api/printers/<id>/resume` | Resume that printer's paused print. Same gate |
+| `POST /api/printers/<id>/cancel` | Cancel that printer's print. Same gate |
+| `POST /api/printers/<id>/target` | Set target temperatures on that printer: a JSON body with `hotend_c` and/or `bed_c` (a number, or `null` to leave that heater alone; `0` turns it off). Same gate |
 | `GET /healthz` | The standalone bot heartbeat verdict: `200` when it passes, `503` when it does not |
 | `GET /designs` | The read-only designs catalog (#388): AI design sessions on disk, newest first |
 | `GET /designs/<id>` | One design session: its final `.scad` source and file downloads |
@@ -52,6 +58,29 @@ The status page reports:
 With a multi-printer roster configured, the status page also lists the roster read-only — each printer's id, name, model, connection, channel and endpoint — and `/api/status` carries the same rows under `printers`.
 
 For external consumers (the Home Assistant integration, dashboards), `GET /api/printers/<id>/status` serves one printer's live status (#664): the same identity fields as a roster row plus a `status` object holding the printer adapter's normalized status, read live through that printer's own connection — `state`, `filename`, `progress`, `hotend_c`, `bed_c`, and, where the adapter provides them, `hotend_target_c`, `bed_target_c`, `remaining_min`, `layer` and `total_layer`. It sits behind the same access-token auth as `/api/status` and is read-only — it sends nothing to the printer. An unknown id is a 404. A configured printer that is offline or unreachable still answers 200 with `status.state` set to `"unavailable"` and a `detail`, so a consumer polling every printer does not lose the whole poll to one dead machine; a printer on the `offline` connection reads the same way. **Stage 2e decision (#337): the roster is not editable here.** The field catalog addresses global fields only in this version, so per-printer changes stay where the roster is declared: the config file, the CLI setup wizard, or the guided setup's review step. A per-printer addressing scheme for the catalog is a future stage's decision, deliberately not pre-empted by this one.
+
+### Printer control API
+
+The four `POST /api/printers/<id>/...` routes (#708) are the Web UI's only printer-writing surface, and they are **off by default**: while `[webui] controls_enabled` is `false` the routes are not served at all (they answer the same 404 as any unknown path), and the read routes behave exactly as before. Turning the setting on is a deliberate choice to let a trusted caller — the Home Assistant integration is the consumer this was built for — act on a printer without the chat confirmation that chat control always uses. Chat pause / resume / cancel stay confirm-first either way; nothing about the chat flow changes.
+
+The guard design, settled on #708:
+
+- **Off by default, one switch.** `webui.controls_enabled` (in the configuration page's Web UI group, like the other Web UI switches) gates all four routes together, and takes effect at the next Web UI start.
+- **The same access token.** A control POST requires the `X-WebUI-Token` header, exactly as the read routes do. There is no second controls token in this version. A browser login session or the configuration form token never authorises a control POST, so a signed-in browser cannot be turned into printer control. With `webui.require_auth` set to `false`, the routes need no token either — the same trusted-network opt-out the rest of the Web UI already documents, and a combination to choose knowingly.
+- **No extra gate on cancel.** Cancel is treated exactly like pause and resume; the confirmation it gets in chat has no API equivalent by design.
+
+Each action names exactly one printer and goes through that printer's own transport — Moonraker's print endpoints, or the family adapter's own control operation — with the chat paths' discipline: the state is read first, at most one command is sent, and the answer reports the read-back state. The refusals are explicit, never silent:
+
+| Answer | Meaning |
+|---|---|
+| `404` | Controls are disabled, the printer id is unknown, or the path is not a control route |
+| `401` | The access-token header is missing or wrong |
+| `400` | The target body is malformed, names an unknown field, sets neither heater, or carries a value that is not a usable temperature |
+| `409` | The printer's state does not allow the action (a pause for a print that is not printing, a resume for one that is not paused, a cancel with nothing active); nothing was sent |
+| `422` | That printer's connection does not support the request through Print Handy — the `offline` connection for every action, and target temperatures on Bambu Lab, Elegoo SDCP, PrusaLink and stock Flashforge printers (Moonraker and OctoPrint printers accept targets) |
+| `502` | The printer could not be read, or the send itself failed |
+
+A successful action answers `200` with the printer's identity, the action, a one-line `detail` in the chat wording, and the read-back `status`. A successful target request answers with the `targets` that were sent. Emergency stop is deliberately not part of this API: it stays chat-side. Print start and raw G-code are likewise not offered — file selection and slicing stay in the drop-a-link chat flow.
 
 The Web UI doctor rows reuse the local doctor checks — settings, printer model, Orca templates, core modules, hardware record, Orca CLI, configured Moonraker and Spoolman services, bot mode, and stray state files. Two command-line doctor checks are deliberately not run by the page: Discord login and the shared-token comparison. Both need the bot token, and the login check can make a live network call; run `python3 -m print_handy.doctor` when you want those checks.
 
@@ -212,7 +241,7 @@ If the selected settings file is a legacy TOML file, the Web UI refuses to rewri
 
 ## What the Web UI cannot do
 
-- It cannot control a printer: no print, pause, resume, cancel, movement, heating, macro, or job-management actions.
+- Its pages cannot control a printer: no page starts, pauses, resumes or cancels a print, moves or heats anything, runs a macro, or manages jobs. The one writing exception is the [printer control API](#printer-control-api) above — off by default, token-gated, and aimed at trusted API callers, not at browsers.
 - It cannot display, accept, or write secret values. Bot tokens, API keys, passwords, access codes and the Web UI token itself stay in the environment. Settings that merely name an environment variable, such as `webui.access_token_env`, are not picker fields.
 - It cannot edit the environment, the home configuration, or any layer other than the selected settings file.
 - It cannot edit settings outside the catalog. File-only tables and lists such as `material_temps`, `nozzle_temp_offsets` and the `[[printers]]` roster remain YAML/TOML edits (or the setup wizard / guided setup for the roster); `delivery.methods` is in the catalog because it has a vendor-defined picker.
