@@ -6,16 +6,19 @@ from pathlib import Path
 import re
 
 MAP_PREFIX = '; hermes_tool_slots = '
+# Matched against every line of the plate, so compiled once.
+TOOL_LINE = re.compile(r'T(\d+)(?:\s*;.*)?')
+HEATER_TOOL_LINE = re.compile(r'M10[49].*\bT(\d+)\b.*')
 
 
 def used_tools(text):
     tools = {int(m.group(1)) for line in text.splitlines()
-             if (m := re.fullmatch(r'T(\d+)(?:\s*;.*)?', line.strip()))}
+             if (m := TOOL_LINE.fullmatch(line.strip()))}
     # Standard Orca single-extruder start code uses T0 only on heater
     # declarations; that still identifies the logical tool for the explicit map.
     if not tools:
         tools = {int(m.group(1)) for line in text.splitlines()
-                 if (m := re.fullmatch(r'M10[49].*\bT(\d+)\b.*', line.strip()))}
+                 if (m := HEATER_TOOL_LINE.fullmatch(line.strip()))}
     return tools
 
 
