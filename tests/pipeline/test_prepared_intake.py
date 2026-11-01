@@ -1883,7 +1883,8 @@ def test_start_question_carries_the_thermal_facts_of_the_sliced_printer(env, mon
     adapter, result, receipt = run_flow(env, [1, 0, 1, 1])  # slice only, then cancel
     start_question = adapter.questions[-1]['question']
     assert 'Thermal: enclosure enclosed' in start_question
-    assert 'active control unknown' in start_question
+    # #740: chamber control is verified for the Creator 5 Pro ZMod record.
+    assert 'active control supported' in start_question
     assert env.starts == []
 
 

@@ -161,27 +161,37 @@ surfaced by `print_handy/knowledge/thermal.py`:
   `unknown`) and whether active control is `supported`, `not_supported`, or
   `unknown`. Control is recorded as `supported` only when
   `chamber_heater_evidence` names a verified firmware command or macro.
-  For example, the Creator 5 Pro has active chamber heating present, but
-  its control stays `unknown`: the Creator models' firmware support is
-  undocumented, so no automatic chamber control is inferred from
-  "enclosed". The AD5M Pro is enclosed and passive (no chamber heater).
+  For example, the Creator 5 Pro's control was recorded `unknown` in #720
+  because the Creator models' stock firmware support is undocumented; the
+  #740 evidence pass found the ZMod config for this record carries a
+  `[heater_generic chamber_heater]` with PID control, so control is now
+  `supported` for the ZMod record — still on named evidence, never
+  inferred from "enclosed". The AD5M Pro is enclosed and passive (no chamber heater).
   The AD5X has no chamber heater, but its enclosure is a separate kit, so
   its enclosure is recorded `unknown` and guided setup asks about it. An open-frame model such as the AD5M or the Ender-3
   presets has no chamber heater.
 - **Chamber sensor:** whether one is present, and whether a connected
-  printer can report a fresh reading at slice time. Both stay `unknown`
-  unless the repository already carries evidence for that model.
+  printer can report a fresh reading at slice time. The #740 evidence
+  pass filled these from named sources (firmware configs, vendor API
+  surfaces, upstream OrcaSlicer system profiles, vendor documentation);
+  both stay `unknown` for any model no source settles.
 - **Fan mapping:** part-cooling, auxiliary, exhaust, and filtration fans,
   each `present` / `absent` / `unknown` with a mapping that is either a
   verified index or macro name or `unknown`. Orca's documented convention
   (M106 P0 part, P2 auxiliary, P3 exhaust) is not assumed to be a model's
-  actual wiring.
+  actual wiring — a mapping is recorded only when a source names the
+  index, macro, or fan object for that model (issue #740). Print Handy's
+  own Orca templates are never evidence: they carry boilerplate accessory
+  values even on open-frame models.
 - **Provenance:** each fact group (enclosure, chamber, fans) names its
   provenance: `vendor documentation`, `verified profile`,
   `operator-confirmed`, or `unknown`. A fact is only recorded as known
-  when the repository already supports it — a vendor facts module, a
-  registry note, or a profile/template pin. When in doubt, the value is
-  `unknown`.
+  when a named source supports it; since #740 those sources are the
+  per-family evidence tables on that issue (firmware/vendor configs and
+  API surfaces first, upstream OrcaSlicer system profiles second, vendor
+  manuals and specs for presence claims only). When in doubt, the value
+  is `unknown`, and a test pins that any known fan, sensor, or door fact
+  carries a non-`unknown` provenance.
 
 Two surfaces use the record, and neither changes any behavior:
 

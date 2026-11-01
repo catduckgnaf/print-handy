@@ -66,11 +66,19 @@ def test_enclosed_with_active_heating_creator5_pro(registry):
     thermal = _entry(registry, "flashforge.creator5_pro").thermal
     assert thermal.enclosure == "enclosed"
     assert thermal.chamber_heater_present == "present"
-    # Firmware support is undocumented for the Creator models: present,
-    # but control is NOT verified and must not read as supported.
-    assert thermal.chamber_heater_control == "unknown"
-    assert thermal.chamber_heater_evidence == ""
+    # #740 evidence pass: the ZMod creator5pro config (tier 1) carries a
+    # [heater_generic chamber_heater] with PID control, so control is now
+    # verified supported for this ZMod record — it was "unknown" in #720
+    # when only the stock firmware documentation had been checked.
+    assert thermal.chamber_heater_control == "supported"
+    assert "chamber_heater" in thermal.chamber_heater_evidence
     assert thermal.fan_filtration_present == "present"
+    # The same config names the chamber sensor (the heater's sensor), the
+    # P2/P3 fan routing, and the door buttons (issue #740).
+    assert thermal.chamber_sensor_present == "present"
+    assert thermal.chamber_sensor_fresh_reading == "yes"
+    assert thermal.fan_exhaust_mapping == "M106 P3 (fan_generic chamber_fan)"
+    assert thermal.door_lid_state_knowable == "yes"
 
 
 def test_enclosed_passive_models(registry):
@@ -120,9 +128,11 @@ def test_thermal_assumptions_lines_show_known_and_unknown(registry):
     entry = _entry(registry, "flashforge.creator5_pro")
     text = "\n".join(thermal_surface.thermal_assumptions_lines(entry))
     assert "enclosure enclosed" in text
-    assert "chamber heater present, active control unknown" in text
-    assert "chamber sensor unknown" in text
-    assert "filtration present (mapping unknown)" in text
+    # #740: control is verified for the ZMod record, the chamber sensor is
+    # known, and the filtration fan's P3 mapping is named in the ZMod macro.
+    assert "chamber heater present, active control supported" in text
+    assert "chamber sensor present" in text
+    assert "filtration present (mapping M106 P3 (fan_generic chamber_fan))" in text
     assert "provenance: verified profile" in text
 
 
@@ -135,7 +145,7 @@ def test_slice_summary_includes_thermal_lines_for_registered_model(tmp_path):
            "gcode": str(gcode)}
     text = summary.format_slice_summary(job)
     assert "Thermal: enclosure enclosed" in text
-    assert "active control unknown" in text
+    assert "active control supported" in text
     # A job naming no model keeps the summary it had (no thermal lines).
     job_without_model = {"title": "Widget", "gcode": str(gcode)}
     assert "Thermal:" not in summary.format_slice_summary(job_without_model)
@@ -147,9 +157,15 @@ def test_setup_questions_only_for_unknown_facts(registry):
     # Chamber heater presence is known for the AD5X; the enclosure kit is optional, so it is asked.
     assert "enclosure" in fields
     assert "chamber_heater_present" not in fields
-    # Sensor and fan mapping facts are unknown, so they are asked about.
-    assert "chamber_sensor_present" in fields
-    assert "fan_part_cooling_mapping" in fields
+    # #740: the ZMod ad5x config (tier 1) settles the chamber sensor (absent:
+    # only filament/cut sensors exist) and the part-cooling mapping
+    # (fan_generic fanM106), so neither is asked about any more. The
+    # auxiliary/exhaust facts are still unknown (their config objects are
+    # commented out), so those are asked.
+    assert "chamber_sensor_present" not in fields
+    assert "fan_part_cooling_mapping" not in fields
+    assert "fan_auxiliary_present" in fields
+    assert "fan_exhaust_mapping" in fields
     generic = _entry(registry, "klipper.generic")
     generic_fields = {q["field"] for q in thermal_surface.thermal_setup_questions(generic)}
     assert "enclosure" in generic_fields
@@ -175,4 +191,89 @@ def test_setup_wizard_surfaces_unknown_thermal_questions():
     # The enclosure kit is optional on the AD5X, so setup asks; the known heater fact is not asked.
     assert "Is the printer enclosed or open-frame?" in thermal_note
     assert "chamber heater?" not in thermal_note
-    assert "chamber temperature sensor" in thermal_note
+    # #740: the ZMod config settles the AD5X chamber sensor as absent, so
+    # setup no longer asks about it; the auxiliary fan is still unknown.
+    assert "chamber temperature sensor" not in thermal_note
+    assert "auxiliary fan" in thermal_note
+
+
+def test_known_fan_sensor_door_facts_carry_provenance(registry):
+    """Issue #740 promotion rule, enforced for every registered model.
+
+    A fan, chamber-sensor, or door fact may only leave "unknown" when its
+    fact group's provenance names a source category (the per-field named
+    sources live in the #740 evidence tables). A named fan mapping also
+    requires the fan itself to be recorded present.
+    """
+    fan_fields = (
+        "fan_part_cooling_present", "fan_part_cooling_mapping",
+        "fan_auxiliary_present", "fan_auxiliary_mapping",
+        "fan_exhaust_present", "fan_exhaust_mapping",
+        "fan_filtration_present", "fan_filtration_mapping",
+    )
+    for entry in registry.printers:
+        thermal = entry.thermal
+        if any(getattr(thermal, name) != "unknown" for name in fan_fields):
+            assert thermal.fan_provenance != "unknown", entry.key
+        if (thermal.chamber_sensor_present != "unknown"
+                or thermal.chamber_sensor_fresh_reading != "unknown"):
+            assert thermal.chamber_provenance != "unknown", entry.key
+        if thermal.door_lid_state_knowable != "unknown":
+            assert (thermal.enclosure_provenance != "unknown"
+                    or thermal.chamber_provenance != "unknown"), entry.key
+        for fan in ("part_cooling", "auxiliary", "exhaust", "filtration"):
+            if getattr(thermal, f"fan_{fan}_mapping") != "unknown":
+                assert getattr(thermal, f"fan_{fan}_present") == "present", (
+                    entry.key, fan)
+
+
+def test_evidence_pass_representative_pins(registry):
+    """One pin per headline result of the #740 sweep (sources on the issue)."""
+    # Bambu: the H2/X2D generation has active chamber heating too — #720's
+    # "only the X1E" picture was incomplete. M191 in each model's own
+    # OrcaSlicer system profile is the control evidence.
+    for key in ("bambulab.x1e", "bambulab.h2s", "bambulab.h2d",
+                "bambulab.h2dpro", "bambulab.h2c", "bambulab.x2d"):
+        thermal = _entry(registry, key).thermal
+        assert thermal.chamber_heater_present == "present", key
+        assert thermal.chamber_heater_control == "supported", key
+        assert "M191" in thermal.chamber_heater_evidence, key
+        assert thermal.chamber_sensor_fresh_reading == "yes", key
+    # The P2S has the sensor and the reading, but only passive chamber
+    # regulation — no heater.
+    thermal = _entry(registry, "bambulab.p2s").thermal
+    assert thermal.chamber_sensor_present == "present"
+    assert thermal.chamber_heater_present == "absent"
+    # Bambu fan indices are the brand-wide P1/P2/P3 (BambuStudio source).
+    thermal = _entry(registry, "bambulab.x1c").thermal
+    assert thermal.fan_part_cooling_mapping == "M106 P1"
+    assert thermal.fan_auxiliary_mapping == "M106 P2"
+    assert thermal.fan_exhaust_mapping == "M106 P3"
+    # Filtration has no dedicated fan index on any Bambu model.
+    assert thermal.fan_filtration_present == "present"
+    assert thermal.fan_filtration_mapping == "unknown"
+    # Qidi X-Plus 4: tier 1 published config — M141 macro + heater object.
+    thermal = _entry(registry, "qidi.xplus4").thermal
+    assert thermal.chamber_heater_control == "supported"
+    assert "M141" in thermal.chamber_heater_evidence
+    assert thermal.fan_filtration_mapping == (
+        "M106 P3 (fan_generic chamber_circulation_fan)")
+    # Qidi X-Smart 3: the vendor guide ("Auxiliary Part Cooling Fan: None",
+    # no chamber heating) wins over its Orca profile's shared X3 values.
+    thermal = _entry(registry, "qidi.xsmart3").thermal
+    assert thermal.fan_auxiliary_present == "absent"
+    assert thermal.chamber_heater_present == "absent"
+    # Sovol Zero: the stock Sovol Klipper config names every fan object and
+    # the exhaust temperature fan whose thermistor is the chamber sensor.
+    thermal = _entry(registry, "sovol.zero").thermal
+    assert thermal.enclosure == "enclosed"
+    assert thermal.fan_part_cooling_mapping == "fan_generic fan0"
+    assert thermal.fan_exhaust_mapping == "temperature_fan exhaust_fan"
+    assert thermal.chamber_sensor_present == "present"
+    assert thermal.door_lid_state_knowable == "no"
+    # Prusa CORE One: the sensor exists, but the published PrusaLink API
+    # exposes no chamber temperature — fresh reading is "no", not unknown.
+    thermal = _entry(registry, "prusa.coreone").thermal
+    assert thermal.chamber_sensor_present == "present"
+    assert thermal.chamber_sensor_fresh_reading == "no"
+    assert thermal.fan_exhaust_mapping == "M106 P3"
