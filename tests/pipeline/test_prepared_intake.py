@@ -1865,3 +1865,28 @@ def test_a_file_already_downloaded_for_an_earlier_parts_job_is_reused(tmp_path, 
         'selected_sources': [{'id': 5, 'name': 'lid.stl', 'downloaded_file': str(part)}]}))
     assert model_job._cached_source('printables', 'id', 5, 7) == part
     assert model_job._cached_source('printables', 'id', 6, 7) is None
+
+
+def test_start_question_carries_the_thermal_facts_of_the_sliced_printer(env, monkeypatch):
+    # #720: the live intake shows the registry thermal facts with the estimate on the
+    # start question; a job that names no registered model shows none.
+    inner = model_job.slice_job
+
+    def slice_for_creator5_pro(job_path, recipe_sha256=None):
+        out = inner(job_path, recipe_sha256=recipe_sha256)
+        data = json.loads(Path(job_path).read_text())
+        data['printer_model'] = 'flashforge.creator5_pro'
+        model_job.write_job(Path(job_path).parent, data)
+        return out
+
+    monkeypatch.setattr(model_job, 'slice_job', slice_for_creator5_pro)
+    adapter, result, receipt = run_flow(env, [1, 0, 1, 1])  # slice only, then cancel
+    start_question = adapter.questions[-1]['question']
+    assert 'Thermal: enclosure enclosed' in start_question
+    assert 'active control unknown' in start_question
+    assert env.starts == []
+
+
+def test_start_question_has_no_thermal_lines_without_a_registered_model(env):
+    adapter, result, receipt = run_flow(env, [1, 0, 1, 1])
+    assert 'Thermal:' not in adapter.questions[-1]['question']

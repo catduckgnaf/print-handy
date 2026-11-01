@@ -33,6 +33,7 @@ The table below is the schema for every entry, whichever file it sits in:
 | `color_system` | The model's color architecture (issue #656): `single`, `multi_slot` (one extruder fed by several slots; `filament_slots` above 1), or `multi_tool` (independent toolheads; `tools` above 1). Identical to `MODEL.color_system`. `multi_slot` is the AD5X pair and the single-nozzle Bambu AMS models. `multi_tool` is the Creator pair, the Prusa XL, and the Snapmaker U1. Everything else is `single` (the dual-nozzle Bambu models deliberately, #671). |
 | `profile` | Path of the profile module that is the source of truth. |
 | `notes` | Quirks a troubleshooter should know before trusting the numbers. |
+| `[printer.thermal]` | Structured thermal facts (issue #720): `enclosure` (`enclosed` / `open` / `unknown`), `door_lid_state_knowable`, chamber heater presence / control / evidence, chamber sensor presence / fresh-reading availability, and part-cooling / auxiliary / exhaust / filtration fan presence plus mapping, each fact group with a `*_provenance` (`vendor documentation` / `verified profile` / `operator-confirmed` / `unknown`). Every field is explicit; unknown is spelled out, never filled in. Chamber heater control is `supported` only when `chamber_heater_evidence` names a verified firmware command or macro. |
 
 Tests (`tests/test_knowledge.py`) compare every entry with the registered
 models — key, label, firmware, connection, bed, height and slots — so this file

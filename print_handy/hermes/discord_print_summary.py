@@ -566,4 +566,13 @@ def format_slice_summary(job, now=None):
             if len(original) == 3:
                 original_text = ' x '.join(f'{float(value):g}' for value in original)
                 lines.append(f'Units: millimeters confirmed, printed at authored size {original_text} mm')
+    # Thermal assumptions (issue #720): registry facts for the job's model,
+    # unknown shown as unknown. Only when the job names a registered model;
+    # jobs without one keep the summary they had. This reports facts only —
+    # it sends no fan, temperature or chamber command.
+    try:
+        from ..knowledge.thermal import thermal_lines_for_model
+        lines.extend(thermal_lines_for_model(job.get("printer_model")))
+    except Exception:
+        pass
     return scrub("\n".join(lines))

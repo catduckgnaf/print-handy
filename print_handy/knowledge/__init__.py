@@ -17,12 +17,17 @@ from functools import lru_cache
 
 from .flows import Flow, FlowError, FlowSession, Node, Step
 from .registry import (ROOT, FirmwareEntry, Match, PrinterEntry, Registry,
-                       RegistryError, Symptom, _norm, load_registry)
+                       RegistryError, Symptom, ThermalCapabilities, _norm, load_registry)
+from .thermal import (thermal_assumptions_lines, thermal_entry_for_model,
+                      thermal_lines_for_model, thermal_setup_questions,
+                      unknown_thermal_fields)
 
 __all__ = [
     "ROOT", "Flow", "FlowError", "FlowSession", "Node", "Step", "FirmwareEntry",
-    "Match", "PrinterEntry", "Registry", "RegistryError", "Symptom",
+    "Match", "PrinterEntry", "Registry", "RegistryError", "Symptom", "ThermalCapabilities",
     "default_registry", "load_registry", "lookup_text", "flows_text", "start_flow",
+    "thermal_assumptions_lines", "thermal_entry_for_model", "thermal_lines_for_model",
+    "thermal_setup_questions", "unknown_thermal_fields",
 ]
 
 # Shown with every lookup result and at the end of every guided flow, so the
