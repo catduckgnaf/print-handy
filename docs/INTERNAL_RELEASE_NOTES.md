@@ -2,12 +2,28 @@
 
 # Unreleased
 
-- Web UI auth opt-out: `webui.require_auth` (`PRINT_HANDY__WEBUI__REQUIRE_AUTH`, default `true`). Set `false` on a trusted network and the Web UI starts on a LAN bind with no access token and no login; a token left set is ignored. The Docker gate logs `authentication OFF` at start. Not editable from the Web UI itself.
-- One "Print started" post per start: the start claim and recorded start message now match the printer's 3MF unpack path (`3mf_print/X.gcode`), so the listener edits the intake's post instead of posting a second one.
-- "Preparing to start" shows the nozzle and bed targets read from the uploaded G-code.
-- One "Print complete" post per print: the complete -> standby announcer pass no longer re-drives a timelapse render that is still running in the same process (it rendered twice and posted once without the video). A pending video after a real listener restart is still re-driven.
-- Corrupt timelapse fix: captured-frame renders now write to a unique temp file, take a per job render lock, and must fully decode before they are cached or attached; a cached video that no longer decodes is re-rendered. Overlapping renders used to share one fixed `.partial.mp4`, and the loser rewrote the winner's renamed file into a video with no streams (black in VLC, blocky in Discord).
-- A bare printer record holding the seeded family default (PLA 210/60) no longer overrides a variant spool's temperature (Silk PLA slices at 220 °C).
+Nothing yet.
+
+# Version 2.2.4
+
+**Release Date:** 2026-11-01
+**Still owed:** no live printer checks were run for this release. The Web UI printer controls (#719), the core 3MF multicolor slice and start (#723) and the AD5X start-post and start-temperature changes (#705) are offline and CI tested only. The Snapmaker U1 and the 2.2.2 live checks named in 2.2.3 remain owed. #708 stays open for Docker defaults, Bearer auth, extended telemetry and the camera proxy.
+
+- Web UI auth opt-out (#704): `webui.require_auth` (`PRINT_HANDY__WEBUI__REQUIRE_AUTH`, default `true`). Set `false` on a trusted network and the Web UI starts on a LAN bind with no access token and no login; a token left set is ignored. The Docker gate logs `authentication OFF` at start. Not editable from the Web UI itself.
+- One "Print started" post per start (#705): the start claim and recorded start message now match the printer's 3MF unpack path (`3mf_print/X.gcode`), so the listener edits the intake's post instead of posting a second one.
+- "Preparing to start" (#705) shows the nozzle and bed targets read from the uploaded G-code.
+- One "Print complete" post per print (#706): the complete -> standby announcer pass no longer re-drives a timelapse render that is still running in the same process (it rendered twice and posted once without the video). A pending video after a real listener restart is still re-driven.
+- Corrupt timelapse fix (#706): captured-frame renders now write to a unique temp file, take a per job render lock, and must fully decode before they are cached or attached; a cached video that no longer decodes is re-rendered. Overlapping renders used to share one fixed `.partial.mp4`, and the loser rewrote the winner's renamed file into a video with no streams (black in VLC, blocky in Discord).
+- Silk PLA at 220 °C (#705): a bare printer record holding the seeded family default (PLA 210/60) no longer overrides a variant spool's temperature (Silk PLA slices at 220 °C).
+- Every slice refused after a spool sync (#713, fixes #718): the slot/launch sync "resolved per slice" marker no longer fails every slice with "stored temperature material does not match selected spool".
+- Plain core 3MF colors (#713, fixes #711): files with core `basematerials`/`colorgroup` colors and no slicer metadata (Blender, Fusion, many model sites) get one ordinary question per part naming the author's color, instead of a "painted colors" question that rejected every answer. A volume with `extruder` 0 inherits its object's filament instead of rejecting the file. Color names use hue and lightness bands (gold is no longer named pink).
+- Multicolor core 3MF slicing (#723, fixes #716, #714, #717): plain core 3MF files with per-part or per-triangle colors slice and start instead of failing at plate export; the flattened assembly copy is built in memory. PrusaSlicer MMU projects get their real filament palette from `Metadata/Slic3r_PE.config`, and a painted file with no readable palette is offered "One color for everything" instead of a question with no buttons. New corpus cases cover per-triangle core colors, multiproperties/texture2d, PrusaSlicer MMU projects and one core material everywhere.
+- Cults3D and connect prompts (#719, fixes #712): Cults3D links get one plain refusal ("Cults3D doesn't let apps download its files...") before any connect prompt. Cancel on any connect prompt ends with one "Cancelled. Nothing was downloaded." post and a CANCELLED receipt.
+- Web UI printer controls (#719, #708 control phase): `POST /api/printers/<id>/pause`, `/resume`, `/cancel` and `/temperature`, off by default behind `[webui] controls_enabled = false` (403 with a reason while off); `cancel` also needs `{"confirm": true}`. Only printer families that already have a command path accept a control; others get a clean error.
+- Thermal capabilities (#724, #720): every registered printer records enclosure, chamber heater, chamber sensor and fan mapping with provenance, shown with the estimate in the live intake and asked in guided setup only when unknown. The AD5X enclosure is recorded unknown (the enclosure is a separate kit). No cooling, fan, temperature or chamber behavior changes.
+- Source-profile warnings (#727, #722): when a model's project settings name a different printer, the slice confirmation warns about each authored speed, acceleration or fan value outside the target's verified limits. Printer identity is matched exactly against the target and its own template names (a Kobra 2 Pro profile is not a Kobra 2), and every filament's fan value is checked. Warnings never change a setting.
+- Steel nozzle offsets (#703): the #513 +5 °C compensation for stainless and hardened steel nozzles now ships instead of zeros in the shipped defaults.
+- Vendor filament ranges (#707): vendor filament profiles passed to Orca widen their temperature range to include the explicit spool target, like nonvendor profiles already did.
 
 # Version 2.2.3
 
