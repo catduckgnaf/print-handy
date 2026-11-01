@@ -148,6 +148,60 @@ their filaments to extruders in the file itself, and print starts resolve AMS tr
 per filament slot. The Prusa XL's Stage 1 posture ended with #670: it is
 `multi_tool`, driven through the same adapter contract as the Creator pair.
 
+## Thermal capabilities
+
+Every registered model carries a structured thermal record in its
+`[printer.thermal]` table in `printers/registry/<vendor>.toml` (issue #720),
+loaded as `PrinterEntry.thermal` by `print_handy/knowledge/registry.py` and
+surfaced by `print_handy/knowledge/thermal.py`:
+
+- **Enclosure:** `enclosed`, `open`, or `unknown`, plus whether door or lid
+  state is knowable at all (`yes` / `no` / `unknown`).
+- **Chamber heater:** whether one is present (`present` / `absent` /
+  `unknown`) and whether active control is `supported`, `not_supported`, or
+  `unknown`. Control is recorded as `supported` only when
+  `chamber_heater_evidence` names a verified firmware command or macro.
+  For example, the Creator 5 Pro has active chamber heating present, but
+  its control stays `unknown`: the Creator models' firmware support is
+  undocumented, so no automatic chamber control is inferred from
+  "enclosed". The AD5M Pro and the AD5X are enclosed and passive (no
+  chamber heater). An open-frame model such as the AD5M or the Ender-3
+  presets has no chamber heater.
+- **Chamber sensor:** whether one is present, and whether a connected
+  printer can report a fresh reading at slice time. Both stay `unknown`
+  unless the repository already carries evidence for that model.
+- **Fan mapping:** part-cooling, auxiliary, exhaust, and filtration fans,
+  each `present` / `absent` / `unknown` with a mapping that is either a
+  verified index or macro name or `unknown`. Orca's documented convention
+  (M106 P0 part, P2 auxiliary, P3 exhaust) is not assumed to be a model's
+  actual wiring.
+- **Provenance:** each fact group (enclosure, chamber, fans) names its
+  provenance: `vendor documentation`, `verified profile`,
+  `operator-confirmed`, or `unknown`. A fact is only recorded as known
+  when the repository already supports it — a vendor facts module, a
+  registry note, or a profile/template pin. When in doubt, the value is
+  `unknown`.
+
+Two surfaces use the record, and neither changes any behavior:
+
+- **Guided setup** (`print_handy/setup_wizard.py`) lists, for the chosen
+  model, questions for only the thermal facts that are unknown for that
+  model — the questions come from `thermal_setup_questions`. Known facts
+  are not asked about again.
+- **Slice summary** (`format_slice_summary`) appends the thermal
+  assumption lines from `thermal_assumptions_lines` when a job names a
+  registered model: enclosure, chamber capability, and fan facts, with
+  unknown shown as unknown, so the operator sees what was assumed before
+  confirming.
+
+No setting is added and no default changes: no fan, temperature, or
+chamber command is sent or enabled by recording or showing these facts.
+A note that says a model's geometry is the same as another model's means
+geometry only; the thermal facts are recorded separately, as above.
+Surface verdict: no new variable — Defaults tree, environment loader,
+Web UI catalog, and Unraid templates are unchanged, and `docs/SETTINGS.md`
+needs no row because there is no new setting.
+
 ## Config
 
 Existing configs keep working unchanged:

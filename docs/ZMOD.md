@@ -68,8 +68,9 @@ The filament system is where they part:
   questions, no spool-switch claims, no `PRINT_HANDY` macro (it is AD5X-only), no
   native-screen sync and no stock `/detail` polling. A multi-colour job is refused,
   not approximated — slice it single-colour or use a multi-slot printer. The Pro's
-  enclosure, camera and air filtration do not change slicing; its geometry is the
-  AD5M's.
+  enclosure, camera and air filtration do not by themselves change slicing
+  geometry; its geometry is the AD5M's, and its thermal facts are recorded
+  separately in the printer registry thermal record (see PRINTER-PROFILES.md).
 - **Creator 5 and Creator 5 Pro** are toolhead machines: four independent
   toolheads (T0–T3, Klipper `extruder`…`extruder3`), each with its own filament,
   changed by the sliced file's bare `T` lines — a tool changer, not a feeder.

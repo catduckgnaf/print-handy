@@ -30,6 +30,13 @@ FIRMWARES = ("zmod", "klipper", "marlin", "prusa")
 # Mirrors print_handy.printers.base.COLOR_SYSTEMS (kept local so this read-only
 # loader imports no printer code); the registry drift test asserts the two agree.
 COLOR_SYSTEMS = ("single", "multi_slot", "multi_tool")
+# Thermal capabilities (issue #720): structured per-model facts, never
+# inferred from "enclosed". Unknown is a first-class, explicit value.
+ENCLOSURES = ("enclosed", "open", "unknown")
+THERMAL_PROVENANCES = ("vendor documentation", "verified profile", "operator-confirmed", "unknown")
+PRESENCE_STATES = ("present", "absent", "unknown")
+KNOWABLE_STATES = ("yes", "no", "unknown")
+CHAMBER_HEATER_CONTROLS = ("supported", "not_supported", "unknown")
 ENTRY_KINDS = ("command", "macro", "error")
 FLOW_KINDS = ("question", "advice")
 
@@ -67,6 +74,39 @@ class Symptom:
 
 
 @dataclass(frozen=True)
+class ThermalCapabilities:
+    """Structured thermal facts for one model (issue #720).
+
+    Every field is explicit in the registry TOML. A fact is only recorded
+    as known when the repository already carries support for it (a vendor
+    facts module, a registry note, or a profile/template pin); otherwise
+    it stays "unknown". In particular, chamber heater control is only
+    "supported" when ``chamber_heater_evidence`` names a verified firmware
+    command or macro, and nothing here changes any slicing, fan,
+    temperature or chamber behavior.
+    """
+
+    enclosure: str = "unknown"
+    enclosure_provenance: str = "unknown"
+    door_lid_state_knowable: str = "unknown"
+    chamber_heater_present: str = "unknown"
+    chamber_heater_control: str = "unknown"
+    chamber_heater_evidence: str = ""
+    chamber_provenance: str = "unknown"
+    chamber_sensor_present: str = "unknown"
+    chamber_sensor_fresh_reading: str = "unknown"
+    fan_part_cooling_present: str = "unknown"
+    fan_part_cooling_mapping: str = "unknown"
+    fan_auxiliary_present: str = "unknown"
+    fan_auxiliary_mapping: str = "unknown"
+    fan_exhaust_present: str = "unknown"
+    fan_exhaust_mapping: str = "unknown"
+    fan_filtration_present: str = "unknown"
+    fan_filtration_mapping: str = "unknown"
+    fan_provenance: str = "unknown"
+
+
+@dataclass(frozen=True)
 class PrinterEntry:
     key: str
     label: str
@@ -86,6 +126,9 @@ class PrinterEntry:
     # The model's color architecture (printers.base.COLOR_SYSTEMS, issue #656):
     # single, multi_slot or multi_tool. The drift test pins it to MODEL.color_system.
     color_system: str = "single"
+    # Structured thermal facts (issue #720); the loader requires an explicit
+    # [printer.thermal] table for every registered model.
+    thermal: ThermalCapabilities = field(default_factory=ThermalCapabilities)
 
 
 @dataclass(frozen=True)
@@ -313,6 +356,65 @@ def _load_firmware_entries(root, problems):
     return entries
 
 
+def _thermal_capabilities(raw, where, problems):
+    """Build one ThermalCapabilities, appending schema problems found.
+
+    ``raw`` is the [printer.thermal] table (or None when it is missing,
+    which is itself a problem: every model must carry an explicit record,
+    with unknown spelled out, issue #720).
+    """
+    if not isinstance(raw, dict):
+        problems.append(f"{where}: thermal record is required ([printer.thermal] table, issue #720)")
+        return ThermalCapabilities()
+    thermal = ThermalCapabilities(
+        enclosure=str(raw.get("enclosure", "")).strip(),
+        enclosure_provenance=str(raw.get("enclosure_provenance", "")).strip(),
+        door_lid_state_knowable=str(raw.get("door_lid_state_knowable", "")).strip(),
+        chamber_heater_present=str(raw.get("chamber_heater_present", "")).strip(),
+        chamber_heater_control=str(raw.get("chamber_heater_control", "")).strip(),
+        chamber_heater_evidence=str(raw.get("chamber_heater_evidence", "")).strip(),
+        chamber_provenance=str(raw.get("chamber_provenance", "")).strip(),
+        chamber_sensor_present=str(raw.get("chamber_sensor_present", "")).strip(),
+        chamber_sensor_fresh_reading=str(raw.get("chamber_sensor_fresh_reading", "")).strip(),
+        fan_part_cooling_present=str(raw.get("fan_part_cooling_present", "")).strip(),
+        fan_part_cooling_mapping=str(raw.get("fan_part_cooling_mapping", "")).strip(),
+        fan_auxiliary_present=str(raw.get("fan_auxiliary_present", "")).strip(),
+        fan_auxiliary_mapping=str(raw.get("fan_auxiliary_mapping", "")).strip(),
+        fan_exhaust_present=str(raw.get("fan_exhaust_present", "")).strip(),
+        fan_exhaust_mapping=str(raw.get("fan_exhaust_mapping", "")).strip(),
+        fan_filtration_present=str(raw.get("fan_filtration_present", "")).strip(),
+        fan_filtration_mapping=str(raw.get("fan_filtration_mapping", "")).strip(),
+        fan_provenance=str(raw.get("fan_provenance", "")).strip())
+    if thermal.enclosure not in ENCLOSURES:
+        problems.append(f"{where}: thermal.enclosure must be one of {ENCLOSURES}")
+    for name in ("enclosure_provenance", "chamber_provenance", "fan_provenance"):
+        if getattr(thermal, name) not in THERMAL_PROVENANCES:
+            problems.append(f"{where}: thermal.{name} must be one of {THERMAL_PROVENANCES}")
+    if thermal.door_lid_state_knowable not in KNOWABLE_STATES:
+        problems.append(f"{where}: thermal.door_lid_state_knowable must be one of {KNOWABLE_STATES}")
+    if thermal.chamber_sensor_fresh_reading not in KNOWABLE_STATES:
+        problems.append(f"{where}: thermal.chamber_sensor_fresh_reading must be one of {KNOWABLE_STATES}")
+    for name in ("chamber_heater_present", "chamber_sensor_present", "fan_part_cooling_present",
+                 "fan_auxiliary_present", "fan_exhaust_present", "fan_filtration_present"):
+        if getattr(thermal, name) not in PRESENCE_STATES:
+            problems.append(f"{where}: thermal.{name} must be one of {PRESENCE_STATES}")
+    for name in ("fan_part_cooling_mapping", "fan_auxiliary_mapping",
+                 "fan_exhaust_mapping", "fan_filtration_mapping"):
+        if not getattr(thermal, name):
+            problems.append(f"{where}: thermal.{name} is required (a verified index or macro name, or 'unknown')")
+    if thermal.chamber_heater_control not in CHAMBER_HEATER_CONTROLS:
+        problems.append(f"{where}: thermal.chamber_heater_control must be one of {CHAMBER_HEATER_CONTROLS}")
+    if thermal.chamber_heater_present == "absent" and thermal.chamber_heater_control != "not_supported":
+        problems.append(f"{where}: thermal.chamber_heater_control must be 'not_supported' when no chamber heater is present")
+    if thermal.chamber_heater_control == "supported":
+        if thermal.chamber_heater_present != "present":
+            problems.append(f"{where}: thermal.chamber_heater_control 'supported' requires chamber_heater_present 'present'")
+        if not thermal.chamber_heater_evidence or thermal.chamber_heater_evidence == "unknown":
+            problems.append(f"{where}: thermal.chamber_heater_control 'supported' requires "
+                            "chamber_heater_evidence naming a verified firmware command or macro")
+    return thermal
+
+
 def load_registry(root=ROOT) -> Registry:
     """Load and validate every registry. Raises RegistryError listing every problem found."""
     root = Path(root)
@@ -393,6 +495,8 @@ def load_registry(root=ROOT) -> Registry:
     printers: list[PrinterEntry] = []
     for raw, vendor_file in printer_raws:
         bed = raw.get("bed_mm") or (0, 0)
+        where = f"printer {str(raw.get('key', '')).strip() or '?'}"
+        thermal = _thermal_capabilities(raw.get("thermal"), where, problems)
         printer = PrinterEntry(
             key=str(raw.get("key", "")).strip(), label=str(raw.get("label", "")).strip(),
             vendor=str(raw.get("vendor", "")).strip(), firmware=str(raw.get("firmware", "")).strip(),
@@ -402,8 +506,7 @@ def load_registry(root=ROOT) -> Registry:
             bed_mm=(float(bed[0]), float(bed[1])), max_height_mm=float(raw.get("max_height_mm") or 0),
             filament_slots=int(raw.get("filament_slots") or 0), tools=int(raw.get("tools") or 0),
             profile=str(raw.get("profile", "")).strip(), notes=str(raw.get("notes", "")).strip(),
-            color_system=str(raw.get("color_system", "")).strip())
-        where = f"printer {printer.key or '?'}"
+            color_system=str(raw.get("color_system", "")).strip(), thermal=thermal)
         if printer.key.split(".", 1)[0] != vendor_file or printer.vendor != vendor_file:
             problems.append(f"{where}: filed in printers/registry/{vendor_file}.toml, but the "
                             f"key prefix and vendor field must both be '{vendor_file}'")
