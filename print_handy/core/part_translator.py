@@ -7,6 +7,7 @@ import json
 import colorsys
 import re
 import unicodedata
+from functools import lru_cache
 from pathlib import Path
 
 _TABLE_PATH = Path(__file__).with_name('part_name_translations.json')
@@ -22,7 +23,10 @@ def _fold(text):
     return ''.join(ch for ch in norm if not unicodedata.combining(ch)).lower()
 
 
+@lru_cache(maxsize=1)
 def _table():
+    # Read once per process: translate_name runs for every part name in every message, and the
+    # table is shipped data that never changes while the process runs. Callers only read it.
     raw = json.loads(_TABLE_PATH.read_text(encoding='utf-8'))
     folded = {}
     for lang, words in raw.items():
