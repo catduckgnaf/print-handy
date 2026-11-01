@@ -2,8 +2,8 @@
 from pathlib import Path
 
 from print_handy import settings
-from print_handy.core.source_profile_warnings import (machine_limits, source_printer_label,
-                                                      source_profile_warnings)
+from print_handy.core.source_profile_warnings import (machine_identity, machine_limits,
+                                                      source_printer_label, source_profile_warnings)
 
 AD5X_TEMPLATES = settings.ROOT / "print_handy" / "templates" / "orca" / "flashforge_ad5x"
 AD5X_LABEL = "Flashforge AD5X (ZMod)"
@@ -81,3 +81,29 @@ def test_missing_machine_template_gives_no_limits(tmp_path: Path):
     author = {"printer_model_id": "Other Printer", "outer_wall_speed": "700"}
     assert source_profile_warnings(author, source_label="Other Printer",
                                    target_label=AD5X_LABEL, limits={}) == []
+
+
+AD5X_ALIASES = machine_identity(AD5X_TEMPLATES)
+
+
+def test_native_fallback_identity_from_the_target_template_is_not_foreign():
+    # The AD5X template's own printer_settings_id names a nozzle and differs from the
+    # adapter label "(ZMod)"; it is still this printer, so no warnings.
+    author = {"printer_settings_id": "Flashforge AD5X 0.4 nozzle", "outer_wall_speed": "700"}
+    assert source_profile_warnings(author, source_label=source_printer_label(author),
+                                   target_label=AD5X_LABEL, limits=LIMITS,
+                                   aliases=AD5X_ALIASES) == []
+
+
+def test_distinct_variant_is_not_treated_as_native_by_substring():
+    author = {"printer_model_id": "Anycubic Kobra 2 Pro", "outer_wall_speed": "700"}
+    warnings = source_profile_warnings(author, source_label=source_printer_label(author),
+                                       target_label="Anycubic Kobra 2", limits=LIMITS)
+    assert len(warnings) == 1 and "Kobra 2 Pro" in warnings[0]
+
+
+def test_every_filament_fan_value_is_checked():
+    author = {"printer_model_id": "Bambu Lab X1 Carbon", "fan_max_speed": ["100", "120"]}
+    warnings = warn(author)
+    assert len(warnings) == 1
+    assert "fan_max_speed (filament 2)" in warnings[0] and "120" in warnings[0]

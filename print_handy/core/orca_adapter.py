@@ -1613,11 +1613,12 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     warnings = gate.warnings + post_gate.warnings + baseline_gate.warnings
     # #722: surface (never change) authored values that conflict with this printer's
     # verified machine limits, when the source profile demonstrably names another printer.
-    from .source_profile_warnings import (machine_limits, source_printer_label,
-                                           source_profile_warnings)
+    from .source_profile_warnings import (machine_identity, machine_limits,
+                                           source_printer_label, source_profile_warnings)
     profile_warnings = source_profile_warnings(
         author, source_label=source_printer_label(author),
-        target_label=getattr(printer, 'label', ''), limits=machine_limits(templates))
+        target_label=getattr(printer, 'label', ''), limits=machine_limits(templates),
+        aliases=machine_identity(templates))
     return output, {'tool_mapping': mapping, 'source_sha256': digest(source), 'gcode_sha256': digest(output),
                     'config_sha256': {str(p): digest(p) for p in configs}, 'geometry': geometry,
                     'slice_guard': {'status': 'warnings' if warnings else 'ok', 'warnings': warnings,

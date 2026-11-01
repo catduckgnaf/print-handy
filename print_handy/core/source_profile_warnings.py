@@ -14,6 +14,7 @@ count and brim width among the #722 candidates — are checked and deliberately 
 warned about, because there is no target fact to conflict with.
 """
 import json
+import re
 from pathlib import Path
 
 # Authored keys checked against the target machine template's axis limits.
@@ -69,27 +70,52 @@ def source_printer_label(author):
     return None
 
 
-def is_foreign(source_label, target_label):
-    """True only when the source names a printer and it demonstrably is not the target.
+def _norm(label):
+    text = " ".join(str(label).lower().replace("_", " ").replace("-", " ").split())
+    # A nozzle suffix ("... 0.4 nozzle") names a nozzle, not a different printer.
+    return re.sub(r"\s+\d+(?:\.\d+)?\s*(?:mm\s*)?nozzle$", "", text).strip()
 
-    Comparison is on normalized label text; when either side is missing, foreignness is
-    not demonstrated and no warnings are produced.
+
+def machine_identity(templates_dir):
+    """The names the target machine template itself declares (`printer_model`,
+    `printer_settings_id`), normalized; empty when the template is unreadable."""
+    try:
+        machine = json.loads((Path(templates_dir) / "machine.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        return frozenset()
+    names = set()
+    for key in ("printer_model", "printer_settings_id"):
+        value = machine.get(key)
+        if isinstance(value, (list, tuple)):
+            value = value[0] if value else None
+        if isinstance(value, str) and value.strip():
+            names.add(_norm(value))
+    return frozenset(names)
+
+
+def is_foreign(source_label, target_label, aliases=()):
+    """True only when the source names a printer that is demonstrably not the target.
+
+    Identity is exact (after normalizing case, separators and a nozzle suffix) against
+    the target label and the names its own machine template declares. No substring
+    matching: "Kobra 2 Pro" is not "Kobra 2". When either side is missing, foreignness
+    is not demonstrated and no warnings are produced.
     """
-    if not source_label or not target_label:
+    if not source_label or not (target_label or aliases):
         return False
-    norm = lambda s: " ".join(str(s).lower().replace("_", " ").replace("-", " ").split())
-    source, target = norm(source_label), norm(target_label)
-    return source != target and source not in target and target not in source
+    known = {_norm(target_label)} if target_label else set()
+    known.update(aliases)
+    return _norm(source_label) not in known
 
 
-def source_profile_warnings(author, *, source_label, target_label, limits):
+def source_profile_warnings(author, *, source_label, target_label, limits, aliases=()):
     """One warning per authored value that demonstrably conflicts with a target fact.
 
     Returns [] for native profiles, unidentified sources, in-range values, and values
     with no verified target range. Each warning names the value, where it came from,
     and the target fact it conflicts with. Nothing is changed.
     """
-    if not author or not is_foreign(source_label, target_label):
+    if not author or not is_foreign(source_label, target_label, aliases):
         return []
     warnings = []
     origin = f"the source profile for {source_label}"
@@ -107,9 +133,14 @@ def source_profile_warnings(author, *, source_label, target_label, limits):
                 f"{target_label} limit of {limit:g} {unit} (its machine template {fact}). "
                 "Print Handy has not changed this setting.")
     for key in _FAN_KEYS:
-        value = _number(author.get(key))
-        if value is not None and value > 100:
+        raw = author.get(key)
+        entries = list(raw) if isinstance(raw, (list, tuple)) else [raw]
+        for index, entry in enumerate(entries):
+            value = _number(entry)
+            if value is None or value <= 100:
+                continue
+            which = f" (filament {index + 1})" if len(entries) > 1 else ""
             warnings.append(
-                f"Source profile warning: {key} is {value:g}% in {origin}, above the "
+                f"Source profile warning: {key}{which} is {value:g}% in {origin}, above the "
                 f"{target_label} fan range of 0-100%. Print Handy has not changed this setting.")
     return warnings
