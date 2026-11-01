@@ -653,10 +653,14 @@ def _world_item_points(archive, object_ids, fit=None):
             raise RuntimeError('nonprintable build item requires explicit selection')
         obj = objects[item.get('objectid')]
         components = [node for node in obj.iter() if node.tag.split('}')[-1] == 'component']
-        if not components:
-            raise RuntimeError('production subset expects at least one component per build object')
-
         item_points = []
+        if not components:
+            # Plain core 3MF (#716): the build item names a mesh object directly.
+            if '3D/3dmodel.model' not in model_object_points:
+                model_object_points['3D/3dmodel.model'] = _cached_model(archive, '3D/3dmodel.model', _model_vertices)
+            points = model_object_points['3D/3dmodel.model'].get(item.get('objectid'), [])
+            world = _compose(fit, _matrix(item)) if fit else _matrix(item)
+            item_points.extend([_apply(world, point) for point in points])
         for component in components:
             path_attr = next((value for key, value in component.attrib.items() if key.split('}')[-1] == 'path'), None)
             # Same-file components (BambuStudio painted projects) carry no path.
@@ -827,8 +831,9 @@ def export_single_color_plate(source, target, decisions, part_keys, bed=BED_MM, 
             raise RuntimeError('selected build object also contains an unselected part')
     with zipfile.ZipFile(source) as archive:
         names = archive.namelist()
-        if 'Metadata/model_settings.config' not in names or '3D/3dmodel.model' not in names:
+        if '3D/3dmodel.model' not in names:
             raise RuntimeError('single-color plate requires production model settings')
+        core_source = 'Metadata/model_settings.config' not in names
         own_boxes = {}
         if worlds:
             unknown_fits = sorted(set(worlds) - {str(oid) for oid in selected})
@@ -894,7 +899,11 @@ def export_single_color_plate(source, target, decisions, part_keys, bed=BED_MM, 
         if placement is not None and any(abs(placed[axis][0] - placement[axis]) > 1e-6 for axis in range(2)):
             raise RuntimeError('placed plate does not start at the recorded placement')
     model_bytes = payload['3D/3dmodel.model']
-    settings_bytes = payload['Metadata/model_settings.config']
+    # A plain core 3MF (#716) has no slicer metadata: every object already
+    # prints with logical filament 1. Synthesize the minimal settings the
+    # checks below need; the derived package stays a core 3MF.
+    settings_bytes = (_core_model_settings(model_bytes) if core_source
+                      else payload['Metadata/model_settings.config'])
     # Orca 2.4.2 rejects a plate (-52, "partly inside") when a printable=0 item
     # still overlaps the bed volume. Park those items in +X beyond the bed.
     park = {}
@@ -911,7 +920,8 @@ def export_single_color_plate(source, target, decisions, part_keys, bed=BED_MM, 
     settings_out = _collapse_to_one_plate(settings_out, selected)
     _validate_derived_plate(model_bytes, model_out, settings_out, selected)
     payload['3D/3dmodel.model'] = model_out
-    payload['Metadata/model_settings.config'] = settings_out
+    if not core_source:
+        payload['Metadata/model_settings.config'] = settings_out
     color = None
     if slot_colors:
         row = slot_colors.get(str(slot)) or slot_colors.get(slot) or {}
@@ -944,6 +954,13 @@ def export_single_color_plate(source, target, decisions, part_keys, bed=BED_MM, 
             'placed_bounds_mm': placed, 'bed_mm': bed, 'changed_entries': changed,
             'policy': 'production package copy; every object, mesh and relationship kept; unselected build items printable=0; all extruders logical 1; selected transforms kept unless the group must shift to fit',
             **({'filament_colour': color} if color is not None else {})}
+
+
+def _core_model_settings(model_bytes):
+    """Minimal model settings for a plain core 3MF: logical filament 1 per build object (#716)."""
+    rows = ''.join(f'<object id="{oid}"><metadata key="extruder" value="1"/></object>'
+                   for oid in sorted(_build_ids(model_bytes), key=int))
+    return f'<config>{rows}</config>'.encode()
 
 
 def _build_ids(model_bytes):
