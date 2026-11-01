@@ -259,9 +259,15 @@ class FitStatus:
             self.message_id = str(message_id)
 
     async def run(self, phase, work, first_text=None):
-        """Await ``work`` while the status names ``phase`` and the time spent so far."""
-        await self.show(first_text or f'Checking the fit: {phase} ({self.elapsed()}).')
+        """Await ``work`` while the status names ``phase`` and the time spent so far.
+
+        ``work`` may be a task started earlier (:func:`_prefetch`); when it has already
+        finished there is nothing to wait for, so no status line is posted at all.
+        """
         task = asyncio.ensure_future(work)
+        if task.done():
+            return task.result()
+        await self.show(first_text or f'Checking the fit: {phase} ({self.elapsed()}).')
         try:
             while True:
                 done, _ = await asyncio.wait({task}, timeout=FIT_HEARTBEAT_S)
@@ -278,6 +284,17 @@ class FitStatus:
         """Close the status line with the result and total time, only if one was shown."""
         if self.last_text is not None:
             await self.show(f'Fit check done in {self.elapsed()}: {outcome}')
+
+
+def _prefetch(work):
+    """Start ``work`` now and return its task, to be awaited (or abandoned) later.
+
+    An intake that ends before awaiting it (cancel, timeout, a refusal) must not log
+    "Task exception was never retrieved", so the outcome is always marked as read.
+    """
+    task = asyncio.ensure_future(work)
+    task.add_done_callback(lambda done: done.cancelled() or done.exception())
+    return task
 
 
 def _auto_rearrange_eligible(job, latest):
@@ -1719,6 +1736,11 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         mj.write_job(folder, job)
         receipt.update(job_json=str(jp), source_sha256=manifest['source_sha256'], status='AWAITING_COLOR')
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+        # The author-layout fit probe needs only the file and the printer state, never the unit or
+        # color answers, so start it now and let it run while the operator answers (#734). It is
+        # awaited at the fit check below, which then usually has nothing left to wait for.
+        from . import orca_adapter
+        fit_probe = _prefetch(_heavy(orca_adapter.orca_plate_capacity, path, state))
         unit_q = mj.unit_question(job)
         if unit_q is not None:
             # STL records no units and this part is small enough to be either
@@ -1844,11 +1866,9 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         mj.set_color_decisions(latest, validated)
         if decisions['mode'] == 'single_color':
             latest['filament_selection'] = validated['selection']
-        from . import orca_adapter
         fit_status = FitStatus(adapter, source, metadata)
         try:
-            capacity = await fit_status.run('checking the layout as the author laid it out',
-                                            _heavy(orca_adapter.orca_plate_capacity, path, state),
+            capacity = await fit_status.run('checking the layout as the author laid it out', fit_probe,
                                             first_text='Checking whether it fits the bed.')
         except Exception as exc:
             logger.exception('fit check failed; intake is resumable')

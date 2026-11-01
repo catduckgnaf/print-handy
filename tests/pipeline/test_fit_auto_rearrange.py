@@ -528,3 +528,55 @@ def test_merge_and_rearrange_packing_keep_the_brim_on_the_bed():
     for call in ('pack(extents, bed, spacing, edge=edge', '_turned_attempt(hulls_all, float(bed), spacing, reserve, edge=edge)',
                  'pack_polygon(hulls, bed, spacing, edge=edge', '_yawed_merge_attempt(source, object_ids, extents, bed, spacing, reserve, edge=edge)'):
         assert call in body, call
+
+
+def test_prefetched_fit_check_already_done_posts_nothing(monkeypatch):
+    # #734: the author-layout probe starts while the color question is open; when the
+    # operator answers after it finished, the fit check has nothing to wait for.
+    adapter = _EditingAdapter()
+    status = prepared_intake.FitStatus(adapter, S(chat_id='c1', thread_id='t9'), {'thread_id': 't9'},
+                                       clock=_Clock())
+
+    async def probe():
+        return 3
+
+    async def main():
+        task = prepared_intake._prefetch(probe())
+        await asyncio.sleep(0)  # the operator is still answering; the probe completes
+        await asyncio.sleep(0)
+        got = await status.run('checking the layout as the author laid it out', task,
+                               first_text='Checking whether it fits the bed.')
+        await status.finish('fits.')
+        return got
+    assert asyncio.run(main()) == 3
+    assert adapter.sent == [] and adapter.edits == []
+
+
+def test_prefetched_fit_check_still_running_shows_the_usual_status(monkeypatch):
+    adapter = _EditingAdapter()
+    status = prepared_intake.FitStatus(adapter, S(chat_id='c1', thread_id='t9'), {'thread_id': 't9'},
+                                       clock=_Clock())
+
+    async def probe():
+        await asyncio.sleep(0.05)
+        return 1
+
+    async def main():
+        task = prepared_intake._prefetch(probe())
+        return await status.run('checking the layout as the author laid it out', task,
+                                first_text='Checking whether it fits the bed.')
+    assert asyncio.run(main()) == 1
+    assert adapter.sent == ['Checking whether it fits the bed.']
+
+
+def test_prefetched_fit_check_failure_surfaces_when_awaited():
+    async def probe():
+        raise RuntimeError('orca probe failed')
+
+    async def main():
+        task = prepared_intake._prefetch(probe())
+        await asyncio.sleep(0)
+        status = prepared_intake.FitStatus(_EditingAdapter(), S(chat_id='c1', thread_id=None), {})
+        with pytest.raises(RuntimeError, match='orca probe failed'):
+            await status.run('checking the layout as the author laid it out', task)
+    asyncio.run(main())
