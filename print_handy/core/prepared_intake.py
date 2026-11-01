@@ -76,6 +76,69 @@ class Stopped(BaseException):
         self.uncertain = uncertain
 
 
+def _new_stages(timing_path, offset):
+    """Stage names appended to a job's TIMING.jsonl after byte ``offset``; never raises."""
+    try:
+        with open(timing_path, 'rb') as handle:
+            handle.seek(offset)
+            tail = handle.read()
+    except OSError:
+        return set()
+    stages = set()
+    for line in tail.decode('utf-8', 'replace').splitlines():
+        with contextlib.suppress(ValueError, AttributeError):
+            stages.add(json.loads(line).get('stage'))
+    return stages
+
+
+async def _watch_start_progress(adapter, source, metadata, timing_path, offset, clock):
+    """Post each START_PROGRESS note once its stage has lasted its grace period.
+
+    A note whose later stage was already reached is stale and never posted; the watcher
+    ends after the last note (or is cancelled when the start returns).
+    """
+    seen, posted = {}, set()
+    last = START_PROGRESS[-1][0]
+    while last not in posted:
+        await asyncio.sleep(START_PROGRESS_POLL_S)
+        stages = _new_stages(timing_path, offset)
+        now = clock()
+        for stage, _grace, _text in START_PROGRESS:
+            if stage in stages:
+                seen.setdefault(stage, now)
+        for index, (stage, grace, text) in enumerate(START_PROGRESS):
+            later = any(name in seen for name, _g, _t in START_PROGRESS[index + 1:])
+            if stage in posted or stage not in seen or later or now - seen[stage] < grace:
+                continue
+            posted.add(stage)
+            # A note is progress only: delivery failure never touches the start itself.
+            with contextlib.suppress(Exception):
+                await adapter.send(chat_id=str(source.chat_id), content=text, metadata=metadata)
+
+
+async def _with_start_progress(adapter, source, metadata, job_path, work, clock=time.monotonic):
+    """Await the start ``work`` unchanged while relaying its TIMING.jsonl progress (#734).
+
+    ``work`` is awaited directly, so Stop, cancellation and its result behave exactly as
+    without this wrapper; the watcher only posts notes and is stopped when work ends.
+    """
+    adapter_state = getattr(adapter, '__dict__', {})
+    if 'picks' in adapter_state or 'clicks' in adapter_state or job_path is None:
+        return await work  # scripted test adapters record questions only, as _with_stop does
+    timing_path = Path(job_path).parent / 'TIMING.jsonl'
+    try:
+        offset = timing_path.stat().st_size
+    except OSError:
+        offset = 0
+    watcher = asyncio.ensure_future(_watch_start_progress(adapter, source, metadata, timing_path, offset, clock))
+    try:
+        return await work
+    finally:
+        watcher.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await watcher
+
+
 async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=False, refusal_context=None):
     """Run work with plain progress by default; opt in to Stop only when cancellation is safe."""
     adapter_state = getattr(adapter, "__dict__", {})
@@ -197,6 +260,19 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
 # long phase, at most once per FIT_FALLBACK_HEARTBEAT_S.
 FIT_HEARTBEAT_S = 15.0
 FIT_FALLBACK_HEARTBEAT_S = 60.0
+
+# Start progress (#734): print-now runs as a child process and its result arrives only at
+# the end, while a real start spends 25-75 s between the tap and that result (the start
+# request itself, then the readback while the printer prepares). The child already logs its
+# stages to <job>/TIMING.jsonl as they happen; these short notes relay the two that matter,
+# each only when that stage has lasted its grace period, so a fast start posts nothing extra.
+START_PROGRESS_POLL_S = 1.0
+START_PROGRESS = (
+    ('upload_verified', 5.0, 'Uploaded to the printer. Sending the start now; '
+                             'some printers take up to a minute to answer.'),
+    ('start_submitted', 3.0, 'The printer accepted the start. It may load filament and heat for a '
+                             "few minutes before printing; I'll post when the start is confirmed."),
+)
 
 
 def _elapsed_text(seconds):
@@ -2554,8 +2630,9 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         ok, tail = await _with_stop(adapter, source, key, metadata,
                                     ((prep_msg + "\n") if not prep_sent else "")
                                     + "Uploading to the printer. Press Stop to request cancellation.",
-                                    print_next.start(target), allow_stop=True,
-                                    refusal_context=start_context)
+                                    _with_start_progress(adapter, source, metadata, jp,
+                                                         print_next.start(target)),
+                                    allow_stop=True, refusal_context=start_context)
         mj._timing(jp, 'intake_start_returned', ok=bool(ok))
         started_as = classify_start(ok, tail)
         unknown, pending = started_as.unknown, started_as.pending
