@@ -26,3 +26,21 @@ def test_legacy_known_material_explicit_targets_remain_allowed(monkeypatch):
     state = {"spool": {"material": "PETG"}, "temps_c": {"nozzle": 235, "bed": 80}}
     monkeypatch.setattr(printer_state.settings, "current", lambda: {"material_temps": printer_state.DEFAULT_MATERIAL_TEMPS})
     assert printer_state._material_temperature_contract(state) is None
+
+
+@pytest.mark.parametrize("source", ["spool changed by slot sync; resolved per slice",
+                                    "spool changed by launch sync; resolved per slice"])
+def test_resolved_per_slice_marker_does_not_fail_verification(monkeypatch, source):
+    """spool_sync/launch sync write a resolution with no material_family; 2.2.3 compared
+    None to the spool's family and refused every slice ("stored temperature material
+    does not match selected spool")."""
+    state = {"spool": {"material": "Silk PLA"}, "temperature_resolution": {"source": source}}
+    monkeypatch.setattr(printer_state.settings, "current", lambda: {"material_temps": printer_state.DEFAULT_MATERIAL_TEMPS})
+    assert printer_state._material_temperature_contract(state) is None
+
+
+def test_resolved_per_slice_marker_still_rejects_unknown_material(monkeypatch):
+    state = {"spool": {"material": "mystery blend"}, "temperature_resolution": {"source": "resolved per slice"}}
+    monkeypatch.setattr(printer_state.settings, "current", lambda: {"material_temps": printer_state.DEFAULT_MATERIAL_TEMPS})
+    with pytest.raises(RuntimeError, match="no PLA fallback"):
+        printer_state._material_temperature_contract(state)

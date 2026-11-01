@@ -4,6 +4,7 @@ Presentation only. Never change persisted part keys or decision schemas.
 No network and no model calls: the table next to this file is the whole dictionary.
 """
 import json
+import colorsys
 import re
 import unicodedata
 from pathlib import Path
@@ -106,17 +107,39 @@ def translate_name(name):
 
 
 def named_color(hex_color):
-    """Nearest plain English color for an explicit RGB value, entirely offline."""
+    """Plain English color for an explicit RGB value, entirely offline.
+
+    Hue/lightness bands instead of nearest-of-eleven RGB points: the RGB
+    distance named a gold (#FFE57C) "pink" and a dark slate (#383845) "brown"
+    on the 2026-10-31 Witch Ghost intake (#711).
+    """
     raw = str(hex_color or '').strip().lstrip('#')
     if not re.fullmatch(r'[0-9A-Fa-f]{6}', raw):
         return 'unknown color'
-    rgb = tuple(int(raw[i:i + 2], 16) for i in range(0, 6, 2))
-    names = {'black': (0, 0, 0), 'white': (255, 255, 255), 'red': (255, 0, 0),
-             'pink': (255, 128, 192), 'orange': (255, 128, 0), 'yellow': (255, 255, 0),
-             'green': (0, 128, 0), 'blue': (0, 0, 255), 'purple': (128, 0, 128),
-             'brown': (128, 64, 0), 'gray': (128, 128, 128)}
-    return min(names, key=lambda name: sum((actual - target) ** 2
-                                            for actual, target in zip(rgb, names[name])))
+    r, g, b = (int(raw[i:i + 2], 16) / 255 for i in range(0, 6, 2))
+    hue, light, sat = colorsys.rgb_to_hls(r, g, b)
+    hue *= 360
+    if light >= 0.93 or (sat < 0.25 and light >= 0.85):
+        return 'white'
+    if light <= 0.12 or (sat < 0.2 and light <= 0.35):
+        return 'black'
+    if sat < 0.14:
+        return 'gray'
+    if 15 <= hue < 45 and light < 0.42:
+        return 'brown'
+    if hue < 12 or hue >= 345:
+        return 'pink' if light >= 0.72 else 'red'
+    if hue < 40:
+        return 'orange'
+    if hue < 70:
+        return 'yellow'
+    if hue < 170:
+        return 'green'
+    if hue < 255:
+        return 'blue'
+    if hue < 290:
+        return 'purple'
+    return 'pink' if light >= 0.45 else 'purple'
 
 
 def size_hint(part):

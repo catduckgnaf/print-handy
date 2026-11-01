@@ -533,10 +533,13 @@ def _material_temperature_contract(state):
     if not material:
         raise RuntimeError("selected spool has no material; cannot determine safe temperatures")
     resolution = state.get("temperature_resolution")
-    if resolution:
-        if resolution.get("material_family") != material_family(material):
+    if resolution and resolution.get("material_family"):
+        if resolution["material_family"] != material_family(material):
             raise RuntimeError("stored temperature material does not match selected spool")
         return
+    # A resolution without material_family is the "resolved per slice" marker that slot sync
+    # and launch sync write; it names no material, so it cannot mismatch one. Fall through to
+    # the recognised-material check instead of refusing every slice (2.2.3, Discord 2026-10-31).
     # Existing explicitly selected runtime temperatures remain valid for legacy state.
     # This only validates material recognition; it never substitutes PLA for another family.
     family = material_family(material)

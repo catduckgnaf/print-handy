@@ -79,3 +79,12 @@ class PartTranslatorTests(unittest.TestCase):
         legacy = source_colors.prompts(manifest)
         assert legacy[0]['key'] == 'part:build:0/0'
         assert 'Body 1 (Cuerpo1)' in legacy[0]['question']
+
+
+def test_named_color_matches_the_witch_ghost_palette():
+    """#711: RGB nearest-point naming called gold pink and dark slate brown."""
+    want = {'#FAF9F7': 'white', '#61506F': 'purple', '#C47CE7': 'purple', '#FFE57C': 'yellow',
+            '#383845': 'black', '#FFB3C4': 'pink', '#067749': 'green', '#C0392B': 'red',
+            '#FF00FF': 'pink', '#808080': 'gray', '#8B4513': 'brown', '#FFA500': 'orange',
+            '#0000FF': 'blue', '#000000': 'black', '#FFFFFF': 'white'}
+    assert {c: tr.named_color(c) for c in want} == want

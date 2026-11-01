@@ -14,19 +14,18 @@ from .compact_geometry import transform_vertices_array
 import zipfile
 import subprocess
 
-_PAINT_TAGS = (b'colorgroup', b'basematerials', b'multiproperties')
-_PAINT_ATTRS = (b'paint_color', b'mmu_segmentation', b'p1', b'p2', b'p3', b'pid')
+# Slicer triangle painting only (Bambu/Orca paint_color, PrusaSlicer
+# mmu_segmentation): the painted-region pipeline can split exactly these.
+# Core 3MF materials (basematerials/colorgroup with object pid/pindex) are
+# per-object author colors, read by _core_material_colors; they are not
+# paint (#711). Before #711 they set painted with no palette, which asked an
+# unanswerable 'painted:unknown' question and then rejected every answer.
+_PAINT_TAGS = ()
+_PAINT_ATTRS = (b'paint_color', b'mmu_segmentation')
 
 
 def _has_paint(data):
     """Byte-level equivalent of walking every node for paint tags/attributes (bytes.find is C speed)."""
-    for tag in _PAINT_TAGS:
-        i = data.find(tag)
-        while i != -1:
-            before, after = data[i - 1:i], data[i + len(tag):i + len(tag) + 1]
-            if (before == b'<' or (before == b':' and b'<' in data[max(0, i - 40):i])) and after in (b' ', b'>', b'/', b'\t', b'\n', b'\r'):
-                return True
-            i = data.find(tag, i + 1)
     for attr in _PAINT_ATTRS:
         i = data.find(attr + b'=')
         while i != -1:
@@ -280,8 +279,48 @@ def _annotate_parts(archive, names, parts, filaments):
                 color = palette.get(part.get('source_extruder'))
                 if color:
                     part['author_color'] = color
+        _core_material_colors(root, objects, parts)
     except Exception:
         pass
+
+
+def _core_material_colors(root, objects, parts):
+    """Author colors from core 3MF materials (#711): object pid/pindex into basematerials/colorgroup.
+
+    Plain 3MF exports (Blender, Fusion, generators) carry per-object colors
+    here instead of a slicer palette. Display only; a part that already has a
+    slicer palette color keeps it.
+    """
+    groups = {}
+    for node in root.iter():
+        tag = node.tag.split('}')[-1]
+        if tag in ('basematerials', 'colorgroup'):
+            attr = 'displaycolor' if tag == 'basematerials' else 'color'
+            groups[node.get('id')] = [str(c.get(attr) or '')[:7] for c in node
+                                      if c.tag.split('}')[-1] in ('base', 'color')]
+    if not groups:
+        return
+
+    def color_of(obj):
+        if obj is None or obj.get('pid') not in groups:
+            return None
+        try:
+            value = groups[obj.get('pid')][int(obj.get('pindex') or 0)]
+        except (ValueError, IndexError):
+            return None
+        return value if re.fullmatch(r'#[0-9A-Fa-f]{6}', value) else None
+
+    found = {}
+    for part in parts:
+        if part.get('author_color'):
+            continue
+        color = color_of(objects.get(part.get('part_id'))) or color_of(objects.get(part.get('object_id')))
+        if color:
+            found[id(part)] = color
+    if len(set(found.values())) > 1:  # one color everywhere tells the operator nothing
+        for part in parts:
+            if id(part) in found:
+                part['author_color'] = found[id(part)]
 
 
 def inventory(path):
@@ -313,6 +352,10 @@ def inventory(path):
                 for part in children:
                     pm = {m.get('key'): m.get('value') for m in part.findall('metadata')}
                     raw = pm.get('extruder', meta.get('extruder'))
+                    if raw == '0' and part is not obj:
+                        # Bambu/Orca write extruder 0 on a volume to mean "inherit the
+                        # object's filament" (common on modifier parts); it is not invalid.
+                        raw = meta.get('extruder')
                     if raw is not None and (not raw.isdigit() or int(raw) < 1):
                         raise RuntimeError('invalid source extruder assignment')
                     parts.append({'key': f"{obj.get('id')}:{part.get('id')}",
