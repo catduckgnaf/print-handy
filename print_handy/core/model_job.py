@@ -5752,7 +5752,8 @@ def _wait_printing(st, remote, wait_s, prep_check=None):
     t0=time.monotonic(); state=None
     while time.monotonic()-t0 < wait_s:
         state,fn,busy=_printer_phase(st)
-        if state=="printing" and fn==remote: return "printing"
+        # A ZMod .gcode.3mf prints as 3mf_print/X.gcode; an exact compare never matched and sat out wait_s.
+        if state=="printing" and launch_state.same_remote(fn, remote): return "printing"
         if state in ("error","cancelled"): return state
         if prep_check and time.monotonic()-t0 > 2:
             try:
