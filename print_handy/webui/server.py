@@ -436,7 +436,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     # -- per-printer controls (#708, control endpoints phase) ----------------
     def _printer_control_route(self, rest):
-        """POST /api/printers/<id>/pause|resume|cancel|temperature.
+        """POST /api/printers/<id>/pause|resume|cancel|temperature|target.
 
         Authorization is the access-token header only (or no token
         configured): a login-session cookie never authorizes a control
@@ -450,10 +450,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(401, {"ok": False, "reason": f"missing or wrong {TOKEN_HEADER}"})
             return
         segments = rest.split("/")
-        verbs = (*controls_module.ACTIONS, "temperature")
+        verbs = (*controls_module.ACTIONS, "temperature", "target")
         if len(segments) != 2 or not segments[0] or segments[1] not in verbs:
             self._json(404, {"ok": False, "reason": "try /api/printers/<id>/pause, resume, "
-                                                    "cancel or temperature"})
+                                                    "cancel, temperature or target"})
             return
         content_type = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
         try:
@@ -780,6 +780,8 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
 def _printer_control(data, printer_id, verb, body):
     if verb == "temperature":
         return controls_module.set_temperature(data, printer_id, body)
+    if verb == "target":
+        return controls_module.set_targets(data, printer_id, body)
     return controls_module.control(data, printer_id, verb, body)
 
 
