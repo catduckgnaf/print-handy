@@ -102,3 +102,23 @@ class OctoPrintClient:
         if action not in bodies:
             raise OctoPrintError(f'{action} is unsupported by OctoPrint integration')
         return self.request('POST', '/api/job', bodies[action])
+
+    def set_targets(self, hotend_c=None, bed_c=None):
+        """Set the tool0 / bed target temperatures (OctoPrint's printer API).
+
+        One target command per heater actually requested; a value of 0
+        turns that heater off. Validation matches start(): a finite
+        number in range, or nothing is sent at all.
+        """
+        if hotend_c is None and bed_c is None:
+            raise OctoPrintError('no temperature target given; nothing sent')
+        for value in (hotend_c, bed_c):
+            if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))
+                                      or not math.isfinite(value) or not 0 <= value <= 300):
+                raise OctoPrintError('invalid temperature target; nothing sent')
+        if hotend_c is not None:
+            self.request('POST', '/api/printer/tool',
+                         {'command': 'target', 'targets': {'tool0': hotend_c}})
+        if bed_c is not None:
+            self.request('POST', '/api/printer/bed',
+                         {'command': 'target', 'target': bed_c})

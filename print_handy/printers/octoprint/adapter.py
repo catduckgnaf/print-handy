@@ -24,6 +24,16 @@ class OctoPrintAdapter(KlipperAdapter):
             raise OctoPrintError(f'{action} is unsupported by the OctoPrint integration')
         return self.client().control(actions[action])
 
+    def set_targets(self, hotend_c=None, bed_c=None):
+        """Set the nozzle (tool0) / bed target temperatures through OctoPrint.
+
+        OctoPrint is the one non-Moonraker family whose API sets heater
+        targets; the Web UI control API (#708) reaches temperatures only
+        through this method (and Moonraker's heater script), so every
+        other family keeps a named refusal instead of a guessed command.
+        """
+        return self.client().set_targets(hotend_c=hotend_c, bed_c=bed_c)
+
     def machine_start_gcode(self, template_start, mesh='auto'):
         return template_start
 
