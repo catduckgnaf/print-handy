@@ -59,10 +59,11 @@ enabled = true
 host = "0.0.0.0"
 port = 8088
 access_token_env = "WEBUI_ACCESS_TOKEN"
-# false (the container default, #708): with no token set, anyone who can
-# reach the port gets the Web UI. Set the token and it is always required.
-# true refuses a LAN bind that has no token.
-require_auth = false
+# false turns the access token off entirely, even on a LAN bind: anyone who
+# can reach the port gets the Web UI. Only for a network you trust. With
+# true and no token, the first visit shows the setup page (#708): set a
+# password or confirm it should stay open.
+require_auth = true
 # Printer control routes (#708); off by default (403, nothing sent). See docs/WEBUI.md.
 controls_enabled = false
 

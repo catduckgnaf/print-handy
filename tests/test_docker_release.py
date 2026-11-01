@@ -517,14 +517,16 @@ class WebuiContainerTests(unittest.TestCase):
     def variables(self):
         return {c.get("Target"): c for c in UNRAID.findall("Config") if c.get("Type") == "Variable"}
 
-    def test_compose_webui_variables_default_to_off(self):
+    def test_compose_webui_variables_default_to_on_8088(self):
+        # #708: on inside the container on 8088; reachable only once the port
+        # is published, and then the first-run setup page asks for a password.
         compose_env = COMPOSE["services"]["combined"]["environment"]
         self.assertEqual(compose_env["PRINT_HANDY__WEBUI__ENABLED"],
-                         "${PRINT_HANDY__WEBUI__ENABLED:-false}")
+                         "${PRINT_HANDY__WEBUI__ENABLED:-true}")
         self.assertEqual(compose_env["PRINT_HANDY__WEBUI__HOST"],
-                         "${PRINT_HANDY__WEBUI__HOST:-127.0.0.1}")
+                         "${PRINT_HANDY__WEBUI__HOST:-0.0.0.0}")
         self.assertEqual(compose_env["PRINT_HANDY__WEBUI__PORT"],
-                         "${PRINT_HANDY__WEBUI__PORT:-0}")
+                         "${PRINT_HANDY__WEBUI__PORT:-8088}")
         # The token is a secret: .env env_file only, never a Compose default.
         self.assertNotIn("WEBUI_ACCESS_TOKEN", compose_env)
         # The port publication stays a commented example in the file text.

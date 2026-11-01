@@ -1022,10 +1022,9 @@ def _validate_webui(data):
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", env_name):
         raise SettingsError(f"[webui] access_token_env must be an environment variable name, got {env_name!r}")
     webui["access_token_env"] = env_name
-    # require_auth = false is the opt-out for a trusted network: a
-    # non-loopback bind may then start with no access token. A token that
-    # is set is still enforced (#708). On by default (the Docker config
-    # sets false); a missing key means true.
+    # require_auth = false is the explicit opt-out for a trusted network:
+    # the access token is then neither required nor checked, even on a
+    # non-loopback bind. On by default; a missing key means true.
     require_auth = webui.setdefault("require_auth", True)
     if not isinstance(require_auth, bool):
         raise SettingsError(f"[webui] require_auth must be true or false, got {require_auth!r}")

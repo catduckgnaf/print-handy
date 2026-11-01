@@ -17,20 +17,17 @@ enabled without a port, so the supervisor starts nothing; 2 = the
 configuration could not be resolved (the supervisor stops with the
 printed error rather than guessing).
 
-One more 3 case (#440): enabled with a port on a non-loopback host but
-no access token in the environment. The server itself still refuses
-that bind outright (print_handy.webui.server.check_start — a
-LAN-reachable Web UI must never run unauthenticated), but in the
-supervised container that refusal used to kill the whole container on
-an otherwise healthy install. The gate now reports the blocked start
-with the fix (set the token, or bind loopback) and the supervisor
-carries on without the Web UI: the bot, listener and Spoolman are
-unaffected, and the Web UI still never runs unauthenticated.
+Before #708 a LAN bind with no access token was a third 3 case (#440):
+the gate reported it and the container ran without the Web UI. Since
+#708 such a bind starts in first-run setup instead
+(print_handy.webui.access): the Web UI serves only its setup page until
+the operator sets a password or affirmatively leaves it open, so it
+still never runs unauthenticated by accident. ``start_blocked`` stays
+for callers (docker/healthcheck.py) and now always answers None.
 """
 from __future__ import annotations
 
 import ipaddress
-import os
 import sys
 
 from . import settings
@@ -63,27 +60,21 @@ def is_loopback(host):
 
 
 def start_blocked(host, port, env_name, environ=None, require_auth=True):
-    """Why an enabled Web UI must not start, or None when it may (#440).
+    """Why an enabled Web UI must not start, or None when it may.
 
-    The one blocked case: a non-loopback bind with no access token in
-    the environment variable ``env_name`` names. The server refuses
-    that bind itself; the gate reports it first so the supervised
-    container degrades to "no Web UI" with guidance instead of halting.
-    docker/healthcheck.py mirrors this through the same helper so the
-    probe and the supervisor can never disagree. ``require_auth`` false
-    ([webui] require_auth, the Docker default since #708) allows the
-    tokenless LAN start: nothing is blocked then, and a token that is
-    set is still enforced by the server.
+    Always None since #708: the one case that used to block (#440), a
+    non-loopback bind with no access token, now starts in first-run setup
+    and serves only the setup page. Kept so docker/healthcheck.py and the
+    supervisor keep asking the same question.
     """
-    environ = os.environ if environ is None else environ
-    if not require_auth or is_loopback(host) or (environ.get(env_name) or ""):
-        return None
-    return (f"webui gate: enabled on {host}:{port} but ${env_name} is empty: "
-            f"a non-loopback Web UI requires an access token, so it was not "
-            f"started. Set {env_name} to a long random value (Unraid: the "
-            f"'Web UI access token' field) and restart the container, or bind "
-            f"127.0.0.1 to keep the Web UI inside the container. The bot, "
-            f"listener and Spoolman are unaffected.")
+    return None
+
+
+def setup_pending(host, data=None, environ=None):
+    """True while a Web UI bound to ``host`` waits for its first-run setup choice."""
+    from .webui import access
+    data = settings.load() if data is None else data
+    return access.resolve(data, str(host), environ).setup_pending
 
 
 def decide(data=None, environ=None):
@@ -94,6 +85,14 @@ def decide(data=None, environ=None):
     return 3 if start_blocked(host, port, env_name, environ, require_auth) else 0
 
 
+def _setup_pending_quietly(host):
+    """setup_pending for the gate's log line; an unreadable state never blocks the start."""
+    try:
+        return setup_pending(host)
+    except Exception:
+        return False
+
+
 def main():
     try:
         enabled, host, port, env_name, require_auth = webui_config()
@@ -101,17 +100,15 @@ def main():
         print(f"webui gate: configuration unresolved: {exc}", file=sys.stderr)
         return 2
     if enabled and port > 0:
-        blocked = start_blocked(host, port, env_name, require_auth=require_auth)
-        if blocked:
-            print(blocked)
-            return 3
-        if not require_auth and not is_loopback(host) and not (os.environ.get(env_name) or ""):
+        if not require_auth and not is_loopback(host):
             print(f"webui gate: enabled on {host}:{port} with authentication OFF "
-                  f"([webui] require_auth = false and ${env_name} is empty): anyone who "
-                  f"can reach the port can use the Web UI. Set {env_name} to require "
-                  f"a token")
-            return 0
-        print(f"webui gate: enabled on {host}:{port}")
+                  f"([webui] require_auth = false): anyone who can reach the port "
+                  f"can use the Web UI")
+        elif _setup_pending_quietly(host):
+            print(f"webui gate: enabled on {host}:{port}; first-run setup is waiting: "
+                  f"open the Web UI in a browser to set a password or leave it open")
+        else:
+            print(f"webui gate: enabled on {host}:{port}")
         return 0
     if enabled:
         print("webui gate: enabled but no port chosen ([webui] port is 0); not starting it")

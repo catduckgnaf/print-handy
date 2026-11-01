@@ -37,19 +37,16 @@ class WebuiGateDecisionTests(unittest.TestCase):
     def test_enabled_without_a_port_does_not_start(self):
         self.assertEqual(webui_gate.decide(data(True, 0)), 3)
 
-    def test_non_loopback_without_a_token_is_blocked_not_started(self):
-        # #440: the gate's start_blocked is the container-side graceful
-        # path; the server itself still refuses this bind outright.
-        blocked = data(True, 8088, host="0.0.0.0")
-        self.assertEqual(webui_gate.decide(blocked, environ={}), 3)
-        self.assertIsNotNone(webui_gate.start_blocked(
-            "0.0.0.0", 8088, "WEBUI_ACCESS_TOKEN", environ={}))
-        # With the token set the same configuration starts.
-        env = {"WEBUI_ACCESS_TOKEN": "a-long-random-token"}
-        self.assertEqual(webui_gate.decide(blocked, environ=env), 0)
+    def test_non_loopback_without_a_token_starts_in_setup(self):
+        # #440 used to block this bind; since #708 it starts and serves only
+        # the first-run setup page (print_handy.webui.access), so the gate
+        # starts it and start_blocked never blocks.
+        lan = data(True, 8088, host="0.0.0.0")
+        self.assertEqual(webui_gate.decide(lan, environ={}), 0)
         self.assertIsNone(webui_gate.start_blocked(
-            "0.0.0.0", 8088, "WEBUI_ACCESS_TOKEN", environ=env))
-        # Loopback never needs a token.
+            "0.0.0.0", 8088, "WEBUI_ACCESS_TOKEN", environ={}))
+        env = {"WEBUI_ACCESS_TOKEN": "a-long-random-token"}
+        self.assertEqual(webui_gate.decide(lan, environ=env), 0)
         self.assertEqual(webui_gate.decide(data(True, 8088), environ={}), 0)
 
     def test_require_auth_false_starts_a_lan_bind_without_a_token(self):
@@ -87,19 +84,14 @@ class WebuiGateCliTests(unittest.TestCase):
                                side_effect=settings.SettingsError("bad webui")):
             self.assertEqual(webui_gate.main(), 2)
 
-    def test_blocked_start_is_three_with_actionable_guidance(self):
-        # #440: the printed reason names the missing secret and both fixes,
-        # so an Unraid user can act on the container log alone.
+    def test_setup_pending_start_is_zero_and_says_so(self):
+        # #708: a LAN bind with no token and no saved choice starts in
+        # first-run setup; the log line tells the operator where to finish it.
         out = io.StringIO()
-        with mock.patch.dict(os.environ, {}, clear=False), \
-                contextlib.redirect_stdout(out):
-            os.environ.pop("WEBUI_ACCESS_TOKEN", None)
+        with mock.patch.object(webui_gate, "setup_pending", return_value=True),                 contextlib.redirect_stdout(out):
             code = self.run_gate((True, "0.0.0.0", 8088, "WEBUI_ACCESS_TOKEN", True))
-        self.assertEqual(code, 3)
-        text = out.getvalue()
-        self.assertIn("WEBUI_ACCESS_TOKEN is empty", text)
-        self.assertIn("was not started", text)
-        self.assertIn("127.0.0.1", text)
+        self.assertEqual(code, 0)
+        self.assertIn("first-run setup is waiting", out.getvalue())
 
 
 def load_docker_healthcheck():
@@ -165,10 +157,9 @@ class DockerHealthcheckWebuiRowTests(unittest.TestCase):
 
         return mock.Mock(side_effect=_open), probed
 
-    def test_blocked_webui_is_an_ok_skip(self):
-        # #440: enabled on a non-loopback host with no token in the
-        # environment: the gate never started it, so the row reports the
-        # blocked start (with the gate's guidance) instead of probing.
+    def test_lan_webui_without_a_token_is_probed(self):
+        # #708: no longer blocked (#440); it serves /healthz in setup mode,
+        # so the row probes it like any running Web UI.
         module = load_docker_healthcheck()
         urlopen, probed = self.urlopen_for(200)
         with mock.patch.dict(os.environ, {}, clear=False):
@@ -177,8 +168,8 @@ class DockerHealthcheckWebuiRowTests(unittest.TestCase):
                                    return_value=(True, "0.0.0.0", 8088, "WEBUI_ACCESS_TOKEN", True)):
                 code, out = self.run_main(module, urlopen)
         self.assertEqual(code, 0)
-        self.assertIn("ok  webui: not started: webui gate: enabled on 0.0.0.0:8088", out)
-        self.assertEqual(probed, [])
+        self.assertIn("ok  webui: serving on 0.0.0.0:8088 (HTTP 200)", out)
+        self.assertEqual(probed, ["http://127.0.0.1:8088/healthz"])
 
     def test_serving_webui_is_ok_on_200_and_503(self):
         # 503 from /healthz is the bot heartbeat's verdict, which the bot

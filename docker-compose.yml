@@ -76,8 +76,8 @@ services:
       PRINT_HANDY__DESIGN__REPAIR_ATTEMPTS: ${PRINT_HANDY__DESIGN__REPAIR_ATTEMPTS:-3}
       # Optional Web UI (#286, docs/DOCKER.md "Web UI"): served inside the
       # container on 8088 by default (#708), but nothing reaches it until the
-      # port is published below. With no WEBUI_ACCESS_TOKEN in .env it needs
-      # no login; set the token to require it. The token is a secret: it
+      # port is published below. With no WEBUI_ACCESS_TOKEN in .env the first
+      # visit shows a setup page: set a password or confirm it stays open. The token is a secret: it
       # reaches the container through the .env env_file only, never an
       # environment: entry here. ENABLED=false turns it off entirely.
       PRINT_HANDY__WEBUI__ENABLED: ${PRINT_HANDY__WEBUI__ENABLED:-true}
@@ -118,8 +118,7 @@ services:
       - ${PRINT_HANDY_SPOOLMAN_DATA:-./data/spoolman}:/data/spoolman
     # No port is published by default. To reach the Web UI from the host,
     # uncomment (host port 8088 to the Web UI port) — keep it on the LAN only,
-    # never forward it from a router, and set WEBUI_ACCESS_TOKEN if anyone
-    # you do not trust can reach the LAN:
+    # never forward it from a router:
     # ports:
     #   - "8088:${PRINT_HANDY__WEBUI__PORT:-8088}"
     # Optional bundled Spoolman API on the LAN (#443): for Moonraker on

@@ -189,15 +189,17 @@ class ServerStartTests(unittest.TestCase):
             server.check_start(portless, {})
         self.assertEqual(server.serve(disabled, environ={}), 2)
 
-    def test_non_loopback_without_token_refuses(self):
+    def test_non_loopback_without_token_starts_in_setup(self):
+        # Refused before #708; now it starts and serves only the first-run
+        # setup page (tests/test_webui_setup.py covers the flow).
         with tempfile.TemporaryDirectory() as tmp:
             data = load_settings(tmp, "webui:\n  enabled: true\n  host: 0.0.0.0\n  port: 8765\n")
-        with self.assertRaises(server.WebUIServerError) as caught:
-            server.check_start(data, {})
-        self.assertIn("WEBUI_ACCESS_TOKEN", str(caught.exception))
-        with self.assertRaises(server.WebUIServerError):
-            server.make_server(data, environ={})
-        # The same bind with a token set is allowed.
+            self.assertEqual(server.check_start(data, {}), ("0.0.0.0", 8765, ""))
+            httpd = server.make_server(data, environ={}, port=0)
+            try:
+                self.assertTrue(httpd.access.setup_pending)
+            finally:
+                httpd.server_close()
         host, port, token = server.check_start(data, {"WEBUI_ACCESS_TOKEN": TOKEN})
         self.assertEqual((host, port, token), ("0.0.0.0", 8765, TOKEN))
 
@@ -216,9 +218,6 @@ class ServerStartTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             data = load_settings(tmp, "webui:\n  enabled: true\n  host: 0.0.0.0\n  port: 8765\n")
         self.assertIs(data["webui"]["require_auth"], True)
-        with self.assertRaises(server.WebUIServerError) as caught:
-            server.check_start(data, {})
-        self.assertIn("require_auth", str(caught.exception))
 
     def test_require_auth_must_be_a_boolean(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -373,6 +372,10 @@ class PrinterStatusTests(unittest.TestCase):
         self.assertIsNone(shown["progress"])
         self.assertIsNone(shown["hotend_c"])
         self.assertIsNone(shown["bed_c"])
+        # #708: the extended telemetry keys are always present, None when unknown.
+        for key in ("hotend_target_c", "bed_target_c", "layer", "total_layers", "remaining_min"):
+            self.assertIn(key, shown)
+            self.assertIsNone(shown[key])
 
     def test_failed_read_is_unavailable_not_an_error(self):
         def refused(adapter, view):
