@@ -149,6 +149,16 @@ _SITE_DOWNLOAD_GAPS = (
 #: inventory lookup ("model not found for …") say the same thing.
 _CREALITY_MISSING_CUES = ("says this model does not exist", "model not found for")
 
+#: Refusals raised by the color plate exporters in core/color_geometry.py
+#: (#716). Each names a model layout the exporter cannot split by color.
+_COLOR_PLATE_CUES = (
+    "single-color plate requires",
+    "production subset expects",
+    "geometry and selection inventory disagree",
+    "selected build object also contains an unselected part",
+    "derived plate slot color requires project settings",
+)
+
 #: Direct file links (#607, #608 follow-on): the curated DirectLinkError
 #: cases from print_handy.core.model_job, as (phrasing cue, category,
 #: cause, remedy). Recognition is gated on the exception type name (the
@@ -288,6 +298,15 @@ def known_cause(exc: BaseException) -> KnownCause | None:
             "for screenless mode or no longer matches the screen's Z offset.",
             "Confirm the native screen's Z offset with /calibration, then send the print "
             "again. Retrying the slice will not help.")
+    if any(cue in low for cue in _COLOR_PLATE_CUES):
+        # Color plate export (#716): the multicolor exporters refuse a
+        # source layout they cannot split into single-color plates. Name it
+        # instead of falling back to PH_SLICING_UNKNOWN.
+        return KnownCause(
+            Category.PROGRAMMING,
+            "Print Handy could not split this model's colors into single-color plates.",
+            "Choose One color for everything to print it now, and run /print-handy bundle "
+            "so the color layout can be looked into.")
     if error_type == "SpoolmanUnavailable":
         if "not configured" in low:
             return KnownCause(
