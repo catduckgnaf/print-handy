@@ -2425,6 +2425,13 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             await adapter.send(chat_id=source.chat_id,
                                content='Sliced with the backup slicer (Bambu Studio) because the main slicer could not slice this model.',
                                metadata=metadata)
+        # #722: source-profile compatibility warnings ride the slice provenance; they are
+        # shown before the operator confirms the start, and they never change a setting.
+        profile_warnings = provenance.get('source_profile_warnings') or []
+        if profile_warnings:
+            await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                               content='Heads up on the source profile:\n'
+                                       + '\n'.join(f'- {w}' for w in profile_warnings))
         has_dur_q = has_duration_question(getattr(event, 'text', ''))
         breakdown = print_summary.format_estimate_breakdown(sliced)
         # #720: the thermal facts recorded for the printer this job was sliced for ride with
