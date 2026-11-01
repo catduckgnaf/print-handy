@@ -48,6 +48,8 @@ def _slice(printer_key, fixture_name, tmp):
     adapter = printers.get(printer_key, settings.current())
     gcode, _prov, _cfgs = orca_adapter.slice_model(stl, out, dict(STATE), adapter=adapter)
     text = gcode.read_text(errors="replace")
+    types = sorted({line.strip() for line in text.splitlines() if line.startswith(";TYPE")})
+    print(f"\n#721-debug {printer_key} {fixture_name} types: {types}")
     return analyze_gcode(text), footer_config(text)
 
 
