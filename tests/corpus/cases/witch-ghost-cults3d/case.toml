@@ -10,27 +10,27 @@ question = "Choose colors for these parts"
 button = "Choose colors"
 
 [[click]]
-question = "body"
+question = "for body, author made it"
 button = "White"
 
 [[click]]
-question = "hat"
+question = "for hat, author made it"
 button = "Black"
 
 [[click]]
-question = "band"
+question = "for band, author made it"
 button = "Pink"
 
 [[click]]
-question = "gold"
+question = "for gold, author made it"
 button = "Dark green"
 
 [[click]]
-question = "ink"
+question = "for ink, author made it"
 button = "Black"
 
 [[click]]
-question = "blush"
+question = "for blush, author made it"
 button = "Pink"
 
 [[click]]
@@ -40,6 +40,11 @@ button = "One copy"
 [[click]]
 question = "·"
 button = "Slice and print"
+
+# Until #716 is fixed the slice fails here; answer the retry prompt so the case ends on the slice error.
+[[click]]
+question = "The slice failed"
+button = "Cancel"
 
 [expect]
 status = "STARTED"

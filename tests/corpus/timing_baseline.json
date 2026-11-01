@@ -8,6 +8,38 @@
    "first_prompt_s": 0.31,
    "wall_s": 0.41
   },
+  "core-basematerials-parts/hermes": {
+   "first_prompt_s": 0.03,
+   "wall_s": 0.08
+  },
+  "core-basematerials-parts/standalone": {
+   "first_prompt_s": 0.03,
+   "wall_s": 0.07
+  },
+  "core-colorgroup-items/hermes": {
+   "first_prompt_s": 0.02,
+   "wall_s": 0.05
+  },
+  "core-colorgroup-items/standalone": {
+   "first_prompt_s": 0.02,
+   "wall_s": 0.05
+  },
+  "core-one-color/hermes": {
+   "first_prompt_s": 0.03,
+   "wall_s": 0.08
+  },
+  "core-one-color/standalone": {
+   "first_prompt_s": 0.03,
+   "wall_s": 0.08
+  },
+  "core-triangle-colors/hermes": {
+   "first_prompt_s": 0.01,
+   "wall_s": 0.05
+  },
+  "core-triangle-colors/standalone": {
+   "first_prompt_s": 0.01,
+   "wall_s": 0.05
+  },
   "duplicate-part-names/hermes": {
    "first_prompt_s": 0.06,
    "wall_s": 0.14
@@ -215,6 +247,14 @@
   "unicode-part-extra-plate/standalone": {
    "first_prompt_s": 0.05,
    "wall_s": 0.13
+  },
+  "witch-ghost-cults3d/hermes": {
+   "first_prompt_s": 1.2,
+   "wall_s": 1.9
+  },
+  "witch-ghost-cults3d/standalone": {
+   "first_prompt_s": 1.2,
+   "wall_s": 1.9
   }
  },
  "slack_s": 1.0,
