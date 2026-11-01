@@ -90,7 +90,8 @@ def _check(stub, tmp_path, api_calls, fetched, token):
     texts = [p.get('text', '') for p in stub.payloads('sendMessage')]
     first = next(t for t in texts if t.startswith('**Nexprint needs you to be signed in'))
     assert 'auth_token' in first and 'Paste it here as your next message' in first
-    assert str(site_accounts.token_path('nexprint')) in first
+    assert '~/.config/nexprint/token' in first
+    assert str(site_accounts.token_path('nexprint')) not in first
     assert 'may keep a copy' in first
     # One walkthrough message: no second "press Saved" prompt, no Connect button step.
     assert not [t for t in texts if 'Press Saved once' in t or 'Connect your Nexprint' in t]

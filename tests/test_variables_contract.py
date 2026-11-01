@@ -143,6 +143,9 @@ EXEMPTIONS = {
     # Deliberately not editable from the Web UI it protects: turning auth
     # off is a file/env decision, never a click on the page it unlocks.
     ("webui", "require_auth"): (frozenset({"webui"}), "#286"),
+    # Like require_auth: arming printer controls is a file/environment decision,
+    # not a click on the page it arms. The env sample documents the safe default.
+    ("webui", "controls_enabled"): (frozenset({"webui"}), "#708"),
 }
 # --- end of EXEMPTIONS ------------------------------------------------------
 

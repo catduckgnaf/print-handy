@@ -281,7 +281,7 @@ def test_design_fetch_myminifactory_downloads_a_single_file(tmp_path, monkeypatc
 def test_prepared_intake_myminifactory_offers_the_connect_flow(env, tmp_path, monkeypatch):
     # No sign-in saved: the listing works, the download offers "Connect
     # MyMiniFactory account" with the OAuth walkthrough, and declining stops
-    # with the sign-in file named — nothing sliced or started.
+    # with a short cancellation cause — nothing sliced or started.
     home = tmp_path / 'home'
     home.mkdir()
     monkeypatch.setenv('HOME', str(home))
@@ -301,8 +301,10 @@ def test_prepared_intake_myminifactory_offers_the_connect_flow(env, tmp_path, mo
     steps = adapter.questions[0]['question']
     assert 'auth.myminifactory.com/web/authorize' in steps and 'Developers' in steps
     receipt = json.loads(next(env.root.glob('*.json')).read_text())
-    assert receipt['status'] == 'FAILED'
-    assert 'oauth_token' in receipt['error']
+    assert receipt['status'] == 'CANCELLED'
+    assert receipt['error'] == 'connect cancelled by operator'
+    assert adapter.sent.count('Cancelled. Nothing was downloaded.') == 1
+    assert adapter.sent[-1] == 'Cancelled. Nothing was downloaded.'
     assert receipt['sliced'] is False and receipt['started'] is False
     assert not env.starts
 

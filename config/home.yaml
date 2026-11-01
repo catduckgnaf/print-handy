@@ -278,6 +278,8 @@ webui:
   # false turns the access token off entirely, even on a LAN bind: anyone who
   # can reach the port gets the Web UI. Only for a network you trust.
   require_auth: true
+  # Printer control routes (#708); off by default (403, nothing sent). See docs/WEBUI.md.
+  controls_enabled: false
 live_stream:
   # Live camera viewing in Discord (#311): off by default. The bot cannot
   # send video itself; /print-live starts a viewing session and points at

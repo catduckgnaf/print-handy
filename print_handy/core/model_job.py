@@ -503,6 +503,22 @@ CULTS_DOWNLOAD_GAP = (
     "the folder Print Handy watches).")
 
 
+# What chat says for any Cults3D link (#712): Cults' API never shares files,
+# so no credential can help. Said BEFORE any connect prompt, with no API-key
+# walkthrough and no paths.
+CULTS_REFUSAL = (
+    "Cults3D doesn't let apps download its files. Download the .3mf or .stl from the "
+    "model page in your browser and drop it here. Nothing was downloaded.")
+
+
+class DownloadUnsupported(ValueError):
+    """A site whose files no app can download (#712). ``cause`` is the short receipt error."""
+
+    def __init__(self, message, cause):
+        super().__init__(message)
+        self.cause = cause
+
+
 def cults_credentials():
     """Return the Authorization header value for Cults' GraphQL API.
 

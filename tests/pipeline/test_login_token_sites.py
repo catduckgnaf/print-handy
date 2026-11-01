@@ -233,8 +233,11 @@ def test_connect_steps_is_the_whole_walkthrough_in_one_message(home):
         # Paste it here is an option, with the honest risk note beside it.
         assert 'Paste it here' in text and "Don't paste it here" not in text
         assert site_accounts.RISK_NOTE in text and 'may keep a copy' in text
-        # Saving on the machine stays an option, with its path.
-        assert str(site_accounts.token_path(site)) in text and 'Saved' in text
+        # Saving on the machine stays an option, with its home-relative path
+        # (never the absolute or container path, #712).
+        assert site_accounts.display_path(site) in text and 'Saved' in text
+        assert str(site_accounts.token_path(site)) not in text and '/data/' not in text
+        assert '1000:1000' not in text
         # Every walkthrough links its own docs section.
         acc = site_accounts.LOGIN_SITES[site]
         assert acc.docs_url in text and acc.docs_url.startswith(site_accounts.DOCS + '#')
@@ -569,14 +572,17 @@ def test_connect_flow_refused_token_is_offered_again(env, home, monkeypatch):
     adapter = Adapter([0, 1])
     asyncio.run(prepared_intake.prepare_link(
         _event(NEXPRINT_URL), adapter, state(), env.root, timeout=1))
-    # A refused login is asked about again every time it is refused.
+    # A refused login is asked about again every time it is refused; the
+    # second prompt's Cancel ends it as CANCELLED, not FAILED (#712).
     assert len(adapter.questions) == 2
     assert all('turned down the saved login' in q['question'] for q in adapter.questions)
     receipt = json.loads(next(env.root.glob('*.json')).read_text())
-    assert receipt['status'] == 'FAILED' and receipt['sliced'] is False
+    assert receipt['status'] == 'CANCELLED' and receipt['sliced'] is False
 
 
-def test_connect_flow_declined_reports_the_token_file(env, home, monkeypatch):
+def test_connect_flow_cancel_is_one_terminal_post_and_cancelled(env, home, monkeypatch):
+    # #712: Cancel on a connect prompt ends with exactly one terminal post,
+    # receipt CANCELLED (not FAILED) and a short cause, never the walkthrough.
     monkeypatch.setattr(model_job, 'nexprint_inventory', lambda url: _single_source_job())
     _quiet_preview(monkeypatch)
     monkeypatch.setattr(model_job, 'download_for_site',
@@ -585,10 +591,54 @@ def test_connect_flow_declined_reports_the_token_file(env, home, monkeypatch):
     asyncio.run(prepared_intake.prepare_link(
         _event(NEXPRINT_URL), adapter, state(), env.root, timeout=1))
     assert len(adapter.questions) == 1
-    final = adapter.sent[-1].replace('\\', '/')
-    assert final.startswith('That model could not be downloaded:')
-    assert '.config/nexprint/token' in final
-    assert 'Nothing was sliced, uploaded or started.' in final
+    assert adapter.sent[-1] == 'Cancelled. Nothing was downloaded.'
+    assert sum('Cancelled' in t or 'could not be' in t for t in adapter.sent) == 1
+    receipt = json.loads(next(env.root.glob('*.json')).read_text())
+    assert receipt['status'] == 'CANCELLED'
+    assert receipt['error'] == 'connect cancelled by operator'
+    chat = '\n'.join(adapter.sent + [q['question'] for q in adapter.questions])
+    assert '/data/' not in chat and str(home) not in chat
+
+
+@pytest.mark.parametrize('site', sorted(set(site_accounts.LOGIN_SITES) - {'cults3d'}))
+def test_every_connect_prompt_cancel_is_cancelled(env, home, monkeypatch, site):
+    # The same Cancel contract for every site that has a connect prompt.
+    monkeypatch.setattr(model_job, 'nexprint_inventory', lambda url: _single_source_job())
+    _quiet_preview(monkeypatch)
+
+    def needs(job, chosen, dest):
+        raise site_accounts.SiteLoginNeeded(site, 'missing', f'needs {site_accounts.token_path(site)}')
+    monkeypatch.setattr(model_job, 'download_for_site', needs)
+    adapter = Adapter([1])
+    asyncio.run(prepared_intake.prepare_link(
+        _event(NEXPRINT_URL), adapter, state(), env.root, timeout=1))
+    assert len(adapter.questions) == 1
+    assert adapter.sent[-1] == 'Cancelled. Nothing was downloaded.'
+    receipt = json.loads(next(env.root.glob('*.json')).read_text())
+    assert receipt['status'] == 'CANCELLED'
+    chat = '\n'.join(adapter.sent + [q['question'] for q in adapter.questions])
+    assert '/data/' not in chat and str(home) not in chat
+
+
+def test_gave_up_receipt_error_is_short_and_chat_has_no_home_path(env, home, monkeypatch):
+    monkeypatch.setattr(model_job, 'nexprint_inventory', lambda url: _single_source_job())
+    _quiet_preview(monkeypatch)
+    monkeypatch.setattr(model_job, 'download_for_site',
+                        lambda job, chosen, dest: (_ for _ in ()).throw(site_accounts.refused('nexprint')))
+    adapter = Adapter([0] * prepared_intake.MAX_CONNECT_ROUNDS)
+    asyncio.run(prepared_intake.prepare_link(
+        _event(NEXPRINT_URL), adapter, state(), env.root, timeout=1))
+    receipt = json.loads(next(env.root.glob('*.json')).read_text())
+    assert receipt['status'] == 'FAILED' and receipt['error'] == 'Nexprint login refused'
+    assert str(home) not in adapter.sent[-1] and '~/.config/nexprint/token' in adapter.sent[-1]
+
+
+def test_chat_safe_hides_a_container_home(monkeypatch):
+    monkeypatch.setattr(site_accounts.Path, 'home', classmethod(lambda cls: site_accounts.Path('/data')))
+    text = site_accounts.chat_safe('save it in /data/.config/cults3d/token please')
+    assert text == 'save it in ~/.config/cults3d/token please'
+    assert site_accounts.display_path('nexprint') == '~/.config/nexprint/token'
+    assert '/data/' not in site_accounts.connect_steps('nexprint')
 
 
 def test_connect_flow_gives_up_after_three_rounds(env, home, monkeypatch):

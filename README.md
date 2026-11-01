@@ -62,6 +62,8 @@ Everything below is bundled in the one published image — there is nothing else
 | Chat bot | Your interface: links, uploads, guided slicing, spool commands and print confirmation |
 | Printer listener | One per printer, matched to how that printer connects. It follows the print and reports progress, alerts and timelapses to the chat |
 | Spoolman | The filament and spool record keeper, bundled as an API only — Print Handy is its interface, so there is no separate Spoolman web UI to run. Already have your own Spoolman? Point Print Handy at it instead (see below) |
+
+Web UI printer controls (pause, resume, cancel, target temperature; #708) are **off by default**: set `[webui] controls_enabled = true` to arm them. Cancel needs `{"confirm": true}`. See [docs/WEBUI.md](docs/WEBUI.md#printer-controls-708-control-endpoints-phase).
 | OrcaSlicer | The slicer, in stable and preview channels |
 | OpenSCAD | CAD splitting, and the engine behind designing parts in chat |
 | ffmpeg and go2rtc | Timelapse capture and assembly, and the camera fan-out the watchdog and live view share |

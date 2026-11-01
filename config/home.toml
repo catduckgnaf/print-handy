@@ -304,6 +304,11 @@ access_token_env = "WEBUI_ACCESS_TOKEN"
 # false turns the access token off entirely, even on a LAN bind: anyone who
 # can reach the port gets the Web UI. Only for a network you trust.
 require_auth = true
+# Printer control routes (#708): POST /api/printers/<id>/pause|resume|cancel|temperature.
+# Off by default: every control route answers 403 and sends nothing until true.
+# cancel also needs the JSON body {"confirm": true}; temperatures are checked
+# against the printer's own limits.
+controls_enabled = false
 
 [live_stream]
 # Live camera viewing in Discord (#311): off by default. The bot cannot
