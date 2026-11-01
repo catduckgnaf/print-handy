@@ -829,6 +829,10 @@ def export_single_color_plate(source, target, decisions, part_keys, bed=BED_MM, 
     for part in manifest['parts']:
         if part['object_id'] in selected and part['key'] not in wanted:
             raise RuntimeError('selected build object also contains an unselected part')
+    # Core assemblies select per component (#716); geometry and the derived
+    # package come from a copy with one build item per component.
+    original_source = source
+    source = _flatten_core_assemblies(source)
     with zipfile.ZipFile(source) as archive:
         names = archive.namelist()
         if '3D/3dmodel.model' not in names:
@@ -930,10 +934,13 @@ def export_single_color_plate(source, target, decisions, part_keys, bed=BED_MM, 
             raise unconfirmed_slot_color(slot, row, 'derived plate slot color is not physically verified')
         from .filament_color import slot_hex
         color = slot_hex(slot, row)
-        if 'Metadata/project_settings.config' not in payload:
+        if 'Metadata/project_settings.config' in payload:
+            payload['Metadata/project_settings.config'] = _recolor_filament_indexes(
+                payload['Metadata/project_settings.config'], {1}, color)
+        elif not core_source:
             raise RuntimeError('derived plate slot color requires project settings')
-        payload['Metadata/project_settings.config'] = _recolor_filament_indexes(
-            payload['Metadata/project_settings.config'], {1}, color)
+        # A core 3MF has no project settings; the slice gets the verified slot
+        # color from slice_model(filament_slot=...) and the report (#716).
     if 'Metadata/project_settings.config' in payload:
         payload['Metadata/project_settings.config'] = _declare_one_filament(payload['Metadata/project_settings.config'])
     with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as out:
@@ -941,7 +948,7 @@ def export_single_color_plate(source, target, decisions, part_keys, bed=BED_MM, 
             out.writestr(name, data)
     with zipfile.ZipFile(source) as archive:
         changed = sorted(name for name in payload if payload[name] != archive.read(name))
-    return {'source_sha256': digest(source), 'converted_sha256': digest(target),
+    return {'source_sha256': digest(original_source), 'converted_sha256': digest(target),
             'part_keys': [part['key'] for part in parts], 'object_ids': sorted(selected),
             'nonprintable_object_ids': sorted(_build_ids(model_out) - selected),
             'slot': slot, 'logical_filament': 1, 'translation_mm': shift,
@@ -954,6 +961,48 @@ def export_single_color_plate(source, target, decisions, part_keys, bed=BED_MM, 
             'placed_bounds_mm': placed, 'bed_mm': bed, 'changed_entries': changed,
             'policy': 'production package copy; every object, mesh and relationship kept; unselected build items printable=0; all extruders logical 1; selected transforms kept unless the group must shift to fit',
             **({'filament_colour': color} if color is not None else {})}
+
+
+def _flatten_core_assemblies(source):
+    """Plain core 3MF assembly (#716): one build item whose same-file components
+    carry different colors. The plate exporter selects whole build items, so
+    give every component its own build item (item transform composed onto the
+    component transform). Meshes and resources stay byte for byte. Production
+    packages (with model settings) are returned unchanged.
+    """
+    import tempfile
+    with zipfile.ZipFile(source) as archive:
+        names = archive.namelist()
+        if 'Metadata/model_settings.config' in names or '3D/3dmodel.model' not in names:
+            return source
+        model = archive.read('3D/3dmodel.model')
+        payload = {name: archive.read(name) for name in names}
+    objects, items = _model_index(ET.fromstring(model))
+    rows = []
+    flattened = False
+    for item in items:
+        comps = [node for node in objects[item.get('objectid')].iter() if node.tag.split('}')[-1] == 'component']
+        if comps and not any(key.split('}')[-1] == 'path' for comp in comps for key in comp.attrib):
+            flattened = True
+            for comp in comps:
+                matrix = _compose(_matrix(item), _matrix(comp))
+                rows.append((comp.get('objectid'), matrix, item.get('printable')))
+        else:
+            rows.append((item.get('objectid'), _matrix(item), item.get('printable')))
+    if not flattened:
+        return source
+    build = ''.join(
+        f'<item objectid="{oid}" transform="{" ".join(repr(v) for v in matrix)}"'
+        + (f' printable="{printable}"' if printable is not None else '') + '/>'
+        for oid, matrix, printable in rows)
+    payload['3D/3dmodel.model'] = re.sub(br'(<(?:\w+:)?build\b[^>]*>).*?(</(?:\w+:)?build>)',
+                                         lambda m: m.group(1) + build.encode() + m.group(2), model, count=1, flags=re.S)
+    handle = tempfile.NamedTemporaryFile(suffix='.core-flat.3mf', delete=False)
+    handle.close()
+    with zipfile.ZipFile(handle.name, 'w', zipfile.ZIP_DEFLATED) as out:
+        for name, data in payload.items():
+            out.writestr(name, data)
+    return handle.name
 
 
 def _core_model_settings(model_bytes):
