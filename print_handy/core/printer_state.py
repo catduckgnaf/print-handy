@@ -58,10 +58,15 @@ DEFAULT_MATERIAL_TEMPS = {
 # adjusted, and the family [material_temps] configuration remains the base
 # these deltas apply to. ``outer_wall_speed_factor`` scales the process
 # profile's outer-wall speed when slicing (Silk PLA's gloss needs slower
-# outer walls); 1.0 means no change.
+# outer walls); 1.0 means no change. ``outer_wall_speed_max`` caps the result in mm/s and
+# ``slow_down_layer_time_min`` raises the filament's minimum layer time in seconds; None means
+# no cap. Silk's values are OrcaSlicer's own: its fdm_filament_pla_silk profile asks for 40 to
+# 60 mm/s outer walls and an 8 s minimum layer time. A factor alone is not enough: 0.7 x a
+# 200 mm/s template is still 140 mm/s.
 MATERIAL_VARIANT_ADJUSTMENTS = {
     "SILK PLA": {"nozzle_delta": 10, "bed_delta": 0, "outer_wall_speed_factor": 0.7,
-                 "note": "Silk PLA prints hotter than plain PLA and needs slower outer walls for its gloss."},
+                 "outer_wall_speed_max": 60, "slow_down_layer_time_min": 8,
+                 "note": "Silk PLA prints hotter than plain PLA and needs slower outer walls (at most 60 mm/s) for its gloss."},
     "PLA+": {"nozzle_delta": 5, "bed_delta": 0, "outer_wall_speed_factor": 1.0,
              "note": "PLA+ / PLA Pro blends print slightly hotter than plain PLA."},
     "MATTE PLA": {"nozzle_delta": 5, "bed_delta": 0, "outer_wall_speed_factor": 0.9,
@@ -76,7 +81,8 @@ MATERIAL_VARIANT_ADJUSTMENTS = {
                    "note": "Fibre-reinforced variants print slightly hotter than their base polymer."},
 }
 
-_NO_ADJUSTMENT = {"nozzle_delta": 0, "bed_delta": 0, "outer_wall_speed_factor": 1.0, "note": ""}
+_NO_ADJUSTMENT = {"nozzle_delta": 0, "bed_delta": 0, "outer_wall_speed_factor": 1.0,
+                  "outer_wall_speed_max": None, "slow_down_layer_time_min": None, "note": ""}
 
 
 def _material_tokens(material):
@@ -122,12 +128,23 @@ def material_variant(material):
     return max(keys, key=lambda k: MATERIAL_VARIANT_ADJUSTMENTS[k]["nozzle_delta"])
 
 
+def _smallest(values):
+    values = [v for v in values if v is not None]
+    return min(values) if values else None
+
+
+def _largest(values):
+    values = [v for v in values if v is not None]
+    return max(values) if values else None
+
+
 def material_adjustments(material):
     """The variant adjustments for a material label (#512): temperature deltas
     on the family defaults plus the outer-wall speed factor, with its note.
 
     Stacked variants combine conservatively: the larger nozzle and bed delta (the hotter
-    material's behaviour wins) and the smaller outer-wall speed factor (the slower finish wins).
+    material's behaviour wins), the smaller outer-wall speed factor and cap (the slower finish wins)
+    and the longer minimum layer time.
     "abrasive" carries the nozzle-wear flag for the same label, so a finish never hides CF.
     Plain family labels (PLA, PETG, ABS, ASA, TPU, PA, PC, ...) get the zero adjustment. The
     returned dict always carries every key.
@@ -142,6 +159,8 @@ def material_adjustments(material):
             "nozzle_delta": max(r["nozzle_delta"] for r in rows),
             "bed_delta": max(r["bed_delta"] for r in rows),
             "outer_wall_speed_factor": min(r["outer_wall_speed_factor"] for r in rows),
+            "outer_wall_speed_max": _smallest(r.get("outer_wall_speed_max") for r in rows),
+            "slow_down_layer_time_min": _largest(r.get("slow_down_layer_time_min") for r in rows),
             "note": " ".join(r["note"] for r in rows)}
 
 

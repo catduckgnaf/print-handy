@@ -23,7 +23,7 @@ material_temps:
 
 The targets use representative points within the documented manufacturer/profile ranges: PLA 185–235/50–60 °C, PETG 215–270/70–90 °C, ABS 230–255/95–110 °C, ASA 220–275/90–110 °C, TPU 220–260/40–85 °C, PA 240–285/70–115 °C, and PC 270–275/100–115 °C. Brand, formulation, printer capability, and enclosure affect the correct settings. Every resolved nozzle target still passes the active nozzle type's safety limit, and the existing printer start/slice validation remains authoritative.
 
-Named variants within a family adjust the fallback (#512): Silk PLA resolves +10 °C over the PLA nozzle target (220 °C against the default above, inside Silk PLA's usual 215–230 °C range) and slices with its outer-wall speed scaled by 0.7; PLA+, Matte PLA and fibre-reinforced variants (any family's *-CF / *-GF) resolve +5 °C (PA-CF +10 °C), and Matte PLA scales outer-wall speed by 0.9. Adjustments apply only when the fallback is used — a temperature recorded on the Spoolman filament is never adjusted.
+Named variants within a family adjust the fallback (#512): Silk PLA resolves +10 °C over the PLA nozzle target (220 °C against the default above, inside Silk PLA's usual 215–230 °C range) and slices with its outer-wall speed scaled by 0.7 and capped at 60 mm/s, with an 8 s minimum layer time (OrcaSlicer's own Silk profile asks for 40 to 60 mm/s walls and 8 s); PLA+, Matte PLA and fibre-reinforced variants (any family's *-CF / *-GF) resolve +5 °C (PA-CF +10 °C), and Matte PLA scales outer-wall speed by 0.9. Adjustments apply only when the fallback is used — a temperature recorded on the Spoolman filament is never adjusted.
 
 ```yaml
 spool:

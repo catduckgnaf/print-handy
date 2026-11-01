@@ -1147,6 +1147,14 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                 data['filament_flow_ratio'] = [str(round(float(data['filament_flow_ratio'][0]) * adj['flow_multiplier'], 4))]
             except (ValueError, TypeError):
                 pass
+        layer_min = material_adjustments(material)['slow_down_layer_time_min']
+        if layer_min is not None:
+            try:
+                current = float((data.get('slow_down_layer_time') or ['0'])[0])
+            except (ValueError, TypeError):
+                current = 0.0
+            if current < layer_min:
+                data['slow_down_layer_time'] = [format(layer_min, 'g')]
         bed = str(temps_c['bed'] if bed_c is None else bed_c)
         for key in ('cool_plate_temp', 'eng_plate_temp', 'hot_plate_temp', 'textured_plate_temp'):
             data[key] = data[key + '_initial_layer'] = [bed]
@@ -1169,8 +1177,11 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     # Orca's built-in default instead, so the factor never silently does nothing.
     job_materials = [state['spool']['material']] + [
         (state.get('filament_slots') or {}).get(str(position), {}).get('material') for position in (mapping or {}).values()]
-    factor = min(material_adjustments(m)['outer_wall_speed_factor'] for m in job_materials if m)
-    if factor != 1.0:
+    job_adjustments = [material_adjustments(m) for m in job_materials if m]
+    factor = min(a['outer_wall_speed_factor'] for a in job_adjustments)
+    caps = [a['outer_wall_speed_max'] for a in job_adjustments if a['outer_wall_speed_max'] is not None]
+    cap = min(caps) if caps else None
+    if factor != 1.0 or cap is not None:
         try:
             authored = float(process['outer_wall_speed'])
         except (KeyError, ValueError, TypeError):
@@ -1179,7 +1190,12 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             authored = ORCA_DEFAULT_OUTER_WALL_SPEED
             print(f"OUTER WALL SPEED: the process template sets none; scaling Orca's default "
                   f"{authored:g} mm/s by {factor:g} for the slowest finish in this job", flush=True)
-        process['outer_wall_speed'] = str(round(authored * factor, 1))
+        speed = authored * factor
+        if cap is not None and speed > cap:
+            print(f"OUTER WALL SPEED: {speed:g} mm/s capped at {cap:g} mm/s for the slowest finish in this job",
+                  flush=True)
+            speed = float(cap)
+        process['outer_wall_speed'] = str(round(speed, 1))
     configs = []
     for name, data in zip(('machine', 'process', 'filament'), (machine, process, filament)):
         path = folder / f'{name}.json'
