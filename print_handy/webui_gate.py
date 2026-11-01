@@ -71,8 +71,9 @@ def start_blocked(host, port, env_name, environ=None, require_auth=True):
     container degrades to "no Web UI" with guidance instead of halting.
     docker/healthcheck.py mirrors this through the same helper so the
     probe and the supervisor can never disagree. ``require_auth`` false
-    is the operator's explicit opt-out ([webui] require_auth): nothing
-    is blocked then.
+    ([webui] require_auth, the Docker default since #708) allows the
+    tokenless LAN start: nothing is blocked then, and a token that is
+    set is still enforced by the server.
     """
     environ = os.environ if environ is None else environ
     if not require_auth or is_loopback(host) or (environ.get(env_name) or ""):
@@ -104,10 +105,11 @@ def main():
         if blocked:
             print(blocked)
             return 3
-        if not require_auth:
+        if not require_auth and not is_loopback(host) and not (os.environ.get(env_name) or ""):
             print(f"webui gate: enabled on {host}:{port} with authentication OFF "
-                  f"([webui] require_auth = false): anyone who can reach the port "
-                  f"can use the Web UI")
+                  f"([webui] require_auth = false and ${env_name} is empty): anyone who "
+                  f"can reach the port can use the Web UI. Set {env_name} to require "
+                  f"a token")
             return 0
         print(f"webui gate: enabled on {host}:{port}")
         return 0

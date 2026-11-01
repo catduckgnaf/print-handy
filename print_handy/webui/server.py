@@ -14,6 +14,9 @@ step) serving:
   as JSON (:func:`print_handy.webui.status.printer_status`, #664): the
   adapter's normalized status, read live; an unknown id is a 404 and an
   unreachable printer answers with an explicit unavailable status;
+- ``GET /api/printers/<id>/camera/snapshot`` — one JPEG from that
+  printer's camera (:mod:`print_handy.webui.camera`, #708), never the
+  camera URL itself;
 - ``GET /healthz`` — the bot heartbeat evaluation, with the same
   200/503 + JSON shape as the standalone bot's own health server;
 - ``GET /config`` — the picker configuration page
@@ -34,11 +37,13 @@ every other non-GET method or path is 405.
 The server starts only when ``[webui] enabled`` is true and ``port`` is
 above 0. Access control: the access token lives only in the environment
 variable ``[webui] access_token_env`` names (default
-``WEBUI_ACCESS_TOKEN``) and is sent as the ``X-WebUI-Token`` header,
-compared with ``hmac.compare_digest``. When the bind host is not
-loopback, a token is mandatory — an empty token refuses the start with a
-clear error, because a LAN-reachable status page must not be open. On
-loopback the token is optional, and honoured when set. The token value
+``WEBUI_ACCESS_TOKEN``) and is sent as the ``X-WebUI-Token`` header or
+as ``Authorization: Bearer <token>`` (#708), compared with
+``hmac.compare_digest``. When the bind host is not loopback, a token is
+mandatory unless ``[webui] require_auth`` is false — an empty token
+refuses the start with a clear error. A token that is set is always
+honoured, on any bind and whatever require_auth says; require_auth false
+(the Docker default since #708) only allows a tokenless LAN start. The token value
 itself is never rendered, logged, or included in any response.
 
 POSTs additionally accept the per-server form token the config pages
@@ -81,6 +86,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from .. import settings
 from ..bot import health as bot_health
+from . import camera as camera_module
 from . import config as config_api
 from . import controls as controls_module
 from . import designs as designs_module
@@ -117,12 +123,11 @@ def access_token(data, environ=None):
 
     Only the name is a setting (``[webui] access_token_env``); the value
     comes from the environment and is never a setting, like every other
-    Print Handy secret. With ``[webui] require_auth`` false the token is
-    deliberately ignored, so "" is returned even when it is set.
+    Print Handy secret. ``[webui] require_auth`` does not change this: a
+    token that is set is always enforced (#708). require_auth false only
+    lets a non-loopback bind start when no token is set.
     """
     environ = os.environ if environ is None else environ
-    if not data["webui"].get("require_auth", True):
-        return ""
     return environ.get(data["webui"]["access_token_env"]) or ""
 
 
@@ -303,12 +308,19 @@ class _Handler(BaseHTTPRequestHandler):
 
     # -- auth ---------------------------------------------------------------
     def _header_authorized(self):
-        """The access-token header alone (the stage 2 rule)."""
+        """The access token in a request header (the stage 2 rule):
+        ``X-WebUI-Token: <token>`` or, for clients that only speak the
+        standard scheme (#708), ``Authorization: Bearer <token>``."""
         token = self.server.webui_token
         if not token:
             return True
+        expected = token.encode()
         provided = self.headers.get(TOKEN_HEADER) or ""
-        return hmac.compare_digest(provided, token)
+        if provided and hmac.compare_digest(provided.encode(), expected):
+            return True
+        scheme, _, credential = (self.headers.get("Authorization") or "").strip().partition(" ")
+        return (scheme.lower() == "bearer" and bool(credential.strip())
+                and hmac.compare_digest(credential.strip().encode(), expected))
 
     def _session_id(self):
         """The session id from the Cookie header, or "" (garbage = none)."""
@@ -417,22 +429,31 @@ class _Handler(BaseHTTPRequestHandler):
             else:
                 self._json(404, {"ok": False,
                                  "reason": "try /, /api/status, /api/printers/<id>/status, "
+                                           "/api/printers/<id>/camera/snapshot, "
                                            "/healthz, /config, /designs, /layers or /login"})
         except Exception as exc:  # a broken snapshot is a 500, never a dropped connection
             self._json(500, {"ok": False, "reason": f"{type(exc).__name__}: {exc}"})
 
     # -- per-printer live status (#664) -------------------------------------
     def _printer_status_route(self, rest):
-        """GET /api/printers/<id>/status: exactly one id segment plus the
-        literal ``status`` tail; anything else under /api/printers/ is a
-        404 naming the one route that exists there."""
+        """GET /api/printers/<id>/status and /api/printers/<id>/camera/snapshot
+        (#708): exactly one id segment plus a known tail; anything else
+        under /api/printers/ is a 404 naming the routes that exist there."""
         segments = rest.split("/")
-        if len(segments) != 2 or not segments[0] or segments[1] != "status":
-            self._json(404, {"ok": False,
-                             "reason": "try /api/printers/<id>/status"})
+        if len(segments) == 2 and segments[0] and segments[1] == "status":
+            code, payload = self.server.printer_status_func(unquote(segments[0]))
+            self._json(code, payload)
             return
-        code, payload = self.server.printer_status_func(unquote(segments[0]))
-        self._json(code, payload)
+        if len(segments) == 3 and segments[0] and segments[1:] == ["camera", "snapshot"]:
+            code, body, content_type = self.server.camera_snapshot_func(unquote(segments[0]))
+            if code != 200:
+                self._json(code, body)
+                return
+            self._send(200, body, content_type, headers=[("Cache-Control", "no-store")])
+            return
+        self._json(404, {"ok": False,
+                         "reason": "try /api/printers/<id>/status or "
+                                   "/api/printers/<id>/camera/snapshot"})
 
     # -- per-printer controls (#708, control endpoints phase) ----------------
     def _printer_control_route(self, rest):
@@ -735,7 +756,8 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=None,
-                printer_status_func=None, printer_control_func=None):
+                printer_status_func=None, printer_control_func=None,
+                camera_snapshot_func=None):
     """A bound (not yet serving) ThreadingHTTPServer for the Web UI.
 
     ``host``/``port`` override the settings (tests bind port 0 for an
@@ -774,6 +796,8 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
         lambda printer_id: status_module.printer_status(data, printer_id))
     server.printer_control_func = printer_control_func or (
         lambda printer_id, verb, body: _printer_control(data, printer_id, verb, body))
+    server.camera_snapshot_func = camera_snapshot_func or (
+        lambda printer_id: camera_module.snapshot(data, printer_id))
     return server
 
 

@@ -503,17 +503,38 @@ class PrinterAdapter(ABC):
         """Moonraker 'status' dict -> {state, progress, filename, hotend_c, bed_c, ...}."""
 
 
+def _number(value: Any) -> int | float | None:
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _int(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
 def basic_status(raw: dict) -> dict[str, Any]:
     """Plain Moonraker fields shared by every model."""
     raw = raw if isinstance(raw, dict) else {}
     stats = raw.get("print_stats") or {}
+    info = stats.get("info") if isinstance(stats.get("info"), dict) else {}
+    progress = (raw.get("virtual_sdcard") or {}).get("progress")
     out: dict[str, Any] = {
         "state": stats.get("state", "unknown"),
         "filename": stats.get("filename") or "",
-        "progress": (raw.get("virtual_sdcard") or {}).get("progress"),
+        "progress": progress,
         "hotend_c": (raw.get("extruder") or {}).get("temperature"),
         "bed_c": (raw.get("heater_bed") or {}).get("temperature"),
+        "hotend_target_c": _number((raw.get("extruder") or {}).get("target")),
+        "bed_target_c": _number((raw.get("heater_bed") or {}).get("target")),
+        # Moonraker's print_stats.info is filled only when the slicer emits SET_PRINT_STATS_INFO.
+        "layer": _int(info.get("current_layer")),
+        "total_layers": _int(info.get("total_layer")),
+        "remaining_min": None,
     }
+    # Moonraker reports no remaining time: estimate it from elapsed print time and file
+    # progress (elapsed / progress - elapsed), only while printing with progress above zero.
+    duration = _number(stats.get("print_duration"))
+    if out["state"] == "printing" and duration is not None and _number(progress) and progress > 0:
+        out["remaining_min"] = int((duration / progress - duration) // 60)
     # Dynamic multi-toolhead telemetry if extruder1..N exist
     extras = []
     for k, v in raw.items():
