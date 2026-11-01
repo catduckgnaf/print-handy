@@ -48,6 +48,17 @@ def test_variant_outer_wall_speed_factors():
     assert printer_state.material_adjustments("Silk PLA")["outer_wall_speed_factor"] == 0.7
     assert printer_state.material_adjustments("Matte PLA")["outer_wall_speed_factor"] == 0.9
     assert printer_state.material_adjustments("PETG")["outer_wall_speed_factor"] == 1.0
+
+
+def test_variant_outer_wall_caps_and_layer_time():
+    silk = printer_state.material_adjustments("Silk PLA")
+    assert (silk["outer_wall_speed_max"], silk["slow_down_layer_time_min"]) == (60, 8)
+    plain = printer_state.material_adjustments("PLA")
+    assert (plain["outer_wall_speed_max"], plain["slow_down_layer_time_min"]) == (None, None)
+    matte = printer_state.material_adjustments("Matte PLA")
+    assert (matte["outer_wall_speed_max"], matte["slow_down_layer_time_min"]) == (None, None)
+    stacked = printer_state.material_adjustments("Silk Matte PLA")
+    assert stacked["outer_wall_speed_max"] == 60 and stacked["outer_wall_speed_factor"] == 0.7
     assert printer_state.material_adjustments("PETG")["variant"] is None
 
 

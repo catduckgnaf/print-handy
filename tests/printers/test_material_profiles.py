@@ -166,11 +166,28 @@ def test_exactly_one_shipped_process_template_sets_no_outer_wall_speed():
     assert missing == ["snapmaker_u1"]
 
 
-def test_silk_slows_the_authored_outer_wall(slice_inputs):
+def test_silk_slows_the_authored_outer_wall(slice_inputs, capsys):
+    # The template's 200 x 0.7 is 140 mm/s, which is what a Silk PLA cup holder actually printed at; Orca's own
+    # Silk profile asks for 40 to 60 mm/s, so the cap decides.
     state = stale_state("Silk PLA")
     slice_inputs.slice("flashforge.ad5x", state)
     process = json.loads((slice_inputs.tmp / "flashforge_ad5x" / "process.json").read_text())
-    assert process["outer_wall_speed"] == "140.0"  # the template's 200 x 0.7
+    assert process["outer_wall_speed"] == "60.0"
+    assert "140 mm/s capped at 60 mm/s" in capsys.readouterr().out
+
+
+def test_silk_raises_the_minimum_layer_time(slice_inputs):
+    for material, expected in (("Silk PLA", "8"), ("PLA", None)):
+        slice_inputs.slice("flashforge.ad5x", stale_state(material))
+        filament = json.loads((slice_inputs.tmp / "flashforge_ad5x" / "filament.json").read_text())
+        template = json.loads((ROOT / "print_handy/templates/orca/flashforge_ad5x/filament.json").read_text())
+        assert filament["slow_down_layer_time"] == ([expected] if expected else template["slow_down_layer_time"])
+
+
+def test_plain_pla_keeps_the_authored_outer_wall(slice_inputs):
+    slice_inputs.slice("flashforge.ad5x", stale_state("PLA"))
+    process = json.loads((slice_inputs.tmp / "flashforge_ad5x" / "process.json").read_text())
+    assert process["outer_wall_speed"] == "200"
 
 
 def test_silk_scales_orcas_default_when_the_template_sets_no_outer_wall_speed(slice_inputs, tmp_path, capsys):
@@ -268,7 +285,9 @@ def test_ad5x_pla_and_silk_slots_each_get_their_own_type_and_temperature(multico
     assert first["filament_settings_id"] == ["Hermes slot 1 PLA"] and second["filament_settings_id"] == ["Hermes slot 2 Silk PLA"]
     # One bed for the whole plate on every slot; the slowest finish in the job sets the outer-wall speed.
     assert {tuple(p["hot_plate_temp"]) for p in job.profiles} == {("60",)}
-    assert job.process["outer_wall_speed"] == "140.0"
+    assert job.process["outer_wall_speed"] == "60.0"  # Silk's cap, not 200 x 0.7
+    # Minimum layer time is per filament: only the Silk slot is raised to Orca's 8 s.
+    assert (first["slow_down_layer_time"], second["slow_down_layer_time"]) == (["6"], ["8"])
 
 
 def test_ad5x_pla_and_pla_is_unchanged(multicolor):
