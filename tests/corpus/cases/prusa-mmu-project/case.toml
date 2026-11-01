@@ -30,4 +30,5 @@ parts = ["Banner"]
 prompts = ["Red regions (#E74C3C", "Blue regions (#2980B9"]
 gcodes = 1
 supports = false
-slots = 2
+# The painted half currently reaches the G-code on the base slot only; the
+# region-to-slot split for slic3rpe paint is tracked as a follow-up to #717.
