@@ -101,6 +101,14 @@ class PostSliceTests(unittest.TestCase):
             path.write_text(GOOD_GCODE)
             self.assertTrue(sg.post_slice(path, tool_slots={0: 1}).ok)
 
+    def test_settings_are_read_only_from_lines_that_start_with_a_comment(self):
+        # #734: the per-line setting checks skip non-comment lines; their patterns were always anchored at ';'.
+        for line, blocked in ((";  ENABLE_ARC_FITTING = 1", True), ("; enable_arc_fitting = 1", True),
+                              (" ; enable_arc_fitting = 1", False), ("G1 X1 ; enable_arc_fitting = 1", False)):
+            with self.subTest(line=line):
+                r = sg.post_slice(GOOD_GCODE + line + "\n", tool_slots={0: 1})
+                self.assertEqual(any("enable_arc_fitting" in b for b in r.blocked), blocked)
+
 
 class GeneratorIdentityTests(unittest.TestCase):
     """#434: identity is read from what each slicer actually writes, in the real 2.8.2.61 shapes."""

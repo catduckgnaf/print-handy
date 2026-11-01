@@ -2229,10 +2229,13 @@ def _native():
     return printers.current().has_native_screen
 
 
+_TOOL_LINE_RE = re.compile(r"T(\d+)(?:\s*;.*)?")
+
+
 def _gcode_tools(text):
     """Tool indexes a G-code selects with a bare Tn line."""
     return {int(m.group(1)) for line in text.splitlines()
-            if (m := re.fullmatch(r"T(\d+)(?:\s*;.*)?", line.strip()))}
+            if (m := _TOOL_LINE_RE.fullmatch(line.strip()))}
 
 
 def _refuse_multicolor(text):
