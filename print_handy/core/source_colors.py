@@ -35,6 +35,26 @@ def _has_paint(data):
     return False
 
 
+_FACE_COLOR_MARKS = (b' p1=', b'\tp1=', b'multiproperties', b'texture2d')
+
+#: The note shown when core face colors print as one color (#714).
+FACE_COLORS_NOTE = ('This file colors individual faces (per-triangle, multiproperties, or texture colors). '
+                    'Face colors are ignored; it prints in one color.')
+
+
+def _has_face_colors_stream(stream):
+    """True when a core model member carries face-level color properties (#714)."""
+    carry = b''
+    while True:
+        chunk = stream.read(1024 * 1024)
+        if not chunk:
+            return False
+        window = carry + chunk
+        if any(mark in window for mark in _FACE_COLOR_MARKS):
+            return True
+        carry = window[-32:]
+
+
 def _has_paint_stream(stream):
     """_has_paint over a member stream, without holding the member in memory.
 
@@ -323,6 +343,32 @@ def _core_material_colors(root, objects, parts):
                 part['author_color'] = found[id(part)]
 
 
+def _prusa_palette(config_bytes):
+    """Filament palette from a PrusaSlicer Metadata/Slic3r_PE.config (#717)."""
+    values = {}
+    for line in config_bytes.decode('utf-8', 'replace').splitlines():
+        line = line.strip()
+        if not line.startswith(';') or '=' not in line:
+            continue
+        key, _, value = line[1:].partition('=')
+        values[key.strip()] = value.strip()
+
+    def split(key):
+        raw = values.get(key, '')
+        return [item.strip().strip('"') for item in raw.split(';')] if raw else []
+
+    extruder, filament, materials = split('extruder_colour'), split('filament_colour'), split('filament_type')
+    count = max(len(extruder), len(filament), len(materials))
+    palette = []
+    for i in range(count):
+        color = (extruder[i] if i < len(extruder) else '') or (filament[i] if i < len(filament) else '')
+        if color and not re.fullmatch(r'#[0-9A-Fa-f]{6}', color):
+            color = ''
+        palette.append({'source_extruder': i + 1, 'color': color.upper() or None,
+                        'material': (materials[i] if i < len(materials) else None) or None})
+    return palette
+
+
 def inventory(path):
     from .intake_resources import check_source
     path = Path(path)
@@ -334,6 +380,7 @@ def inventory(path):
         _append_filament_stats(path, res)
         return res
     parts, filaments, painted, cutters = [], [], False, []
+    face_colors = False
     with zipfile.ZipFile(path) as archive:
         names = archive.namelist()
         if 'Metadata/project_settings.config' in names:
@@ -344,6 +391,11 @@ def inventory(path):
             filaments = [{'source_extruder': i + 1, 'color': colors[i] if i < len(colors) else None,
                           'material': materials[i] if i < len(materials) else None}
                          for i in range(max(len(colors), len(materials)))]
+        elif 'Metadata/Slic3r_PE.config' in names:
+            # PrusaSlicer MMU project (#717): '; key = value' lines, values
+            # separated by ';'. extruder_colour wins per extruder; an empty
+            # entry falls back to that extruder's filament_colour.
+            filaments = _prusa_palette(archive.read('Metadata/Slic3r_PE.config'))
         if 'Metadata/model_settings.config' in names:
             root = ET.fromstring(archive.read('Metadata/model_settings.config'))
             for obj in root.findall('object'):
@@ -370,6 +422,12 @@ def inventory(path):
                 # or holding the whole member in memory.
                 with archive.open(name) as member:
                     painted |= _has_paint_stream(member)
+        if not painted and 'Metadata/model_settings.config' not in names and '3D/3dmodel.model' in names:
+            # Core per-triangle colors (p1/p2/p3), multiproperties, and
+            # texture2d (#714) are not slicer paint and cannot be split into
+            # plates; the job prints in one color and says so.
+            with archive.open('3D/3dmodel.model') as member:
+                face_colors = _has_face_colors_stream(member)
         resolved = component_parts(archive)
         _apply_plate_names(archive, names, parts)
         if not parts:
@@ -403,8 +461,15 @@ def inventory(path):
         parts = [p for p in parts if p.get('subtype', 'normal_part') == 'normal_part']
         if not parts:
             raise RuntimeError('unresolved 3MF part inventory')
+        if 'Metadata/Slic3r_PE.config' in names and 'Metadata/model_settings.config' not in names:
+            # PrusaSlicer (#717): an object with no per-object extruder prints
+            # with extruder 1, so unpainted triangles map to filament 1.
+            for part in parts:
+                if part.get('source_extruder') is None:
+                    part['source_extruder'] = 1
     res = {'source_sha256': __import__('hashlib').sha256(path.read_bytes()).hexdigest(),
            'parts': parts, 'cutters': cutters, 'filaments': filaments, 'painted': painted,
+           'face_colors_ignored': face_colors,
            'requires_choices': painted or len(parts) > 1 or len(filaments) > 1}
     _append_filament_stats(path, res)
     return res
