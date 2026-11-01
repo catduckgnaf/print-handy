@@ -648,6 +648,22 @@ def _world_item_points(archive, object_ids, fit=None):
     items = []
     for item in build_items:
         if item.get('objectid') not in object_ids:
+            # Plain core assembly (#716): the inventory keys each same-file
+            # component as its own part, so a selected id may be a component
+            # of this build item. Each such component is its own item.
+            comps = [node for node in objects[item.get('objectid')].iter()
+                     if node.tag.split('}')[-1] == 'component' and node.get('objectid') in object_ids
+                     and not any(key.split('}')[-1] == 'path' for key in node.attrib)]
+            if comps:
+                if '3D/3dmodel.model' not in model_object_points:
+                    model_object_points['3D/3dmodel.model'] = _cached_model(archive, '3D/3dmodel.model', _model_vertices)
+                world = _compose(fit, _matrix(item)) if fit else _matrix(item)
+                for comp in comps:
+                    points = model_object_points['3D/3dmodel.model'].get(comp.get('objectid'), [])
+                    if not points:
+                        raise RuntimeError('empty part geometry')
+                    matrix = _compose(world, _matrix(comp))
+                    items.append([_apply(matrix, point) for point in points])
             continue
         if item.get('printable', '1') != '1':
             raise RuntimeError('nonprintable build item requires explicit selection')

@@ -2,7 +2,6 @@
 # https://cults3d.com/en/3d-model/art/witch-ghost-cute-kawaii-halloween-ghost-figurine-multicolour-no-supports
 # Plain core 3MF, six parts, basematerials author colors, no slicer metadata.
 license = "owner-approved incident file, see #711"
-known_failure = "#716: multicolor plain core 3MF fails at slicing (single-color plate requires production model settings)"
 description = "Witch Ghost: six author-colored core parts get answerable per-part questions"
 
 [[click]]
@@ -40,11 +39,6 @@ button = "One copy"
 [[click]]
 question = "·"
 button = "Slice and print"
-
-# Until #716 is fixed the slice fails here; answer the retry prompt so the case ends on the slice error.
-[[click]]
-question = "The slice failed"
-button = "Cancel"
 
 [expect]
 status = "STARTED"
