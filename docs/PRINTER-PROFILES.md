@@ -164,8 +164,9 @@ surfaced by `print_handy/knowledge/thermal.py`:
   For example, the Creator 5 Pro has active chamber heating present, but
   its control stays `unknown`: the Creator models' firmware support is
   undocumented, so no automatic chamber control is inferred from
-  "enclosed". The AD5M Pro and the AD5X are enclosed and passive (no
-  chamber heater). An open-frame model such as the AD5M or the Ender-3
+  "enclosed". The AD5M Pro is enclosed and passive (no chamber heater).
+  The AD5X has no chamber heater, but its enclosure is a separate kit, so
+  its enclosure is recorded `unknown` and guided setup asks about it. An open-frame model such as the AD5M or the Ender-3
   presets has no chamber heater.
 - **Chamber sensor:** whether one is present, and whether a connected
   printer can report a fresh reading at slice time. Both stay `unknown`

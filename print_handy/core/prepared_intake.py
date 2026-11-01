@@ -2389,6 +2389,15 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                metadata=metadata)
         has_dur_q = has_duration_question(getattr(event, 'text', ''))
         breakdown = print_summary.format_estimate_breakdown(sliced)
+        # #720: the thermal facts recorded for the printer this job was sliced for ride with
+        # the estimate everywhere it is shown (duration answer, split notice, start question).
+        try:
+            from ..knowledge.thermal import thermal_lines_for_model
+            thermal = thermal_lines_for_model(sliced.get('printer_model'))
+        except Exception:
+            thermal = []
+        if thermal:
+            breakdown = breakdown + '\n' + '\n'.join(thermal)
         if has_dur_q and gcodes:
             # Every plate counts: a split job is the sum of its plates, not plate 1.
             await adapter.send(chat_id=source.chat_id, metadata=metadata,

@@ -74,12 +74,22 @@ def test_enclosed_with_active_heating_creator5_pro(registry):
 
 
 def test_enclosed_passive_models(registry):
+    thermal = _entry(registry, "flashforge.ad5m_pro").thermal
+    assert thermal.enclosure == "enclosed"
     for key in ("flashforge.ad5m_pro", "flashforge.ad5x", "flashforge_stock.ad5x"):
         thermal = _entry(registry, key).thermal
-        assert thermal.enclosure == "enclosed", key
         assert thermal.chamber_heater_present == "absent", key
         assert thermal.chamber_heater_control == "not_supported", key
     assert _entry(registry, "flashforge.ad5m_pro").thermal.fan_filtration_present == "present"
+
+
+def test_ad5x_enclosure_is_unknown_because_the_kit_is_optional(registry):
+    # The AD5X ships open; Flashforge sells the enclosure as a separate kit, so
+    # selecting the model does not establish that one is installed.
+    for key in ("flashforge.ad5x", "flashforge_stock.ad5x"):
+        thermal = _entry(registry, key).thermal
+        assert thermal.enclosure == "unknown", key
+        assert thermal.enclosure_provenance == "unknown", key
 
 
 def test_open_frame_models(registry):
@@ -134,8 +144,8 @@ def test_slice_summary_includes_thermal_lines_for_registered_model(tmp_path):
 def test_setup_questions_only_for_unknown_facts(registry):
     ad5x = _entry(registry, "flashforge.ad5x")
     fields = {q["field"] for q in thermal_surface.thermal_setup_questions(ad5x)}
-    # Enclosure and chamber heater presence are known for the AD5X.
-    assert "enclosure" not in fields
+    # Chamber heater presence is known for the AD5X; the enclosure kit is optional, so it is asked.
+    assert "enclosure" in fields
     assert "chamber_heater_present" not in fields
     # Sensor and fan mapping facts are unknown, so they are asked about.
     assert "chamber_sensor_present" in fields
@@ -161,7 +171,8 @@ def test_setup_wizard_surfaces_unknown_thermal_questions():
     plan = build_plan(wizard, hermes_found=False)
     notes = "\n".join(plan["notes"])
     assert "Thermal facts still unknown for Flashforge AD5X (ZMod)" in notes
-    # The known enclosure fact is not among the questions in the note.
     thermal_note = next(n for n in plan["notes"] if n.startswith("Thermal facts still unknown"))
-    assert "Is the printer enclosed or open-frame?" not in thermal_note
+    # The enclosure kit is optional on the AD5X, so setup asks; the known heater fact is not asked.
+    assert "Is the printer enclosed or open-frame?" in thermal_note
+    assert "chamber heater?" not in thermal_note
     assert "chamber temperature sensor" in thermal_note
