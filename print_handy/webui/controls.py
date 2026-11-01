@@ -28,6 +28,7 @@ use fake adapters only.
 from __future__ import annotations
 
 import json
+import urllib.error
 import urllib.request
 
 from .. import printers, settings
@@ -40,6 +41,11 @@ _FAMILY_ACTION = {"pause": "pause", "resume": "resume", "cancel": "stop"}
 # Which states each action may start from; anything else sends nothing.
 _ALLOWED_FROM = {"pause": ("printing",), "resume": ("paused",),
                  "cancel": ("printing", "paused")}
+# The state each action leaves the printer in. When Moonraker rejects a
+# command (HTTP 4xx) the printer is re-read: already there is success
+# (someone did it from the screen first), anything else is a 409.
+_REACHED = {"pause": lambda s: s == "paused", "resume": lambda s: s == "printing",
+            "cancel": lambda s: s not in ("printing", "paused", "unknown")}
 _SEND_TIMEOUT_S = 15
 
 OFF_REASON = ("printer controls are off: set [webui] controls_enabled = true "
@@ -168,17 +174,34 @@ def control(data, printer_id, action, body=None, *, adapter=None, read=None, sen
         state = _live_state(adapter, view, read)
         if state not in _ALLOWED_FROM[action]:
             raise ControlError(409, f"cannot {action}: printer is {state}. Nothing sent.")
+        detail = f"{action} sent; check the printer's status for the result."
         try:
             send(adapter, view, ("control", action))
         except ControlError:
             raise
+        except urllib.error.HTTPError as exc:
+            if not 400 <= exc.code < 500:
+                raise ControlError(502, f"the printer answered {action} with HTTP {exc.code}") from None
+            # The printer was reached and refused. A refusal can be a race
+            # (the state changed between the read above and the send), so
+            # re-read and only call it success if the printer is already
+            # where the action would have put it. Never resent.
+            try:
+                now = _live_state(adapter, view, read)
+            except ControlError:
+                now = "unknown"
+            if not _REACHED[action](now):
+                raise ControlError(409, f"the printer refused {action} (HTTP {exc.code}); "
+                                        f"it now reports {now}. Not retried.") from None
+            detail = (f"the printer refused {action} (HTTP {exc.code}) but already "
+                      f"reports {now}, so nothing more was sent.")
         except Exception as exc:
             raise ControlError(502, f"{action} failed to reach the printer "
                                     f"({type(exc).__name__}: {exc})") from None
     except ControlError as refusal:
         return refusal.code, {"ok": False, "reason": refusal.reason}
     return 200, {"ok": True, "id": entry["id"], "action": action, "from_state": state,
-                 "detail": f"{action} sent; check the printer's status for the result."}
+                 "detail": detail}
 
 
 def set_temperature(data, printer_id, body=None, *, adapter=None, read=None, send=None):

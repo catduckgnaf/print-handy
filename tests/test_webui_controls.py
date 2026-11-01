@@ -8,6 +8,7 @@ import json
 import tempfile
 import threading
 import unittest
+import urllib.error
 from pathlib import Path
 
 from print_handy import settings
@@ -148,6 +149,54 @@ class ControlTests(unittest.TestCase):
                                           read=reads("printing"), send=broken)
         self.assertEqual(code, 502)
         self.assertIn("reset by peer", body["reason"])
+
+    def test_printer_refusal_is_409_unless_already_in_target_state(self):
+        # Moonraker answers an invalid transition with HTTP 400. Re-read:
+        # already there (a race with the printer screen) is success, else 409.
+        cases = [("pause", "printing", "paused", 200), ("pause", "printing", "printing", 409),
+                 ("resume", "paused", "printing", 200), ("resume", "paused", "paused", 409),
+                 ("cancel", "printing", "cancelled", 200), ("cancel", "paused", "paused", 409),
+                 ("cancel", "printing", "unknown", 409)]
+        for action, before, after, expected in cases:
+            with self.subTest(action=action, after=after):
+                states = iter([before, after])
+                sent = []
+
+                def refuse(adapter, view, command):
+                    sent.append(command)
+                    raise urllib.error.HTTPError("http://moonraker/x", 400, "Bad Request", {}, None)
+                with tempfile.TemporaryDirectory() as tmp:
+                    code, body = controls.control(
+                        enabled(tmp), PRINTER, action, {"confirm": True},
+                        read=lambda adapter, view: {"state": next(states)}, send=refuse)
+                self.assertEqual(code, expected)
+                self.assertEqual(sent, [("control", action)])  # never resent
+                self.assertIn(after, body["detail"] if expected == 200 else body["reason"])
+
+    def test_refusal_with_unreadable_printer_is_409(self):
+        calls = iter([{"state": "printing"}])
+
+        def read(adapter, view):
+            try:
+                return next(calls)
+            except StopIteration:
+                raise OSError("gone") from None
+
+        def refuse(adapter, view, command):
+            raise urllib.error.HTTPError("http://moonraker/x", 400, "Bad Request", {}, None)
+        with tempfile.TemporaryDirectory() as tmp:
+            code, body = controls.control(enabled(tmp), PRINTER, "pause", read=read, send=refuse)
+        self.assertEqual(code, 409)
+        self.assertIn("unknown", body["reason"])
+
+    def test_printer_server_error_stays_502(self):
+        def broken(adapter, view, command):
+            raise urllib.error.HTTPError("http://moonraker/x", 500, "Server Error", {}, None)
+        with tempfile.TemporaryDirectory() as tmp:
+            code, body = controls.control(enabled(tmp), PRINTER, "pause",
+                                          read=reads("printing"), send=broken)
+        self.assertEqual(code, 502)
+        self.assertIn("500", body["reason"])
 
     def test_family_adapter_uses_family_control_vocabulary(self):
         adapter = FakeFamilyAdapter()
