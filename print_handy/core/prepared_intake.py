@@ -974,6 +974,22 @@ from .link_intake import PromptExpired as IntakeExpired  # noqa: E402  button qu
 from .site_accounts import SiteLoginNeeded  # noqa: E402  a download needs the operator's site login (#464)
 
 
+class ConnectCancelled(IntakeCancelled):
+    """The operator pressed Cancel on a connect prompt (#712): CANCELLED, nothing downloaded."""
+
+
+# Sites whose credential can never unlock a download (#712): a missing or
+# refused login there is refused plainly, never with the connect walkthrough.
+NO_DOWNLOAD_SITES = {'cults3d'}
+
+
+def _unsupported_for(site):
+    from . import model_job as mj
+    if site == 'cults3d':
+        return mj.DownloadUnsupported(mj.CULTS_REFUSAL, 'Cults3D does not allow app downloads')
+    return None
+
+
 async def _spool_projection_text(mj, job, manifest, state, copies):
     """Display only: filament needed vs the chosen spool's grams. Never blocks the intake."""
     try:
@@ -1028,7 +1044,7 @@ def _connect_reply(site):
     the chat handler to delete the operator's message.
     """
     from . import link_intake
-    from .site_accounts import accept_pasted, save_token, token_path
+    from .site_accounts import accept_pasted, chat_safe, display_path, save_token
 
     def parse(text):
         try:
@@ -1037,12 +1053,12 @@ def _connect_reply(site):
             pass
         token, problem = accept_pasted(site, text)
         if problem:
-            raise ValueError(problem)
+            raise ValueError(chat_safe(problem))
         try:
             save_token(site, token)
         except OSError as exc:
             raise ValueError(
-                f"I couldn't save it to {token_path(site)} ({exc.strerror or type(exc).__name__}). "
+                f"I couldn't save it to {display_path(site)} ({exc.strerror or type(exc).__name__}). "
                 'Save it there yourself and reply `saved`, or reply `cancel`.') from None
         link_intake.note_secret_reply()
         return SAVED_LABEL
@@ -1061,9 +1077,13 @@ async def _with_connect(adapter, source, key, metadata, timeout, attempt):
         try:
             return await attempt()
         except SiteLoginNeeded as exc:
-            if connect_round == MAX_CONNECT_ROUNDS or not await _connect_account(
-                    adapter, source, key, metadata, exc, timeout):
+            unsupported = _unsupported_for(exc.site) if exc.site in NO_DOWNLOAD_SITES else None
+            if unsupported is not None:
+                raise unsupported from None  # no walkthrough for a login that can't help (#712)
+            if connect_round == MAX_CONNECT_ROUNDS:
                 raise
+            if not await _connect_account(adapter, source, key, metadata, exc, timeout):
+                raise ConnectCancelled('connect cancelled') from None
 
 
 async def _connect_account(adapter, source, key, metadata, exc, timeout):
@@ -1087,8 +1107,11 @@ async def _connect_account(adapter, source, key, metadata, exc, timeout):
     }.get(exc.reason, f'{label} needs you to be signed in for this model.')
     renew = exc.reason in ('expired', 'refused')
     question = connect_steps(exc.site, renew=renew, lead=f'**{lead}** Nothing was downloaded.')
-    saved = await _ask(adapter, source, key, question, [SAVED_LABEL, 'Cancel'], timeout,
-                       parser=_connect_reply(exc.site))
+    try:
+        saved = await _ask(adapter, source, key, question, [SAVED_LABEL, 'Cancel'], timeout,
+                           parser=_connect_reply(exc.site))
+    except IntakeCancelled:
+        return False
     return saved in (0, SAVED_LABEL)
 
 
@@ -1614,6 +1637,8 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         rows = job.get('sources', [])
         if job['site'] in FILE_LIST_SITES:
             rows = [r for r in rows if Path(r.get('name', '')).suffix.lower() in {'.3mf', '.stl'}]
+        if not rows and job.get('site') in NO_DOWNLOAD_SITES:
+            raise _unsupported_for(job['site'])  # the plain refusal, same as without a key (#712)
         if not rows:
             raise ValueError(job.get('no_geometry_reason') or 'source inventory contains no selectable geometry')
         if job['site'] == 'makeronline':
@@ -2559,6 +2584,11 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                            start_outcome='uncertain', start_error=str(exc))
             message = print_summary.scrub(str(exc))
             reason = 'start outcome uncertain after cancellation'
+        elif isinstance(exc, ConnectCancelled):
+            receipt.update(status='CANCELLED', sliced=False, uploaded=False, started=False,
+                           error='connect cancelled by operator')
+            message = 'Cancelled. Nothing was downloaded.'
+            reason = 'cancelled by operator at the connect prompt'
         else:
             receipt.update(status='CANCELLED', sliced=False, uploaded=False, started=False)
             message = 'Cancelled. Nothing sliced, uploaded or started.'
@@ -2613,7 +2643,15 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         return {'action': 'skip', 'reason': 'expired before a choice'}
     except Exception as exc:
         logger.exception('intake failed')
-        receipt.update(status='FAILED', error=str(exc))
+        from .site_accounts import chat_safe, short_cause
+        from . import model_job as _mj
+        if isinstance(exc, SiteLoginNeeded):
+            cause = short_cause(exc)  # the walkthrough stays in chat, not the receipt
+        elif isinstance(exc, _mj.DownloadUnsupported):
+            cause = exc.cause
+        else:
+            cause = chat_safe(exc)
+        receipt.update(status='FAILED', error=cause)
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
         from .intake_resources import IntakeLimitExceeded
         if isinstance(exc, IntakeLimitExceeded):
@@ -2621,11 +2659,13 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             # the remedy): keep its reason, lead plainly, drop its prefix.
             reason = str(exc).removeprefix('Model intake refused: ')
             content = (f'That model could not be prepared. {reason}')
+        elif isinstance(exc, _mj.DownloadUnsupported):
+            content = str(exc)  # plain refusal, no walkthrough, no paths (#712)
         elif isinstance(exc, SiteLoginNeeded):
             # Curated and user-phrased by site_accounts: the text names the
             # token file and how to fill it, so keep it — the generic wording
-            # would hide the remedy.
-            content = (f'That model could not be downloaded: {exc} '
+            # would hide the remedy. Chat shows the path home-relative (#712).
+            content = (f'That model could not be downloaded: {chat_safe(exc)} '
                        'Nothing was sliced, uploaded or started.')
         elif isinstance(exc, mj.DirectLinkError):
             # Also curated and user-phrased (#607): a direct file link that

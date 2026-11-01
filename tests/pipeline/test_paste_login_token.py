@@ -256,11 +256,12 @@ def test_first_message_has_the_lead_the_steps_the_risk_note_and_the_docs_link(en
                                'Nexprint account is connected yet.** Nothing was downloaded.')
     assert '1. Sign in at https://www.nexprint.com' in question and '3. Copy the value' in question
     assert 'Paste it here as your next message' in question
-    assert str(token_path('nexprint')) in question and 'Saved' in question
+    assert '~/.config/nexprint/token' in question and 'Saved' in question
+    assert str(token_path('nexprint')) not in question and '/data/' not in question
     assert site_accounts.RISK_NOTE in question
     assert LOGIN_SITES['nexprint'].docs_url in question
     assert adapter.questions[0]['choices'] == ['Saved — try again', 'Cancel']
-    assert adapter.sent[-1].startswith('That model could not be downloaded:')  # Cancel ends it
+    assert adapter.sent[-1] == 'Cancelled. Nothing was downloaded.'  # Cancel ends it (#712)
 
 
 @pytest.mark.parametrize('reason,text', [('empty', 'empty or incomplete'), ('expired', 'has expired'),
@@ -322,14 +323,15 @@ def test_junk_alone_saves_nothing(env, home, monkeypatch):
     assert not token_path('nexprint').exists()
 
 
-def test_typed_cancel_stops_with_the_file_named(env, home, monkeypatch):
+def test_typed_cancel_stops_cancelled(env, home, monkeypatch):
     source = _setup(env, monkeypatch)
     _nexprint_download(monkeypatch, [], [])
     adapter = TypingAdapter(['cancel'], source)
     _run(env, adapter)
     assert not token_path('nexprint').exists()
-    assert adapter.sent[-1].startswith('That model could not be downloaded:')
-    assert 'Nothing was sliced, uploaded or started.' in adapter.sent[-1]
+    assert adapter.sent[-1] == 'Cancelled. Nothing was downloaded.'
+    receipt = json.loads(next(env.root.glob('*.json')).read_text())
+    assert receipt['status'] == 'CANCELLED'
 
 
 def test_typed_saved_still_works_when_the_file_is_in_place(env, home, monkeypatch):

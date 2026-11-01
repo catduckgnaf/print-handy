@@ -234,7 +234,31 @@ def test_prepared_intake_cults3d_refuses_with_title_and_gap(env, monkeypatch):
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     receipt = json.loads(next(env.root.glob('*.json')).read_text())
     assert receipt['status'] == 'FAILED'
-    error = receipt['error']
-    assert 'Benchy Boat' in error and 'does not expose' in error
+    assert receipt['error'] == 'Cults3D does not allow app downloads'
+    assert adapter.sent[-1] == model_job.CULTS_REFUSAL
     # Nothing reached a choice, a preview, a download or a start.
     assert adapter.questions == [] and previews == []
+
+
+def test_cults_link_without_a_key_is_refused_before_any_connect_prompt(env, tmp_path, monkeypatch):
+    # #712: no token saved. The listing lookup raises SiteLoginNeeded, but a
+    # Cults key can never unlock a download, so there is no connect prompt,
+    # no API-key walkthrough and no path: one plain refusal.
+    monkeypatch.setenv('HOME', str(tmp_path / 'home'))
+    monkeypatch.delenv('CULTS3D_TOKEN', raising=False)
+    monkeypatch.setattr(model_job, 'request_json',
+                        mock.Mock(side_effect=AssertionError('network attempted')))
+    monkeypatch.setattr(model_job, 'cults_download',
+                        mock.Mock(side_effect=AssertionError('download attempted')))
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+              message_id='cults2', text=CULTS_URL)
+    adapter = Adapter([])
+    asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
+    assert adapter.questions == []
+    assert adapter.sent[-1] == model_job.CULTS_REFUSAL
+    chat = '\n'.join(adapter.sent)
+    assert '/data/' not in chat and '.config' not in chat and 'API key' not in chat
+    assert 'Saved' not in chat
+    receipt = json.loads(next(env.root.glob('*.json')).read_text())
+    assert receipt['status'] == 'FAILED'
+    assert receipt['error'] == 'Cults3D does not allow app downloads'

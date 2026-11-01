@@ -163,6 +163,32 @@ def token_path(site) -> Path:
     return Path.home()/".config"/acc.folder/acc.token_file
 
 
+def display_path(site) -> str:
+    """``site``'s token file as chat shows it: home-relative, never a container path (#712)."""
+    acc = LOGIN_SITES[site]
+    return f"~/.config/{acc.folder}/{acc.token_file}"
+
+
+def chat_safe(text) -> str:
+    """``text`` with Print Handy's home folder shown as ``~`` (#712).
+
+    In Docker the home folder is ``/data``. Chat never shows container-internal
+    paths, so an absolute token path inside a curated message reads home-relative.
+    """
+    text = str(text)
+    home = str(Path.home()).rstrip("/\\")
+    if home:
+        text = text.replace(home + "/", "~/").replace(home + "\\", "~/")
+    return text
+
+
+def short_cause(exc) -> str:
+    """A one-line cause for a receipt's ``error`` field, never the walkthrough (#712)."""
+    acc = LOGIN_SITES.get(getattr(exc, "site", None))
+    label = acc.label if acc else str(getattr(exc, "site", None) or "site")
+    return f"{label} login {getattr(exc, 'reason', None) or 'needed'}"
+
+
 def _jwt_expiry(token):
     """The ``exp`` claim of a JWT-shaped token, or None when it has none."""
     parts = token.split(".")
@@ -364,7 +390,7 @@ def connect_steps(site, *, renew=False, lead=""):
     Print Handy machine), a plain note on what pasting risks, and the docs link.
     """
     acc = LOGIN_SITES[site]
-    path = token_path(site)
+    path = display_path(site)
     intro = acc.intro or (
         f"Print Handy can't sign in for you ({acc.label}'s login page has a robot check, and "
         "passwords are never stored), so it uses the login token your browser already has.")
@@ -375,9 +401,8 @@ def connect_steps(site, *, renew=False, lead=""):
     lines = ([lead.strip(), ""] if lead.strip() else []) + [intro, ""]
     lines += [f"{n}. {text}" for n, text in enumerate(steps, 1)]
     lines.append(f"{len(steps) + 1}. **Paste it here as your next message**, or save it on the "
-                 f"Print Handy machine as the only content of `{path}` (Docker: "
-                 f"`dot-config/{acc.folder}/{acc.token_file}`, owned by 1000:1000) and press "
-                 "**Saved**. I'll carry on from there.")
+                 f"Print Handy machine as the only content of `{path}` in Print Handy's home "
+                 "folder and press **Saved**. I'll carry on from there.")
     lines += ["", RISK_NOTE]
     lines += ["", f"Save command, `.env` option and details: {acc.docs_url}"]
     return "\n".join(lines)
