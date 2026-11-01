@@ -49,7 +49,14 @@ def _slice(printer_key, fixture_name, tmp):
     gcode, _prov, _cfgs = orca_adapter.slice_model(stl, out, dict(STATE), adapter=adapter)
     text = gcode.read_text(errors="replace")
     types = sorted({line.strip() for line in text.splitlines() if line.startswith(";TYPE")})
+    layers_dbg = analyze_gcode(text)
+    feeds = sum(len(layer["outer_wall_feeds"]) for layer in layers_dbg)
+    zs = [layer["z"] for layer in layers_dbg]
     print(f"\n#721-debug {printer_key} {fixture_name} types: {types}")
+    print(f"#721-debug layers={len(layers_dbg)} zmin={min(zs) if zs else None} "
+          f"zmax={max(zs) if zs else None} outer_feeds_total={feeds}")
+    marker = text.find(";Z:50")
+    print(f"#721-debug excerpt near Z50: {text[marker:marker + 400]!r}")
     return analyze_gcode(text), footer_config(text)
 
 
