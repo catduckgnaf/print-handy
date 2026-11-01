@@ -14,6 +14,9 @@ step) serving:
   as JSON (:func:`print_handy.webui.status.printer_status`, #664): the
   adapter's normalized status, read live; an unknown id is a 404 and an
   unreachable printer answers with an explicit unavailable status;
+- ``GET /api/printers/<id>/camera/snapshot`` — one JPEG from that
+  printer's camera (:mod:`print_handy.webui.camera`, #708), never the
+  camera URL itself;
 - ``GET /healthz`` — the bot heartbeat evaluation, with the same
   200/503 + JSON shape as the standalone bot's own health server;
 - ``GET /config`` — the picker configuration page
@@ -32,14 +35,16 @@ two POSTs (``POST /config/preview`` renders the diff and writes nothing;
 every other non-GET method or path is 405.
 
 The server starts only when ``[webui] enabled`` is true and ``port`` is
-above 0. Access control: the access token lives only in the environment
-variable ``[webui] access_token_env`` names (default
-``WEBUI_ACCESS_TOKEN``) and is sent as the ``X-WebUI-Token`` header,
-compared with ``hmac.compare_digest``. When the bind host is not
-loopback, a token is mandatory — an empty token refuses the start with a
-clear error, because a LAN-reachable status page must not be open. On
-loopback the token is optional, and honoured when set. The token value
-itself is never rendered, logged, or included in any response.
+above 0. Access control is decided by :mod:`print_handy.webui.access`:
+the access token in the environment variable ``[webui] access_token_env``
+names (default ``WEBUI_ACCESS_TOKEN``), or the password chosen on the
+first-run setup page (#708), is sent as the ``X-WebUI-Token`` header and
+compared in constant time. ``[webui] require_auth`` false keeps its
+meaning: no credential at all. A non-loopback bind with neither a token
+nor a saved setup choice starts in setup mode and serves only
+``/setup`` (and ``/healthz``) until the operator sets a password or
+affirmatively leaves it open. The token or password is never rendered,
+logged, or included in any response.
 
 POSTs additionally accept the per-server form token the config pages
 embed (``pages.CSRF_FIELD``) instead of the header — that is how a
@@ -74,6 +79,7 @@ import json
 import os
 import secrets
 import sys
+import threading
 import time
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -81,6 +87,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from .. import settings
 from ..bot import health as bot_health
+from . import access as access_module
+from . import camera as camera_module
 from . import config as config_api
 from . import controls as controls_module
 from . import designs as designs_module
@@ -127,7 +135,12 @@ def access_token(data, environ=None):
 
 
 def check_start(data, environ=None):
-    """Refuse an unsafe or unconfigured start; return (host, port, token)."""
+    """Refuse a disabled or unconfigured start; return (host, port, token).
+
+    A non-loopback bind with no token and no saved setup choice no longer
+    refuses: it starts in first-run setup (:mod:`print_handy.webui.access`)
+    and serves nothing but the setup page until a choice is made (#708).
+    """
     webui = data["webui"]
     if not webui["enabled"]:
         raise WebUIServerError(
@@ -137,15 +150,7 @@ def check_start(data, environ=None):
     if port <= 0:
         raise WebUIServerError(
             "webui: not started: [webui] port is 0 (unset); set a port above 0 to run it")
-    host = webui["host"]
-    token = access_token(data, environ)
-    if webui.get("require_auth", True) and not is_loopback(host) and not token:
-        raise WebUIServerError(
-            f"webui: refusing to bind {host}: a non-loopback bind requires an "
-            f"access token in ${webui['access_token_env']} (the environment variable "
-            f"[webui] access_token_env names); set the token, bind 127.0.0.1, or "
-            f"set [webui] require_auth = false on a trusted network")
-    return host, port, token
+    return webui["host"], port, access_token(data, environ)
 
 
 def healthz(data=None, heartbeat=status_module.READ_HEARTBEAT):
@@ -303,12 +308,12 @@ class _Handler(BaseHTTPRequestHandler):
 
     # -- auth ---------------------------------------------------------------
     def _header_authorized(self):
-        """The access-token header alone (the stage 2 rule)."""
-        token = self.server.webui_token
-        if not token:
+        """The access token (or setup password) in the ``X-WebUI-Token``
+        header (the stage 2 rule); nothing is required when access is open."""
+        access = self.server.access
+        if not access.required:
             return True
-        provided = self.headers.get(TOKEN_HEADER) or ""
-        return hmac.compare_digest(provided, token)
+        return access.matches(self.headers.get(TOKEN_HEADER) or "")
 
     def _session_id(self):
         """The session id from the Cookie header, or "" (garbage = none)."""
@@ -348,8 +353,8 @@ class _Handler(BaseHTTPRequestHandler):
         return "text/html" in accept.lower()
 
     def _authorized(self):
-        """GET auth: no token configured, the header, or a login session."""
-        if not self.server.webui_token:
+        """GET auth: access open, the header, or a login session."""
+        if not self.server.access.required:
             return True
         return self._header_authorized() or self._session_authorized()
 
@@ -373,6 +378,20 @@ class _Handler(BaseHTTPRequestHandler):
                 # token, but liveness must not depend on that).
                 code, body = healthz(self.server.settings_data)
                 self._json(code, body)
+                return
+            if self.server.access.setup_pending:
+                # First-run setup (#708): nothing but the setup page until
+                # the operator sets a password or chooses to leave it open.
+                if path == "/setup":
+                    self._send(200, pages.render_setup_page(self.server.setup_token),
+                               "text/html; charset=utf-8")
+                elif self._browser_navigation(path):
+                    self._redirect("/setup")
+                else:
+                    self._setup_pending_json()
+                return
+            if path == "/setup":
+                self._redirect("/")
                 return
             if path == "/login":
                 self._login_page()
@@ -417,22 +436,31 @@ class _Handler(BaseHTTPRequestHandler):
             else:
                 self._json(404, {"ok": False,
                                  "reason": "try /, /api/status, /api/printers/<id>/status, "
+                                           "/api/printers/<id>/camera/snapshot, "
                                            "/healthz, /config, /designs, /layers or /login"})
         except Exception as exc:  # a broken snapshot is a 500, never a dropped connection
             self._json(500, {"ok": False, "reason": f"{type(exc).__name__}: {exc}"})
 
     # -- per-printer live status (#664) -------------------------------------
     def _printer_status_route(self, rest):
-        """GET /api/printers/<id>/status: exactly one id segment plus the
-        literal ``status`` tail; anything else under /api/printers/ is a
-        404 naming the one route that exists there."""
+        """GET /api/printers/<id>/status and /api/printers/<id>/camera/snapshot
+        (#708): exactly one id segment plus a known tail; anything else
+        under /api/printers/ is a 404 naming the routes that exist there."""
         segments = rest.split("/")
-        if len(segments) != 2 or not segments[0] or segments[1] != "status":
-            self._json(404, {"ok": False,
-                             "reason": "try /api/printers/<id>/status"})
+        if len(segments) == 2 and segments[0] and segments[1] == "status":
+            code, payload = self.server.printer_status_func(unquote(segments[0]))
+            self._json(code, payload)
             return
-        code, payload = self.server.printer_status_func(unquote(segments[0]))
-        self._json(code, payload)
+        if len(segments) == 3 and segments[0] and segments[1:] == ["camera", "snapshot"]:
+            code, body, content_type = self.server.camera_snapshot_func(unquote(segments[0]))
+            if code != 200:
+                self._json(code, body)
+                return
+            self._send(200, body, content_type, headers=[("Cache-Control", "no-store")])
+            return
+        self._json(404, {"ok": False,
+                         "reason": "try /api/printers/<id>/status or "
+                                   "/api/printers/<id>/camera/snapshot"})
 
     # -- per-printer controls (#708, control endpoints phase) ----------------
     def _printer_control_route(self, rest):
@@ -446,7 +474,7 @@ class _Handler(BaseHTTPRequestHandler):
         in controls.py; a 404 for an unknown printer keeps the status
         route's shape.
         """
-        if self.server.webui_token and not self._header_authorized():
+        if not self._header_authorized():
             self._json(401, {"ok": False, "reason": f"missing or wrong {TOKEN_HEADER}"})
             return
         segments = rest.split("/")
@@ -515,36 +543,91 @@ class _Handler(BaseHTTPRequestHandler):
 
     # -- browser login ------------------------------------------------------
     def _login_page(self):
-        if not self.server.webui_token:
-            # No token configured: nothing to log in to (loopback posture).
+        if not self.server.access.required:
+            # Access is open: nothing to log in to (loopback posture).
             self._redirect("/")
             return
-        self._send(200, pages.render_login_page(), "text/html; charset=utf-8")
+        self._send(200, pages.render_login_page(password=self._password_mode()),
+                   "text/html; charset=utf-8")
 
-    def _login_submit(self):
-        form, error = self._read_form()
-        if error:
-            self._json(error[0], {"ok": False, "reason": error[1]})
-            return
-        if not self.server.webui_token:
-            self._redirect("/")
-            return
-        provided = (form.get(pages.LOGIN_TOKEN_FIELD) or [""])[0]
-        # The submitted token is compared, never logged or reflected.
-        if not provided or not hmac.compare_digest(provided, self.server.webui_token):
-            self._send(401, pages.render_login_page(
-                error="That token was not accepted. Try again."),
-                "text/html; charset=utf-8")
-            return
+    def _password_mode(self):
+        return self.server.access.mode == access_module.PASSWORD
+
+    def _start_session(self):
+        """A new login-session cookie header for this browser."""
         now = time.time()
         sessions = self.server.sessions
         for stale in [sid for sid, expiry in sessions.items() if expiry <= now]:
             del sessions[stale]
         session_id = secrets.token_urlsafe(32)
         sessions[session_id] = now + SESSION_TTL_S
-        cookie = (f"{SESSION_COOKIE}={session_id}; HttpOnly; "
-                  "SameSite=Strict; Path=/")
-        self._redirect("/", headers=[("Set-Cookie", cookie)])
+        return ("Set-Cookie", f"{SESSION_COOKIE}={session_id}; HttpOnly; SameSite=Strict; Path=/")
+
+    def _login_submit(self):
+        form, error = self._read_form()
+        if error:
+            self._json(error[0], {"ok": False, "reason": error[1]})
+            return
+        if not self.server.access.required:
+            self._redirect("/")
+            return
+        provided = (form.get(pages.LOGIN_TOKEN_FIELD) or [""])[0]
+        # The submitted token is compared, never logged or reflected.
+        if not self.server.access.matches(provided):
+            what = "password" if self._password_mode() else "token"
+            self._send(401, pages.render_login_page(
+                error=f"That {what} was not accepted. Try again.", password=self._password_mode()),
+                "text/html; charset=utf-8")
+            return
+        self._redirect("/", headers=[self._start_session()])
+
+    # -- first-run setup (#708) ---------------------------------------------
+    def _setup_pending_json(self):
+        self._json(503, {"ok": False,
+                         "reason": "first-run setup is not finished: open /setup in a "
+                                   "browser to set a Web UI password or leave it open"})
+
+    def _setup_submit(self):
+        """POST /setup: save a password or the affirmative open choice.
+
+        Needs the setup page's own token, so a cross-origin page cannot
+        answer setup for the operator. That token is separate from the
+        config form token and authorizes nothing else: the setup page is
+        served to anyone before setup, so its token must never open a
+        config or debug write once a password protects the Web UI. Only the first completed setup counts;
+        later posts (setup already done) just go to the status page.
+        """
+        form, error = self._read_form()
+        if error:
+            self._json(error[0], {"ok": False, "reason": error[1]})
+            return
+        provided = (form.get(pages.CSRF_FIELD) or [""])[0]
+        if not (provided and hmac.compare_digest(provided, self.server.setup_token)):
+            self._json(403, {"ok": False, "reason": "missing or wrong form token: reload /setup"})
+            return
+        data = self.server.settings_data
+        with self.server.setup_lock:
+            if not self.server.access.setup_pending:
+                self._redirect("/")
+                return
+            choice = (form.get(pages.SETUP_CHOICE_FIELD) or [""])[0]
+            try:
+                if choice == "password":
+                    access_module.save_password(
+                        data, (form.get(pages.SETUP_PASSWORD_FIELD) or [""])[0],
+                        (form.get(pages.SETUP_CONFIRM_FIELD) or [""])[0])
+                elif choice == "open":
+                    access_module.save_open(data, (form.get(pages.SETUP_OPEN_FIELD) or [""])[0] == "yes")
+                else:
+                    raise access_module.AccessError("Choose one of the two options.")
+            except access_module.AccessError as exc:
+                self._send(400, pages.render_setup_page(self.server.setup_token, error=str(exc)),
+                           "text/html; charset=utf-8")
+                return
+            self.server.access = access_module.resolve(data, self.server.bind_host,
+                                                       self.server.webui_environ)
+        # The person who just chose the password is signed in on this browser.
+        self._redirect("/", headers=[self._start_session()] if self.server.access.required else [])
 
     def _logout(self):
         # Ends only the caller's own session, so no form token is needed:
@@ -579,7 +662,7 @@ class _Handler(BaseHTTPRequestHandler):
         cookie deliberately does NOT authorise a POST on its own: the
         form token is the CSRF guard, and a cookie-authenticated user
         reaches it through GET /config like any browser."""
-        if self.server.webui_token and self._header_authorized():
+        if self.server.access.required and self._header_authorized():
             return True
         provided = (form.get(pages.CSRF_FIELD) or [""])[0]
         return bool(provided) and hmac.compare_digest(provided, self.server.form_token)
@@ -603,6 +686,12 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             path = urlparse(self.path).path
             if self._host_refused(post=True):
+                return
+            if path == "/setup":
+                self._setup_submit()
+                return
+            if self.server.access.setup_pending:
+                self._setup_pending_json()
                 return
             if path == "/login":
                 self._login_submit()
@@ -735,7 +824,8 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=None,
-                printer_status_func=None, printer_control_func=None):
+                printer_status_func=None, printer_control_func=None,
+                camera_snapshot_func=None):
     """A bound (not yet serving) ThreadingHTTPServer for the Web UI.
 
     ``host``/``port`` override the settings (tests bind port 0 for an
@@ -745,26 +835,27 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     """
     environ = os.environ if environ is None else environ
     data = settings.load(environ=environ) if data is None else data
-    cfg_host, cfg_port, token = check_start(data, environ)
+    cfg_host, cfg_port, _token = check_start(data, environ)
     bind_host = cfg_host if host is None else host
     bind_port = cfg_port if port is None else int(port)
-    if data["webui"].get("require_auth", True) and not is_loopback(bind_host) and not token:
-        raise WebUIServerError(
-            f"webui: refusing to bind {bind_host}: a non-loopback bind requires an "
-            f"access token in ${data['webui']['access_token_env']}")
     server = ThreadingHTTPServer((bind_host, bind_port), _Handler)
     server.settings_data = data
-    server.webui_token = token
-    # DNS-rebinding guard (see _Handler._host_refused): only a tokenless
+    server.access = access_module.resolve(data, bind_host, environ)
+    server.bind_host = bind_host
+    server.setup_lock = threading.Lock()
+    # DNS-rebinding guard (see _Handler._host_refused): only an open
     # loopback bind relies on the form token alone, so only it checks Host.
     server.allowed_hosts = ({"localhost", "127.0.0.1", "::1", str(bind_host).lower()}
-                            if is_loopback(bind_host) and not token else None)
+                            if is_loopback(bind_host) and not server.access.required else None)
     # The config page reads and writes through the same environment the
     # settings were loaded with (PRINT_HANDY_CONFIG resolution included).
     server.webui_environ = environ
     # Per-server form token for config POSTs (pages.CSRF_FIELD): generated
     # here, kept only in memory, never the access token.
     server.form_token = secrets.token_urlsafe(32)
+    # First-run setup's own CSRF token (#708): shown to unauthenticated
+    # visitors on /setup, so it is never the config form token above.
+    server.setup_token = secrets.token_urlsafe(32)
     # Browser login sessions: {session id: expiry epoch}. Memory only —
     # a restart signs everyone out; nothing about a session is persisted.
     server.sessions = {}
@@ -774,6 +865,8 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
         lambda printer_id: status_module.printer_status(data, printer_id))
     server.printer_control_func = printer_control_func or (
         lambda printer_id, verb, body: _printer_control(data, printer_id, verb, body))
+    server.camera_snapshot_func = camera_snapshot_func or (
+        lambda printer_id: camera_module.snapshot(data, printer_id))
     return server
 
 

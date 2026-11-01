@@ -90,8 +90,17 @@ class StockFlashforgeAdapter(PrinterAdapter):
 
     def normalize_status(self, raw):
         detail = raw.get("detail") if isinstance(raw, dict) and isinstance(raw.get("detail"), dict) else raw
-        reduced = StockClient.status_of(detail if isinstance(detail, dict) else {})
-        return {**reduced, "hotend_c": None, "bed_c": None}
+        detail = detail if isinstance(detail, dict) else {}
+        reduced = StockClient.status_of(detail)
+        # Targets use the /detail names the ZMod native idle gate already reads (the AD5X
+        # nozzle is the "right" one). Layer and remaining-time fields are not known here.
+        return {**reduced, "hotend_c": None, "bed_c": None,
+                "hotend_target_c": _number(detail.get("rightTargetTemp")),
+                "bed_target_c": _number(detail.get("platTargetTemp"))}
+
+
+def _number(value):
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
     def stock_api_url(self, host):
         return None  # the ZMod /detail poller must not run against this adapter

@@ -67,16 +67,19 @@ timelapse:
   # is true, else off.
   mode: ""
 webui:
-  # Optional Web UI (#286): off by default; nothing listens while disabled.
-  # Port 0 means no port has been chosen yet. The access token itself never
-  # goes in a file here; access_token_env names the environment variable
-  # holding it.
-  enabled: false
-  host: "127.0.0.1"
-  port: 0
+  # Optional Web UI (#286). The container serves it by default on port 8088
+  # (#708); it is reachable from outside only where the port is published
+  # (the Unraid template maps it; Compose leaves that commented out). The
+  # access token itself never goes in a file here; access_token_env names
+  # the environment variable holding it.
+  enabled: true
+  host: "0.0.0.0"
+  port: 8088
   access_token_env: WEBUI_ACCESS_TOKEN
   # false turns the access token off entirely, even on a LAN bind: anyone who
-  # can reach the port gets the Web UI. Only for a network you trust.
+  # can reach the port gets the Web UI. Only for a network you trust. With
+  # true and no token, the first visit shows the setup page (#708): set a
+  # password or confirm it should stay open.
   require_auth: true
   # Printer control routes (#708); off by default (403, nothing sent). See docs/WEBUI.md.
   controls_enabled: false
