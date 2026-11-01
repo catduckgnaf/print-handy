@@ -1,0 +1,47 @@
+# Real file from the 2026-10-31 Discord incident (#711): PK1308_Witch_Ghost_multicolor.3mf from
+# https://cults3d.com/en/3d-model/art/witch-ghost-cute-kawaii-halloween-ghost-figurine-multicolour-no-supports
+# Plain core 3MF, six parts, basematerials author colors, no slicer metadata.
+license = "owner-approved incident file, see #711"
+known_failure = "#716: multicolor plain core 3MF fails at slicing (single-color plate requires production model settings)"
+description = "Witch Ghost: six author-colored core parts get answerable per-part questions"
+
+[[click]]
+question = "Choose colors for these parts"
+button = "Choose colors"
+
+[[click]]
+question = "body"
+button = "White"
+
+[[click]]
+question = "hat"
+button = "Black"
+
+[[click]]
+question = "band"
+button = "Pink"
+
+[[click]]
+question = "gold"
+button = "Dark green"
+
+[[click]]
+question = "ink"
+button = "Black"
+
+[[click]]
+question = "blush"
+button = "Pink"
+
+[[click]]
+question = "How many copies"
+button = "One copy"
+
+[[click]]
+question = "·"
+button = "Slice and print"
+
+[expect]
+status = "STARTED"
+parts = ["body", "hat", "band", "gold", "ink", "blush"]
+gcodes = 1

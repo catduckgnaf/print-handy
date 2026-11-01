@@ -87,3 +87,23 @@ def test_paint_detection_is_slicer_paint_only():
     assert sc._has_paint(b'<triangle v1="0" mmu_segmentation="4"/>')
     assert not sc._has_paint(b'<m:basematerials id="1"><object pid="1" pindex="0">')
     assert not sc._has_paint(b'<triangle v1="0" v2="1" v3="2" p1="2"/>')
+
+
+def test_volume_extruder_zero_inherits_object_filament(tmp_path):
+    """Orca/Bambu write extruder 0 on a volume (often a modifier) to mean "use the
+    object's filament"; 2.1.7 rejected the whole file as an invalid assignment."""
+    from pathlib import Path
+    source = Path(__file__).parents[1] / "corpus/cases/parts-one-plate/model.3mf"
+    target = tmp_path / "inherit.3mf"
+    with zipfile.ZipFile(source) as src, zipfile.ZipFile(target, "w") as dst:
+        for item in src.infolist():
+            data = src.read(item.filename)
+            if item.filename == "Metadata/model_settings.config":
+                data = data.replace(b'<part id="2" subtype="normal_part"><metadata key="name" value="Base"/>'
+                                    b'<metadata key="extruder" value="1"/>',
+                                    b'<part id="2" subtype="normal_part"><metadata key="name" value="Base"/>'
+                                    b'<metadata key="extruder" value="0"/>')
+                assert b'value="0"' in data
+            dst.writestr(item, data)
+    parts = {p["name"]: p for p in sc.inventory(target)["parts"]}
+    assert parts["Base"]["source_extruder"] == 1

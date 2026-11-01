@@ -352,6 +352,10 @@ def inventory(path):
                 for part in children:
                     pm = {m.get('key'): m.get('value') for m in part.findall('metadata')}
                     raw = pm.get('extruder', meta.get('extruder'))
+                    if raw == '0' and part is not obj:
+                        # Bambu/Orca write extruder 0 on a volume to mean "inherit the
+                        # object's filament" (common on modifier parts); it is not invalid.
+                        raw = meta.get('extruder')
                     if raw is not None and (not raw.isdigit() or int(raw) < 1):
                         raise RuntimeError('invalid source extruder assignment')
                     parts.append({'key': f"{obj.get('id')}:{part.get('id')}",
