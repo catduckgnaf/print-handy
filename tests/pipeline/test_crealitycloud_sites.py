@@ -399,8 +399,8 @@ def test_prepared_intake_crealitycloud_stops_at_token_gap(
         env, token_home, monkeypatch):
     # token_home exists but this test removes the file: inventory succeeds,
     # the single source is chosen, the connect-account offer (#464) is
-    # declined with "Not now", and the download stops with the token remedy
-    # named in the receipt — nothing sliced or started.
+    # cancelled, and the download stops with a short cancellation cause
+    # in the receipt and one terminal post — nothing sliced or started.
     (token_home/'.config'/'crealitycloud'/'token').unlink()
     job = {'site': 'crealitycloud', 'model_id': GROUP_ID,
            'title': 'Bag Closure Clips', 'slug': SLUG, 'license': 'CXY-SL',
@@ -420,10 +420,11 @@ def test_prepared_intake_crealitycloud_stops_at_token_gap(
         event, adapter, state(), env.root, timeout=1))
     assert adapter.questions[0]['choices'][:2] == ['Saved — try again', 'Cancel']
     receipt = json.loads(next(env.root.glob('*.json')).read_text())
-    assert receipt['status'] == 'FAILED'
-    assert '.config/crealitycloud/token' in receipt['error'].replace('\\', '/')
+    assert receipt['status'] == 'CANCELLED'
+    assert receipt['error'] == 'connect cancelled by operator'
     assert receipt['sliced'] is False and receipt['started'] is False
-    assert '.config/crealitycloud/token' in adapter.sent[-1].replace('\\', '/')
+    assert adapter.sent.count('Cancelled. Nothing was downloaded.') == 1
+    assert adapter.sent[-1] == 'Cancelled. Nothing was downloaded.'
 
 
 def test_crealitycloud_download_3mf_is_not_unpacked(token_home, monkeypatch, tmp_path):
