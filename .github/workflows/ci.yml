@@ -10,6 +10,17 @@ defaults:
   run:
     shell: bash
 
+# The one place CI pins the real OrcaSlicer the slicer legs run (scripts/install-orca-flatpak.sh reads
+# these). ORCA_BUNDLE_VERSION is the build docker/orca-prebuilt.sh ships on the stable channel;
+# tests/test_orca_pins.py fails when the two disagree or a pin is copied into a job.
+env:
+  ORCA_BUNDLE_VERSION: 2.5.0-beta
+  ORCA_BUNDLE_SHA256: 2d2f6979a3379d5fe77c62bbdff0ea36ec415ef43c9557e118ed45b95d39de03
+  ORCA_RUNTIME_REF: runtime/org.gnome.Platform/x86_64/50
+  # Flathub ostree commit of that runtime (Build of the GNOME Runtime from 50.6-18-g0ed65ce92,
+  # 2026-10-28), recorded from `flatpak remote-info flathub runtime/org.gnome.Platform/x86_64/50`.
+  ORCA_RUNTIME_COMMIT: 4337a389125f814785bd83f4ace01da5b6baa80fdcf5a9c81e60dcd03896c067
+
 jobs:
   offline-tests:
     runs-on: ubuntu-24.04  # Debian 13 container; hosted runner supplies the VM only.
@@ -148,7 +159,7 @@ jobs:
 
   slicer-test-stable:
     name: Slicer test (stable)
-    # The production track: OrcaSlicer v2.5.0-beta is the shipped slicer (#356), so the full
+    # The production track: the stable build docker/orca-prebuilt.sh pins is the shipped slicer (#356), so the full
     # corpus and the slicer fixtures run against its upstream flatpak bundle. That bundle ships
     # packed vendor profiles only (BBL.opc), so this job is also the packed-tree proof:
     # template generation here goes through print_handy's preset-cache reader.
@@ -171,46 +182,23 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q flatpak xvfb
-      - name: Cache OrcaSlicer 2.5.0 beta bundle and runtime
+      - name: Cache the pinned OrcaSlicer bundle and runtime
         uses: actions/cache@v6
         with:
           path: |
-            ~/.cache/orcaslicer-v2.5.0-beta.flatpak
+            ~/.cache/orcaslicer-v${{ env.ORCA_BUNDLE_VERSION }}.flatpak
             ~/.local/share/flatpak
-          key: orcaslicer-flatpak-v2.5.0-beta-${{ runner.os }}-x86_64
-      - name: Download and verify upstream OrcaSlicer v2.5.0-beta bundle
-        run: |
-          set -euo pipefail
-          bundle="$HOME/.cache/orcaslicer-v2.5.0-beta.flatpak"
-          mkdir -p "$(dirname "$bundle")"
-          if [ -f "$bundle" ] && ! echo '2d2f6979a3379d5fe77c62bbdff0ea36ec415ef43c9557e118ed45b95d39de03  '"$bundle" | sha256sum --check --status; then
-            rm "$bundle"
-          fi
-          if [ ! -f "$bundle" ]; then
-            curl --fail --location --retry 3 --output "$bundle" \
-              https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v2.5.0-beta/OrcaSlicer-Linux-flatpak_V2.5.0-beta_x86_64.flatpak
-          fi
-          echo '2d2f6979a3379d5fe77c62bbdff0ea36ec415ef43c9557e118ed45b95d39de03  '"$bundle" | sha256sum --check
-          echo "ORCA_PREVIEW_BUNDLE=$bundle" >> "$GITHUB_ENV"
-      - name: Install OrcaSlicer app bundle and runtime
-        run: |
-          set -euo pipefail
-          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user -y --noninteractive flathub org.gnome.Platform//50
-          # The restored cache may already contain the app; do not reinstall its bundle.
-          if ! flatpak info --user --show-ref "$ORCA_FLATPAK_APP_ID" >/dev/null 2>&1; then
-            flatpak install --user --bundle -y --noninteractive "$ORCA_PREVIEW_BUNDLE"
-          fi
-          flatpak info --user --show-ref "$ORCA_FLATPAK_APP_ID"
-          flatpak info --user --show-commit "$ORCA_FLATPAK_APP_ID"
-      - name: Run slicer tests (2.5.0 beta)
+          key: orcaslicer-flatpak-v${{ env.ORCA_BUNDLE_VERSION }}-${{ env.ORCA_RUNTIME_COMMIT }}-${{ runner.os }}-x86_64
+      - name: Install the pinned OrcaSlicer bundle and GNOME runtime
+        run: sh scripts/install-orca-flatpak.sh
+      - name: Run slicer tests (pinned Orca)
         run: xvfb-run -a python -m pytest -v -s tests/slicer
       - name: Discord flow corpus with real Orca
         run: xvfb-run -a python -m pytest -v -s tests/corpus
 
   slicer-test-preview:
     name: Slicer test (preview)
-    # The preview channel pins the same v2.5.0-beta build as production (both
+    # The preview channel pins the same build as production (both
     # channels in docker/orca-prebuilt.sh pin it), so this job runs the same
     # bundle as Slicer test (stable) on a fast subset as a smoke track. When
     # upstream publishes a newer prerelease, point this job at it to restore
@@ -235,41 +223,18 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q flatpak xvfb
-      - name: Cache OrcaSlicer 2.5.0 beta bundle and runtime
+      - name: Cache the pinned OrcaSlicer bundle and runtime
         uses: actions/cache@v6
         with:
           path: |
-            ~/.cache/orcaslicer-v2.5.0-beta.flatpak
+            ~/.cache/orcaslicer-v${{ env.ORCA_BUNDLE_VERSION }}.flatpak
             ~/.local/share/flatpak
-          key: orcaslicer-flatpak-v2.5.0-beta-${{ runner.os }}-x86_64
-      - name: Download and verify upstream OrcaSlicer v2.5.0-beta bundle
-        run: |
-          set -euo pipefail
-          bundle="$HOME/.cache/orcaslicer-v2.5.0-beta.flatpak"
-          mkdir -p "$(dirname "$bundle")"
-          if [ -f "$bundle" ] && ! echo '2d2f6979a3379d5fe77c62bbdff0ea36ec415ef43c9557e118ed45b95d39de03  '"$bundle" | sha256sum --check --status; then
-            rm "$bundle"
-          fi
-          if [ ! -f "$bundle" ]; then
-            curl --fail --location --retry 3 --output "$bundle" \
-              https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v2.5.0-beta/OrcaSlicer-Linux-flatpak_V2.5.0-beta_x86_64.flatpak
-          fi
-          echo '2d2f6979a3379d5fe77c62bbdff0ea36ec415ef43c9557e118ed45b95d39de03  '"$bundle" | sha256sum --check
-          echo "ORCA_PREVIEW_BUNDLE=$bundle" >> "$GITHUB_ENV"
-      - name: Install OrcaSlicer app bundle and runtime
-        run: |
-          set -euo pipefail
-          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user -y --noninteractive flathub org.gnome.Platform//50
-          # The restored cache may already contain the app; do not reinstall its bundle.
-          if ! flatpak info --user --show-ref "$ORCA_FLATPAK_APP_ID" >/dev/null 2>&1; then
-            flatpak install --user --bundle -y --noninteractive "$ORCA_PREVIEW_BUNDLE"
-          fi
-          flatpak info --user --show-ref "$ORCA_FLATPAK_APP_ID"
-          flatpak info --user --show-commit "$ORCA_FLATPAK_APP_ID"
-      - name: Run slicer tests (2.5.0 beta)
+          key: orcaslicer-flatpak-v${{ env.ORCA_BUNDLE_VERSION }}-${{ env.ORCA_RUNTIME_COMMIT }}-${{ runner.os }}-x86_64
+      - name: Install the pinned OrcaSlicer bundle and GNOME runtime
+        run: sh scripts/install-orca-flatpak.sh
+      - name: Run slicer tests (pinned Orca)
         run: xvfb-run -a python -m pytest -v -s tests/slicer
-      - name: Run representative Discord fixtures (2.5.0 beta only)
+      - name: Run representative Discord fixtures (pinned Orca)
         run: >-
           xvfb-run -a python -m pytest -v -s
           tests/corpus/test_corpus.py::test_discord_flow[single-part]
@@ -313,34 +278,11 @@ jobs:
         uses: actions/cache@v6
         with:
           path: |
-            ~/.cache/orcaslicer-v2.5.0-beta.flatpak
+            ~/.cache/orcaslicer-v${{ env.ORCA_BUNDLE_VERSION }}.flatpak
             ~/.local/share/flatpak
-          key: slicer-test-bambu-flatpak-${{ env.BAMBU_FLATPAK_COMMIT }}-${{ runner.os }}-x86_64
-      - name: Download and verify upstream OrcaSlicer v2.5.0-beta bundle
-        run: |
-          set -euo pipefail
-          bundle="$HOME/.cache/orcaslicer-v2.5.0-beta.flatpak"
-          mkdir -p "$(dirname "$bundle")"
-          if [ -f "$bundle" ] && ! echo '2d2f6979a3379d5fe77c62bbdff0ea36ec415ef43c9557e118ed45b95d39de03  '"$bundle" | sha256sum --check --status; then
-            rm "$bundle"
-          fi
-          if [ ! -f "$bundle" ]; then
-            curl --fail --location --retry 3 --output "$bundle" \
-              https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v2.5.0-beta/OrcaSlicer-Linux-flatpak_V2.5.0-beta_x86_64.flatpak
-          fi
-          echo '2d2f6979a3379d5fe77c62bbdff0ea36ec415ef43c9557e118ed45b95d39de03  '"$bundle" | sha256sum --check
-          echo "ORCA_PREVIEW_BUNDLE=$bundle" >> "$GITHUB_ENV"
-      - name: Install OrcaSlicer app bundle and runtime
-        run: |
-          set -euo pipefail
-          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user -y --noninteractive flathub org.gnome.Platform//50
-          # The restored cache may already contain the app; do not reinstall its bundle.
-          if ! flatpak info --user --show-ref "$ORCA_FLATPAK_APP_ID" >/dev/null 2>&1; then
-            flatpak install --user --bundle -y --noninteractive "$ORCA_PREVIEW_BUNDLE"
-          fi
-          flatpak info --user --show-ref "$ORCA_FLATPAK_APP_ID"
-          flatpak info --user --show-commit "$ORCA_FLATPAK_APP_ID"
+          key: slicer-test-bambu-flatpak-${{ env.BAMBU_FLATPAK_COMMIT }}-v${{ env.ORCA_BUNDLE_VERSION }}-${{ env.ORCA_RUNTIME_COMMIT }}-${{ runner.os }}-x86_64
+      - name: Install the pinned OrcaSlicer bundle and GNOME runtime
+        run: sh scripts/install-orca-flatpak.sh
       - name: Install Bambu Studio from Flathub at the pinned commit
         run: |
           set -euo pipefail
