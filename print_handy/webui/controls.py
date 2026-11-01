@@ -159,7 +159,8 @@ def control(data, printer_id, action, body=None, *, adapter=None, read=None, sen
     send = default_send if send is None else send
     try:
         if action not in ACTIONS:
-            raise ControlError(404, "try /api/printers/<id>/pause, resume, cancel or temperature")
+            raise ControlError(404, "try /api/printers/<id>/pause, resume, cancel, "
+                                    "temperature or target")
         entry, view = _resolve(data, printer_id)
         if action == "cancel" and not (isinstance(body, dict) and body.get("confirm") is True):
             raise ControlError(400, 'cancel needs the JSON body {"confirm": true}. Nothing sent.')
@@ -213,3 +214,62 @@ def set_temperature(data, printer_id, body=None, *, adapter=None, read=None, sen
         return refusal.code, {"ok": False, "reason": refusal.reason}
     return 200, {"ok": True, "id": entry["id"], "heater": heater, "target": float(target),
                  "limit": limit, "detail": "target sent; check the printer's status for the result."}
+
+
+# The Home Assistant integration (ha-print-handy 0.3.0) body: both heaters
+# at once, null for "leave this heater alone".
+TARGET_KEYS = (("hotend_c", "nozzle"), ("bed_c", "bed"))
+
+
+def set_targets(data, printer_id, body=None, *, adapter=None, read=None, send=None):
+    """(code, body) for POST /api/printers/<id>/target.
+
+    Body: ``{"hotend_c": <°C> | null, "bed_c": <°C> | null}``, the shape
+    ha-print-handy sends. ``null`` (or a missing key) leaves that heater
+    alone; at least one must be a number. Same guard and limits as
+    ``/temperature``, and every value is checked before anything is sent,
+    so one bad value sends nothing at all.
+    """
+    read = status_module.read_live_status if read is None else read
+    send = default_send if send is None else send
+    sent = []
+    try:
+        entry, view = _resolve(data, printer_id)
+        body = body if isinstance(body, dict) else {}
+        wanted = []
+        for key, heater in TARGET_KEYS:
+            target = body.get(key)
+            if target is None:
+                continue
+            if isinstance(target, bool) or not isinstance(target, (int, float)) or target != target:
+                raise ControlError(400, f"{key} must be a number of °C or null. Nothing sent.")
+            wanted.append((key, heater, float(target)))
+        if not wanted:
+            raise ControlError(400, 'give hotend_c and/or bed_c as a number of °C. '
+                                    "Nothing sent.")
+        adapter = adapter or printers.get(entry["model"], view)
+        limits = {}
+        for key, heater, target in wanted:
+            limits[key] = temperature_limit(adapter, view, heater)
+            if not 0 <= target <= limits[key]:
+                raise ControlError(400, f"{key} {target:g}°C is outside 0..{limits[key]:g}°C "
+                                        "for this printer. Nothing sent.")
+        _live_state(adapter, view, read)
+        for key, heater, target in wanted:
+            try:
+                send(adapter, view, ("temperature", heater, target))
+            except ControlError as refusal:
+                if sent:
+                    raise ControlError(refusal.code, f"{refusal.reason} (already sent: "
+                                                     f"{', '.join(sent)})") from None
+                raise
+            except Exception as exc:
+                done = f"; already sent: {', '.join(sent)}" if sent else ""
+                raise ControlError(502, f"{key} change failed to reach the printer "
+                                        f"({type(exc).__name__}: {exc}){done}") from None
+            sent.append(f"{key}={target:g}")
+    except ControlError as refusal:
+        return refusal.code, {"ok": False, "reason": refusal.reason}
+    return 200, {"ok": True, "id": entry["id"],
+                 "targets": {key: target for key, _, target in wanted},
+                 "limits": limits, "detail": "targets sent; check the printer's status for the result."}

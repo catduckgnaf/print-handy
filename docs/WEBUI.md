@@ -241,7 +241,7 @@ If the selected settings file is a legacy TOML file, the Web UI refuses to rewri
 
 ## Printer controls (#708, control endpoints phase)
 
-`POST /api/printers/<id>/pause`, `/resume`, `/cancel` and `/temperature` send one command to one roster printer through the same paths chat uses: Moonraker's print pause/resume/cancel and `M104`/`M140` for Moonraker printers, the adapter's own `control()` for every other family. A family with no existing temperature path answers 501 ("not supported"); nothing is sent.
+`POST /api/printers/<id>/pause`, `/resume`, `/cancel`, `/temperature` and `/target` send one command to one roster printer through the same paths chat uses: Moonraker's print pause/resume/cancel and `M104`/`M140` for Moonraker printers, the adapter's own `control()` for every other family. A family with no existing temperature path answers 501 ("not supported"); nothing is sent.
 
 Guard:
 
@@ -249,6 +249,7 @@ Guard:
 - **Auth.** The `X-WebUI-Token` header only, like `GET /api/printers/<id>/status`; a browser login cookie does not authorize a control. Bodies must be `application/json`, so a cross-site HTML form cannot post here.
 - **cancel** also needs the body `{"confirm": true}` (400 otherwise).
 - **temperature** takes `{"heater": "nozzle" | "bed", "target": <°C>}`; `0` turns the heater off. The target is refused (400), never clamped, above the printer's limit: for the nozzle the lower of the fitted nozzle type's safe maximum and the model's `max_hotend_c`; for the bed the model's `max_bed_c`, or the hottest configured material bed temperature when the model has no such fact.
+- **target** takes `{"hotend_c": <°C> | null, "bed_c": <°C> | null}`, the body the Home Assistant integration (ha-print-handy) sends: both heaters in one call, `null` leaving that heater alone, at least one a number. Same limits as `temperature`; every value is checked before anything is sent, so one bad value sends nothing. If the second heater fails after the first was sent, the 502 reason names what was already sent.
 - Every control re-reads the printer first. An unknown id is a **404** in the status route's shape, an unreachable printer an explicit **502**, and a printer in the wrong state (resume while printing, say) a **409**; none of them send anything.
 
 ```bash
