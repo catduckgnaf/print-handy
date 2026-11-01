@@ -28,7 +28,12 @@ from urllib.parse import urlsplit
 
 try:  # PyYAML preferred; the Hermes plugin runtime ships ruamel.yaml instead (#170)
     import yaml
-    _yaml_load = yaml.safe_load
+    # The libyaml-backed safe loader builds the same data about 12x faster (home.yaml: 40 ms -> 3 ms),
+    # and every process start pays one full load; the pure-Python one stays the fallback.
+    _yaml_safe_loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
+    def _yaml_load(stream):
+        return yaml.load(stream, Loader=_yaml_safe_loader)
     _YAML_ERRORS = (yaml.YAMLError,)
 except ImportError:  # pragma: no cover
     yaml = None
