@@ -80,9 +80,12 @@ def test_a_pla_job_keeps_the_printers_tuned_pla_template(slice_inputs, model, ma
     template = json.loads((adapter_for(model).templates_dir() / "filament.json").read_text())
     filament = slice_inputs.slice(model, stale_state(material))[2]
     for key in KEYS:
-        if key in template:
+        if key in template and key != "filament_max_volumetric_speed":
             assert filament[key] == template[key], key
-    assert filament["filament_max_volumetric_speed"] == template["filament_max_volumetric_speed"]
+    expected = template["filament_max_volumetric_speed"]
+    if material == "Silk PLA" and float(expected[0]) > 12:  # Silk caps flow at 12 mm³/s; it never raises it
+        expected = ["12"]
+    assert filament["filament_max_volumetric_speed"] == expected
 
 
 @pytest.mark.parametrize("model", ["flashforge.ad5x", "sovol.sv06"])
@@ -182,6 +185,14 @@ def test_silk_raises_the_minimum_layer_time(slice_inputs):
         filament = json.loads((slice_inputs.tmp / "flashforge_ad5x" / "filament.json").read_text())
         template = json.loads((ROOT / "print_handy/templates/orca/flashforge_ad5x/filament.json").read_text())
         assert filament["slow_down_layer_time"] == ([expected] if expected else template["slow_down_layer_time"])
+
+
+def test_silk_lowers_the_max_volumetric_speed(slice_inputs):
+    template = json.loads((ROOT / "print_handy/templates/orca/flashforge_ad5x/filament.json").read_text())
+    for material, expected in (("Silk PLA", ["12"]), ("PLA", template["filament_max_volumetric_speed"])):
+        slice_inputs.slice("flashforge.ad5x", stale_state(material))
+        filament = json.loads((slice_inputs.tmp / "flashforge_ad5x" / "filament.json").read_text())
+        assert filament["filament_max_volumetric_speed"] == expected
 
 
 def test_plain_pla_keeps_the_authored_outer_wall(slice_inputs):

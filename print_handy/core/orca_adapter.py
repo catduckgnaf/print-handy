@@ -1147,7 +1147,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                 data['filament_flow_ratio'] = [str(round(float(data['filament_flow_ratio'][0]) * adj['flow_multiplier'], 4))]
             except (ValueError, TypeError):
                 pass
-        layer_min = material_adjustments(material)['slow_down_layer_time_min']
+        variant = material_adjustments(material)
+        layer_min = variant['slow_down_layer_time_min']
         if layer_min is not None:
             try:
                 current = float((data.get('slow_down_layer_time') or ['0'])[0])
@@ -1155,6 +1156,14 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                 current = 0.0
             if current < layer_min:
                 data['slow_down_layer_time'] = [format(layer_min, 'g')]
+        flow_max = variant['max_volumetric_speed_max']
+        if flow_max is not None:
+            try:
+                current = float((data.get('filament_max_volumetric_speed') or ['0'])[0])
+            except (ValueError, TypeError):
+                current = 0.0
+            if current <= 0 or current > flow_max:
+                data['filament_max_volumetric_speed'] = [format(flow_max, 'g')]
         bed = str(temps_c['bed'] if bed_c is None else bed_c)
         for key in ('cool_plate_temp', 'eng_plate_temp', 'hot_plate_temp', 'textured_plate_temp'):
             data[key] = data[key + '_initial_layer'] = [bed]

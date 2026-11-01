@@ -63,9 +63,12 @@ DEFAULT_MATERIAL_TEMPS = {
 # no cap. Silk's values are OrcaSlicer's own: its fdm_filament_pla_silk profile asks for 40 to
 # 60 mm/s outer walls and an 8 s minimum layer time. A factor alone is not enough: 0.7 x a
 # 200 mm/s template is still 140 mm/s.
+# ``max_volumetric_speed_max`` lowers the filament's max volumetric speed (mm³/s), never raising it.
+# Silk's 12 is Flashforge's own Generic PLA-Silk profile, which its AD5X Silk profile inherits; the
+# AD5X template allows 25, and Print #64's tall walls peaked near 25.
 MATERIAL_VARIANT_ADJUSTMENTS = {
     "SILK PLA": {"nozzle_delta": 10, "bed_delta": 0, "outer_wall_speed_factor": 0.7,
-                 "outer_wall_speed_max": 60, "slow_down_layer_time_min": 8,
+                 "outer_wall_speed_max": 60, "slow_down_layer_time_min": 8, "max_volumetric_speed_max": 12,
                  "note": "Silk PLA prints hotter than plain PLA and needs slower outer walls (at most 60 mm/s) for its gloss."},
     "PLA+": {"nozzle_delta": 5, "bed_delta": 0, "outer_wall_speed_factor": 1.0,
              "note": "PLA+ / PLA Pro blends print slightly hotter than plain PLA."},
@@ -82,7 +85,8 @@ MATERIAL_VARIANT_ADJUSTMENTS = {
 }
 
 _NO_ADJUSTMENT = {"nozzle_delta": 0, "bed_delta": 0, "outer_wall_speed_factor": 1.0,
-                  "outer_wall_speed_max": None, "slow_down_layer_time_min": None, "note": ""}
+                  "outer_wall_speed_max": None, "slow_down_layer_time_min": None,
+                  "max_volumetric_speed_max": None, "note": ""}
 
 
 def _material_tokens(material):
@@ -161,6 +165,7 @@ def material_adjustments(material):
             "outer_wall_speed_factor": min(r["outer_wall_speed_factor"] for r in rows),
             "outer_wall_speed_max": _smallest(r.get("outer_wall_speed_max") for r in rows),
             "slow_down_layer_time_min": _largest(r.get("slow_down_layer_time_min") for r in rows),
+            "max_volumetric_speed_max": _smallest(r.get("max_volumetric_speed_max") for r in rows),
             "note": " ".join(r["note"] for r in rows)}
 
 
