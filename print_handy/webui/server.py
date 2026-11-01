@@ -7,6 +7,9 @@ step) serving:
   interpolated value escaped, no JavaScript);
 - ``GET /api/status`` — the status snapshot as JSON
   (:mod:`print_handy.webui.status`);
+- ``POST /api/printers/<id>/pause|resume|cancel|temperature`` — printer
+  controls (#708, :mod:`print_handy.webui.controls`), off unless
+  ``[webui] controls_enabled = true``; header auth only, JSON bodies;
 - ``GET /api/printers/<id>/status`` — one roster printer's live status
   as JSON (:func:`print_handy.webui.status.printer_status`, #664): the
   adapter's normalized status, read live; an unknown id is a 404 and an
@@ -79,6 +82,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from .. import settings
 from ..bot import health as bot_health
 from . import config as config_api
+from . import controls as controls_module
 from . import designs as designs_module
 from . import layers as layers_module
 from . import pages
@@ -430,6 +434,49 @@ class _Handler(BaseHTTPRequestHandler):
         code, payload = self.server.printer_status_func(unquote(segments[0]))
         self._json(code, payload)
 
+    # -- per-printer controls (#708, control endpoints phase) ----------------
+    def _printer_control_route(self, rest):
+        """POST /api/printers/<id>/pause|resume|cancel|temperature.
+
+        Authorization is the access-token header only (or no token
+        configured): a login-session cookie never authorizes a control
+        POST, the same rule as the config POSTs. The body must be JSON,
+        so a cross-site HTML form cannot post here. The off-by-default
+        switch, cancel's confirm field and the temperature limits live
+        in controls.py; a 404 for an unknown printer keeps the status
+        route's shape.
+        """
+        if self.server.webui_token and not self._header_authorized():
+            self._json(401, {"ok": False, "reason": f"missing or wrong {TOKEN_HEADER}"})
+            return
+        segments = rest.split("/")
+        verbs = (*controls_module.ACTIONS, "temperature")
+        if len(segments) != 2 or not segments[0] or segments[1] not in verbs:
+            self._json(404, {"ok": False, "reason": "try /api/printers/<id>/pause, resume, "
+                                                    "cancel or temperature"})
+            return
+        content_type = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = -1
+        if length < 0 or length > 4096:
+            self._json(400, {"ok": False, "reason": "bad or oversized body. Nothing sent."})
+            return
+        raw = self.rfile.read(length) if length else b""
+        if content_type != "application/json":
+            self._json(415, {"ok": False, "reason": "control POSTs must be application/json. "
+                                                    "Nothing sent."})
+            return
+        try:
+            body = json.loads(raw or b"{}")
+        except ValueError:
+            self._json(400, {"ok": False, "reason": "body is not valid JSON. Nothing sent."})
+            return
+        printer_id, verb = unquote(segments[0]), segments[1]
+        code, payload = self.server.printer_control_func(printer_id, verb, body)
+        self._json(code, payload)
+
     # -- designs catalog (read-only, #388 stage 3) --------------------------
     def _design_route(self, rest):
         """GET /designs/<id> (detail) and /designs/<id>/<kind> (a file).
@@ -567,6 +614,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._config_save()
             elif path == "/debug":
                 self._debug_post()
+            elif path.startswith("/api/printers/"):
+                self._printer_control_route(path[len("/api/printers/"):])
             else:
                 self._read_only()
         except Exception as exc:  # a broken write is a 500, never a dropped connection
@@ -686,7 +735,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=None,
-                printer_status_func=None):
+                printer_status_func=None, printer_control_func=None):
     """A bound (not yet serving) ThreadingHTTPServer for the Web UI.
 
     ``host``/``port`` override the settings (tests bind port 0 for an
@@ -723,7 +772,15 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
         lambda: status_module.snapshot(data, environ=environ))
     server.printer_status_func = printer_status_func or (
         lambda printer_id: status_module.printer_status(data, printer_id))
+    server.printer_control_func = printer_control_func or (
+        lambda printer_id, verb, body: _printer_control(data, printer_id, verb, body))
     return server
+
+
+def _printer_control(data, printer_id, verb, body):
+    if verb == "temperature":
+        return controls_module.set_temperature(data, printer_id, body)
+    return controls_module.control(data, printer_id, verb, body)
 
 
 def serve(data=None, *, environ=None):

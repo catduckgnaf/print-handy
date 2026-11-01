@@ -61,6 +61,8 @@ access_token_env = "WEBUI_ACCESS_TOKEN"
 # false turns the access token off entirely, even on a LAN bind: anyone who
 # can reach the port gets the Web UI. Only for a network you trust.
 require_auth = true
+# Printer control routes (#708); off by default (403, nothing sent). See docs/WEBUI.md.
+controls_enabled = false
 
 [agent]
 # Stray-chat agent lane (#524 stage 3): an agent endpoint — any

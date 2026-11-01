@@ -1023,6 +1023,12 @@ def _validate_webui(data):
     require_auth = webui.setdefault("require_auth", True)
     if not isinstance(require_auth, bool):
         raise SettingsError(f"[webui] require_auth must be true or false, got {require_auth!r}")
+    # controls_enabled (#708): the printer control routes (pause, resume,
+    # cancel, target temperature) answer 403 and send nothing until this
+    # is true. Off by default; a missing key means false.
+    controls = webui.setdefault("controls_enabled", False)
+    if not isinstance(controls, bool):
+        raise SettingsError(f"[webui] controls_enabled must be true or false, got {controls!r}")
 
 
 VERTICAL_SHORT_MODES = ("pad", "crop")

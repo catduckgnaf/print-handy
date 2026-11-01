@@ -238,3 +238,22 @@ If the selected settings file is a legacy TOML file, the Web UI refuses to rewri
 | A save is refused and the file did not change | Read the error beside the field or at the top of the form. Invalid combinations are rejected before the atomic write; the file remains byte-identical. Correct the value and preview again. |
 | Saving worked, but behaviour did not change | Restart the Print Handy process or container that consumes the setting. A running process keeps the settings it loaded at start. |
 | A legacy TOML save is refused | The Web UI writes YAML only. Select a YAML settings file with `PRINT_HANDY_CONFIG`, or keep editing the TOML file manually. |
+
+## Printer controls (#708, control endpoints phase)
+
+`POST /api/printers/<id>/pause`, `/resume`, `/cancel` and `/temperature` send one command to one roster printer through the same paths chat uses: Moonraker's print pause/resume/cancel and `M104`/`M140` for Moonraker printers, the adapter's own `control()` for every other family. A family with no existing temperature path answers 501 ("not supported"); nothing is sent.
+
+Guard:
+
+- **Off by default.** Only `[webui] controls_enabled = true` turns them on. While off, every control route answers **403** with the reason and sends nothing. The switch is deliberately not a Web UI field.
+- **Auth.** The `X-WebUI-Token` header only, like `GET /api/printers/<id>/status`; a browser login cookie does not authorize a control. Bodies must be `application/json`, so a cross-site HTML form cannot post here.
+- **cancel** also needs the body `{"confirm": true}` (400 otherwise).
+- **temperature** takes `{"heater": "nozzle" | "bed", "target": <°C>}`; `0` turns the heater off. The target is refused (400), never clamped, above the printer's limit: for the nozzle the lower of the fitted nozzle type's safe maximum and the model's `max_hotend_c`; for the bed the model's `max_bed_c`, or the hottest configured material bed temperature when the model has no such fact.
+- Every control re-reads the printer first. An unknown id is a **404** in the status route's shape, an unreachable printer an explicit **502**, and a printer in the wrong state (resume while printing, say) a **409**; none of them send anything.
+
+```bash
+curl -X POST -H "X-WebUI-Token: $WEBUI_ACCESS_TOKEN" -H "Content-Type: application/json" \
+     -d '{"confirm": true}' http://127.0.0.1:8765/api/printers/flashforge-ad5x/cancel
+```
+
+Still open from #708: Docker defaults, Bearer auth, extended telemetry, and the camera proxy.
