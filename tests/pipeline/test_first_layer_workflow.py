@@ -94,3 +94,19 @@ def test_start_readback_is_immediate_not_delayed():
          mock.patch.object(job.time, 'sleep') as sleep:
         assert job._wait_printing({}, 'test.gcode', 25) == 'printing'
     sleep.assert_not_called()
+
+
+def test_a_zmod_3mf_start_is_seen_printing_under_its_unpacked_name():
+    # 2026-11-01 AD5X: X.gcode.3mf printed as 3mf_print/X.gcode and confirmation sat out its whole window.
+    with mock.patch.object(job, '_printer_phase', return_value=('printing', '3mf_print/X.gcode', 'Printing')), \
+         mock.patch.object(job.time, 'sleep') as sleep:
+        assert job._wait_printing({}, 'X.gcode.3mf', 25) == 'printing'
+    sleep.assert_not_called()
+
+
+def test_another_file_printing_is_still_not_this_start():
+    clock = iter(range(0, 100, 5))
+    with mock.patch.object(job, '_printer_phase', return_value=('printing', '3mf_print/Other.gcode', 'Printing')), \
+         mock.patch.object(job.time, 'monotonic', side_effect=lambda: next(clock)), \
+         mock.patch.object(job.time, 'sleep'):
+        assert job._wait_printing({}, 'X.gcode.3mf', 25) == 'busy'
