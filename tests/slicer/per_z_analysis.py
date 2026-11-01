@@ -58,8 +58,9 @@ FIXTURES = {
 _FAN_RE = re.compile(r"^M106(?:\s+P(\d+))?(?:\s+S(\d+(?:\.\d+)?))?")
 _TYPE_RE = re.compile(r"^;TYPE:(.+)$")
 _MOVE_RE = re.compile(r"^G1\s+(.*)$")
-_PARAM_RE = re.compile(r"([XYZEF])(-?\d+(?:\.\d+)?)")
+_PARAM_RE = re.compile(r"([XYZEF])(-?(?:\d+(?:\.\d+)?|\.\d+))")
 _ACCEL_RE = re.compile(r"^M204\s+.*?[PS](\d+(?:\.\d+)?)")
+_VEL_LIMIT_RE = re.compile(r"^SET_VELOCITY_LIMIT\s+.*?ACCEL=(\d+(?:\.\d+)?)")
 _CONFIG_RE = re.compile(r"^;\s*([a-z_0-9]+)\s*=\s*(\S.*)$")
 
 
@@ -117,7 +118,7 @@ def analyze_gcode(text):
             if "bridge" in feature.lower() and fan_state is not None:
                 current["bridge_fan_max"] = max(fan_state, current["bridge_fan_max"] or 0.0)
             continue
-        m = _ACCEL_RE.match(line)
+        m = _ACCEL_RE.match(line) or _VEL_LIMIT_RE.match(line)
         if m:
             current["accelerations"].add(float(m.group(1)))
             continue
