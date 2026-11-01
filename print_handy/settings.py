@@ -134,6 +134,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("slicer", "flash_studio_path"): str,
                  ("webui", "enabled"): bool, ("webui", "host"): str,
                  ("webui", "port"): int, ("webui", "access_token_env"): str,
+                 ("webui", "controls_enabled"): bool,
                  ("design", "enabled"): bool, ("design", "chat_url"): str,
                  ("design", "model"): str, ("design", "api_key_env"): str,
                  ("design", "timeout_s"): int, ("design", "repair_attempts"): int,
@@ -1023,6 +1024,14 @@ def _validate_webui(data):
     require_auth = webui.setdefault("require_auth", True)
     if not isinstance(require_auth, bool):
         raise SettingsError(f"[webui] require_auth must be true or false, got {require_auth!r}")
+    # controls_enabled gates the Web UI control API (#708): off by
+    # default, and while false the server serves no control routes at
+    # all. On by explicit operator choice only — a token holder can
+    # then pause / resume / cancel and set temperatures with no chat
+    # confirmation (chat control stays confirm-first either way).
+    controls_enabled = webui.setdefault("controls_enabled", False)
+    if not isinstance(controls_enabled, bool):
+        raise SettingsError(f"[webui] controls_enabled must be true or false, got {controls_enabled!r}")
 
 
 VERTICAL_SHORT_MODES = ("pad", "crop")

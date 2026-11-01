@@ -278,6 +278,11 @@ webui:
   # false turns the access token off entirely, even on a LAN bind: anyone who
   # can reach the port gets the Web UI. Only for a network you trust.
   require_auth: true
+  # Printer control API (#708): false serves no control routes at all.
+  # True lets a caller holding the access token pause, resume or cancel a
+  # print and set target temperatures over the API, with no chat
+  # confirmation. Only enable it for callers you trust with the printer.
+  controls_enabled: false
 live_stream:
   # Live camera viewing in Discord (#311): off by default. The bot cannot
   # send video itself; /print-live starts a viewing session and points at

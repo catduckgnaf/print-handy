@@ -11,6 +11,14 @@ step) serving:
   as JSON (:func:`print_handy.webui.status.printer_status`, #664): the
   adapter's normalized status, read live; an unknown id is a 404 and an
   unreachable printer answers with an explicit unavailable status;
+- ``POST /api/printers/<id>/pause``, ``/resume``, ``/cancel`` and
+  ``/target`` — the control API (:mod:`print_handy.webui.control`,
+  #708), served **only** while ``[webui] controls_enabled`` is true:
+  while it is false those routes answer 404 like any unknown path.
+  When enabled they need the access-token header exactly (a login
+  session or the config form token never authorises a control POST),
+  act on the one named printer through its own transport, and answer
+  every refusal or failure explicitly;
 - ``GET /healthz`` — the bot heartbeat evaluation, with the same
   200/503 + JSON shape as the standalone bot's own health server;
 - ``GET /config`` — the picker configuration page
@@ -25,7 +33,9 @@ step) serving:
 
 Unknown GET paths are 404. Writes happen only through the config page's
 two POSTs (``POST /config/preview`` renders the diff and writes nothing;
-``POST /config`` with the confirm field performs the validated write);
+``POST /config`` with the confirm field performs the validated write),
+the login/logout POSTs, the debug-mode POST, and — only while
+``[webui] controls_enabled`` is true — the control API POSTs above;
 every other non-GET method or path is 405.
 
 The server starts only when ``[webui] enabled`` is true and ``port`` is
@@ -79,6 +89,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from .. import settings
 from ..bot import health as bot_health
 from . import config as config_api
+from . import control as control_module
 from . import designs as designs_module
 from . import layers as layers_module
 from . import pages
@@ -430,6 +441,87 @@ class _Handler(BaseHTTPRequestHandler):
         code, payload = self.server.printer_status_func(unquote(segments[0]))
         self._json(code, payload)
 
+    # -- per-printer control (#708) -----------------------------------------
+    def _printer_control_route(self, rest):
+        """POST /api/printers/<id>/pause|resume|cancel|target.
+
+        The gate order is deliberate: while ``[webui] controls_enabled``
+        is false the routes answer the same 404 as any unknown path
+        (they do not exist, and their existence is not disclosed to an
+        unauthenticated caller); when enabled, the access-token header
+        is required exactly — a login session or the config form token
+        never authorises a control POST, so a browser session cannot be
+        turned into printer control.
+        """
+        segments = rest.split("/")
+        if (len(segments) != 2 or not segments[0]
+                or segments[1] not in ("pause", "resume", "cancel", "target")):
+            self._json(404, {"ok": False,
+                             "reason": "try POST /api/printers/<id>/pause, "
+                                       "/api/printers/<id>/resume, "
+                                       "/api/printers/<id>/cancel or "
+                                       "/api/printers/<id>/target"})
+            return
+        if not self.server.controls_enabled:
+            self._json(404, {"ok": False,
+                             "reason": "printer controls are not enabled on this "
+                                       "Web UI (set [webui] controls_enabled = true "
+                                       "to serve them)"})
+            return
+        if not self._header_authorized():
+            self._json(401, {"ok": False, "reason": f"missing or wrong {TOKEN_HEADER}"})
+            return
+        printer_id = unquote(segments[0])
+        action = segments[1]
+        if action != "target":
+            self._drain_body()
+            code, payload = self.server.printer_control_func(printer_id, action)
+            self._json(code, payload)
+            return
+        payload, error = self._read_json_body()
+        if error:
+            self._json(error[0], {"ok": False, "reason": error[1]})
+            return
+        code, body = self.server.printer_target_func(
+            printer_id, payload.get("hotend_c"), payload.get("bed_c"))
+        self._json(code, body)
+
+    def _drain_body(self):
+        """Read and discard a declared request body (bounded).
+
+        The action routes take no body; draining keeps a client that
+        sent one from corrupting the keep-alive connection.
+        """
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = 0
+        if 0 < length <= 65536:
+            self.rfile.read(length)
+
+    def _read_json_body(self):
+        """(payload, None) or (None, (code, reason)) for a JSON POST body."""
+        content_type = self.headers.get("Content-Type") or ""
+        if not content_type.startswith("application/json"):
+            return None, (415, "this route needs an application/json body")
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return None, (400, "bad Content-Length")
+        if length < 0 or length > 65536:
+            return None, (413, "JSON body too large")
+        raw = self.rfile.read(length) if length else b""
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return None, (400, "body is not valid JSON")
+        if not isinstance(payload, dict):
+            return None, (400, "JSON body must be an object")
+        unknown = sorted(set(payload) - {"hotend_c", "bed_c"})
+        if unknown:
+            return None, (400, f"unknown target fields: {', '.join(unknown)}")
+        return payload, None
+
     # -- designs catalog (read-only, #388 stage 3) --------------------------
     def _design_route(self, rest):
         """GET /designs/<id> (detail) and /designs/<id>/<kind> (a file).
@@ -561,6 +653,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._login_submit()
             elif path == "/logout":
                 self._logout()
+            elif path.startswith("/api/printers/"):
+                self._printer_control_route(path[len("/api/printers/"):])
             elif path == "/config/preview":
                 self._config_preview()
             elif path == "/config":
@@ -686,7 +780,8 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=None,
-                printer_status_func=None):
+                printer_status_func=None, printer_control_func=None,
+                printer_target_func=None):
     """A bound (not yet serving) ThreadingHTTPServer for the Web UI.
 
     ``host``/``port`` override the settings (tests bind port 0 for an
@@ -723,6 +818,15 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
         lambda: status_module.snapshot(data, environ=environ))
     server.printer_status_func = printer_status_func or (
         lambda printer_id: status_module.printer_status(data, printer_id))
+    # The control API gate (#708): captured at start like the token, so
+    # toggling the setting takes the same restart as every other Web UI
+    # start option; the config page writes it for the next start.
+    server.controls_enabled = bool(data["webui"].get("controls_enabled", False))
+    server.printer_control_func = printer_control_func or (
+        lambda printer_id, action: control_module.printer_control(data, printer_id, action))
+    server.printer_target_func = printer_target_func or (
+        lambda printer_id, hotend_c, bed_c: control_module.printer_target(
+            data, printer_id, hotend_c, bed_c))
     return server
 
 

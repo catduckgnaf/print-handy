@@ -144,6 +144,7 @@ GROUP_OF = {
     "webui.enabled": "webui",
     "webui.host": "webui",
     "webui.port": "webui",
+    "webui.controls_enabled": "webui",
     "live_stream.enabled": "live",
     "live_stream.voice_channel_id": "live",
     "live_stream.auto_start_on_print": "live",
@@ -482,6 +483,13 @@ CATALOG = (
     _field("webui", "port", "Web UI port", "number",
            "Port the Web UI binds to when enabled; 0 means no port has been chosen yet.",
            validator="settings webui check", minimum=0, maximum=65535),
+    _field("webui", "controls_enabled", "Printer control API", "toggle",
+           "Serve the Web UI control routes (#708): a caller holding the access "
+           "token can pause, resume or cancel a print and set target temperatures "
+           "through the API, with no chat confirmation. Off by default, and no "
+           "control routes are served while disabled; chat control stays "
+           "confirm-first either way. Takes effect at the next Web UI start.",
+           validator="settings webui check"),
     # Live camera in Discord (#311): the [live_stream] section. No secret
     # is a field here — the Discord client secret and the Activity
     # session secret live only in the environment, and the tunnel token
