@@ -1,4 +1,5 @@
 """Source-bound, instance-preserving multipart core 3MF for Orca."""
+import io
 import copy
 import json
 import math
@@ -986,7 +987,6 @@ def _flatten_core_assemblies(source):
     component transform). Meshes and resources stay byte for byte. Production
     packages (with model settings) are returned unchanged.
     """
-    import tempfile
     with zipfile.ZipFile(source) as archive:
         names = archive.namelist()
         if 'Metadata/model_settings.config' in names or '3D/3dmodel.model' not in names:
@@ -1013,12 +1013,12 @@ def _flatten_core_assemblies(source):
         for oid, matrix, printable in rows)
     payload['3D/3dmodel.model'] = re.sub(br'(<(?:\w+:)?build\b[^>]*>).*?(</(?:\w+:)?build>)',
                                          lambda m: m.group(1) + build.encode() + m.group(2), model, count=1, flags=re.S)
-    handle = tempfile.NamedTemporaryFile(suffix='.core-flat.3mf', delete=False)
-    handle.close()
-    with zipfile.ZipFile(handle.name, 'w', zipfile.ZIP_DEFLATED) as out:
+    # In memory, not a temp file: nothing to clean up on any exit path.
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as out:
         for name, data in payload.items():
             out.writestr(name, data)
-    return handle.name
+    return buffer
 
 
 def _core_model_settings(model_bytes):
