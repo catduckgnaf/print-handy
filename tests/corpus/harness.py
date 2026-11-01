@@ -308,7 +308,10 @@ def _stub_print_now(folder):
     return stub
 
 
-def run_case(case, work, *, real_slicer=False, state_file=FIXTURE_STATE, in_gateway_env=False, transport="hermes", audit_started=None, auto=True):
+BUILT = "built"  # default: printer state produced by the real create_spool and bind_slot flows (#594)
+
+
+def run_case(case, work, *, real_slicer=False, state_file=BUILT, in_gateway_env=False, transport="hermes", audit_started=None, auto=True):
     """Run the case end to end and return what happened. `work` is a fresh directory.
 
     Everything the flow writes (archive, receipts, claims) goes under `work`, except state in
@@ -325,6 +328,14 @@ def run_case(case, work, *, real_slicer=False, state_file=FIXTURE_STATE, in_gate
         raise ValueError("the gateway environment check is Hermes only")
     if transport == "hermes":
         install_clarify_stand_in()
+    spoolman = None
+    if state_file == BUILT and not in_gateway_env:
+        # The slot map the journey slices from is made by production spool code, not handwritten JSON.
+        from . import spool_fixture
+        Path(work).mkdir(parents=True, exist_ok=True)
+        (Path(work) / "built-state").mkdir(exist_ok=True)
+        state_file, spoolman = spool_fixture.build_state(Path(work) / "built-state", FIXTURE_STATE)
+    spoolman_calls_built = len(spoolman.calls) if spoolman else 0
     from print_handy.core import background_slice, model_job, orca_adapter, prepared_intake, printer_state, source_colors
     from print_handy.hermes import _config, print_next, print_records
 
@@ -392,9 +403,24 @@ def run_case(case, work, *, real_slicer=False, state_file=FIXTURE_STATE, in_gate
         patch(prepared_intake, "_heavy", thread_heavy)
         patch(background_slice.BackgroundSlice, "start", observe_slice_start)
         patch(model_job, "verify_gcode", offline_verify)
+        # Multicolor summaries probe live ZMod purge settings. This offline corpus models
+        # an unavailable reading explicitly, rather than attempting (and swallowing) I/O.
+        patch(printer_state, "read_purge_mode", lambda st: None)
         patch(print_next, "start", start)
         patch(prepared_intake.print_summary, "find_job", find_job)
-        enter(mock.patch("urllib.request.urlopen", side_effect=AssertionError("corpus flow reached the network")))
+        patch(prepared_intake._external.load("moonraker_event_listener"), "generate_roast", lambda *a, **kw: "")
+        network_attempts = []
+
+        def reject_network(*args, **kwargs):
+            network_attempts.append(getattr(args[0], "full_url", str(args[0])) if args else "unknown")
+            raise AssertionError("corpus flow reached the network")
+
+        # The print lifecycle reads cached spool data through the shared client too.
+        # Serve that expected bookkeeping request from the same fake used to build the slots.
+        from print_handy.core import spoolman_client
+        if spoolman is not None:
+            patch(spoolman_client, "request", lambda method, path, body=None, **kw: spoolman(method, path, body))
+        enter(mock.patch("urllib.request.urlopen", side_effect=reject_network))
         if real_slicer:
             # Flatpak Orca cannot see /tmp, and the fit probe writes its scratch files to tempfile's dir.
             (WORK / "tmp").mkdir(parents=True, exist_ok=True)
@@ -419,9 +445,12 @@ def run_case(case, work, *, real_slicer=False, state_file=FIXTURE_STATE, in_gate
         receipt = json.loads(receipts[-1].read_text()) if receipts else {}
         job = json.loads(Path(receipt["job_json"]).read_text()) if receipt.get("job_json") else {}
         state = printer_state.load()
+        if spoolman is not None:
+            assert not network_attempts, f"corpus attempted unexpected network I/O: {network_attempts}"
     return S(outcome=outcome, receipt=receipt, job=job, state=state, adapter=adapter, starts=starts, events=events,
              slice_starts=slice_starts, state_root=state_root, receipts=receipts, archive=archive,
-             gcodes=[Path(g) for g in receipt.get("gcodes", [])], audit_started=audit_started)
+             gcodes=[Path(g) for g in receipt.get("gcodes", [])], audit_started=audit_started,
+             spoolman=spoolman, spoolman_calls_built=spoolman_calls_built, state_file=state_file)
 
 
 async def _noop_receipt(*args, **kwargs):

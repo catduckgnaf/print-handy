@@ -153,6 +153,7 @@ def test_case_folder_is_complete(case):
 def test_discord_flow(case, tmp_path):
     run = harness.run_case(case, tmp_path, real_slicer=REAL)
     try:
+        _assert_flow_built_state(run)
         harness.check_expectations(case, run)
         if _refused_at_intake(case):
             _assert_refused_before_questions(case, run)
@@ -170,6 +171,17 @@ def test_discord_flow(case, tmp_path):
     finally:
         if REAL:
             shutil.rmtree(run.archive, ignore_errors=True)
+
+
+def _assert_flow_built_state(run):
+    """Slots came from create_spool/bind_slot; later bookkeeping stays inside the same fake."""
+    assert run.spoolman is not None, "default corpus state must be built by the real spool flows"
+    assert all(method == "GET" for method, _ in run.spoolman.calls[run.spoolman_calls_built:]), run.spoolman.calls
+    slots = run.state["filament_slots"]
+    assert sorted(slots) == ["1", "2", "3", "4"]
+    assert [slots[k]["spoolman_id"] for k in "1234"] == [1, 2, 3, 4]
+    assert {s["location"] for s in run.spoolman.spools} == {f"IFS Slot {n}" for n in (1, 2, 3, 4)}
+    assert Path(run.state_file).parent.name == "built-state"
 
 
 def test_checked_in_models_match_the_generator(tmp_path, monkeypatch):
@@ -236,6 +248,7 @@ def test_million_triangle_mesh_audit_completes_offline(tmp_path, monkeypatch):
 def test_discord_flow_standalone(case, tmp_path):
     """Same real intake through a fake discord.py client and the actual standalone adapter."""
     run = harness.run_case(case, tmp_path, transport="standalone")
+    _assert_flow_built_state(run)
     harness.check_expectations(case, run)
     if _refused_at_intake(case):
         _assert_refused_before_questions(case, run)
