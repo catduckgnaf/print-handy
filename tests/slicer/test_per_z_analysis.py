@@ -18,6 +18,7 @@ G1 X20 Y10 F2400 E2
 ;Z:0.6
 ;TYPE:Outer wall
 G1 X5 Y5 F6000 E3
+G1 X6 Y6 E4
 M107
 ; outer_wall_speed = 200
 ; outer_wall_acceleration = 3200
@@ -33,7 +34,10 @@ def test_analyzer_reads_layers_fans_and_features():
     assert layers[1]["bridge_fan_max"] == 100.0
     assert layers[2]["fan_states"] == [100.0, 0.0]
     assert fan_max(layers) == 255.0
-    # Only the extruding outer-wall move counts; the F30000 travel move does not.
+    # Only extruding outer-wall moves count; the F30000 travel move does not, and a
+    # move without its own F inherits the modal feedrate (6000 here).
+    assert layers[0]["outer_wall_feeds"] == [3000.0]
+    assert layers[2]["outer_wall_feeds"] == [6000.0, 6000.0]
     assert outer_wall_feed_range(layers) == (3000.0, 6000.0)
     assert band(layers, 0.3, 0.7)[0]["z"] == 0.4
 

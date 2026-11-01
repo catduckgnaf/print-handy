@@ -13,7 +13,9 @@ layers (the PLA templates run fan_min_speed == fan_max_speed == 100%), so the
 analyzer tracks the active fan state across the whole file — including the header
 before the first layer — and attributes that state to each layer and feature.
 Outer-wall feeds count only extruding moves (a G1 with an E parameter); travel
-moves under the same feature comment are not wall speed.
+moves under the same feature comment are not wall speed. Feedrate is modal in
+G-code — Orca sets F on one move and later extruding moves omit it — so the
+analyzer tracks the active feedrate and attributes it to each extruding move.
 """
 import re
 
@@ -74,6 +76,7 @@ def analyze_gcode(text):
     current = None
     feature = None
     fan_state = None
+    feed_state = None
 
     def new_layer(z):
         return {"z": z, "fan_states": [], "types": set(), "outer_wall_feeds": [],
@@ -121,10 +124,12 @@ def analyze_gcode(text):
         m = _MOVE_RE.match(line)
         if m:
             params = dict(_PARAM_RE.findall(m.group(1)))
+            if "F" in params:
+                feed_state = float(params["F"])
             if current["z"] is None and "Z" in params:
                 current["z"] = float(params["Z"])
-            if feature and "outer" in feature.lower() and "E" in params and "F" in params:
-                current["outer_wall_feeds"].append(float(params["F"]))
+            if feature and "outer" in feature.lower() and "E" in params and feed_state is not None:
+                current["outer_wall_feeds"].append(feed_state)
             if feature and "bridge" in feature.lower() and fan_state is not None:
                 current["bridge_fan_max"] = max(fan_state, current["bridge_fan_max"] or 0.0)
     return [layer for layer in layers if layer["z"] is not None]
