@@ -229,6 +229,12 @@ Every file is one message with one `MEDIA:` attachment, labelled "Plate n of m".
 
 **Failures and retries.** A failed upload (the adapter reports `success=False`, or the send raises) is reported with the error, and the option stays in the menu. A retry sends only the files not yet delivered. Too-big files cannot be fixed by a retry, so they count as reported and the option closes. Every attempt is recorded under `deliveries` in the intake receipt. Expiry and cancellation behave as before.
 
+## Source-profile compatibility warnings (#722)
+
+A model's project settings can name the printer they were authored for (`printer_model_id` / `printer_settings_id` in `project_settings.config`). When that printer is demonstrably not the target printer, Print Handy compares the authored motion and fan values against the target's verified facts — the axis speed and acceleration limits in its own machine template, and the 0–100% fan scale — and shows a warning on the slice confirmation for each value outside them, naming the value, the source profile it came from, and the target fact it conflicts with. Values with no verified target range (wall count, brim width) are never warned about, and a source that names no printer produces no warnings.
+
+Warnings never change a setting. The existing precedence is unchanged and unaffected by warnings: template/vendor profile first, then the filament-family overlay, material-variant adjustments, and operator/spool values last (they win). Any future automatic translation of foreign values would be a separate issue with its own test matrix.
+
 ## Bambu Lab
 
 | Capability | Status |
