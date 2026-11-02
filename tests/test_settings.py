@@ -260,7 +260,10 @@ class OverrideTests(unittest.TestCase):
                        "local_model_path", "auto_light_off_minutes", "light_object"},
             "spool": {"prompt_brand"},
             "visual_watch": {"enabled", "sensitivity"},
-            "timelapse": {"mode", "encoder", "archive_host", "archive_dir", "ssh_key", "render_wait_s", "render_poll_s",
+            # mode_explicit is resolved state, not a file key: it records
+            # whether [timelapse] mode was named or derived, so per-printer
+            # views can re-derive a derived mode (P2-261).
+            "timelapse": {"mode", "mode_explicit", "encoder", "archive_host", "archive_dir", "ssh_key", "render_wait_s", "render_poll_s",
                           "max_bytes", "local_retention_days", "plan_clip_retention_days",
                           "vertical_short", "vertical_short_mode", "vertical_short_overlay",
                           "capture_enabled", "capture_source_url", "capture_trigger",

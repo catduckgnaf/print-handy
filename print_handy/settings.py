@@ -1086,6 +1086,10 @@ def _validate_timelapse(data):
     timelapse.setdefault("capture_enabled", False)
     raw = timelapse.setdefault("mode", "")
     mode = str(raw or "").strip().lower()
+    # Whether the operator named a mode: a derived mode is a property of
+    # the default entry's services, so view_for re-derives it per printer;
+    # an explicit mode is the operator's choice for every printer.
+    timelapse["mode_explicit"] = bool(mode)
     if not mode:
         if data["services"].get("moonraker_url"):
             mode = "rendered"
@@ -1792,6 +1796,16 @@ def view_for(printer_id, data=None):
             view[section] = copy.deepcopy(defaults[section])
     _project_entry(view, dict(entry))
     _derive_service_urls(view["services"])
+    if not view["timelapse"].get("mode_explicit"):
+        # The resolved mode was derived from the DEFAULT entry's services;
+        # derive this view's mode from its own, the same rule
+        # _validate_timelapse applies (an explicit mode is left alone).
+        if view["services"].get("moonraker_url"):
+            view["timelapse"]["mode"] = "rendered"
+        elif view["timelapse"].get("capture_enabled"):
+            view["timelapse"]["mode"] = "container"
+        else:
+            view["timelapse"]["mode"] = "off"
     templates = defaults.get("orca", {}).get("templates", "")
     if model.generated_templates:
         view["orca"]["templates"] = generated_templates_dir(model, view)
