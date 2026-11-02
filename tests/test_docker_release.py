@@ -691,17 +691,39 @@ class CameraWatchVisibilityTests(unittest.TestCase):
 
     def test_compose_and_unraid_defaults_agree(self):
         compose_env = COMPOSE["services"]["combined"]["environment"]
-        self.assertEqual(compose_env["PRINT_HANDY__VISUAL_WATCH__SENSITIVITY"],
-                         "${PRINT_HANDY__VISUAL_WATCH__SENSITIVITY:-3}")
-        self.assertEqual(compose_env["PRINT_HANDY__VISUAL_WATCH__ENABLED"],
-                         "${PRINT_HANDY__VISUAL_WATCH__ENABLED:-true}")
+        # P2-88: Compose must not inject watchdog defaults of its own. A
+        # ${...:-true} / ${...:-3} entry is applied by the loader after the
+        # mounted config, so it silently undid a watchdog the operator had
+        # disabled there; a blank ${...:-} entry is no fix either — the
+        # loader deliberately rejects blank booleans/numbers. Leaving the
+        # variables out of environment: entirely keeps unspecified
+        # overrides absent: the mounted config (or the shipped defaults
+        # checked above) stands, and an operator who sets them in .env
+        # still overrides, via the env_file both services already declare.
+        self.assertNotIn("PRINT_HANDY__VISUAL_WATCH__SENSITIVITY", compose_env)
+        self.assertNotIn("PRINT_HANDY__VISUAL_WATCH__ENABLED", compose_env)
+        env_example = (ROOT / ".env.example").read_text()
+        self.assertIn("# PRINT_HANDY__VISUAL_WATCH__SENSITIVITY=3", env_example)
+        self.assertIn("# PRINT_HANDY__VISUAL_WATCH__ENABLED=true", env_example)
         variables = {c.get("Target"): c for c in UNRAID.findall("Config") if c.get("Type") == "Variable"}
         for target, default in (("PRINT_HANDY__VISUAL_WATCH__SENSITIVITY", "3"),
                                 ("PRINT_HANDY__VISUAL_WATCH__ENABLED", "true")):
             with self.subTest(variable=target):
+                # Unraid always injects its variable values explicitly, so
+                # its defaults still name the documented watchdog defaults.
                 self.assertEqual(variables[target].text, default)
-                self.assertEqual(variables[target].text,
-                                 str(compose_env[target]).split(":-")[-1].rstrip("}"))
+
+    def test_mounted_watchdog_settings_stand_without_env_overrides(self):
+        """P2-88 end to end: with the watchdog variables absent from the
+        container environment (the state the Compose fix produces), a
+        mounted config's watchdog settings load exactly as written."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            local = Path(directory) / "mounted.yaml"
+            local.write_text("visual_watch:\n  enabled: false\n  sensitivity: 1\n")
+            loaded = settings.load(local=local, environ={})
+        self.assertIs(loaded["visual_watch"]["enabled"], False)
+        self.assertEqual(loaded["visual_watch"]["sensitivity"], 1)
 
     def test_watchdog_is_advertised_where_users_look(self):
         readme = (ROOT / "README.md").read_text()
