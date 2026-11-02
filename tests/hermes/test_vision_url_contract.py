@@ -125,10 +125,20 @@ def test_request_shape_and_verdict(stub_factory, monkeypatch):
 
 def test_verdict_vocabulary_passes_through_casefolded(stub_factory, monkeypatch):
     stub = stub_factory(payload={"verdict": "OK", "reason": ""})
-    for verdict in ("ok", "air", "spaghetti", "detached", "empty_idle", "uncertain",
-                    "safe", "no", "unsafe"):
+    for verdict in ("ok", "air", "spaghetti", "detached", "empty_idle", "uncertain"):
         stub.payload = {"verdict": verdict.upper(), "reason": "r"}
         assert _verdict(monkeypatch, stub.url) == (verdict, "r"), verdict
+
+
+def test_out_of_vocabulary_verdicts_normalize_to_uncertain(stub_factory, monkeypatch):
+    # The verdict contract is VISUAL_VERDICTS; anything else the model
+    # emits — a new word, a misspelling, drift like "okay" — must fail
+    # closed as "uncertain" (which alerts), never pass through to be
+    # silently treated as safe by a caller's suspicious-verdict set.
+    stub = stub_factory(payload={"verdict": "okay", "reason": "looks fine"})
+    for verdict in ("okay", "fine", "detatchd", "safe", "no", "unsafe", ""):
+        stub.payload = {"verdict": verdict, "reason": "r"}
+        assert _verdict(monkeypatch, stub.url) == ("uncertain", "r"), verdict
 
 
 def test_missing_response_fields_default(stub_factory, monkeypatch):

@@ -312,6 +312,27 @@ def test_muted_bambu_print_posts_no_alert(monkeypatch, tmp_path):
     assert len(alerts) == 1  # only the unmuted print alerted
 
 
+def test_snapshot_failure_alerts_text_only_instead_of_staying_silent():
+    # Bonus (found in the DATA-5 lane): the Bambu mirror of the Moonraker
+    # watchdog had P2-8's defect — when the camera snapshot itself
+    # raises, image stays None and the failure was only logged, so the
+    # print silently lost its watchdog. A text-only alert must go out.
+    alerts, texts = [], []
+    clock = FakeClock()
+    monitor = bambu_watch.BambuPrintMonitor(
+        REMOTE, status_fn=scripted([st("complete")]),
+        camera_fn=lambda: (_ for _ in ()).throw(ConnectionError("camera unreachable")),
+        post=lambda text: None,
+        watch=vw.VisualPrintWatch(sensitivity=3),
+        verdict=lambda image, prompt: ("ok", ""),
+        alert=lambda filename, image, reason, identity=None: alerts.append(reason),
+        text_alert=lambda filename, reason, identity=None: texts.append(reason),
+        clock=clock, wall=clock, sleep=clock.sleep, poll_s=10)
+    monitor.visual_check("layer2", 2)
+    assert alerts == []  # no image exists to attach
+    assert len(texts) == 1 and "camera" in texts[0]
+
+
 def test_dark_notice_delivery_posts_only_the_mute_button(monkeypatch):
     from print_handy.hermes import print_alert_buttons as pab
     seen = {}
@@ -406,13 +427,15 @@ class FakeSession:
         self.failures = failures
         self.dark_frames = dark_frames
         self.ticks = 0
+        self.tick_layers = []
         self.stopped = None
         self.filename = REMOTE
         self.frames_dir = _Path("/unused/frames")
         self.directory = _Path("/unused")
 
-    def tick(self):
+    def tick(self, layer=None):
         self.ticks += 1
+        self.tick_layers.append(layer)
         return True
 
     def stop(self, state="complete"):
@@ -473,6 +496,18 @@ def test_timelapse_attaches_alongside_the_final_snapshot(capture_logs):
     assert rig.posts[0].startswith("Print complete")
     assert rig.posts[0].count("MEDIA:") == 2  # the snapshot and the video
     assert "MEDIA:/tmp/timelapse.mp4" in rig.posts[0]
+
+
+def test_capture_ticks_carry_the_reported_layer(capture_logs):
+    # capture_trigger=layer can only fire when the session sees the layer
+    # change: every tick — the status-poll tick and the ticks inside the
+    # between-polls sleep — must carry the last layer the printer
+    # reported (Bambu's normalized status supplies it as st["layer"]).
+    rig = CaptureRig([st("printing", layer=3), st("printing", layer=4), st("complete", layer=4)])
+    assert rig.monitor.run() == "complete"
+    assert rig.session.ticks > 0
+    assert all(layer is not None for layer in rig.session.tick_layers)
+    assert 3 in rig.session.tick_layers and 4 in rig.session.tick_layers
 
 
 def test_timelapse_on_a_cancelled_print_stops_as_cancelled(capture_logs):

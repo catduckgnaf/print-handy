@@ -2196,6 +2196,37 @@ def _visual_alert(filename, image, reason, identity=None):
     return path
 
 
+def _visual_alert_text(filename, reason, identity=None):
+    """A watchdog alert with no frame to attach: the snapshot itself failed.
+
+    The watchdog fired but has no picture to show — the camera is
+    unavailable, malformed, or unconfigured. Same bookkeeping as
+    _visual_alert (the #317 marker and the notify emit); delivery is
+    text with the visual alert's buttons on Discord, plain text on
+    buttonless standalone platforms.
+    """
+    print_markers.record(filename, print_markers.WATCHDOG_ALERT, detail=reason)
+    try:
+        from ..notify import emit
+        emit("watchdog_offer", reason)
+    except Exception:
+        pass
+    text = _with_printer_name(f"Print camera check: {clean(filename)}\n{reason}")
+    if _buttonless_standalone():
+        post(text)
+        return
+    try:
+        from . import print_alert_buttons as pab
+        if pab.post_visual_text_alert(_bot_token(), announcer.DISCORD_CHAT_ID,
+                                      text, filename, identity=identity):
+            log(f"post visual text alert {clean(filename)!r}")
+            return
+        log("visual text alert button post failed; falling back to text")
+    except Exception as exc:
+        log(f"visual text alert post error: {exc!r}")
+    post(text)
+
+
 def _visual_dark_notice(filename, identity=None):
     """The once-per-print dark-camera notice (#476): a camera problem, not a print alert.
 
@@ -2292,9 +2323,16 @@ def _mapped_spool(slot):
 
 
 def _maintenance_history_totals():
+    """The printer's lifetime print total in HOURS.
+
+    /server/history/totals reports total_time/print_time in seconds;
+    maintenance records and thresholds are in hours, so convert here —
+    raw seconds read as thousands of hours and retrigger reminders
+    immediately after every maintenance run.
+    """
     payload = print_control._call('/server/history/totals')
     result = payload.get('result') or {}
-    return float(result.get('total_time') or result.get('print_time') or 0.0)
+    return float(result.get('total_time') or result.get('print_time') or 0.0) / 3600.0
 
 
 async def maintenance_reminder_tick(listener):
@@ -2698,6 +2736,22 @@ class Listener:
                             _visual_alert, self.filename, image,
                             f"{reason} at layer {layer or 'unknown'}: the vision check could not be completed, "
                             "so treat this as unreviewed and check the print on the printer screen",
+                            identity=self._visual_identity())
+                except Exception as alert_exc:
+                    log(f"visual alert failed file={self.filename!r}: {alert_exc!r}")
+            else:
+                # The snapshot itself failed, so there is no image to
+                # attach — but the operator still gets an alert: a dead
+                # camera must not silently leave the print unmonitored.
+                try:
+                    from . import print_alert_buttons as pab
+                    if await asyncio.to_thread(pab.visual_muted, self.filename, self._visual_identity()):
+                        log(f"visual alert suppressed for muted print {self.filename!r}")
+                    else:
+                        await asyncio.to_thread(
+                            _visual_alert_text, self.filename,
+                            f"{reason} at layer {layer or 'unknown'}: the camera snapshot could not be captured, "
+                            "so this print is unmonitored until the camera answers again; check the camera",
                             identity=self._visual_identity())
                 except Exception as alert_exc:
                     log(f"visual alert failed file={self.filename!r}: {alert_exc!r}")

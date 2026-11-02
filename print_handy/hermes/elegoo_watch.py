@@ -241,7 +241,13 @@ class ElegooPrintMonitor:
                 if self._session is not None and state == "printing":
                     # A pause holds the session open but takes no frames,
                     # exactly as the Moonraker listener's capture hook does.
-                    self._session.tick()
+                    # The tick carries the reported layer (the SDCP
+                    # adapter supplies it): without it a layer-triggered
+                    # capture can never fire (P2-172).
+                    layer = st.get("layer")
+                    if not (isinstance(layer, int) and not isinstance(layer, bool)):
+                        layer = None
+                    self._session.tick(layer)
                 self._sleep(self._capture_poll_s if self._session is not None else self._poll_s)
             elif state in _TERMINAL:
                 if seen_active or not self.filename or fname == self.filename:

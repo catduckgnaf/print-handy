@@ -31,12 +31,20 @@ def _client(payloads, seen):
 
 
 def test_timelapse_movies_parses_the_listing():
+    # OctoPrint's GET /api/timelapse lists rendered movies under "files"
+    # (https://docs.octoprint.org/en/main/api/timelapse.html#timelapse-list);
+    # there is no "movies" key in a real response.
     seen = []
-    client = _client([json.dumps({"movies": [{"name": "a.mp4", "url": "/dl/a.mp4"}],
+    client = _client([json.dumps({"files": [{"name": "a.mp4", "url": "/dl/a.mp4"}],
                                    "unrendered": []}).encode()], seen)
     assert client.timelapse_movies() == [{"name": "a.mp4", "url": "/dl/a.mp4"}]
     assert seen[0].full_url == "http://octo.test:5000/api/timelapse"
     assert seen[0].get_header("X-api-key") == "SECRETKEY"
+
+
+def test_timelapse_movies_ignores_the_nonexistent_movies_key():
+    client = _client([json.dumps({"movies": [{"name": "a.mp4", "url": "/dl/a.mp4"}]}).encode()], [])
+    assert client.timelapse_movies() == []
 
 
 def test_timelapse_movies_tolerates_a_missing_key():
