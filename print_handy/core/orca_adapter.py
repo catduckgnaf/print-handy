@@ -1060,7 +1060,12 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     from .nozzle import normalize_nozzle_type
     nozzle_type = normalize_nozzle_type(raw_nozzle_type)
     machine['nozzle_type'] = nozzle_type
-    machine['nozzle_diameter'] = [str(nozzle_dia)]
+    # Orca pairs nozzle_diameter entries with extruders: repeat the job's
+    # diameter for every extruder the template declares (four on the Creator
+    # models) instead of collapsing the list to one entry (P2-104).
+    _template_nozzles = machine.get('nozzle_diameter')
+    _extruder_count = len(_template_nozzles) if isinstance(_template_nozzles, list) and _template_nozzles else 1
+    machine['nozzle_diameter'] = [str(nozzle_dia)] * _extruder_count
     if tuned_profile is not None:
         machine['printer_variant'] = str(tuned_profile.diameter_mm)
         machine['min_layer_height'] = [str(tuned_profile.min_layer_height)]

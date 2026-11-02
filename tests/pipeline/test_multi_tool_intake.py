@@ -411,6 +411,17 @@ def test_slice_uses_identity_toolheads_and_four_profiles(model_key, tmp_path, mo
 
 
 @pytest.mark.parametrize('model_key', MODELS)
+def test_slice_keeps_one_nozzle_diameter_entry_per_template_extruder(model_key, tmp_path, monkeypatch):
+    # P2-104: Orca pairs nozzle_diameter entries with extruders; collapsing
+    # the four-entry template list to one entry loses the four-tool model
+    # before the templates ever reach Orca.
+    _output, _provenance, _configs, _calls, folder = slice_capture(
+        model_key, four_colour_decisions(tmp_path, [1, 2, 3, 4]), tmp_path, monkeypatch)
+    machine = json.loads((folder / 'machine.json').read_text())
+    assert machine['nozzle_diameter'] == ['0.4', '0.4', '0.4', '0.4']
+
+
+@pytest.mark.parametrize('model_key', MODELS)
 def test_slice_two_colours_on_nonadjacent_toolheads(model_key, tmp_path, monkeypatch):
     # Only toolheads 2 and 4 used: the unused toolheads keep base profiles and
     # the used colours stay on their own toolheads (no compaction to 1 and 2).
