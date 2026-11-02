@@ -4993,11 +4993,33 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         return result
     if decisions and decisions['mode'] == 'single_color':
         selection = decisions['selection']
+        job['filament_selection'] = selection
+        if multi_tool and src.suffix.lower() == '.3mf':
+            # A toolhead pick is a one-tool identity job: route it through
+            # the merged multi-tool slice (#346 machinery) so the geometry
+            # and filament profiles land on the picked toolhead instead of
+            # T0. The generic tail below has no tool channel to honor it,
+            # and it recorded the pick while silently slicing toolhead 1.
+            # The merged path slices the authored geometry once, so a job
+            # asking for copies, a resize or a rotation refuses here with
+            # the reason stated instead of silently dropping the transform.
+            scale_now = scale if scale is not None else job.get('scale')
+            if (copies and int(copies) > 1) or (job.get('orientation') or {}).get('rotation') \
+                    or (scale_now is not None and float(scale_now) != 1.0):
+                raise RuntimeError(
+                    f"{adapter.label} slices a single-color toolhead job as one merged plate at "
+                    "authored size; copies, resizing and rotation are not supported on that path. "
+                    "Slice one copy at 100% to print on the picked toolhead. Nothing sliced")
+            try:
+                return slice_multi_plate(job, job_path, src, manifest, decisions, st, brim_override)
+            except ImplicitPlateSplit as exc:
+                raise RuntimeError(
+                    f"{adapter.label} prints a single-color toolhead job as one merged plate; this source "
+                    f"does not merge onto one bed ({exc.verdict.get('reason')}). No slicing attempted") from exc
         if not multi_tool:
             # The IFS slot verification is slot-shaped; a toolhead pick was
             # already resolved against the recorded toolheads (#346).
             _validate_slot_selection(st, selection)
-        job['filament_selection'] = selection
     elif decisions and decisions['mode'] == 'per_part':
         if adapter.multi_tool:
             # Independent toolheads (#346): one merged G-code through the

@@ -924,10 +924,19 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         if not scale > 0:
             raise ValueError('scale must be greater than 0')
     rotation = _check_rotation(rotation)
-    if rotation is not None and (preserve_layout or item_shifts or
+    # A single-colour decision on a multi_tool printer names one toolhead and
+    # slices through the identity-tool export below, so it shares the per-part
+    # path's limits: no whole-model rotation, per-object fits allowed. The
+    # export is a 3MF channel; a non-3MF source carries no tool assignment
+    # and keeps the plain path below.
+    identity_single = bool(color_decisions and color_decisions.get('mode') == 'single_color'
+                           and getattr(printer, 'multi_tool', False)
+                           and source.suffix.lower() == '.3mf')
+    if rotation is not None and (preserve_layout or item_shifts or identity_single or
                                  (color_decisions and color_decisions.get('mode') == 'per_part')):
         raise ValueError('rotation is only supported for whole-model single-color slicing')
-    if fit_by_object is not None and not (color_decisions and color_decisions.get('mode') == 'per_part'):
+    if fit_by_object is not None and not (color_decisions and color_decisions.get('mode') == 'per_part') \
+            and not identity_single:
         raise ValueError('fit_by_object is only supported for per-part color decisions')
     folder.mkdir(parents=True, exist_ok=True)
     machine, process, filament = [json.loads((templates / f'{name}.json').read_text()) for name in ('machine', 'process', 'filament')]
@@ -950,14 +959,32 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     # A multi_tool printer slices per-part colours as true multi-extruder
     # output: tools are toolheads (identity mapping), the model's templates
     # already describe every extruder, and no native IFS finalize applies (#346).
-    multi_tool = bool(color_decisions and color_decisions.get('mode') == 'per_part'
-                      and getattr(printer, 'multi_tool', False))
+    # A single-colour decision naming one toolhead takes the same identity
+    # path with every part on that toolhead: the pick becomes the geometry's
+    # tool and that toolhead's own filament profile, never T0 (P1-73, P1-117).
+    multi_tool = bool(color_decisions and getattr(printer, 'multi_tool', False)
+                      and (color_decisions.get('mode') == 'per_part' or identity_single))
     if color_decisions and color_decisions.get('mode') == 'per_part':
         from .color_geometry import export_color_geometry
         input_path = folder / 'geometry.3mf'
         mapping, geometry = export_color_geometry(source, input_path, color_decisions, item_shifts=item_shifts,
                                                   object_ids=object_ids, scale=scale, fit_by_object=fit_by_object,
                                                   identity_tools=multi_tool)
+        with zipfile.ZipFile(source) as archive:
+            if 'Metadata/project_settings.config' in archive.namelist():
+                author = json.loads(archive.read('Metadata/project_settings.config'))
+    elif identity_single:
+        # Expand the one pick to a per-part view in memory (the persisted
+        # decision stays single_color) and export every part onto the picked
+        # toolhead; the per-toolhead profile assembly below does the rest.
+        from .color_geometry import export_color_geometry
+        from .model_job import _per_part_view
+        input_path = folder / 'geometry.3mf'
+        mapping, geometry = export_color_geometry(source, input_path,
+                                                  _per_part_view(inventory(source), color_decisions),
+                                                  item_shifts=item_shifts, object_ids=object_ids,
+                                                  scale=scale, fit_by_object=fit_by_object,
+                                                  identity_tools=True)
         with zipfile.ZipFile(source) as archive:
             if 'Metadata/project_settings.config' in archive.namelist():
                 author = json.loads(archive.read('Metadata/project_settings.config'))
