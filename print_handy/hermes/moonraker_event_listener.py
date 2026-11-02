@@ -646,29 +646,61 @@ def filament_sensor_names(objects):
             if isinstance(name, str) and name.startswith(FILAMENT_SENSOR_PREFIXES)]
 
 
+def _sensor_suffix_tokens(name):
+    """The name tokens after a filament sensor's object prefix.
+
+    "filament_switch_sensor extruder1" -> {"extruder1"}; the tokens are
+    how a sensor is associated with an extruder — a whole-token match,
+    so "extruder1" never associates with the "extruder" tool.
+    """
+    suffix = name
+    for prefix in FILAMENT_SENSOR_PREFIXES:
+        if name.startswith(prefix):
+            suffix = name[len(prefix):]
+            break
+    return {token for token in re.split(r"[^0-9A-Za-z]+", suffix) if token}
+
+
 def head_sensor_from_status(status):
     """True/False when an enabled filament sensor at the head answers, else None.
 
     Fail-safe (#442): a sensor that is absent, disabled, or reporting a
-    non-boolean value yields None (unknown), never False — an unreadable
-    sensor must not turn every pause into a runout. Any enabled sensor
-    reporting no filament is decisive (False wins); otherwise one enabled
-    sensor reporting filament means the head is loaded.
+    non-boolean value yields no evidence — an unreadable sensor must not
+    turn every pause into a runout.
+
+    The evidence is restricted to the ACTIVE filament path (P2-171): on
+    a multi-extruder printer the idle tool's sensor reads empty
+    normally, so when the toolhead names the active extruder and some
+    sensors associate with it (the extruder name is a whole token of
+    the sensor's suffix), only those sensors decide — among them, any
+    empty reading is decisive, as before. When no association can be
+    determined, agreeing sensors decide together, and conflicting
+    readings are unknown (None), never a runout on a guess.
     """
     if not isinstance(status, dict):
         return None
-    saw_loaded = False
+    readings = []
     for name, sensor in status.items():
         if not (isinstance(name, str) and name.startswith(FILAMENT_SENSOR_PREFIXES)):
             continue
         if not isinstance(sensor, dict) or sensor.get("enabled") is not True:
             continue
         detected = sensor.get("filament_detected")
-        if detected is False:
-            return False
-        if detected is True:
-            saw_loaded = True
-    return True if saw_loaded else None
+        if isinstance(detected, bool):
+            readings.append((name, detected))
+    if not readings:
+        return None
+    toolhead = status.get("toolhead")
+    active = toolhead.get("extruder") if isinstance(toolhead, dict) else None
+    if isinstance(active, str) and active:
+        associated = [detected for name, detected in readings
+                      if active in _sensor_suffix_tokens(name)]
+        if associated:
+            return False if any(detected is False for detected in associated) else True
+    values = {detected for _name, detected in readings}
+    if len(values) == 1:
+        return values.pop()
+    return None
 
 
 def read_head_sensor():
@@ -685,7 +717,9 @@ def read_head_sensor():
         names = filament_sensor_names(objects)
         if not names:
             return None
-        query = "&".join(urllib.parse.quote(name, safe="") for name in names)
+        # The toolhead rides along: which extruder is active decides
+        # whose sensor counts as runout evidence (P2-171).
+        query = "&".join(urllib.parse.quote(name, safe="") for name in [*names, "toolhead"])
         data = print_control._call(f"/printer/objects/query?{query}")
         status = ((data.get("result") or {}).get("status")
                   if isinstance(data, dict) else None)

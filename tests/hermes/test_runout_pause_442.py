@@ -53,6 +53,39 @@ class HeadSensorParseTests(unittest.TestCase):
         self.assertIsNone(mel.head_sensor_from_status(
             {HEAD_SENSOR: {"filament_detected": False}}))  # enabled not reported
 
+    def test_an_inactive_tools_empty_sensor_is_not_evidence(self):
+        """P2-171: on a dual-extruder printer the idle tool's sensor reads
+        empty normally. Only the ACTIVE extruder's path is runout
+        evidence — here it is loaded, so the head is loaded."""
+        status = {
+            "toolhead": {"extruder": "extruder1"},
+            "filament_switch_sensor extruder": {"filament_detected": False, "enabled": True},
+            "filament_switch_sensor extruder1": {"filament_detected": True, "enabled": True},
+        }
+        self.assertIs(mel.head_sensor_from_status(status), True)
+
+    def test_the_active_tools_empty_sensor_is_a_runout(self):
+        status = {
+            "toolhead": {"extruder": "extruder1"},
+            "filament_switch_sensor extruder": {"filament_detected": True, "enabled": True},
+            "filament_switch_sensor extruder1": {"filament_detected": False, "enabled": True},
+        }
+        self.assertIs(mel.head_sensor_from_status(status), False)
+
+    def test_conflicting_sensors_with_no_determinable_active_tool_are_unknown(self):
+        status = {
+            "filament_switch_sensor a": {"filament_detected": False, "enabled": True},
+            "filament_switch_sensor b": {"filament_detected": True, "enabled": True},
+        }
+        self.assertIsNone(mel.head_sensor_from_status(status))
+
+    def test_agreeing_sensors_with_no_determinable_active_tool_still_decide(self):
+        status = {
+            "filament_switch_sensor a": {"filament_detected": False, "enabled": True},
+            "filament_motion_sensor b": {"filament_detected": False, "enabled": True},
+        }
+        self.assertIs(mel.head_sensor_from_status(status), False)
+
     def test_sensor_names_come_from_the_object_list(self):
         objects = [HEAD_SENSOR, "filament_motion_sensor e0", "extruder", "gcode_macro PAUSE"]
         self.assertEqual(mel.filament_sensor_names(objects),
@@ -77,6 +110,22 @@ class ReadHeadSensorTests(unittest.TestCase):
         with mock.patch.object(print_control, "_call", self.fake_call(payloads)), \
                 mock.patch.object(mel, "log"):
             self.assertIs(mel.read_head_sensor(), False)
+
+    def test_the_query_also_asks_for_the_toolhead(self):
+        """P2-171: which extruder is active decides whose sensor counts,
+        so the read asks Moonraker for the toolhead alongside the sensors."""
+        seen = []
+
+        def call(path, method="GET", data=None, timeout=10, base=None):
+            seen.append(path)
+            if path == "/printer/objects/list":
+                return {"result": {"objects": ["extruder", HEAD_SENSOR]}}
+            return {"result": {"status": ISSUE_SENSOR_STATUS}}
+
+        with mock.patch.object(print_control, "_call", call), \
+                mock.patch.object(mel, "log"):
+            self.assertIs(mel.read_head_sensor(), False)
+        self.assertIn("toolhead", seen[-1])
 
     def test_no_sensor_objects_means_unknown(self):
         payloads = {"list": {"result": {"objects": ["extruder", "print_stats"]}}}
