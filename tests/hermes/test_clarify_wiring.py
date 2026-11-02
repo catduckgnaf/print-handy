@@ -267,7 +267,7 @@ def test_confirm_renders_through_the_ui_and_resolves_by_click(monkeypatch):
         cid = custom_id.split(":")[1]
         interaction = S(channel_id="chan1", user=S(display_name="op", name="op"),
                         message=S(id="m1", content="Proceed?"),
-                        response=S(defer_update=lambda: asyncio.sleep(0),
+                        response=S(defer=lambda: asyncio.sleep(0),
                                    send_message=lambda *a, **k: asyncio.sleep(0)))
         await ui.handle_click(interaction, cid, 0)
         return await task
