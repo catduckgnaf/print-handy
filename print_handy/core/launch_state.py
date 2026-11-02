@@ -71,6 +71,40 @@ def _adopt_legacy_db(target, printer_id):
         sidecar = Path(str(tmp) + suffix)
         if sidecar.is_file():
             os.replace(sidecar, Path(str(target) + suffix))
+    _rekey_adopted_db(target, printer_id)
+
+
+def _rekey_adopted_db(target, printer_id):
+    """Rekey an adopted legacy database's rows to the roster printer id (P1-74).
+
+    The legacy database keyed its lease (and any history baseline) by the old
+    Moonraker URL / model key, while every lookup in the per-printer layout
+    uses the roster id: copied verbatim, a held submitting/uncertain lease
+    would never be found and a second launch could start over it. ``printer``
+    is each table's PRIMARY KEY, so several distinct legacy keys cannot all
+    survive the rekey: the newest lease row (by ``updated_at``) wins, exactly
+    the one row a singleton database can hold.
+    """
+    con = sqlite3.connect(target)
+    try:
+        tables = {row[0] for row in con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        with con:
+            if "leases" in tables:
+                stale = con.execute(
+                    "SELECT rowid FROM leases ORDER BY updated_at DESC").fetchall()
+                for (rowid,) in stale[1:]:
+                    con.execute("DELETE FROM leases WHERE rowid=?", (rowid,))
+                con.execute("UPDATE leases SET printer=? WHERE printer!=?",
+                            (printer_id, printer_id))
+            if "lease_baselines" in tables:
+                stale = con.execute("SELECT rowid FROM lease_baselines").fetchall()
+                for (rowid,) in stale[1:]:
+                    con.execute("DELETE FROM lease_baselines WHERE rowid=?", (rowid,))
+                con.execute("UPDATE lease_baselines SET printer=? WHERE printer!=?",
+                            (printer_id, printer_id))
+    finally:
+        con.close()
 
 
 def db_path(printer_id=None):
