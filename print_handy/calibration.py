@@ -166,7 +166,7 @@ def block_reason(entry) -> str | None:
                 f"path for that connection.")
     if entry.vendor in FORK_VENDORS:
         return (f"This printer runs {entry.vendor}'s own Klipper-based firmware — a vendor "
-                f"fork, not upstream Klipper. Its calibration macros and save behaviour "
+                f"fork, not upstream Klipper. Its calibration macros and save behavior "
                 f"are the vendor's own, so Print Handy does not drive calibrations on it.")
     if entry.firmware_family not in ELIGIBLE_FAMILIES:
         return (f"This printer's firmware family ({entry.firmware_family or 'none'}) is not "
@@ -532,7 +532,7 @@ def menu_text(entry, options) -> str:
     if not options:
         lines.append("Live discovery found none of the calibration primitives Print "
                      "Handy can drive or guide on this printer (no ZMod calibration "
-                     "macros, no bed mesh / PID / resonance configuration it recognises).")
+                     "macros, no bed mesh / PID / resonance configuration it recognizes).")
     for option in options:
         lines.append(f"- {_MENU_FORMS[option.key]} — **{option.title}** "
                      f"({_MODE_WORDS[option.mode]}): {option.note}.")

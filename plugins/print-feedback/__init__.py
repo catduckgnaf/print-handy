@@ -2615,7 +2615,7 @@ async def _spool_new_type_details(adapter, source, metadata, gateway, lead=''):
     if not material:
         return _SPOOL_UNCLEAR
     answer = await _spool_ask(adapter, source, metadata, gateway,
-                              'What is the colour called? Type the colour name — no colour code is needed.',
+                              'What is the color called? Type the color name — no color code is needed.',
                               ['Cancel'])
     if _spool_is_cancel(answer):
         return _SPOOL_CANCELLED

@@ -396,15 +396,15 @@ async def collect_link(event, adapter, state, root, timeout=300):
         from .. import diagnostics
         await adapter.send(chat_id=source.chat_id,
             content=diagnostics.known_post(
-                'Choosing the colours for that model stopped before a choice was saved.',
+                'Choosing the colors for that model stopped before a choice was saved.',
                 not_happened='No slicing, upload or print started.',
                 subsystem='intake', exc=exc)
             or diagnostics.plain_post(
-                'Choosing the colours for that model stopped before a choice was saved.',
+                'Choosing the colors for that model stopped before a choice was saved.',
                 not_happened='No slicing, upload or print started.',
                 next_step=diagnostics.next_step_for(
                     exc,
-                    transient='Send the link or file again to pick the colours again.',
+                    transient='Send the link or file again to pick the colors again.',
                     other='Run `/print-handy bundle` and share the bundle so it can be looked into.'),
                 subsystem='intake', exc=exc),
             metadata={'thread_id': source.thread_id} if source.thread_id else None)

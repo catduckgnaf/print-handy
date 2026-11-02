@@ -649,7 +649,7 @@ def intake_step_text(state: dict[str, Any]) -> str:
     if step == "brand":
         return "**Brand** — pick a known brand, type one, or skip. The spool works the same either way."
     if step == "color":
-        return f"**Colour / finish** — {state.get('material')}: pick one, or Other to type it exactly as labelled."
+        return f"**Color / finish** — {state.get('material')}: pick one, or Other to type it exactly as labeled."
     if step == "swatch":
         return (f"**Color code** — I could not tell the color of “{state.get('color')}” from its name. "
                 "Pick the closest color; it sets the preview color and the printer screen swatch, "
@@ -810,7 +810,7 @@ def intake_step_components(aid: str, state: dict[str, Any]) -> list[dict[str, An
             return _select_components(aid, "Choose the brand", options)
         return intake_brand_components(aid)
     if step == "color":
-        return _select_components(aid, "Choose the colour / finish",
+        return _select_components(aid, "Choose the color / finish",
                                   intake_color_options(state.get("types"), state.get("material")))
     if step == "swatch":
         from ..core.filament_color import SWATCHES
