@@ -2,7 +2,7 @@
 
 # Unreleased
 
-Nothing yet.
+- Slot loading safety (SAFE-2, P1-34): IFS slot loading on a ZMod AD5X now refuses when the printer's display mode is unknown — a missing `display_off` in `save_variables`, or any value other than an explicit 0 (native screen) or 1 (screenless), fails closed with a clear reason before any filament-moving macro is sent, instead of silently assuming native-screen mode.
 
 # Version 2.2.4
 
