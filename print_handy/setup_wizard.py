@@ -295,12 +295,25 @@ def _slug_id(name):
     return slug or "printer"
 
 
+def secret_env_form(value):
+    """How a printer id appears inside a generated secret name
+    (BAMBU_LAN_PASSWORD_<FORM>, PRUSA_LINK_API_KEY_<FORM>)."""
+    return str(value or "").upper().replace("-", "_")
+
+
 def _printer_id_error(value, taken):
     """Validate a roster id against the settings rule (settings.PRINTER_ID) plus uniqueness."""
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", value or ""):
         return "printer ids are slugs: lowercase letters, digits, - or _, starting with a letter or digit"
     if value in taken:
         return f"printer id {value!r} is already used by another printer in this setup"
+    # Ids differing only in - vs _ (garage-a1 / garage_a1) generate the same
+    # per-printer secret names, so the later printer's secret would silently
+    # overwrite the earlier one's (P2-138).
+    clash = next((other for other in taken if secret_env_form(other) == secret_env_form(value)), None)
+    if clash is not None:
+        return (f"printer id {value!r} would generate the same secret names as {clash!r} "
+                "(ids differing only in - versus _ collide) — pick an id that differs by more")
     return None
 
 
@@ -600,6 +613,12 @@ def build_plan(w, *, hermes_found=False, existing_profiles=()):
                     entry[svc_key] = rec["services"][svc_key]
             if rec["printer"].get("nozzle_type"):
                 entry["nozzle_type"] = rec["printer"]["nozzle_type"]
+            # An Other/generic printer's custom build volume (P1-83): the
+            # entry keys settings supports, so the measured geometry is
+            # preserved instead of the model default silently replacing it.
+            for geo_key in ("bed_mm", "max_print_height_mm"):
+                if rec["printer"].get(geo_key) is not None:
+                    entry[geo_key] = rec["printer"][geo_key]
             if rec["bambu_lan"]:
                 env_name = "BAMBU_LAN_PASSWORD_" + rec["id"].upper().replace("-", "_")
                 entry.update(rec["bambu_lan"])
@@ -769,11 +788,31 @@ def _load_for_rewrite(text):
     return data
 
 
+def _mixed_shape_problem(config):
+    """The settings refusal for a config that declares [[printers]] alongside
+    legacy per-printer settings, or None when the shape is loadable. The
+    wizard checks this itself (P1-84): merging a roster plan into an existing
+    single-printer file would otherwise write a config the loader refuses at
+    the next startup, breaking a working installation."""
+    if not isinstance(config, dict) or config.get("printers") is None:
+        return None
+    from . import settings
+    try:
+        settings._check_mixed_shape(config, {})
+    except settings.SettingsError as exc:
+        return str(exc)
+    return None
+
+
 def merge_config(target, new, w, dry_run=False):
     """Write config/local.yaml. Existing keys always win; an existing file changes only after a yes."""
     target = Path(target)
     header = "# Written by the Print Handy setup wizard. Edit freely; re-running the wizard keeps your values.\n"
     if not target.exists():
+        problem = _mixed_shape_problem(new)
+        if problem is not None:
+            w.say(f"{target} was not written: the new settings mix shapes the loader refuses ({problem}).")
+            return False
         text = header + _dump(new)
         if dry_run:
             w.say(f"would write {target}:\n{text}")
@@ -794,6 +833,12 @@ def merge_config(target, new, w, dry_run=False):
     if existing == merged:
         w.say(f"{target} already has every setting; left unchanged.")
         return True
+    problem = _mixed_shape_problem(merged)
+    if problem is not None:
+        w.say(f"{target} was left unchanged: the merged config would not load ({problem}). "
+              "Move the legacy values into the [[printers]] entry they belong to by hand "
+              "(docs/CONFIGURATION-YAML.md), or move the file aside and re-run setup to start fresh.")
+        return False
     w.say("".join(difflib.unified_diff(old_text.splitlines(True), new_text.splitlines(True),
                                        str(target), "with new settings")))
     if dry_run:
