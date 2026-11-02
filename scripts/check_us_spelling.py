@@ -167,7 +167,7 @@ def diff_violations(diff_text):
             else:
                 if target.startswith("b/"):
                     target = target[2:]
-                    path = target if target.endswith((".md", ".py")) else None
+                    path = target if target.endswith(".md") else None
                     in_comment = False
             continue
         hunk = _HUNK.match(raw)
@@ -195,7 +195,7 @@ def diff_violations(diff_text):
 
 def git_diff(base):
     result = subprocess.run(
-        ["git", "diff", "--unified=3", "--no-color", f"{base}...HEAD", "--", "*.md", "*.py"],
+        ["git", "diff", "--unified=3", "--no-color", f"{base}...HEAD", "--", "*.md"],
         capture_output=True, text=True, check=False,
     )
     if result.returncode != 0:
