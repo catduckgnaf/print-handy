@@ -274,6 +274,7 @@ class BambuPrintMonitor:
         self._capture_poll_s = max(1.0, min(float(capture_poll_s), poll_s))
         self._session = None
         self._last_frame = None
+        self._last_layer = None
         self._last_periodic_at = None
         self.outcome = None
 
@@ -409,13 +410,18 @@ class BambuPrintMonitor:
                 if self._pause_alerts:
                     self._pause_alerts.note(state, st)
                 self.poll_active(st)
+                layer = st.get("layer")
+                if isinstance(layer, int) and not isinstance(layer, bool):
+                    # The layer the session's ticks carry: without it a
+                    # layer-triggered capture can never fire (P2-172).
+                    self._last_layer = layer
                 if not capture_attempted:
                     capture_attempted = True
                     self._session = self._begin_capture()
                 if self._session is not None and state == "printing":
                     # A pause holds the session open but takes no frames,
                     # exactly as the other launched-print monitors do.
-                    self._session.tick()
+                    self._session.tick(self._last_layer)
                 self._sleep_between_polls(tick=state == "printing")
             elif state in _TERMINAL:
                 if seen_active or not self.filename or fname == self.filename:
@@ -452,7 +458,7 @@ class BambuPrintMonitor:
             self._sleep(step)
             elapsed += step
             if self._session is not None:
-                self._session.tick()
+                self._session.tick(self._last_layer)
 
     def poll_active(self, st):
         """One active-print poll: the camera watchdog's trigger (#294 stage 3).

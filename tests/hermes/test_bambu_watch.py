@@ -406,13 +406,15 @@ class FakeSession:
         self.failures = failures
         self.dark_frames = dark_frames
         self.ticks = 0
+        self.tick_layers = []
         self.stopped = None
         self.filename = REMOTE
         self.frames_dir = _Path("/unused/frames")
         self.directory = _Path("/unused")
 
-    def tick(self):
+    def tick(self, layer=None):
         self.ticks += 1
+        self.tick_layers.append(layer)
         return True
 
     def stop(self, state="complete"):
@@ -473,6 +475,18 @@ def test_timelapse_attaches_alongside_the_final_snapshot(capture_logs):
     assert rig.posts[0].startswith("Print complete")
     assert rig.posts[0].count("MEDIA:") == 2  # the snapshot and the video
     assert "MEDIA:/tmp/timelapse.mp4" in rig.posts[0]
+
+
+def test_capture_ticks_carry_the_reported_layer(capture_logs):
+    # capture_trigger=layer can only fire when the session sees the layer
+    # change: every tick — the status-poll tick and the ticks inside the
+    # between-polls sleep — must carry the last layer the printer
+    # reported (Bambu's normalized status supplies it as st["layer"]).
+    rig = CaptureRig([st("printing", layer=3), st("printing", layer=4), st("complete", layer=4)])
+    assert rig.monitor.run() == "complete"
+    assert rig.session.ticks > 0
+    assert all(layer is not None for layer in rig.session.tick_layers)
+    assert 3 in rig.session.tick_layers and 4 in rig.session.tick_layers
 
 
 def test_timelapse_on_a_cancelled_print_stops_as_cancelled(capture_logs):
