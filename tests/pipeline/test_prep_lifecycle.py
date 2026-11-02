@@ -27,6 +27,7 @@ from .test_prepared_intake import Adapter, env, run_flow  # noqa: E402
 
 
 PREP_TEXT = 'Preparing to start'
+WAIT_TEXT = 'Waiting for the background slice to finish. Press Stop to cancel.'
 
 
 def test_start_refusal_filters_diagnostics_and_explains_stale_heater_targets():
@@ -64,7 +65,9 @@ def test_single_color_successful_flow_messages_and_order(env):
     """After bed-clear approved, prep message is sent before start, followed by started confirmation."""
     adapter, result, receipt = run_flow(env, [1, 0, 0])  # single color, slot 1, slice and print now
 
-    assert len(adapter.log) == 2, f'Expected prep and one start message: {adapter.log}'
+    # P2-58: the still-running background slice is acknowledged first.
+    assert len(adapter.log) == 3, f'Expected wait, prep and one start message: {adapter.log}'
+    assert adapter.log[0] == WAIT_TEXT
 
     assert not any(m.startswith('Sliced:') for m in adapter.log)
     assert any(PREP_TEXT in m for m in adapter.log), f'Missing preparation message in: {adapter.log}'
@@ -126,17 +129,18 @@ def test_refused_start_sends_prep_then_precise_failure_no_printing_claim(env, mo
 
     adapter, result, receipt = run_flow(env, [1, 0, 0])
 
-    assert len(adapter.log) == 2, f'Expected prep and one refusal message: {adapter.log}'
+    assert len(adapter.log) == 3, f'Expected wait, prep and one refusal message: {adapter.log}'
+    assert adapter.log[0] == WAIT_TEXT
 
     prep_idx = next(i for i, m in enumerate(adapter.log) if PREP_TEXT in m)
 
     assert not any(m.startswith('Sliced:') for m in adapter.log)
     assert not any('print started' in m.lower() for m in adapter.log)
-    assert adapter.log[1] == (
+    assert adapter.log[2] == (
         "Didn't start: the printer could not confirm it was ready. Check the printer screen, "
         "resolve any warning, then press Retry."
     )
-    assert 'REFUSED:' not in adapter.log[1]
+    assert 'REFUSED:' not in adapter.log[2]
 
     # Raw refusal remains in the receipt for status/debug details.
     assert receipt['status'] == 'START_REFUSED'
@@ -155,7 +159,7 @@ def test_duplicate_event_deduplication_and_no_duplicate_messages(env):
     adapter1, result1, receipt1 = run_flow(env, [1, 0, 0], mid='dedup-1')
     assert len(env.starts) == 1
     initial_sent_count = len(adapter1.log)
-    assert initial_sent_count == 2
+    assert initial_sent_count == 3
 
     # Send identical event with a new adapter
     adapter2 = Adapter([])
