@@ -1493,6 +1493,48 @@ async def _offer_spool_change(adapter, source, metadata, print_next, target, det
     return await print_next.start({**target, 'accept_spool_change': True})
 
 
+def _listener_roast(job):
+    """Best-effort model roast for a start post, via the listener's generator."""
+    try:
+        from print_handy.hermes import moonraker_event_listener as _mel
+        return _mel.generate_roast((job or {}).get('title') or '', (job or {}).get('summary') or '')
+    except Exception:
+        return ''
+
+
+async def _announce_command_start(send, target, detail, job=None, plate=None):
+    """Post and register the one start announcement for a command start.
+
+    /print-next, /print-again and the plate buttons start through
+    print_next.start, whose model_job run claims the start announcement —
+    and that claim suppresses the listener's fallback post. The intake
+    flow posts its own start message for the listener to edit, but these
+    handlers posted none, so their starts were never announced (P2-56).
+    Post the canonical message here, mirroring the intake: a
+    still-preparing start registers its message id so the listener edits
+    this post after warmup (adding the roast then); an already-printing
+    start carries its roast in this post.
+    """
+    from print_handy.hermes import discord_print_summary as print_summary
+    from print_handy.hermes import print_next
+    if job is None:
+        with contextlib.suppress(Exception):
+            job, plate = print_summary.find_job(target['gcode'])
+    message = print_summary.format_started(job, plate)
+    remote = print_next.started_file(detail) if print_next.still_preparing(detail) else None
+    if remote is None:
+        with contextlib.suppress(Exception):
+            roast = await asyncio.wait_for(asyncio.to_thread(_listener_roast, job), 8)
+            if roast:
+                message += f'\n\n{roast}'
+    sent = await send(message)
+    message_id = getattr(sent, 'message_id', None) or getattr(sent, 'id', None)
+    if remote and message_id:
+        with contextlib.suppress(OSError):
+            print_next.record_start_message(remote, str(message_id))
+    return sent
+
+
 async def print_next_dispatch(event, gateway, **kwargs):
     """/print-next <plan_id> [part_id]: one bed-clear button for the exact next (or named) plate. One start per tap."""
     source = getattr(event, 'source', None)
@@ -1593,6 +1635,10 @@ async def print_next_dispatch(event, gateway, **kwargs):
             if not ok and SPOOL_CHANGED in str(detail):
                 ok, detail = await _offer_spool_change(adapter, source, metadata, print_next, target, detail,
                                                         live_key=live_key)
+            if ok:
+                await _announce_command_start(
+                    lambda content: adapter.send(chat_id=source.chat_id, content=content, metadata=metadata),
+                    target, detail, job=job, plate=plate)
             message = (None if ok
                        else f"Did not start {target['label']}. Not retrying.\n"
                             + intake_plain_start_failure(detail))
@@ -4213,9 +4259,12 @@ async def print_again_dispatch(event, gateway, **kwargs):
             if ok:
                 await asyncio.to_thread(pc.mark_copy_started if is_next else pc.queue_copies,
                                         *(() if is_next else (target,)))
-            # The Moonraker listener owns the sole canonical start announcement,
-            # including the model roast. A successful print-now request may still
-            # be preparing, so do not race it with a second, incomplete receipt.
+                # The start claimed its announcement in model_job, so the
+                # listener will not post one; post and register it here
+                # (the listener edits this post after warmup) (P2-56).
+                await _announce_command_start(
+                    lambda content: adapter.send(chat_id=source.chat_id, content=content, metadata=metadata),
+                    target, detail)
             message = (None if ok
                        else f"Did not start {target['title']}. Not retrying.\n"
                             + intake_plain_start_failure(detail))
@@ -5338,6 +5387,7 @@ def alert_button_handlers(bot, adapter):
         import discord
         from print_handy.hermes import print_next
         view = None
+        ok, detail = False, ''
         try:
             ok, detail = await print_next.start({**target, 'accept_spool_change': True} if accept_spool_change else target)
             message = None if ok else (f"Did not start {target['label']}. Not retrying. "
@@ -5353,7 +5403,11 @@ def alert_button_handlers(bot, adapter):
         except Exception as exc:
             logger.exception('plate picker start failed')
             message = _failure_post('Next plate', exc, 'Check the printer screen before retrying.', subsystem='printer')
-        if message:  # None: start accepted, printer preparing; the listener posts "Print started".
+        if ok:  # start accepted: the claim suppresses the listener's own post,
+            # so announce and register the start here (P2-56).
+            await _announce_command_start(lambda content: interaction.followup.send(content),
+                                          target, detail)
+        if message:
             await (interaction.followup.send(message, view=view) if view else interaction.followup.send(message))
 
     async def handle_plate_spool(interaction, aid):
