@@ -5042,6 +5042,11 @@ def alert_button_handlers(bot, adapter):
 
     async def intake_finish(interaction, state):
         """The walkthrough's confirmation: create + bind, once, inventory-only."""
+        # Acknowledge before the bind (P2-191): the Spoolman/Moonraker calls
+        # inside can outlast Discord's 3 s initial-response window, after
+        # which edit_message would fail and leave the consumed prompt's
+        # buttons standing over a completed bind.
+        await interaction.response.defer()
         try:
             from print_handy.hermes import spool_sync
             values = {'brand': state.get('brand') or '', 'material': state.get('material') or '',
@@ -5062,9 +5067,9 @@ def alert_button_handlers(bot, adapter):
                                                  expected_prior_spool_id=state.get('old_spool_id'))
         except Exception:
             logger.exception('new spool walkthrough create failed')
-            await interaction.response.edit_message(content='Nothing was changed. Check what you entered and try again.', view=None)
+            await interaction.edit_original_response(content='Nothing was changed. Check what you entered and try again.', view=None)
             return
-        await interaction.response.edit_message(content=result, view=None)
+        await interaction.edit_original_response(content=result, view=None)
 
     async def handle_intake(interaction, action, aid):
         alert = await asyncio.to_thread(pab.peek, aid)
@@ -5361,6 +5366,8 @@ def alert_button_handlers(bot, adapter):
             return
         # spoolman-new-confirm + confirm: the one bind, through the same
         # spool_sync.bind_slot the guided /spool change flow ends in.
+        # Acknowledge before the bind (P2-191), as in intake_finish.
+        await interaction.response.defer()
         try:
             from print_handy.hermes import spool_sync
             result = await asyncio.to_thread(spool_sync.bind_slot, int(alert['slot']), int(spool_id),
@@ -5371,9 +5378,9 @@ def alert_button_handlers(bot, adapter):
             message = spool_sync.bind_text(result)
         except Exception as exc:
             logger.exception('new spool load failed')
-            await interaction.response.send_message('Nothing was changed. Check the slot and spool number and try again.', ephemeral=True)
+            await interaction.followup.send('Nothing was changed. Check the slot and spool number and try again.', ephemeral=True)
             return
-        await interaction.response.edit_message(content=message, view=None)
+        await interaction.edit_original_response(content=message, view=None)
 
     async def handle_new_spool_select(interaction, aid):
         pending = await asyncio.to_thread(pab.take, aid)

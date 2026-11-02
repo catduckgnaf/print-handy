@@ -149,3 +149,59 @@ def test_spool_question_acknowledges_before_slow_work(tmp_path, monkeypatch, act
     order = Order()
     _spool_question_click(tmp_path, monkeypatch, action, slow_name, order)()
     assert order[:2] == ["ack", "slow"], order
+
+
+def _bind_click(tmp_path, monkeypatch, order, custom_id):
+    click = _order_interaction(order, custom_id)
+
+    async def edit_original(content=None, view=None, **kw):
+        order.append("edit")
+        order.texts.append(content)
+    click.edit_original_response = edit_original
+    return click
+
+
+def test_intake_confirm_acknowledges_before_the_bind(tmp_path, monkeypatch):
+    """The walkthrough confirmation creates and binds through Spoolman and
+    Moonraker calls that can outlast Discord's 3 s window; the interaction
+    must be deferred before the bind starts (P2-191)."""
+    from tests.hermes.test_stop_button_view import _install
+    from print_handy.hermes import print_alert_buttons as pab
+    monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
+    _sent, on_interaction, plugin = _install(monkeypatch)
+    order = Order()
+
+    def slow_bind(slot, values, spool_sync, disposition, expected_prior_spool_id=None):
+        order.append("slow")
+        return "Spool #20 created and loaded into slot 1."
+    monkeypatch.setattr(pab, "create_and_bind_insertion", slow_bind)
+    aid = pab.record("intake", "", origin="insertion", slot=1, step="confirm",
+                     brand="Sunlu", material="PLA", color="Black", grams="1000",
+                     disposition="shelf", old_spool_id=None)
+    click = _bind_click(tmp_path, monkeypatch, order, f"{pab.INTAKE_PREFIX}:confirm:{aid}")
+    asyncio.run(on_interaction(click))
+    assert order[:2] == ["ack", "slow"], order
+    assert order[-1] == "edit" and "loaded into slot 1" in (order.texts[-1] or "")
+
+
+def test_new_spool_confirm_acknowledges_before_the_bind(tmp_path, monkeypatch):
+    """The #483 prompt's Confirm load binds through spool_sync.bind_slot;
+    same 3 s rule as the walkthrough confirmation (P2-191)."""
+    from tests.hermes.test_stop_button_view import _install
+    from print_handy.hermes import print_alert_buttons as pab, spool_sync
+    monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
+    _sent, on_interaction, plugin = _install(monkeypatch)
+    order = Order()
+
+    def slow_bind(slot, spool_id, **kw):
+        order.append("slow")
+        return {"slot": slot, "spool_id": spool_id, "prior_spool_id": None,
+                "record": {"name": "Matte White PLA+", "remaining_grams": 1000.0},
+                "screen": "pushed", "usage": "unchanged", "prior_disposition": "shelf"}
+    monkeypatch.setattr(spool_sync, "bind_slot", slow_bind)
+    aid = pab.record("spoolman-new-confirm", "", spool_id=20, label="#20 Matte White",
+                     slot=1, disposition="shelf", old_spool_id=None)
+    click = _bind_click(tmp_path, monkeypatch, order, f"{pab.NEW_SPOOL_PREFIX}:confirm:{aid}")
+    asyncio.run(on_interaction(click))
+    assert order[:2] == ["ack", "slow"], order
+    assert order[-1] == "edit"

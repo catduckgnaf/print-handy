@@ -240,6 +240,9 @@ class _FakeResponse:
     async def edit_message(self, content=None, view=None, **kw):
         self.sink.append(("edit", content, view))
 
+    async def defer(self, **kw):
+        self.sink.append(("defer", None, None))
+
     async def send_modal(self, modal):
         self.sink.append(("modal", modal))
 
@@ -250,10 +253,20 @@ class _FakeMessage:
 
 
 def _interaction(sink, custom_id, values=None):
-    return S(user=S(id="42", bot=False, display_name="catduck"),
-             data={"custom_id": custom_id, "values": values or []},
-             response=_FakeResponse(sink), message=_FakeMessage(),
-             channel_id="99", guild=None)
+    interaction = S(user=S(id="42", bot=False, display_name="catduck"),
+                    data={"custom_id": custom_id, "values": values or []},
+                    response=_FakeResponse(sink), message=_FakeMessage(),
+                    channel_id="99", guild=None)
+
+    async def edit_original_response(content=None, view=None, **kw):
+        sink.append(("edit", content, view))
+
+    async def followup_send(content, **kw):
+        sink.append(("send", content, None))
+
+    interaction.edit_original_response = edit_original_response
+    interaction.followup = S(send=followup_send)
+    return interaction
 
 
 def _custom_ids(view):
