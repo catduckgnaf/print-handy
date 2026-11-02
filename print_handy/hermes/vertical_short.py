@@ -78,11 +78,22 @@ def escape_drawtext(text) -> str:
     """Escape one string for an ffmpeg drawtext ``text=`` value inside a filter graph.
 
     The graph is passed as a single argv element (no shell), so the escapes
-    are ffmpeg's own: backslash first, then the filter separators ``:``
-    and ``'``, plus ``%`` (strftime expansion) and newlines.
+    are ffmpeg's own, and they must survive TWO parsing layers: the
+    filtergraph parser and the per-filter option parser. Inside the
+    single-quoted value, ``:`` is escaped and ``%`` doubled for the option
+    layer (``%`` also drives drawtext's strftime-style expansion). An
+    apostrophe is the hard case: a quote cannot be escaped inside quotes
+    at either layer — ``\\'`` silently swallows the quote and, in a
+    multi-filter graph, the rest of the graph with it (P2-111, verified
+    against ffmpeg: the old form lost the ``[vout]`` label entirely).
+    The working form closes the quote, emits the apostrophe unquoted as
+    ``\\\\\\'`` (backslash-escaped for both layers), and reopens the
+    quote; it renders pixel-identical to the same title passed via
+    ``textfile=``. Backslash is doubled first, before any replacement
+    that introduces backslashes of its own.
     """
     out = str(text).replace("\\", "\\\\")
-    out = out.replace(":", "\\:").replace("'", "\\'").replace("%", "%%")
+    out = out.replace("'", "'\\\\\\''").replace(":", "\\:").replace("%", "%%")
     return out.replace("\r", " ").replace("\n", " ")
 
 
