@@ -409,3 +409,37 @@ def test_multipart_summary_filament_line_only_when_copies_in_play():
         {"id": "lid", "label": "Lid", "quantity": 1, "completed_quantity": 0,
          "estimated_part_seconds": 1800}]})
     assert "Combined remaining filament: at least ~20 g (unknown for some remaining parts)" in partial
+
+
+def test_a_late_completion_retry_keeps_the_genuine_history_match(tmp_path, monkeypatch):
+    """2.2.5 review: a retry long after the print ended (a metadata or vault
+    failure) is judged against the first observed completion time, so the
+    genuine history entry still matches and the record id does not change."""
+    import time
+    monkeypatch.setattr(records, "PRINTS_DIR", tmp_path / "Prints")
+    monkeypatch.setattr(records, "PLANS_DIR", tmp_path / "Plans")
+    end = int(time.time()) - 3600  # the retry runs an hour after the print ended
+    history = {"result": {"jobs": [{"filename": "job.gcode", "status": "completed",
+                                    "start_time": end - 1800, "end_time": end,
+                                    "print_duration": 1800, "filament_used": 100.0}]}}
+    monkeypatch.setattr(watcher, "get_json",
+                        lambda path: history if path.startswith("/server/history") else {})
+    monkeypatch.setattr(watcher, "get_file_metadata", lambda filename: {})
+    monkeypatch.setattr(watcher, "get_active_spool", lambda: {})
+    monkeypatch.setattr(watcher, "load_context", lambda job_key: {})
+    observed = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(end + 5))
+    previous = {"completed_at": observed}  # recorded when the end was first seen
+    monkeypatch.setattr(watcher, "utc_now", lambda: "2099-01-01T00:00:00Z")
+    watcher.queue_completion_record(previous, "job.gcode", "job.gcode", {"state": "complete"})
+    record = json.loads(next((tmp_path / "Prints").glob("*.json")).read_text())
+    assert record["completed_at"] == observed
+    assert record["started_at"] == time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(end - 1800))
+    assert previous["record_written"] is True
+
+
+def test_the_first_completion_attempt_records_when_the_end_was_seen(monkeypatch):
+    monkeypatch.setattr(watcher, "utc_now", lambda: "2026-09-24T05:00:00Z")
+    previous = {}
+    assert watcher._observed_completion(previous) == "2026-09-24T05:00:00Z"
+    monkeypatch.setattr(watcher, "utc_now", lambda: "2026-09-24T06:00:00Z")
+    assert watcher._observed_completion(previous) == "2026-09-24T05:00:00Z"

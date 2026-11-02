@@ -753,8 +753,21 @@ def record_completion(job_key, filename, stats, completed_at=None):
     return result
 
 
+def _observed_completion(previous):
+    """The time this job's end was first seen, kept in the announcement state.
+
+    Every attempt at the job's record (the first one and any retry after a
+    metadata or vault failure) passes this same time, so the history match
+    in record_completion is judged against when the print ended, never
+    against a later retry's clock, and the record id stays stable.
+    """
+    if not previous.get("completed_at"):
+        previous["completed_at"] = utc_now()
+    return previous["completed_at"]
+
+
 def queue_completion_record(previous, job_key, filename, stats):
-    record_completion(job_key, filename, stats)
+    record_completion(job_key, filename, stats, completed_at=_observed_completion(previous))
     previous["record_written"] = True
 
 
@@ -874,7 +887,8 @@ def main():
     native = str((payload.get("stats") or {}).get("state") or "").lower()
     if was_printing and not printing and native in ("cancelled", "error") and not previous.get("record_written", False):
         try:
-            record = record_completion(job_key, filename, payload.get("stats") or {})
+            record = record_completion(job_key, filename, payload.get("stats") or {},
+                                       completed_at=_observed_completion(previous))
             previous["record_written"] = True
             if message is None:
                 message = partial_timelapse_notice(record.get("plan_id"), filename)
