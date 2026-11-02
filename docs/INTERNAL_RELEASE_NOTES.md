@@ -3,6 +3,7 @@
 # Unreleased
 
 - Design sandbox scan (SEC-1): the forbidden-statement scan for generated OpenSCAD now matches on the token stream — comments are replaced with a space and string contents are blanked before matching — so a comment split inside a file-access statement (`import/**/("...")`, `surface/* gap */(file=...)`, `import // c` on the next line, `use`/`include` with a comment before `<`) no longer slips file reads past the scan, and forbidden words inside comments or strings are no longer mistaken for statements.
+- Setup wizard secrets (SEC-6, P2-60): after the config merge, the wizard saves standalone secrets (.env) to the effective `paths.hermes_home` from config/local.yaml — the folder install-standalone.sh resolves for the services — instead of always using the wizard's proposed default folder, so a preserved custom data folder no longer loses the bot token.
 
 # Version 2.2.4
 
