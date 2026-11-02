@@ -115,6 +115,88 @@ def test_slot_load_screenless_display_off_mode():
     assert "SET_EXTRUDER_SLOT SLOT=4" in script
 
 
+def _ready_status(variables_marker):
+    """Build an otherwise ready/idle status; variables_marker controls display_off."""
+    status = {
+        "print_stats": {"state": "standby"},
+        "webhooks": {"state": "ready"},
+    }
+    if variables_marker != "no_save_variables":
+        if variables_marker == "no_display_off":
+            status["save_variables"] = {"variables": {}}
+        elif variables_marker == "no_variables":
+            status["save_variables"] = {}
+        else:
+            status["save_variables"] = {"variables": {"display_off": variables_marker}}
+    return status
+
+
+def test_slot_load_refuses_when_display_off_missing():
+    # P1-34: a missing display_off must not default to native-screen mode.
+    for marker in ["no_display_off", "no_variables", "no_save_variables"]:
+        sent_scripts = []
+
+        def mock_reader(marker=marker):
+            return _ready_status(marker)
+
+        def mock_sender(script):
+            sent_scripts.append(script)
+
+        res = slot_load.load_slot(2, reader=mock_reader, gcode_sender=mock_sender)
+        assert res["ok"] is False, marker
+        assert "display" in res["error"].lower(), marker
+        assert "unknown" in res["error"].lower(), marker
+        assert "Nothing sent" in res["error"], marker
+        assert sent_scripts == [], marker
+
+
+@pytest.mark.parametrize(
+    "garbage",
+    [2, -1, "0", "1", "unknown", None, 1.0, 0.0, True, False, [], {}],
+)
+def test_slot_load_refuses_when_display_off_is_garbage(garbage):
+    # P1-34: only an explicit integer 0 or 1 is a known mode; anything else
+    # (including values that merely compare equal to 0/1) must fail closed.
+    sent_scripts = []
+
+    def mock_reader():
+        return _ready_status(garbage)
+
+    def mock_sender(script):
+        sent_scripts.append(script)
+
+    res = slot_load.load_slot(2, reader=mock_reader, gcode_sender=mock_sender)
+    assert res["ok"] is False, garbage
+    assert "display" in res["error"].lower(), garbage
+    assert "unknown" in res["error"].lower(), garbage
+    assert "Nothing sent" in res["error"], garbage
+    assert sent_scripts == [], garbage
+
+
+def test_slot_load_refuses_unknown_display_mode_via_caller_without_sending():
+    # P1-34 on the caller path: no REMOVE/INSERT (or screenless) script call
+    # may be issued when the query response carries no display_off.
+    calls = []
+
+    def mock_caller(path, method=None, data=None, timeout=None):
+        calls.append(path)
+        return {
+            "result": {
+                "status": {
+                    "print_stats": {"state": "standby"},
+                    "webhooks": {"state": "ready"},
+                    "save_variables": {"variables": {}},
+                }
+            }
+        }
+
+    res = slot_load.load_slot(1, caller=mock_caller)
+    assert res["ok"] is False
+    assert "unknown" in res["error"].lower()
+    assert "Nothing sent" in res["error"]
+    assert not any("gcode/script" in c for c in calls)
+
+
 def test_pb_load_slot_cli_script_invocations():
     bin_path = Path(__file__).resolve().parents[2] / "bin" / "ph-load-slot"
     assert bin_path.is_file()
