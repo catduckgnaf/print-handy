@@ -77,7 +77,7 @@ Do this only on a printer you own and are watching. Start with a small, flat tes
 
 **Setup**
 
-1. **Model and numbers.** `printer.model` is the key for your printer. Bed size, height and nozzle in the settings match the machine. Compare against your slicer's own profile. Pass if they agree within a millimeter.
+1. **Model and numbers.** `printer.model` is the key for your printer. Bed size, height and nozzle in the settings match the machine. Compare against your slicer's own profile. Pass if the bed size and height agree within a millimeter and the configured nominal nozzle diameter matches the installed nozzle exactly — a different nominal diameter is a different nozzle for slicing, not a rounding difference.
 2. **Doctor.** `python3 -m print_handy.doctor` (or `/print-handy debugging` in chat) reports the printer reachable and no blocking errors. The doctor contacts your configured services.
 3. **Slicer output.** Slice the test part and open the G-code. The first lines are your printer's real start sequence (for the Klipper vendors, a call to the printer's own start macro; for Bambu Lab, the vendor start block). Temperatures match the filament. Every move is inside the bed. The guard did not refuse the file. Pass if the output matches what the vendor's own slicer profile would produce.
 
