@@ -2361,9 +2361,12 @@ def _answer_spool_question(listener, spool_sync, context, choice):
         # The new spool exists now (#787, the typed twin of P2-204): never
         # let the answer report "nothing was changed", or a retry creates a
         # duplicate. Name the spool so the operator answers with its number.
+        # Only a SpoolError's own operator-phrased reason reaches chat; any
+        # other failure is logged, never shown raw.
+        reason = f' ({exc})' if isinstance(exc, spool_sync.SpoolError) else ''
         error = spool_sync.SpoolError(
             f'Spool #{spool_id} was created and is on the shelf, but loading it into slot {slot} '
-            f'failed: {exc} The slot was not changed and usage is still paused; answer with '
+            f'did not work{reason}. The slot was not changed and usage is still paused; answer with '
             f'spool #{spool_id} rather than adding another.')
         error.spool_created = spool_id
         raise error from exc

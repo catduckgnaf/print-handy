@@ -173,18 +173,31 @@ def test_new_spool_bind_failure_names_the_created_spool():
               "cause": "runout", "recorded_at": 1500.0}
     listener = _listener(dict(record))
     sync = _sync(create_spool=mock.Mock(return_value={"spool_id": 31}),
-                 bind_slot=mock.Mock(side_effect=spool_sync.SpoolError("Spoolman refused the write.")))
+                 bind_slot=mock.Mock(side_effect=spool_sync.SpoolError("Spoolman refused the write")))
     with pytest.raises(spool_sync.SpoolError) as raised:
         plugin._answer_spool_question(listener, sync, dict(record),
                                       {"status": "new", "brand": "Sunlu", "material": "PLA",
                                        "color": "Black", "grams": "1000"})
     assert raised.value.spool_created == 31
     text = str(raised.value)
-    assert "Spool #31 was created" in text and "Spoolman refused the write." in text
+    assert "Spool #31 was created" in text and "(Spoolman refused the write)" in text
     assert "nothing was changed" not in text.casefold()
     sync.create_spool.assert_called_once()
     sync.resume_usage.assert_not_called()
     listener.clear_runout_pause.assert_not_called()
+
+
+def test_new_spool_bind_crash_never_shows_the_raw_exception():
+    record = {"filename": "job.gcode", "slot": 2, "prior_spool_id": 8,
+              "cause": "runout", "recorded_at": 1500.0}
+    sync = _sync(create_spool=mock.Mock(return_value={"spool_id": 31}),
+                 bind_slot=mock.Mock(side_effect=KeyError("filament_slots")))
+    with pytest.raises(spool_sync.SpoolError) as raised:
+        plugin._answer_spool_question(_listener(dict(record)), sync, dict(record),
+                                      {"status": "new", "brand": "Sunlu", "material": "PLA",
+                                       "color": "Black", "grams": "1000"})
+    assert raised.value.spool_created == 31
+    assert "filament_slots" not in str(raised.value)
 
 
 def test_existing_spool_bind_failure_is_not_marked_created():
