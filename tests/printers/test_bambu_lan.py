@@ -209,6 +209,33 @@ def test_chamber_light_payload_shape():
     assert chamber_light_payload(False)["system"]["led_mode"] == "off"
 
 
+def test_chamber_light_commands_use_distinct_client_ids_never_the_listener_id(monkeypatch):
+    # P2-206: the auto light-off driver sends a chamber-light command at
+    # every print start/end and again at idle-off, and each command built
+    # its MQTT client with the listener's session ID — disconnecting the
+    # listener's session every time (MQTT reuses an ID by kicking the
+    # existing client). One-shot light commands get a fresh distinct ID,
+    # the same treatment snapshot reads got in P2-265.
+    from print_handy.printers.bambulab import client as client_mod
+
+    seen = []
+    fakes = [FakeMqtt(), FakeMqtt()]
+
+    def recording_factory(host, serial, access_code, client_id=None):
+        seen.append(client_id)
+        return fakes.pop(0)
+
+    monkeypatch.setattr(client_mod, "_paho_factory", recording_factory)
+    client = BambuLanClient("192.168.1.50", SERIAL, CODE, timeout_s=5)  # built-in factory path
+    client.set_chamber_light(True)
+    client.set_chamber_light(False)
+    listener_id = f"print-handy-{SERIAL.lower()}"
+    assert len(seen) == 2 and all(seen), seen
+    assert seen[0] != seen[1], seen  # repeated toggles cannot disconnect each other
+    assert all(cid != listener_id for cid in seen), seen  # never the listener's session ID
+    assert all("-light-" in cid for cid in seen), seen
+
+
 def test_set_chamber_light_publishes_ledctrl_to_the_request_topic():
     fake = FakeMqtt()
     client = BambuLanClient("192.168.1.50", SERIAL, CODE, mqtt_factory=factory_for(fake), timeout_s=5)
