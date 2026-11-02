@@ -88,6 +88,14 @@ def _scope(source):
             str(getattr(source, 'user_id', '') or ''))
 
 
+def _round_trips(parser, value):
+    """True when str(value) re-parses to value with the prompt's own parser."""
+    try:
+        return parser(str(value)) == value
+    except Exception:
+        return False
+
+
 def typed_reply(source, text):
     """Route typed text to the sender's newest open typed prompt in this chat. Returns None when they
     have none open (another operator's prompt never takes it), '' when the reply resolved it, or a
@@ -129,8 +137,19 @@ def typed_reply(source, text):
     except ValueError as exc:
         _secret_taken = False
         return str(exc)
+    # The gateway answer is a string ask() re-parses with this same parser, so
+    # it must round-trip — str(value) does not always (a file selection parses
+    # to a list of indices, whose str form "[1, 2]" the parser rejects, so the
+    # question reopened forever). When str(value) does not re-parse to value,
+    # resolve with the operator's own text, which parses to value by
+    # construction. A reply that carried a secret is the exception: the secret
+    # itself never travels through the prompt registry, so that path keeps
+    # str(value) — the parser's public result (P2-252).
+    wire = str(value)
+    if not _secret_taken and not _round_trips(parser, value):
+        wire = str(text)
     # A prompt a button already answered is closed: let the text fall through instead of swallowing it.
-    resolved = cm.resolve_gateway_clarify(cid, str(value))
+    resolved = cm.resolve_gateway_clarify(cid, wire)
     if not resolved:
         _secret_taken = False
     return '' if resolved else None
