@@ -2285,8 +2285,11 @@ async def runout_intake_dispatch(event, gateway, **kwargs):
         message = await asyncio.to_thread(_answer_spool_question, listener, spool_sync, context, choice)
     except Exception as exc:
         logger.exception('spool question answer failed')
+        # Only an answer that created a spool before failing says so; every
+        # other failure changed nothing and keeps the pinned fail-closed copy.
         await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                           content='That answer did not work, so nothing was changed. Usage is still paused; please answer again.')
+                           content=str(exc) if getattr(exc, 'spool_created', None) else
+                           'That answer did not work, so nothing was changed. Usage is still paused; please answer again.')
         return {'action': 'skip', 'reason': 'spool answer failed closed'}
     await adapter.send(chat_id=source.chat_id, metadata=metadata, content=message)
     return {'action': 'skip', 'reason': 'spool question answered'}
@@ -2349,8 +2352,21 @@ def _answer_spool_question(listener, spool_sync, context, choice):
     # disposition on the spool it replaced. Patching the old spool depleted
     # ahead of the bind destroyed it whenever the bind then refused the
     # replacement, while the failed answer reported nothing changed (P1-8).
-    result = spool_sync.bind_slot(slot, spool_id, prior_disposition='depleted' if runout else 'shelf',
-                                  note=f"Bound from Discord after mid-print {context.get('cause')}")
+    try:
+        result = spool_sync.bind_slot(slot, spool_id, prior_disposition='depleted' if runout else 'shelf',
+                                      note=f"Bound from Discord after mid-print {context.get('cause')}")
+    except Exception as exc:
+        if not created:
+            raise
+        # The new spool exists now (#787, the typed twin of P2-204): never
+        # let the answer report "nothing was changed", or a retry creates a
+        # duplicate. Name the spool so the operator answers with its number.
+        error = spool_sync.SpoolError(
+            f'Spool #{spool_id} was created and is on the shelf, but loading it into slot {slot} '
+            f'failed: {exc} The slot was not changed and usage is still paused; answer with '
+            f'spool #{spool_id} rather than adding another.')
+        error.spool_created = spool_id
+        raise error from exc
     spool_sync.resume_usage(spool_id)
     listener.clear_runout_pause()
     bound_prior = result.get('prior_spool_id') if isinstance(result, dict) else None

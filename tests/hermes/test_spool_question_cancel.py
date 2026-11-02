@@ -261,3 +261,26 @@ def test_cancel_button_failure_keeps_question_answerable(tmp_path, monkeypatch):
     cleared.assert_not_called()
     followups = [entry for entry in interaction.out if entry[0] == "followup"]
     assert followups and "was not cancelled" in followups[-1][1] and "still open" in followups[-1][1]
+
+
+def _typed_answer(monkeypatch, error):
+    monkeypatch.setattr(plugin, "_answer_spool_question", mock.Mock(side_effect=error))
+    return _dispatch(monkeypatch, "Sunlu, PLA+, Black, 1000",
+                     [{"state": "paused", "filename": RECORD["filename"]}])
+
+
+def test_typed_new_spool_created_before_failure_is_reported(monkeypatch):
+    error = spool_sync.SpoolError("Spool #31 was created and is on the shelf, but loading it failed.")
+    error.spool_created = 31
+    result, adapter, _cancel, cleared = _typed_answer(monkeypatch, error)
+    assert result == {"action": "skip", "reason": "spool answer failed closed"}
+    assert adapter.sent[-1] == str(error)
+    cleared.assert_not_called()
+
+
+def test_typed_answer_failure_without_a_created_spool_keeps_the_fail_closed_copy(monkeypatch):
+    result, adapter, _cancel, cleared = _typed_answer(monkeypatch, spool_sync.SpoolError("mapped elsewhere"))
+    assert result == {"action": "skip", "reason": "spool answer failed closed"}
+    assert adapter.sent[-1] == ("That answer did not work, so nothing was changed. "
+                                "Usage is still paused; please answer again.")
+    cleared.assert_not_called()
