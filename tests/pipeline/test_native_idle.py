@@ -1,6 +1,7 @@
 import unittest
 from copy import deepcopy
-from print_handy.printers.flashforge.zmod.native_idle import require_idle
+from functools import partial
+from print_handy.printers.flashforge.zmod.native_idle import require_idle, require_idle_settled
 from print_handy.core.model_job import _require_idle_before_mapped_launch
 
 class NativeIdleTests(unittest.TestCase):
@@ -21,6 +22,25 @@ class NativeIdleTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "telemetry unavailable"):
             _require_idle_before_mapped_launch(fail, lambda: {}, lambda: {})
+
+    def test_settle_timeout_is_a_clean_idle_refusal(self):
+        # P1-42: Moonraker is idle but the native post-cancel residue never
+        # settles. Nothing was sent to the printer, so the timeout must be
+        # classified like every other idle-guard refusal (REFUSED: prefix) —
+        # otherwise it surfaces as a traceback and the plate claim is kept.
+        moonraker = dict(state='ready', print=dict(state='standby'),
+                         extruder=dict(target=0), bed=dict(target=0))
+        native = dict(status='cancel', leftTargetTemp=0, rightTargetTemp=0, platTargetTemp=0,
+                      chamberTargetTemp=0, errorCode='', printProgress=5, printDuration=0)
+        ticks = iter([0.0, 100.0, 200.0])
+        with self.assertRaisesRegex(RuntimeError, r"^REFUSED: idle guard failed: Printer screen still reports"):
+            require_idle_settled(lambda: moonraker, lambda: native,
+                                 sleep=lambda _s: None, clock=lambda: next(ticks, 300.0))
+        fast = partial(require_idle_settled, timeout_s=0, sleep=lambda _s: None,
+                       clock=lambda: 1000.0)
+        with self.assertRaises(SystemExit) as caught:
+            _require_idle_before_mapped_launch(fast, lambda: moonraker, lambda: native)
+        self.assertTrue(str(caught.exception).startswith("REFUSED: idle guard failed:"))
 
     def setUp(self):
         self.m = dict(state='ready', print=dict(state='standby'), extruder=dict(target=0), bed=dict(target=0))
