@@ -286,6 +286,17 @@ def test_cli_import_refusal_exits_1_and_writes_nothing(tmp_path, monkeypatch, ca
     assert profiles.operator_presets(adapter_for(A1)) == {}
 
 
+def test_cli_check_with_import_is_refused_and_writes_nothing(tmp_path, monkeypatch, capsys):
+    """P2-131: --check promises "writes nothing", but combined with
+    --import-filament the import branch ran first and registered the
+    preset before the check was ever reached."""
+    assert run_cli(monkeypatch, "--resources", str(RESOURCES), "--check",
+                   "--import-filament", str(preset_file(tmp_path))) == 1
+    err = capsys.readouterr().err
+    assert "REFUSED:" in err and "--check" in err and "--import-filament" in err
+    assert profiles.operator_presets(adapter_for(A1)) == {}
+
+
 # ------------------------------------------------------------------ summaries name the filament profile
 
 def black_petg_state():
