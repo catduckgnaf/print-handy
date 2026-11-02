@@ -2,6 +2,7 @@
 
 # Unreleased
 
+- Telegram polling now dispatches updates as managed tasks, so a command waiting on a prompt answer no longer stalls message polling (#764).
 - Completing a maintenance session no longer discards other maintenance runs recorded while it was open (#769).
 
 # Version 2.2.4
