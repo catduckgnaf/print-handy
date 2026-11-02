@@ -2,6 +2,7 @@
 
 # Unreleased
 
+- Telegram polling now dispatches updates as managed tasks, so a command waiting on a prompt answer no longer stalls message polling (#764).
 - The nightly workflow now verifies the pushed image is the accepted build before publishing its digest (#766).
 
 # Version 2.2.4
