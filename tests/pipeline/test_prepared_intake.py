@@ -353,6 +353,53 @@ def test_failed_intake_discards_the_background_slice(env, monkeypatch):
     assert not any(env.root.parent.glob('archive/*/sliced/*.gcode'))
 
 
+def test_stop_during_the_background_slice_wait_cancels_the_intake(env, monkeypatch):
+    """P2-58: while the intake waits for a still-running background slice,
+    the wait carries the Stop flow — pressing Stop cancels the intake
+    instead of being swallowed by take()'s absorbed cancellation."""
+    import time as _time
+
+    def slow_slice(job_path, recipe_sha256=None):
+        _time.sleep(1.0)
+        gcode = Path(job_path).parent / 'sliced' / 'plate_1.gcode'
+        gcode.parent.mkdir(parents=True, exist_ok=True)
+        gcode.write_text('G1 X1\n')
+        return [gcode]
+
+    monkeypatch.setattr(model_job, 'slice_job', slow_slice)
+
+    class StopAdapter:
+        """No picks/clicks attributes: _with_stop must run its real flow."""
+
+        def __init__(self, picks):
+            self._picks = iter(picks)
+            self.questions = []
+            self.sent = []
+
+        async def send_clarify(self, **kw):
+            self.questions.append(kw)
+            import tools.clarify_gateway as cm
+            if list(kw.get('choices') or []) == [prepared_intake.STOP_LABEL]:
+                cm.resolve_gateway_clarify(kw['clarify_id'], prepared_intake.STOP_LABEL)
+            else:
+                cm.resolve_gateway_clarify(kw['clarify_id'], kw['choices'][next(self._picks)])
+            return S(success=True)
+
+        async def send(self, chat_id, content, reply_to=None, metadata=None):
+            self.sent.append(content)
+            return S(success=True)
+
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+              message_id='m-stop58', text='https://www.printables.com/model/1-ghost')
+    adapter = StopAdapter([1, 0, 0])
+    result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=5))
+    receipt = json.loads(next(env.root.glob('*.json')).read_text())
+    assert any(q['question'].startswith('Waiting for the background slice') for q in adapter.questions)
+    assert result == {'action': 'skip', 'reason': 'cancelled by operator'}
+    assert receipt['status'] == 'CANCELLED'
+    assert env.starts == []
+
+
 def test_remap_warning_is_on_the_slice_and_print_confirmation(env, monkeypatch):
     """P2-242: the Spoolman remap warning was appended only to the slice-only
     flow's second confirmation; the 'Slice and print now' confirmation — the

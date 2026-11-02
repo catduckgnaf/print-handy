@@ -254,6 +254,22 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
     return result
 
 
+async def _await_background_slice(runner, binding):
+    """Await the background slice without losing a cancellation (P2-58).
+
+    BackgroundSlice.take() absorbs CancelledError — it waits out its own
+    slice task — so a Stop delivered as a cancellation during the wait
+    would be swallowed and the intake would carry on as if the slice had
+    simply found nothing. Re-raise it, so _with_stop's race turns the
+    press back into the operator's Stop.
+    """
+    result = await runner.take(binding)
+    task = asyncio.current_task()
+    if task is not None and task.cancelling():
+        raise asyncio.CancelledError
+    return result
+
+
 # Fit-check progress: one status line, refreshed while a check runs. When the
 # chat adapter can edit messages (Discord, Matrix, Telegram) the same message is
 # updated; otherwise a new line is posted only when the phase changes or, for a
@@ -2444,7 +2460,17 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         mj._timing(jp, 'intake_slice_requested')
         prep_sent = False  # one combined Preparing + Uploading message after slicing, with the real estimate
         try:
-            out = await early.take(binding)  # finished while the question was up, or still running
+            if early.running():
+                # Still slicing: the wait goes through the same progress/Stop
+                # flow as a foreground slice (P2-58). A bare take() here gave
+                # the potentially longest wait of the intake no progress and
+                # a Stop button that did nothing.
+                out = await _with_stop(adapter, source, key, metadata,
+                                       "Waiting for the background slice to finish. Press Stop to cancel.",
+                                       _await_background_slice(early, binding),
+                                       allow_stop=True)
+            else:
+                out = await early.take(binding)  # finished while the question was up
             if out is None and early.error is not None:
                 raise early.error
             if out is None:

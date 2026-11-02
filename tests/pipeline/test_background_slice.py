@@ -3,6 +3,8 @@ import asyncio
 import json
 from pathlib import Path
 
+import pytest
+
 from print_handy.core import model_job
 from print_handy.core.background_slice import BackgroundSlice, slice_binding
 
@@ -175,5 +177,34 @@ def test_discard_restores_the_slice_metadata_that_predates_the_run(tmp_path):
         assert await runner.take('binding') is not None
         await runner.discard()
         assert json.loads(job_path.read_text()) == prior
+
+    asyncio.run(run())
+
+
+def test_await_background_slice_reraises_cancellation(tmp_path):
+    """P2-58: take() absorbs CancelledError while it waits out its slice
+    task; the intake's wrapper must surface a cancellation again, or a Stop
+    pressed during the background-slice wait is silently lost."""
+    from print_handy.core import prepared_intake
+
+    async def run():
+        folder = tmp_path / 'intake'
+        folder.mkdir()
+        job_path = folder / 'JOB.json'
+        job_path.write_text('{}')
+        runner = BackgroundSlice()
+
+        async def never(path, work, _runner):
+            await asyncio.sleep(30)
+            return []
+
+        await runner.start(job_path, 'binding', never)
+        await runner.started.wait()
+        task = asyncio.ensure_future(prepared_intake._await_background_slice(runner, 'binding'))
+        await asyncio.sleep(0.05)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await runner.discard()
 
     asyncio.run(run())
