@@ -2,6 +2,7 @@
 
 # Unreleased
 
+- Telegram polling now dispatches updates as managed tasks, so a command waiting on a prompt answer no longer stalls message polling (#764).
 - Stock Flashforge and OctoPrint completion posts now fall back to a text post when the media post is refused, instead of silently dropping it (#771).
 
 # Version 2.2.4
