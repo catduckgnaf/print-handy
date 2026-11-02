@@ -179,7 +179,9 @@ class HermesClarifyAdapter:
         return True
 
     def _open_prompt(self, session_key):
-        return self.registry.open_prompt_scoped(session_key)             if hasattr(self.registry, "open_prompt_scoped") else self.registry.open_prompt_for(session_key)
+        if hasattr(self.registry, "open_prompt_scoped"):
+            return self.registry.open_prompt_scoped(session_key)
+        return self.registry.open_prompt_for(session_key)
 
     def typed_approval_blocked(self, session_key, user_id):
         """True when ``user_id`` typing would answer a print approval they may not give.
@@ -192,7 +194,7 @@ class HermesClarifyAdapter:
         if user_id is None or not approver or str(user_id) == approver:
             return False
         cid = self._open_prompt(session_key)
-        if cid is None or not self.registry.is_approval(cid):
+        if cid is None or not getattr(self.registry, "is_approval", prompts.is_approval)(cid):
             return False
         logger.info("refused typed approval from Discord user %s: only the approval user may approve prints",
                     user_id)
