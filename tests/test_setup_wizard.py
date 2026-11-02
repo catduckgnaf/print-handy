@@ -14,7 +14,7 @@ import yaml
 
 from print_handy import settings
 from print_handy.bot import routing
-from print_handy.setup_wizard import Wizard, build_plan, merge_config
+from print_handy.setup_wizard import Wizard, apply, build_plan, merge_config
 
 
 def _wizard(answers):
@@ -112,6 +112,56 @@ def test_merge_keeps_existing_values_and_adds_new_ones(tmp_path):
     merged = yaml.safe_load(target.read_text())
     assert merged["bot"]["mode"] == "hermes"  # existing keys win
     assert merged["discord"]["chat_id"] == "1"
+
+
+# ------------------------------------------------- secrets land in the effective data folder
+
+class _OkResult:
+    returncode = 0
+
+
+def _apply_standalone(tmp_path, monkeypatch, local):
+    """Run apply() for a standalone plan with every external command stubbed out."""
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    plan = build_plan(_wizard(ONE_PRINTER), hermes_found=False)
+    w = _wizard({"merge_config": "yes", "run_linger": "no", "run_start": "no"})
+    apply(plan, w, repo=tmp_path, local=local, runner=lambda cmd: _OkResult())
+    return plan
+
+
+def test_secrets_go_to_a_preserved_custom_data_folder(tmp_path, monkeypatch):
+    # An existing config pins paths.hermes_home elsewhere; the merge preserves it
+    # (existing keys win) and install-standalone.sh points the services' env file
+    # at that folder — so the token must be written there, not to the proposed
+    # default (P2-60).
+    custom = tmp_path / "elsewhere"
+    local = tmp_path / "local.yaml"
+    local.write_text(f"paths:\n  hermes_home: {custom}\n")
+    plan = _apply_standalone(tmp_path, monkeypatch, local)
+    assert plan["data_home"] != str(custom)  # the wizard proposed its own default
+    env = (custom / ".env").read_text()
+    assert "DISCORD_BOT_TOKEN=tok" in env
+    assert not (tmp_path / "home" / ".local" / "share" / "print-handy" / ".env").exists()
+
+
+def test_secrets_go_to_a_custom_data_folder_even_when_the_merge_is_declined(tmp_path, monkeypatch):
+    # Declining the merge leaves the existing config in force, so its
+    # paths.hermes_home is still the effective folder for the services.
+    custom = tmp_path / "elsewhere"
+    local = tmp_path / "local.yaml"
+    local.write_text(f"paths:\n  hermes_home: {custom}\n")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    plan = build_plan(_wizard(ONE_PRINTER), hermes_found=False)
+    w = _wizard({"merge_config": "no", "run_linger": "no", "run_start": "no"})
+    apply(plan, w, repo=tmp_path, local=local, runner=lambda cmd: _OkResult())
+    assert "DISCORD_BOT_TOKEN=tok" in (custom / ".env").read_text()
+
+
+def test_secrets_use_the_proposed_folder_when_the_config_sets_none(tmp_path, monkeypatch):
+    local = tmp_path / "local.yaml"  # fresh install: the merge writes the plan's config
+    _apply_standalone(tmp_path, monkeypatch, local)
+    env = tmp_path / "home" / ".local" / "share" / "print-handy" / ".env"
+    assert "DISCORD_BOT_TOKEN=tok" in env.read_text()
 
 
 @pytest.mark.parametrize("content", [

@@ -842,6 +842,28 @@ def update_env(folder, values):
     return changed
 
 
+def effective_data_home(local, fallback):
+    """The data folder the installed services will actually use: paths.hermes_home in
+    config/local.yaml once the merge has run. Existing values win in that merge and
+    scripts/install-standalone.sh resolves the same key for the services'
+    EnvironmentFile, so secrets must be saved to that folder — which is not
+    necessarily the folder this wizard proposed (P2-60). Falls back to the proposed
+    folder when the file carries no value or cannot be read."""
+    import yaml
+
+    try:
+        data = yaml.safe_load(Path(local).read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return fallback
+    if isinstance(data, dict):
+        paths = data.get("paths")
+        if isinstance(paths, dict):
+            home = paths.get("hermes_home")
+            if isinstance(home, str) and home.strip():
+                return home
+    return fallback
+
+
 def apply(plan, w, *, repo=REPO, python=None, dry_run=False, runner=subprocess.run, local=None):
     """Write config and secrets, then run the installs the user agreed to."""
     python = python or sys.executable
@@ -893,8 +915,9 @@ def apply(plan, w, *, repo=REPO, python=None, dry_run=False, runner=subprocess.r
         run("Install the standalone bot services (enables nothing yet)",
             [str(repo / "scripts" / "install-standalone.sh"), "--python", str(python)], ask=False)
         if not dry_run:
-            changed = update_env(plan["data_home"], secrets)
-            w.say(f"Saved {', '.join(changed) or 'nothing new'} to {plan['data_home']}/.env (values not shown).")
+            data_home = effective_data_home(local, plan["data_home"])
+            changed = update_env(data_home, secrets)
+            w.say(f"Saved {', '.join(changed) or 'nothing new'} to {data_home}/.env (values not shown).")
         user = os.environ.get("USER") or "$USER"
         run("Keep the bot running after you log out", ["loginctl", "enable-linger", user], key="run_linger")
         run("Start the bot now", ["systemctl", "--user", "enable", "--now",
