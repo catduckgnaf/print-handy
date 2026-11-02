@@ -121,6 +121,23 @@ def test_http_error_codes_classify():
     assert diagnostics.classify(http(503)) is Category.TRANSIENT
 
 
+def test_url_error_wrapped_failures_classify_by_their_reason():
+    # urllib wraps the real transport failure in URLError.reason; the
+    # wrapper itself carries no errno, so without unwrapping it a refused
+    # connection classified UNKNOWN and suppressed retry advice (P2-232).
+    refused = urllib.error.URLError(ConnectionRefusedError(111, "Connection refused"))
+    assert diagnostics.classify(refused) is Category.TRANSIENT
+    reset = urllib.error.URLError(ConnectionResetError(104, "Connection reset by peer"))
+    assert diagnostics.classify(reset) is Category.TRANSIENT
+    timed_out = urllib.error.URLError(TimeoutError("timed out"))
+    assert diagnostics.classify(timed_out) is Category.TRANSIENT
+    assert diagnostics.next_step_for(refused, transient="RETRY", other="OTHER") == "RETRY"
+    # A wrapped failure keeps whatever category its reason classifies to.
+    import errno
+    denied = urllib.error.URLError(OSError(errno.EACCES, "denied"))
+    assert diagnostics.classify(denied) is Category.UNKNOWN
+
+
 def test_spoolman_unavailable_is_transient_not_unknown():
     from print_handy.core import spoolman_client
     exc = spoolman_client.SpoolmanUnavailable("connection refused")
