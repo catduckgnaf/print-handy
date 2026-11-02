@@ -66,6 +66,24 @@ class BundleTests(unittest.TestCase):
                 self.assertNotIn("first line", tail)
                 self.assertIn("no log lines", tail)
 
+    def test_bundle_is_produced_when_settings_do_not_load(self):
+        with mock.patch.object(diagnostics_bundle.settings, "current",
+                               side_effect=settings.SettingsError("[printer] model is bad")):
+            text = diagnostics_bundle.build_bundle(include_doctor=False)
+        for heading in ("# Print Handy diagnostics bundle", "## Configuration summary",
+                        "## Printers", "## Recent log"):
+            self.assertIn(heading, text)
+        self.assertIn("could not be loaded", text)
+
+    def test_write_bundle_with_explicit_path_when_settings_do_not_load(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "bundle.md"
+            with mock.patch.object(diagnostics_bundle.settings, "current",
+                                   side_effect=settings.SettingsError("bad config")):
+                written = diagnostics_bundle.write_bundle(target)
+            self.assertEqual(written, target)
+            self.assertIn("diagnostics bundle", target.read_text())
+
     def test_missing_log_file_setting_is_explained_not_silent(self):
         with tempfile.TemporaryDirectory() as tmp:
             tail = diagnostics_bundle.log_tail(_data(tmp))
