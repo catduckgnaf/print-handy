@@ -27,7 +27,7 @@ from types import SimpleNamespace
 from .. import settings
 from ..core import fuzzy, prompts
 from ..hermes import _config
-from . import agent, commands, llm, platform, routing
+from . import agent, commands, llm, platform, rest, routing
 from .router import Router
 
 logger = logging.getLogger(__name__)
@@ -487,8 +487,9 @@ class BotCore:
                 await self.adapter.send(chat_id=source.chat_id, content=self.agent_unavailable,
                                         reply_to=event.message_id, metadata=metadata)
                 return {"action": "skip", "reason": "agent unavailable"}
-            await self.adapter.send(chat_id=source.chat_id, content=reply, reply_to=event.message_id,
-                                    metadata=metadata)
+            # The endpoint's text is untrusted (#532): it may name a local file, never attach one.
+            await self.adapter.send(chat_id=source.chat_id, content=rest.inert_media(reply),
+                                    reply_to=event.message_id, metadata=metadata)
             return {"action": "skip", "reason": "agent reply"}
         if allow_llm and self.use_llm and llm.configured(self.cfg):
             try:
@@ -504,13 +505,13 @@ class BotCore:
                     # is exactly the double reply #437 forbids.
                     replied = bool(reply) and command.casefold() not in HELP_WORDS
                     if replied:
-                        await self.adapter.send(chat_id=source.chat_id, content=reply,
+                        await self.adapter.send(chat_id=source.chat_id, content=rest.inert_media(reply),
                                                 reply_to=event.message_id, metadata=metadata)
                     routed = make_event(source, command, f"{event.message_id}:llm", metadata={"llm_command": True})
                     return await self.process(routed, allow_llm=False, _llm_replied=replied)
                 if reply:
-                    await self.adapter.send(chat_id=source.chat_id, content=reply, reply_to=event.message_id,
-                                            metadata=metadata)
+                    await self.adapter.send(chat_id=source.chat_id, content=rest.inert_media(reply),
+                                            reply_to=event.message_id, metadata=metadata)
                     return {"action": "skip", "reason": "llm reply"}
         if _llm_replied:
             # The LLM already answered this message and its named command

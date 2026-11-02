@@ -19,6 +19,13 @@ LIMIT = 2000
 MEDIA = re.compile(r"(?:\\n)?MEDIA:(\S+)")
 
 
+def inert_media(text):
+    """Untrusted text (an agent or LLM reply) with every marker made inert, so it can never attach
+    a local file: a reply saying MEDIA:/proc/self/environ would otherwise upload it. A zero-width
+    space after the word keeps the text as it reads while split_media no longer matches it."""
+    return str(text or "").replace("MEDIA:", "MEDIA​:")
+
+
 def split_media(text):
     """(text without markers, [existing file paths]). A missing file is dropped, never sent as text."""
     files = []

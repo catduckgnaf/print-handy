@@ -306,17 +306,27 @@ def test_stock_print_starts_no_monitor_when_the_start_is_unconfirmed(monkeypatch
     assert started == []
 
 
-# #211: stock artifacts are verified offline against the record, never through Moonraker.
-
 def _stock_adapter():
-    from print_handy.printers.flashforge_stock.adapter import StockFlashforgeAdapter
-    return StockFlashforgeAdapter({
-        "printer": {"model": "flashforge_stock.ad5x", "filament_slots": 4,
-                    "bed_mm": [220.0, 220.0], "max_print_height_mm": 220.0},
-        "layout": {"single_copy_edge_mm": 5, "multi_copy_edge_mm": 5},
-        "flashforge_stock": {"host": "192.0.2.10"},
-    })
+    from print_handy import printers, settings
+    model = "flashforge_stock.ad5x"
+    return printers.get(model, settings.load(local=False, environ={"PRINT_HANDY__PRINTER__MODEL": model}))
 
+
+def test_normalize_status_reports_detail_targets():
+    detail = {"status": "printing", "printProgress": 0.4, "rightTargetTemp": 220.0, "platTargetTemp": 60}
+    for raw in (detail, {"detail": detail}):
+        out = _stock_adapter().normalize_status(raw)
+        assert (out["hotend_target_c"], out["bed_target_c"]) == (220.0, 60)
+        assert (out["state"], out["hotend_c"], out["bed_c"]) == ("printing", None, None)
+
+
+@pytest.mark.parametrize("raw", [{}, {"status": "ready"}, {"rightTargetTemp": True, "platTargetTemp": "60"}])
+def test_normalize_status_targets_are_none_when_absent(raw):
+    out = _stock_adapter().normalize_status(raw)
+    assert out["hotend_target_c"] is None and out["bed_target_c"] is None
+
+
+# #211: stock artifacts are verified offline against the record, never through Moonraker.
 
 def _orca_like(toolpath_move):
     return ("G28\nG90\nM83\nG1 X-10 Y-10 Z5 F3000\nG1 E5 F300\n"  # the slicer's start code purges off the bed

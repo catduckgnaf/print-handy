@@ -506,6 +506,39 @@ class GenericKlipperTests(unittest.TestCase):
         machine = json.loads((adapter_for(SV06).templates_dir() / "machine.json").read_text())
         self.assertIn("SV06", machine["name"])
 
+    def test_status_reports_targets_layers_and_remaining_time(self):
+        raw = {"print_stats": {"state": "printing", "filename": "a.gcode", "print_duration": 1200.0,
+                               "info": {"current_layer": 12, "total_layer": 80}},
+               "virtual_sdcard": {"progress": 0.25},
+               "extruder": {"temperature": 214.8, "target": 215.0},
+               "heater_bed": {"temperature": 59.9, "target": 60}}
+        families = (*self.FAMILIES, "flashforge.ad5x", "flashforge.ad5m", "flashforge.creator5")
+        for family in families:
+            with self.subTest(family=family):
+                out = adapter_for(family).normalize_status(raw)
+                self.assertEqual((out["hotend_target_c"], out["bed_target_c"]), (215.0, 60))
+                self.assertEqual((out["layer"], out["total_layers"]), (12, 80))
+                # 1200 s at 25 % -> 3600 s left = 60 min.
+                self.assertEqual(out["remaining_min"], 60)
+
+    def test_status_extended_fields_are_none_when_absent(self):
+        keys = ("hotend_target_c", "bed_target_c", "layer", "total_layers", "remaining_min")
+        samples = (
+            {},
+            {"print_stats": {"state": "printing", "info": {"current_layer": None, "total_layer": None}}},
+            # Not printing, zero progress, bools and strings are no estimate and no numbers.
+            {"print_stats": {"state": "paused", "print_duration": 600.0}, "virtual_sdcard": {"progress": 0.5}},
+            {"print_stats": {"state": "printing", "print_duration": 600.0}, "virtual_sdcard": {"progress": 0.0}},
+            {"print_stats": {"state": "printing", "print_duration": True, "info": {"current_layer": True}},
+             "virtual_sdcard": {"progress": 0.5}, "extruder": {"target": True}, "heater_bed": {"target": "60"}},
+        )
+        for raw in samples:
+            with self.subTest(raw=raw):
+                out = adapter_for(GENERIC).normalize_status(raw)
+                for key in keys:
+                    self.assertIn(key, out)
+                    self.assertIsNone(out[key], key)
+
     def test_stock_klipper_does_not_import_zmod_code(self):
         code = (f"import sys\nsys.path.insert(0, {str(settings.ROOT)!r})\nfrom print_handy import printers\n"
                 "printers.get('klipper.generic'); printers.get('sovol.sv06')\n"

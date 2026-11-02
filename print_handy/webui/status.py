@@ -307,7 +307,12 @@ _STATUS_TIMEOUT_S = 4
 # adapter dict that omits one on an odd protocol gets the default
 # rather than dropping the key.
 _STATUS_DEFAULTS = {"state": "unknown", "filename": "", "progress": None,
-                    "hotend_c": None, "bed_c": None}
+                    "hotend_c": None, "bed_c": None,
+                    # Extended telemetry (#708): always present, None where the
+                    # printer family does not report it, so the Home Assistant
+                    # integration never has to guess between missing and unknown.
+                    "hotend_target_c": None, "bed_target_c": None,
+                    "layer": None, "total_layers": None, "remaining_min": None}
 
 
 def _moonraker_status(adapter, view):
