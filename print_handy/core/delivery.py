@@ -115,6 +115,23 @@ def upload_limit(config=None):
     return int(config["discord"]["upload_max_bytes"])
 
 
+def effective_upload_limit(adapter=None, config=None):
+    """The limit attachment planning must respect for one send (P2-92).
+
+    The configured platform limit, lowered by the sending adapter's own
+    cap when it reports a smaller one. The Matrix adapter's cap is the
+    homeserver's discovered media limit — it lives only on the adapter,
+    so planning from settings alone sized files the server then rejected
+    instead of zipping them or reporting them too big. An adapter
+    reporting no cap (or a larger one) changes nothing.
+    """
+    limit = upload_limit(config)
+    cap = getattr(adapter, "upload_max_bytes", None)
+    if cap:
+        limit = min(limit, int(cap))
+    return limit
+
+
 def discord_plan(files, limit, workdir):
     """How each file reaches Discord under the upload limit (bytes): as is, zipped, or not at all.
 

@@ -1398,7 +1398,7 @@ async def _delivery_menu(adapter, source, key, metadata, timeout, question, enab
         if delivery.DISCORD in pending:
             # Size what the send would attach before offering it (#272): a file over [discord]
             # upload_max_bytes gets its size, the limit and its host path here, not a button that fails.
-            limit = delivery.upload_limit()
+            limit = delivery.effective_upload_limit(adapter)
             fit = await asyncio.to_thread(delivery.discord_candidates, gcodes, limit, cache=sizes)
             note = delivery.oversize_message(fit, limit)
             if not any(item.fits for item in fit):
@@ -1438,7 +1438,7 @@ async def _deliver(adapter, source, metadata, method, receipt, jp, gcodes, pendi
             where = ' On the Print Handy host: ' + ', '.join(str(p) for p in packages) + '.'
             if delivery.DISCORD in pending:
                 # The package now exists, so its size is exact: offer the download only when it fits (#272).
-                limit = delivery.upload_limit()
+                limit = delivery.effective_upload_limit(adapter)
                 fit = delivery.discord_candidates(artifacts, limit)
                 fitting = sum(1 for f in fit if f.fits)
                 offer = ('' if not fitting else " Use 'Send the files here' to download it." if fitting == len(fit)
@@ -1449,7 +1449,7 @@ async def _deliver(adapter, source, metadata, method, receipt, jp, gcodes, pendi
                       + delivery.handoff_note(delivery.current_model()))
             return
         files = await asyncio.to_thread(delivery.files_for_discord, job, artifacts)
-        limit = delivery.upload_limit()
+        limit = delivery.effective_upload_limit(adapter)
         already = delivery.delivered(receipt, method)
         todo = [f for f in files if str(f) not in already]
         plan = await asyncio.to_thread(delivery.discord_plan, todo, limit, Path(jp).parent / 'delivery')
