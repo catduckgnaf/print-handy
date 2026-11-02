@@ -78,10 +78,11 @@ class OctoPrintClient:
 
         OctoPrint renders a print's timelapse itself (when its timelapse
         feature is enabled) and lists the finished movies at
-        GET /api/timelapse; each entry carries at least name and url.
+        GET /api/timelapse under the ``files`` key (the API has no
+        ``movies`` key); each entry carries at least name and url.
         """
         result = self.request('GET', '/api/timelapse')
-        movies = result.get('movies') if isinstance(result, dict) else None
+        movies = result.get('files') if isinstance(result, dict) else None
         return movies if isinstance(movies, list) else []
 
     def download(self, path):
