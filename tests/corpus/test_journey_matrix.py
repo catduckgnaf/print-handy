@@ -99,10 +99,7 @@ def test_cancelling_the_fit_prompt_slices_nothing_and_starts_nothing(case_name, 
     assert not [e for e in result.events if e[0] == "slice"], "no slicer run after a refused fit"
 
 
-@pytest.mark.parametrize("color", [
-    pytest.param(ONE, marks=pytest.mark.xfail(strict=True, reason=(
-        "one-color auto-rearrange rewrites the source but leaves color_decisions bound to the original "
-        "SHA256; slice_model rejects it before slicing (#594 phase 2 product defect)"))), GROUP])
+@pytest.mark.parametrize("color", [ONE, GROUP])
 def test_generated_rearrange_journey(color, tmp_path):
     from . import make_models
     model = tmp_path / "rearrange.3mf"
