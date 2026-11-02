@@ -193,6 +193,15 @@ def load_split_plan(plan_or_id: str | Path | dict) -> dict:
     return validate_split_plan_schema(plan)
 
 
+def _pin_dimensions(bore: dict) -> tuple[float, float]:
+    """The pin diameter/length a bore's dowel is generated at: the plan's own
+    values, or the defaults validation derives from the bore (0.4 mm clearance,
+    2.5 mm short of the full bore length)."""
+    pin_d = float(bore.get('pin_diameter_mm', float(bore['bore_diameter_mm']) - 0.4))
+    pin_l = float(bore.get('pin_length_mm', 2.0 * float(bore['depth_each_side_mm']) - 2.5))
+    return pin_d, pin_l
+
+
 def validate_split_plan_schema(plan: dict) -> dict:
     """Validate required fields, clearances, and bore geometry on a CAD split plan."""
     if not isinstance(plan, dict):
@@ -205,6 +214,9 @@ def validate_split_plan_schema(plan: dict) -> dict:
     bores = plan.get('bores') or []
     if not bores:
         raise ValueError('Split plan must define at least one alignment/connector bore')
+    # Work on copies: validation normalizes the derived pin defaults into the
+    # plan (below), and a caller's own dicts must not change under them.
+    plan['bores'] = bores = [dict(bore) if isinstance(bore, dict) else bore for bore in bores]
     for idx, bore in enumerate(bores):
         for b_req in ('y_mm', 'z_mm', 'bore_diameter_mm', 'depth_each_side_mm'):
             if b_req not in bore:
@@ -213,8 +225,7 @@ def validate_split_plan_schema(plan: dict) -> dict:
         depth = float(bore['depth_each_side_mm'])
         if bore_d <= 0 or depth <= 0:
             raise ValueError(f'Bore #{idx + 1} diameter and depth must be > 0')
-        pin_d = float(bore.get('pin_diameter_mm', bore_d - 0.4))
-        pin_l = float(bore.get('pin_length_mm', 2.0 * depth - 2.5))
+        pin_d, pin_l = _pin_dimensions(bore)
         if pin_d >= bore_d:
             raise ValueError(
                 f'Bore #{idx + 1} pin_diameter_mm ({pin_d} mm) must be smaller than '
@@ -224,6 +235,10 @@ def validate_split_plan_schema(plan: dict) -> dict:
             raise ValueError(
                 f'Bore #{idx + 1} pin_length_mm ({pin_l} mm) exceeds total bore length ({2.0 * depth} mm)'
             )
+        # Normalize the derived defaults into the validated plan, so STL and
+        # SCAD generation produce exactly the pin validation checked (P2-48).
+        bore['pin_diameter_mm'] = pin_d
+        bore['pin_length_mm'] = pin_l
     return plan
 
 
@@ -303,10 +318,11 @@ def generate_dowel_row_triangles(plan: dict, segments: int = 48) -> list:
     all_tris = []
     for idx, bore in enumerate(printable):
         cx = start_x + idx * spacing
+        pin_d, pin_l = _pin_dimensions(bore)
         all_tris.extend(
             generate_chamfered_dowel_triangles(
-                diameter_mm=float(bore.get('pin_diameter_mm', 5.0)),
-                length_mm=float(bore.get('pin_length_mm', 30.5)),
+                diameter_mm=pin_d,
+                length_mm=pin_l,
                 chamfer_mm=float(bore.get('pin_chamfer_mm', 0.8)),
                 tip_diameter_mm=float(bore.get('pin_tip_diameter_mm', 4.3)),
                 segments=segments,
@@ -405,8 +421,7 @@ def render_openscad_script(source_filename: str, plan: dict) -> str:
 
     printable = [b for b in bores if b.get('printable_dowel', True)]
     first_pin = printable[0] if printable else bores[0]
-    pin_d = float(first_pin.get('pin_diameter_mm', 5.0))
-    pin_l = float(first_pin.get('pin_length_mm', 30.5))
+    pin_d, pin_l = _pin_dimensions(first_pin)
     pin_ch = float(first_pin.get('pin_chamfer_mm', 0.8))
     pin_tip = float(first_pin.get('pin_tip_diameter_mm', 4.3))
 
@@ -548,14 +563,18 @@ def prepare_cad_split(
     Always writes:
     - The preferred intact rotated STL (`*_OnePiece_Diagonal45.stl`) when rotation fits the bed.
     - Printable chamfered dowel STL (`*_Printable_Dowels.stl`) when the plan includes printable dowels.
-    - Reproducible OpenSCAD script (`*_split.scad`).
+    - Reproducible OpenSCAD script (`*_split.scad`), with a copy of the source
+      STL beside it so the script's bare-name import resolves.
     - Machine-readable `split_validation.json` with the 5-stage `status_ladder` and structural warnings.
 
     When `execute_openscad=True`, invokes OpenSCAD to generate left/right/combined split STLs and
     runs `verify_split_artifacts` (watertightness, shell count, bounds, and volume conservation).
     """
-    source = Path(source)
-    outdir = Path(outdir)
+    # Resolve both paths up front: the OpenSCAD subprocess runs with its
+    # working directory changed to the scad's (temporary) directory, so a
+    # relative output path would land there instead of the caller's outdir (P1-51).
+    source = Path(source).resolve()
+    outdir = Path(outdir).resolve()
     outdir.mkdir(parents=True, exist_ok=True)
     plan = load_split_plan(plan_or_id)
     preflight = check_source_against_split_plan(source, plan)
@@ -589,6 +608,12 @@ def prepare_cad_split(
 
     scad_path = outdir / f'{source.stem}_split.scad'
     scad_path.write_text(render_openscad_script(source.name, plan), encoding='utf-8')
+    # The exported script imports the source by bare name, resolved relative
+    # to the script: copy the source alongside it so the reproducible SCAD
+    # artifact can actually load its model later (P2-47).
+    copied_source = outdir / source.name
+    if copied_source != source:
+        shutil.copy2(source, copied_source)
 
     boolean_verification = None
     generated_split_files = {}

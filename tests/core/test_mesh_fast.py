@@ -70,6 +70,33 @@ def test_comment_geometry_is_not_printable_geometry(tmp_path, monkeypatch):
         orca_adapter._parse_3mf_triangles(path)
 
 
+def test_bad_coordinate_in_unused_object_declines_fast_path(tmp_path, monkeypatch):
+    # Object 2 is not referenced by the build; its invalid coordinate must not
+    # reject the archive — the fast path declines and the reference reader,
+    # which converts only referenced meshes, still returns object 1 (P2-72).
+    bad = BODY.replace('x="2"', 'x="invalid"')
+    data = (f'<model xmlns="{NS}"><resources><object id="1"><mesh>{BODY}</mesh></object>'
+            f'<object id="2"><mesh>{bad}</mesh></object></resources>'
+            '<build><item objectid="1"/></build></model>').encode()
+    assert mesh_fast.mesh_tables(data) is None
+    path = archive(tmp_path, data)
+    assert orca_adapter._parse_3mf_triangles(path) == [[(0., 0., 0.), (2., 0., 0.), (0., 3., 1.)]]
+
+
+def test_large_offset_vertices_keep_double_precision():
+    # float32 storage collapsed 100000000 and 100000001 into one vertex before
+    # the compensating component/build translation could separate them (P2-75).
+    body = ('<vertices><vertex x="100000000" y="0" z="0"/><vertex x="100000001" y="0" z="0"/>'
+            '<vertex x="100000000" y="3" z="1"/></vertices>'
+            '<triangles><triangle v1="0" v2="1" v3="2"/></triangles>')
+    tables = mesh_fast.mesh_tables(document(body))
+    assert tables is not None
+    vertices = tables['1'].vertices
+    assert vertices.dtype.name == 'float64'
+    assert vertices.tolist()[1][0] == 100000001.0
+    assert vertices.tolist()[1][0] - vertices.tolist()[0][0] == 1.0
+
+
 def test_canonical_geometry_really_uses_fast_path():
     tables = mesh_fast.mesh_tables(document())
     assert tables == {'1': ([(0., 0., 0.), (2., 0., 0.), (0., 3., 1.)], [(0, 1, 2)])}

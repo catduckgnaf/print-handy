@@ -131,7 +131,9 @@ def _header_floats(text, key):
     if not match:
         return []
     out = []
-    for item in match.group(1).split(";"):
+    # Per-filament usage values are comma-separated in real Orca headers
+    # ("20.00, 15.50"); the semicolon split is kept for the synthetic form.
+    for item in re.split(r"[;,]", match.group(1)):
         try:
             out.append(float(item.strip()))
         except ValueError:

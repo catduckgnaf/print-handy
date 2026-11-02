@@ -27,7 +27,7 @@ class _UnsupportedFastPath(Exception):
 
 @dataclass(frozen=True)
 class MeshTable:
-    """Array-backed mesh: float32 vertices and int32 triangle indices."""
+    """Array-backed mesh: float64 vertices and int32 triangle indices."""
     vertices: np.ndarray
     triangles: np.ndarray
 
@@ -148,7 +148,13 @@ def _parse_member(data, want_triangles=True):
                 x, y, z = raw_attrs['x'], raw_attrs['y'], raw_attrs['z']
                 if not (x.isascii() and y.isascii() and z.isascii()):
                     raise _UnsupportedFastPath
-                vertex_buf.extend((float(x), float(y), float(z)))
+                try:
+                    vertex_buf.extend((float(x), float(y), float(z)))
+                except ValueError:
+                    # A coordinate outside the float grammar: decline the fast
+                    # path — the fallback reader converts only referenced meshes,
+                    # so an unused resource cannot block printable geometry.
+                    raise _UnsupportedFastPath from None
                 vertex_total += 1
                 if vertex_total > _MAX_VERTICES or (vertex_total + face_total) * 32 > _MAX_SOURCE_BUFFER_BYTES:
                     raise ValueError('3MF source geometry exceeds hard safety ceiling')
@@ -198,7 +204,10 @@ def _parse_member(data, want_triangles=True):
                     raise _UnsupportedFastPath
                 if not all(value.isascii() for value in values):
                     raise _UnsupportedFastPath
-                vertex_buf.extend(float(value) for value in values)
+                try:
+                    vertex_buf.extend(float(value) for value in values)
+                except ValueError:
+                    raise _UnsupportedFastPath from None
                 vertex_total += 1
                 if vertex_total > _MAX_VERTICES:
                     raise ValueError('3MF vertex count exceeds hard safety ceiling')
@@ -252,7 +261,10 @@ def _parse_member(data, want_triangles=True):
                     raise _UnsupportedFastPath
                 saw_mesh = True
                 mesh_active = True
-                vertex_buf, face_buf = array('f'), array('i')
+                # Vertices stay float64 until after component/build transforms:
+                # float32 collapses large-offset coordinates (100000000 vs
+                # 100000001) that a compensating translation must separate.
+                vertex_buf, face_buf = array('d'), array('i')
         stack.append((full_name, elem))
 
     def end(raw_name):
@@ -268,7 +280,7 @@ def _parse_member(data, want_triangles=True):
                 raise _UnsupportedFastPath
             if not len(vertex_buf) or (want_triangles and not len(face_buf)):
                 raise _UnsupportedFastPath
-            vertices = np.frombuffer(vertex_buf, dtype=np.float32).reshape((-1, 3))
+            vertices = np.frombuffer(vertex_buf, dtype=np.float64).reshape((-1, 3))
             triangles = np.frombuffer(face_buf, dtype=np.int32).reshape((-1, 3))
             if len(triangles) and (int(triangles.min()) < 0 or int(triangles.max()) >= len(vertices)):
                 raise _UnsupportedFastPath
