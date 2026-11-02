@@ -179,6 +179,29 @@ def client_for(fake):
     return PrusaLinkClient("printer.local", "test-key", opener=fake)
 
 
+def test_client_malformed_json_is_a_prusalink_error():
+    # A non-JSON answer (a captive portal, a different service on the
+    # host) must surface as a PrusaLinkError, not a raw JSONDecodeError
+    # escaping the client (P2-214).
+    class _RawBody:
+        def __init__(self, status, body):
+            self.status, self.headers, self._body = status, {}, body
+
+        def read(self):
+            return self._body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    client = PrusaLinkClient("printer.local", "test-key",
+                             opener=lambda req, timeout=None: _RawBody(200, b"<html>not json</html>"))
+    with pytest.raises(PrusaLinkError, match="malformed JSON"):
+        client.info()
+
+
 def test_client_status_snapshot_and_storage_choice():
     fake = FakePrusaLink()
     client = client_for(fake)
