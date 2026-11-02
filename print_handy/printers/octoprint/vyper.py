@@ -18,6 +18,7 @@ MODEL = PrinterModel(
     label="Anycubic Vyper (OctoPrint)",
     adapter=OctoPrintAdapter,
     templates="octoprint_vyper",
+    baseline="protected-settings-baseline.octoprint.vyper.json",
     vendor=VENDOR,
     supported_nozzle_sizes=(0.4,),
     settings={"printer": {

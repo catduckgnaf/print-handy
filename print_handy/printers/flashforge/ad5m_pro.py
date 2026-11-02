@@ -15,6 +15,7 @@ MODEL = PrinterModel(
     label="Flashforge AD5M Pro (ZMod)",
     adapter=ZmodSingleExtruderAdapter,
     templates="flashforge_ad5m_pro",
+    baseline="protected-settings-baseline.flashforge.ad5m_pro.json",
     supported_nozzle_sizes=(0.25, 0.4, 0.6, 0.8),
     supported_nozzle_types=("stainless_steel", "hardened_steel"),
     vendor=VENDOR,

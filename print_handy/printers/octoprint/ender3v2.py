@@ -16,6 +16,7 @@ MODEL = PrinterModel(
     label="Creality Ender-3 V2 (OctoPrint)",
     adapter=OctoPrintAdapter,
     templates="octoprint_ender3v2",
+    baseline="protected-settings-baseline.octoprint.ender3v2.json",
     supported_nozzle_sizes=(0.4,),
     vendor=VENDOR,
     settings={"printer": {

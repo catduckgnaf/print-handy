@@ -18,6 +18,7 @@ MODEL = PrinterModel(
     label="Anycubic Chiron (OctoPrint)",
     adapter=OctoPrintAdapter,
     templates="octoprint_chiron",
+    baseline="protected-settings-baseline.octoprint.chiron.json",
     vendor=VENDOR,
     supported_nozzle_sizes=(0.4,),
     settings={"printer": {

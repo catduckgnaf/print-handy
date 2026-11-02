@@ -14,6 +14,7 @@ MODEL = PrinterModel(
     label="Sovol SV03 (Marlin/OctoPrint)",
     adapter=OctoPrintAdapter,
     templates="sovol_marlin_sv03",
+    baseline="protected-settings-baseline.sovol_marlin.sv03.json",
     vendor=VENDOR,
     supported_nozzle_sizes=(0.2, 0.4, 0.6, 0.8),
     supported_nozzle_types=("brass", "hardened_steel", "ruby", "tungsten_carbide", "diamond"),

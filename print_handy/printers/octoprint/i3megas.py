@@ -18,6 +18,7 @@ MODEL = PrinterModel(
     label="Anycubic i3 Mega S (OctoPrint)",
     adapter=OctoPrintAdapter,
     templates="octoprint_i3megas",
+    baseline="protected-settings-baseline.octoprint.i3megas.json",
     vendor=VENDOR,
     supported_nozzle_sizes=(0.4,),
     settings={"printer": {

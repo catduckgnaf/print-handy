@@ -20,7 +20,7 @@
     "<out>/clones.stl"
   ],
   "baseline_is_shared_file": [
-    true
+    false
   ],
   "filament": {
     "additional_cooling_fan_speed": [
