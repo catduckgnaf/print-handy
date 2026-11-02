@@ -188,7 +188,8 @@ class DebugModeTests(unittest.TestCase):
         # re-exported by the next `off` (2.2.5 review).
         debug_mode.start(self.data, minutes=30, now=T0)
         out = []
-        with mock.patch.object(debug_mode.settings, "current", lambda: self.data),                 mock.patch("builtins.print",
+        with mock.patch.object(debug_mode.settings, "current", lambda: self.data), \
+                mock.patch("builtins.print",
                            lambda *a: out.append(" ".join(map(str, a)))):
             self.assertEqual(debug_mode.main(["off"]), 0)
             self.assertIn("Sanitized export:", out[-1])
