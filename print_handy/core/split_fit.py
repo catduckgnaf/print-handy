@@ -1088,7 +1088,17 @@ def split_plan_100(source, bed=None, height=None, exclusions=None, brim_policy=N
                 else:
                     shifts_by_plate.append(None)
     if len(result) <= 1:
-        return None
+        # A one-plate result is still a usable plan when it carries a
+        # polygon placement (shifts) or a turn (yaw) the authored layout
+        # does not have (P2-81, P2-83, P2-84): discarding it would drop the
+        # only full-size offer for exactly the sources those proofs exist
+        # for. A bare one-plate grouping adds nothing over the authored
+        # layout, and a one-plate result whose fit rests on a reorientation
+        # keeps the not-a-split rule the brim tests pin, so both stay
+        # no-plan.
+        carries_transform = (bool(yaw_by_object) or any(shifts_by_plate)) and not reorientation_by_object
+        if len(result) == 0 or not carries_transform:
+            return None
     plan = {'plates': result}
     if yaw_by_object:
         plan['yaw_by_object'] = yaw_by_object

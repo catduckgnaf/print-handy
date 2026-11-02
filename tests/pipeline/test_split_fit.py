@@ -636,6 +636,53 @@ def test_per_part_fit_brim_and_exclusion_compose(tmp_path):
                                     brim_policy=_BRIM_10, state=_BRIM_STATE) is None
 
 
+def test_split_plan_keeps_a_one_plate_polygon_merge(tmp_path):
+    # P2-81: the two complementary triangles on ONE authored plate polygon-
+    # pack into a single bin. The plan is the only full-size offer for the
+    # source; discarding it for having one plate dropped the offer entirely.
+    source = tmp_path / 'tri-one-plate.3mf'
+    _mesh_source(source, {'1': _tri_prism(_TRI_A), '2': _tri_prism(_TRI_B)}, [['1', '2']])
+    plan = split_fit.split_plan_100(source, 220)
+    assert plan is not None
+    assert plan['plates'] == [['1:1', '2:1']]
+    (shifts,) = plan['shifts_by_plate']
+    assert set(shifts) == {'1', '2'}
+
+
+def test_split_plan_keeps_a_shared_yaw_plan_that_collapses_to_one_plate(tmp_path):
+    # P2-83: two yaw-only bars pair at their shared yaw onto one plate.
+    source = tmp_path / 'shared-yaw.3mf'
+    _source(source, {'1': (210, 35, 20), '2': (210, 35, 20)}, [['1', '2']])
+    plan = split_fit.split_plan_100(source, 220)
+    assert plan is not None
+    assert plan['plates'] == [['1:1', '2:1']]
+    assert set(plan['yaw_by_object']) == {'1', '2'}
+    assert all(0 < yaw < 90 for yaw in plan['yaw_by_object'].values())
+    (shifts,) = plan['shifts_by_plate']
+    assert set(shifts) == {'1', '2'}
+
+
+def test_split_plan_keeps_the_plan_when_a_turned_part_joins_the_only_bin(tmp_path):
+    # P2-84: the turned bar joins the only authored bin; the shared polygon
+    # placement (yaw + shifts) is the plan, on one plate.
+    source = tmp_path / 'join-bin.3mf'
+    _source(source, {'1': (150, 40, 10), '2': (210, 35, 20)}, [['1', '2']])
+    plan = split_fit.split_plan_100(source, 220)
+    assert plan is not None
+    assert plan['plates'] == [['1:1', '2:1']]
+    assert set(plan['yaw_by_object']) == {'2'}
+    (shifts,) = plan['shifts_by_plate']
+    assert set(shifts) == {'1', '2'}
+
+
+def test_split_plan_bare_one_plate_grouping_stays_no_plan(tmp_path):
+    # No transform, no offer: a single part that already fits as authored
+    # gains nothing from a "split" plan.
+    source = tmp_path / 'single.3mf'
+    _source(source, {'1': (150, 150, 10)}, [['1']])
+    assert split_fit.split_plan_100(source, 220) is None
+
+
 # --- #221 P2: polygon (convex hull) bins on the split path -----------------
 # Complementary right triangles: each is 180 x 110 mm, so rectangle packing
 # cannot bin the pair (two 180 mm widths / 110 mm depths never shelf-pack
