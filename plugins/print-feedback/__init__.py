@@ -4587,6 +4587,17 @@ async def typed_answer_dispatch(event, gateway, **kwargs):
     from print_handy.core.link_intake import take_secret_reply
     if error == '' and take_secret_reply():  # a pasted login token: remove that message
         await _delete_secret_message(event, source, _adapter_for(gateway, source))
+    if error == '':
+        # A parser prompt resolved in the registry: retire its rendered
+        # question too (P2-209) — otherwise the message keeps offering
+        # buttons for a prompt that no longer exists. The own-registry
+        # branch above (answer_typed) already closes its prompt.
+        from print_handy.core.link_intake import take_resolved_prompt_id
+        resolved_id = take_resolved_prompt_id()
+        ui = _CLARIFY_UI
+        if resolved_id is not None and ui is not None:
+            from print_handy.bot.platform import answered_note
+            await ui.close_prompt(resolved_id, answered_note(getattr(event, 'text', '')))
     if error:
         adapter = _adapter_for(gateway, source)
         if adapter is not None:
