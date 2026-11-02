@@ -2,7 +2,7 @@
 
 # Unreleased
 
-Nothing yet.
+- Nozzle change safety (SAFE-1, P1-105): if a chat message or confirmation fails after the hotend has heated for a guided nozzle change, the flow now attempts to turn the heater off before the failure surfaces, instead of leaving the hotend at the 250 °C loosen temperature.
 
 # Version 2.2.4
 
