@@ -241,7 +241,9 @@ class CatalogTests(unittest.TestCase):
                 plan = go2rtc.transcode_plan(tuned)
                 config = go2rtc.render_config(go2rtc.resolve_source(tuned), transcode=plan)
                 self.assertIn("camera-live:", config)
-                self.assertIn("exec:ffmpeg", config)
+                # P2-262: the exec launches the configured paths.ffmpeg
+                # ("/nonexistent/ffmpeg" in this fixture).
+                self.assertIn("exec:/nonexistent/ffmpeg", config)
         default_config = go2rtc.render_config(
             go2rtc.resolve_source(data()), transcode=go2rtc.transcode_plan(data()))
         self.assertNotIn("camera-live", default_config)

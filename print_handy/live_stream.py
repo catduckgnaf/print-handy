@@ -650,7 +650,7 @@ def _positive_int(value, name):
 
 
 def build_ffmpeg_args(candidate, *, input_url, target_codec=None, max_height=720,
-                      fps=15, bitrate_kbps=2500, output="-") -> list:
+                      fps=15, bitrate_kbps=2500, output="-", executable="ffmpeg") -> list:
     """Pure ffmpeg argv for one chosen encoder candidate.
 
     Scales to `max_height` keeping aspect (width ``-2``, so it stays even),
@@ -660,6 +660,13 @@ def build_ffmpeg_args(candidate, *, input_url, target_codec=None, max_height=720
     ``format=nv12,hwupload`` tail on the scale filter (the analogous form
     for ``vp8_vaapi``); CPU H.264 uses ``libx264 -preset ultrafast`` and
     CPU VP8 uses ``libvpx -deadline realtime``.
+
+    The argv starts with `executable`: the caller passes the configured
+    ``paths.ffmpeg`` so the binary launched is the one that was selected
+    and probed (P2-262) — a bare ``"ffmpeg"`` could resolve to a
+    different binary, or to none when ffmpeg exists only at the
+    configured path. The default keeps the bare name for callers with
+    no configured path.
 
     Output decision: the argv ends with exactly the caller-supplied
     `output` argument and adds no muxer, RTP or transport flags — the
@@ -674,11 +681,13 @@ def build_ffmpeg_args(candidate, *, input_url, target_codec=None, max_height=720
         raise LiveStreamError("an input URL is required to build ffmpeg arguments")
     if not isinstance(output, str) or not output.strip():
         raise LiveStreamError("an output target is required to build ffmpeg arguments")
+    if not isinstance(executable, str) or not executable.strip():
+        raise LiveStreamError("an ffmpeg executable is required to build ffmpeg arguments")
     max_height = _positive_int(max_height, "max_height")
     fps = _positive_int(fps, "fps")
     bitrate_kbps = _positive_int(bitrate_kbps, "bitrate_kbps")
 
-    argv = ["ffmpeg", "-hide_banner", "-nostdin"]
+    argv = [executable, "-hide_banner", "-nostdin"]
     if chosen.vendor == "vaapi":
         argv += ["-vaapi_device", VAAPI_DEVICE]
     argv += ["-i", input_url, "-an"]
