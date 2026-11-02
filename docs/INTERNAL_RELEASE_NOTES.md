@@ -2,7 +2,7 @@
 
 # Unreleased
 
-Nothing yet.
+- The Bambu print-watch monitor now posts a text alert when a camera snapshot fails, instead of only logging it (#765).
 
 # Version 2.2.4
 
