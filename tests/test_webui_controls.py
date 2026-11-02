@@ -253,6 +253,74 @@ class TemperatureTests(unittest.TestCase):
         self.assertIn("outside", body["reason"])
         self.assertEqual(adapter.calls, [])
 
+    def _hardware_record(self, tmp, record):
+        """Point printer_state at a tmp state root holding ``record`` for PRINTER."""
+        from unittest import mock
+
+        from print_handy.core import printer_state
+        state = Path(tmp) / "state" / "printer_hardware.json"
+        if record is not None:
+            target = state.parent / "printers" / PRINTER / "printer_hardware.json"
+            target.parent.mkdir(parents=True)
+            target.write_text(json.dumps(record))
+        return mock.patch.object(printer_state, "STATE", str(state))
+
+    def test_recorded_nozzle_type_wins_over_config(self):
+        # P1-125: config says hardened steel (450 C), but the fitted nozzle
+        # recorded by /nozzle change is stainless steel (300 C). A 340 C
+        # target must be refused; the recorded 300 C cap is the limit.
+        adapter = FakeFamilyAdapter(facts={"max_hotend_c": 350, "max_bed_c": 110})
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = enabled(tmp)
+            view = settings.view_for(PRINTER, data)
+            view["printer"]["nozzle_type"] = "hardened_steel"
+            record = {"printer": "Test", "nozzle": {"diameter_mm": 0.4,
+                                                     "type": "stainless_steel"}}
+            with self._hardware_record(tmp, record):
+                self.assertEqual(controls.temperature_limit(adapter, view, "nozzle",
+                                                            printer_id=PRINTER), 300)
+                code, body = controls.set_temperature(data, PRINTER,
+                                                      {"heater": "nozzle", "target": 340},
+                                                      adapter=adapter, read=reads("idle"),
+                                                      send=send)
+                self.assertEqual(code, 400)
+                self.assertIn("outside 0..300", body["reason"])
+                code, _ = controls.set_temperature(data, PRINTER,
+                                                   {"heater": "nozzle", "target": 300},
+                                                   adapter=adapter, read=reads("idle"),
+                                                   send=send)
+                self.assertEqual(code, 200)
+        self.assertEqual(send.sent, [("temperature", "nozzle", 300.0)])
+
+    def test_no_hardware_record_keeps_config_limit(self):
+        # No record at all: the configured nozzle type decides, unchanged.
+        adapter = FakeFamilyAdapter(facts={"max_hotend_c": 350, "max_bed_c": 110})
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = enabled(tmp)
+            view = settings.view_for(PRINTER, data)
+            view["printer"]["nozzle_type"] = "hardened_steel"
+            with self._hardware_record(tmp, None):
+                self.assertEqual(controls.temperature_limit(adapter, view, "nozzle",
+                                                            printer_id=PRINTER), 350)
+                code, _ = controls.set_temperature(data, PRINTER,
+                                                    {"heater": "nozzle", "target": 340},
+                                                    adapter=adapter, read=reads("idle"),
+                                                    send=send)
+                self.assertEqual(code, 200)
+        self.assertEqual(send.sent, [("temperature", "nozzle", 340.0)])
+
+    def test_record_without_a_type_keeps_config_limit(self):
+        adapter = FakeFamilyAdapter(facts={"max_hotend_c": 350, "max_bed_c": 110})
+        with tempfile.TemporaryDirectory() as tmp:
+            data = enabled(tmp)
+            view = settings.view_for(PRINTER, data)
+            view["printer"]["nozzle_type"] = "hardened_steel"
+            with self._hardware_record(tmp, {"printer": "Test", "nozzle": {}}):
+                self.assertEqual(controls.temperature_limit(adapter, view, "nozzle",
+                                                            printer_id=PRINTER), 350)
+
     def test_family_adapter_temperature_and_bed_fact(self):
         adapter = FakeFamilyAdapter()
         with tempfile.TemporaryDirectory() as tmp:
