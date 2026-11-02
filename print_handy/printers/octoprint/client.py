@@ -86,10 +86,19 @@ class OctoPrintClient:
         return movies if isinstance(movies, list) else []
 
     def download(self, path):
-        """Raw bytes of a server-relative path (e.g. a movie's url)."""
+        """Raw bytes of a server-relative path (e.g. a movie's url).
+
+        The path is one the server itself returned, so it already carries
+        any URL prefix the instance is hosted under (P2-148): resolve it
+        against the configured URL's origin, not the API base — appending
+        it to the base would double the prefix. API requests in request()
+        are Print Handy-constructed and keep using the full base.
+        """
         if not isinstance(path, str) or not path.startswith('/') or path.startswith('//'):
             raise OctoPrintError('OctoPrint download path must be server-relative')
-        req = Request(self.url + path, method='GET', headers={'X-Api-Key': self.api_key})
+        parts = urlsplit(self.url)
+        req = Request(f'{parts.scheme}://{parts.netloc}' + path, method='GET',
+                      headers={'X-Api-Key': self.api_key})
         try:
             with self.opener(req, timeout=120) as response:
                 return response.read()
