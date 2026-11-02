@@ -199,6 +199,36 @@ def test_shutdown_stops_every_running_worker(fake):
     assert _wait_gone(fake.pids(), 0.5) == []
 
 
+def test_queued_worker_is_rejected_once_shutdown_begins(tmp_path):
+    """A run queued on a full lane must not spawn once shutdown() has begun:
+    stopping the running worker frees its slot, and the queued run used to
+    start a brand-new process that nothing stopped (P2-51, P2-54)."""
+    from print_handy.core import owned_worker
+    lane = owned_worker.Lane('test lane', slots=1, waiting=4)
+    marker = tmp_path / 'started.txt'
+    script = "import time\nopen(%r, 'a').write('start\\n')\ntime.sleep(10)\n" % str(marker)
+
+    async def run():
+        first = asyncio.ensure_future(owned_worker.run(
+            [sys.executable, '-c', script], b'', label='first step', lane=lane))
+        for _ in range(200):
+            if marker.exists():
+                break
+            await asyncio.sleep(0.025)
+        assert marker.exists()
+        second = asyncio.ensure_future(owned_worker.run(
+            [sys.executable, '-c', script], b'', label='second step', lane=lane))
+        await asyncio.sleep(0.3)  # the second run is now queued on the lane
+        await owned_worker.shutdown()
+        return await asyncio.gather(first, second, return_exceptions=True)
+
+    results = asyncio.run(asyncio.wait_for(run(), 15))
+    assert isinstance(results[0], owned_worker.WorkerError) and 'shutting down' in str(results[0])
+    assert isinstance(results[1], owned_worker.WorkerError) and 'shutting down' in str(results[1])
+    assert marker.read_text().splitlines() == ['start']  # the queued worker never spawned
+    assert not owned_worker._LIVE
+
+
 def test_worker_output_is_size_limited(fake):
     fake.mode('flood')
     fake.limits(OUTPUT_LIMIT=1 << 20, GRACE_S=0.3)

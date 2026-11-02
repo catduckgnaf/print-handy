@@ -71,6 +71,19 @@ GENERAL = Lane('model check', slots=2, waiting=8)
 
 _LIVE = {}  # pid -> process, for shutdown()
 _SHUTTING_DOWN = set()
+# Event loops on which shutdown() has begun. Admission closes with shutdown:
+# stopping the running workers frees lane slots, and a queued run must not
+# spend a freed slot on a new process nothing will stop (P2-51, P2-54).
+_CLOSED = weakref.WeakKeyDictionary()
+
+
+def _admission_closed():
+    """True once shutdown() has begun on this event loop."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    return bool(_CLOSED.get(loop))
 
 
 def _members(pgid):
@@ -180,6 +193,8 @@ def _write_record(path, data):
 async def run(argv, payload, *, label, lane, cwd=None, record=None):
     """Run argv with payload on stdin; return (stdout, stderr). Raises WorkerError when stopped early."""
     async with lane.slot():
+        if _admission_closed():
+            raise WorkerError(f'{label} was not started because Print Handy is shutting down')
         try:
             proc = await asyncio.create_subprocess_exec(
                 *argv, cwd=cwd, start_new_session=True, env=resources.child_env(),
@@ -193,6 +208,12 @@ async def run(argv, payload, *, label, lane, cwd=None, record=None):
         _LIVE[proc.pid] = proc
         how, started = None, time.time()
         try:
+            if _admission_closed():
+                # shutdown() began while this process was spawning, after its
+                # snapshot was taken: stop the newcomer here instead.
+                how = await _stop_through_cancel(proc)
+                raise WorkerError(f'{label} was interrupted because Print Handy is shutting down; '
+                                  'nothing from it was kept')
             if record is not None:
                 _write_record(record, {'state': 'running', 'step': label, 'started_at': started,
                                        'worker_pid': proc.pid, 'owner': _OWNER})
@@ -229,7 +250,10 @@ async def run(argv, payload, *, label, lane, cwd=None, record=None):
 
 
 async def shutdown():
-    """Stop every running worker. Their callers raise WorkerError instead of returning a result."""
+    """Stop every running worker and close admission, so a queued run cannot
+    start a new worker afterwards. Running workers' callers raise WorkerError
+    instead of returning a result."""
+    _CLOSED[asyncio.get_running_loop()] = True
     procs = list(_LIVE.values())
     _SHUTTING_DOWN.update(p.pid for p in procs)
     await asyncio.gather(*(stop(p) for p in procs), return_exceptions=True)
