@@ -995,6 +995,13 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
             else:  # edit
                 if link_url:
                     instruction = instruction.replace(link_url, '').strip(" \t—–-:,.")
+                if file_path and link_url:
+                    # An attached model wins over a link in the same message
+                    # (P2-156): the operator supplied the exact source to
+                    # edit, while fetching the link would silently edit the
+                    # downloaded version instead (e.g. an edited .scad
+                    # attached alongside its original model link).
+                    link_url = None
                 if session:
                     engine.cancel(session)  # a fresh design supersedes the old session
                 description = instruction or f"Edit {(file_path.name if file_path else 'the linked model')}"

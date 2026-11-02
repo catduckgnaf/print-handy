@@ -748,3 +748,31 @@ def test_second_message_during_a_turn_is_refused_not_run_concurrently(design_env
             assert len(calls) == 2
 
     asyncio.run(scenario())
+
+
+def test_attached_model_wins_over_link_in_the_same_message(design_env, tmp_path):
+    """A message carrying both an attached model and a model link must edit
+    the attachment — the exact source the operator supplied — not fetch the
+    link and edit the downloaded version (P2-156)."""
+    attached = _plate_stl(tmp_path, "attached.stl")
+    calls = []
+
+    def fake_start_edit(self, owner, chat_id, description, source_path=None, **kwargs):
+        calls.append((source_path, kwargs.get("link_url")))
+        raise RuntimeError("stop after routing")
+
+    fetched = []
+    adapter = FakeAdapter()
+    with mock.patch.object(design.DesignEngine, "start_edit_session", fake_start_edit), \
+            mock.patch.object(plugin, "_fetch_design_link",
+                              side_effect=lambda url, folder: fetched.append(url)):
+        out = _dispatch_event(
+            _media_event("redesign this https://www.printables.com/model/9-x — double the height",
+                         attached),
+            adapter, scripted([EDIT_BODY]), design.CANCEL_LABEL)
+    assert out["reason"] == "design turn failed"  # stopped by the sentinel above
+    assert fetched == []  # the link was never fetched
+    assert len(calls) == 1
+    source_path, link_url = calls[0]
+    assert source_path is not None and Path(source_path).name == "attached.stl"
+    assert link_url is None
