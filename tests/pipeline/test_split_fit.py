@@ -347,6 +347,56 @@ def test_split_plan_on_an_exclusion_bed_still_blocks_without_a_placement(tmp_pat
     assert split_fit.split_plan_100(source, 220, exclusions=[(0, 0, 18, 28)]) is None
 
 
+# The Qidi X-Plus 4 exclusion chain, as recorded in qidi/facts.py: one polygon
+# list tracing two disjoint zones (a top-left strip and a bottom-right strip),
+# joined by zero-area runs along the bed edges.
+_XPLUS4_EXCLUSION = ((0, 305), (0, 302), (35, 302), (35, 305), (305, 305), (305, 305),
+                     (305, 305), (305, 20), (293, 20), (293, 0), (305, 0), (305, 20),
+                     (305, 305))
+
+
+def test_exclusion_rectangles_split_disjoint_zones_instead_of_the_bounding_box():
+    # P2-193: collapsing the X-Plus 4 chain to its bounding rectangle excludes
+    # the whole 305 mm bed; the decomposition must keep only the two zones.
+    zones = split_fit._exclusion_rectangles(_XPLUS4_EXCLUSION)
+    assert sorted(zones) == [(0.0, 302.0, 35.0, 305.0), (293.0, 0.0, 305.0, 20.0)]
+    # A single rectangle polygon stays the one rectangle it declares.
+    assert split_fit._exclusion_rectangles(((0, 0), (18, 0), (18, 28), (0, 28))) == [
+        (0.0, 0.0, 18.0, 28.0)]
+    # The Qidi Q1 Pro chain traces two back-edge strips the same way.
+    q1pro = ((25, 245), (25, 240), (115, 240), (115, 245), (208, 245), (208, 240),
+             (245, 240), (245, 245), (208, 245))
+    assert sorted(split_fit._exclusion_rectangles(q1pro)) == [
+        (25.0, 240.0, 115.0, 245.0), (208.0, 240.0, 245.0, 245.0)]
+    # A polygon with a diagonal edge keeps the conservative bounding rectangle.
+    assert split_fit._exclusion_rectangles(((0, 0), (10, 0), (0, 10))) == [(0.0, 0.0, 10.0, 10.0)]
+    assert split_fit._exclusion_rectangles(()) == []
+
+
+def test_declared_exclusions_for_the_xplus4_are_its_two_zones(monkeypatch):
+    from print_handy import settings as settings_module
+    monkeypatch.setattr(settings_module, 'current',
+                        lambda: {'printer': {'model': 'qidi.xplus4'}})
+    zones = split_fit._declared_exclusions()
+    assert sorted(zones) == [(0.0, 302.0, 35.0, 305.0), (293.0, 0.0, 305.0, 20.0)]
+
+
+def test_per_part_fit_fits_a_small_part_on_the_xplus4_bed(tmp_path):
+    # P2-193's example: even a 10 x 10 mm part was rejected on the X-Plus 4
+    # because the collapsed exclusion covered the whole bed.
+    source = tmp_path / 'small.3mf'
+    _mesh_source(source, {'1': _rect_points(10, 10, 10)}, [['1']])
+    zones = split_fit._exclusion_rectangles(_XPLUS4_EXCLUSION)
+    (row,) = split_fit.per_part_fit(source, 305, exclusions=zones)
+    assert row['fits_full_size'] is True
+    px, py = row['placement_mm']
+    for x0, y0, x1, y1 in zones:
+        assert px + 10 <= x0 or px >= x1 or py + 10 <= y0 or py >= y1
+    # Against the old whole-bed bounding rectangle the same part cannot fit.
+    (blocked,) = split_fit.per_part_fit(source, 305, exclusions=[(0, 0, 305, 305)])
+    assert blocked['fits_full_size'] is False
+
+
 def test_fit_choice_rows_carry_the_split_placement():
     from print_handy.core.prepared_intake import fit_choice_rows
     rows = fit_choice_rows({'scales': [], 'rotations': [],

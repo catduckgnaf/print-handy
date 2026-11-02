@@ -230,13 +230,53 @@ def best_yaw(width, depth, usable_x, usable_y):
     return best[1], best[2]
 
 
+def _exclusion_rectangles(polygon):
+    """Rectangles (x0, y0, x1, y1) covering exactly the area an exclusion polygon covers.
+
+    A model's ``bed_exclude_area`` is one polygon chain, but a chain can trace
+    several disjoint zones: the Qidi chains walk two separate strips in one
+    list, joined by zero-area runs along the bed edges. Collapsing such a
+    chain to its bounding rectangle would exclude the whole bed (the X-Plus 4
+    chain spans (0, 0) to (305, 305)), so the polygon is decomposed instead:
+    the elementary grid cells between consecutive vertex coordinates lie
+    wholly inside or wholly outside an axis-aligned polygon, tested at each
+    cell's center, and the inside cells — merged along each row band — are
+    the zones. A polygon with a diagonal edge cannot be decomposed this way
+    and keeps the conservative bounding rectangle.
+    """
+    from . import slice_guard
+    points = [(float(point[0]), float(point[1])) for point in polygon]
+    if len(points) < 3:
+        return []
+    edges = list(zip(points, points[1:] + points[:1]))
+    if any(x0 != x1 and y0 != y1 for (x0, y0), (x1, y1) in edges):
+        xs = [point[0] for point in points]
+        ys = [point[1] for point in points]
+        return [(min(xs), min(ys), max(xs), max(ys))]
+    xs = sorted({point[0] for point in points})
+    ys = sorted({point[1] for point in points})
+    rects = []
+    for y0, y1 in zip(ys, ys[1:]):
+        run_start = None
+        for x0, x1 in zip(xs, xs[1:]):
+            inside = slice_guard._point_in_polygon((x0 + x1) / 2, (y0 + y1) / 2, points)
+            if inside and run_start is None:
+                run_start = x0
+            elif not inside and run_start is not None:
+                rects.append((run_start, y0, x0, y1))
+                run_start = None
+        if run_start is not None:
+            rects.append((run_start, y0, xs[-1], y1))
+    return rects
+
+
 def _declared_exclusions():
     """Bed exclusion rectangles (x0, y0, x1, y1) declared by the current printer model.
 
     Read from the model adapter's sourced facts (``bed_exclude_area``, a
-    polygon in bed coordinates); the rectangle used is the polygon's bounding
-    rectangle, which is conservative. Models that declare none — and any
-    lookup problem — mean no exclusions.
+    polygon in bed coordinates) and decomposed into the disjoint zones the
+    polygon actually covers (see :func:`_exclusion_rectangles`). Models that
+    declare none — and any lookup problem — mean no exclusions.
     """
     try:
         from .. import printers
@@ -246,9 +286,7 @@ def _declared_exclusions():
         polygon = list(getattr(facts.get('bed_exclude_area'), 'value', None) or ())
         if not polygon:
             return []
-        xs = [float(point[0]) for point in polygon]
-        ys = [float(point[1]) for point in polygon]
-        return [(min(xs), min(ys), max(xs), max(ys))]
+        return _exclusion_rectangles(polygon)
     except Exception:
         return []
 
