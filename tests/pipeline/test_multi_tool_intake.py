@@ -492,7 +492,7 @@ def xl_state():
     return state
 
 
-def xl_capture(source_file, decisions, state, tmp_path, monkeypatch):
+def xl_capture(source_file, decisions, state, tmp_path, monkeypatch, **slice_kwargs):
     """slice_model against the XL adapter with a stubbed Orca (slice_capture's XL twin)."""
     import shutil
     from print_handy.core import slice_guard
@@ -528,7 +528,7 @@ def xl_capture(source_file, decisions, state, tmp_path, monkeypatch):
     monkeypatch.setattr(orca_adapter.subprocess, 'run', run)
     folder = tmp_path / 'slice'
     output, provenance, configs = orca_adapter.slice_model(
-        source_file, folder, state, adapter=adapter, color_decisions=decisions)
+        source_file, folder, state, adapter=adapter, color_decisions=decisions, **slice_kwargs)
     return output, provenance, configs, calls, folder, adapter
 
 
@@ -718,3 +718,12 @@ def test_slice_single_colour_decisions_on_an_stl_keep_the_plain_path(tmp_path, m
         src, tmp_path / 'slice', tool_state(), adapter=adapter, color_decisions=decisions)
     assert Path(output).exists()
     assert provenance['tool_mapping'] is None  # no identity export for an STL
+
+
+def test_slice_single_colour_toolhead_pick_rotation_refusal_names_the_real_reason(tmp_path, monkeypatch):
+    # 2.2.5 review: the identity path refuses a whole-model rotation, and the message must not call
+    # this whole-model single-colour slice "only supported for whole-model single-color slicing".
+    state = xl_state()
+    with pytest.raises(ValueError, match="slices a 3MF on a multi-tool printer's toolhead"):
+        xl_capture(CASES / 'four-colors-one-plate' / 'model.3mf', single_colour_decisions(4, state),
+                   state, tmp_path, monkeypatch, rotation=[0, -1, 0, 1, 0, 0, 0, 0, 1])

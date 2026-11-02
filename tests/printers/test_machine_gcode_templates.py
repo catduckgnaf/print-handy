@@ -67,6 +67,8 @@ def test_marlin_template_layer_change_resets_relative_extruder(folder):
     template = machine(folder)
     assert str(template.get("use_relative_e_distances")) == "1", folder
     assert "G92 E0" in template["layer_change_gcode"].splitlines(), folder
+    # 2.2.5 review: SET_PRINT_STATS_INFO is a Klipper macro; Marlin answers "Unknown command" every layer.
+    assert "SET_PRINT_STATS_INFO" not in template["layer_change_gcode"], folder
 
 
 def test_stock_ad5x_has_its_own_template_not_the_zmod_one():

@@ -90,17 +90,24 @@ def _rekey_adopted_db(target, printer_id):
         tables = {row[0] for row in con.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}
         with con:
+            survivor = None
             if "leases" in tables:
                 stale = con.execute(
-                    "SELECT rowid FROM leases ORDER BY updated_at DESC").fetchall()
-                for (rowid,) in stale[1:]:
+                    "SELECT rowid, printer FROM leases ORDER BY updated_at DESC").fetchall()
+                survivor = stale[0][1] if stale else None
+                for (rowid, _key) in stale[1:]:
                     con.execute("DELETE FROM leases WHERE rowid=?", (rowid,))
                 con.execute("UPDATE leases SET printer=? WHERE printer!=?",
                             (printer_id, printer_id))
             if "lease_baselines" in tables:
-                stale = con.execute("SELECT rowid FROM lease_baselines").fetchall()
-                for (rowid,) in stale[1:]:
-                    con.execute("DELETE FROM lease_baselines WHERE rowid=?", (rowid,))
+                # The baseline that goes with the surviving lease, not just the first row: a
+                # baseline from another legacy key would let a run it predates confirm it (2.2.5 review).
+                stale = con.execute("SELECT rowid, printer FROM lease_baselines").fetchall()
+                keep = next((rowid for (rowid, key) in stale if key == survivor),
+                            stale[0][0] if stale else None)
+                for (rowid, _key) in stale:
+                    if rowid != keep:
+                        con.execute("DELETE FROM lease_baselines WHERE rowid=?", (rowid,))
                 con.execute("UPDATE lease_baselines SET printer=? WHERE printer!=?",
                             (printer_id, printer_id))
     finally:
@@ -311,10 +318,13 @@ class Lease:
             # this submission, so none of them can later confirm it. Capturing
             # here (not at acquire) keeps pre-submission refusal paths free of
             # history reads they never needed.
+            # Read the history before the write transaction opens: BEGIN IMMEDIATE must not be held
+            # across a Moonraker request (2.2.5 review).
+            baseline = json.dumps(_capture_baseline(self._history_source))
             with transaction(self.printer) as con:
                 con.execute("INSERT INTO lease_baselines VALUES (?,?) "
                             "ON CONFLICT(printer) DO UPDATE SET baseline=excluded.baseline",
-                            (self.printer, json.dumps(_capture_baseline(self._history_source))))
+                            (self.printer, baseline))
 
 
     def uncertain(self, detail):

@@ -865,3 +865,55 @@ def test_adopted_legacy_lease_is_rekeyed_to_the_roster_id(tmp_path, monkeypatch)
     with launch_state.transaction(printer_id) as adopted:
         baselines = [dict(r) for r in adopted.execute("SELECT * FROM lease_baselines")]
     assert [r["printer"] for r in baselines] == [printer_id]
+
+
+def test_adopted_legacy_rekey_keeps_the_baseline_of_the_surviving_lease(tmp_path, monkeypatch):
+    """2.2.5 review: with several legacy keys the surviving baseline must be the surviving
+    lease's own, not whichever baseline row came first."""
+    monkeypatch.delenv("PRINT_HANDY_LAUNCH_DB", raising=False)
+    state = tmp_path / "state"
+    state.mkdir()
+    monkeypatch.setattr(settings, "state_dir", lambda data=None: state)
+    printer_id = settings.default_printer_id()
+    legacy = state / "print_handy_launches.sqlite3"
+    con = sqlite3.connect(legacy)
+    for statement in launch_state.SCHEMA:
+        con.execute(statement)
+    for key, stamp in (("old-key", "2026-01-01T00:00:00+0000"), ("new-key", "2026-02-01T00:00:00+0000")):
+        con.execute(
+            "INSERT INTO leases (printer, token, phase, job_json, gcode_sha256, remote, pid, host,"
+            " leased_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (key, "tok-" + key, "uncertain", "/jobs/JOB.json", "sha", "x.gcode", 1, "h", stamp, stamp))
+        con.execute("INSERT INTO lease_baselines (printer, baseline) VALUES (?,?)", (key, '["%s"]' % key))
+    con.commit()
+    con.close()
+    rows = launch_state.pending(printer_id)
+    assert [r["token"] for r in rows] == ["tok-new-key"]
+    with launch_state.transaction(printer_id) as adopted:
+        baselines = [dict(r) for r in adopted.execute("SELECT * FROM lease_baselines")]
+    assert baselines == [{"printer": printer_id, "baseline": '["new-key"]'}]
+
+
+def test_submitting_reads_history_outside_the_write_transaction():
+    """2.2.5 review: the baseline's history read (a Moonraker request) must not run while
+    BEGIN IMMEDIATE holds the printer's SQLite write lock."""
+    key = "printer-submitting-lock"
+    probed = []
+
+    def history():
+        con = sqlite3.connect(launch_state.db_path(key), timeout=0.2, isolation_level=None)
+        try:
+            con.execute("BEGIN IMMEDIATE")
+            con.execute("ROLLBACK")
+            probed.append("free")
+        except sqlite3.OperationalError:
+            probed.append("locked")
+        finally:
+            con.close()
+        return []
+
+    lease = launch_state.acquire(key, job_json="/archive/lock/JOB.json", gcode_sha256="b" * 64,
+                                 remote="Lock_plate_1.gcode", started_files=history)
+    probed.clear()
+    lease.submitting()
+    assert probed == ["free"]
