@@ -1570,7 +1570,8 @@ def validate(data):
         raise SettingsError("[visual_watch] enabled must be true or false")
     data["visual_watch"]["enabled"] = enabled
     level = data["visual_watch"]["sensitivity"]
-    if isinstance(level, bool) or not isinstance(level, (int, float)) or level != int(level) or not 1 <= level <= 5:
+    if isinstance(level, bool) or not isinstance(level, (int, float)) or not math.isfinite(level) \
+            or level != int(level) or not 1 <= level <= 5:
         raise SettingsError(f"[visual_watch] sensitivity must be a whole number from 1 to 5, got {level!r}")
     data["visual_watch"]["sensitivity"] = int(level)
     for key in ("question_timeout_s", "safety_confirm_timeout_s", "upload_wait_s", "cold_pull_outcome_s"):

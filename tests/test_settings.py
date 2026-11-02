@@ -596,6 +596,17 @@ class RuntimeSettingsTests(unittest.TestCase):
             with self.assertRaisesRegex(settings.SettingsError, "1 to 5"):
                 settings.load(local=local, environ={})
 
+    def test_visual_watch_sensitivity_non_finite_is_a_settings_error(self):
+        # int(nan) raises ValueError and int(inf) OverflowError; neither may
+        # escape as a raw crash instead of the named SettingsError (P2-15).
+        with tempfile.TemporaryDirectory() as tmp:
+            local = Path(tmp) / "local.toml"
+            for bad in ("nan", "inf", "-inf"):
+                with self.subTest(value=bad):
+                    local.write_text(f"[visual_watch]\nsensitivity = {bad}\n")
+                    with self.assertRaisesRegex(settings.SettingsError, "1 to 5"):
+                        settings.load(local=local, environ={})
+
     def test_env_typos_and_bad_numbers_fail(self):
         for env, message in [({"PRINT_HANDY__LISTENER__TICKS": "5"}, "unknown setting"),
                              ({"SPOOL_NAG_SECONDS": "ten"}, "should be a number"),
