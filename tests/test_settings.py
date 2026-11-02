@@ -861,3 +861,22 @@ def test_user_settings_file_layers_over_shipped_config_and_survives_image_config
     user.write_text("webui:\n  prot: 1\n")
     with pytest.raises(settings.SettingsError, match="prot"):
         settings.load(environ=env)
+
+
+def test_user_file_roster_replaces_the_shipped_docker_printer(tmp_path):
+    """Codex on #783: a roster in the operator's own file, with PRINT_HANDY_CONFIG still the image's shipped
+    docker config, loads instead of being refused as a mixed shape: that file's legacy printer is a default
+    the roster replaces. The same legacy key in a config file the operator chose still conflicts with it."""
+    home = tmp_path / "home"
+    user = home / ".config" / "print-handy" / "settings.yaml"
+    user.parent.mkdir(parents=True)
+    user.write_text("printers:\n  - id: workshop-ad5x\n    model: flashforge.ad5x\n"
+                    "    moonraker_url: http://192.168.1.61:7125\n")
+    for shipped in sorted(settings.SHIPPED_DOCKER_CONFIGS):
+        data = settings.load(environ={"PRINT_HANDY_CONFIG": str(shipped), "HOME": str(home)})
+        assert [entry["id"] for entry in data["printers"]] == ["workshop-ad5x"], shipped
+        assert data["printers"][0]["model"] == "flashforge.ad5x"
+    mine = tmp_path / "mine.yaml"
+    mine.write_text("printer:\n  model: klipper.generic\n")
+    with pytest.raises(settings.SettingsError, match=r"\[printer\] model"):
+        settings.load(environ={"PRINT_HANDY_CONFIG": str(mine), "HOME": str(home)})

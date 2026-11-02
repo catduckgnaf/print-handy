@@ -15,14 +15,14 @@ from __future__ import annotations
 
 from .catalog import (CATALOG, KINDS, Field, choice_label, choices_for,
                       config_page_visible, field_by_id)
-from .config import (DEFAULT, ENVIRONMENT, HOME_CONFIG, MODEL_DEFAULT, SETTINGS_FILE,
+from .config import (DEFAULT, ENVIRONMENT, HOME_CONFIG, MODEL_DEFAULT, SETTINGS_FILE, USER_FILE,
                      FieldValue, WebUIConfigError, read_field, read_fields,
                      settings_file_path, write_changes)
 
 __all__ = [
     "CATALOG", "KINDS", "Field", "choice_label", "choices_for",
     "config_page_visible", "field_by_id",
-    "DEFAULT", "ENVIRONMENT", "HOME_CONFIG", "MODEL_DEFAULT", "SETTINGS_FILE",
+    "DEFAULT", "ENVIRONMENT", "HOME_CONFIG", "MODEL_DEFAULT", "SETTINGS_FILE", "USER_FILE",
     "FieldValue", "WebUIConfigError", "read_field", "read_fields",
     "settings_file_path", "write_changes",
 ]

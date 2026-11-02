@@ -1664,13 +1664,16 @@ def load(home=None, local=None, environ=None, user=None):
     elif user and not Path(user).is_file():
         raise SettingsError(f"user settings file is missing: {user}")
     user_extra = _apply_key_aliases(_read(user)) if user else {}
+    shipped = bool(local) and Path(local).resolve() in SHIPPED_DOCKER_CONFIGS
+    operator = _merge({} if shipped else extra, user_extra)
     extra = _merge(extra, user_extra)
     declared = _merge(home_data, extra).get("printers")
     if declared is not None:
         # A declared roster replaces the legacy per-printer locations; setting both is refused
         # with the offenders named (#333). Only the operator's layers are checked: home.yaml's
-        # own legacy values are the defaults base, not a second roster.
-        _check_mixed_shape(extra, environ)
+        # own legacy values are the defaults base, not a second roster, and so are the image's
+        # shipped docker config's when the roster comes from the operator's own file.
+        _check_mixed_shape(operator, environ)
     def pick(name):
         return (environ.get(f"PRINT_HANDY__PRINTER__{name.upper()}") or extra.get("printer", {}).get(name)
                 or home_data.get("printer", {}).get(name))
@@ -1683,7 +1686,6 @@ def load(home=None, local=None, environ=None, user=None):
     data = _merge(printer_registry.MODELS[key].defaults(), home_data)
     base = copy.deepcopy(data)
     global _model_defaulted
-    shipped = bool(local) and Path(local).resolve() in SHIPPED_DOCKER_CONFIGS
     _model_defaulted = bool(shipped and first is None and not environ.get("PRINT_HANDY__PRINTER__MODEL")
                             and not environ.get("PRINT_HANDY__PRINTER__VENDOR")
                             and not user_extra.get("printer", {}).get("model"))
