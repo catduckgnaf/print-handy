@@ -64,7 +64,7 @@ TIMELAPSE_PLAN_MARKER = plan_timelapse.PLAN_MARKER
 BASE = _config.moonraker_url()
 SPOOLMAN_BASE = _config.service_url("spoolman_url")
 API_KEY = os.environ.get("MOONRAKER_API_KEY", "")
-STATE_PATH = _config.state_file("MOONRAKER_ANNOUNCEMENT_STATE", "moonraker_discord_announcements.json")
+STATE_PATH = _config.state_file("MOONRAKER_ANNOUNCEMENT_STATE", "moonraker_discord_announcements.json", per_instance=True)
 MEDIA_DIR = _config.cache_dir() / "moonraker-announcements"
 # Remote timelapse archive over ssh. An empty host turns the archive (and the posted video) off.
 # The ssh login comes from ~/.ssh/config for that host. Some NAS hosts drop scp, so transfers stream over ssh.

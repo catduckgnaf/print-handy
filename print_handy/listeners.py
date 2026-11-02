@@ -52,6 +52,7 @@ import runpy
 import sys
 from dataclasses import dataclass
 
+from . import instance as _instance
 from .printers import base as _printer_base
 
 IMPLEMENTED = "implemented"
@@ -162,17 +163,19 @@ def validate_status(status):
 # one printer for its whole life; the healthcheck resolves heartbeat
 # ownership through here when no explicit printer is named. None in every
 # other process (the bot, one-shot tools, the legacy no-selector launch).
-_instance_printer_id = None
+# The value itself lives in print_handy.instance: this module is executed
+# as __main__ by the supervisor, and a __main__ module's globals are not
+# the canonical module's — storing the identity here left every importer
+# of print_handy.listeners reading None (P1-81).
 
 
 def instance_printer_id():
     """The roster id of the printer this process listens for, or None."""
-    return _instance_printer_id
+    return _instance.printer_id()
 
 
 def _set_instance_printer_id(printer_id):
-    global _instance_printer_id
-    _instance_printer_id = printer_id
+    _instance.set_printer_id(printer_id)
 
 
 def _instance_view(printer_id, data):

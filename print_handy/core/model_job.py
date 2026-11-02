@@ -3055,14 +3055,17 @@ def _recorded_printer_id(job):
 def _start_family_monitor(watch, adapter, remote, job):
     """Start a family's launched-print monitor for a just-started print.
 
-    The job's recorded printer_id rides along so the monitor's pause
-    alerts act on that printer (SAFE-4 / P1-101); a job without one
-    starts its monitor exactly as before.
+    The monitor runs in a detached worker process (hermes.monitor_worker),
+    never on a thread here: print-now is a short-lived subprocess, so an
+    in-process daemon thread dies with the submission and the print loses
+    its completion post and timelapse (P1-85, P1-98). The worker rebuilds
+    the job printer's adapter there — this process's adapter only
+    identifies the family, through the watch module it pairs with. The
+    job's recorded printer_id rides along so the worker serves that
+    printer and the monitor's pause alerts act on it (SAFE-4 / P1-101).
     """
-    pid = _recorded_printer_id(job)
-    if pid:
-        return watch.start_monitor(adapter, remote, printer_id=pid)
-    return watch.start_monitor(adapter, remote)
+    from print_handy.hermes import monitor_worker
+    return monitor_worker.spawn(watch.__name__, remote, _recorded_printer_id(job))
 
 
 CONTEXT = Path(os.environ.get("PRINT_HANDY_CONTEXT_PATH", settings.state_dir()/"print_handy_context.json"))
