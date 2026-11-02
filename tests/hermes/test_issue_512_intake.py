@@ -424,3 +424,28 @@ def test_edit_details_clears_photo_extracted_temperatures(tmp_path, monkeypatch)
     assert rows, "the re-entered walkthrough step was not recorded"
     latest = max(rows, key=lambda r: r.get("at", 0))
     assert latest["nozzle_temp"] is None and latest["bed_temp"] is None
+
+
+def test_typed_color_in_the_modal_clears_the_picked_swatch(tmp_path, monkeypatch):
+    """Typing a color in the edit modal supersedes a swatch picked earlier:
+    the stale hex must be cleared, or create_spool would record the old
+    swatch for the new color name (P2-233). The select path's color branch
+    already clears it; the modal path must match."""
+    monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
+    monkeypatch.setattr(plugin, "_prompt_brand", lambda: False)
+    bot = S(listeners={}, add_listener=lambda fn, name: bot.listeners.__setitem__(name, fn))
+    plugin.alert_button_handlers(bot, S())
+    on_interaction = bot.listeners["on_interaction"]
+    aid = pab.record("intake", "", origin="insertion", slot=2, step="color",
+                     brand="Sunlu", material="PLA", color="Red", hex="#FF0000",
+                     grams=1000, disposition="shelf", old_spool_id=None)
+    sink = []
+    click = _interaction(sink, f"{pab.INTAKE_SELECT_PREFIX}:{aid}", values=[pab.INTAKE_OTHER])
+    asyncio.run(on_interaction(click))
+    modal = next(entry[1] for entry in sink if entry[0] == "modal")
+    modal.item._value = "Teal"
+    asyncio.run(modal.on_submit(S(response=_FakeResponse(sink))))
+    rows = [r for r in pab._load().values() if isinstance(r, dict) and r.get("kind") == "intake"]
+    latest = max(rows, key=lambda r: r.get("at", 0))
+    assert latest["color"] == "Teal"
+    assert latest["hex"] is None

@@ -5068,6 +5068,14 @@ def alert_button_handlers(bot, adapter):
                         await modal_interaction.response.send_message('That answer was empty. Nothing changed — start again from the prompt.', ephemeral=True)
                         return
                     new_state[pending['field']] = value
+                    if pending['field'] == 'color':
+                        # A typed color supersedes any swatch picked
+                        # earlier (P2-233): create_spool records the hex
+                        # over the name, so a stale swatch would silently
+                        # become the new color's code. Clearing it lets the
+                        # name derive its own — the select path's color
+                        # branch already does exactly this.
+                        new_state['hex'] = None
                 # A modal submission answers with a fresh message carrying the next step.
                 new_state = {**new_state, 'step': pab.intake_next_step(new_state)}
                 aid = await asyncio.to_thread(pab.record, 'intake', '', **new_state)
