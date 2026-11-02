@@ -6,6 +6,7 @@ All printer contact is faked: sender/reader callables capture every G-code
 script, and no test contacts a printer.
 """
 import time
+from types import SimpleNamespace as S
 
 import pytest
 
@@ -116,6 +117,49 @@ def test_finish_change_persists_via_printer_state(tmp_path, monkeypatch):
     assert "Bed Mesh Leveling" in text
 
 
+def _finish_with_sync(monkeypatch, connection, sync):
+    """finish_change on a state record carrying a Moonraker URL, with the
+    adapter connection and the Klipper sync faked (P2-196)."""
+    from print_handy.hermes import print_control as pc
+    monkeypatch.setattr(pc, "_adapter_for", lambda pid: S(connection=connection))
+    monkeypatch.setattr(printer_state, "save", lambda st, pid=None: None)
+    st = _state()
+    st["moonraker_url"] = "http://printer.test:7125"
+    return nc.finish_change(st, 0.6, "brass", today="2026-10-28", klipper_sync=sync)
+
+
+def test_finish_change_syncs_klipper_nozzle_on_moonraker(monkeypatch):
+    # P2-196: recording a new diameter without reconciling Klipper's
+    # extruder.nozzle_diameter leaves printer_state readiness refusing the
+    # next print; the completion path must sync like `set --nozzle` does.
+    calls = []
+    def sync(url, dia):
+        calls.append((url, dia))
+        return True
+    text = _finish_with_sync(monkeypatch, "moonraker", sync)
+    assert calls == [("http://printer.test:7125", 0.6)]
+    assert "printer.cfg" in text and "restarted" in text
+
+
+def test_finish_change_sync_already_matching_needs_no_note(monkeypatch):
+    text = _finish_with_sync(monkeypatch, "moonraker", lambda url, dia: False)
+    assert "could not be updated" not in text
+
+
+def test_finish_change_reports_a_failed_klipper_sync(monkeypatch):
+    def sync(url, dia):
+        raise OSError("moonraker unreachable")
+    text = _finish_with_sync(monkeypatch, "moonraker", sync)
+    assert "could not be updated" in text and "set --nozzle" in text
+
+
+def test_finish_change_never_syncs_non_moonraker(monkeypatch):
+    calls = []
+    text = _finish_with_sync(monkeypatch, "bambulab_lan",
+                             lambda url, dia: calls.append((url, dia)) or True)
+    assert calls == [] and "printer.cfg" not in text
+
+
 # ---------------------------------------------------------------- §1 steps
 
 def test_guide_steps_cover_the_issue_procedure_in_order():
@@ -145,6 +189,7 @@ def _idle_reader(temp=25.0, target=0.0, state="standby"):
     def reader():
         return {"print_stats": {"state": state},
                 "extruder": {"temperature": box["temp"], "target": box["target"]},
+                "toolhead": {"homed_axes": "xyz"},
                 "webhooks": {"state": "ready"}}
     return box, reader
 
@@ -212,6 +257,31 @@ def test_run_bed_mesh_gated_like_heating():
     ok, detail = nc.run_bed_mesh(confirmed_at=time.time(), gcode_sender=sent.append,
                                  reader=_idle_reader()[1])
     assert ok and sent == ["BED_MESH_CALIBRATE"]
+
+
+def _mesh_reader(homed):
+    def reader():
+        status = {"print_stats": {"state": "standby"},
+                  "extruder": {"temperature": 25.0, "target": 0.0},
+                  "webhooks": {"state": "ready"}}
+        if homed is not None:
+            status["toolhead"] = {"homed_axes": homed}
+        return status
+    return reader
+
+
+def test_run_bed_mesh_homes_first_when_axes_are_unhomed():
+    # P2-197: Klipper rejects BED_MESH_CALIBRATE on unhomed axes ("Must home
+    # axis first"), and the flow's own text says it homes — so home first.
+    sent = []
+    ok, detail = nc.run_bed_mesh(confirmed_at=time.time(), gcode_sender=sent.append,
+                                 reader=_mesh_reader("xy"))
+    assert ok and sent == ["G28", "BED_MESH_CALIBRATE"]
+    # Homing state unreadable is treated as unhomed: G28 is idempotent.
+    sent = []
+    ok, detail = nc.run_bed_mesh(confirmed_at=time.time(), gcode_sender=sent.append,
+                                 reader=_mesh_reader(None))
+    assert ok and sent == ["G28", "BED_MESH_CALIBRATE"]
 
 
 # ---------------------------------------------------------------- §3 prompts
