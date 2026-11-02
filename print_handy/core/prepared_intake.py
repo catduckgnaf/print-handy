@@ -2315,6 +2315,13 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                             _heavy(orca_adapter.orca_plate_capacity, path, state,
                                                    scale=selected_scale,
                                                    **({'rotation': rotation, 'supports': bool(row.get('supports')),
+                                                       # The search verified this turn with the
+                                                       # exact-single probe (copy_limit=1: one
+                                                       # centered copy, no arranging); confirming
+                                                       # with the default multi-copy probe arranges
+                                                       # instead and refuses turns that only fit
+                                                       # as one centered copy (P1-115).
+                                                       'copy_limit': 1,
                                                        **({'brim_policy': {'type': 'outer_only',
                                                                            'width_mm': orca_adapter.ORIENTATION_BRIM_MM}}
                                                           if row.get('brim') else {})}
