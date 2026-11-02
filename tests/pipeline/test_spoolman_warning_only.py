@@ -260,3 +260,55 @@ def test_derived_plate_slices_when_spoolman_says_archived(tmp_path, capsys):
                                                 preserve_layout=True, filament_slot=2)
     assert output.exists()
     assert "archived" in capsys.readouterr().out
+
+
+def _moonraker_with_active_spool(active):
+    def get(url, data=None, method=None, timeout=6):
+        if "configfile" in url:
+            return {"result": {"status": {"configfile": {"settings": {"extruder": {"nozzle_diameter": "0.4"}}}}}}
+        if "spool_id" in url:
+            return {"result": {"spool_id": active}}
+        raise AssertionError(f"unexpected url {url}")
+    return get
+
+
+def test_live_moonraker_spool_wins_over_stale_record(monkeypatch):
+    """A stale record naming #7 must not describe the wrong spool when Moonraker says #15."""
+    use_generic(monkeypatch)
+    reply = {"id": 15, "remaining_weight": 800, "filament": {"name": "Black", "material": "PLA+"}}
+    contacted = []
+    with mock.patch.object(printer_state, "_get", _moonraker_with_active_spool(15)), \
+         mock.patch.object(spoolman_client, "request", spoolman_request(reply, contacted)):
+        ok, probs, facts = printer_state.check(copy.deepcopy(GENERIC_STATE))
+    assert ok is True and probs == []
+    assert [p for _, p, _ in contacted] == ["/api/v1/spool/15"]
+    assert facts["effective_spool_id"] == 15
+    assert facts["effective_spool_source"] == "moonraker"
+    assert facts["spool_name"] == "Black"
+    assert "active_spool_mismatch" in facts
+    assert any("live active spool is #15" in w and "recorded spool is #7" in w for w in facts["warnings"])
+    # No bogus rename/material warnings comparing spool 15 against spool 7's cached label.
+    assert not any("state says" in w or "material is" in w for w in facts["warnings"])
+
+
+def test_matching_live_spool_keeps_recorded_checks(monkeypatch):
+    use_generic(monkeypatch)
+    reply = {"id": 7, "remaining_weight": 50, "filament": {"name": "Renamed PLA", "material": "PLA"}}
+    contacted = []
+    with mock.patch.object(printer_state, "_get", _moonraker_with_active_spool(7)), \
+         mock.patch.object(spoolman_client, "request", spoolman_request(reply, contacted)):
+        ok, probs, facts = printer_state.check(copy.deepcopy(GENERIC_STATE))
+    assert [p for _, p, _ in contacted] == ["/api/v1/spool/7"]
+    assert "effective_spool_id" not in facts
+    assert any("Renamed PLA" in w for w in facts["warnings"])
+
+
+def test_no_live_spool_falls_back_to_record(monkeypatch):
+    use_generic(monkeypatch)
+    reply = {"id": 7, "remaining_weight": 50, "filament": {"name": "Black PLA", "material": "PLA"}}
+    contacted = []
+    with mock.patch.object(printer_state, "_get", _moonraker_with_active_spool(None)), \
+         mock.patch.object(spoolman_client, "request", spoolman_request(reply, contacted)):
+        ok, probs, facts = printer_state.check(copy.deepcopy(GENERIC_STATE))
+    assert [p for _, p, _ in contacted] == ["/api/v1/spool/7"]
+    assert "effective_spool_id" not in facts
