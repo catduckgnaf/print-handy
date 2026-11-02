@@ -2,7 +2,7 @@
 
 # Unreleased
 
-Nothing yet.
+- The family auto-light no longer carries an idle streak across a failed printer check (Bambu and SDCP families) (#770).
 
 # Version 2.2.4
 
