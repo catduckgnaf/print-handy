@@ -1745,7 +1745,8 @@ async def _nozzle_change_workflow(adapter, source, metadata, *, printer_id=None,
     Heating goes only through nozzle_change's Moonraker path after its own
     explicit confirmation; any other connection gets manual-heat
     instructions and the same step confirmations. Cancelling after heat
-    turns the heater off and records nothing.
+    turns the heater off and records nothing; a UI failure after heat
+    attempts the same heater-off before the failure surfaces.
     """
     from print_handy.hermes import nozzle_change as nc
     from print_handy.hermes import print_control as pc
@@ -1790,23 +1791,35 @@ async def _nozzle_change_workflow(adapter, source, metadata, *, printer_id=None,
         ok, detail = await asyncio.to_thread(nc.heat_for_loosen, confirmed_at=_time.time(), **kw)
         if not ok:
             return detail
-        await adapter.send(chat_id=source.chat_id, metadata=metadata, content=detail)
-        removed = await _confirm(adapter, source, metadata, 'nozzle-removed',
-            'Remove the old nozzle hot, thread the new nozzle in by hand, then confirm.',
-            [nc.REMOVED_LABEL, 'Cancel'], question_timeout, live_key=live_key)
-        if removed != nc.REMOVED_LABEL:
-            _off, off_detail = await asyncio.to_thread(nc.heater_off, **kw)
-            return f'Cancelled. {off_detail}'
-        torqued = await _confirm(adapter, source, metadata, 'nozzle-torque',
-            f'Torque the new nozzle hot ({nc.TORQUE_HINT}), while the hotend stays at {nc.LOOSEN_TEMP_C} °C.',
-            [nc.TORQUED_LABEL, 'Cancel'], question_timeout, live_key=live_key)
-        if torqued != nc.TORQUED_LABEL:
-            _off, off_detail = await asyncio.to_thread(nc.heater_off, **kw)
-            return f'Cancelled. {off_detail}'
-        ok, detail = await asyncio.to_thread(nc.cooldown, **kw)
-        if not ok:
-            return detail
-        await adapter.send(chat_id=source.chat_id, metadata=metadata, content=detail)
+        # The hotend is now at the loosen temperature. Any failure in the UI
+        # steps below (a chat send raising, a _confirm whose button delivery
+        # fails) must not leave it heating: attempt heater-off in cleanup
+        # that does not itself depend on chat delivery, then let the
+        # original failure surface (P1-105).
+        try:
+            await adapter.send(chat_id=source.chat_id, metadata=metadata, content=detail)
+            removed = await _confirm(adapter, source, metadata, 'nozzle-removed',
+                'Remove the old nozzle hot, thread the new nozzle in by hand, then confirm.',
+                [nc.REMOVED_LABEL, 'Cancel'], question_timeout, live_key=live_key)
+            if removed != nc.REMOVED_LABEL:
+                _off, off_detail = await asyncio.to_thread(nc.heater_off, **kw)
+                return f'Cancelled. {off_detail}'
+            torqued = await _confirm(adapter, source, metadata, 'nozzle-torque',
+                f'Torque the new nozzle hot ({nc.TORQUE_HINT}), while the hotend stays at {nc.LOOSEN_TEMP_C} °C.',
+                [nc.TORQUED_LABEL, 'Cancel'], question_timeout, live_key=live_key)
+            if torqued != nc.TORQUED_LABEL:
+                _off, off_detail = await asyncio.to_thread(nc.heater_off, **kw)
+                return f'Cancelled. {off_detail}'
+            ok, detail = await asyncio.to_thread(nc.cooldown, **kw)
+            if not ok:
+                return detail
+            await adapter.send(chat_id=source.chat_id, metadata=metadata, content=detail)
+        except BaseException:
+            try:
+                await asyncio.shield(asyncio.to_thread(nc.heater_off, **kw))
+            except Exception:
+                logger.exception('/nozzle change heater-off cleanup failed')
+            raise
     else:
         await adapter.send(chat_id=source.chat_id, metadata=metadata,
                            content=nc.manual_heat_instructions())
