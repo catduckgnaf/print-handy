@@ -24,6 +24,7 @@ from . import settings
 KNOWN = (
     "bot_health.json",
     "calibration_records.json",
+    "control.lock",
     "family_listener.json",
     "gcode-bounds-cache",
     "ifs_pending_prompts.json",
