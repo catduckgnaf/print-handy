@@ -866,6 +866,36 @@ def _ams_disagreements(st, facts):
                         f"but the recorded spool colour is #{recorded_color}; the record is kept")
 
 
+def _live_spool_view(st, facts, warnings):
+    """The record with Moonraker's live active spool in place of a stale cached one.
+
+    printer_hardware.json can lag behind the printer: a host copy left over from a
+    migration kept naming spool #7 long after Moonraker's active spool was #15, and
+    the Spoolman lookup below then described the wrong spool. When Moonraker reports
+    a different active spool, that live pointer wins for the Spoolman lookup and the
+    disagreement is surfaced as a warning. The record on disk is never rewritten
+    here, and nothing becomes a readiness problem (#235).
+    """
+    live = facts.get("moonraker_active_spool")
+    recorded = (st.get("spool") or {}).get("spoolman_id")
+    if live is None or isinstance(live, bool) or live == recorded:
+        return st
+    try:
+        live = int(live)
+    except (TypeError, ValueError):
+        return st
+    facts["effective_spool_id"] = live
+    facts["effective_spool_source"] = "moonraker"
+    warnings.append(f"the printer's live active spool is #{live}, but the recorded spool is "
+                    f"#{recorded}; using the live spool #{live} for the Spoolman check — "
+                    "the hardware record is stale")
+    view = dict(st)
+    # The cached name/material describe the stale spool; drop them so the live
+    # spool is not reported as "renamed" against a different spool's label.
+    view["spool"] = {"spoolman_id": live}
+    return view
+
+
 def _check_spoolman(st, warnings, facts):
     """The recorded spool against its Spoolman record; every outcome is a warning (#235).
 
@@ -889,8 +919,9 @@ def _check_spoolman(st, warnings, facts):
         facts["spool_remaining_g"] = round(sp.get("remaining_weight") or 0)
         if sp.get("archived"):
             warnings.append(f"Spoolman spool #{sp['id']} is archived")
-        if filament["name"] != st["spool"]["name"]:
-            warnings.append(f"Spoolman #{sp['id']} is '{filament['name']}', state says '{st['spool']['name']}'")
+        recorded_name = st["spool"].get("name")
+        if recorded_name is not None and filament["name"] != recorded_name:
+            warnings.append(f"Spoolman #{sp['id']} is '{filament['name']}', state says '{recorded_name}'")
         recorded_material, spoolman_material = st["spool"].get("material"), filament.get("material")
         if recorded_material and spoolman_material and not same_material(recorded_material, spoolman_material):
             warnings.append(f"Spoolman #{sp['id']} material is {spoolman_material!r}, but the recorded spool "
@@ -1035,7 +1066,7 @@ def check(st=None, printer_id=None, adapter=None):
             facts["active_spool_mismatch"] = f"Moonraker active spool {facts['moonraker_active_spool']} != state #{st['spool']['spoolman_id']}"
     except Exception as e:
         warnings.append("the printer's active spool could not be checked, so the recorded spool was used")
-    _check_spoolman(st, warnings, facts)
+    _check_spoolman(_live_spool_view(st, facts, warnings), warnings, facts)
     try:
         if not native:
             return (not probs), probs, facts
