@@ -2010,9 +2010,9 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                    metadata=metadata)
                 return {'action': 'skip', 'reason': 'cancelled oversized model'}
             latest['plate_mode'] = 'separate'
-            if options.get('brim_policy'):
-                latest['fit_brim_policy'] = options['brim_policy']
-                receipt['fit_brim_policy'] = options['brim_policy']
+            # No fit-options dict exists on the painted path (``options`` here
+            # is still the color-mode label list); painted_fit carries no brim
+            # policy, so there is nothing to record (P1-27).
             latest['scale'] = row['scale']
             receipt['scale'] = row['scale']
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
