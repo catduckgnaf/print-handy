@@ -2024,6 +2024,10 @@ async def maintenance_dispatch(event, gateway, **kwargs):
             # search for kind == mode, and skipping this append made a full
             # maintenance with a cold pull look like it never happened.
             maintenance.append_run(session, **_pkw(pid))
+            # Reload before clearing the pending session: `state` was loaded
+            # before the appends above, so saving it as-is would overwrite
+            # the file with its stale runs list and erase them again.
+            state = maintenance.load(**_pkw(pid))
             state.pop('pending', None)
             maintenance.save(state, **_pkw(pid))
             message = f'{mode.title()} maintenance checklist saved. '
