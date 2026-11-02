@@ -1,5 +1,6 @@
 """The checked-in home config is kept valid and in step with the Orca templates."""
 import json
+import pytest
 import os
 import subprocess
 import sys
@@ -234,6 +235,7 @@ class OverrideTests(unittest.TestCase):
             "delivery": {"methods"},
             "nozzle_temp_offsets": {"brass", "hardened_steel", "stainless_steel", "ruby", "tungsten_carbide", "diamond"},
             "material_temps": {"PLA", "PETG", "ABS", "ASA", "TPU", "PA", "PC"},
+            "material_tuning": {"PLA"},
         }
         # "printers" is the resolved [[printers]] roster (#333): a list, not a section, so it is
         # pinned separately below rather than as another expected section.
@@ -835,3 +837,27 @@ class YamlLoaderTests(unittest.TestCase):
             with self.assertRaises(settings.SettingsError) as caught:
                 settings._read(bad)
             self.assertIn(str(bad), str(caught.exception))
+
+
+def test_user_settings_file_layers_over_shipped_config_and_survives_image_config(tmp_path):
+    """The operator's own file ($HOME/.config/print-handy/settings.yaml; /data/.config in Docker, an
+    appdata mount) layers over PRINT_HANDY_CONFIG, so an image that replaces docker.yaml keeps it.
+    The environment still wins over it."""
+    shipped = tmp_path / "docker.yaml"
+    shipped.write_text("webui:\n  port: 8088\n")
+    user = tmp_path / "home" / ".config" / "print-handy" / "settings.yaml"
+    user.parent.mkdir(parents=True)
+    user.write_text("material_tuning:\n  PLA: {flow_ratio: 1.0}\nwebui:\n  port: 9000\n")
+    env = {"PRINT_HANDY_CONFIG": str(shipped), "HOME": str(tmp_path / "home")}
+    assert settings.user_config_path(env) == user
+    data = settings.load(environ=env)
+    assert data["material_tuning"]["PLA"]["flow_ratio"] == 1.0
+    assert data["material_tuning"]["PLA"]["max_volumetric_speed"] == 12.0  # unset key keeps the default
+    assert data["webui"]["port"] == 9000
+    assert settings.load(environ={**env, "PRINT_HANDY__WEBUI__PORT": "9100"})["webui"]["port"] == 9100
+    # No user file: nothing changes. An explicit PRINT_HANDY_USER_CONFIG that is missing is still optional.
+    assert settings.load(environ={"PRINT_HANDY_CONFIG": str(shipped), "HOME": str(tmp_path / "nobody")}
+                         )["webui"]["port"] == 8088
+    user.write_text("webui:\n  prot: 1\n")
+    with pytest.raises(settings.SettingsError, match="prot"):
+        settings.load(environ=env)
