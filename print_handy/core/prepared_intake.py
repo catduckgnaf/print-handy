@@ -2164,7 +2164,9 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                     raise LookupError('a split plan or a 100% one-plate fit already answers this')
                 full_size_split = await fit_status.run('trying a split onto separate plates at 100%',
                                                        _heavy(plate_merge.full_size_split_possible, path, manifest,
-                                                              int((state.get('bed_mm') or BED)[0])))
+                                                              int((state.get('bed_mm') or BED)[0]),
+                                                              brim_policy=options.get('brim_policy'),
+                                                              state=state))
             except Exception:
                 full_size_split = False
             if split_plan:

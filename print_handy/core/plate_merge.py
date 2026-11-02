@@ -697,14 +697,23 @@ def arrange_group(source, object_ids, bed, spacing=None, edge=None):
     return {'shifts': shifts, 'yaw_by_object': yaw_by_object, 'placed_bounds_mm': bounds}
 
 
-def full_size_split_possible(source, manifest, bed=None, edge=None):
+def full_size_split_possible(source, manifest, bed=None, edge=None, brim_policy=None, state=None):
     """Whether source-assigned plate groups fit individually at authored size.
 
     This is an offline geometry check for the explicit full-size split option.
     It does not imply Orca acceptance; every derived plate is still sliced and
     validated by the normal offline G-code gates.
+
+    ``brim_policy``/``state`` carry the job's brim the way split_fit's check
+    takes them (P2-79): when a policy applies, the feature edge budget (the
+    brim width plus the resolved travel sweep) is added to the edge margin,
+    so a split approved here is one whose brims stay on the bed — the plain
+    edge-only verdict offered splits the brim-aware check had refused.
     """
     edge = EDGE_MARGIN_MM if edge is None else edge
+    if brim_policy is not None or (state and state.get('brim_policy')):
+        from .orca_adapter import required_feature_edge
+        edge = float(edge) + float(required_feature_edge(state or {}, brim_policy))
     from . import color_geometry
     bed = min(_S['printer']['bed_mm']) if bed is None else bed
     try:
