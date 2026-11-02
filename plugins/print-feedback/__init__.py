@@ -2575,7 +2575,12 @@ async def _spool_guided_new(adapter, source, metadata, gateway, spool_sync, pid,
                  'Which filament is the new spool? Pick a type already in the database, '
                  'or choose New filament type.']
         lines += [f"{i}. {_spool_type_label(t)}" for i, t in enumerate(listed, 1)]
-        choices = [_spool_type_label(t) for t in listed[:3]] + ['New filament type']
+        lines.append(f"{len(listed) + 1}. New filament type")
+        # The registered choices must be the numbered list itself, in order
+        # (P2-182): buttonless adapters translate a typed number through
+        # this list, so registering only the first three types made the
+        # displayed fourth type open new-type entry instead.
+        choices = [_spool_type_label(t) for t in listed] + ['New filament type']
         answer = await _spool_ask(adapter, source, metadata, gateway, '\n'.join(lines), choices)
         if _spool_is_cancel(answer):
             return None, _SPOOL_CANCELLED
@@ -2659,7 +2664,14 @@ async def _spool_guided_change(adapter, source, metadata, gateway, spool_sync, p
             lines.append(f"{i}. #{entry['spool_id']} {filament_label(entry['name'], entry['material'])}{grams}".rstrip())
     else:
         lines.append('(nothing on the shelf)')
-    choices = [f"#{entry['spool_id']} {entry['name']}"[:80] for entry in listed[:3]] + ['Add a new spool']
+    if listed:
+        lines.append(f"{len(listed) + 1}. Add a new spool")
+    # Register every listed spool with its FULL label (P2-182, P2-183):
+    # adapters truncate only the displayed button text and resolve a click
+    # back to the registered value, so a [:80] truncation here — or offering
+    # only the first three — made clicks and typed numbers land on the
+    # wrong entry or on no entry at all.
+    choices = [f"#{entry['spool_id']} {entry['name']}" for entry in listed] + ['Add a new spool']
     if not listed:
         choices = ['Add a new spool', 'Cancel']
     answer = await _spool_ask(adapter, source, metadata, gateway, '\n'.join(lines), choices)
