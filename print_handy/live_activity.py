@@ -346,11 +346,12 @@ ACTIVITY_PAGE = """<!DOCTYPE html>
     return;
   }
   // go2rtc MSE over WebSocket, on the same origin this page was served
-  // from: ws(s)://<host>/api/ws?src=<stream>. On MediaSource open the
-  // client offers its codecs as {"type": "mse", "value": [<codecs>]};
-  // go2rtc answers with the mime type to build the SourceBuffer with,
-  // then sends binary fMP4 frames. Any failure lands on the plain
-  // fallback message below; the watchdog snapshots in chat keep working.
+  // from: ws(s)://<host>/api/ws?src=<stream>. Once both the socket and
+  // the MediaSource are open the client offers its codecs as
+  // {"type": "mse", "value": [<codecs>]}; go2rtc answers with the mime
+  // type to build the SourceBuffer with, then sends binary fMP4
+  // frames. Any failure lands on the plain fallback message below;
+  // the watchdog snapshots in chat keep working.
   var scheme = location.protocol === "https:" ? "wss:" : "ws:";
   var url = scheme + "//" + location.host + "/api/ws?src=" + encodeURIComponent(stream);
   var codecs = ['video/mp4; codecs="avc1.64001f,mp4a.40.2"',
@@ -366,8 +367,26 @@ ACTIVITY_PAGE = """<!DOCTYPE html>
     if (buffer.updating || queue.length) { queue.push(chunk); }
     else { buffer.appendBuffer(chunk); }
   }
-  mediaSource.addEventListener("sourceopen", function () {
+  // The handshake goes out only once BOTH the WebSocket and the
+  // MediaSource are open (P2-122): sourceopen can fire while the
+  // socket is still CONNECTING, and ws.send in that state throws
+  // InvalidStateError — with the send attempted only there, the feed
+  // would never start even after the socket connected.
+  var wsOpen = false;
+  var msOpen = false;
+  var handshakeSent = false;
+  function sendHandshake() {
+    if (handshakeSent || !wsOpen || !msOpen) { return; }
+    handshakeSent = true;
     ws.send(JSON.stringify({type: "mse", value: codecs}));
+  }
+  ws.addEventListener("open", function () {
+    wsOpen = true;
+    sendHandshake();
+  });
+  mediaSource.addEventListener("sourceopen", function () {
+    msOpen = true;
+    sendHandshake();
   });
   ws.onmessage = function (event) {
     if (typeof event.data === "string") {
