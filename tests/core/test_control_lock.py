@@ -7,6 +7,7 @@ a print start on the same printer. These tests pin the shared file lock:
 processes serialize, a dead holder releases, re-entry refuses instead of
 deadlocking, and print_now refuses while a control action holds the lock.
 """
+import json
 import os
 import subprocess
 import sys
@@ -135,5 +136,65 @@ def test_print_now_refuses_while_a_control_action_holds_the_lock(tmp_path):
         with pytest.raises(SystemExit) as exc:
             model_job.print_now(target)
         assert "control action" in str(exc.value)
+    finally:
+        held.release()
+
+
+def _gcode_job(tmp_path, monkeypatch, printer_id="printer-b"):
+    """A sliced G-code under its job dir — the target print_next.start passes to print-now."""
+    job_dir = tmp_path / "job"
+    gcode = job_dir / "sliced" / "orca" / "uuid-1" / "plate_1.gcode"
+    gcode.parent.mkdir(parents=True)
+    gcode.write_text("G1 X0\n")
+    (job_dir / "JOB.json").write_text(json.dumps({"printer_id": printer_id, "gcode": str(gcode)}))
+    # The ancestor climb stops at TMPDIR (a profile sets it inside itself);
+    # keep it off the job's path, as on a real install.
+    monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp-elsewhere"))
+    return gcode
+
+
+def test_print_now_gcode_target_takes_the_owning_jobs_lock(tmp_path, monkeypatch):
+    # Codex P2 on #786: a G-code start on a secondary printer took the
+    # default printer's lock, so it blocked (and was blocked by) the wrong
+    # printer's control actions.
+    gcode = _gcode_job(tmp_path, monkeypatch)
+    lock = model_job._print_now_control_lock(str(gcode))
+    assert lock is cl.control_lock("printer-b")
+    assert lock is not cl.control_lock(None)
+
+
+def test_print_now_job_json_target_takes_the_jobs_lock(tmp_path, monkeypatch):
+    gcode = _gcode_job(tmp_path, monkeypatch)
+    job_json = gcode.parents[3] / "JOB.json"
+    assert model_job._print_now_control_lock(str(job_json)) is cl.control_lock("printer-b")
+
+
+def test_print_now_loose_gcode_keeps_the_default_lock(tmp_path, monkeypatch):
+    monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp-elsewhere"))
+    loose = tmp_path / "loose.gcode"
+    loose.write_text("G1 X0\n")
+    assert model_job._print_now_control_lock(str(loose)) is cl.control_lock(None)
+
+
+def test_print_now_gcode_start_contends_with_its_own_printers_control_action(tmp_path, monkeypatch):
+    gcode = _gcode_job(tmp_path, monkeypatch)
+    held = cl.control_lock("printer-b")
+    assert held.acquire(blocking=False)
+    try:
+        with pytest.raises(SystemExit) as exc:
+            model_job.print_now(gcode)
+        assert "control action" in str(exc.value)
+    finally:
+        held.release()
+
+
+def test_print_now_gcode_start_ignores_the_default_printers_control_action(tmp_path, monkeypatch):
+    gcode = _gcode_job(tmp_path, monkeypatch)
+    held = cl.control_lock(None)  # the default printer's lock, held by an unrelated control action
+    assert held.acquire(blocking=False)
+    try:
+        with pytest.raises(SystemExit) as exc:
+            model_job.print_now(gcode)
+        assert "control action" not in str(exc.value)
     finally:
         held.release()

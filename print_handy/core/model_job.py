@@ -3732,7 +3732,7 @@ def require_current_artifact(job, gcode):
     # recorded overrides, exactly as _recipe_changed does during slicing) and
     # refuse when the inputs moved after the artifact was sliced (P2-52).
     try:
-        recipe_changed = _recipe_changed(job, job)
+        recipe_changed = _recipe_changed(job, job, _recorded_printer_id(job))
     except Exception as exc:
         raise RuntimeError('stale color artifact: the current slice recipe could not be '
                            f'recomputed before launch ({exc}); reslice before launch') from exc
@@ -3810,11 +3810,21 @@ def _placed_bounds_by_object(geometry, object_of_key):
     return placed
 
 
-def _recipe_changed(job, latest):
-    """True when JOB.json, the hardware record, profiles or slicer now give another recipe than the one sliced."""
+def _recipe_changed(job, latest, printer_id=None):
+    """True when JOB.json, the hardware record, profiles or slicer now give another recipe than the one sliced.
+
+    The recomputation loads the job's own printer record, exactly as
+    slice_job did when it recorded the recipe: a secondary printer whose
+    nozzle or filament slots differ from the default printer's must not
+    read as a changed recipe, and reslicing must be able to clear the
+    mismatch. A job with no recorded printer keeps the legacy load.
+    """
     from .slice_recipe import recipe_sha256, slice_recipe
     sliced = job['slice_recipe']['recipe']
-    current = slice_recipe(latest, sliced['source_sha256'], printer_state.load(), **sliced['overrides'])
+    if printer_id is None:
+        printer_id = _recorded_printer_id(job) or _recorded_printer_id(latest)
+    state = printer_state.load(printer_id) if printer_id else printer_state.load()
+    current = slice_recipe(latest, sliced['source_sha256'], state, **sliced['overrides'])
     return recipe_sha256(current) != job['slice_recipe']['sha256']
 
 
@@ -4379,7 +4389,7 @@ def _slice_painted_plates(job, job_path, src, manifest, decisions, view, plates,
     if not artifacts:
         raise RuntimeError('painted source produced no plates')
     latest = json.loads(Path(job_path).read_text())
-    if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest):
+    if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest, _recorded_printer_id(job)):
         raise RuntimeError('source, decisions or slice recipe changed during slicing; artifact not made ready')
     job['derived_plates'] = artifacts
     job['plate_merge'] = {'mode': 'split', 'painted': True, 'plates_in': len(plates), 'plates_out': len(artifacts),
@@ -4514,7 +4524,7 @@ def _slice_merged(job, job_path, src, manifest, decisions, view, verdict, st, br
         raise RuntimeError(f'merged G-code prints {labelled} objects but the source has {len(manifest["parts"])}')
     check = verify_gcode_offline(out, st, _job_adapter(job))
     latest = json.loads(Path(job_path).read_text())
-    if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest):
+    if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest, _recorded_printer_id(job)):
         raise RuntimeError('source, decisions or slice recipe changed during slicing; artifact not made ready')
     summary = {'mode': 'merge', 'reason': None, 'plates_in': verdict['plates_in'], 'objects_in': len(verdict['objects_in']),
                'objects_out': len(placed_ids), 'parts_in': len(manifest['parts']), 'bed_mm': verdict['bed_mm'],
@@ -4613,7 +4623,7 @@ def _slice_merged_multi_tool(job, job_path, src, manifest, decisions, view, verd
         raise RuntimeError(f'merged G-code prints {labelled} objects but the source has {len(manifest["parts"])}')
     check = verify_gcode_offline(out, st, _job_adapter(job))
     latest = json.loads(Path(job_path).read_text())
-    if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest):
+    if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest, _recorded_printer_id(job)):
         raise RuntimeError('source, decisions or slice recipe changed during slicing; artifact not made ready')
     summary = {'mode': 'merge', 'reason': None, 'plates_in': verdict['plates_in'], 'objects_in': len(verdict['objects_in']),
                'objects_out': len(placed_ids), 'parts_in': len(manifest['parts']), 'bed_mm': verdict['bed_mm'],
@@ -4685,7 +4695,7 @@ def _slice_per_plate(job, job_path, src, manifest, decisions, view, plates, st, 
     if covered != sorted(p['key'] for p in manifest['parts']):
         raise RuntimeError('per-plate output does not account for every source part')
     latest = json.loads(Path(job_path).read_text())
-    if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest):
+    if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest, _recorded_printer_id(job)):
         raise RuntimeError('source, decisions or slice recipe changed during slicing; artifacts not made ready')
     job['derived_plates'] = artifacts
     if refused:
@@ -5064,7 +5074,7 @@ def _slice_full_size_split(job, job_path, src, manifest, decisions, st):
                           'offline_check': check, 'plate_report': report, 'provenance': provenance,
                           'slice_config': [str(path) for path in configs]})
     latest = json.loads(Path(job_path).read_text())
-    if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest):
+    if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest, _recorded_printer_id(job)):
         raise RuntimeError('source, decisions or slice recipe changed during full-size split slicing')
     job['derived_plates'] = artifacts
     job['plate_merge'] = {'mode': 'split', 'reason': f"operator chose full-size split into {len(artifacts)} plates",
@@ -5280,7 +5290,7 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
                               'gcode': str(out), 'offline_check': check, 'plate_report': report,
                               'provenance': provenance, 'slice_config': [str(path) for path in configs]})
         latest = json.loads(Path(job_path).read_text())
-        if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest):
+        if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest, _recorded_printer_id(job)):
             raise RuntimeError('source, decisions or slice recipe changed during slicing; artifacts not made ready')
         job['derived_plates'] = artifacts
         job.pop('refused_plates', None)
@@ -5425,7 +5435,7 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         _verify_routed(out, adapter, st, _recorded_printer_id(job), job=job)
     latest = json.loads(Path(job_path).read_text())
     _timing(job_path, 'verify_done')
-    if file_sha256(src) != source_sha or decisions_digest(latest.get("color_decisions")) != decision_sha or _recipe_changed(job, latest):
+    if file_sha256(src) != source_sha or decisions_digest(latest.get("color_decisions")) != decision_sha or _recipe_changed(job, latest, _recorded_printer_id(job)):
         raise RuntimeError("source, decisions or slice recipe changed during slicing; artifact not made ready")
     job["artifact_binding"] = {**_recipe_binding(job), "source_sha256": source_sha, "decisions_sha256": decision_sha,
                                "gcode_sha256": file_sha256(out)}
@@ -7461,22 +7471,47 @@ def _confirm_generic_start(st, remote, wait_s, lease):
             "file": remote, "method": "print/start", "message": "submitted, awaiting confirmation"}, readback, state
 
 
+def _owning_job(g):
+    """The (job, job_path) that owns a resolved print target, else (None, None).
+
+    A JOB.json target names its job directly. A G-code target belongs to
+    the nearest ancestor JOB.json: slices live at
+    <job>/sliced/orca/<uuid>/plate_1.gcode (four levels), so search every
+    nearby ancestor and an older slice is always bound to its JOB. The
+    climb stops at the temp root too: this profile sets TMPDIR inside
+    itself, so a fixture such as <scratch>/tmpXXX/x.gcode must not climb
+    into a real profile JOB.json.
+    """
+    if g.name == "JOB.json":
+        return json.loads(g.read_text()), g
+    temp_root = Path(os.environ.get("TMPDIR") or "/tmp").resolve()
+    for parent in list(g.parents)[:5]:
+        if parent in (Path("/"), temp_root) or temp_root in parent.parents:
+            break
+        if (parent / "JOB.json").is_file():
+            job_path = parent / "JOB.json"
+            return json.loads(job_path.read_text()), job_path
+    return None, None
+
+
 def _print_now_control_lock(target):
     """The shared interprocess control lock for this print's printer (P1-33).
 
-    Keyed by the job's recorded printer_id when the target resolves to a
-    JOB.json, else the default printer — the same identity _printer_key
-    leases by. Resolution is read-only and defensive: any failure falls
-    back to the default printer and the print body raises its own error.
+    Keyed by the owning job's recorded printer_id, resolved the same way
+    _print_now_locked resolves the job it launches — from a JOB.json
+    target, or from the ancestor JOB.json of a G-code target (the chat
+    flow's print_next.start passes the G-code path, not JOB.json) — else
+    the default printer: the same identity _printer_key leases by.
+    Resolution is read-only and defensive: any failure falls back to the
+    default printer and the print body raises its own error.
     """
     from . import control_lock as _cl
     key = None
     try:
-        g = Path(resolve_print_target(target)).expanduser()
-        if g.name == "JOB.json":
-            job = json.loads(g.read_text())
-            if isinstance(job, dict):
-                key = job.get("printer_id")
+        g = Path(resolve_print_target(target)).expanduser().resolve()
+        job, _job_path = _owning_job(g)
+        if isinstance(job, dict):
+            key = job.get("printer_id")
     except Exception:
         key = None
     return _cl.control_lock(key)
@@ -7529,23 +7564,11 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
         remap_res = remap_slot(target, remap_slot_num, tool="0")
         print(f"SLOT REMAPPED: T0 -> slot {remap_res['slot']} ({remap_res['selection']['color']} {remap_res['selection']['material']})", flush=True)
     g=Path(resolve_print_target(target)).expanduser().resolve()
-    job=None; job_path=None
+    job, job_path = _owning_job(g)
     if g.name=="JOB.json":
-        job_path=g; job=json.loads(g.read_text())
         if not job.get("gcode"):
             raise RuntimeError("stale color artifact: reslice current JOB before launch")
         g=Path(job["gcode"]).expanduser().resolve()
-    else:
-        # Slices live at <job>/sliced/orca/<uuid>/plate_1.gcode (four levels). Search every
-        # nearby ancestor so an older slice is always bound to its JOB and the stale guard runs.
-        # Stop at the temp root too. This profile sets TMPDIR inside itself, so a fixture
-        # such as <scratch>/tmpXXX/x.gcode otherwise climbs into the real profile JOB.json.
-        temp_root = Path(os.environ.get("TMPDIR") or "/tmp").resolve()
-        for parent in list(g.parents)[:5]:
-            if parent in (Path("/"), temp_root) or temp_root in parent.parents:
-                break
-            if (parent/"JOB.json").is_file():
-                job_path=parent/"JOB.json"; job=json.loads(job_path.read_text()); break
     cur = Path(job["gcode"]).expanduser().resolve() if isinstance(job, dict) and job.get("gcode") else None
     if (cur and cur.parent != g.parent and cur.is_file() and isinstance(job, dict)
             and not job.get("derived_plates")):
