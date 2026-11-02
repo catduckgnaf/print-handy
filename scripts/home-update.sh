@@ -38,10 +38,20 @@ if [ "$(git rev-parse HEAD)" = "$previous" ]; then
 fi
 
 echo "Updated $(git rev-parse --short "$previous") -> $(git rev-parse --short HEAD). Checking..."
+update_ok=1
 if PRINT_HANDY_UPDATE_CHECK=1 "$python" -m pytest -q -p no:cacheprovider tests && "$python" -m print_handy.doctor; then
-    if [ -x config/after-update.sh ]; then
-        config/after-update.sh
+    # The post-update hook is part of the proof (P2-4): if it fails — a listener
+    # restart, say — the update rolls back like a failed check, so a retry
+    # re-runs the hook instead of stranding the install at the new HEAD behind
+    # the "Already at" exit, with the hook never retried.
+    if [ -x config/after-update.sh ] && ! config/after-update.sh; then
+        echo "The post-update hook (config/after-update.sh) failed."
+        update_ok=0
     fi
+else
+    update_ok=0
+fi
+if [ "$update_ok" = 1 ]; then
     "$python" -m print_handy.state_files --remove || echo "Could not check for stray state files."
     echo "Update good."
 else
