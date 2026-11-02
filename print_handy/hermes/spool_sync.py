@@ -487,6 +487,10 @@ def backfill_slot_colors(*, client: Client = spoolman, mr: Client = moonraker,
     except (OSError, ValueError):
         return []
     state = json.loads(json.dumps(raw))
+    # A record written before the #672 rename carries only ifs_slots;
+    # adopt it like both state loaders do, or legacy slots never
+    # backfill (P2-268). The save below then writes the current name.
+    filament_color.adopt_renamed_slots_key(state)
     slots = state.get("filament_slots") or {}
     pending = {str(key): rec for key, rec in slots.items() if isinstance(rec, dict) and rec.get("spoolman_id")
                and (not filament_color.normalize_hex(rec.get("hex"))

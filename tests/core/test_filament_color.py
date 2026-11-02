@@ -185,6 +185,26 @@ def test_backfill_slot_colors_prefers_the_printers_hex_then_spoolman_and_persist
     assert printer_calls == [("GET", "/printer/objects/query?zmod_color")]
 
 
+def test_backfill_slot_colors_reads_legacy_ifs_slots_records(tmp_path):
+    """P2-268: a hardware record written before the #672 rename carries
+    only ifs_slots; backfill must adopt the renamed key the way both
+    state loaders do, not silently find no slots to fill."""
+    path = tmp_path / "printer_hardware.json"
+    path.write_text(json.dumps({"ifs_slots": {"2": _bound()}}))
+
+    def client(method, path_, body=None):
+        return {"id": 17, "filament": {"id": 117, "color_hex": None}}
+
+    def mr(method, path_, body=None):
+        return {"result": {"status": {"zmod_color": {"slots": [{"ID": 2, "HEX": "0C6283"}]}}}}
+
+    changes = spool_sync.backfill_slot_colors(client=client, mr=mr, state_path=path)
+    assert {c["slot"] for c in changes} == {"2"}
+    saved = json.loads(path.read_text())
+    assert saved["filament_slots"]["2"]["hex"] == "0C6283"
+    assert "ifs_slots" not in saved
+
+
 def test_backfill_adopts_the_printers_hex_over_an_earlier_name_guess():
     state = {"filament_slots": {"2": _bound(hex="C2185B", hex_source="name", physical_color_verified=True)}}
     fc.fill_missing_slot_hexes(state, spoolman_hexes={17: "AAAAAA"}, printer_hexes={"2": "0C6283"})
