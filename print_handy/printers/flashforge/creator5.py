@@ -18,6 +18,7 @@ MODEL = PrinterModel(
     label="Flashforge Creator 5 (ZMod)",
     adapter=ZmodMultiToolAdapter,
     templates="flashforge_creator5",
+    baseline="protected-settings-baseline.flashforge.creator5.json",
     supported_nozzle_sizes=(0.25, 0.4, 0.6, 0.8),
     supported_nozzle_types=("stainless_steel", "hardened_steel"),
     vendor=VENDOR,

@@ -13,6 +13,7 @@ MODEL = PrinterModel(
     label="Flashforge Adventurer 5X (stock)",
     adapter=StockFlashforgeAdapter,
     templates="flashforge_ad5x",
+    baseline="protected-settings-baseline.flashforge_stock.ad5x.json",
     vendor=VENDOR,
     color_system="multi_slot",
     supported_nozzle_sizes=(0.25, 0.4, 0.6, 0.8),
