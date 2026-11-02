@@ -406,6 +406,19 @@ def test_did_you_mean_no_sends_the_unmatched_reply_and_dispatches_nothing(cfg):
     assert discord.sent[-1] == runtime.unmatched_text(cfg["discord"]["bot_name"])
 
 
+def test_print_handy_slash_carries_debug_arguments():
+    """The /print-handy slash command must reach 'debug on [minutes]' (P2-186):
+    a free-form second option carries the words after the action, so the
+    advertised debug on/off flow works through the slash command, not only
+    as a typed message."""
+    assert commands.as_text("print-handy", {"action": "debug", "args": "on 5"}) == "/print-handy debug on 5"
+    assert commands.as_text("print-handy", {"action": "debug", "args": "off"}) == "/print-handy debug off"
+    assert commands.as_text("print-handy", {"action": "setup"}) == "/print-handy setup"
+    command = commands.by_name("print-handy")
+    assert [o.name for o in command.options] == ["action", "args"]
+    assert not command.options[1].choices  # free-form, not another fixed choice list
+
+
 # ---------------------------------------------------------------------- upload names
 
 def test_safe_name_truncation_keeps_the_extension():

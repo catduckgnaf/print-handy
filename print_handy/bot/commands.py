@@ -73,8 +73,12 @@ COMMANDS = (
     Command("print-handy", "Setup and read-only debugging (never prints)",
             (Option("action", "setup, add-printer, debugging, bundle, debug, status, cancel or help",
                     ("setup", "add-printer", "debugging", "bundle", "debug", "status",
-                     "cancel", "help")),),
-            "/print-handy [setup | add-printer | debug | status | help]"),
+                     "cancel", "help")),
+             # Free-form words after the action (P2-186): 'debug on 5' needs
+             # them, and a fixed-choice action alone can only ever send
+             # '/print-handy debug' (the status form).
+             Option("args", "Extra words after the action — for debug: on, off, or on 5 (minutes)")),
+            "/print-handy [setup | add-printer | debug on|off [minutes] | status | help]"),
     Command("print-source", "Which model sites are connected", usage="/print-source"),
     Command("print-help", "What Print Handy can do", usage="/print-help"),
 )
