@@ -80,24 +80,47 @@ MAX_SUGGESTION_CANDIDATES = 4
 
 
 def _command_scores(text):
-    """(scored, rest) for a command-shaped near miss, else (None, "").
+    """(scored, rest, wholes) for a command-shaped near miss, else (None, "", {}).
 
     ``scored`` is the (score, command) list the shared policy judges —
     each command scored by its best name/alias window. ``rest`` is the
-    message's argument tail, carried over untouched.
+    message's argument tail, carried over untouched. ``wholes`` maps a
+    scored command's name to its best whole-name (unwindowed) score,
+    for the whole-name tie-break in ``_whole_name_winner``.
     """
     parts = str(text or "").strip().split(None, 1)
     if not parts or not parts[0].startswith("/"):
-        return None, ""
+        return None, "", {}
     word = parts[0].lstrip("/").casefold()
     if not word or commands.by_name(word):
-        return None, ""
+        return None, "", {}
     scored = []
+    wholes = {}
     for cmd in commands.COMMANDS:
         score = max(fuzzy.windowed_fuzzy_score(word, name) for name in (cmd.name, *cmd.aliases))
         if score:
             scored.append((score, cmd))
-    return scored, (parts[1] if len(parts) > 1 else "")
+            wholes[cmd.name] = max(fuzzy.fuzzy_score(word, name) for name in (cmd.name, *cmd.aliases))
+    return scored, (parts[1] if len(parts) > 1 else ""), wholes
+
+
+def _whole_name_winner(decision, wholes):
+    """The one contender the query matches as a whole name, else None.
+
+    A window-only match can tie a whole-name match on windowed score
+    alone: "/spol" scores the same against "spool" (the whole name) as
+    against the "spools" window of "print-spools" (the command #744
+    added). The whole-name match is the honest single answer — the
+    window-only contender named only part of its name — so a tie
+    between exactly one whole-name contender and window-only ones
+    resolves to the whole name instead of degrading to a pick-list.
+    Genuinely ambiguous tops (no whole-name contender, or several)
+    keep the pick-list.
+    """
+    if len(decision.contenders) < 2:
+        return None
+    whole = [cmd for cmd in decision.contenders if wholes.get(cmd.name, 0) >= fuzzy.FUZZY_FLOOR]
+    return whole[0] if len(whole) == 1 else None
 
 
 def command_suggestion(text):
@@ -115,18 +138,27 @@ def command_suggestion(text):
     direct or grey-zone — is the suggestion; a contested top (another
     command within the clear margin) returns None here rather than a
     coin flip, and ``command_suggestion_candidates`` offers the
-    contenders as a pick-list instead. The 65 floor plus the coverage
+    contenders as a pick-list instead — with one refinement: a tie
+    between exactly one whole-name match and window-only matches
+    resolves to the whole name (``_whole_name_winner``), so adding a
+    command whose name contains another's ("/print-spools" contains
+    "spools") cannot degrade that command's near misses. The 65 floor plus the coverage
     guard keep the rest of chat ("can you make my printer go brrr")
     suggestion-free. Deterministic, offline, no LLM involved — it runs
     in the fallback after every model lane has declined, so #466's
     no-LLM posture keeps it too.
     """
-    scored, rest = _command_scores(text)
+    scored, rest, wholes = _command_scores(text)
     if not scored:
         return None
     decision = fuzzy.decide(scored)
-    if decision.kind == "none" or len(decision.contenders) != 1:
+    if decision.kind == "none":
         return None
+    if len(decision.contenders) != 1:
+        winner = _whole_name_winner(decision, wholes)
+        if winner is None:
+            return None
+        return f"/{winner.name}" + (f" {rest}" if rest else "")
     return f"/{decision.best.name}" + (f" {rest}" if rest else "")
 
 
@@ -140,12 +172,14 @@ def command_suggestion_candidates(text):
     ``MAX_SUGGESTION_CANDIDATES`` so the choice fits a prompt. Returns []
     whenever a single suggestion exists or nothing scores at all.
     """
-    scored, rest = _command_scores(text)
+    scored, rest, wholes = _command_scores(text)
     if not scored:
         return []
     decision = fuzzy.decide(scored)
     if decision.kind != "suggest" or len(decision.contenders) < 2:
         return []
+    if _whole_name_winner(decision, wholes) is not None:
+        return []  # the tie-break resolves it: a single suggestion exists
     suffix = f" {rest}" if rest else ""
     return [f"/{cmd.name}{suffix}" for cmd in decision.contenders[:MAX_SUGGESTION_CANDIDATES]]
 

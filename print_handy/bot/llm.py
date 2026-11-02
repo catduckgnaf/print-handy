@@ -18,6 +18,7 @@ from ..hermes import _config
 ALLOWED = (
     re.compile(r"/print-help"),
     re.compile(r"/spool(?: list)?"),
+    re.compile(r"/print-spools"),
     re.compile(r"/print-again list"),
     re.compile(r"/print-again(?! (?:stop|cancel|clear)\b)(?: [\w .#-]{1,60})?", re.I),
     re.compile(r"/print-next(?: [\w.-]{1,80}){0,2}"),

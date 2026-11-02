@@ -2533,6 +2533,74 @@ async def _spool_guided_change(adapter, source, metadata, gateway, spool_sync, p
     return created_note + spool_sync.bind_text(result)
 
 
+_LOADED_NL_RES = (
+    re.compile(r"(?:please\s+)?(?:what|which)(?:'s|\s+is|\s+are)?\s+(?:the\s+)?(?:colou?rs?|filaments?|spools?)\s+(?:is\s+|are\s+)?loaded\s*[.!?]?", re.I),
+    re.compile(r"(?:please\s+)?(?:what|which)(?:'s|\s+is)\s+loaded\s*[.!?]?", re.I),
+    re.compile(r"(?:current|loaded)\s+(?:spools?|filaments?|colou?rs?)\s*[.!?]?", re.I),
+    re.compile(r"(?:please\s+)?(?:show|list)(?:\s+me)?\s+(?:the\s+)?(?:loaded|current)\s+(?:spools?|filaments?|colou?rs?)\s*[.!?]?", re.I),
+    re.compile(r"print[-\s]colou?rs?\s*[.!?]?", re.I),
+)
+
+
+def _loaded_spools_intent(text):
+    """Deterministic plain-text asks for the loaded-filament view (#744), else None.
+
+    Anchored full-message patterns in the style of _spool_nl_intent (#475):
+    'what colors are loaded', 'current spools', 'show me the loaded
+    filament'. Discussion about loaded filament ('the loaded filament is
+    tangled') never matches, and this runs with no LLM configured, so the
+    Telegram pure-bot path answers it too.
+    """
+    text = ' '.join(str(text or '').split()).strip()
+    if not text or text.startswith('/'):
+        return None
+    return 'loaded' if any(pattern.fullmatch(text) for pattern in _LOADED_NL_RES) else None
+
+
+async def loaded_spools_dispatch(event, gateway, **kwargs):
+    """/print-spools and its twins (#744): what filament is loaded, where,
+    and how much is left — read-only, no confirmation, never the shelf.
+
+    Trigger forms: `/print-spools`, `/spool loaded`, a bare `/print-colors`
+    (no JOB.json — the archived-job form `/print-colors <JOB.json>` keeps
+    its meaning and is claimed earlier by color_selection_dispatch), and
+    the anchored plain-text asks in _loaded_spools_intent. Runs before
+    spool_dispatch so '/spool loaded' is not read as a spool change verb.
+    """
+    text = str(getattr(event, 'text', '')).strip()
+    folded = ' '.join(text.split())
+    if not (folded in ('/print-spools', '/print-colors', '/spool loaded')
+            or folded.startswith('/print-spools ')
+            or _loaded_spools_intent(text)):
+        return None
+    source, adapter = _control_gate(event, gateway)
+    if source is None:
+        return None
+    if adapter is None:
+        return {'action': 'skip', 'reason': 'loaded spools UI delivery unavailable'}
+    from print_handy.hermes import spool_sync
+    metadata = {'thread_id': source.thread_id} if source.thread_id else None
+    pid = _routed_printer_id(source, gateway)
+    candidates = _undecided_printer_ids(source, gateway) if not pid else None
+    try:
+        if candidates:
+            # A shared channel (#536) decides no printer: like /spool list,
+            # the read-only view names each printer's loaded filament.
+            sections = []
+            for candidate in candidates:
+                body = await asyncio.to_thread(spool_sync.loaded_text, printer_id=candidate)
+                sections.append(f'**{_printer_label(candidate)}**\n{body}')
+            message = '\n\n'.join(sections)
+        else:
+            message = await asyncio.to_thread(spool_sync.loaded_text, **_pkw(pid))
+    except Exception:
+        logger.exception('/print-spools failed')
+        message = ('I could not read the spool record just now, so I cannot say what is loaded. '
+                   'Nothing was changed.')
+    await adapter.send(chat_id=source.chat_id, metadata=metadata, content=message)
+    return {'action': 'skip', 'reason': 'loaded spools view handled'}
+
+
 async def spool_dispatch(event, gateway, **kwargs):
     """/spool: bare, incomplete or natural-language forms open the guided flow (#475);
     the complete typed forms (list | change <slot> <spool#> | new brand, material,
@@ -5382,6 +5450,7 @@ _DISPATCH_HOOKS = (
     print_stop_dispatch,
     print_resume_dispatch,
     print_again_dispatch,
+    loaded_spools_dispatch,
     spool_dispatch,
     print_reboot_dispatch,
     live_dispatch,

@@ -612,6 +612,94 @@ def list_text(*, client: Client = spoolman, state_path: Path | None = None,
     return "\n".join(lines)
 
 
+def _loaded_line(label: str, rec: dict[str, Any], live: dict[str, Any], amounts_known: bool) -> str:
+    """One loaded location's line for loaded_text (#744).
+
+    The live Spoolman spool wins for identity and amounts; the hardware
+    record is the fallback for both, and is all there is when Spoolman
+    did not answer. A percent is shown only when the spool's initial
+    weight is known — it is never estimated from the record's snapshot.
+    """
+    from .discord_print_summary import filament_label
+    sid = rec.get("spoolman_id")
+    filament = live.get("filament") or {}
+    brand = str((filament.get("vendor") or {}).get("name") or "").strip()
+    name = filament_label(filament.get("name"), filament.get("material")) or str(rec.get("name") or "").strip()
+    if not name and (rec.get("color") or rec.get("material")):
+        name = filament_label(rec.get("color"), rec.get("material"))
+    hex_code = screen_hex(filament.get("color_hex")) or screen_hex(rec.get("hex"))
+    who = f"#{sid} " if sid is not None else ""
+    if brand and name and brand.casefold() not in name.casefold():
+        who += f"{brand} "
+    line = f"{label}: {who}{name or 'spool'}"
+    if hex_code:
+        line += f" (#{hex_code})"
+    if not amounts_known:
+        return line + " — amount unavailable (Spoolman did not answer)"
+    grams = live.get("remaining_weight")
+    if not isinstance(grams, (int, float)):
+        return line + " — amount unknown"
+    line += f" — {grams:.0f} g left"
+    initial = live.get("initial_weight")
+    if isinstance(initial, (int, float)) and initial > 0:
+        line += f" ({grams / initial * 100:.0f}% of {initial:.0f} g)"
+    else:
+        line += " (percent unknown: the spool's starting weight is not recorded)"
+    return line
+
+
+def loaded_text(*, client: Client = spoolman, state_path: Path | None = None,
+                printer_id: str | None = None) -> str:
+    """What is loaded on one printer, where, and how much is left (#744).
+
+    The loaded-only companion to list_text: no shelf, so the answer is
+    not buried in inventory nobody asked about. Locations come from the
+    hardware record Print Handy already keeps — the slot map (shown over
+    the same SLOTS range as list_text once a map exists, extra recorded
+    slots included) plus the active spool when it sits outside the map
+    (a single-spool printer's one position). A slot whose record names
+    filament but binds no spool is reported as loaded-but-unrecorded,
+    never silently dropped. Fail-soft per #387: a Spoolman that does not
+    answer costs the amounts, never the answer — locations and spools
+    are still reported from the record, with amounts named unavailable.
+    """
+    state = load_state(state_path, printer_id=printer_id)
+    amounts_known = True
+    by_id: dict[Any, dict[str, Any]] = {}
+    try:
+        spools = client("GET", "/api/v1/spool?allow_archived=false", None) or []
+        by_id = {s.get("id"): s for s in spools if isinstance(s, dict)}
+    except Exception:
+        amounts_known = False
+    slots = state.get("filament_slots") or {}
+    locations: list[tuple[str, dict[str, Any]]] = []
+    if slots:
+        keys = {int(k) for k in slots if str(k).isdigit()}
+        for slot in sorted(set(SLOTS) | keys):
+            locations.append((f"Slot {slot}", dict(slots.get(str(slot)) or {})))
+    active = state.get("spool") or {}
+    active_id = active.get("spoolman_id")
+    bound_ids = {rec.get("spoolman_id") for _label, rec in locations}
+    if active_id is not None and active_id not in bound_ids:
+        locations.append(("Spool", dict(active)))
+    lines = ["**Loaded filament**"]
+    if not locations:
+        lines.append("Nothing is recorded as loaded on this printer.")
+    for label, rec in locations:
+        sid = rec.get("spoolman_id")
+        if sid is None:
+            if rec.get("name") or rec.get("material") or rec.get("color"):
+                hint = (f"`/spool change {label.rsplit(' ', 1)[-1]} <spool#>` records which one"
+                        if label.startswith("Slot") else "record it with `/spool`")
+                lines.append(f"{label}: filament is recorded here, but no spool is bound to it — {hint}")
+            else:
+                lines.append(f"{label}: empty")
+            continue
+        lines.append(_loaded_line(label, rec, by_id.get(sid) or {}, amounts_known))
+    lines.append("Full inventory, shelf included: `/spool list`")
+    return "\n".join(lines)
+
+
 def filament_types(*, client: Client = spoolman) -> list[dict[str, Any]]:
     """The filament types the Spoolman database already knows (#475).
 
