@@ -42,6 +42,9 @@ here, not whatever an endpoint defaults to.
 Hardening pass (post-2.2.1 audit, toward 2.2.2) — the client no longer
 takes the endpoint's word for anything it can check itself:
 
+- The ``matches`` field must be a list; any other JSON shape (and any
+  surprise while processing the entries) degrades to the local result
+  instead of raising out of the lookup.
 - Scores must be real numbers (a JSON ``NaN``/``Infinity`` literal, a
   string, a bool — all rejected), finite, and are clamped to 0..1.
   Before this, a NaN score crashed the caller's ``round(score * 100)``
@@ -203,21 +206,35 @@ def semantic_matches(query, candidates, *, limit=5):
         if isinstance(data, dict) and data.get("degraded"):
             logger.warning("semantic lookup endpoint reports degraded: %s", data.get("reason") or "no reason given")
         return []
-    best = {}
-    for entry in data.get("matches") or []:
-        if not isinstance(entry, dict) or entry.get("id") is None:
-            continue
-        raw_score = entry.get("score", 0)
-        if isinstance(raw_score, bool) or not isinstance(raw_score, (int, float)):
-            continue  # a string/bool "score" is not a score; hostile or buggy payload
-        score = float(raw_score)
-        if not math.isfinite(score):
-            continue  # NaN / ±Infinity must degrade, never reach the caller's arithmetic
-        score = min(1.0, max(0.0, score))
-        if score < DEFAULT_THRESHOLD:
-            continue
-        ident = str(entry["id"])
-        if ident not in best or score > best[ident]["score"]:
-            best[ident] = {"id": ident, "text": str(entry.get("text", "")), "score": score}
-    matches = sorted(best.values(), key=lambda m: (-m["score"], m["id"]))
+    raw_matches = data.get("matches") or []
+    if not isinstance(raw_matches, list):
+        # Valid JSON, invalid shape (e.g. "matches": 42): iterating it used
+        # to raise TypeError here, outside the failure boundary, and the
+        # caller answered "the registries could not be read" instead of
+        # keeping the local result (P2-223).
+        logger.warning("semantic lookup endpoint returned a non-list matches field (%s), "
+                       "keeping the local result", type(raw_matches).__name__)
+        return []
+    try:
+        best = {}
+        for entry in raw_matches:
+            if not isinstance(entry, dict) or entry.get("id") is None:
+                continue
+            raw_score = entry.get("score", 0)
+            if isinstance(raw_score, bool) or not isinstance(raw_score, (int, float)):
+                continue  # a string/bool "score" is not a score; hostile or buggy payload
+            score = float(raw_score)
+            if not math.isfinite(score):
+                continue  # NaN / ±Infinity must degrade, never reach the caller's arithmetic
+            score = min(1.0, max(0.0, score))
+            if score < DEFAULT_THRESHOLD:
+                continue
+            ident = str(entry["id"])
+            if ident not in best or score > best[ident]["score"]:
+                best[ident] = {"id": ident, "text": str(entry.get("text", "")), "score": score}
+        matches = sorted(best.values(), key=lambda m: (-m["score"], m["id"]))
+    except Exception as exc:
+        logger.warning("semantic lookup response could not be processed, keeping the local "
+                       "result: %s: %s", type(exc).__name__, exc)
+        return []
     return matches[:limit]

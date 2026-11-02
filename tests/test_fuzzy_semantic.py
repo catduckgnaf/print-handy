@@ -324,3 +324,13 @@ def test_local_plain_http_does_not_warn(stub_factory, monkeypatch, caplog):
     with caplog.at_level(logging.WARNING, logger="print_handy.core.fuzzy_semantic"):
         assert fuzzy_semantic.semantic_matches("bed wont stick", CANDIDATES) == []
     assert "cleartext" not in caplog.text
+
+
+def test_non_list_matches_degrades_to_local_result(stub_factory, monkeypatch):
+    # P2-223: valid JSON with an invalid shape — "matches" must be a list.
+    # Processing it used to raise TypeError outside the failure boundary,
+    # so /print-lookup answered "the registries could not be read" instead
+    # of silently keeping the local no-match answer.
+    stub = stub_factory(payload={"matches": 42, "degraded": False})
+    monkeypatch.setenv("PRINT_FUZZY_URL", stub.url)
+    assert fuzzy_semantic.semantic_matches("bed wont stick", CANDIDATES) == []

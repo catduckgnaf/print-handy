@@ -285,7 +285,10 @@ def canonical(text):
             out.append(str(int(digits.group(1))))
             i += 1
             continue
-        if token.isdigit():
+        if token.isdecimal():
+            # isdecimal, not isdigit: isdigit() also accepts digit characters
+            # int() refuses (e.g. '❶'), and one such token in a query or an
+            # archived title used to abort the whole lookup (P2-264).
             out.append(str(int(token)))
             i += 1
             continue
