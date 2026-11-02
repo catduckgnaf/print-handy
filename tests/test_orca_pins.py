@@ -17,7 +17,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
 PREBUILT = ROOT / "docker" / "orca-prebuilt.sh"
 INSTALLER = ROOT / "scripts" / "install-orca-flatpak.sh"
-REAL_ORCA_JOBS = ("slicer-test-stable", "slicer-test-preview", "slicer-test-bambu")
+REAL_ORCA_JOBS = ("slicer-test-stable", "slicer-test-preview", "slicer-test-bambu", "slicer-timing-real")
 
 
 def workflow():

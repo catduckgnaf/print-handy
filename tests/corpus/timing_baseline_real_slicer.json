@@ -1,0 +1,7 @@
+{
+ "cases": {},
+ "description": "Real-Orca fake Discord flow (hermes transport), ci.yml slicer-timing-real, REPORTING ONLY (#734). Re-recorded every release from the release commit's CI artifact; see tests/README.md (Slicing-speed gate).",
+ "recorded_from": "",
+ "slack_s": 1.0,
+ "tolerance": 0.1
+}
