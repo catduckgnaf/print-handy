@@ -205,6 +205,16 @@ def post_alert(message, kind, filename):
 def post_plate_picker(plan_id):
     """Post the interactive remaining-plate picker; name the command only when it cannot be delivered."""
     if _buttonless_standalone():
+        try:
+            # Register the pending offer here too (P2-246): the only
+            # remember() call used to sit in the Discord branch below,
+            # so on buttonless platforms (Telegram/Matrix) the plan was
+            # never registered and the empty-bed next-plate offer could
+            # never become due.
+            from . import next_plate_offer
+            next_plate_offer.remember(plan_id)
+        except Exception as exc:
+            log(f"next-plate offer registration failed plan={plan_id}: {exc!r}")
         return post(f"To start the next plate, type `/print-next {plan_id}`.")
     try:
         from . import print_alert_buttons as pab
