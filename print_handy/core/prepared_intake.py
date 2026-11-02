@@ -1893,43 +1893,47 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             mode = await _ask(adapter, source, key, prompt, options, timeout)
         else:
             mode = 1
-        decisions = {'source_sha256': manifest['source_sha256'], 'schema': 'part_slots_v1',
-                     'mode': 'single_color' if mode == 1 else 'per_part'}
-        if mode != 1:
-            if job_adapter.multi_tool:
-                # One colour per toolhead (#346): more distinct source colours
-                # than toolheads can never be assigned; refuse before asking.
-                from .source_colors import distinct_source_colours
-                colours = distinct_source_colours(manifest)
-                if len(colours) > job_adapter.tool_count:
-                    raise printers.MultiColorUnsupported(
-                        f"{job_adapter.label} has {job_adapter.tool_count} toolheads and prints one color "
-                        f"per toolhead; this source uses {len(colours)} colors. Reduce the source to at "
-                        f"most {job_adapter.tool_count} colors or use a printer with more toolheads")
-            # Numbered siblings (Stencil 1/2/3) get one question unless the operator chose per part.
-            rows = grouped if mode == 0 else [{**row, 'keys': [row['key']]} for row in questions]
-            choices = {}
-            taken = {}  # toolhead -> source colour already assigned to it (multi_tool only)
-            for row in rows:
+        if not saved_decisions:
+            # A resumed intake reuses the decisions already saved on the job:
+            # they carry their mode, choices and selection, so nothing is
+            # rebuilt and no color question is asked again (P1-38).
+            decisions = {'source_sha256': manifest['source_sha256'], 'schema': 'part_slots_v1',
+                         'mode': 'single_color' if mode == 1 else 'per_part'}
+            if mode != 1:
                 if job_adapter.multi_tool:
-                    from .source_colors import prompt_source_colour
-                    colour = prompt_source_colour(manifest, row)
-                    offered = [(label, sel) for label, sel in zip(labels, selections)
-                               if taken.get(sel['slot'], colour) == colour]
-                    picked = offered[await _ask(adapter, source, key, row['question'],
-                                                [label for label, _ in offered], timeout)][1]
-                    taken[picked['slot']] = colour
-                else:
-                    picked = selections[await _ask(adapter, source, key, row['question'], labels, timeout)]
-                for decision_key in row['keys']:
-                    choices[decision_key] = picked
-            decisions['choices'] = choices
-        else:
-            # Core face colors print as one color, and the operator is told (#714).
-            from .source_colors import FACE_COLORS_NOTE
-            note = f' {FACE_COLORS_NOTE}' if manifest.get('face_colors_ignored') else ''
-            decisions['selection'] = selections[await _ask(adapter, source, key, f'Choose the color for {names}.{note}'
-                                                           if note else f'Choose the color for {names}', labels, timeout)]
+                    # One colour per toolhead (#346): more distinct source colours
+                    # than toolheads can never be assigned; refuse before asking.
+                    from .source_colors import distinct_source_colours
+                    colours = distinct_source_colours(manifest)
+                    if len(colours) > job_adapter.tool_count:
+                        raise printers.MultiColorUnsupported(
+                            f"{job_adapter.label} has {job_adapter.tool_count} toolheads and prints one color "
+                            f"per toolhead; this source uses {len(colours)} colors. Reduce the source to at "
+                            f"most {job_adapter.tool_count} colors or use a printer with more toolheads")
+                # Numbered siblings (Stencil 1/2/3) get one question unless the operator chose per part.
+                rows = grouped if mode == 0 else [{**row, 'keys': [row['key']]} for row in questions]
+                choices = {}
+                taken = {}  # toolhead -> source colour already assigned to it (multi_tool only)
+                for row in rows:
+                    if job_adapter.multi_tool:
+                        from .source_colors import prompt_source_colour
+                        colour = prompt_source_colour(manifest, row)
+                        offered = [(label, sel) for label, sel in zip(labels, selections)
+                                   if taken.get(sel['slot'], colour) == colour]
+                        picked = offered[await _ask(adapter, source, key, row['question'],
+                                                    [label for label, _ in offered], timeout)][1]
+                        taken[picked['slot']] = colour
+                    else:
+                        picked = selections[await _ask(adapter, source, key, row['question'], labels, timeout)]
+                    for decision_key in row['keys']:
+                        choices[decision_key] = picked
+                decisions['choices'] = choices
+            else:
+                # Core face colors print as one color, and the operator is told (#714).
+                from .source_colors import FACE_COLORS_NOTE
+                note = f' {FACE_COLORS_NOTE}' if manifest.get('face_colors_ignored') else ''
+                decisions['selection'] = selections[await _ask(adapter, source, key, f'Choose the color for {names}.{note}'
+                                                               if note else f'Choose the color for {names}', labels, timeout)]
         latest = json.loads(jp.read_text())
         if saved_decisions:
             if (latest.get('intake_id') != iid
