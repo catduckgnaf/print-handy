@@ -381,9 +381,12 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, in_gateway_env=
                 events.append(("fit_check_end", func.__name__))
         return await asyncio.to_thread(func, *args, **kwargs)
 
-    def offline_verify(out):
+    def offline_verify(out, adapter=None, state=None, printer_id=None):
         # verify_gcode asks Moonraker for the display mode. The offline check is the same minus that.
-        return model_job.verify_gcode_offline(out, printer_state.load())
+        # The stub takes verify_gcode's current arguments (adapter/state/printer_id)
+        # and verifies against the state the caller resolved for the job's printer.
+        return model_job.verify_gcode_offline(
+            out, state if state is not None else printer_state.load(), adapter=adapter)
 
     def find_job(filename, *args):
         path = sorted(Path(model_job.ARCHIVE).rglob("JOB.json"))[-1]
