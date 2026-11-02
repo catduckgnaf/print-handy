@@ -917,3 +917,30 @@ def test_submitting_reads_history_outside_the_write_transaction():
     probed.clear()
     lease.submitting()
     assert probed == ["free"]
+
+
+# #795: a color difference is never a hard block; Print anyway is bound to one exact G-code.
+
+def _accepting_job(m, accepted_sha):
+    m.st["filament_slots"]["1"] = {"material": "PLA", "hex": "CD7F32", "hex_source": "spoolman"}
+    mapped_hex[0] = "E53935"
+    jp, g = make_job(m.root, "anyway")
+    job = json.loads(jp.read_text())
+    job["color_mismatch_accepted"] = {
+        "gcode_sha256": accepted_sha(g),
+        "slots": [model_job.color_mismatch_key(1, "#E53935", "#CD7F32")]}
+    return jp, g, job
+
+
+def test_print_anyway_lets_this_exact_gcode_start_with_a_warning(mapped, capsys):
+    jp, g, job = _accepting_job(mapped, model_job.file_sha256)
+    model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+    assert len(uploads(mapped.run)) == 1
+    assert "operator chose Print anyway" in capsys.readouterr().out
+
+
+def test_print_anyway_never_carries_over_to_a_different_gcode(mapped):
+    jp, g, job = _accepting_job(mapped, lambda g: "0" * 64)
+    with pytest.raises(SystemExit, match=r"REFUSED: printer slot 1 color is #E53935 but Spoolman has #CD7F32"):
+        model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+    assert uploads(mapped.run) == []

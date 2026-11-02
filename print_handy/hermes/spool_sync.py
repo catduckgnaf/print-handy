@@ -617,6 +617,17 @@ def repair_usage_spool(*, mr: Client = moonraker, state_path: Path | None = None
     return f"Filament charging: was pointing at spool #{active} (no longer loaded); re-pointed to #{target}"
 
 
+def sync_slot_screen(slot: int, *, printer_id: str | None = None) -> str:
+    """Push one slot's Spoolman material and color to the printer screen (#795 'Set screen')."""
+    rec = (load_state(printer_id=printer_id).get("filament_slots") or {}).get(str(slot)) or {}
+    if not rec.get("spoolman_id") or not rec.get("hex"):
+        return "unsupported"
+    if printer_id:
+        return push_screen(slot, rec.get("material") or "", rec["hex"], mr=moonraker_for(printer_id),
+                           pending_path=_pending_path(None, printer_id), adapter=_printer_adapter(printer_id))
+    return push_screen(slot, rec.get("material") or "", rec["hex"])
+
+
 def sync_all_screens(*, mr: Client = moonraker, state_path: Path | None = None,
                      pending_path: Path | None = None, printer_id: str | None = None) -> list[str]:
     state = load_state(state_path, printer_id=printer_id)

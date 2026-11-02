@@ -211,7 +211,8 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
             # pre-upload refusal turn the same prompt into plain guidance plus Retry.
             handled = False
             if (refusal_context is not None and isinstance(result, tuple) and len(result) >= 2
-                    and not result[0] and _safe_preupload_refusal(result[1])):
+                    and not result[0] and _safe_preupload_refusal(result[1])
+                    and not color_confirm(result[1])):
                 detail = str(result[1])
                 refusal_context['start_prompt_message_id'] = str(getattr(stop_msg, 'id', '') or '')
                 if REFUSAL_EDITOR is not None:
@@ -236,7 +237,8 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
             # the adapter, the same end state a click produces.
             handled = False
             if (refusal_context is not None and isinstance(result, tuple) and len(result) >= 2
-                    and not result[0] and _safe_preupload_refusal(result[1])):
+                    and not result[0] and _safe_preupload_refusal(result[1])
+                    and not color_confirm(result[1])):
                 detail = str(result[1])
                 refusal_context['start_prompt_message_id'] = str(sent.message_id)
                 if REFUSAL_EDITOR_BY_ID is not None:
@@ -1335,6 +1337,45 @@ def classify_start(ok, tail):
     return StartClass('START_PENDING' if unknown else 'STARTED' if ok or pending else 'START_REFUSED',
                       None if unknown else bool(ok or pending), 'unknown' if unknown else phase or None,
                       unknown, pending)
+
+
+_CONFIRM_COLOR = re.compile(r'REFUSED: printer slot (\d+) color is (.+?) but Spoolman has (.+?) there \(T(\d+)\)')
+PRINT_ANYWAY_LABEL = 'Print anyway'
+SET_SCREEN_LABEL = 'Set screen to Spoolman color, then print'
+
+
+def color_confirm(tail):
+    """The slot color difference print-now stopped on before upload, or None (#795)."""
+    match = _CONFIRM_COLOR.match(_raw_preupload_refusal(tail))
+    if not match:
+        return None
+    return {'slot': int(match[1]), 'live': match[2], 'recorded': match[3], 'tool': int(match[4])}
+
+
+def color_confirm_question(confirm):
+    return (f"Heads-up: the printer screen says slot {confirm['slot']} is {confirm['live']}, but Spoolman "
+            f"has {confirm['recorded']} there (T{confirm['tool']}). Nothing is uploaded yet. Print anyway with "
+            "the loaded spool, update the screen to the Spoolman color and print, or cancel?")
+
+
+def accept_color_mismatch(job_json, target, confirm):
+    """Record a single-use Print anyway for this exact G-code and this one difference (#795)."""
+    from . import model_job as mj
+    job = json.loads(Path(job_json).read_text())
+    job['color_mismatch_accepted'] = {
+        'gcode_sha256': target['gcode_sha256'],
+        'slots': [mj.color_mismatch_key(confirm['slot'], confirm['live'], confirm['recorded'])],
+        'granted_at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'via': 'button'}
+    mj.write_job(Path(job_json).parent, job)
+    return job['color_mismatch_accepted']
+
+
+def clear_color_acceptance(job_json):
+    """Consume the acknowledgement: it never carries over to a later start."""
+    from . import model_job as mj
+    job = json.loads(Path(job_json).read_text())
+    if job.pop('color_mismatch_accepted', None) is not None:
+        mj.write_job(Path(job_json).parent, job)
 
 
 def _printer_rejected(raw):
@@ -2773,12 +2814,43 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         receipt['retry_target'] = target
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
         start_context = {'target': target, 'receipt': receipt}
-        ok, tail = await _with_stop(adapter, source, key, metadata,
-                                    ((prep_msg + "\n") if not prep_sent else "")
-                                    + "Uploading to the printer. Press Stop to request cancellation.",
-                                    _with_start_progress(adapter, source, metadata, jp,
-                                                         print_next.start(target)),
-                                    allow_stop=True, refusal_context=start_context)
+        uploading = ((prep_msg + "\n") if not prep_sent else "") + "Uploading to the printer. Press Stop to request cancellation."
+        try:
+            for attempt in range(2):
+                ok, tail = await _with_stop(adapter, source, key, metadata, uploading,
+                                            _with_start_progress(adapter, source, metadata, jp,
+                                                                 print_next.start(target)),
+                                            allow_stop=True, refusal_context=start_context)
+                confirm = None if ok or attempt else color_confirm(tail)
+                if confirm is None:
+                    break
+                # A slot color difference never blocks on its own (#795): the operator decides.
+                pick = await _ask(adapter, source, key, color_confirm_question(confirm),
+                                  [PRINT_ANYWAY_LABEL, SET_SCREEN_LABEL, print_next.CANCEL_LABEL], timeout,
+                                  approval=True)
+                receipt['color_mismatch'] = dict(confirm, choice=pick)
+                if pick == 0:
+                    accept_color_mismatch(jp, target, confirm)
+                elif pick == 1:
+                    try:
+                        pushed = await asyncio.to_thread(_external.load('spool_sync').sync_slot_screen,
+                                                         confirm['slot'], printer_id=printer_id)
+                    except Exception as exc:
+                        logger.warning('screen color update failed slot=%s: %s', confirm['slot'], exc)
+                        pushed = 'failed'
+                    receipt['color_mismatch']['screen'] = pushed
+                    if pushed != 'pushed':
+                        accept_color_mismatch(jp, target, confirm)  # screen update unavailable: print as chosen
+                else:
+                    receipt['status'] = 'SLICED_NOT_STARTED'
+                    receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                    await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                       content='Cancelled. Nothing uploaded or started.')
+                    return {'action': 'skip', 'reason': 'operator cancelled on a slot color difference'}
+                uploading = "Uploading to the printer. Press Stop to request cancellation."
+        finally:
+            with contextlib.suppress(Exception):
+                clear_color_acceptance(jp)
         mj._timing(jp, 'intake_start_returned', ok=bool(ok))
         started_as = classify_start(ok, tail)
         unknown, pending = started_as.unknown, started_as.pending

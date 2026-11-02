@@ -281,3 +281,54 @@ def test_uncertain_earlier_start_refusal_names_the_file_and_how_it_clears():
     assert message.startswith("Didn't start: an earlier start (Bag-Clip_plate_1.gcode.3mf) was never confirmed")
     assert "could not confirm it was ready" not in message and "/data/archive" not in message
     assert prepared_intake._safe_preupload_refusal(tail)
+
+
+COLOR_REFUSAL = ("REFUSED: printer slot 1 color is #E53935 but Spoolman has #CD7F32 there (T0). "
+                 "Nothing uploaded or started.")
+
+
+def _color_mismatch_start(monkeypatch):
+    """First start stops on the color difference; later starts record what JOB.json allowed."""
+    seen = []
+
+    async def start(target):
+        job = json.loads(Path(target['job_json']).read_text())
+        seen.append(job.get('color_mismatch_accepted'))
+        if len(seen) == 1:
+            return False, COLOR_REFUSAL
+        return True, 'started'
+
+    monkeypatch.setattr(print_next, 'start', start)
+    return seen
+
+
+def test_color_mismatch_asks_and_print_anyway_starts_this_gcode_once(env, monkeypatch):
+    """#795: never a Retry-only refusal; Print anyway reaches the start exactly once more."""
+    seen = _color_mismatch_start(monkeypatch)
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 0])  # one color, slot 1, print now, Print anyway
+    question = adapter.questions[-1]
+    assert question['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, prepared_intake.SET_SCREEN_LABEL,
+                                   print_next.CANCEL_LABEL]
+    assert '#E53935' in question['question'] and '#CD7F32' in question['question']
+    assert len(seen) == 2 and seen[0] is None
+    assert seen[1]['slots'] == [model_job.color_mismatch_key(1, '#E53935', '#CD7F32')]
+    assert not any(m.startswith("Didn't start:") for m in adapter.log)
+    assert receipt['status'] == 'STARTED' and receipt['color_mismatch']['choice'] == 0
+    job_json = next(env.tmp.rglob('JOB.json'))
+    assert 'color_mismatch_accepted' not in json.loads(job_json.read_text())  # single use
+
+
+def test_color_mismatch_cancel_uploads_nothing(env, monkeypatch):
+    seen = _color_mismatch_start(monkeypatch)
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 2])  # ... then Cancel
+    assert len(seen) == 1
+    assert receipt['status'] == 'SLICED_NOT_STARTED' and receipt['started'] is False
+    assert any('Cancelled. Nothing uploaded or started.' in m for m in adapter.log)
+
+
+def test_label_mismatch_is_still_a_retry_refusal():
+    tail = ("REFUSED: printer slot 2 is labeled PETG but Spoolman has Silk PLA there (T0). "
+            "Nothing uploaded or started.")
+    assert prepared_intake.color_confirm(tail) is None
+    assert prepared_intake.color_confirm(COLOR_REFUSAL) == {'slot': 1, 'live': '#E53935',
+                                                            'recorded': '#CD7F32', 'tool': 0}
