@@ -369,7 +369,7 @@ def test_stock_g_code_verification_never_reaches_moonraker(monkeypatch, tmp_path
     monkeypatch.setattr(printer_state, "check", lambda st, *a, **kw: (True, [], {}))
     monkeypatch.setattr(model_job, "_mr", lambda *a, **kw: pytest.fail("Moonraker was queried"))
     monkeypatch.setattr(model_job, "_verify_offline",
-                        lambda path, state: {"offline": True, "connection": "flashforge_stock"})
+                        lambda path, state, adapter=None: {"offline": True, "connection": "flashforge_stock"})
     assert model_job.verify_gcode(gcode)["connection"] == "flashforge_stock"
     assert model_job.verify_gcode_offline(gcode, {"temps_c": {}})["connection"] == "flashforge_stock"
 

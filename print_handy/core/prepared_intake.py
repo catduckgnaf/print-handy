@@ -460,7 +460,7 @@ def large_model_notice(path):
             f'{minutes} minute{"s" if minutes != 1 else ""}, so it is not stuck.')
 
 
-_WORKER_LOG_LINE = re.compile(r'^\S+\s+(DEBUG|INFO|WARNING|ERROR|CRITICAL)\s')
+_WORKER_LOG_LINE = re.compile(r'^\S+\s+(DEBUG|INFO|WARNING|ERROR|CRITICAL)\s+(.*)$')
 _LOG_LEVELS = ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')
 
 
@@ -471,7 +471,9 @@ def _forward_worker_log_lines(err):
     formatted, timestamped and redacted; forwarding keeps them in the
     operator's log instead of dropping them whenever the JSON reply parses.
     A line that does not start a formatted record (a traceback continuation)
-    follows the previous line's level, as does unformatted noise.
+    follows the previous line's level, as does unformatted noise. The worker's
+    timestamp and level are dropped from the message: this logger adds its own
+    (2.2.5 review).
     """
     if not err:
         return
@@ -480,9 +482,11 @@ def _forward_worker_log_lines(err):
         line = raw.strip()
         if not line:
             continue
+        message = line
         match = _WORKER_LOG_LINE.match(line)
         if match:
             level = getattr(logging, match.group(1))
+            message = match.group(2)
         elif line.startswith('{'):
             try:
                 record = json.loads(line)
@@ -490,7 +494,9 @@ def _forward_worker_log_lines(err):
                 record = None
             if isinstance(record, dict) and str(record.get('level', '')).upper() in _LOG_LEVELS:
                 level = getattr(logging, str(record['level']).upper())
-        logger.log(level, '%s', line)
+                if isinstance(record.get('message'), str):
+                    message = record['message']
+        logger.log(level, '%s', message)
 
 
 async def _heavy(func, *args, **kwargs):
@@ -2746,7 +2752,7 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             # disclosure above: that confirmation is the explicit acceptance
             # of the partial job print-now requires (P1-20).
             accepted = json.loads(jp.read_text())
-            accepted['partial_job_accepted'] = True
+            accepted['partial_job_accepted'] = mj.refused_plates_digest(accepted)
             mj.write_job(folder, accepted)
         # One click recorded: bed clear, bound to the exact JOB.json and G-code. print-now still runs every gate
         # (verify-gcode, live readiness, single-use approval, duplicate-start claim).

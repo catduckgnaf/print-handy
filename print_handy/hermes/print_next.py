@@ -378,7 +378,7 @@ def live_idle_check(printer_id: str | None = None) -> None:
             # errored printer would pass on readiness alone. Ask that
             # printer's Moonraker for its execution state, as the unrouted
             # path below does for the configured printer.
-            phase, filename, busy = _printer_phase(state)
+            phase, filename, busy = _printer_phase(state, native=adapter.has_native_screen)
             if phase not in ("standby", "complete", "cancelled") or busy == "Printing":
                 raise RuntimeError(f"printer is not idle ({phase}, {filename}, {busy})")
         return

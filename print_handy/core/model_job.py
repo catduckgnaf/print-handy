@@ -2755,11 +2755,10 @@ def verify_gcode_offline(gcode_path, state, adapter=None, recorded_temps=None):
     artifact against the already loaded hardware record: MD5 when present,
     native heater prefix, nozzle, material, start and end, and motion bounds.
     """
-    adapter_given = adapter is not None
     adapter = adapter or printers.current()
     if adapter.connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp', 'flashforge_stock'):
         kw = {'recorded_temps': recorded_temps} if recorded_temps else {}
-        return _verify_offline(gcode_path, state, adapter, **kw) if adapter_given else _verify_offline(gcode_path, state, **kw)
+        return _verify_offline(gcode_path, state, adapter, **kw)
     p = Path(gcode_path)
     raw = p.read_bytes()
     text = raw.decode(errors='ignore')
@@ -2875,7 +2874,7 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
     if not ok: raise RuntimeError("the printer check did not pass:\n  " + "\n  ".join(probs))
     if offline_verify:
         kw = {'recorded_temps': recorded_temps} if recorded_temps else {}
-        return _verify_offline(gcode_path, st, adapter, **kw) if routed else _verify_offline(gcode_path, st, **kw)
+        return _verify_offline(gcode_path, st, adapter, **kw)
     p=Path(gcode_path); raw=p.read_bytes(); text=raw.decode(errors="ignore")
     errors=[]
     # The installed native screen requires ZMod's documented first-line MD5.
@@ -5887,9 +5886,14 @@ def _fetch_remote_gcode_sha256(moonraker_url, remote_name, timeout=60):
     return hasher.hexdigest()
 
 
-def _printer_phase(st):
-    """Return a single adapter's reported phase; native 'printing' needs corroboration."""
-    native=_native()
+def _printer_phase(st, native=None):
+    """Return a single adapter's reported phase; native 'printing' needs corroboration.
+
+    native defaults to the configured printer's; a caller asking about a routed
+    printer passes that printer's own has_native_screen (2.2.5 review).
+    """
+    if native is None:
+        native=_native()
     q=_mr(st,"/printer/objects/query?"+("save_variables&" if native else "")+"print_stats&idle_timeout&virtual_sdcard&webhooks")["result"]["status"]
     variables=(q.get("save_variables") or {}).get("variables") or {}
     mode=variables.get("display_off")
@@ -6808,6 +6812,27 @@ def resolve_print_target(target, archive=None):
                      "file with that name. Pass the job's JOB.json instead. Nothing uploaded or started.")
 
 
+def _rerecord_selected_slot(job, selection):
+    """Carry a launch-time slot remap into the recorded slice recipe (2.2.5 review).
+
+    The recipe hashes filament_selection.slot, and a remap launches the same
+    G-code on another physical slot, so the recorded recipe and the binding's
+    recipe_sha256 move with it. Only that one field changes: a recipe that was
+    already inconsistent stays so, and every other input still has to match at
+    require_current_artifact.
+    """
+    from .slice_recipe import recipe_sha256, record
+    stored = job.get('slice_recipe')
+    recipe = stored.get('recipe') if isinstance(stored, dict) else None
+    if not isinstance(recipe, dict) or recipe_sha256(recipe) != stored.get('sha256'):
+        return
+    recipe = {**recipe, 'filament': {**(recipe.get('filament') or {}), 'selected_slot': selection.get('slot')}}
+    job['slice_recipe'] = record(recipe)
+    binding = job.get('artifact_binding')
+    if isinstance(binding, dict) and binding.get('recipe_sha256') == stored['sha256']:
+        binding['recipe_sha256'] = job['slice_recipe']['sha256']
+
+
 def remap_slot(target, new_slot, tool="0", state=None):
     """Remap a single-color job or G-code to a different physical IFS slot.
 
@@ -6900,6 +6925,7 @@ def remap_slot(target, new_slot, tool="0", state=None):
 
     if job is not None and job_path is not None:
         job["filament_selection"] = selection
+        _rerecord_selected_slot(job, selection)
         if new_sha:
             job["gcode_verified"] = True
             if binding_key is not None:
@@ -7517,6 +7543,12 @@ def _print_now_control_lock(target):
     return _cl.control_lock(key)
 
 
+def refused_plates_digest(job):
+    """Digest of the plates a slice refused, which partial_job_accepted must name."""
+    refused = (job or {}).get('refused_plates') or []
+    return hashlib.sha256(json.dumps(refused, sort_keys=True, default=str).encode()).hexdigest()
+
+
 def partial_job_refusal(job):
     """Why launching this job would silently print an incomplete model, or None.
 
@@ -7525,10 +7557,12 @@ def partial_job_refusal(job):
     operator asked for, so launch stays blocked until the operator
     explicitly accepts the partial job (the chat intake discloses the
     refused plates and records partial_job_accepted when the operator
-    confirms the start) (P1-20).
+    confirms the start) (P1-20). The acceptance records the digest of the
+    plates it was shown, so a reslice that refuses a different set is not
+    covered by an earlier acceptance (2.2.5 review).
     """
     refused = (job or {}).get('refused_plates') or []
-    if not refused or (job or {}).get('partial_job_accepted'):
+    if not refused or (job or {}).get('partial_job_accepted') == refused_plates_digest(job):
         return None
     named = '; '.join(f"plate {row.get('plate_id')} (slot {row.get('slot')}): {row.get('reason')}"
                       for row in refused)

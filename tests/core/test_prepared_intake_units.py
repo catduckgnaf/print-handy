@@ -247,6 +247,7 @@ def test_heavy_worker_log_lines_are_forwarded_and_context_is_sent(monkeypatch, c
     assert ('WARNING', 'tower is close to the part') in [(lvl, msg.split(': ', 1)[-1]) for lvl, msg in forwarded]
     assert any(lvl == 'WARNING' and 'Traceback' in msg for lvl, msg in forwarded)  # continuation keeps the level
     assert any(lvl == 'INFO' and 'fit check done' in msg for lvl, msg in forwarded)
+    assert not any('2026-11-02' in msg or ' WARNING ' in msg for _lvl, msg in forwarded)  # no second prefix
 
 
 def test_heavy_worker_log_lines_are_forwarded_on_an_error_reply(monkeypatch, caplog):
