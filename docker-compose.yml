@@ -114,6 +114,9 @@ services:
       SPOOLMAN_DIR_LOGS: /data/spoolman/logs
       SPOOLMAN_DIR_BACKUPS: /data/spoolman/backups
       SPOOLMAN_HOST: ${SPOOLMAN_HOST:-127.0.0.1}
+      # Browser origin allowed to reach the bundled Spoolman (#798, Fluidd/Mainsail live updates); set it in .env, exact origin only, see docs/DOCKER.md.
+      # SPOOLMAN_CORS_ORIGIN=http://<printer-ip>
+      SPOOLMAN_CORS_ORIGIN: ${SPOOLMAN_CORS_ORIGIN:-}
       PRINT_HANDY_BUNDLED_SPOOLMAN: ${PRINT_HANDY_BUNDLED_SPOOLMAN:-true}
       SPOOLMAN_PORT: 8000
     volumes:

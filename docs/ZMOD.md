@@ -183,6 +183,16 @@ The Spoolman API is unauthenticated — LAN only, never forward port 7912
 from a router. Home Assistant REST sensors use the same base URL
 (`http://<unraid-ip>:7912/api/v1/...`).
 
+### Fluidd says Spoolman is blocking its origin
+
+If Fluidd or Mainsail shows "Spoolman is blocking Fluidd's browser origin", the browser is loading the printer UI from an origin that the bundled Spoolman does not allow. Set `SPOOLMAN_CORS_ORIGIN` on the Print Handy container to the exact origin you open in the browser, including scheme and port. Origins match exactly, so a bare `<printer-ip>:80` never matches. For a printer UI at `http://<printer-ip>`:
+
+```
+SPOOLMAN_CORS_ORIGIN=http://<printer-ip>,http://<printer-ip>:80
+```
+
+Moonraker's `[spoolman]` connection is server-to-server and does not need this variable. An external Spoolman container needs the same variable on its own container. Do not use `*`. See [Docker](DOCKER.md#fluidd-says-spoolman-is-blocking-its-origin).
+
 ## Choosing a model
 
 Set `[printer] model` to the key from the table (or `PRINT_HANDY__PRINTER__MODEL` in

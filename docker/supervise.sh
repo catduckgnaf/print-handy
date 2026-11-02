@@ -50,6 +50,8 @@ export SPOOLMAN_DIR_BACKUPS="${SPOOLMAN_DIR_BACKUPS:-/data/spoolman/backups}"
 export PRINT_HANDY__SERVICES__SPOOLMAN_URL="${PRINT_HANDY__SERVICES__SPOOLMAN_URL:-http://127.0.0.1:$SPOOLMAN_PORT}"
 if [ "${PRINT_HANDY_BUNDLED_SPOOLMAN:-true}" = true ]; then
     mkdir -p "$SPOOLMAN_DIR_DATA" "$SPOOLMAN_DIR_CONFIG" "$SPOOLMAN_DIR_LOGS" "$SPOOLMAN_DIR_BACKUPS"
+    # An empty SPOOLMAN_CORS_ORIGIN (Compose and Unraid always pass it) makes Spoolman log a warning on every start; unset it so CORS stays off.
+    if [ -z "${SPOOLMAN_CORS_ORIGIN:-}" ]; then unset SPOOLMAN_CORS_ORIGIN; fi
     # Spoolman runs its migrations by spawning `alembic`, so its venv bin must lead PATH.
     (cd /opt/spoolman && PATH=/opt/spoolman/.venv/bin:$PATH exec .venv/bin/python -m uvicorn spoolman.main:app --host "$SPOOLMAN_HOST" --port "$SPOOLMAN_PORT") &
     children+=("$!"); children_names+=("spoolman")
