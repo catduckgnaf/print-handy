@@ -917,3 +917,78 @@ def test_submitting_reads_history_outside_the_write_transaction():
     probed.clear()
     lease.submitting()
     assert probed == ["free"]
+
+
+# #795: a color difference is never a hard block; Print anyway is bound to one exact G-code.
+
+def _accepting_job(m, accepted_sha):
+    m.st["filament_slots"]["1"] = {"material": "PLA", "hex": "CD7F32", "hex_source": "spoolman"}
+    mapped_hex[0] = "E53935"
+    jp, g = make_job(m.root, "anyway")
+    job = json.loads(jp.read_text())
+    job["color_mismatch_accepted"] = {
+        "gcode_sha256": accepted_sha(g),
+        "slots": [model_job.color_mismatch_key(1, "#E53935", "#CD7F32")]}
+    return jp, g, job
+
+
+def test_print_anyway_lets_this_exact_gcode_start_with_a_warning(mapped, capsys):
+    jp, g, job = _accepting_job(mapped, model_job.file_sha256)
+    model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+    assert len(uploads(mapped.run)) == 1
+    assert "operator chose Print anyway" in capsys.readouterr().out
+
+
+def test_print_anyway_never_carries_over_to_a_different_gcode(mapped):
+    jp, g, job = _accepting_job(mapped, lambda g: "0" * 64)
+    with pytest.raises(SystemExit, match=r"REFUSED: printer slot 1 color is #E53935 but Spoolman has #CD7F32"):
+        model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+    assert uploads(mapped.run) == []
+
+
+def _two_mismatched_slots(m):
+    """Slots 1 and 2 both show a different color on the screen than Spoolman has."""
+    m.native.normalize_mapping.side_effect = lambda mapping, st: {"0": 1, "1": 2}
+    m.st["filament_slots"]["1"] = {"material": "PLA", "hex": "CD7F32", "hex_source": "spoolman"}
+    m.st["filament_slots"]["2"] = {"material": "PLA", "hex": "43A047", "hex_source": "spoolman"}
+    mapped_hex[0] = "E53935"
+    one_slot = model_job._mr.side_effect
+
+    def two_slots(st, path, data=None, timeout=30):
+        out = one_slot(st, path, data, timeout)
+        status = out["result"].get("status", {}) if isinstance(out["result"], dict) else {}
+        if "zmod_color" in status:
+            status["zmod_color"]["slots"].append({"ID": 2, "Material": "PLA", "HEX": "1E88E5", "hasFilament": True})
+        return out
+
+    model_job._mr.side_effect = two_slots
+    jp, g = make_job(m.root, "two-colors")
+    return jp, g, json.loads(jp.read_text())
+
+
+def _run_two_slots(m, jp, g, job):
+    model_job.print_mapped_native(g, m.st, {"display_off": 1}, {"0": 1, "1": 2}, job, jp, 0, False)
+
+
+def test_every_mismatched_slot_is_named_in_one_refusal_before_upload(mapped):
+    jp, g, job = _two_mismatched_slots(mapped)
+    with pytest.raises(SystemExit) as refused:
+        _run_two_slots(mapped, jp, g, job)
+    text = str(refused.value)
+    assert "printer slot 1 color is #E53935 but Spoolman has #CD7F32 there (T0)" in text
+    assert "printer slot 2 color is #1E88E5 but Spoolman has #43A047 there (T1)" in text
+    assert uploads(mapped.run) == []
+
+
+def test_print_anyway_for_both_slots_uploads_once_and_one_slot_alone_does_not(mapped):
+    jp, g, job = _two_mismatched_slots(mapped)
+    keys = [model_job.color_mismatch_key(1, "#E53935", "#CD7F32"),
+            model_job.color_mismatch_key(2, "#1E88E5", "#43A047")]
+    job["color_mismatch_accepted"] = {"gcode_sha256": model_job.file_sha256(g), "slots": keys[:1]}
+    with pytest.raises(SystemExit, match=r"printer slot 2 color is #1E88E5"):
+        _run_two_slots(mapped, jp, g, job)
+    assert uploads(mapped.run) == []
+    job["color_mismatch_accepted"]["slots"] = keys
+    with mock.patch.object(model_job, "_clear_active_spool", return_value={}):
+        _run_two_slots(mapped, jp, g, job)
+    assert len(uploads(mapped.run)) == 1
