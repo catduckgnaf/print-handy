@@ -423,6 +423,26 @@ class ZmodMultiToolTests(unittest.TestCase):
                                 a.readiness_problems({}, _tool_status(zmod_color={"active_tool_id": 7}))))
             self.assertTrue(a.readiness_problems({}, {}))
 
+    def test_readiness_fails_closed_when_telemetry_is_absent(self):
+        # P2-105: idle print_stats + ready webhooks must never pass as a ready
+        # four-tool printer when the sample omits the extruder objects or the
+        # zmod_color active-tool telemetry — the required objects are checked
+        # unconditionally, not only when "extruder" happens to be present.
+        for family in self.FAMILIES:
+            a = adapter_for(family)
+            bare = {"print_stats": {"state": "standby"}, "webhooks": {"state": "ready"}}
+            problems = a.readiness_problems({}, bare)
+            self.assertTrue(any("toolhead 1" in p for p in problems), problems)
+            self.assertTrue(any("toolhead 4" in p for p in problems), problems)
+            self.assertTrue(any("zmod_color" in p for p in problems), problems)
+            # zmod_color missing entirely: the active tool is unknown, refuse.
+            no_color = _tool_status()
+            del no_color["zmod_color"]
+            self.assertTrue(any("zmod_color" in p for p in a.readiness_problems({}, no_color)))
+            # zmod_color present but reporting no active tool: still refuse.
+            self.assertTrue(any("active tool" in p for p in
+                                a.readiness_problems({}, _tool_status(zmod_color={}))))
+
     def test_status_reports_toolheads_and_active_tool(self):
         for family in self.FAMILIES:
             a = adapter_for(family)

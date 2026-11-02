@@ -175,13 +175,20 @@ class ZmodMultiToolAdapter(ZmodSingleExtruderAdapter):
     def readiness_problems(self, state, status, selection=None, **kw):
         problems = super().readiness_problems(state, status, selection, **kw)
         status = status if isinstance(status, dict) else {}
-        if "extruder" in status:  # a real Moonraker sample names every toolhead
-            for tool in range(self.tool_count):
-                name = self._extruder_name(tool)
-                if not isinstance(status.get(name), dict):
-                    problems.append(f"toolhead {tool + 1} ({name}) is not reporting")
+        # The required objects are checked unconditionally (P2-105): a sample
+        # that omits every extruder — idle print_stats, ready webhooks — must
+        # fail closed, never pass as a ready multi-tool printer just because
+        # the toolhead checks were skipped.
+        for tool in range(self.tool_count):
+            name = self._extruder_name(tool)
+            if not isinstance(status.get(name), dict):
+                problems.append(f"toolhead {tool + 1} ({name}) is not reporting")
         color = status.get("zmod_color")
-        if isinstance(color, dict) and color.get("active_tool_id") is not None:
+        if not isinstance(color, dict):
+            problems.append("zmod_color is not reporting (the active tool is unknown)")
+        elif color.get("active_tool_id") is None:
+            problems.append("zmod_color does not report an active tool")
+        else:
             active = color["active_tool_id"]
             if type(active) is not int or not 0 <= active < self.tool_count:
                 problems.append(f"zmod_color reports an unknown active tool ({active!r})")

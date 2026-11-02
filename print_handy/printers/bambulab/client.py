@@ -31,6 +31,7 @@ from __future__ import annotations
 import copy
 import ftplib
 import json
+import secrets
 import ssl
 import time
 from pathlib import Path
@@ -200,8 +201,15 @@ def lan_ssl_context() -> ssl.SSLContext:
     return context
 
 
-def _paho_factory(host, serial, access_code):
-    """Build the real Paho client. Imported lazily: paho-mqtt is only needed with LAN on."""
+def _paho_factory(host, serial, access_code, client_id=None):
+    """Build the real Paho client. Imported lazily: paho-mqtt is only needed with LAN on.
+
+    The default client ID is the persistent session's (`print-handy-<serial>`),
+    the one the listener connects with. A caller that must not disturb that
+    session — a snapshot read (P2-265) — passes its own distinct `client_id`:
+    MQTT disconnects the existing client when a new connection reuses its ID.
+    """
+    client_id = client_id or f"print-handy-{serial.lower()}"
     try:
         import paho.mqtt.client as mqtt
     except ImportError as exc:
@@ -209,9 +217,9 @@ def _paho_factory(host, serial, access_code):
                             "(pip install paho-mqtt, or use the full requirements.txt)") from exc
     try:
         client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, protocol=mqtt.MQTTv311,
-                             client_id=f"print-handy-{serial.lower()}", clean_session=True)
+                             client_id=client_id, clean_session=True)
     except (AttributeError, TypeError):  # paho < 2 has no CallbackAPIVersion
-        client = mqtt.Client(protocol=mqtt.MQTTv311, client_id=f"print-handy-{serial.lower()}",
+        client = mqtt.Client(protocol=mqtt.MQTTv311, client_id=client_id,
                              clean_session=True)
     client.username_pw_set(MQTT_USER, password=access_code)
     client.tls_set_context(lan_ssl_context())
@@ -324,6 +332,22 @@ class BambuLanClient:
         if rc != 0:
             raise BambuLanError(f"Bambu Lab LAN request was not accepted by the MQTT client (rc={rc}); nothing was sent")
 
+    def _snapshot_mqtt_client(self):
+        """The MQTT client for one snapshot read, on a distinct client ID.
+
+        A snapshot is a read, not the persistent session: connecting with the
+        listener's client ID (`print-handy-<serial>`) would disconnect the
+        listener (MQTT 3.1.1 §3.1.4), and two reads sharing an ID would
+        disconnect each other, so every read gets a fresh ID (P2-265). Only
+        the built-in Paho factory takes the `client_id` argument; an injected
+        factory keeps the plain (host, serial, access_code) call — that seam
+        is how tests substitute fakes, and no real connection happens there.
+        """
+        if self._mqtt_factory is _paho_factory:
+            client_id = f"print-handy-{self.serial.lower()}-status-{secrets.token_hex(4)}"
+            return _paho_factory(self.host, self.serial, self._access_code, client_id=client_id)
+        return self._mqtt_factory(self.host, self.serial, self._access_code)
+
     def snapshot(self):
         """Return {"print": {...}, "info": {...} | None, "online": True} from a complete pushall.
 
@@ -331,7 +355,7 @@ class BambuLanClient:
         or does not answer with a complete snapshot before the timeout. Error text carries
         no access code and no payload content.
         """
-        client = self._mqtt_factory(self.host, self.serial, self._access_code)
+        client = self._snapshot_mqtt_client()
         state = {"print": {}, "info": None, "complete": False, "denied": False, "failed": None}
 
         def on_connect(mqtt_client, _userdata, _flags, reason_code, *_rest):
