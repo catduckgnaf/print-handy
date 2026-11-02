@@ -367,9 +367,14 @@ def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True
     It is used when its temperature_resolution names this exact spool and material, or
     when the record has no resolution at all (explicit legacy temperatures, kept as
     _material_temperature_contract always has; the spool-sync paths mark the record
-    stale instead of leaving it bare). A resolution for another spool, or an older one
-    that names only a family, is resolved again from the material defaults, the
-    variant adjustment (#512) and the spool's Spoolman temperatures. ``filament`` is
+    stale instead of leaving it bare), or when the resolution is a legacy one that
+    names only this spool's material family: records written before resolutions
+    carried material/spoolman_id hold temperatures recorded for the spool (often its
+    Spoolman filament's explicit values), so they are preserved and the resolution is
+    migrated to the current shape (P2-276) instead of silently re-slicing at family
+    defaults. A resolution for another spool or another family is resolved again from
+    the material defaults, the variant adjustment (#512) and the spool's Spoolman
+    temperatures. ``filament`` is
     the spool's Spoolman filament when the caller already has it; ``fetch_filament`` is
     called for it only when needed (Spoolman is advisory: None means defaults).
     ``stored_ok=False`` always resolves (a slot spool other than the active one).
@@ -382,12 +387,31 @@ def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True
         if stored:
             return dict(stored), resolution  # _material_temperature_contract reports the missing material
         raise RuntimeError("selected spool has no material; cannot determine safe temperatures")
-    if filament is None and stored_ok and stored and not resolution and _is_seeded_default(material, stored):
-        # A bare record holding exactly the family default (what seeding writes: 210/60 for
-        # every PLA) is not an operator choice; Silk PLA sliced at 210 °C on 2026-10-31 (#64).
+    # A legacy resolution (written before #697) names the material family and the
+    # per-key sources, never the material or spool: it attests the stored temps for
+    # any spool of that family, the compatibility _material_temperature_contract
+    # has always granted it. The spool-change markers name no family at all, so
+    # they are never legacy and still resolve afresh.
+    legacy = False
+    if isinstance(resolution, dict) and resolution.get("material_family") \
+            and "material" not in resolution and "spoolman_id" not in resolution:
+        try:
+            legacy = resolution.get("material_family") == material_family(material)
+        except Exception:
+            legacy = False
+    if filament is None and stored_ok and stored and (not resolution or legacy) \
+            and _is_seeded_default(material, stored):
+        # A bare or legacy record holding exactly the family default (what seeding writes:
+        # 210/60 for every PLA) is not an operator choice; Silk PLA sliced at 210 °C on
+        # 2026-10-31 (#64).
         stored_ok = False
-    if filament is None and stored_ok and stored and (not resolution or (
+    if filament is None and stored_ok and stored and (not resolution or legacy or (
             resolution.get("material") == material and resolution.get("spoolman_id") == spool.get("spoolman_id"))):
+        if legacy:
+            # Migrate in the returned resolution: the stored temperatures are now
+            # attested for this exact spool, so later reads take the exact-match path.
+            return dict(stored), {**resolution, "material": material,
+                                  "spoolman_id": spool.get("spoolman_id")}
         return dict(stored), resolution
     if filament is None and fetch_filament is not None and spool.get("spoolman_id") is not None:
         try:
