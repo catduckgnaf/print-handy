@@ -211,6 +211,30 @@ def test_p1s_fit_uses_model_specific_working_volume(p1s_profiles):
     assert state()["bed_mm"] == [256, 256]
 
 
+def test_retained_242_folder_still_resolves_its_pla_name(p1s_profiles, monkeypatch):
+    # P2-128 / P2-129: a folder generated from OrcaSlicer 2.4.2 names its PLA
+    # profile "Bambu PLA Basic @BBL X1C" (the X1C profile listed the P1S
+    # then); the current facts name the dedicated P1S profile. The folder
+    # still matches a retained identity, so a sliced file naming the old
+    # profile must resolve to the folder's verified default template
+    # instead of being refused as an unchecked profile.
+    a = adapter_for()
+    folder = a.pinned_templates_folder()
+    old_name = "Bambu PLA Basic @BBL X1C"
+    upstream = json.loads((folder / "upstream" / "filament.json").read_text())
+    upstream["name"] = old_name
+    (folder / "upstream" / "filament.json").write_text(profiles._dump(upstream))
+    (folder / "filament.json").write_text(profiles.template_text("filament", upstream))
+    identity = dict(p1s_fixture.identity())
+    identity["sha256"] = {**identity["sha256"], "filament": profiles.sha256(upstream)}
+    monkeypatch.setattr(P1SAdapter, "facts",
+                        {**facts.P1S, "orca_identity": facts.Fact((identity,), "TEST", False)})
+    assert profiles.problems(a, folder) == []  # the retained folder still verifies
+    assert profiles.filament_for_settings_id(a, old_name, folder) == folder / "filament.json"
+    current = facts.P1S["orca_profiles"].value["filament"]
+    assert profiles.filament_for_settings_id(a, current, folder) == folder / "filament.json"
+
+
 def test_profile_defaults_reference_orca_profile_names_and_sources(p1s_profiles):
     assert facts.ORCA_RELEASE == ("v2.5.0-beta", "345efec64c7b95a05ce5cf96df0dde66a158835c")
     assert all(fact.source in {"ORCA", "BAMBU", "DERIVED"} for fact in facts.P1S.values())
