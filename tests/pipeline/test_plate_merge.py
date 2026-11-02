@@ -738,3 +738,47 @@ def test_polygon_merge_slices_to_one_gcode_at_the_recorded_corners(tmp_path, mon
             corner = (verdict['placed_bounds_mm'][oid][0][0], verdict['placed_bounds_mm'][oid][1][0])
             assert bounds[0][0] == pytest.approx(corner[0]) and bounds[1][0] == pytest.approx(corner[1])
     assert plate_merge.hull_distance(placed['1'], placed['2']) >= plate_merge.SPACING_MM - 1e-6
+
+
+# ---------------------------------------------------------------------------
+# DATA-3 (P1-72): the merge planner's capacity is the job printer's position
+# count, not the configured printer's IFS slot count. A multi_tool model keeps
+# filament_slots=1 by design, so a Creator-configured process imported
+# plate_merge with FILAMENT_SLOTS=1 and refused every multi-toolhead merge
+# before the merged slicer ever ran.
+
+def _two_single_part_plates(tmp_path):
+    source = tmp_path / 'two.3mf'
+    _source(source, {'1': (20, 20, 10), '2': (20, 20, 10)}, [['1'], ['2']])
+    return source
+
+
+def test_plan_toolhead_capacity_comes_from_the_caller(tmp_path, monkeypatch):
+    monkeypatch.setattr(plate_merge, 'FILAMENT_SLOTS', 1)  # a Creator-configured process
+    source = _two_single_part_plates(tmp_path)
+    manifest = source_colors.inventory(source)
+    plates = [{'id': 1, 'object_ids': [1]}, {'id': 2, 'object_ids': [2]}]
+    slots = {part['key']: slot for part, slot in zip(manifest['parts'], [2, 4])}
+    state = {'bed_mm': [256, 256], 'max_print_height_mm': 256,
+             'filament_slots': {'2': {'material': 'PLA'}, '4': {'material': 'PLA'}}}
+    refused = plate_merge.plan(source, manifest, plates, slots, state)
+    assert refused['mode'] == 'split'
+    assert refused['reason'] == 'needs 2 filament slots; one IFS job has 1'
+    merged = plate_merge.plan(source, manifest, plates, slots, state, capacity=4, multi_tool=True)
+    assert merged['mode'] == 'merge', merged['reason']
+
+
+def test_plan_multi_tool_allows_mixed_materials_across_toolheads(tmp_path, monkeypatch):
+    monkeypatch.setattr(plate_merge, 'FILAMENT_SLOTS', 1)
+    source = _two_single_part_plates(tmp_path)
+    manifest = source_colors.inventory(source)
+    plates = [{'id': 1, 'object_ids': [1]}, {'id': 2, 'object_ids': [2]}]
+    slots = {part['key']: slot for part, slot in zip(manifest['parts'], [2, 4])}
+    state = {'bed_mm': [256, 256], 'max_print_height_mm': 256,
+             'filament_slots': {'2': {'material': 'PLA'}, '4': {'material': 'PETG'}}}
+    # One extruder fed by slots cannot change material mid-job; two toolheads
+    # carry one filament each and can.
+    refused = plate_merge.plan(source, manifest, plates, slots, state, capacity=4)
+    assert refused['mode'] == 'split' and 'mixed materials across slots' in refused['reason']
+    merged = plate_merge.plan(source, manifest, plates, slots, state, capacity=4, multi_tool=True)
+    assert merged['mode'] == 'merge', merged['reason']

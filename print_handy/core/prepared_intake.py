@@ -2025,9 +2025,12 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             # parts, do it and say so instead of asking. The check uses the
             # planner the slice path uses, so the plan is one it honors.
             try:
+                job_adapter = mj._job_adapter(latest)
                 one_plate = await fit_status.run('trying the parts rearranged on one plate at 100%',
                                                  _heavy(mj.full_size_one_plate, path, state,
-                                                        latest.get('color_decisions')))
+                                                        latest.get('color_decisions'),
+                                                        capacity=mj.position_limit(job_adapter),
+                                                        multi_tool=job_adapter.multi_tool))
                 rearrange_checked = True
             except Exception:
                 logger.exception('one-plate rearrangement check failed; falling back to the full fit search')

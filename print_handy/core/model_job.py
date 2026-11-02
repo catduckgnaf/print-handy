@@ -3886,7 +3886,7 @@ def _plates_for(source, manifest):
                  'object_ids': sorted({int(p['object_id']) for p in manifest['parts']})}]
 
 
-def full_size_one_plate(source, state, decisions=None):
+def full_size_one_plate(source, state, decisions=None, capacity=None, multi_tool=False):
     """A 100%-scale, one-plate rearrangement the slicer will honor exactly, or None.
 
     This is the cheap first fit check after the author's layout fails the bed:
@@ -3896,6 +3896,8 @@ def full_size_one_plate(source, state, decisions=None):
     * per-part color decisions on a 3MF slice through the merge planner
       (``plate_merge.plan``) with the rearrangement flag, which keeps the
       merge spacing, bed-edge margin and prime-tower room for multi-slot jobs;
+      ``capacity``/``multi_tool`` carry the job printer's position count and
+      kind into that planner, exactly as ``slice_multi_plate`` passes them;
     * a single-color or generic single-plate source slices through
       ``geometry_layout.arrange_and_export``, so it is checked with
       ``probe_single_plate_rearrange`` at the same defaults.
@@ -3923,7 +3925,8 @@ def full_size_one_plate(source, state, decisions=None):
         flagged = {'full_size_rearrange_plan': {'rearrange_plate': True}}
         verdict = plate_merge.plan(source, manifest, _plates_for(source, manifest), slots, st,
                                    bed=int(bed[0]), job=flagged,
-                                   edge=_merge_edge(st.get('brim_override')))
+                                   edge=_merge_edge(st.get('brim_override')),
+                                   capacity=capacity, multi_tool=multi_tool)
         if verdict.get('mode') != 'merge':
             return None
         boxes = list((verdict.get('placed_bounds_mm') or {}).values())
@@ -4049,9 +4052,14 @@ def slice_multi_plate(job, job_path, src, manifest, decisions, st, brim_override
         verdict['reason'] = 'Resized per-part job: one fitted plate per slot'
     elif mode == 'merge':
         _, _, plan_brim = _job_fit(job, brim_override)
-        verdict = plate_merge.plan(src, manifest, plates, slots, st, job=job, edge=_merge_edge(plan_brim))
+        adapter = _job_adapter(job)
+        # The planner's capacity is the job printer's position count: a
+        # multi_tool model's toolheads, not the configured printer's IFS
+        # slots (a Creator-configured process has filament_slots=1) (P1-72).
+        verdict = plate_merge.plan(src, manifest, plates, slots, st, job=job, edge=_merge_edge(plan_brim),
+                                   capacity=position_limit(adapter), multi_tool=adapter.multi_tool)
         if verdict['mode'] == 'merge':
-            merged_slice = (_slice_merged_multi_tool if _job_adapter(job).multi_tool else _slice_merged)
+            merged_slice = (_slice_merged_multi_tool if adapter.multi_tool else _slice_merged)
             try:
                 result = merged_slice(job, job_path, src, manifest, decisions, view, verdict, st, brim_override, work)
             except plate_merge.SplitNeeded as exc:
