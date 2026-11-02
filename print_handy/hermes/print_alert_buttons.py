@@ -780,21 +780,26 @@ def intake_brand_options(types: list[dict[str, Any]] | None, material: Any) -> l
 
 
 def intake_color_options(types: list[dict[str, Any]] | None, material: Any) -> list[dict[str, str]]:
-    """Colours already known for this material first, then common colours, then Other."""
+    """Colors already known for this material first, then common colors, then Other."""
     material = str(material or "").casefold()
     known = []
     for entry in types or []:
         if str(entry.get("material") or "").casefold() != material:
             continue
         color = str(entry.get("color") or "").strip()
-        if color and color not in known:
-            known.append(color)
+        mat_name = str(entry.get("material") or "").strip()
+        # Normalize label to color, or color + material if color doesn't contain material
+        if color:
+            label = color if mat_name.casefold() in color.casefold() else f"{color} {mat_name}"
+            if label not in known:
+                known.append(label)
     options = [{"label": c, "value": c} for c in known[:15]]
     for color in INTAKE_COMMON_COLORS:
         if len(options) >= 23:
             break
-        if color not in known:
-            options.append({"label": color, "value": color})
+        label = f"{color} {material.upper()}" if material else color
+        if label not in known:
+            options.append({"label": label, "value": color})
     options.append({"label": "Other (type it exactly)…", "value": INTAKE_OTHER})
     return options
 

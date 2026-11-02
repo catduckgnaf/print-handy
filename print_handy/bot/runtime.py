@@ -124,6 +124,29 @@ def _whole_name_winner(decision, wholes):
     return whole[0] if len(whole) == 1 else None
 
 
+# Plain-language task suggestions (#792): common task intents when people phrase jobs in words.
+# Maps regex patterns to canonical command suggestions.
+_TASK_INTENT_SUGGESTIONS = (
+    (re.compile(r"^(?:please\s+)?(?:i\s+(?:need|want)\s+to\s+)?(?:change|swap|replace)\s+(?:a\s+|the\s+)?(?:filament|spool|roll)(?:\s+(?:roll|spool))?(?:\s+in\s+slot\s+[1-4])?$", re.I), "/spool"),
+    (re.compile(r"^(?:please\s+)?(?:i\s+(?:need|want)\s+to\s+)?(?:add|create|new)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:filament|spool|roll)$", re.I), "/spool"),
+    (re.compile(r"^(?:please\s+)?(?:what|which)\s+(?:filament|spool|color)s?\s+(?:is|are)\s+loaded$", re.I), "/print-spools"),
+    (re.compile(r"^(?:please\s+)?(?:stop|cancel|abort)\s+(?:the\s+)?(?:current\s+)?print$", re.I), "/print-stop"),
+    (re.compile(r"^(?:please\s+)?(?:resume|continue|unpause)\s+(?:the\s+)?(?:current\s+)?print$", re.I), "/print-resume"),
+    (re.compile(r"^(?:please\s+)?(?:restart|reboot)\s+(?:the\s+)?printer$", re.I), "/print-reboot"),
+    (re.compile(r"^(?:please\s+)?(?:do|run)\s+(?:a\s+)?cold\s*pull$", re.I), "/print-coldpull"),
+)
+
+
+def _task_suggestion(text):
+    clean = " ".join(str(text or "").split()).strip()
+    if not clean or clean.startswith("/"):
+        return None
+    for pattern, cmd in _TASK_INTENT_SUGGESTIONS:
+        if pattern.match(clean):
+            return cmd
+    return None
+
+
 def command_suggestion(text):
     """The canonical command a near-miss message most likely meant, else None (#468 stage 3).
 
@@ -149,6 +172,9 @@ def command_suggestion(text):
     in the fallback after every model lane has declined, so #466's
     no-LLM posture keeps it too.
     """
+    task = _task_suggestion(text)
+    if task is not None:
+        return task
     scored, rest, wholes = _command_scores(text)
     if not scored:
         return None

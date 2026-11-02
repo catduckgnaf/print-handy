@@ -2417,14 +2417,16 @@ _SPOOL_DISPOSITIONS = {'Back on the shelf': 'shelf', 'Archive it': 'archive',
                        'Delete it': 'delete'}
 
 _SPOOL_NL_NEW_RES = (
-    re.compile(r"(?:please\s+)?add(?:ing)?\s+(?:a\s+|an\s+|some\s+)?(?:new\s+)?(?:filament|spool)\s*[.!]?", re.I),
-    re.compile(r"(?:we|i)\s+(?:need|want)\s+to\s+add\s+(?:a\s+|an\s+|some\s+)?(?:new\s+)?(?:filament|spool)\s*[.!]?", re.I),
-    re.compile(r"(?:we|i)\s+(?:need|want)\s+(?:a\s+)?new\s+(?:filament|spool)\s*[.!]?", re.I),
-    re.compile(r"new\s+(?:filament|spool)\s*[.!]?", re.I),
+    re.compile(r"(?:please\s+)?add(?:ing)?\s+(?:a\s+|an\s+|some\s+)?(?:new\s+)?(?:filament|spool|roll)\s*[.!]?", re.I),
+    re.compile(r"(?:we|i)\s+(?:need|want)\s+to\s+add\s+(?:a\s+|an\s+|some\s+)?(?:new\s+)?(?:filament|spool|roll)\s*[.!]?", re.I),
+    re.compile(r"(?:we|i)\s+(?:need|want)\s+(?:a\s+)?new\s+(?:filament|spool|roll)\s*[.!]?", re.I),
+    re.compile(r"new\s+(?:filament|spool|roll)\s*[.!]?", re.I),
 )
 _SPOOL_NL_CHANGE_RES = (
-    re.compile(r"(?:please\s+)?(?:change|swap|replace)\s+(?:the\s+|a\s+|an\s+)?(?:filament|spool)(?:\s+in\s+slot\s+[1-4])?\s*[.!]?", re.I),
-    re.compile(r"(?:we|i)\s+(?:need|want)\s+to\s+(?:change|swap|replace)\s+(?:the\s+|a\s+|an\s+)?(?:filament|spool)\s*[.!]?", re.I),
+    re.compile(r"(?:please\s+)?(?:change|swap|replace)\s+(?:the\s+|a\s+|an\s+)?(?:filament|spool|roll)(?:\s+(?:roll|spool))?(?:\s+in\s+slot\s+[1-4])?\s*[.!]?", re.I),
+    re.compile(r"(?:we|i)\s+(?:need|want)\s+to\s+(?:change|swap|replace)\s+(?:the\s+|a\s+|an\s+)?(?:filament|spool|roll)(?:\s+(?:roll|spool))?\s*[.!]?", re.I),
+    re.compile(r"(?:please\s+)?(?:change|swap|replace)\s+(?:the\s+|a\s+|an\s+)?filament\s+roll\s*[.!]?", re.I),
+    re.compile(r"(?:we|i)\s+(?:need|want)\s+to\s+change\s+a\s+filament\s+roll\s*[.!]?", re.I),
 )
 
 
