@@ -224,17 +224,47 @@ def sdcp_client(server, **kw):
     return client, posts
 
 
+def _discovery_payload(mid):
+    return json.dumps({"Id": "x", "Data": {"MainboardID": mid}}).encode()
+
+
 def test_sdcp_discovery_via_udp():
-    payload = json.dumps({"Id": "x", "Data": {"MainboardID": "MID999"}}).encode()
+    payload = _discovery_payload("MID999")
     seen = {}
 
     def udp(host, timeout):
         seen["host"] = host
-        return payload
+        return payload, ("192.168.1.80", 3000)  # the configured printer answers
 
     client = SdcpClient("192.168.1.80", udp=udp)
     assert client.discover() == "MID999" and seen["host"] == "255.255.255.255"
     assert client.mainboard_id == "MID999"
+
+
+def test_sdcp_discovery_ignores_other_printers():
+    # Another SDCP printer on the LAN answers the broadcast first; its MainboardID
+    # must not be remembered for requests sent to the configured host (P2-91).
+    answers = iter([
+        (_discovery_payload("OTHER1"), ("192.168.1.99", 3000)),
+        (_discovery_payload("MID999"), ("192.168.1.80", 3000)),
+    ])
+
+    def udp(host, timeout):
+        return next(answers)
+
+    client = SdcpClient("192.168.1.80", udp=udp)
+    assert client.discover() == "MID999"
+    assert client.mainboard_id == "MID999"
+
+
+def test_sdcp_discovery_refuses_when_only_other_printers_answer():
+    def udp(host, timeout):
+        return _discovery_payload("OTHER1"), ("192.168.1.99", 3000)
+
+    client = SdcpClient("192.168.1.80", udp=udp)
+    with pytest.raises(SdcpError, match="other printers"):
+        client.discover()
+    assert client.mainboard_id == ""
 
 
 def test_sdcp_status_upload_start_control(tmp_path):
