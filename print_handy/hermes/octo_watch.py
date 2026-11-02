@@ -226,7 +226,13 @@ class OctoPrintMonitor:
             self._post(f"{text}\n{_too_big_text()}")
             return kind
         try:
-            self._post(f"{text}\nMEDIA:{video}")
+            # The production sender reports a refusal as a False return,
+            # not an exception (the P2-169/P2-173 contract): only an
+            # explicit False means undelivered.
+            if self._post(f"{text}\nMEDIA:{video}") is False:
+                log(f"octoprint completion post with timelapse was refused for "
+                    f"{self.filename!r}; posting the text only")
+                self._post(text)
         except Exception as exc:
             log(f"octoprint completion post with timelapse failed for {self.filename!r}: {exc!r}; "
                 "posting the text only")

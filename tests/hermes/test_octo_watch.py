@@ -279,3 +279,22 @@ def test_movie_for_job_edge_shapes():
     newer = {"name": "widget_20261026171200.mp4"}
     assert octo_watch.movie_for_job([older, newer], "widget")["name"] == newer["name"]
     assert octo_watch.movie_for_job(None, "widget") is None
+
+
+def test_a_refused_media_post_falls_back_to_the_text_completion():
+    """The production sender returns False on a refusal instead of raising
+    (the P2-169/P2-173 contract): a refused MEDIA post still owes the
+    chat the plain completion text."""
+    h = Harness(COMPLETE_SEQ, movies=[{"name": MOVIE, "url": "/x"}])
+    attempts = []
+
+    def post(message):
+        attempts.append(message)
+        return "MEDIA:" not in message
+
+    m = h.monitor()
+    m._post = post
+    assert m.run() == "complete"
+    assert len(attempts) == 2
+    assert "MEDIA:" in attempts[0]
+    assert "MEDIA:" not in attempts[1]
