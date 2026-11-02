@@ -364,6 +364,37 @@ def test_apply_rolls_back_the_roster_write_when_a_later_step_fails(tmp_path, mon
     assert target.read_text() == "printers: []\n"  # the append was rolled back
 
 
+def test_add_printer_restart_discards_an_unfinished_checklist(tmp_path):
+    """P2-219: a saved onboarding checklist can be discarded and started
+    over. add-printer alone always resumes it, cancel only pauses it, and
+    setup restart is refused while one exists — so a wrong model or name,
+    once accepted, could never be corrected short of applying it."""
+    st = store(tmp_path)
+    start(st, now=1000)
+    say(st, "creality.k1")
+    say(st, "Wrong Name")
+    assert st.get("k")["ob_answers"].get("name") == "Wrong Name"
+    reply = say(st, "/print-handy add-printer restart", config_loader=loader)
+    assert "restarted" in reply and "discarded" in reply and "Printer model" in reply
+    session = st.get("k")
+    assert session["status"] == "onboarding" and session["ob_answers"] == {}
+
+
+def test_add_printer_restart_discards_a_cancelled_checklist(tmp_path):
+    """The manual trap (P2-219): a cancelled checklist — e.g. the person
+    added the printer by hand after choosing manual — still resumes on
+    add-printer and its review apply then fails on the existing id.
+    Restart discards it instead."""
+    st = store(tmp_path)
+    start(st, now=1000)
+    say(st, "creality.k1")
+    say(st, "/print-handy cancel")
+    assert st.get("k")["status"] == "cancelled"
+    reply = say(st, "/print-handy add-printer restart", config_loader=loader)
+    assert "discarded" in reply
+    assert st.get("k")["status"] == "onboarding" and st.get("k")["ob_answers"] == {}
+
+
 def test_manual_at_review_prints_the_roster_yaml(tmp_path):
     st = store(tmp_path)
     start(st, now=1000)
