@@ -83,7 +83,10 @@ def test_model_registration_defaults_and_p1s_specific_hardware(p1s_profiles):
     # The AMS is the P1S's slot system (#671): multi_slot, four slots.
     assert (a.connection, a.slot_count, a.multi_slot) == ("bambulab_lan", 4, True)
     volume = a.build_volume()
-    assert volume.bed_mm == (256.0, 256.0) and volume.max_height_mm == 256.0
+    # P2-64: the working volume is the slicer's usable height (the Orca
+    # machine profile's 250 mm), not the physical 256 mm specification —
+    # a 253 mm model must not be told it fits. The fact itself stays 256.
+    assert volume.bed_mm == (256.0, 256.0) and volume.max_height_mm == 250.0
     assert a.supported_nozzle_sizes == (0.4,)
     assert a.supported_nozzle_types == ("stainless_steel", "hardened_steel")
     assert a.fact("bed_exclude_area") == ((0.0, 0.0), (18.0, 0.0), (18.0, 28.0), (0.0, 28.0))
@@ -95,7 +98,7 @@ def test_p1s_defaults_to_bambu_studio_and_orca_can_be_selected(p1s_profiles):
     assert adapter_for().verified_slicers == ("bambu_studio", "orca")
     assert config_for(slicer="orca")["printer"]["slicer"] == "orca"
     assert config_for()["printer"]["bed_mm"] == [256.0, 256.0]
-    assert config_for()["printer"]["max_print_height_mm"] == 256.0
+    assert config_for()["printer"]["max_print_height_mm"] == 250.0  # P2-64: usable height, above
     # The P1S's own AMS count is the default since #671 (multi_slot).
     assert config_for()["printer"]["filament_slots"] == 4
     with pytest.raises(settings.SettingsError, match="not supported by model 'bambulab.p1s'"):
