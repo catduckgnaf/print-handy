@@ -2993,15 +2993,25 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None):
             # features merely to raise this metadata median.
             role = None
             widths = []
+            # The width in effect when a feature starts is inherited, but it
+            # counts for that feature only once extrusion actually uses it: a
+            # ;WIDTH line that follows replaces it before any plastic is laid,
+            # so counting it anyway would credit the feature with the previous
+            # feature's width and could lift the median past the floor (P2-66).
+            inherited = None
             for line in block.splitlines():
                 if line.startswith(";TYPE:"):
                     role = line[6:].strip().casefold()
-                    if carried[0] is not None and role not in ("gap infill", "gap fill"):
-                        widths.append(carried[0])
-                if line.startswith(";WIDTH:"):
+                    inherited = carried[0]
+                elif line.startswith(";WIDTH:"):
                     carried[0] = float(line[7:])
+                    inherited = None
                     if role not in ("gap infill", "gap fill"):
                         widths.append(carried[0])
+                elif inherited is not None and re.match(r'G[01] [^;]*E[0-9.]*[1-9]', line):
+                    if role not in ("gap infill", "gap fill"):
+                        widths.append(inherited)
+                    inherited = None
             if not widths and carried[0] is not None and role not in ("gap infill", "gap fill") \
                     and re.search(r'^G[01] [^;\n]*E[0-9.]*[1-9]', block, re.M):
                 # Extrudes with no new ;TYPE/;WIDTH line: the width in effect still applies.

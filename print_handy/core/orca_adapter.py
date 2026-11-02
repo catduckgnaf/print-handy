@@ -1450,7 +1450,17 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         # Classic walls fail thin print-in-place features (Orca -100, e.g. flexy rings);
         # Arachne variable-width walls slice them. One retry with the flex-print profile, logged.
         logger.warning('Orca failed (rc=%s); retrying once with the arachne flex profile', result.returncode)
+        # The flex profile turns supports and brim off; the operator's resolved
+        # settings win over it, exactly as on the designer-arachne path above:
+        # slice_job enables supports for orientations that require them, and a
+        # retry that dropped them would approve an unsupported print (P2-65).
+        resolved_support = process.get('enable_support')
+        resolved_brim = (process.get('brim_type'), process.get('brim_width'))
         process.update(FLEX_PROFILE)
+        if supports is not None:
+            process['enable_support'] = resolved_support
+        if brim is not None or brim_policy is not None:
+            process['brim_type'], process['brim_width'] = resolved_brim
         geometry['thin_feature_profile'] = 'arachne flex (AD5X Flexy Ring guide)'
         configs[1].write_text(json.dumps(process, indent=2) + '\n')
         output.unlink(missing_ok=True)
