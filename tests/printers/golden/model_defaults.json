@@ -121,7 +121,7 @@
   "octoprint.marlin": {
     "_model": {
       "adapter": "print_handy.printers.octoprint.adapter.OctoPrintAdapter",
-      "baseline": null,
+      "baseline": "protected-settings-baseline.octoprint.marlin.json",
       "label": "Marlin via OctoPrint",
       "supported_nozzle_sizes": [
         0.2,

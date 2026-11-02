@@ -15,6 +15,7 @@ MODEL = PrinterModel(
     label="Creality Ender-3 (OctoPrint)",
     adapter=OctoPrintAdapter,
     templates="octoprint_ender3",
+    baseline="protected-settings-baseline.octoprint.ender3.json",
     vendor=VENDOR,
     settings={"printer": {
         "name": "Creality Ender-3 (OctoPrint)", "bed_mm": [220.0, 220.0], "max_print_height_mm": 250.0,
