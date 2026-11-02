@@ -185,3 +185,16 @@ def test_sanitizer_preserves_hermes_slot_filament_ids(tmp_path: Path):
     assert after["filament_settings_id"][1] == "Flashforge Generic PLA"
     assert after["filament_settings_id"][2] == "Hermes slot 3 PETG"
 
+
+def test_sanitizer_slot_limit_is_physical_not_filaments_used(tmp_path: Path):
+    """2.2.5 review: a 2-filament mapping must not strip Hermes slot 3/4 names or a 5th toolhead's slot."""
+    t3mf = tmp_path / "physical_slots.3mf"
+    project_settings = {"filament_settings_id": ["Hermes slot 3 PLA", "Hermes slot 5 PETG"]}
+    with zipfile.ZipFile(t3mf, "w") as z:
+        z.writestr("Metadata/project_settings.config", json.dumps(project_settings))
+
+    orca_adapter.sanitize_project_settings(t3mf, slot_count=2, slot_limit=5)
+
+    with zipfile.ZipFile(t3mf, "r") as z:
+        after = json.loads(z.read("Metadata/project_settings.config"))
+    assert after["filament_settings_id"] == ["Hermes slot 3 PLA", "Hermes slot 5 PETG"]

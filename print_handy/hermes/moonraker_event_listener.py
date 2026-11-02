@@ -699,7 +699,7 @@ def _sensor_suffix_tokens(name):
     return {token for token in re.split(r"[^0-9A-Za-z]+", suffix) if token}
 
 
-def head_sensor_from_status(status):
+def head_sensor_from_status(status, single_extruder=False):
     """True/False when an enabled filament sensor at the head answers, else None.
 
     Fail-safe (#442): a sensor that is absent, disabled, or reporting a
@@ -714,6 +714,11 @@ def head_sensor_from_status(status):
     empty reading is decisive, as before. When no association can be
     determined, agreeing sensors decide together, and conflicting
     readings are unknown (None), never a runout on a guess.
+
+    ``single_extruder`` (the printer lists no extruder1, extruder2, ...):
+    every sensor is on the one filament path, so any empty one — head or
+    entry — is runout evidence even when the sensor names carry no
+    "extruder" token (2.2.5 review).
     """
     if not isinstance(status, dict):
         return None
@@ -728,6 +733,8 @@ def head_sensor_from_status(status):
             readings.append((name, detected))
     if not readings:
         return None
+    if single_extruder:
+        return False if any(detected is False for _name, detected in readings) else True
     toolhead = status.get("toolhead")
     active = toolhead.get("extruder") if isinstance(toolhead, dict) else None
     if isinstance(active, str) and active:
@@ -761,7 +768,8 @@ def read_head_sensor():
         data = print_control._call(f"/printer/objects/query?{query}")
         status = ((data.get("result") or {}).get("status")
                   if isinstance(data, dict) else None)
-        return head_sensor_from_status(status)
+        single = not any(isinstance(o, str) and re.fullmatch(r"extruder\d+", o) for o in objects)
+        return head_sensor_from_status(status, single_extruder=single)
     except Exception as exc:
         log(f"head filament sensor read failed: {exc!r}")
         return None

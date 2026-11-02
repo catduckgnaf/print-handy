@@ -105,11 +105,15 @@ def _file_path(local, environ):
 def _layers(home, local, environ):
     """(model_defaults, home_data, file_data, user_data, env_data) snapshots, built with
     settings' own merge/env helpers in settings.load's order."""
-    home_data = settings._read(_home_path(home))
+    # Every file layer goes through the alias step load() applies, so a deprecated spelling
+    # shows (and is attributed) under its current name (2.2.5 review of #783).
+    home_data = settings._apply_key_aliases(settings._read(_home_path(home)))
     file_path = _file_path(local, environ)
-    file_data = settings._read(file_path) if file_path is not None and file_path.is_file() else {}
+    file_data = (settings._apply_key_aliases(settings._read(file_path))
+                 if file_path is not None and file_path.is_file() else {})
     user_path = settings.user_config_path(environ)
-    user_data = settings._read(user_path) if user_path is not None and user_path.is_file() else {}
+    user_data = (settings._apply_key_aliases(settings._read(user_path))
+                 if user_path is not None and user_path.is_file() else {})
 
     def pick(name):
         return (environ.get(f"PRINT_HANDY__PRINTER__{name.upper()}")

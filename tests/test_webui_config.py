@@ -509,6 +509,19 @@ class WriteAPITests(unittest.TestCase):
         self.assertEqual(write_changes({"visual_watch.sensitivity": 2}, config_path=self.local, environ=env),
                          [("visual_watch", "sensitivity")])
 
+    def test_layers_fold_deprecated_keys_in_every_file_layer(self):
+        # 2.2.5 review of #783: load() applies the alias step to home, settings and user files alike.
+        from print_handy.webui import config as webui_config
+        self.write_file("printer:\n  ifs_slots: 2\n")
+        home = Path(self.tmp.name) / "home"
+        user = home / ".config" / "print-handy" / "settings.yaml"
+        user.parent.mkdir(parents=True)
+        user.write_text("printer:\n  ifs_slots: 4\n")
+        _defaults, _home, file_data, user_data, _env = webui_config._layers(
+            None, self.local, {"HOME": str(home)})
+        self.assertEqual(user_data["printer"], {"filament_slots": 4})
+        self.assertEqual(file_data["printer"], {"filament_slots": 2})
+
     def test_noop_change_writes_nothing_and_makes_no_backup(self):
         before = self.write_file("visual_watch:\n  sensitivity: 3\n")
         self.assertEqual(write_changes({"visual_watch.sensitivity": 3},

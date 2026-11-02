@@ -11,7 +11,7 @@ print-control code:
   metadata=None)`` — ask a question with choices. Platforms with buttons
   render them; platforms without fall back to a numbered list that the
   typed-answer path resolves.
-* ``answer_typed(session_key, text)`` — a typed reply to the open question
+* ``answer_typed(session_key, text, user_id=None)`` — a typed reply to the open question
   of that session.
 * ``close_prompt(clarify_id, note)`` — edit/close a prompt once answered.
 * ``is_allowed_id(user_id)`` — may this user act at all?
@@ -155,7 +155,7 @@ class ChatPlatform(Protocol):
     async def send(self, chat_id, content, reply_to=None, metadata=None) -> SendResult: ...
     async def send_clarify(self, chat_id, question, choices, clarify_id, session_key,
                            metadata=None) -> SendResult: ...
-    async def answer_typed(self, session_key, text) -> bool: ...
+    async def answer_typed(self, session_key, text, user_id=None) -> bool: ...
     async def close_prompt(self, clarify_id, note) -> None: ...
     def is_allowed_id(self, user_id) -> bool: ...
 
@@ -297,8 +297,27 @@ class BasePlatformAdapter:
             return None
         return scoped[-1][0] if scoped else None
 
-    async def answer_typed(self, session_key, text):
-        """A typed reply to the open question of this session (Hermes routes these the same way)."""
+    def typed_approval_blocked(self, session_key, user_id):
+        """True when ``user_id`` typing into this session would answer a print
+        approval they may not give (2.2.5 review of P1-93): a typed "yes" is
+        the same decision as the button, so it takes the same check."""
+        if user_id is None:
+            return False
+        cid = self.open_prompt(session_key)
+        if cid is None or not prompts.is_approval(cid) or self.may_approve_id(user_id):
+            return False
+        logger.info("refused typed approval from %s user %s: %s",
+                    self.name, user_id, self.approval_refusal_reason(user_id))
+        return True
+
+    async def answer_typed(self, session_key, text, user_id=None):
+        """A typed reply to the open question of this session (Hermes routes these the same way).
+
+        ``user_id`` is the sender; a print approval answers only to the
+        approval user, and a refused reply leaves the prompt open.
+        """
+        if self.typed_approval_blocked(session_key, user_id):
+            return False
         cid = self.open_prompt(session_key)
         if cid is None or not self.registry.resolve_gateway_clarify(cid, str(text)):
             return False

@@ -258,3 +258,33 @@ def test_spacing_and_prime_tower_settings_are_recipe_inputs(monkeypatch):
     monkeypatch.setattr(settings, 'current', lambda: changed)
     after = recipe_module.slice_recipe(job, 'a' * 64, state)
     assert recipe_module.recipe_sha256(after) != recipe_module.recipe_sha256(before)
+
+
+def test_remap_slot_keeps_a_bound_job_launchable_but_still_refuses_other_changes(tmp_path, monkeypatch):
+    # 2.2.5 review: the recipe hashes filament_selection.slot, and remap_slot
+    # changes it for a same-G-code launch on another spool. The remap must carry
+    # the new slot into the recorded recipe and binding, or print-now
+    # --remap-slot refuses its own job as a stale color artifact.
+    from types import SimpleNamespace
+    jp, _st, gcode = setup_job(tmp_path, monkeypatch)
+    before = json.loads(jp.read_text())
+    assert before['artifact_binding'] and before['color_decisions']
+    selection = {**before['filament_selection'], 'slot': 2}
+    native = SimpleNamespace(normalize_mapping=lambda mapping, st: mapping, finalize=lambda *a: None)
+    routed = SimpleNamespace(native=native)
+    monkeypatch.setattr(mj, 'resolve_filament_selection', lambda st, request: selection)
+    monkeypatch.setattr(mj, '_verify_routed', lambda *a, **k: None)
+    with monkeypatch.context() as scoped:
+        # Only the remap itself runs against the stub adapter; the launch-time
+        # recipe recompute below needs the job's real adapter.
+        scoped.setattr(mj, '_job_adapter', lambda job: routed)
+        scoped.setattr(mj.printers, 'current', lambda: routed)
+        mj.remap_slot(jp, 2, state=_st)
+    after = json.loads(jp.read_text())
+    assert after['filament_selection']['slot'] == 2
+    assert after['slice_recipe']['recipe']['filament']['selected_slot'] == 2
+    assert after['artifact_binding']['recipe_sha256'] == after['slice_recipe']['sha256'] != before['slice_recipe']['sha256']
+    mj.require_current_artifact(after, gcode)  # the remapped job still launches
+    after['scale'] = 0.5  # a real input change after the remap is still stale
+    with pytest.raises(RuntimeError, match='stale color artifact'):
+        mj.require_current_artifact(after, gcode)

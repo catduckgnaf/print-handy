@@ -492,7 +492,7 @@ def xl_state():
     return state
 
 
-def xl_capture(source_file, decisions, state, tmp_path, monkeypatch):
+def xl_capture(source_file, decisions, state, tmp_path, monkeypatch, **slice_kwargs):
     """slice_model against the XL adapter with a stubbed Orca (slice_capture's XL twin)."""
     import shutil
     from print_handy.core import slice_guard
@@ -528,7 +528,7 @@ def xl_capture(source_file, decisions, state, tmp_path, monkeypatch):
     monkeypatch.setattr(orca_adapter.subprocess, 'run', run)
     folder = tmp_path / 'slice'
     output, provenance, configs = orca_adapter.slice_model(
-        source_file, folder, state, adapter=adapter, color_decisions=decisions)
+        source_file, folder, state, adapter=adapter, color_decisions=decisions, **slice_kwargs)
     return output, provenance, configs, calls, folder, adapter
 
 
@@ -576,6 +576,16 @@ def test_slice_xl_five_toolheads_is_not_capped_at_four_slots(tmp_path, monkeypat
 # pick through the merged multi-tool slice (P1-73), and the merge planner no
 # longer refuses toolhead picks in a Creator-configured process (P1-72).
 
+# Explicit-parameter stubs: they carry model_job's real signatures, so a changed
+# signature fails these tests instead of vanishing into *args (2.2.5 review).
+def _verify_gcode_offline_ok(gcode_path, state, adapter=None, recorded_temps=None):
+    return {'ok': True}
+
+
+def _verify_gcode_none(gcode_path, adapter=None, state=None, printer_id=None, recorded_temps=None):
+    return None
+
+
 def _recording_slice_model(mapping):
     calls = []
 
@@ -607,8 +617,8 @@ def test_slice_job_single_colour_slices_on_the_picked_toolhead(creator, tmp_path
     monkeypatch.setattr(mj.printer_state, 'load', lambda *a, **k: state)
     fake = _recording_slice_model({'1': 2})
     monkeypatch.setattr(orca_adapter, 'slice_model', fake)
-    monkeypatch.setattr(mj, 'verify_gcode_offline', lambda p, st, *a: {'ok': True})
-    monkeypatch.setattr(mj, 'verify_gcode', lambda p, *a, **k: None)
+    monkeypatch.setattr(mj, 'verify_gcode_offline', _verify_gcode_offline_ok)
+    monkeypatch.setattr(mj, 'verify_gcode', _verify_gcode_none)
     out = mj.slice_job(jp)
     # The merged multi-tool route ran (placement shifts were planned and
     # passed), not the generic tail that used to drop the pick.
@@ -683,8 +693,8 @@ def test_merge_for_toolhead_picks_survives_a_creator_process(creator, tmp_path, 
     monkeypatch.setattr(mj.printer_state, 'load', lambda *a, **k: state)
     fake = _recording_slice_model({'1': 2, '3': 4})
     monkeypatch.setattr(orca_adapter, 'slice_model', fake)
-    monkeypatch.setattr(mj, 'verify_gcode_offline', lambda p, st, *a: {'ok': True})
-    monkeypatch.setattr(mj, 'verify_gcode', lambda p, *a, **k: None)
+    monkeypatch.setattr(mj, 'verify_gcode_offline', _verify_gcode_offline_ok)
+    monkeypatch.setattr(mj, 'verify_gcode', _verify_gcode_none)
     out = mj.slice_job(jp)
     assert Path(out).exists()
     saved = json.loads(jp.read_text())
@@ -718,3 +728,12 @@ def test_slice_single_colour_decisions_on_an_stl_keep_the_plain_path(tmp_path, m
         src, tmp_path / 'slice', tool_state(), adapter=adapter, color_decisions=decisions)
     assert Path(output).exists()
     assert provenance['tool_mapping'] is None  # no identity export for an STL
+
+
+def test_slice_single_colour_toolhead_pick_rotation_refusal_names_the_real_reason(tmp_path, monkeypatch):
+    # 2.2.5 review: the identity path refuses a whole-model rotation, and the message must not call
+    # this whole-model single-colour slice "only supported for whole-model single-color slicing".
+    state = xl_state()
+    with pytest.raises(ValueError, match="slices a 3MF on a multi-tool printer's toolhead"):
+        xl_capture(CASES / 'four-colors-one-plate' / 'model.3mf', single_colour_decisions(4, state),
+                   state, tmp_path, monkeypatch, rotation=[0, -1, 0, 1, 0, 0, 0, 0, 1])

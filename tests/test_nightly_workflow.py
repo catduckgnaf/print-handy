@@ -108,10 +108,10 @@ class NightlyWorkflowContract(unittest.TestCase):
         push = next(s for s in steps if s.get("id") == "publish")
         run = push["run"]
         self.assertIn("docker image inspect", run)
-        self.assertIn("imagetools inspect --raw", run)
-        self.assertIn('doc["config"]["digest"]', run)
+        self.assertIn("pushed_image_ids.py", run)
+        self.assertIn("pushed_image_ids.py", run)
         self.assertIn("evidence/identity-check.txt", run)
-        self.assertLess(run.index("imagetools inspect --raw"), run.index("digest-out"))
+        self.assertLess(run.index("pushed_image_ids.py"), run.index("digest-out"))
         # The proof above relies on the push build seeing exactly the
         # context the accepted build saw: the evidence files written
         # between the two builds must stay out of the build context.

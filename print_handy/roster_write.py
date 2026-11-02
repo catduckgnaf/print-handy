@@ -45,6 +45,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
+from . import printers as printer_registry
 from . import settings, setup_wizard
 from .webui.config import settings_file_path
 
@@ -54,7 +55,7 @@ _HEADER = "# Written by Print Handy guided printer onboarding (#537). Edit freel
 _ENTRY_ORDER = ("id", "model", "name", "chat_id", "moonraker_url", "moonraker_ws_url",
                 "octoprint_url", "camera_snapshot_url", "lan_host", "lan_serial",
                 "lan_access_code_env", "start_confirm_s", "link_host", "api_key_env",
-                "host", "nozzle_type", "tool_count")
+                "host", "nozzle_type", "tool_count", "bed_mm", "max_print_height_mm")
 
 # The legacy per-printer keys a conversion removes from the file, per section —
 # exactly the file-side list settings._check_mixed_shape refuses alongside a
@@ -89,12 +90,16 @@ def _file_entry(entry):
     return out
 
 
-def _converted_first_entry(resolved):
+def _converted_entry(resolved):
     """The file form of the printer an install already runs, from its
     *resolved* roster entry: connection values carried over verbatim;
     derived values (moonraker_ws_url, camera_snapshot_url) and schema
     defaults (the shared secret env names, start_confirm_s) left out so
-    they keep deriving/defaulting exactly as they do today."""
+    they keep deriving/defaulting exactly as they do today. The per-printer
+    overrides (nozzle_type, tool_count, build volume) are carried only when
+    they differ from the model's own defaults: a resolved entry always holds
+    a value, and pinning the default would freeze it against later model
+    updates (2.2.5 review)."""
     entry = {"id": resolved["id"], "model": resolved["model"], "name": resolved["name"]}
     if resolved.get("chat_id"):
         entry["chat_id"] = resolved["chat_id"]
@@ -121,8 +126,14 @@ def _converted_first_entry(resolved):
         entry["start_confirm_s"] = resolved["start_confirm_s"]
     if resolved.get("api_key_env") not in (None, "", "PRUSA_LINK_API_KEY"):
         entry["api_key_env"] = resolved["api_key_env"]
-    for key in ("nozzle_type", "tool_count"):
-        if key in resolved:
+    model_printer = printer_registry.MODELS[entry["model"]].defaults().get("printer") or {}
+    for key in ("nozzle_type", "tool_count", *settings.PRINTER_ENTRY_GEOMETRY_KEYS):
+        if key not in resolved:
+            continue
+        default = model_printer.get(key)
+        if isinstance(default, tuple):
+            default = list(default)
+        if resolved[key] != default:
             entry[key] = resolved[key]
     return entry
 
@@ -263,7 +274,7 @@ def add_printer(new_entry, *, config_path=None, home=None, environ=None, timesta
         # resolves to several — convert every resolved entry, or writing
         # only the first would shadow the inherited roster and drop the
         # rest.
-        candidate["printers"] = [_converted_first_entry(entry) for entry in existing]
+        candidate["printers"] = [_converted_entry(entry) for entry in existing]
         candidate["printers"].append(_file_entry(new_entry))
         _strip_legacy(candidate)
         converted = True

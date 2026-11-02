@@ -106,6 +106,23 @@ class SessionLifecycleTests(unittest.TestCase):
         self.assertFalse(session.active)
         self.assertFalse(session.tick())  # a stopped session never captures
 
+    def test_frame_fetched_after_stop_is_discarded(self):
+        # stop() lands while the fetch is in flight (2.2.5 review, P2-133).
+        holder = {}
+
+        def fetch(url):
+            holder["session"].stop("complete")
+            return JPEG
+
+        session = make_session(self.root, self.clock, fetch=fetch)
+        holder["session"] = session
+        session.start()
+        self.assertFalse(session.capture_once())
+        self.assertEqual(list(session.frames_dir.glob("*.jpg")), [])
+        self.assertEqual(session.frame_count, 0)
+        manifest = json.loads(session.manifest_path.read_text())
+        self.assertEqual(manifest["frames"], 0)
+
     def test_start_failure_is_soft(self):
         # frames/ already exists as a file: mkdir fails, start reports False.
         blocker = self.root / "job-7" / "frames"

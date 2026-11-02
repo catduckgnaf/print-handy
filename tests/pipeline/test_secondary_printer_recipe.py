@@ -100,3 +100,19 @@ def test_launch_accepts_an_unchanged_secondary_printer_job(two_printers, tmp_pat
                                'recipe_version': job['slice_recipe']['version'],
                                'recipe_sha256': job['slice_recipe']['sha256']}
     mj.require_current_artifact(job, gcode)  # must not raise: nothing changed since slicing
+
+
+def test_intake_binding_matches_the_recipe_slice_job_records_for_a_secondary_printer(two_printers, monkeypatch):
+    # The chat intake binds a background slice with slice_binding(job, sha)
+    # and no state; slice_job then recomputes the recipe from the job's own
+    # printer record and refuses any other recipe hash. Both must read the
+    # secondary printer's record, or every secondary-printer slice is
+    # refused as "another slice recipe" (2.2.5 review).
+    from print_handy.core import background_slice
+
+    records = _two_records(monkeypatch)
+    job = _job(printer_id=SECONDARY)
+    binding = background_slice.slice_binding(job, 'source-a')
+    sliced = recipe_module.slice_recipe(job, 'source-a', records[SECONDARY])
+    assert binding == recipe_module.canonical(sliced)
+    assert binding != recipe_module.canonical(recipe_module.slice_recipe(job, 'source-a', records[None]))

@@ -178,16 +178,40 @@ class HermesClarifyAdapter:
                                 row["question"])
         return True
 
-    async def answer_typed(self, session_key, text):
+    def _open_prompt(self, session_key):
+        if hasattr(self.registry, "open_prompt_scoped"):
+            return self.registry.open_prompt_scoped(session_key)
+        return self.registry.open_prompt_for(session_key)
+
+    def typed_approval_blocked(self, session_key, user_id):
+        """True when ``user_id`` typing would answer a print approval they may not give.
+
+        The typed twin of the approval button check (P1-93, 2.2.5 review):
+        with ``[discord] approval_user_id`` set, only that user's reply
+        resolves a prompt marked as an approval; the prompt stays open.
+        """
+        approver = str((_config.cfg().get("discord") or {}).get("approval_user_id") or "").strip()
+        if user_id is None or not approver or str(user_id) == approver:
+            return False
+        cid = self._open_prompt(session_key)
+        if cid is None or not getattr(self.registry, "is_approval", prompts.is_approval)(cid):
+            return False
+        logger.info("refused typed approval from Discord user %s: only the approval user may approve prints",
+                    user_id)
+        return True
+
+    async def answer_typed(self, session_key, text, user_id=None):
         """A typed reply to this session's newest open question, resolved in the own registry.
 
         The twin of ``BasePlatformAdapter.answer_typed``: it asks the
         registry for the session's newest live-key prompt
         (``prompts.open_prompt_for``) because the plugin holds the registry,
-        not an adapter's session rows.
+        not an adapter's session rows. ``user_id`` is the sender: a print
+        approval answers only to the approval user (2.2.5 review of P1-93).
         """
-        cid = self.registry.open_prompt_scoped(session_key) \
-            if hasattr(self.registry, "open_prompt_scoped") else self.registry.open_prompt_for(session_key)
+        if self.typed_approval_blocked(session_key, user_id):
+            return False
+        cid = self._open_prompt(session_key)
         if cid is None or not self.registry.resolve_gateway_clarify(cid, str(text)):
             return False
         await self.close_prompt(cid, answered_note(text))

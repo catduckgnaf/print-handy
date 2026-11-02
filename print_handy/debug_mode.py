@@ -298,8 +298,13 @@ def session_window(data=None, *, session=None) -> str | None:
     return "\n".join(lines[begin:end_at])
 
 
-def latest_session(data=None) -> str | None:
-    """The session id of the most recent START marker in the capture file."""
+def latest_session(data=None, *, unexported_only: bool = False) -> str | None:
+    """The session id of the most recent START marker in the capture file.
+
+    ``unexported_only`` skips a session an `off` already exported (it carries
+    a DEBUG_SESSION_EXPORTED marker), so a finished session is not recovered
+    again; an auto-expired one has no such marker and still is (2.2.5 review).
+    """
     try:
         lines = capture_path(data).read_text(errors="replace").splitlines()
     except OSError:
@@ -308,7 +313,11 @@ def latest_session(data=None) -> str | None:
         if "DEBUG_SESSION_START" in line and "session=" in line:
             marker = line.rsplit("session=", 1)[-1].strip()
             if marker:
-                return marker.split()[0]
+                sid = marker.split()[0]
+                if unexported_only and any("DEBUG_SESSION_EXPORTED" in other and f"session={sid}" in other
+                                           for other in lines):
+                    return None
+                return sid
     return None
 
 
@@ -393,11 +402,13 @@ def off_and_export(data=None, *, now=None) -> tuple[Path, str, dict]:
     """
     state = _read_state(data) or {}
     if not state.get("session"):
-        sid = latest_session(data)
+        sid = latest_session(data, unexported_only=True)
         if sid:
             state = {"session": sid}
     target, report = write_export(data, state=state, now=now)
     ended = end(data, now=now) or state
+    if state.get("session"):
+        _write_marker(state, "DEBUG_SESSION_EXPORTED", data)
     return target, report, ended
 
 
@@ -418,7 +429,7 @@ def main(argv=None) -> int:
               f"Capture: {capture_path(data)}. Stop it with: python3 -m print_handy.debug_mode off")
         return 0
     if args.action == "off":
-        if _read_state(data) is None and not latest_session(data):
+        if _read_state(data) is None and not latest_session(data, unexported_only=True):
             # No live state and no capture to recover: genuinely off. (A
             # session that auto-expired has no state file left — a status
             # check or listener poll ended it — but its capture remains,

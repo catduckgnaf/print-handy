@@ -157,8 +157,15 @@ def test_partial_job_refusal_names_refused_plates():
     explicitly accepted partial job is not gated."""
     assert model_job.partial_job_refusal({}) is None
     assert model_job.partial_job_refusal({'refused_plates': []}) is None
+    accepted = model_job.refused_plates_digest({'refused_plates': REFUSED})
     assert model_job.partial_job_refusal(
-        {'refused_plates': REFUSED, 'partial_job_accepted': True}) is None
+        {'refused_plates': REFUSED, 'partial_job_accepted': accepted}) is None
+    # An acceptance of another plate set (or the old bare True) does not cover these plates.
+    other = [{**REFUSED[0], 'plate_id': 3, 'binding_key': '3:3'}]
+    assert model_job.partial_job_refusal(
+        {'refused_plates': other, 'partial_job_accepted': accepted}) is not None
+    assert model_job.partial_job_refusal(
+        {'refused_plates': REFUSED, 'partial_job_accepted': True}) is not None
     message = model_job.partial_job_refusal({'refused_plates': REFUSED})
     assert 'plate 2' in message and 'does not fit the bed' in message
     assert 'incomplete' in message
@@ -174,7 +181,7 @@ def test_print_now_refuses_an_unaccepted_partial_job(tmp_path, monkeypatch):
     jp.write_text(json.dumps(job))
     with pytest.raises(SystemExit, match='incomplete'):
         model_job.print_now(str(jp))
-    job['partial_job_accepted'] = True
+    job['partial_job_accepted'] = model_job.refused_plates_digest(job)
     jp.write_text(json.dumps(job))
     with pytest.raises(Exception) as excinfo:
         model_job.print_now(str(jp))  # proceeds past the partial gate; no live printer here
@@ -201,7 +208,7 @@ def test_intake_discloses_refused_plates_and_records_acceptance(env, monkeypatch
     posts = [post for post in adapter.sent if 'will NOT print' in post]
     assert posts and 'Plate 2' in posts[0] and 'does not fit the bed' in posts[0]
     job = json.loads(Path(receipt['job_json']).read_text())
-    assert job['partial_job_accepted'] is True
+    assert job['partial_job_accepted'] == model_job.refused_plates_digest(job)
     assert len(env.starts) == 1  # the disclosed, accepted partial job started
 
 

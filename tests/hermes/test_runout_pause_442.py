@@ -127,6 +127,36 @@ class ReadHeadSensorTests(unittest.TestCase):
             self.assertIs(mel.read_head_sensor(), False)
         self.assertIn("toolhead", seen[-1])
 
+    def test_single_extruder_entry_sensor_empty_is_a_runout(self):
+        """2.2.5 review (P2-171): one extruder, head + entry sensors; an empty
+        entry sensor is still runout evidence on the only filament path."""
+        status = {
+            "toolhead": {"extruder": "extruder"},
+            "filament_switch_sensor head": {"filament_detected": True, "enabled": True},
+            "filament_switch_sensor entry": {"filament_detected": False, "enabled": True},
+        }
+        payloads = {
+            "list": {"result": {"objects": ["extruder", "filament_switch_sensor head",
+                                            "filament_switch_sensor entry"]}},
+            "query": {"result": {"status": status}},
+        }
+        with mock.patch.object(print_control, "_call", self.fake_call(payloads)),                 mock.patch.object(mel, "log"):
+            self.assertIs(mel.read_head_sensor(), False)
+
+    def test_multi_extruder_still_ignores_the_idle_tools_sensor(self):
+        status = {
+            "toolhead": {"extruder": "extruder1"},
+            "filament_switch_sensor extruder": {"filament_detected": False, "enabled": True},
+            "filament_switch_sensor extruder1": {"filament_detected": True, "enabled": True},
+        }
+        payloads = {
+            "list": {"result": {"objects": ["extruder", "extruder1"] + list(
+                k for k in status if k != "toolhead")}},
+            "query": {"result": {"status": status}},
+        }
+        with mock.patch.object(print_control, "_call", self.fake_call(payloads)),                 mock.patch.object(mel, "log"):
+            self.assertIs(mel.read_head_sensor(), True)
+
     def test_no_sensor_objects_means_unknown(self):
         payloads = {"list": {"result": {"objects": ["extruder", "print_stats"]}}}
         with mock.patch.object(print_control, "_call", self.fake_call(payloads)), \

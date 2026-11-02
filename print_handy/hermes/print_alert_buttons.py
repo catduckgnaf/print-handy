@@ -941,14 +941,23 @@ def retire_alerts(token: str, filename: str | None, note: str, kinds: tuple[str,
     and one printer's print ending must not strip the other's live
     Resume/Cancel buttons. Unscoped (None) retires every match, as
     before — the Moonraker listener retires its own printer's alerts
-    that way.
+    that way. An alert stored without a printer_id predates the roster
+    id (or came from the default printer): it belongs to the default
+    printer, so it retires for that printer's scope only (2.2.5 review).
     """
     retired = 0
+    legacy_owner = None
+    if printer_id is not None:
+        try:
+            from print_handy import settings
+            legacy_owner = settings.default_printer_id()
+        except Exception:
+            legacy_owner = None
     with _LOCK:
         data = _load()
         stale = {aid: a for aid, a in data.items() if isinstance(a, dict) and a.get("kind") in kinds
                  and (filename is None or a.get("filename") == filename)
-                 and (printer_id is None or a.get("printer_id") == printer_id)}
+                 and (printer_id is None or (a.get("printer_id") or legacy_owner) == printer_id)}
         for aid in stale:
             data.pop(aid, None)
         _save(data)
@@ -1055,31 +1064,6 @@ def post_visual_dark_notice(token: str, channel_id: str, content: str, filename:
     except Exception:
         take(aid)
         return False
-
-def post_visual_text_alert(token: str, channel_id: str, content: str, filename: str,
-                           identity: Any = None) -> bool:
-    """Post a watchdog alert with no image (the camera snapshot itself failed).
-
-    The visual alert's record and buttons without the multipart image
-    upload: the operator can still pause the print or mute this print's
-    watchdog. False means the caller should fall back to a plain post.
-    """
-    if not token or not channel_id:
-        return False
-    aid = record("visual", filename, **({"identity": str(identity)} if identity else {}))
-    body = json.dumps({"content": content[:1990], "components": components(aid, "visual"),
-                       "allowed_mentions": {"parse": []}}).encode()
-    req = urllib.request.Request(f"{rest.API}/channels/{channel_id}/messages", data=body,
-                                 method="POST", headers={"Authorization": f"Bot {token}",
-                                                         "Content-Type": "application/json",
-                                                         "User-Agent": "DiscordBot (hermes-3dprinting, 1.0)"})
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return 200 <= resp.status < 300
-    except Exception:
-        take(aid)
-        return False
-
 
 def parse_custom_id(custom_id: str) -> tuple[str, str] | None:
     parts = str(custom_id or "").split(":")

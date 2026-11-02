@@ -56,8 +56,12 @@ def slice_recipe(job, source_sha256, state=None, *, copies=None, scale=None, bri
         # Slicing passes the loaded hardware record. A binding compared before any record
         # exists (intake fit choices) falls back to the configured nozzle so the recipe
         # stays computable, and a missing file cannot make two different jobs look identical.
+        # The job's own printer record, exactly as slice_job loads it (P1-78): an
+        # intake binding computed from the default record never matches the recipe
+        # slice_job recomputes for a secondary printer's job (2.2.5 review).
         try:
-            state = printer_state.load()
+            state = (printer_state.load(job['printer_id']) if job.get('printer_id')
+                     else printer_state.load())
         except FileNotFoundError:
             state = {'nozzle': {'diameter_mm': settings.current()['printer']['nozzle_diameter_mm']}}
     adapter = mj._job_adapter(job)

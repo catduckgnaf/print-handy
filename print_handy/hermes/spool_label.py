@@ -124,14 +124,25 @@ def _temp(value: Any, low: float, high: float) -> float | None:
     return temp if low <= temp <= high else None
 
 
-def _recorded_temp(value: Any) -> float | None:
+def _recorded_temp(value: Any, low: float, high: float) -> float | None:
     """One label temperature kept only when the downstream contract would
     honour it: a temperature recorded on a Spoolman filament is used only
     when 0 < t <= 300 °C (printer_state.resolve_material_temperatures
     raises for anything else), so a label value outside that contract is
-    dropped here instead of being persisted to fail there (P2-199)."""
-    temp = _temp(value, 0, 300)
+    dropped here instead of being persisted to fail there (P2-199). The
+    nozzle and bed keep their own plausible floors and the bed its
+    ceiling, so a misread '20' nozzle is dropped too (2.2.5 review).
+    """
+    temp = _temp(value, low, high)
     return temp if temp else None
+
+
+def _nozzle_temp(value: Any) -> float | None:
+    return _recorded_temp(value, 80, 300)
+
+
+def _bed_temp(value: Any) -> float | None:
+    return _recorded_temp(value, 0, 150)
 
 
 def validate_label_answer(answer: Any) -> dict[str, Any]:
@@ -161,8 +172,8 @@ def validate_label_answer(answer: Any) -> dict[str, Any]:
         raise SpoolLabelError("missing_fields", missing)
     brand = _clean_text(answer.get("brand")) or None
     return {"brand": brand, "material": material, "color": color, "grams": grams,
-            "nozzle_temp": _recorded_temp(answer.get("nozzle_temp")),
-            "bed_temp": _recorded_temp(answer.get("bed_temp"))}
+            "nozzle_temp": _nozzle_temp(answer.get("nozzle_temp")),
+            "bed_temp": _bed_temp(answer.get("bed_temp"))}
 
 
 def extract_spool_spec(image: bytes, vision_call: Callable[[bytes, str], Any]) -> dict[str, Any]:
@@ -357,8 +368,8 @@ def spec_from_label_text(text: Any, known_types: list[dict[str, Any]] | None = N
     nozzle = _text_temp(low, r"(?:nozzle|extruder|hotend|print(?:ing)?\s*temp(?:erature)?)")
     bed = _text_temp(low, r"(?:heated\s*bed|bed|platform|build\s*plate)")
     return {"brand": brand, "material": material, "color": color, "grams": grams,
-            "nozzle_temp": _recorded_temp(nozzle) if nozzle is not None else None,
-            "bed_temp": _recorded_temp(bed) if bed is not None else None}
+            "nozzle_temp": _nozzle_temp(nozzle) if nozzle is not None else None,
+            "bed_temp": _bed_temp(bed) if bed is not None else None}
 
 
 # ---------------------------------------------------------------------------

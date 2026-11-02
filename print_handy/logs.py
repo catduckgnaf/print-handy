@@ -145,6 +145,11 @@ class TextFormatter(_Base):
         return redact(line)
 
 
+# A payload key that names a credential: its string value is hidden whole, because the
+# key never reaches the key-anchored patterns above (2.2.5 review).
+_SECRET_KEY = re.compile(r"(?i)token|secret|passw(?:or)?d|api[_-]?key|apikey|access[_-]?key|authorization|signature")
+
+
 def _redact_value(value):
     """Redact credentials inside one payload value, before serialization.
 
@@ -157,7 +162,9 @@ def _redact_value(value):
     if isinstance(value, str):
         return redact(value)
     if isinstance(value, dict):
-        return {key: _redact_value(item) for key, item in value.items()}
+        return {key: REDACTED if isinstance(item, str) and item and isinstance(key, str)
+                and _SECRET_KEY.search(key) else _redact_value(item)
+                for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [_redact_value(item) for item in value]
     if value is None or isinstance(value, (bool, int, float)):

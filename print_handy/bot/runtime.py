@@ -37,6 +37,7 @@ PROFILE = "3dprinting"  # the plugin's handlers only answer events of the print 
 # a household member who was never told about a list learns it exists, never
 # often enough to spam the channel while they keep posting.
 REFUSAL_NOTICE_PERIOD_S = 3600
+APPROVAL_ONLY_NOTICE = "Only the approval user can approve a print. Nothing was changed."
 REFUSAL_NOTICE = ("You are not on this bot's allowed list, so I can't act on that. Nothing was changed. "
                   "If you should have access, ask the person who runs Print Handy to add you.")
 # .scad rides along for design edit sessions (#388 Stage 2): prepared intake
@@ -495,7 +496,12 @@ class BotCore:
                 await self.adapter.send(chat_id=source.chat_id, metadata=metadata,
                                         content="That needs the chat agent, which is not running. Nothing started.")
             return result
-        if text and await self.adapter.answer_typed(session_key(source), text):
+        if text and self.adapter.typed_approval_blocked(session_key(source), source.user_id):
+            # A typed "yes" is the approval button's twin (2.2.5 review): the
+            # prompt stays open for the approval user.
+            await self.adapter.send(chat_id=source.chat_id, content=APPROVAL_ONLY_NOTICE, metadata=metadata)
+            return {"action": "skip", "reason": "typed approval refused"}
+        if text and await self.adapter.answer_typed(session_key(source), text, user_id=source.user_id):
             return {"action": "skip", "reason": "typed answer to an open question"}
         if not text:
             return None

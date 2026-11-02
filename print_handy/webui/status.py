@@ -89,25 +89,28 @@ def probe_spoolman(url, timeout=_PROBE_TIMEOUT_S):
     return spoolman_client.health(base_url=url, timeout=timeout)
 
 
+def bot_verdict(data, heartbeat):
+    """(ok, reason) of the bot heartbeat check, shared by the status snapshot
+    and /healthz (2.2.5 review of P2-100).
+
+    The heartbeat is written by the standalone bot only; in Hermes mode the
+    gateway writes none, so the check is not applicable (ok None, like a
+    not-required listener) rather than a failure a Hermes install could
+    never clear.
+    """
+    mode = data["bot"]["mode"]
+    if mode != "standalone":
+        return None, f"standalone heartbeat not applicable in {mode} mode"
+    return bot_health.evaluate(heartbeat, stale_s=data["bot"]["health_stale_s"])
+
+
 def _bot_section(data, heartbeat):
     record = heartbeat
     shown = None
     if isinstance(record, dict):
         shown = {key: record[key] for key in HEARTBEAT_KEYS if key in record}
     mode = data["bot"]["mode"]
-    if mode != "standalone":
-        # The heartbeat is written by the standalone bot only; in Hermes
-        # mode the gateway writes none, so the check is not applicable
-        # (ok None, like a not-required listener) rather than a failure
-        # a Hermes install could never clear.
-        return {
-            "platform": data["bot"]["platform"],
-            "mode": mode,
-            "ok": None,
-            "reason": f"standalone heartbeat not applicable in {mode} mode",
-            "heartbeat": shown,
-        }
-    ok, reason = bot_health.evaluate(record, stale_s=data["bot"]["health_stale_s"])
+    ok, reason = bot_verdict(data, record)
     return {
         "platform": data["bot"]["platform"],
         "mode": mode,

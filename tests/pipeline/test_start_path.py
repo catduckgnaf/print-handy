@@ -189,8 +189,9 @@ def rig(tmp_path, monkeypatch):
     monkeypatch.setattr(model_job, "verify_gcode", lambda path: {"offline": True})
     monkeypatch.setattr(model_job, "record_start", lambda g, remote: "/records/1")
     monkeypatch.setattr(model_job.printers, "current", lambda *a, **k: FakeAdapter("octoprint", None))
-    monkeypatch.setattr(model_job, "_with_gcode_temperatures",
-                        lambda state, text, *a: {**state, "temps_c": {"bed": 60, "nozzle": 210}})
+    def with_gcode_temperatures(state, text, recorded=None):  # model_job's real signature
+        return {**state, "temps_c": {"bed": 60, "nozzle": 210}}
+    monkeypatch.setattr(model_job, "_with_gcode_temperatures", with_gcode_temperatures)
     monkeypatch.setattr(model_job, "_bambu_start_confirm_window", lambda: 30.0)
     from print_handy.core import delivery
     monkeypatch.setattr(delivery, "bambu_handoff", lambda job, gcodes, config=None: [package])
@@ -198,8 +199,12 @@ def rig(tmp_path, monkeypatch):
     # Launched-print monitors run in the detached monitor worker
     # (P1-85/P1-98); the start path only has to ask for one.
     from print_handy.hermes import monitor_worker
-    monkeypatch.setattr(monitor_worker, "spawn", lambda *a, **k: None)
-    return mock.Mock(gcode=gcode, package=package, root=tmp_path)
+    spawned = []
+
+    def spawn(watch_module_name, filename, printer_id=None, *, popen=None):  # monitor_worker's real signature
+        spawned.append((watch_module_name, filename, printer_id))
+    monkeypatch.setattr(monitor_worker, "spawn", spawn)
+    return mock.Mock(gcode=gcode, package=package, root=tmp_path, spawned=spawned)
 
 
 def launch(kind, rig, client):
@@ -293,6 +298,16 @@ def test_item1_a_start_confirmed_after_a_few_polls_is_not_called_unconfirmed(kin
     out = launch(kind, rig, client)
     assert out["started"] is True and out["phase"] == "executing" and phases() == []
     assert client.reads >= 5 and len(client.starts) == 1  # two preflight reads, then the polls
+    # The start asked for exactly one monitor, from this family's watch module (2.2.5 review).
+    watch = {"octoprint": "octo_watch", "prusa": "prusa_watch", "sdcp": "elegoo_watch",
+             "stock": "stock_watch", "bambu": "bambu_watch"}[kind]
+    assert [(name, printer) for name, _remote, printer in rig.spawned] == [(f"print_handy.hermes.{watch}", None)]
+
+
+def test_start_family_monitor_passes_the_jobs_printer_id_to_the_worker(rig):
+    from print_handy.hermes import octo_watch
+    model_job._start_family_monitor(octo_watch, None, "part.gcode", {"printer_id": "voron"})
+    assert rig.spawned == [("print_handy.hermes.octo_watch", "part.gcode", "voron")]
 
 
 @pytest.mark.parametrize("kind", ["octoprint", "prusa", "sdcp", "stock"])

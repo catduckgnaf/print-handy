@@ -623,7 +623,7 @@ def _rewrite_project_settings(path, settings, name):
     tmp.replace(path)
 
 
-def _sanitize_imported_settings(path, templates, slot_count, filament_profiles=(), filament_template=None):
+def _sanitize_imported_settings(path, templates, slot_count, filament_profiles=(), filament_template=None, slot_limit=None):
     name = 'Metadata/project_settings.config'
     with zipfile.ZipFile(path) as archive:
         if name not in archive.namelist():
@@ -644,6 +644,9 @@ def _sanitize_imported_settings(path, templates, slot_count, filament_profiles=(
             settings[key] = replacement
             changed[key] = [previous, replacement]
     slot_count = max(1, min(int(slot_count), FILAMENT_SLOTS))
+    # Hermes slot names carry the physical slot, so the allowlist bound is the printer's slot count,
+    # not the filaments-used count (2.2.5 review).
+    slot_limit = slot_count if slot_limit is None else int(slot_limit)
     template_filament = json.loads(filament_template.read_text())
     per_slot_filament = tuple(key for key in template_filament if key.startswith('filament_') and not key.endswith('_settings_id'))
     for key in ('filament_z_hop_types', 'filament_wipe', 'filament_wipe_distance'):
@@ -680,7 +683,7 @@ def _sanitize_imported_settings(path, templates, slot_count, filament_profiles=(
             count = len(settings[key]) if isinstance(settings[key], list) else slot_count
             existing = settings[key] if isinstance(settings[key], list) else [settings[key]]
             replacement = [
-                item if sg.is_allowed_filament_id(item, {template_id}, slot_count=slot_count) else template_id
+                item if sg.is_allowed_filament_id(item, {template_id}, slot_count=slot_limit) else template_id
                 for item in existing
             ]
             if len(replacement) < count:
@@ -710,7 +713,7 @@ def _sanitize_imported_settings(path, templates, slot_count, filament_profiles=(
     return changed
 
 
-def sanitize_project_settings(path, log_text='', templates=None, slot_count=None, filament_template=None):
+def sanitize_project_settings(path, log_text='', templates=None, slot_count=None, filament_template=None, slot_limit=None):
     """Normalize Orca sentinels and foreign motion/profile data on private 3MF copies.
 
     filament_template is the job's filament profile; the template folder's filament.json by default."""
@@ -727,7 +730,8 @@ def sanitize_project_settings(path, log_text='', templates=None, slot_count=None
         slot_count = max((len(imported[key]) if isinstance(imported.get(key), list) else 1
                           for key in ('filament_settings_id', 'filament_type', 'filament_colour')
                           if imported.get(key) is not None), default=1)
-    return _sanitize_imported_settings(path, templates, slot_count, filament_template=filament_template)
+    return _sanitize_imported_settings(path, templates, slot_count, filament_template=filament_template,
+                                       slot_limit=slot_limit)
 
 
 def clamp_rejected_settings(path, log_text):
@@ -947,6 +951,11 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     identity_single = bool(color_decisions and color_decisions.get('mode') == 'single_color'
                            and getattr(printer, 'multi_tool', False)
                            and source.suffix.lower() == '.3mf')
+    if rotation is not None and identity_single and not (preserve_layout or item_shifts):
+        # The identity export carries per-object fits only; a whole-model rotation would not reach
+        # the per-toolhead geometry, so refuse with the real reason (2.2.5 review).
+        raise ValueError('rotation is not supported when a single-color pick slices a 3MF on a multi-tool '
+                         "printer's toolhead")
     if rotation is not None and (preserve_layout or item_shifts or identity_single or
                                  (color_decisions and color_decisions.get('mode') == 'per_part')):
         raise ValueError('rotation is only supported for whole-model single-color slicing')
@@ -1474,7 +1483,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         # the private working copy, never the original source.
         sanitized.update(sanitize_project_settings(
             input_path, templates=templates,
-            slot_count=len(filament_paths) if mapped_profile else 1, filament_template=filament_template))
+            slot_count=len(filament_paths) if mapped_profile else 1, filament_template=filament_template,
+            slot_limit=int(printer.slot_count) if multi_tool else FILAMENT_SLOTS))
     # Never accept stale output if a failed slicer leaves the preceding artifact behind.
     output.unlink(missing_ok=True)
     primary = slicer_choice(printer)

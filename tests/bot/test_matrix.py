@@ -687,3 +687,25 @@ def test_delivery_upload_limit_follows_the_platform(cfg):
     assert delivery.upload_limit(cfg) == 12_345
     cfg["bot"]["platform"] = "discord"
     assert delivery.upload_limit(cfg) == cfg["discord"]["upload_max_bytes"]
+
+
+def test_a_number_cannot_approve_a_print_for_a_non_approver(cfg, tmp_path):
+    """2.2.5 review of P1-93: Matrix has no buttons, so its typed "1" is the approval."""
+    other = "@member:example.org"
+
+    async def scenario(sender):
+        stub = HomeserverStub()
+        adapter = matrix.StandaloneAdapter(None, [USER, other], approver=USER, homeserver=HOMESERVER,
+                                           token=TOKEN, opener=stub)
+        cid = "de" * 16
+        key = f"matrix:{ROOM}::{other}"
+        prompts.register(cid, key, "Start the print?", ["Print it"], approval=True)
+        await adapter.send_clarify(chat_id=ROOM, question="Start the print?", choices=["Print it"],
+                                   clarify_id=cid, session_key="flow")
+        answered = await adapter.answer_typed(key, "1", user_id=sender)
+        still_open = prompts.is_open(cid)
+        prompts.resolve_gateway_clarify(cid, prompts.CANCELLED)
+        return answered, still_open
+
+    assert run(scenario(other)) == (False, True)
+    assert run(scenario(USER)) == (True, False)

@@ -321,6 +321,27 @@ def _undecided_printer_ids(source, gateway=None):
     return _shared_printer_ids(source, gateway)
 
 
+def _reprint_queue_printer(source, gateway, channel_pid, pc):
+    """(printer id whose reprint queue this channel reads, refusal text or None).
+
+    A decided channel reads its own printer's queue. A shared channel
+    decides no printer (channel_pid is None), but the writer files copies
+    under the job owner's queue, so next/stop look for the candidate
+    printer that holds pending copies: one match is the queue, none falls
+    back to the legacy default file, several are ambiguous and refused
+    (2.2.5 review).
+    """
+    if channel_pid is not None:
+        return channel_pid, None
+    candidates = _undecided_printer_ids(source, gateway) or []
+    holding = [pid for pid in candidates if pc.pending_copy(printer_id=pid)]
+    if len(holding) > 1:
+        names = ', '.join(_printer_label(pid) for pid in holding)
+        return None, (f'Copies are queued on more than one printer here ({names}). '
+                      'Use a printer-specific channel for /print-again next or stop. Nothing changed.')
+    return (holding[0] if holding else None), None
+
+
 def _live_key_for(source, gateway, printer_id=None):
     """The live session key prompts register under, printer-scoped once decided (#536).
 
@@ -1551,7 +1572,7 @@ def _listener_roast(job):
         return ''
 
 
-async def _announce_command_start(send, target, detail, job=None, plate=None):
+async def _announce_command_start(send, target, detail, job=None, plate=None, chat_id=None, thread_id=None):
     """Post and register the one start announcement for a command start.
 
     /print-next, /print-again and the plate buttons start through
@@ -1580,7 +1601,9 @@ async def _announce_command_start(send, target, detail, job=None, plate=None):
     message_id = getattr(sent, 'message_id', None) or getattr(sent, 'id', None)
     if remote and message_id:
         with contextlib.suppress(OSError):
-            print_next.record_start_message(remote, str(message_id))
+            # The originating channel/thread, so the warmup edit does not fall
+            # back to the configured channel (2.2.5 review, P2-11).
+            print_next.record_start_message(remote, str(message_id), chat_id=chat_id, thread_id=thread_id)
     return sent
 
 
@@ -1687,7 +1710,8 @@ async def print_next_dispatch(event, gateway, **kwargs):
             if ok:
                 await _announce_command_start(
                     lambda content: adapter.send(chat_id=source.chat_id, content=content, metadata=metadata),
-                    target, detail, job=job, plate=plate)
+                    target, detail, job=job, plate=plate,
+                    chat_id=str(source.chat_id), thread_id=str(source.thread_id) if source.thread_id else None)
             message = (None if ok
                        else f"Did not start {target['label']}. Not retrying.\n"
                             + intake_plain_start_failure(detail))
@@ -2133,18 +2157,24 @@ async def maintenance_dispatch(event, gateway, **kwargs):
             session['completed'] = True
             session['hours_total'] = await (asyncio.to_thread(_maintenance_hours_now, pid) if pid else asyncio.to_thread(_maintenance_hours_now))
             cold_pull_record = session.pop('cold_pull_record', None)
-            if cold_pull_record is not None and not session.pop('cold_pull_record_persisted', False):
+            cold_pull_persisted = session.pop('cold_pull_record_persisted', False)
+            if cold_pull_record is not None and not cold_pull_persisted:
                 # Defensive: the shared cold-pull workflow persists its own
                 # record before returning it, so this only fires if that
                 # ever changes; never let the pull go unrecorded.
                 maintenance.append_run(cold_pull_record, **_pkw(pid))
-            else:
-                session.pop('cold_pull_record_persisted', None)
             # The completed session is a run of its own kind and must be
             # saved even when a cold pull ran: status and reminder lookups
             # search for kind == mode, and skipping this append made a full
             # maintenance with a cold pull look like it never happened.
-            maintenance.append_run(session, **_pkw(pid))
+            run = session
+            if cold_pull_persisted:
+                # The pull's own run already carries the cold_pull record, and
+                # the dirty-pull counter reads every run with one: keep only
+                # its result here so each pull counts once (2.2.5 review).
+                run = {**session, 'cold_pull': None,
+                       'cold_pull_result': (session.get('cold_pull') or {}).get('result')}
+            maintenance.append_run(run, **_pkw(pid))
             # Reload before clearing the pending session: `state` was loaded
             # before the appends above, so saving it as-is would overwrite
             # the file with its stale runs list and erase them again.
@@ -4321,6 +4351,12 @@ async def print_again_dispatch(event, gateway, **kwargs):
             rows = [row for row in rows if _job_owner_pid(row['job_json']) == channel_pid]
         await adapter.send(chat_id=source.chat_id, metadata=metadata, content=pc.printed_list_text(rows))
         return {'action': 'skip', 'reason': 'print again list handled'}
+    queue_pid, queue_refusal = channel_pid, None
+    if query.casefold() in ('stop', 'cancel', 'clear', 'next', 'continue'):
+        queue_pid, queue_refusal = await asyncio.to_thread(_reprint_queue_printer, source, gateway, channel_pid, pc)
+        if queue_refusal:
+            await adapter.send(chat_id=source.chat_id, metadata=metadata, content=queue_refusal)
+            return {'action': 'skip', 'reason': 'print again queue ambiguous across printers'}
     if query.casefold() in ('stop', 'cancel', 'clear'):
         if channel_pid is not None:
             # Queues are per printer (P2-135): this channel reads and drops
@@ -4332,7 +4368,7 @@ async def print_again_dispatch(event, gateway, **kwargs):
                                    content=f"The queued copies belong to {_printer_label(_job_owner_pid(pending['job_json']))}, "
                                            "not this channel's printer. Nothing dropped.")
                 return {'action': 'skip', 'reason': 'print again queue belongs to another printer'}
-        had = await asyncio.to_thread(pc.cancel_copies, printer_id=channel_pid)
+        had = await asyncio.to_thread(pc.cancel_copies, printer_id=queue_pid)
         await adapter.send(chat_id=source.chat_id, metadata=metadata,
                            content='Remaining copies dropped. The current print is untouched.' if had
                            else 'No copies were queued.')
@@ -4345,7 +4381,7 @@ async def print_again_dispatch(event, gateway, **kwargs):
     try:
         is_next = query.casefold() in ('next', 'continue')
         if is_next:
-            target = await asyncio.to_thread(pc.next_copy_target, printer_id=channel_pid)
+            target = await asyncio.to_thread(pc.next_copy_target, printer_id=queue_pid)
             question = pc.next_copy_question(target)
         else:
             query, copies = pc.split_count(query)
@@ -4397,7 +4433,8 @@ async def print_again_dispatch(event, gateway, **kwargs):
                 # (the listener edits this post after warmup) (P2-56).
                 await _announce_command_start(
                     lambda content: adapter.send(chat_id=source.chat_id, content=content, metadata=metadata),
-                    target, detail)
+                    target, detail,
+                    chat_id=str(source.chat_id), thread_id=str(source.thread_id) if source.thread_id else None)
             message = (None if ok
                        else f"Did not start {target['title']}. Not retrying.\n"
                             + intake_plain_start_failure(detail))
@@ -4619,8 +4656,15 @@ async def typed_answer_dispatch(event, gateway, **kwargs):
         ui = _CLARIFY_UI
         if ui is None:
             return None
-        if not await ui.answer_typed(gateway._session_key_for_source(source),
-                                     getattr(event, 'text', '')):
+        live_key = gateway._session_key_for_source(source)
+        if ui.typed_approval_blocked(live_key, source.user_id):
+            adapter = _adapter_for(gateway, source)
+            if adapter is not None:
+                await adapter.send(chat_id=source.chat_id,
+                                   content='Only the approval user can approve a print. Nothing was changed.',
+                                   metadata={'thread_id': source.thread_id} if source.thread_id else None)
+            return {'action': 'skip', 'reason': 'typed approval refused'}
+        if not await ui.answer_typed(live_key, getattr(event, 'text', ''), user_id=source.user_id):
             return None
         return {'action': 'skip', 'reason': 'typed clarify answer handled'}
     from print_handy.core.link_intake import take_secret_reply
@@ -5589,7 +5633,7 @@ def alert_button_handlers(bot, adapter):
         if ok:  # start accepted: the claim suppresses the listener's own post,
             # so announce and register the start here (P2-56).
             await _announce_command_start(lambda content: interaction.followup.send(content),
-                                          target, detail)
+                                          target, detail, chat_id=str(getattr(interaction, 'channel_id', '') or '') or None)
         if message:
             await (interaction.followup.send(message, view=view) if view else interaction.followup.send(message))
 

@@ -215,7 +215,12 @@ def _download_model(path: Path) -> None:
         raise LocalVisionError(
             "downloaded local detector model failed its SHA-256 check "
             f"(expected {MODEL_SHA256}, got {digest.hexdigest()}); refusing to use it")
-    os.replace(part, path)
+    try:
+        os.replace(part, path)
+    except OSError as exc:
+        part.unlink(missing_ok=True)  # never leave this process's .part behind (2.2.5 review)
+        raise LocalVisionError(
+            f"publishing the downloaded local detector model to {path} failed: {exc}") from exc
     logger.info("local detector model downloaded to %s (SHA-256 verified)", path)
 
 
@@ -224,25 +229,29 @@ def _ensure_model_file(path: Path, cfg=None) -> None:
     remembered = _remembered_failure(key)
     if remembered:
         raise LocalVisionError(remembered)
-    # Locked twice over: the threading lock for this process's threads,
-    # the flock for the sibling listener processes sharing the model
-    # directory (P2-221). The existence check below runs inside both, so
-    # a process that waited on a peer's download rechecks and reuses the
-    # published file instead of downloading over it (or failing its
-    # replace and remembering that race as a permanent failure).
-    with _lock, _model_lock(path):
+    # The threading lock covers this process's threads; the flock covers
+    # the sibling listener processes sharing the model directory, but only
+    # for a download (P2-221): an existing model needs no lock, so a
+    # read-only model directory works on every frame (2.2.5 review). The
+    # existence check reruns inside the flock, so a process that waited on
+    # a peer's download reuses the published file instead of downloading
+    # over it (or failing its replace and remembering that race as a
+    # permanent failure).
+    with _lock:
         remembered = _remembered_failure(key)
         if remembered:
             raise LocalVisionError(remembered)
         try:
             if not path.is_file():
-                logger.info(
-                    "local detector model not present; downloading the pinned "
-                    "%s (~%d MB, one time) from %s",
-                    MODEL_NAME, MODEL_SIZE_BYTES // 1_000_000, MODEL_URL)
-                _download_model(path)
-                _verified_files.add(key)  # the download itself was SHA-256 verified
-            elif _is_default_path(path, cfg) and key not in _verified_files:
+                with _model_lock(path):
+                    if not path.is_file():
+                        logger.info(
+                            "local detector model not present; downloading the pinned "
+                            "%s (~%d MB, one time) from %s",
+                            MODEL_NAME, MODEL_SIZE_BYTES // 1_000_000, MODEL_URL)
+                        _download_model(path)
+                        _verified_files.add(key)  # the download itself was SHA-256 verified
+            if _is_default_path(path, cfg) and key not in _verified_files:
                 # A pre-existing file at the pinned location is only trusted
                 # after its checksum matches, checked once per process.
                 if _sha256_of(path) != MODEL_SHA256:

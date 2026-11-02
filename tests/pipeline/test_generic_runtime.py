@@ -87,7 +87,8 @@ def rig(monkeypatch, tmp_path):
     fake = FakeMoonraker()
     monkeypatch.setattr(model_job, "request_json", fake)
     monkeypatch.setattr(printer_state, "load", lambda: dict(STATE))
-    monkeypatch.setattr(printer_state, "check", lambda st=None, **_kw: (True, [], {}))
+    monkeypatch.setattr(printer_state, "check",
+                        lambda st=None, printer_id=None, adapter=None, *, live=True: (True, [], {}))
     monkeypatch.setattr(model_job.subprocess, "run", upload_run)
     monkeypatch.setattr(model_job, "record_start", lambda *a, **k: str(tmp_path / "note.md"))
     monkeypatch.setattr(model_job.time, "sleep", lambda s: None)

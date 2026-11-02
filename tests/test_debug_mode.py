@@ -183,6 +183,19 @@ class DebugModeTests(unittest.TestCase):
             self.assertEqual(debug_mode.main(["off"]), 0)
         self.assertIn("Sanitized export:", out[-1])
 
+    def test_cli_off_twice_says_already_off_after_a_manual_off(self):
+        # A session that was ended and exported by `off` must not be
+        # re-exported by the next `off` (2.2.5 review).
+        debug_mode.start(self.data, minutes=30, now=T0)
+        out = []
+        with mock.patch.object(debug_mode.settings, "current", lambda: self.data), \
+                mock.patch("builtins.print",
+                           lambda *a: out.append(" ".join(map(str, a)))):
+            self.assertEqual(debug_mode.main(["off"]), 0)
+            self.assertIn("Sanitized export:", out[-1])
+            self.assertEqual(debug_mode.main(["off"]), 0)
+            self.assertEqual(out[-1], "Debug mode is already off.")
+
     def test_cli_status_and_on_off(self):
         out = []
         with mock.patch.object(debug_mode.settings, "current", lambda: self.data), \

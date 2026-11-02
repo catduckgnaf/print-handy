@@ -256,6 +256,22 @@ def paused_text(filename: str, status: dict[str, Any] | None = None) -> str:
     return print_summary.format_event("paused", filename, extra=extra)
 
 
+def _roster_printer_id(printer_id: str | None) -> str | None:
+    """The real roster id: the default printer's own id when None (2.2.5 review).
+
+    A None printer_id on a stored alert, or on a scoped retirement, would
+    mean "any printer" to print_alert_buttons.retire_alerts; the default
+    printer's alerts must carry and be matched by its actual id.
+    """
+    if printer_id:
+        return printer_id
+    try:
+        from print_handy import settings
+        return settings.default_printer_id()
+    except Exception:
+        return None
+
+
 def post_pause_alert(filename: str, connection: str, printer_id: str | None = None,
                      status: dict[str, Any] | None = None) -> bool:
     """Post one pause alert with Resume/Cancel buttons, Moonraker-shaped.
@@ -268,6 +284,7 @@ def post_pause_alert(filename: str, connection: str, printer_id: str | None = No
     falls back to plain text the same way.
     """
     mel = _mel()
+    printer_id = _roster_printer_id(printer_id)
     text = paused_text(filename, status)
     if mel._buttonless_standalone():
         return mel.post(text)
@@ -290,11 +307,14 @@ def retire_pause_alerts(filename: str | None, headline: str = "Print ended.",
     """Strip the buttons from this job's live pause alerts and say why (#370's rule).
 
     ``printer_id`` scopes the retirement to the owning printer's alerts
-    (P2-176); None retires every match for the filename, as before.
+    (P2-176); None means the default printer (its real roster id), never
+    "every printer" — one printer's print ending must not strip another's
+    live buttons (2.2.5 review).
     """
     mel = _mel()
     if mel._buttonless_standalone():
         return 0
+    printer_id = _roster_printer_id(printer_id)
     try:
         from . import print_alert_buttons as pab
         return pab.retire_alerts(

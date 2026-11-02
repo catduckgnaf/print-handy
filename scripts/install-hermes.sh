@@ -212,7 +212,7 @@ import os, re, shutil, sys
 path = sys.argv[1]
 home, repo = os.environ["HERMES_HOME"], os.environ["REPO"]
 text = open(path).read()
-pattern = re.compile(r"^(\s*cwd:\s*)" + re.escape(home) + r"\s*$", re.M)
+pattern = re.compile(r"^([ \t]*cwd:[ \t]*)" + re.escape(home) + r"[ \t]*$", re.M)
 if not pattern.search(text):
     print("ok")
 elif os.environ["DRY"] == "1":

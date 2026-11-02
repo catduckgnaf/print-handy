@@ -273,10 +273,10 @@ def _default_post(message):
 
 def start_monitor(adapter, filename, *, post=None, thread_factory=None, printer_id=None):
     """Start an ElegooPrintMonitor for a just-launched SDCP print on a daemon thread.
+
     printer_id is the launched job's roster printer: the monitor's pause
     alerts carry it, so their Resume/Cancel buttons act on that printer
     rather than the default one (SAFE-4 / P1-101).
-
 
     Returns the thread (or None when monitoring could not start — a
     failed monitor must never fail the print that launched it). With no

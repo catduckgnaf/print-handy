@@ -179,3 +179,59 @@ def test_telegram_approval_button_refuses_a_whitelisted_member():
     assert run(flow()) == "Print it"
     answers = stub.payloads("answerCallbackQuery")
     assert answers[0]["text"] == "Not allowed. Nothing changed."
+
+
+# ---------------------------------------------------------------------- typed answers (2.2.5 review)
+
+def test_member_cannot_approve_by_typing_in_an_open_channel():
+    adapter = OpenAdapter(approver=APPROVER)
+    register(adapter, "f6" * 16, approval=True)
+    assert adapter.typed_approval_blocked("sess", MEMBER)
+    assert run(adapter.answer_typed("sess", "yes", user_id=MEMBER)) is False
+    assert prompts.is_open("f6" * 16)  # the typed refusal changed nothing
+    assert not adapter.typed_approval_blocked("sess", APPROVER)
+    assert run(adapter.answer_typed("sess", "Print it", user_id=APPROVER)) is True
+    assert run(adapter.answer_typed("sess", "x")) is False  # nothing open any more
+
+
+def test_member_still_answers_an_ordinary_prompt_by_typing():
+    adapter = OpenAdapter(approver=APPROVER)
+    register(adapter, "a7" * 16, approval=False)
+    assert run(adapter.answer_typed("sess", "Cancel", user_id=MEMBER)) is True
+
+
+def test_telegram_typed_approval_refuses_a_member():
+    from tests.bot.test_telegram import BotApiStub, CHAT, TOKEN
+    from print_handy.bot import telegram
+
+    adapter = telegram.StandaloneAdapter(None, [MEMBER], approver=APPROVER, token=TOKEN, opener=BotApiStub())
+    cid = "b8" * 16
+    prompts.register(cid, "telegram:chat::user", "Start the print?", ["Print it", "Cancel"], approval=True)
+    run(adapter.send_clarify(chat_id=CHAT, question="Start the print?", choices=["Print it", "Cancel"],
+                             clarify_id=cid, session_key="flow"))
+    assert run(adapter.answer_typed("telegram:chat::user", "yes", user_id=MEMBER)) is False
+    assert prompts.is_open(cid)
+    assert run(adapter.answer_typed("telegram:chat::user", "Print it", user_id=APPROVER)) is True
+
+
+def test_discord_typed_approval_is_refused_with_a_notice_and_the_prompt_stays_open(cfg):
+    cfg["discord"].update(allowed_user_ids="", approval_user_id=APPROVER)
+    discord = fake_discord.FakeDiscord(auto=False, chat_id=int(cfg["discord"]["chat_id"]),
+                                       operator_id=int(OPERATOR))
+    core = runtime.BotCore(discord.client, cfg)
+    member = runtime.make_source(MEMBER, cfg["discord"]["chat_id"])
+    cid = "c9" * 16
+
+    async def flow():
+        prompts.register(cid, runtime.session_key(member), "Start?", ["Print it"], approval=True)
+        await core.adapter.send_clarify(chat_id=str(cfg["discord"]["chat_id"]), question="Start?",
+                                        choices=["Print it"], clarify_id=cid, session_key="flow")
+        try:
+            out = await core.process(runtime.make_event(member, "yes", 1))
+            assert out == {"action": "skip", "reason": "typed approval refused"}
+            assert prompts.is_open(cid)
+        finally:
+            # Never leave a registry prompt open for later tests (open_count checks).
+            prompts.resolve_gateway_clarify(cid, prompts.CANCELLED)
+
+    run(flow())
