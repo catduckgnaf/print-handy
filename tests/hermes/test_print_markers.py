@@ -1,4 +1,6 @@
 """Offline tests for #317 print event markers (recorder, mapping, failure isolation)."""
+import threading
+
 import pytest
 
 from print_handy.hermes import moonraker_event_listener as mel
@@ -54,6 +56,59 @@ def test_outcome_values(tmp_path):
 def test_missing_record_reads_empty(tmp_path):
     assert pm.markers("never.gcode", root=tmp_path) == []
     assert pm.load("never.gcode", root=tmp_path)["markers"] == []
+
+
+def test_reprint_resets_the_elapsed_origin(tmp_path):
+    # P2-108: printing the same file again must move started_wall to the new
+    # start, or later alerts inherit the first print's duration plus the idle
+    # gap (starts at 1000 and 10000, alert at 10050 -> 50s, not 9050s).
+    pm.record("job.gcode", pm.START, at=1000.0, root=tmp_path)
+    pm.record("job.gcode", pm.COMPLETE, at=2000.0, outcome="success", root=tmp_path)
+    pm.record("job.gcode", pm.START, at=10000.0, root=tmp_path)
+    pm.record("job.gcode", pm.WATCHDOG_ALERT, at=10050.0, root=tmp_path)
+    assert pm.load("job.gcode", root=tmp_path)["started_wall"] == 10000.0
+    rows = pm.markers("job.gcode", root=tmp_path)
+    assert rows[-2]["event"] == pm.START and rows[-2]["elapsed_s"] == 0.0
+    assert rows[-1]["event"] == pm.WATCHDOG_ALERT and rows[-1]["elapsed_s"] == 50.0
+
+
+def test_slug_colliding_filenames_get_separate_records(tmp_path):
+    # P2-110: _safe_slug maps both names to 'part-one.gcode'; the records
+    # must still be distinct files keyed by the full job key.
+    pm.record("part one.gcode", pm.START, at=1000.0, root=tmp_path)
+    pm.record("part-one.gcode", pm.START, at=2000.0, root=tmp_path)
+    assert pm._path("part one.gcode", root=tmp_path) != pm._path("part-one.gcode", root=tmp_path)
+    assert pm.load("part one.gcode", root=tmp_path)["started_wall"] == 1000.0
+    assert pm.load("part-one.gcode", root=tmp_path)["started_wall"] == 2000.0
+    assert len(pm.markers("part one.gcode", root=tmp_path)) == 1
+    assert len(pm.markers("part-one.gcode", root=tmp_path)) == 1
+
+
+def test_concurrent_records_do_not_lose_markers(tmp_path, monkeypatch):
+    # P2-109: the listener records on its thread while a watchdog alert
+    # records from an asyncio.to_thread worker; the read-modify-write must
+    # be serialized or one append overwrites the other.
+    barrier = threading.Barrier(2)
+    real_read = pm._read
+
+    def slow_read(job_key, root=None):
+        data = real_read(job_key, root)
+        try:
+            barrier.wait(timeout=3)
+        except threading.BrokenBarrierError:
+            pass
+        return data
+
+    monkeypatch.setattr(pm, "_read", slow_read)
+    results = []
+    threads = [threading.Thread(target=lambda: results.append(pm.record("job.gcode", pm.START, at=1000.0, root=tmp_path))),
+               threading.Thread(target=lambda: results.append(pm.record("job.gcode", pm.PAUSE, at=1100.0, root=tmp_path)))]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(30)
+    assert results == [True, True]
+    assert sorted(row["event"] for row in pm.markers("job.gcode", root=tmp_path)) == [pm.PAUSE, pm.START]
 
 
 def test_corrupt_record_file_is_replaced_not_fatal(tmp_path):

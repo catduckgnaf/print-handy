@@ -52,9 +52,11 @@ precedent). Unknown event/outcome names are programming errors and raise
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -80,13 +82,23 @@ MAX_MARKERS = 500
 _DETAIL_LIMIT = 500
 
 
+# record() is called from the listener's event-loop thread and from
+# asyncio.to_thread watchdog workers; the read-modify-write must be one
+# transaction or concurrent appends overwrite each other.
+_RECORD_LOCK = threading.Lock()
+
+
 def _root() -> Path:
     return _config.state_dir() / "print_markers"
 
 
 def _path(job_key, root=None) -> Path:
     base = Path(root) if root is not None else _root()
-    return base / f"{_safe_slug(str(job_key), 'print')}.json"
+    # The slug alone collides ('part one.gcode' and 'part-one.gcode' slugify
+    # identically, as do long names past the slug's cut), so the filename
+    # also carries a digest of the full job key.
+    digest = hashlib.sha256(str(job_key).encode("utf-8")).hexdigest()[:12]
+    return base / f"{_safe_slug(str(job_key), 'print')}-{digest}.json"
 
 
 def _iso(wall_s: float) -> str:
@@ -107,7 +119,9 @@ def _read(job_key, root=None) -> dict:
 def _write(job_key, data, root=None) -> None:
     path = _path(job_key, root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    partial = path.with_name(f".{path.name}.partial")
+    # A per-writer partial name: two writers must never share one temp file
+    # and consume each other's replacement.
+    partial = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.partial")
     partial.write_text(json.dumps(data, sort_keys=True) + "\n", encoding="utf-8")
     os.replace(partial, path)
 
@@ -139,30 +153,41 @@ def record(job_key, event, *, at=None, elapsed_s=None, detail="", outcome=None, 
         return False
     try:
         wall_s = time.time() if at is None else float(at)
-        data = _read(job_key, root)
-        if event == START and not data.get("started_wall"):
-            data["started_wall"] = wall_s
-        if elapsed_s is None and data.get("started_wall") is not None:
-            derived = wall_s - float(data["started_wall"])
-            elapsed_s = derived if derived >= 0 else None
-        marker = {
-            "event": event,
-            "at": _iso(wall_s),
-            "wall_s": wall_s,
-            "elapsed_s": None if elapsed_s is None else max(0.0, float(elapsed_s)),
-            "detail": str(detail or "")[:_DETAIL_LIMIT],
-        }
-        if outcome is not None:
-            marker["outcome"] = outcome
-        rows = [row for row in data["markers"] if isinstance(row, dict)]
-        rows.append(marker)
-        rows.sort(key=lambda row: row.get("wall_s") or 0.0)
-        data["markers"] = rows[-MAX_MARKERS:]
-        _write(job_key, data, root)
-        return True
+        with _RECORD_LOCK:
+            return _record_locked(job_key, event, wall_s=wall_s, elapsed_s=elapsed_s,
+                                  detail=detail, outcome=outcome, root=root)
     except Exception as exc:  # fail-safe by contract: see module docstring
         logger.warning("print marker %s for %r not recorded: %r", event, job_key, exc)
         return False
+
+
+def _record_locked(job_key, event, *, wall_s, elapsed_s, detail, outcome, root) -> bool:
+    """The read-modify-write behind record(), run under _RECORD_LOCK."""
+    data = _read(job_key, root)
+    if event == START:
+        # A re-print of the same file starts a new elapsed clock even
+        # though earlier markers stay in the shared record; keeping the
+        # first start would fold the previous print and the idle gap
+        # into this print's offsets.
+        data["started_wall"] = wall_s
+    if elapsed_s is None and data.get("started_wall") is not None:
+        derived = wall_s - float(data["started_wall"])
+        elapsed_s = derived if derived >= 0 else None
+    marker = {
+        "event": event,
+        "at": _iso(wall_s),
+        "wall_s": wall_s,
+        "elapsed_s": None if elapsed_s is None else max(0.0, float(elapsed_s)),
+        "detail": str(detail or "")[:_DETAIL_LIMIT],
+    }
+    if outcome is not None:
+        marker["outcome"] = outcome
+    rows = [row for row in data["markers"] if isinstance(row, dict)]
+    rows.append(marker)
+    rows.sort(key=lambda row: row.get("wall_s") or 0.0)
+    data["markers"] = rows[-MAX_MARKERS:]
+    _write(job_key, data, root)
+    return True
 
 
 def map_to_video_time(elapsed_s, print_duration_s, video_duration_s):
