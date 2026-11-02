@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from print_handy.settings import LEGACY_ENV
@@ -75,7 +76,13 @@ class HomeUpdateTests(unittest.TestCase):
     def update(self, home=None):
         # Environment overrides beat local.toml, so a caller's HERMES_HOME (or any other mapped
         # variable) would point the doctor at the real install instead of the throwaway profile.
-        env = {k: v for k, v in os.environ.items() if k not in LEGACY_ENV}
+        # Strip every supported override form (P2-14): the legacy names, the
+        # PRINT_HANDY__SECTION__KEY spellings and the PRINT_HANDY_CONFIG
+        # selector — settings.load() applies all of them ahead of the
+        # throwaway checkout's own config.
+        env = {k: v for k, v in os.environ.items()
+               if k not in LEGACY_ENV and not k.startswith("PRINT_HANDY__")
+               and k != "PRINT_HANDY_CONFIG"}
         # Run the update's checks with this interpreter. With HOME moved, the script cannot find
         # the agent venv and would fall back to whatever python3 is first on PATH.
         env.setdefault("PYTHON", sys.executable)
@@ -125,6 +132,38 @@ class HomeUpdateTests(unittest.TestCase):
         result = self.update()
         self.assertEqual(result.returncode, 1)
         self.assertIn("local edits", result.stdout)
+
+    def test_failing_post_update_hook_rolls_back_and_a_retry_reruns_it(self):
+        """P2-4: the after-update hook runs inside the update's proof, so its
+        failure rolls back like a failed check — and a retry against the same
+        target runs the hook again instead of exiting at 'Already at'."""
+        before = git(self.home, "rev-parse", "HEAD")
+        head = self.commit_upstream("NOTES.txt", "harmless\n")
+        hook = self.home / "config" / "after-update.sh"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+        result = self.update()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("Rolled back", result.stdout)
+        self.assertEqual(git(self.home, "rev-parse", "HEAD"), before)
+        hook.write_text("#!/bin/sh\ntouch hook-ran\n")
+        result = self.update()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(git(self.home, "rev-parse", "HEAD"), head)
+        self.assertTrue((self.home / "hook-ran").exists())
+
+    def test_modern_settings_overrides_do_not_leak_into_the_update(self):
+        """P2-14: PRINT_HANDY_CONFIG / PRINT_HANDY__SECTION__KEY in the
+        caller's environment must not reach the update's subprocesses — the
+        loader applies them ahead of the throwaway checkout's local config,
+        so the doctor would inspect the caller's real install."""
+        head = self.commit_upstream("NOTES.txt", "harmless\n")
+        poison = {"PRINT_HANDY__PATHS__HERMES_HOME": str(Path(self.tmp.name) / "caller-real-profile"),
+                  "PRINT_HANDY_CONFIG": str(Path(self.tmp.name) / "caller-real-config.yaml")}
+        with unittest.mock.patch.dict(os.environ, poison):
+            result = self.update()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(git(self.home, "rev-parse", "HEAD"), head)
 
 
 class InstallDocModePinTests(unittest.TestCase):
