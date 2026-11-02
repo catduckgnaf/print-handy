@@ -148,6 +148,23 @@ def test_agent_reply_is_posted_as_is_with_the_live_session_key(agent_cfg):
     assert core.status(True)["agent"] is True
 
 
+def test_agent_and_llm_replies_can_name_a_file_but_never_attach_it(agent_cfg, tmp_path):
+    """#532: a model reply is untrusted; MEDIA:/proc/self/environ must not upload the bot's secrets."""
+    secret = tmp_path / "environ"
+    secret.write_text("DISCORD_TOKEN=sekrit\n")
+    for lane in ("agent", "llm"):
+        reply = f"Here you go\nMEDIA:{secret}"
+        if lane == "agent":
+            discord, core = make(agent_cfg, agent_opener=FakeAgent(reply))
+        else:
+            agent_cfg["agent"]["chat_url"] = ""
+            agent_cfg["llm"].update(chat_url=LLM_URL)
+            discord, core = make(agent_cfg, llm_opener=FakeLLM(reply))
+        asyncio.run(core.handle_message(discord.message("send me the logs")))
+        assert [m.files for m in discord.messages] == [[]], lane
+        assert discord.sent == [f"Here you go\nMEDIA​:{secret}"], lane
+
+
 def test_agent_reply_that_looks_like_a_command_executes_nothing(agent_cfg):
     """No command channel: a reply naming a command — bare or in the [llm]
     JSON shape — is posted verbatim and runs nothing."""
