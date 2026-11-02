@@ -2615,7 +2615,7 @@ def verify_gcode_offline(gcode_path, state):
     artifact against the already loaded hardware record: MD5 when present,
     native heater prefix, nozzle, material, start and end, and motion bounds.
     """
-    if printers.current().connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp'):
+    if printers.current().connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp', 'flashforge_stock'):
         return _verify_offline(gcode_path, state)
     p = Path(gcode_path)
     raw = p.read_bytes()
@@ -2704,7 +2704,7 @@ def verify_gcode(gcode_path):
     the spool's recorded material/density and the recorded temperatures are
     the fallback when Spoolman is unreachable.
     """
-    if printers.current().connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp'):
+    if printers.current().connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp', 'flashforge_stock'):
         st = printer_state.load(); ok, probs, facts = printer_state.check(st)
         _print_check_warnings(facts)
         if not ok: raise RuntimeError("the printer check did not pass:\n  " + "\n  ".join(probs))
