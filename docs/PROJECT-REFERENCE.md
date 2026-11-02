@@ -398,7 +398,7 @@ Failures are named in chat with the cause and the remedy: the host could not be 
 | `vision` | `model`, `roast_model` | `gemini-latest`, `luna-latest` | Models for camera checks and roasts |
 | | `roast_enabled` | `true` | The print-post roast switch: on by default whenever an LLM/vision endpoint is available, on every platform including Telegram; `false` turns roasts off, camera checks unaffected |
 | `visual_watch` | `enabled`, `sensitivity` | `true`, `3` | Camera monitoring switch; sensitivity from 1 to 5 |
-| `timelapse` | `archive_host`, `archive_dir`, `ssh_key` | empty | Remote timelapse copy; empty host disables it |
+| `timelapse` | `archive_host`, `archive_dir`, `ssh_key` | empty | Printer-rendered timelapse archive; empty host disables the printer-rendered delivery path |
 | | `render_wait_s`, `render_poll_s` | `900`, `10` | Wait for the printer to render the timelapse |
 | | `max_bytes`, `local_retention_days`, `plan_clip_retention_days` | 200 MiB, `1`, `14` | Size cap and retention |
 | | `vertical_short`, `vertical_short_mode`, `vertical_short_overlay` | `false`, `pad`, `true` | Optional 9:16 vertical short posted alongside each timelapse (#317); mode is the blurred-pad or centre-crop framing, overlay burns in the title/printer/filament/time text |
