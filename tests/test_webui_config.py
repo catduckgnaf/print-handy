@@ -449,6 +449,44 @@ class WriteAPITests(unittest.TestCase):
                           config_path=self.local, environ={"MOONRAKER_URL": "http://printer.test:7125"})
         self.assertEqual(self.local.read_bytes(), before)
 
+    def test_field_instances_resolve_through_the_catalog_allowlist(self):
+        # P2-95: a Field instance naming an uncatalogued setting is refused
+        # exactly like the equivalent string key ("discord.token_env" is
+        # rejected in test_invalid_values_are_rejected_and_the_file_is_unchanged).
+        from print_handy.webui.catalog import Field
+        before = self.write_file("visual_watch:\n  sensitivity: 3\n")
+        forged = Field("discord", "token_env", "Token", "text")
+        with self.assertRaises(WebUIConfigError):
+            write_changes({forged: "OTHER_TOKEN"}, config_path=self.local, environ={})
+        self.assertEqual(self.local.read_bytes(), before)
+        # An instance carrying a catalog id resolves to the catalog's own
+        # field, not to the caller's copy of it.
+        impostor = Field("discord", "chat_id", "Forged label", "text")
+        self.assertIs(field_by_id(impostor), field_by_id("discord.chat_id"))
+        changed = write_changes({field_by_id("discord.chat_id"): "123"},
+                                config_path=self.local, environ={})
+        self.assertEqual(changed, [("discord", "chat_id")])
+
+    def test_loader_unchecked_catalog_fields_are_validated_before_writing(self):
+        # P2-96: settings.load checks these fields' types but not their
+        # contents, so the write path validates them itself: a Discord
+        # channel ID must be one numeric ID (guided._validate_chat_id) and
+        # the timezone must be a real IANA zone.
+        before = self.write_file("visual_watch:\n  sensitivity: 3\n")
+        for changes in ({"discord.chat_id": "not-a-channel"},
+                        {"discord.chat_id": "123 456"},
+                        {"discord.timezone": "Not/AZone"}):
+            with self.subTest(changes=changes):
+                with self.assertRaises(WebUIConfigError):
+                    write_changes(changes, config_path=self.local, environ={})
+                self.assertEqual(self.local.read_bytes(), before)
+        changed = write_changes({"discord.chat_id": "123456789012345678",
+                                 "discord.timezone": "America/New_York"},
+                                config_path=self.local, environ={})
+        self.assertEqual(changed, [("discord", "chat_id"), ("discord", "timezone")])
+        data = settings.load(local=self.local, environ={})
+        self.assertEqual(data["discord"]["timezone"], "America/New_York")
+
     def test_noop_change_writes_nothing_and_makes_no_backup(self):
         before = self.write_file("visual_watch:\n  sensitivity: 3\n")
         self.assertEqual(write_changes({"visual_watch.sensitivity": 3},

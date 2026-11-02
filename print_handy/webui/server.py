@@ -207,7 +207,8 @@ def render_status_html(snap, form_token=""):
          else ("ok" if listener["ok"] else "FAIL") + f" — {listener['reason']}"),
         ("Spoolman", ("bundled" if spoolman["bundled"] else "external")
          + f" {spoolman['url'] or '(not configured)'} — "
-         + ("ok" if spoolman["ok"] else "down") + f" ({spoolman['detail']})"),
+         + ("not configured" if spoolman["ok"] is None
+            else "ok" if spoolman["ok"] else "down") + f" ({spoolman['detail']})"),
     ]
     services = "".join(
         f"<tr><th>{esc(key)}</th><td>{esc(str(value))}</td></tr>"
@@ -544,7 +545,7 @@ class _Handler(BaseHTTPRequestHandler):
 
         ``rest`` is the path after ``/designs/``: exactly one segment is
         a session id, exactly two is that session's ``scad`` / ``stl`` /
-        ``preview`` file. Anything else — extra segments, ``..``, unknown
+        ``preview`` / ``base`` file. Anything else — extra segments, ``..``, unknown
         ids or kinds — is a 404; the file itself is resolved by
         :func:`print_handy.core.design.session_file` from the session
         record, so nothing outside the session's own folder can be named.
@@ -556,9 +557,10 @@ class _Handler(BaseHTTPRequestHandler):
             if detail is None:
                 self._json(404, {"ok": False, "reason": "no such design session"})
                 return
-            session, scad_text, has_stl, has_preview = detail
+            session, scad_text, has_stl, has_preview, has_base = detail
             self._send(200, designs_module.render_design_detail(
-                session, scad_text, has_stl=has_stl, has_preview=has_preview),
+                session, scad_text, has_stl=has_stl, has_preview=has_preview,
+                has_base=has_base),
                 "text/html; charset=utf-8")
             return
         if len(segments) == 2 and segments[0] and segments[1] in designs_module.FILE_KINDS:

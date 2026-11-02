@@ -544,9 +544,14 @@ _FIELDS = {field.id: field for field in CATALOG}
 
 
 def field_by_id(field_id):
-    """The catalog field for ``"section.key"`` (or a ``(section, key)`` pair), else None."""
+    """The catalog field for ``"section.key"`` (or a ``(section, key)`` pair), else None.
+
+    A ``Field`` instance is resolved by its id through the catalog too:
+    the instance itself is never trusted, so a caller-built field naming
+    an uncatalogued setting resolves to None exactly like its string id.
+    """
     if isinstance(field_id, Field):
-        return field_id
+        field_id = field_id.id
     if isinstance(field_id, tuple):
         field_id = f"{field_id[0]}.{field_id[1]}"
     return _FIELDS.get(str(field_id))

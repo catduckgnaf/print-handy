@@ -3,6 +3,9 @@
 ``GET /designs`` lists the design sessions on disk — newest first — and
 ``GET /designs/<id>`` shows one session with its final ``.scad`` source
 and downloads for the ``.scad``, the final ``.stl`` and the preview PNG.
+A mesh edit session also offers its base mesh (``source.stl``): the
+composed ``.scad`` imports that file through ``base()``, so the source
+alone cannot reproduce the design without it.
 Everything comes from :mod:`print_handy.core.design`, which owns the
 session store (``<cache>/design-sessions/``): this module only reads
 through its catalog API, so the retention window (14 days) and the
@@ -33,6 +36,7 @@ FILE_KINDS = {
     "scad": ("text/plain; charset=utf-8", False),
     "stl": ("model/stl", False),
     "preview": ("image/png", True),
+    "base": ("model/stl", False),
 }
 
 
@@ -119,12 +123,13 @@ def catalog_rows(data):
             "has_preview": design.session_file(root, session["id"], "preview") is not None,
             "has_stl": design.session_file(root, session["id"], "stl") is not None,
             "has_scad": design.session_file(root, session["id"], "scad") is not None,
+            "has_base": design.session_file(root, session["id"], "base") is not None,
         })
     return rows
 
 
 def load_detail(data, session_id):
-    """(session, scad_text, has_stl, has_preview) for the detail page.
+    """(session, scad_text, has_stl, has_preview, has_base) for the detail page.
 
     Returns None when the id names no session. The ``.scad`` shown is
     the session's current source of truth — the record's ``scad``
@@ -142,7 +147,8 @@ def load_detail(data, session_id):
     text = scad_path.read_text(encoding="utf-8", errors="replace") if scad_path else ""
     return (session, text,
             design.session_file(root, session_id, "stl") is not None,
-            design.session_file(root, session_id, "preview") is not None)
+            design.session_file(root, session_id, "preview") is not None,
+            design.session_file(root, session_id, "base") is not None)
 
 
 def file_for(data, session_id, kind):
@@ -208,7 +214,7 @@ def render_designs_page(rows):
     return _page("designs", "".join(parts))
 
 
-def render_design_detail(session, scad_text, *, has_stl, has_preview):
+def render_design_detail(session, scad_text, *, has_stl, has_preview, has_base=False):
     """The GET /designs/<id> page: facts, downloads, the .scad source."""
     sid = _esc(session.get("id") or "")
     parts = [_NAV,
@@ -221,6 +227,11 @@ def render_design_detail(session, scad_text, *, has_stl, has_preview):
              f"<tr><th>Updated</th><td>{_esc(_when(session.get('updated_at')))}</td></tr>"
              "</table>"]
     downloads = [f'<li><a href="/designs/{sid}/scad">Download the .scad source</a></li>']
+    if has_base:
+        downloads.append(
+            f'<li><a href="/designs/{sid}/base">Download the base mesh (source.stl)</a> — '
+            "the .scad source imports this file, so keep it next to the source "
+            "to open the design in OpenSCAD</li>")
     if has_stl:
         downloads.append(f'<li><a href="/designs/{sid}/stl">Download the final .stl</a></li>')
     if has_preview:

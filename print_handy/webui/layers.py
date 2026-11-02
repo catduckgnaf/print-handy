@@ -18,7 +18,10 @@ from pathlib import Path
 
 MAX_BYTES = 8_000_000
 MAX_MOVES = 200_000
-_JOB_ID = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
+# A job id is an archive folder name. The longest producer is the chat
+# intake flow (core/model_job.intake_folder): a slug of up to 70 chars
+# plus "--" plus a 64-char intake hash — 136 in all.
+_JOB_ID = re.compile(r"^[A-Za-z0-9._-]{1,136}$")
 _PLATE_NAME = re.compile(r"^[A-Za-z0-9._-]{1,120}\.gcode$")
 
 ROLES = ("perimeter", "infill", "support", "other", "travel")
@@ -41,7 +44,7 @@ def archive_root(data) -> Path:
 
 
 def classify_type(label: str) -> str:
-    """Map a slicer ``;TYPE:`` comment onto a drawing role."""
+    """Map a slicer role comment (``;TYPE:`` or Bambu ``; FEATURE:``) onto a drawing role."""
     text = str(label or "").strip().lower()
     if "support" in text or "raft" in text:
         return "support"
@@ -114,9 +117,14 @@ def parse_gcode(text) -> dict:
             continue
         if raw.startswith(";"):
             upper = raw.upper()
-            if upper.startswith(";TYPE:"):
+            if upper.startswith(";TYPE:") or upper.startswith("; FEATURE:"):
+                # Role markers in both dialects: ";TYPE:" (Prusa/Orca) and
+                # "; FEATURE:" (Bambu profiles, printers/bambulab/facts.py).
                 role = classify_type(raw.split(":", 1)[1])
-            elif upper.startswith(";LAYER_CHANGE") or upper.startswith(";LAYER:"):
+            elif (upper.startswith(";LAYER_CHANGE") or upper.startswith(";LAYER:")
+                    or upper.startswith("; CHANGE_LAYER")):
+                # Layer markers likewise: ";LAYER_CHANGE" / ";LAYER:" and
+                # the Bambu dialect's "; CHANGE_LAYER".
                 if layers and layers[-1]["moves"]:
                     want_break = True
             continue

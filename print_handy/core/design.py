@@ -167,7 +167,11 @@ def find_session_for_owner(root, owner_key):
 
 # ------------------------------------------------------- read-only catalog
 
-_CATALOG_FILES = ("scad", "stl", "preview")
+# Catalog kind -> the session-record key carrying its filename. "base" is
+# a mesh edit's original mesh (source.stl): the composed .scad imports it
+# through base(), so the source download is only reproducible with it.
+_CATALOG_FILES = {"scad": "scad", "stl": "stl", "preview": "preview",
+                  "base": "base_stl"}
 
 
 def list_sessions(root, *, days=RETENTION_DAYS, now=None):
@@ -204,13 +208,16 @@ def list_sessions(root, *, days=RETENTION_DAYS, now=None):
 def session_file(root, session_id, kind):
     """The path of one catalog file of a session, or None.
 
-    ``kind`` is one of ``scad`` / ``stl`` / ``preview`` and selects the
-    filename the session record itself carries under that key. The name
-    must be a bare filename, so what is served always lives directly
-    inside the session's own folder — a tampered record naming ``../``
-    or an absolute path resolves to None, never to a file outside.
+    ``kind`` is one of ``scad`` / ``stl`` / ``preview`` / ``base`` and
+    selects the filename the session record itself carries for it (the
+    record keys are the kind names, except ``base``, whose key is
+    ``base_stl``). The name must be a bare filename, so what is served
+    always lives directly inside the session's own folder — a tampered
+    record naming ``../`` or an absolute path resolves to None, never to
+    a file outside.
     """
-    if kind not in _CATALOG_FILES:
+    key = _CATALOG_FILES.get(kind)
+    if key is None:
         return None
     try:
         session = load_session(root, session_id)
@@ -218,7 +225,7 @@ def session_file(root, session_id, kind):
         return None
     if session is None:
         return None
-    name = session.get(kind)
+    name = session.get(key)
     if not isinstance(name, str) or not name or Path(name).name != name:
         return None
     path = _session_path(Path(root), session_id) / name
