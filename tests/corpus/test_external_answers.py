@@ -1,17 +1,14 @@
 """Narrow default-answer coverage without running the external model corpus."""
-import ast
-from pathlib import Path
-
 import pytest
 
+from tests.corpus import run_external_corpus
 from tests.corpus.harness import FakeAdapter, UnansweredPrompt
 
 
 def default_adapter():
-    tree = ast.parse(Path(__file__).with_name("run_external_corpus.py").read_text())
-    clicks = next(keyword.value for node in ast.walk(tree) if isinstance(node, ast.Call)
-                  for keyword in node.keywords if keyword.arg == "clicks")
-    return FakeAdapter(ast.literal_eval(clicks))
+    # The runner is importable since its work moved under main(); the
+    # generic case's click rules are its GENERIC_CLICKS constant.
+    return FakeAdapter(run_external_corpus.GENERIC_CLICKS)
 
 
 @pytest.mark.parametrize("question,choices,expected", [

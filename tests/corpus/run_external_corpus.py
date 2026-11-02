@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import time
+import tomllib
 from pathlib import Path
 from types import SimpleNamespace as S
 
@@ -10,44 +11,85 @@ from types import SimpleNamespace as S
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from tests.corpus import harness
 
-root = Path(os.environ["PRINT_HANDY_PRIVATE_CORPUS"]).resolve()
-models = sorted(p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in {".3mf", ".stl"})
-shard_index, shard_count = int(os.environ["CORPUS_SHARD_INDEX"]), int(os.environ["CORPUS_SHARD_COUNT"])
-results = []
-workroot = Path(os.environ.get("CORPUS_WORK", "corpus-work"))
-for index, model in enumerate(models):
-    if index % shard_count != shard_index:
-        continue
+GENERIC_CLICKS = [{"question": "Choose the color", "button": "White"},
+                  # Explicit monochrome consent for multipart and painted models.
+                  {"question": "one color for everything?", "button": "One color for everything"},
+                  # Pick the offered shrink, never silently approve a rotation/support tradeoff.
+                  {"question": "does not fit the bed full size", "button": "Shrink to"},
+                  {"question": "How many copies", "button": "One copy"},
+                  {"question": "·", "button": "Slice and print"}]
+
+
+def build_case(model, root):
+    """The harness case for one model file.
+
+    A folder carrying its own case.toml — the #458 complex cases extracted
+    into the shared corpus root (corpus-v2) — runs with that file's clicks
+    and expectations (P2-178): the generic case below would otherwise
+    expect STARTED for every model and report the pinned intake refusals
+    as regressions on every run. Plain folders keep the generic case.
+    """
     case_dir = model.parent
-    case = S(name=case_dir.name, dir=case_dir, model=model,
+    case_toml = case_dir / "case.toml"
+    if case_toml.is_file():
+        data = tomllib.loads(case_toml.read_text())
+        return S(name=case_dir.name, dir=case_dir, model=model, data=data,
+                 clicks=data.get("click", []), expect=data.get("expect", {}))
+    return S(name=case_dir.name, dir=case_dir, model=model,
              data={"description": model.name},
-             clicks=[{"question": "Choose the color", "button": "White"},
-                     # Explicit monochrome consent for multipart and painted models.
-                     {"question": "one color for everything?", "button": "One color for everything"},
-                     # Pick the offered shrink, never silently approve a rotation/support tradeoff.
-                     {"question": "does not fit the bed full size", "button": "Shrink to"},
-                     {"question": "How many copies", "button": "One copy"},
-                     {"question": "·", "button": "Slice and print"}],
+             clicks=GENERIC_CLICKS,
              expect={"status": "STARTED"})
-    started = time.monotonic()
-    row = {"model": model.relative_to(root).as_posix(), "result": "PASS", "seconds": 0.0, "error": ""}
-    try:
-        run = harness.run_case(case, workroot / f"{shard_index}-{index}")
-        harness.check_expectations(case, run)
-        if not run.slice_starts:
-            raise AssertionError("actual BackgroundSlice.start was never called")
-        if len(run.slice_starts) != 1:
-            raise AssertionError(f"expected one slice start, got {len(run.slice_starts)}")
-        if not any(event[0] == "slice" for event in run.events):
-            raise AssertionError("fake slicer was never called")
-    except Exception as exc:
-        row["result"] = "FAIL"
-        # Preserve unanswered question text and buttons, not just the generic first line.
-        row["error"] = f"{type(exc).__name__}: {exc}"
-    row["seconds"] = round(time.monotonic() - started, 2)
-    results.append(row)
-    print(json.dumps(row), flush=True)
-out = Path(os.environ.get("CORPUS_RESULTS", "results.json"))
-out.write_text(json.dumps(results, indent=2) + "\n")
-if not results:
-    raise SystemExit(f"shard {shard_index} selected no models")
+
+
+def evaluate(case, run):
+    """Assert what the case expects of a finished run; raises AssertionError."""
+    if case.expect.get("status") == "FAILED":
+        # A pinned refusal: the FAILED receipt for the expected reason, and
+        # slicing/starting never occurred (P2-177).
+        harness.check_refusal(case, run)
+        return
+    harness.check_expectations(case, run)
+    if not run.slice_starts:
+        raise AssertionError("actual BackgroundSlice.start was never called")
+    if len(run.slice_starts) != 1:
+        raise AssertionError(f"expected one slice start, got {len(run.slice_starts)}")
+    if not any(event[0] == "slice" for event in run.events):
+        raise AssertionError("fake slicer was never called")
+
+
+def main():
+    root = Path(os.environ["PRINT_HANDY_PRIVATE_CORPUS"]).resolve()
+    models = sorted(p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in {".3mf", ".stl"})
+    shard_index, shard_count = int(os.environ["CORPUS_SHARD_INDEX"]), int(os.environ["CORPUS_SHARD_COUNT"])
+    results = []
+    workroot = Path(os.environ.get("CORPUS_WORK", "corpus-work"))
+    for index, model in enumerate(models):
+        if index % shard_count != shard_index:
+            continue
+        case = build_case(model, root)
+        started = time.monotonic()
+        row = {"model": model.relative_to(root).as_posix(), "result": "PASS", "seconds": 0.0, "error": ""}
+        try:
+            run = harness.run_case(case, workroot / f"{shard_index}-{index}")
+            evaluate(case, run)
+        except Exception as exc:
+            row["result"] = "FAIL"
+            # Preserve unanswered question text and buttons, not just the generic first line.
+            row["error"] = f"{type(exc).__name__}: {exc}"
+        row["seconds"] = round(time.monotonic() - started, 2)
+        results.append(row)
+        print(json.dumps(row), flush=True)
+    out = Path(os.environ.get("CORPUS_RESULTS", "results.json"))
+    out.write_text(json.dumps(results, indent=2) + "\n")
+    if not results:
+        raise SystemExit(f"shard {shard_index} selected no models")
+    # Results are written first so the artifacts stay available; a shard in
+    # which any model failed must still fail the job (P1-58).
+    failed = [row["model"] for row in results if row["result"] == "FAIL"]
+    if failed:
+        raise SystemExit(f"shard {shard_index}: {len(failed)} model(s) failed: {', '.join(failed)}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
