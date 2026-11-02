@@ -219,6 +219,27 @@ def _pkw(pid):
     return {'printer_id': pid} if pid else {}
 
 
+def _channel_printer_id(source, gateway=None):
+    """The actual roster id of the printer this event's channel serves (P1-77).
+
+    ``_routed_printer_id`` normalizes the default printer to None so its
+    control paths stay legacy — but ownership checks must compare a job
+    against the channel's real printer, default included, or the default
+    channel silently skips them. A shared channel (#536) decides no
+    printer: None here too, and the caller resolves from the job instead.
+    """
+    pid = _routed_printer_id(source, gateway)
+    if pid:
+        return pid
+    if _shared_printer_ids(source, gateway):
+        return None  # undecided shared channel: never the default by fall-through
+    try:
+        from print_handy import settings
+        return str(settings.default_printer_id(_config.cfg()))
+    except Exception:
+        return None
+
+
 def _printer_label(pid):
     """A routed printer's display name for user-facing text (the default printer is named, design §6.1)."""
     try:
@@ -1456,6 +1477,8 @@ async def _offer_spool_change(adapter, source, metadata, print_next, target, det
     # never be answered on buttonless platforms. send_clarify keeps
     # the flow key for delivery.
     cm.register(cid, live_key or session_key, question, choices)
+    from print_handy.core import prompts as _prompt_marks
+    _prompt_marks.mark_approval(cid)  # a yes starts the print: a print approval (P1-93)
     try:
         sent = await adapter.send_clarify(chat_id=str(source.chat_id), question=question, choices=choices,
                                           clarify_id=cid, session_key=session_key, metadata=metadata)
@@ -1464,6 +1487,7 @@ async def _offer_spool_change(adapter, source, metadata, print_next, target, det
         answer = await asyncio.to_thread(cm.wait_for_response, cid, (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800))
     finally:
         cm.resolve_gateway_clarify(cid, cm.CANCELLED)
+        _prompt_marks.forget_approval(cid)
     if answer != USE_LOADED_SPOOL:
         return False, 'Cancelled. Nothing uploaded or started.'
     return await print_next.start({**target, 'accept_spool_change': True})
@@ -1503,16 +1527,20 @@ async def print_next_dispatch(event, gateway, **kwargs):
             raise print_next.NextPlateError('usage: /print-next <plan_id> [part_id]')
         plan = print_next.load_plan(plan_id)
         target = print_next.resolve_next(plan) if part_id is None else print_next.resolve_next(plan, part_id=part_id)
-        if pid:
+        channel_pid = _channel_printer_id(source, gateway)
+        if channel_pid is not None:
             # The channel is the target (#335): a plan whose job belongs to
             # another printer is refused here, before any prompt is shown.
+            # The comparison uses the channel's actual printer (P1-77): the
+            # routed form normalizes the default printer to None, which used
+            # to skip this check in the default printer's own channel.
             from print_handy.core import model_job as _mj
             _job = json.loads(Path(target['job_json']).read_text())
             _job_pid = _mj._job_printer_id(_job)
-            if _job_pid != pid:
+            if _job_pid != channel_pid:
                 raise print_next.NextPlateError(
                     f"that plan belongs to {_printer_label(_job_pid)}, not this channel's printer "
-                    f"({_printer_label(pid)})")
+                    f"({_printer_label(channel_pid)})")
         live_key = gateway._session_key_for_source(source)
         if not pid:
             candidates = _undecided_printer_ids(source, gateway)
@@ -1544,6 +1572,8 @@ async def print_next_dispatch(event, gateway, **kwargs):
         # never be answered on buttonless platforms. send_clarify keeps
         # the flow key for delivery.
         cm.register(cid, live_key or session_key, question, choices)
+        from print_handy.core import prompts as _prompt_marks
+        _prompt_marks.mark_approval(cid)  # the bed-clear button starts a print (P1-93)
         try:
             sent = await adapter.send_clarify(chat_id=str(source.chat_id), question=question,
                                               choices=choices, clarify_id=cid,
@@ -1553,6 +1583,7 @@ async def print_next_dispatch(event, gateway, **kwargs):
             answer = await asyncio.to_thread(cm.wait_for_response, cid, (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800))
         finally:
             cm.resolve_gateway_clarify(cid, cm.CANCELLED)
+            _prompt_marks.forget_approval(cid)
         if answer != print_next.START_LABEL:
             message = 'Cancelled or expired. Nothing uploaded or started.'
         else:
@@ -3912,8 +3943,10 @@ def _control_gate(event, gateway):
     return source, _adapter_for(gateway, source)
 
 
-async def _confirm(adapter, source, metadata, prefix, question, choices, timeout, live_key=None):
+async def _confirm(adapter, source, metadata, prefix, question, choices, timeout, live_key=None,
+                   approval=False):
     import uuid
+    from print_handy.core import prompts as _prompt_marks
     from print_handy.core.prompts import gateway as _prompts
     cm = _prompts()
     cid = uuid.uuid4().hex
@@ -3926,6 +3959,11 @@ async def _confirm(adapter, source, metadata, prefix, question, choices, timeout
     # a flow-key registration there can never be answered and the prompt
     # times out. send_clarify keeps the flow key for delivery.
     cm.register(cid, live_key or session_key, question, choices)
+    if approval:
+        # A print approval (P1-93): the mark lives in this package's own
+        # registry, whose is_approval the standalone adapters consult,
+        # whichever registry the prompt itself was registered with.
+        _prompt_marks.mark_approval(cid)
     try:
         sent = await adapter.send_clarify(chat_id=str(source.chat_id), question=question, choices=choices,
                                           clarify_id=cid, session_key=session_key, metadata=metadata)
@@ -3934,6 +3972,7 @@ async def _confirm(adapter, source, metadata, prefix, question, choices, timeout
         return await asyncio.to_thread(cm.wait_for_response, cid, timeout)
     finally:
         cm.resolve_gateway_clarify(cid, cm.CANCELLED)
+        _prompt_marks.forget_approval(cid)
 
 
 async def print_resume_dispatch(event, gateway, **kwargs):
@@ -4038,18 +4077,23 @@ async def print_again_dispatch(event, gateway, **kwargs):
     from print_handy.hermes import print_next
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
     pid = _routed_printer_id(source, gateway)
+    # Ownership compares against the channel's actual printer (P1-77): the
+    # routed form's None for the default printer must not skip these checks
+    # in the default printer's own channel.
+    channel_pid = _channel_printer_id(source, gateway)
     query = str(plain_number) if plain_number is not None else text[len('/print-again'):].strip()
     if query.casefold() in ('list', 'ls', 'history'):
         rows = await asyncio.to_thread(pc.printed_jobs)
-        if pid:
+        if channel_pid is not None:
             # A routed channel lists only its own printer's prints (#335).
-            rows = [row for row in rows if _job_owner_pid(row['job_json']) == pid]
+            rows = [row for row in rows if _job_owner_pid(row['job_json']) == channel_pid]
         await adapter.send(chat_id=source.chat_id, metadata=metadata, content=pc.printed_list_text(rows))
         return {'action': 'skip', 'reason': 'print again list handled'}
     if query.casefold() in ('stop', 'cancel', 'clear'):
-        if pid:
+        if channel_pid is not None:
             pending = await asyncio.to_thread(pc.pending_copy)
-            if pending and _job_owner_pid(pending['job_json']) != pid:
+            pending_owner = _job_owner_pid(pending['job_json']) if pending else None
+            if pending_owner is not None and pending_owner != channel_pid:
                 await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                    content=f"The queued copies belong to {_printer_label(_job_owner_pid(pending['job_json']))}, "
                                            "not this channel's printer. Nothing dropped.")
@@ -4074,12 +4118,16 @@ async def print_again_dispatch(event, gateway, **kwargs):
             target = await asyncio.to_thread(pc.resolve_print, query)
             target['copies'] = copies
             question = pc.again_question(target)
-        if pid and _job_owner_pid(target['job_json']) != pid:
+        target_owner = _job_owner_pid(target['job_json'])
+        if channel_pid is not None and target_owner is not None and target_owner != channel_pid:
             # The channel is the target (#335): never offer another printer's
-            # job for a bed-clear confirmation in this channel.
+            # job for a bed-clear confirmation in this channel. An owner that
+            # cannot be read from the record proves no mismatch; resolve_print
+            # built the target from that same archive, and the start path
+            # re-reads and validates the record before anything moves.
             raise print_next.NextPlateError(
-                f"that print belongs to {_printer_label(_job_owner_pid(target['job_json']))}, "
-                f"not this channel's printer ({_printer_label(pid)})")
+                f"that print belongs to {_printer_label(target_owner)}, "
+                f"not this channel's printer ({_printer_label(channel_pid)})")
         live_key = gateway._session_key_for_source(source)
         if not pid:
             candidates = _undecided_printer_ids(source, gateway)
@@ -4090,7 +4138,7 @@ async def print_again_dispatch(event, gateway, **kwargs):
                 live_key = _live_key_for(source, gateway, _owner)
         answer = await _confirm(adapter, source, metadata, 'print-again', question,
                                 [pc.AGAIN_LABEL, pc.AGAIN_CANCEL_LABEL], (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800),
-                                live_key=live_key)
+                                live_key=live_key, approval=True)
         if answer != pc.AGAIN_LABEL:
             message = 'Cancelled or expired. Nothing uploaded or started.'
         else:

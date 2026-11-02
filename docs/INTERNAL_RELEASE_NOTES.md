@@ -2,7 +2,7 @@
 
 # Unreleased
 
-Nothing yet.
+- Print approval and job ownership (SEC-2): with only an approval user set, channel members can still chat and answer intake questions, but print-approval and start buttons (slice-and-print, print-next, print-again, spool-change starts) now resolve only for the approval user. Job ownership is also enforced in the default printer's own channel: /print-next and /print-again there refuse a job that belongs to another printer instead of offering and starting it.
 
 # Version 2.2.4
 
