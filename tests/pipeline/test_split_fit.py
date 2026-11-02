@@ -347,6 +347,103 @@ def test_split_plan_on_an_exclusion_bed_still_blocks_without_a_placement(tmp_pat
     assert split_fit.split_plan_100(source, 220, exclusions=[(0, 0, 18, 28)]) is None
 
 
+# The Qidi X-Plus 4 exclusion chain, as recorded in qidi/facts.py: one polygon
+# list tracing two disjoint zones (a top-left strip and a bottom-right strip),
+# joined by zero-area runs along the bed edges.
+_XPLUS4_EXCLUSION = ((0, 305), (0, 302), (35, 302), (35, 305), (305, 305), (305, 305),
+                     (305, 305), (305, 20), (293, 20), (293, 0), (305, 0), (305, 20),
+                     (305, 305))
+
+
+def test_exclusion_rectangles_split_disjoint_zones_instead_of_the_bounding_box():
+    # P2-193: collapsing the X-Plus 4 chain to its bounding rectangle excludes
+    # the whole 305 mm bed; the decomposition must keep only the two zones.
+    zones = split_fit._exclusion_rectangles(_XPLUS4_EXCLUSION)
+    assert sorted(zones) == [(0.0, 302.0, 35.0, 305.0), (293.0, 0.0, 305.0, 20.0)]
+    # A single rectangle polygon stays the one rectangle it declares.
+    assert split_fit._exclusion_rectangles(((0, 0), (18, 0), (18, 28), (0, 28))) == [
+        (0.0, 0.0, 18.0, 28.0)]
+    # The Qidi Q1 Pro chain traces two back-edge strips the same way.
+    q1pro = ((25, 245), (25, 240), (115, 240), (115, 245), (208, 245), (208, 240),
+             (245, 240), (245, 245), (208, 245))
+    assert sorted(split_fit._exclusion_rectangles(q1pro)) == [
+        (25.0, 240.0, 115.0, 245.0), (208.0, 240.0, 245.0, 245.0)]
+    # A polygon with a diagonal edge keeps the conservative bounding rectangle.
+    assert split_fit._exclusion_rectangles(((0, 0), (10, 0), (0, 10))) == [(0.0, 0.0, 10.0, 10.0)]
+    assert split_fit._exclusion_rectangles(()) == []
+
+
+def test_declared_exclusions_for_the_xplus4_are_its_two_zones(monkeypatch):
+    from print_handy import settings as settings_module
+    monkeypatch.setattr(settings_module, 'current',
+                        lambda: {'printer': {'model': 'qidi.xplus4'}})
+    zones = split_fit._declared_exclusions()
+    assert sorted(zones) == [(0.0, 302.0, 35.0, 305.0), (293.0, 0.0, 305.0, 20.0)]
+
+
+def test_per_part_fit_fits_a_small_part_on_the_xplus4_bed(tmp_path):
+    # P2-193's example: even a 10 x 10 mm part was rejected on the X-Plus 4
+    # because the collapsed exclusion covered the whole bed.
+    source = tmp_path / 'small.3mf'
+    _mesh_source(source, {'1': _rect_points(10, 10, 10)}, [['1']])
+    zones = split_fit._exclusion_rectangles(_XPLUS4_EXCLUSION)
+    (row,) = split_fit.per_part_fit(source, 305, exclusions=zones)
+    assert row['fits_full_size'] is True
+    px, py = row['placement_mm']
+    for x0, y0, x1, y1 in zones:
+        assert px + 10 <= x0 or px >= x1 or py + 10 <= y0 or py >= y1
+    # Against the old whole-bed bounding rectangle the same part cannot fit.
+    (blocked,) = split_fit.per_part_fit(source, 305, exclusions=[(0, 0, 305, 305)])
+    assert blocked['fits_full_size'] is False
+
+
+def test_split_plan_records_the_yaw_that_proved_an_exclusion_avoiding_placement(tmp_path):
+    # P2-78: a 200 x 190 mm part fits the 204 mm usable bed as authored, but
+    # every authored placement overlaps the (0, 0) to (18, 28) exclusion; only
+    # the 90-degree turn can be placed, at [18, 8]. The plan must record that
+    # turn alongside the placement — recording the placement alone would
+    # slice the unturned 200 mm width at x=18, past the proved usable area.
+    source = tmp_path / 'turn-to-avoid.3mf'
+    _mesh_source(source, {'1': _rect_points(200, 190, 10), '2': _rect_points(50, 50, 10)},
+                 [['1', '2']])
+    rows = {row['object_id']: row for row in
+            split_fit.per_part_fit(source, 220, exclusions=[(0, 0, 18, 28)])}
+    assert rows['1']['fits_authored'] is True
+    assert rows['1']['best_yaw_deg'] == 90.0
+    assert rows['1']['placement_mm'] == [18.0, 8.0]
+    plan = split_fit.split_plan_100(source, 220, exclusions=[(0, 0, 18, 28)])
+    assert plan is not None
+    assert plan['yaw_by_object'] == {'1': 90.0}
+    assert plan['placement_by_object']['1'] == [18.0, 8.0]
+
+
+def test_slicing_a_turned_exclusion_split_applies_the_turn_and_the_placement(tmp_path, monkeypatch):
+    # P2-78 end to end: the derived plate for the turned part is exported
+    # with the recorded 90-degree turn composed with the recorded placement,
+    # so its placed bounds are the proved 190 x 200 footprint at [18, 8],
+    # clear of the exclusion — not the authored 200 mm width at x=18.
+    import json
+
+    from print_handy.core import model_job, orca_adapter
+    from .test_plate_merge import _fake_slice
+    source = tmp_path / 'turn-to-avoid.3mf'
+    _mesh_source(source, {'1': _rect_points(200, 190, 10), '2': _rect_points(50, 50, 10)},
+                 [['1', '2']])
+    plan = split_fit.split_plan_100(source, 220, exclusions=[(0, 0, 18, 28)])
+    assert plan and plan['yaw_by_object'] == {'1': 90.0}
+    job_path = _split_job(tmp_path, source, plan)
+    fake = _fake_slice()
+    monkeypatch.setattr(orca_adapter, 'slice_model', fake)
+    paths = model_job.slice_job(job_path)
+    assert len(paths) == 2 and len(fake.calls) == 2
+    saved = json.loads(job_path.read_text())
+    turned = next(row for row in saved['derived_plates'] if row['part_keys'] == ['1:1'])
+    assert turned['yaw_deg'] == 90.0
+    assert turned['placement_mm'] == [18.0, 8.0]
+    placed = turned['plate_report']['placed_bounds_mm']
+    assert placed[0] == [18.0, 208.0] and placed[1] == [8.0, 208.0]
+
+
 def test_fit_choice_rows_carry_the_split_placement():
     from print_handy.core.prepared_intake import fit_choice_rows
     rows = fit_choice_rows({'scales': [], 'rotations': [],

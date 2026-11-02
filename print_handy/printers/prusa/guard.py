@@ -4,9 +4,11 @@ Pure text checks, in the bambulab/guard.py spirit but for Prusa's Marlin-family 
 slicer owns the start/end sequences (from the verified generated templates), so this guard does
 not match vendor blocks line by line. It refuses what must never reach a Prusa printer — Klipper
 or ZMod macro start code, a file sliced for a different printer model, temperatures above the
-model's published limits, and tool changes the model cannot make — the single-tool models
+model's published limits, tool changes the model cannot make — the single-tool models
 refuse any T1+ line, while the 5-tool XL (a multi_tool model, #670) accepts T0-T4 and refuses
-a tool beyond its toolheads.
+a tool beyond its toolheads — and toolpath motion outside the model's bed, motion envelope
+and height: a standalone or legacy file reaches this guard without passing through slicing,
+so the guard runs the shared modal validator (slice_guard.toolpath_motion_problems) itself.
 """
 from __future__ import annotations
 
@@ -70,6 +72,15 @@ def gcode_problems(text, adapter, state=None):
                 if not any(math.isclose(nozzle_mm, s, abs_tol=1e-3) for s in adapter.supported_nozzle_sizes):
                     problems.append(f"nozzle {nozzle_mm:g} mm has no {name} template here (supported: "
                                     f"{', '.join(f'{s:g}' for s in adapter.supported_nozzle_sizes)})")
+    # Motion bounds (P1-63): the toolpath is held to the model's bed, motion envelope and
+    # height by the shared modal validator, exactly as the Bambu guard holds its files.
+    # Standalone and legacy files reach this guard without passing through slicing, so
+    # the check runs here, before the file can be accepted for upload; a file whose
+    # toolpath cannot be located is refused because its bounds cannot be checked.
+    from ...core import slice_guard
+    problems += slice_guard.toolpath_motion_problems(
+        text, fact("bed_mm"), fact("motion_envelope_mm"), fact("max_print_height_mm"),
+        fact("travel_z_headroom_mm"), exclusions=fact("bed_exclude_area"))
     # The loaded material, installed nozzle and heater targets (job_checks, shared with the other guards).
     problems += job_checks.recorded_job_problems(text, adapter, state)
     return problems

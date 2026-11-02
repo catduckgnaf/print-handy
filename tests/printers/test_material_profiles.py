@@ -421,6 +421,12 @@ def guard_gcode(adapter, material="PLA", nozzle="0.4", hotend=215, bed=60, diame
     lines += [f"; nozzle_temperature = {hotend}", f"; nozzle_temperature_initial_layer = {hotend}",
               f"; hot_plate_temp_initial_layer = {bed}", f"M140 S{bed}", f"M104 S{hotend}", f"M190 S{bed}",
               f"M109 S{hotend}", "G1 X10 Y10 E1", "M104 S0", "M140 S0"]
+    if getattr(adapter, "connection", None) == "prusalink":
+        # Orca's Prusa output carries a locatable toolpath, and the Prusa guard
+        # bounds-checks that toolpath (P1-63): shape the fixture the same way.
+        move = lines.index("G1 X10 Y10 E1")
+        lines[move:move + 1] = ["G90", "M83", "; CHANGE_LAYER", "G1 Z0.2",
+                                "G1 X10 Y10 E1", "; FEATURE: Custom"]
     return "\n".join(lines) + "\n"
 
 

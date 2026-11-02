@@ -275,13 +275,34 @@ def test_adapter_env_api_key(monkeypatch):
 def test_guard_refusals_and_acceptance():
     a = adapter_for("prusa.mk4s")
     good = ("; printer_model = Prusa MK4S\n; nozzle_diameter = 0.4\n"
-            "M140 S60\nM104 S215\nG28\nG1 X10 Y10 E1\nM104 S0\n")
+            "M140 S60\nM104 S215\nG90\nM83\nG28\n; CHANGE_LAYER\nG1 Z0.2\n"
+            "G1 X10 Y10 E1\n; FEATURE: Custom\nM104 S0\n")
     assert a.gcode_problems(good) == []
     assert any("another vendor" in p for p in a.gcode_problems("PRINT_START BED=60\n" + good))
     assert any("sliced for" in p for p in a.gcode_problems(good.replace("Prusa MK4S", "Prusa XL 5T")))
     assert any("single-tool" in p for p in a.gcode_problems(good + "T1\n"))
     assert any("exceeds" in p for p in a.gcode_problems(good + "M104 S300\n"))
     assert any("nozzle" in p for p in a.gcode_problems(good.replace("= 0.4", "= 0.6")))
+
+
+def test_guard_checks_motion_bounds_for_standalone_gcode():
+    # P1-63: standalone or legacy G-code reaches this guard without passing
+    # through slicing, so the guard itself must hold the toolpath to the
+    # model's bed, motion envelope and height before accepting it.
+    a = adapter_for("prusa.mk4s")
+    good = ("; printer_model = Prusa MK4S\n; nozzle_diameter = 0.4\n"
+            "M140 S60\nM104 S215\nG90\nM83\nG28\n; CHANGE_LAYER\nG1 Z0.2\n"
+            "G1 X10 Y10 E1\n; FEATURE: Custom\nM104 S0\n")
+    assert a.gcode_problems(good) == []
+    # The Codex case: a raw far-off-bed move in an otherwise bare file.
+    raw = ("; printer_model = Prusa MK4S\n; nozzle_diameter = 0.4\n"
+           "G1 X500 Y500 E1\n")
+    assert a.gcode_problems(raw) != []
+    # Off-bed and over-height toolpath moves in a well-formed file are refused.
+    off_bed = good.replace("G1 X10 Y10 E1", "G1 X500 Y500 E1")
+    assert any("envelope" in p or "bed" in p for p in a.gcode_problems(off_bed))
+    too_tall = good.replace("G1 Z0.2", "G1 Z300")
+    assert any("Z300" in p for p in a.gcode_problems(too_tall))
 
 
 # --------------------------------------------------------------------------- #670: the XL as multi_tool
@@ -310,8 +331,9 @@ def test_xl_guard_accepts_five_tools_and_refuses_a_sixth():
     # A multi-tool XL file as Orca writes it: per-toolhead nozzle list in the
     # footer, per-tool temperatures, bare T picks with the changer's parameters.
     good = ("; printer_model = Prusa XL 5T\n; nozzle_diameter = 0.4,0.4,0.4,0.4,0.4\n"
-            "M140 S60\nM104 S215 T0\nM104 S220 T3\nG28\nT0 S1 L0 D0\nG1 X10 Y10 E1\n"
-            "T3 S1 L0 D0\nG1 X20 Y20 E1\nM104 S0 T0\nM104 S0 T3\n")
+            "M140 S60\nM104 S215 T0\nM104 S220 T3\nG90\nM83\nG28\nT0 S1 L0 D0\n; CHANGE_LAYER\n"
+            "G1 Z0.2\nG1 X10 Y10 E1\n"
+            "T3 S1 L0 D0\nG1 X20 Y20 E1\n; FEATURE: Custom\nM104 S0 T0\nM104 S0 T3\n")
     assert a.gcode_problems(good) == []
     assert any("has 5 toolheads" in p for p in a.gcode_problems(good + "T5\n"))
     assert any("nozzle" in p for p in a.gcode_problems(good.replace("0.4,0.4,0.4,0.4,0.4", "0.4,0.6,0.4,0.4,0.4")))

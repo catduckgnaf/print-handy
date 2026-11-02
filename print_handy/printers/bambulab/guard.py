@@ -246,7 +246,8 @@ def gcode_problems(text, adapter, *, state=None):
             problems.append(f"plate type must be {fact('default_plate')!r} (the only plate the {name} profile "
                             f"is checked for), got {plate!r}")
         problems += slice_guard.toolpath_motion_problems(text, fact("bed_mm"), fact("motion_envelope_mm"),
-                                                         fact("max_print_height_mm"), fact("travel_z_headroom_mm"))
+                                                         fact("max_print_height_mm"), fact("travel_z_headroom_mm"),
+                                                         exclusions=fact("bed_exclude_area"))
     hotend_max, bed_max = fact("max_hotend_c"), fact("max_bed_c")
     for command, limit in (("M104", hotend_max), ("M109", hotend_max), ("M140", bed_max), ("M190", bed_max)):
         over = [v for v in _numbers(text, command) if v > limit]
