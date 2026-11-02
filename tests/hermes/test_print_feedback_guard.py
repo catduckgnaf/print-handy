@@ -358,3 +358,56 @@ def test_terminal_receipt_matches_module_and_script_invocations(command, expecte
             mock.patch.object(plugin, 'workflow_receipt', return_value='ok') as receipt:
         plugin.clarify_ack(tool_name='terminal', args={'command': command}, result={}, tool_call_id=command)
     assert receipt.called is expected
+
+
+def test_runout_new_spool_multi_color_name_keeps_its_palette():
+    """A multi-color name answered to a spool question must record the
+    full palette (P2-234): the answer path used to pass its single
+    derived swatch as an explicit hex, and spec_color returns an empty
+    palette whenever a hex is given — the blend silently became one color."""
+    from types import SimpleNamespace
+
+    from print_handy.hermes import spool_sync
+
+    created_filaments = []
+    patches = []
+
+    def client(method, path, body):
+        if method == 'GET' and path == '/api/v1/filament':
+            return []
+        if method == 'GET' and path == '/api/v1/vendor':
+            return [{'id': 17, 'name': 'SUNLU'}]
+        if method == 'POST' and path == '/api/v1/filament':
+            created_filaments.append(body)
+            return {'id': 18}
+        if method == 'PATCH' and path == '/api/v1/filament/18':
+            patches.append(body)
+            return {'id': 18}
+        if method == 'POST' and path == '/api/v1/spool':
+            return {'id': 19}
+        raise AssertionError(f'unexpected Spoolman call: {method} {path}')
+
+    context = {'slot': 3, 'prior_spool_id': 8, 'cause': 'swap'}
+    listener = SimpleNamespace(
+        load_runout_pause=lambda: context,
+        clear_runout_pause=mock.Mock(),
+    )
+    runout_sync = SimpleNamespace(
+        load_state=lambda: {'filament_slots': {'3': {'spoolman_id': 8}}},
+        screen_hex=spool_sync.screen_hex,
+        create_spool=lambda spec: spool_sync.create_spool(spec, client=client),
+        bind_slot=lambda *_args, **_kwargs: {'slot': 3},
+        bind_text=lambda _result: 'Bound.',
+        resume_usage=mock.Mock(),
+    )
+
+    result = plugin._answer_spool_question(
+        listener, runout_sync, context,
+        {'status': 'new', 'brand': 'SUNLU', 'material': 'Silk PLA',
+         'color': 'Rose Red Blue Green', 'grams': 1000},
+    )
+
+    assert 'Created spool #19.' in result
+    assert created_filaments and created_filaments[0]['color_hex'] == 'C2185B'
+    assert {'multi_color_hexes': 'C2185B,1E88E5,388E3C',
+            'multi_color_direction': 'longitudinal'} in patches

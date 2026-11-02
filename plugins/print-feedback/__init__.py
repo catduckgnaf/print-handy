@@ -2317,13 +2317,25 @@ def _answer_spool_question(listener, spool_sync, context, choice):
         # The color code: a picked swatch, else the color name read against
         # the named-color table, else (only then) the slot's previous swatch.
         from print_handy.core import filament_color
-        existing_hex = (spool_sync.screen_hex(choice.get('hex'))
-                        or filament_color.derive_hex(choice.get('color'), choice.get('material'))
+        picked_hex = spool_sync.screen_hex(choice.get('hex'))
+        derived_hex = None if picked_hex else filament_color.derive_hex(
+            choice.get('color'), choice.get('material'))
+        existing_hex = (picked_hex or derived_hex
                         or spool_sync.screen_hex(previous_slot.get('hex')))
-        made = spool_sync.create_spool({'brand': choice.get('brand'), 'material': choice['material'],
-                                        'color': choice['color'], 'grams': choice['grams'], 'hex': existing_hex,
-                                        'nozzle_temp': choice.get('nozzle_temp'),
-                                        'bed_temp': choice.get('bed_temp')})
+        spec = {'brand': choice.get('brand'), 'material': choice['material'],
+                'color': choice['color'], 'grams': choice['grams'],
+                'nozzle_temp': choice.get('nozzle_temp'),
+                'bed_temp': choice.get('bed_temp')}
+        # A name-derived swatch is NOT passed as an explicit hex (P2-234):
+        # spec_color returns an empty palette whenever a hex is given, so a
+        # multi-color name ("rose red blue green") would lose its
+        # multi_color_hexes. With no hex key, create_spool derives the same
+        # representative swatch AND the palette from the name itself. A
+        # picked swatch or the previous slot's inherited swatch stays
+        # explicit — neither has a palette to preserve.
+        if derived_hex is None and existing_hex:
+            spec['hex'] = existing_hex
+        made = spool_sync.create_spool(spec)
         spool_id = int(made['spool_id'])
         created = f'Created spool #{spool_id}. '
     else:
