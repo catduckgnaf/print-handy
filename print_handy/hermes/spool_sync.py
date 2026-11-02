@@ -882,15 +882,20 @@ def _reconcile_locked(pid: str, result: dict[str, Any], *, client: Client, mr: C
     old_slots = {str(key): dict(rec) for key, rec in (state.get("filament_slots") or {}).items()
                  if isinstance(rec, dict)}
     claims: dict[int, list[dict[str, Any]]] = {}
-    any_ph_slot = False
     for row in spools:
-        if spool_ph_slot_text(row) is not None:
-            any_ph_slot = True
         parsed = spool_ph_slot(row)
         if parsed is not None and parsed[0] == pid:
             claims.setdefault(parsed[1], []).append(row)
-    if not any_ph_slot:
-        assignments = _reconcile_migrate(pid, result, client=client, by_id=by_id, old_slots=old_slots)
+    # Migration is a per-printer one-time step, tracked in this printer's own
+    # record — never inferred from whether any spool currently carries a
+    # ph_slot value: another printer sharing this Spoolman may already have
+    # values while this one has not migrated yet, and clearing this printer's
+    # last assignment after migration must not resurrect it from the stale
+    # cache on the next run.
+    migrated_done = bool(state.get("ph_slot_migrated"))
+    if not migrated_done and not claims:
+        assignments = _reconcile_migrate(pid, result, client=client, by_id=by_id, old_slots=old_slots,
+                                         state=state, state_path=state_path)
     else:
         assignments = _reconcile_rebuild(pid, result, client=client, state=state, old_slots=old_slots,
                                          claims=claims, by_id=by_id, state_path=state_path)
@@ -925,8 +930,15 @@ def _reconcile_locked(pid: str, result: dict[str, Any], *, client: Client, mr: C
 
 def _reconcile_migrate(pid: str, result: dict[str, Any], *, client: Client,
                        by_id: dict[int, dict[str, Any]],
-                       old_slots: dict[str, dict[str, Any]]) -> dict[int, int]:
-    """First run: write the local cache's assignments into Spoolman ``ph_slot`` (#798)."""
+                       old_slots: dict[str, dict[str, Any]],
+                       state: dict[str, Any], state_path: Path | None) -> dict[int, int]:
+    """First run for this printer: write the local cache's assignments into Spoolman ``ph_slot`` (#798).
+
+    Completion is persisted in this printer's own record (``ph_slot_migrated``)
+    even when there was nothing to migrate, so a later run takes the rebuild
+    branch for this printer regardless of what other printers sharing this
+    Spoolman have done, and a cleared assignment is never resurrected.
+    """
     assignments: dict[int, int] = {}
     records: dict[str, dict[str, Any]] = {}
     for key in sorted(old_slots, key=lambda k: int(k) if k.isdigit() else 0):
@@ -955,6 +967,9 @@ def _reconcile_migrate(pid: str, result: dict[str, Any], *, client: Client,
     if assignments:
         result["migrated"] = True
         result["changed"] = True
+    if not state.get("ph_slot_migrated"):
+        state["ph_slot_migrated"] = True
+        save_state(state, state_path, printer_id=pid)
     result["_records"] = records
     return assignments
 
@@ -1021,18 +1036,40 @@ def _reconcile_rebuild(pid: str, result: dict[str, Any], *, client: Client, stat
             result["conflicts"].append(
                 f"Slot {key}: the local record named spool #{sid}, which Spoolman no longer "
                 "has (it may have been deleted) — the slot was rebuilt from Spoolman")
-    if new_slots != old_slots:
+    marker_dirty = not state.get("ph_slot_migrated")
+    if marker_dirty:
+        # A printer whose claims already exist (binds wrote them before the
+        # first reconcile) still records migration as done, so clearing its
+        # last assignment later cannot re-enter the migration branch.
+        state["ph_slot_migrated"] = True
+    if new_slots != old_slots or marker_dirty:
         state["filament_slots"] = new_slots
         active = state.get("spool") or {}
         active_id = active.get("spoolman_id")
-        if active_id is not None and int(active_id) in assignments.values():
-            spool = by_id.get(int(active_id)) or {}
+        replaced_by = None
+        if active_id is not None and int(active_id) not in assignments.values():
+            # The slot that held the active spool now holds a different one
+            # in Spoolman: carry the replacement into the active record, as
+            # bind_slot does, or usage repair keeps charging the displaced
+            # spool because the stale active record still counts it loaded.
+            for key, rec in old_slots.items():
+                if rec.get("spoolman_id") == active_id and str(key).isdigit() \
+                        and int(key) in assignments and assignments[int(key)] != int(active_id):
+                    replaced_by = assignments[int(key)]
+                    break
+        target_id = replaced_by if replaced_by is not None else (
+            int(active_id) if active_id is not None and int(active_id) in assignments.values() else None)
+        if target_id is not None:
+            spool = by_id.get(int(target_id)) or {}
             filament = spool.get("filament") or {}
-            state["spool"] = {**active,
+            state["spool"] = {**active, "spoolman_id": int(target_id),
                               "name": filament.get("name") or active.get("name"),
                               "material": filament.get("material") or active.get("material"),
                               "density": filament.get("density") or active.get("density"),
                               "diameter_mm": filament.get("diameter") or active.get("diameter_mm")}
+            if replaced_by is not None:
+                # temps_c belonged to the displaced spool (#692, as in bind_slot).
+                state["temperature_resolution"] = {"source": "spool changed by slot sync; resolved per slice"}
         save_state(state, state_path, printer_id=pid)
         result["changed"] = True
     result["_records"] = records

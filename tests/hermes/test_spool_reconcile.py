@@ -329,3 +329,61 @@ def test_reconcile_derives_the_default_printer_from_config():
     result = spool_sync.reconcile(client=fake, mr=_mr())
     assert result["printer_id"] == spool_sync._default_printer_id()
     assert result["printer_id"] is not None
+
+
+# ---------------------------------------------------------------- Codex P1 fixes on PR #802
+
+def test_reconcile_second_printer_still_migrates_after_the_first_created_values(tmp_path):
+    # Two printers share one Spoolman: printer A already has ph_slot values,
+    # printer B has not migrated yet. B's first reconcile must migrate its
+    # own cache, not rebuild it away to empty.
+    fake = FakeSpoolman(spools=[
+        _spool(11, ph_slot="printera:1"),
+        _spool(21, name="White", hex_code="FFFFFF"),
+    ])
+    state_b = _state_file(tmp_path, {"2": _record(21, name="White PLA", color="white", hex_code="FFFFFF")})
+    result = spool_sync.reconcile("printerb", client=fake, mr=_mr(), state_path=state_b,
+                                  pending_path=tmp_path / "pending.json")
+    assert result["ok"] is True
+    assert result["assignments"] == {2: 21}
+    assert spool_sync.spool_ph_slot(fake.spools[21]) == ("printerb", 2)
+    saved = json.loads(state_b.read_text())
+    assert saved["filament_slots"]["2"]["spoolman_id"] == 21
+    assert saved["ph_slot_migrated"] is True
+
+
+def test_reconcile_does_not_resurrect_a_cleared_assignment(tmp_path):
+    fake = FakeSpoolman(spools=[_spool(5)])
+    state = _state_file(tmp_path, {"1": _record(5)})
+    first = spool_sync.reconcile(PID, client=fake, mr=_mr(), state_path=state,
+                                 pending_path=tmp_path / "pending.json")
+    assert first["assignments"] == {1: 5}
+    # The operator clears the assignment in Spoolman itself.
+    fake.spools[5]["extra"] = {}
+    second = spool_sync.reconcile(PID, client=fake, mr=_mr(), state_path=state,
+                                  pending_path=tmp_path / "pending.json")
+    assert second["assignments"] == {}
+    saved = json.loads(state.read_text())
+    assert saved["filament_slots"] == {}
+
+
+def test_reconcile_carries_a_slot_replacement_into_the_active_spool(tmp_path):
+    fake = FakeSpoolman(spools=[
+        _spool(11, name="Old", hex_code="111111"),
+        _spool(12, name="Bronze", hex_code="CD7F32", ph_slot="ad5x:1"),
+    ])
+    path = tmp_path / "printer_hardware.json"
+    path.write_text(json.dumps({
+        "spool": {"spoolman_id": 11, "name": "Old"},
+        "filament_slots": {"1": _record(11, name="Old PLA", color="old", hex_code="111111")},
+        "ph_slot_migrated": True,
+    }))
+    active = [11]
+    result = spool_sync.reconcile(PID, client=fake, mr=_mr(active), state_path=path,
+                                  pending_path=tmp_path / "pending.json")
+    assert result["assignments"] == {1: 12}
+    saved = json.loads(path.read_text())
+    assert saved["spool"]["spoolman_id"] == 12
+    assert saved["spool"]["name"] == "Bronze"
+    # Usage repair no longer counts the displaced spool as loaded.
+    assert active[0] == 12
