@@ -2494,6 +2494,7 @@ class Listener:
         self.shutdown_alerted = None  # filename whose firmware-stop alert fired for THIS attempt (P2-57)
         self.print_identity = None  # this print's identity, fixed at its fresh start
         self._auto_light = None  # #516: AutoLightPolicy, built lazily from [vision]
+        self._light_idle_task = None  # in-flight scheduled idle light check (P2-200)
         self.light_target = None  # #516: resolved Moonraker light object, cached
         self.light_target_resolved = False
         self.light_unresolved_logged = False
@@ -3116,6 +3117,15 @@ class Listener:
             action = policy.note_verdict(verdict, time.time())
             log(f"auto light idle check verdict={verdict} detail={detail!r}")
             if action == "turn_off":
+                if self.state not in _AUTO_LIGHT_IDLE_STATES:
+                    # A new print started while the snapshot or the vision
+                    # request was in flight: the verdict describes the
+                    # plate as it was, not as it is. Revalidate before
+                    # issuing OFF — never switch the light off under a
+                    # running print (P2-200).
+                    log(f"auto light: idle verdict went stale (printer is "
+                        f"{self.state}); light stays on")
+                    return
                 _on, off_script = light_control.light_scripts(target)
                 await asyncio.to_thread(_send_light_script, off_script)
                 log(f"auto light: plate seen empty for "
@@ -3123,7 +3133,27 @@ class Listener:
         except Exception as exc:
             log(f"auto light idle check failed: {exc!r}")
             with contextlib.suppress(Exception):
-                self._auto_light_policy().note_check(time.time())
+                # A check that could not observe the plate (the camera is
+                # down, say) is an uncertain observation, like a failed
+                # vision verdict: it resets the empty streak instead of
+                # merely advancing the cadence, so one empty verdict after
+                # the camera recovers cannot satisfy the sustained-empty
+                # requirement on a pre-outage streak (P2-201).
+                self._auto_light_policy().note_verdict("uncertain", time.time())
+
+    def _schedule_light_idle_tick(self):
+        """Run the idle light check as a task, off the receive loop (P2-200).
+
+        Awaited inline, the check's snapshot + vision round trip stalled
+        status processing, so a print starting mid-check could not update
+        self.state before the OFF decision. As a task the loop keeps
+        receiving; light_idle_tick revalidates the state before it sends.
+        Single-flight, like the capture fetch.
+        """
+        task = self._light_idle_task
+        if task is not None and not task.done():
+            return
+        self._light_idle_task = asyncio.create_task(self.light_idle_tick())
 
     async def offer_next_plate_if_clear(self):
         """One empty-bed look for a queued plate. Posts an offer. Starts nothing.
@@ -3275,7 +3305,7 @@ class Listener:
                     except Exception as exc:
                         log(f"spool nag failed: {exc!r}")
                     try:
-                        await self.light_idle_tick()
+                        self._schedule_light_idle_tick()
                     except Exception as exc:
                         log(f"auto light idle tick failed: {exc!r}")
                     try:
