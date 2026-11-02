@@ -5091,9 +5091,14 @@ def alert_button_handlers(bot, adapter):
                 result = await asyncio.to_thread(pab.create_and_bind_insertion, state['slot'], values,
                                                  spool_sync, state.get('disposition') or 'shelf',
                                                  expected_prior_spool_id=state.get('old_spool_id'))
-        except Exception:
+        except Exception as exc:
             logger.exception('new spool walkthrough create failed')
-            await interaction.edit_original_response(content='Nothing was changed. Check what you entered and try again.', view=None)
+            # A SpoolError is written for the operator and states what
+            # actually happened — including a spool that WAS created before
+            # a bind refusal (P2-204); the blanket line would deny it.
+            detail = str(exc) if isinstance(exc, spool_sync.SpoolError) else None
+            await interaction.edit_original_response(
+                content=detail or 'Nothing was changed. Check what you entered and try again.', view=None)
             return
         await interaction.edit_original_response(content=result, view=None)
 

@@ -854,10 +854,32 @@ def create_and_bind_insertion(slot: int, values: dict[str, Any], spool_sync,
     for key in ("nozzle_temp", "bed_temp"):
         if values.get(key) is not None:
             spec[key] = values[key]
+    if expected_prior_spool_id is not None:
+        # Re-check the confirmed mapping BEFORE creating anything (P2-204):
+        # bind_slot's own guard runs after creation, so a slot rebound while
+        # the confirmation was open would otherwise leave an unaccounted
+        # duplicate spool behind when the bind aborted.
+        prior_now = ((spool_sync.load_state().get("filament_slots") or {})
+                     .get(str(slot)) or {}).get("spoolman_id")
+        if int(prior_now or 0) != int(expected_prior_spool_id):
+            actual = f"spool #{prior_now}" if prior_now else "no spool"
+            raise spool_sync.SpoolError(
+                f"slot {slot} no longer holds spool #{expected_prior_spool_id} "
+                f"(it now holds {actual}), so that confirmation is stale. "
+                "Nothing was created or changed — answer the prompt again.")
     made = spool_sync.create_spool(spec)
-    result = spool_sync.bind_slot(slot, int(made["spool_id"]), note="Created and bound from Discord IFS insertion",
-                                  push_screen_update=False, prior_disposition=prior_disposition,
-                                  expected_prior_spool_id=expected_prior_spool_id)
+    try:
+        result = spool_sync.bind_slot(slot, int(made["spool_id"]), note="Created and bound from Discord IFS insertion",
+                                      push_screen_update=False, prior_disposition=prior_disposition,
+                                      expected_prior_spool_id=expected_prior_spool_id)
+    except Exception as exc:
+        # The spool exists now; never report a bare failure (P2-204) — name
+        # it and where it lives, so the operator loads it instead of
+        # retrying into a duplicate.
+        raise spool_sync.SpoolError(
+            f"spool #{made['spool_id']} was created and is on the shelf, but loading it "
+            f"into slot {slot} failed: {exc} The slot was not changed; load spool "
+            f"#{made['spool_id']} from the shelf rather than creating another.") from exc
     record = result["record"]
     prior = result.get("prior_spool_id")
     moved = ""
