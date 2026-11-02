@@ -201,6 +201,34 @@ def test_find_capture_skips_empty_and_missing(tmp_path):
     assert timelapse_encode.find_capture("benchy.gcode", root=tmp_path / "nope") is None
 
 
+def test_find_capture_an_all_dark_reprint_decides_over_the_older_usable(tmp_path):
+    """P2-185: the newest finished capture for the file decides the outcome.
+    A reprint whose capture kept no frames (all dark) must report the
+    camera problem — never attach the previous print's footage."""
+    write_capture(tmp_path, "job-3", job_key="job:3", filename="benchy.gcode", finished_at=50.0)
+    write_capture(tmp_path, "job-9", job_key="job:9", filename="benchy.gcode",
+                  frames=0, dark_frames=4, finished_at=90.0)
+    assert timelapse_encode.find_capture("prints/benchy.gcode", root=tmp_path) is None
+    found = timelapse_encode.dark_capture("prints/benchy.gcode", root=tmp_path)
+    assert found is not None and found["job_key"] == "job:9"
+
+
+def test_find_capture_a_frameless_direct_session_decides_over_an_older_scan_hit(tmp_path):
+    write_capture(tmp_path, "job-3", job_key="job:3", filename="benchy.gcode", finished_at=50.0)
+    slug = timelapse_capture.job_dir(tmp_path, "prints/benchy.gcode").name
+    write_capture(tmp_path, slug, job_key="prints/benchy.gcode", filename="benchy.gcode",
+                  frames=0, dark_frames=1, finished_at=90.0)
+    assert timelapse_encode.find_capture("prints/benchy.gcode", root=tmp_path) is None
+
+
+def test_find_capture_still_uses_the_newest_usable(tmp_path):
+    write_capture(tmp_path, "job-3", job_key="job:3", filename="benchy.gcode",
+                  frames=0, dark_frames=4, finished_at=50.0)
+    newest = write_capture(tmp_path, "job-9", job_key="job:9", filename="benchy.gcode",
+                           finished_at=90.0)
+    assert timelapse_encode.find_capture("prints/benchy.gcode", root=tmp_path) == newest
+
+
 # --------------------------------------------------------------- dark outcome (#476)
 
 def test_dark_capture_finds_the_all_dark_manifest(tmp_path):

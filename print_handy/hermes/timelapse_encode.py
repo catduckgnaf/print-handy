@@ -270,11 +270,14 @@ def find_capture(job_key, *, data=None, root=None) -> Path | None:
     Capture sessions are keyed by the listener's notification identity
     while the completion postprocess knows the announcer's job key (the
     print's file path), so the directory is found by evidence, not by
-    assuming the keys match: first the manifest in the directory the
-    job key slugs to (its recorded job_key must equal the key), then a
-    scan for the newest finished manifest whose recorded filename names
-    the same file. Live ("capturing") sessions and empty captures never
-    match — their job is still printing or produced nothing to encode.
+    assuming the keys match: the manifest in the directory the job key
+    slugs to (its recorded job_key must equal the key) and every finished
+    manifest whose recorded filename names the same file are the
+    candidates. The NEWEST finished candidate decides (P2-185): when it
+    kept no usable frames — an all-dark capture, say — there is no video
+    for this print, and an older print's capture of the same file is
+    never substituted for it. Live ("capturing") sessions never match:
+    their job is still printing.
     """
     data = _config.cfg() if data is None else data
     root = timelapse_capture.capture_root(data) if root is None else Path(root)
@@ -282,35 +285,42 @@ def find_capture(job_key, *, data=None, root=None) -> Path | None:
         return None
     key = str(job_key or "")
 
-    def usable(directory) -> dict | None:
+    def finished(directory) -> dict | None:
         manifest = timelapse_capture.read_manifest(directory)
         if not manifest or manifest.get("state") in (None, "new", "capturing"):
             return None
-        if not int(manifest.get("frames") or 0):
-            return None
-        frames_dir = Path(directory) / "frames"
-        if not frames_dir.is_dir() or not any(frames_dir.glob("frame-*.jpg")):
-            return None
         return manifest
 
-    direct = timelapse_capture.job_dir(root, key)
-    manifest = usable(direct)
-    if manifest and manifest.get("job_key") == key:
-        return direct
+    def usable(directory, manifest) -> bool:
+        if not int(manifest.get("frames") or 0):
+            return False
+        frames_dir = Path(directory) / "frames"
+        return frames_dir.is_dir() and any(frames_dir.glob("frame-*.jpg"))
+
+    candidates = []
     wanted = Path(key).name
-    best, best_stamp = None, None
     for directory in sorted(root.iterdir()):
-        if not directory.is_dir() or directory == direct:
+        if not directory.is_dir():
             continue
-        manifest = usable(directory)
+        manifest = finished(directory)
         if not manifest:
             continue
         if Path(str(manifest.get("filename") or "")).name != wanted:
             continue
-        stamp = manifest.get("finished_at") or 0
-        if best is None or stamp >= (best_stamp or 0):
-            best, best_stamp = directory, stamp
-    return best
+        candidates.append((manifest.get("finished_at") or 0, directory, manifest))
+    direct = timelapse_capture.job_dir(root, key)
+    manifest = finished(direct)
+    if manifest and manifest.get("job_key") == key and direct not in [c[1] for c in candidates]:
+        # The direct directory also joins by its stamp; listed last so a
+        # stamp tie prefers it, as the direct match always won before.
+        candidates.append((manifest.get("finished_at") or 0, direct, manifest))
+    if not candidates:
+        return None
+    _stamp, directory, manifest = candidates[0]
+    for candidate in candidates[1:]:
+        if candidate[0] >= _stamp:
+            _stamp, directory, manifest = candidate
+    return directory if usable(directory, manifest) else None
 
 
 def dark_capture(job_key, *, data=None, root=None) -> dict | None:
