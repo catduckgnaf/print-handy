@@ -4,5 +4,6 @@
   "from": "system",
   "instantiation": "true",
   "layer_height": "0.2",
+  "brim_type": "outer_only",
   "compatible_printers": ["Snapmaker U1 0.4 nozzle"]
 }
