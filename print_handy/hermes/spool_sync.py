@@ -648,6 +648,10 @@ def _loaded_line(label: str, rec: dict[str, Any], live: dict[str, Any], amounts_
     return line
 
 
+def _names_filament(rec: dict[str, Any]) -> bool:
+    return bool(rec.get("name") or rec.get("material") or rec.get("color"))
+
+
 def loaded_text(*, client: Client = spoolman, state_path: Path | None = None,
                 printer_id: str | None = None) -> str:
     """What is loaded on one printer, where, and how much is left (#744).
@@ -682,16 +686,24 @@ def loaded_text(*, client: Client = spoolman, state_path: Path | None = None,
     bound_ids = {rec.get("spoolman_id") for _label, rec in locations}
     if active_id is not None and active_id not in bound_ids:
         locations.append(("Spool", dict(active)))
+    elif active_id is None and not slots and _names_filament(active):
+        # A single-spool printer whose record names its filament but binds no Spoolman spool
+        # (the Bambu A1 fixture): report it as loaded, never as an empty printer.
+        locations.append(("Spool", dict(active)))
     lines = ["**Loaded filament**"]
     if not locations:
         lines.append("Nothing is recorded as loaded on this printer.")
     for label, rec in locations:
         sid = rec.get("spoolman_id")
         if sid is None:
-            if rec.get("name") or rec.get("material") or rec.get("color"):
+            if _names_filament(rec):
+                from .discord_print_summary import filament_label
+                what = (str(rec.get("name") or "").strip()
+                        or filament_label(rec.get("color"), rec.get("material")) or "filament")
                 hint = (f"`/spool change {label.rsplit(' ', 1)[-1]} <spool#>` records which one"
                         if label.startswith("Slot") else "record it with `/spool`")
-                lines.append(f"{label}: filament is recorded here, but no spool is bound to it — {hint}")
+                lines.append(f"{label}: {what} is recorded here, but no spool is bound to it, "
+                             f"so the amount left is unknown — {hint}")
             else:
                 lines.append(f"{label}: empty")
             continue

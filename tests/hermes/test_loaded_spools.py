@@ -60,8 +60,17 @@ def test_loaded_text_shows_loaded_only_with_amounts_and_percent(tmp_path):
 
 def test_loaded_text_names_unbound_recorded_filament(tmp_path):
     text = spool_sync.loaded_text(client=_client(), state_path=_state_file(tmp_path, STATE))
-    assert "Slot 3: filament is recorded here, but no spool is bound to it" in text
+    assert "Slot 3: Galaxy PLA is recorded here, but no spool is bound to it" in text
     assert "`/spool change 3 <spool#>`" in text
+
+
+def test_loaded_text_reports_an_unbound_single_spool(tmp_path):
+    # #746 review: a single-spool record with filament details but no Spoolman id (the A1 fixture's shape)
+    state = {"spool": {"spoolman_id": None, "name": "Dark Green PLA", "material": "PLA"}}
+    text = spool_sync.loaded_text(client=_client(), state_path=_state_file(tmp_path, state))
+    assert "Nothing is recorded as loaded" not in text
+    assert "Spool: Dark Green PLA is recorded here, but no spool is bound to it" in text
+    assert "record it with `/spool`" in text
 
 
 def test_loaded_text_single_spool_printer_and_unknown_percent(tmp_path):
