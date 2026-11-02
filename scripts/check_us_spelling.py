@@ -71,6 +71,35 @@ _COMMENT = re.compile(r"<!--.*?-->")
 _HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
 
+def prose_lines(lines, in_comment=False):
+    """Yield (raw, prose, in_comment) per line with HTML comments removed.
+
+    A comment may span lines (P2-238): the in-comment state carries across
+    the lines handed in, so words inside a multi-line <!-- ... --> block
+    are never treated as prose. The caller keeps the returned state to
+    continue a run: a whole text block, or the consecutive added lines of
+    one diff hunk.
+    """
+    for raw in lines:
+        prose, rest = [], raw
+        while rest:
+            if in_comment:
+                end = rest.find("-->")
+                if end == -1:
+                    rest = ""
+                else:
+                    rest, in_comment = rest[end + 3:], False
+            else:
+                start = rest.find("<!--")
+                if start == -1:
+                    prose.append(rest)
+                    rest = ""
+                else:
+                    prose.append(rest[:start])
+                    rest, in_comment = rest[start + 4:], True
+        yield raw, "".join(prose), in_comment
+
+
 def match_replacement(found):
     """The American replacement, keeping the found word's capitalization."""
     replacement = BRITISH_TO_US[found.casefold()]
@@ -81,8 +110,15 @@ def match_replacement(found):
     return replacement
 
 
-def line_violations(text):
-    """British spellings on one line of prose, honoring the allow marker."""
+def line_violations(text, prose=None):
+    """British spellings on one line of prose, honoring the allow marker.
+
+    ``prose`` is the line with HTML comments already stripped by
+    prose_lines (which tracks multi-line comments); without it, only
+    comments that open and close on this line are stripped. The allow
+    marker is always read from the raw line — the marker itself lives
+    inside a comment.
+    """
     allowed = set()
     allow_all = False
     marker = _ALLOW_MARKER.search(text)
@@ -94,7 +130,8 @@ def line_violations(text):
             allow_all = True
     if allow_all:
         return []
-    prose = _COMMENT.sub("", text)
+    if prose is None:
+        prose = _COMMENT.sub("", text)
     return [
         (match.group(0), match_replacement(match.group(0)))
         for match in _PATTERN.finditer(prose)
@@ -105,8 +142,9 @@ def line_violations(text):
 def text_violations(text, source):
     """(source, line, found, replacement) for every line of a text block."""
     found = []
-    for number, line in enumerate(text.splitlines(), start=1):
-        for word, replacement in line_violations(line):
+    rows = prose_lines(text.splitlines())
+    for number, (line, prose, _state) in enumerate(rows, start=1):
+        for word, replacement in line_violations(line, prose):
             found.append((source, number, word, replacement))
     return found
 
@@ -120,6 +158,7 @@ def diff_violations(diff_text):
     found = []
     path = None
     new_line = 0
+    in_comment = False
     for raw in diff_text.splitlines():
         if raw.startswith("+++"):
             target = raw[3:].strip()
@@ -129,20 +168,27 @@ def diff_violations(diff_text):
                 if target.startswith("b/"):
                     target = target[2:]
                 path = target if target.endswith(".md") else None
+            in_comment = False
             continue
         hunk = _HUNK.match(raw)
         if hunk:
             new_line = int(hunk.group(1))
+            in_comment = False
             continue
         if path is None:
             continue
         if raw.startswith("+"):
-            for word, replacement in line_violations(raw[1:]):
+            # Multi-line comment state carries across consecutive added
+            # lines of the hunk (P2-238); any other line ends the run.
+            _line, prose, in_comment = next(prose_lines([raw[1:]], in_comment))
+            for word, replacement in line_violations(raw[1:], prose):
                 found.append((path, new_line, word, replacement))
             new_line += 1
         elif raw.startswith("-") or raw.startswith("\\"):
+            in_comment = False
             continue
         else:  # context line: present in the new file, but not added
+            in_comment = False
             new_line += 1
     return found
 

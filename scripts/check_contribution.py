@@ -22,6 +22,27 @@ def field(text, name):
     return match.group(1).strip() if match else ""
 
 
+_VERIFICATION_PROMPTS = ("Checks run", "Checks not run and why")
+
+
+def verification_answered(text):
+    """Whether the verification section answers its template prompts (P2-43).
+
+    The untouched template leaves the two bare prompt labels behind; joined,
+    they are long enough to pass meaningful(), so an unfilled section read
+    as evidence. Strip each prompt label and judge only what remains.
+    """
+    answered = []
+    for line in text.splitlines():
+        line = line.strip().lstrip("-").strip()
+        for label in _VERIFICATION_PROMPTS:
+            if line.casefold().startswith(label.casefold()):
+                line = line[len(label):].lstrip(":").strip()
+                break
+        answered.append(line)
+    return meaningful("\n".join(answered))
+
+
 def is_doc(path):
     return path.endswith(".md") or path.startswith("docs/")
 
@@ -29,9 +50,11 @@ def is_doc(path):
 def check_pr(body, files):
     body = re.sub(r"<!--.*?-->", "", body or "", flags=re.S)
     errors = []
-    for title in ["Summary and user impact", "Verification and test results"]:
+    for title in ["Summary and user impact"]:
         if not meaningful(section(body, title)):
             errors.append(f"Fill '## {title}' with actual evidence or explain unrun checks.")
+    if not verification_answered(section(body, "Verification and test results")):
+        errors.append("Fill '## Verification and test results' with actual evidence or explain unrun checks.")
     docs = section(body, "Documentation impact")
     status = field(docs, "Documentation").casefold()
     if status not in {"updated", "not needed"}:

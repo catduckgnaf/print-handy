@@ -104,10 +104,10 @@ def main():
             if case_ns.expect.get("status") == "FAILED":
                 # A pinned refusal: the harness's generic check also asserts a
                 # print started, which a refused case by definition never does.
-                # The pinned behaviour is the FAILED receipt itself.
-                if run.receipt.get("status") != "FAILED":
-                    raise AssertionError(
-                        f"expected an intake refusal, got receipt {run.receipt.get('status')}")
+                # check_refusal pins the FAILED receipt, the expected refusal
+                # reason (error_contains), the adapter checks, and that
+                # slicing/starting never occurred (P2-177).
+                harness.check_refusal(case_ns, run)
             else:
                 harness.check_expectations(case_ns, run)
                 if not run.slice_starts:

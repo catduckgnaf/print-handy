@@ -112,7 +112,7 @@ Pinning by digest instead of a tag is recommended for production; the digest for
 docker compose up -d
 ```
 
-5. **Say hello in your chat channel and run `/print-handy setup`.** Guided setup walks a fresh install through a saved, resumable checklist — printer, channel, users, services — and writes nothing without an explicit `apply`, so you don't have to get every setting right in `.env` first try.
+5. **Configure it in `.env` and the mounted config, then recreate the container.** The Docker install reads `/app/config/docker.yaml` (the `config/` folder you mounted) plus the `PRINT_HANDY__…` variables in `.env` — it does not read the `config/local.yaml` that guided setup writes, so `/print-handy setup` does not apply here. Set your bot token, printer and channel in `.env` (`.env.example` lists them), adjust the mounted config if you need more, and run `docker compose up -d` again to pick the changes up. Guided setup (`/print-handy setup`) is the fresh-install path for the non-Docker routes below.
 
 That's it. The [Docker guide](docs/DOCKER.md) covers health checks, upgrades, rollback and the full platform matrix.
 

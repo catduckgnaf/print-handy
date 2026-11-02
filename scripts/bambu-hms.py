@@ -14,7 +14,8 @@ is taken from maziggy/bambuddy (AGPL-3.0; protocol facts only, see docs/BAMBU-CO
 
 What the generator does:
 - Merges the per-prefix files: the common text for a code is the text most prefixes agree on
-  (ties go to the lowest sorted prefix); a prefix whose text differs keeps it as a per-model
+  (a tie between most-frequent texts goes to the one from the lowest sorted prefix carrying
+  one of them); a prefix whose text differs keeps it as a per-model
   override. The two key spaces are kept strictly separate (16-hex HMS vs 8-hex print_error).
 - Shortens each description to its first sentence: Bambu's `intro` usually leads with the fault
   description and follows with remediation steps; Print Handy's status output shows the fault.
@@ -54,8 +55,12 @@ def merge(files):
         best = counts.most_common(1)[0][0]
         if len(counts) > 1:
             top = counts.most_common()
-            if top[0][1] == top[1][1]:  # tie: the lowest sorted prefix's text wins
-                best = texts[sorted(texts)[0]]
+            if top[0][1] == top[1][1]:
+                # Tie: the text from the lowest sorted prefix *carrying one
+                # of the tied, most frequent texts* wins (P2-102) — the
+                # lowest prefix overall may carry a minority text.
+                tied = {text for text, n in top if n == top[0][1]}
+                best = next(texts[p] for p in sorted(texts) if texts[p] in tied)
         common[code] = best
         for prefix, text in texts.items():
             if text != best:

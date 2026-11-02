@@ -40,6 +40,16 @@ if [ ! -e "$DATA_HOME/.env" ]; then
     [ "$DRY" = 1 ] || (umask 077; printf '# Print Handy standalone secrets\nDISCORD_BOT_TOKEN=\n' > "$DATA_HOME/.env")
 fi
 
+# Provision the default printer's hardware record when the install has none (P1-7):
+# every pipeline command reads state/printer_hardware.json, and a fresh install cannot
+# create it by hand — `printer_state set` loads before it saves. Never overwrites an
+# existing record; record the real hardware afterwards with printer_state set.
+if [ "$DRY" = 1 ]; then
+    act "provision $DATA_HOME/state/printer_hardware.json if missing"
+elif ! PYTHONPATH="$REPO${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON" -m print_handy.core.printer_state provision; then
+    say "warning: could not provision the printer hardware record"
+fi
+
 for name in print-handy-bot print-handy-listener; do
     target="$SYSTEMD_USER_DIR/$name.service"
     rendered=$(sed -e "s|{{REPO}}|$REPO|g" -e "s|{{PYTHON}}|$PYTHON|g" -e "s|{{DATA_HOME}}|$DATA_HOME|g" \

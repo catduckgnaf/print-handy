@@ -35,7 +35,7 @@ Everything below follows from those two rules.
 | Data / state | Its own `PRINT_HANDY_DATA` directory (the `hermes`, `archive`, `records` and `cache` volumes live under it) | Its own `[paths]` state, archive and cache directories |
 | Printer identity | Its own `[printer] model` **and** `[printer] name` (for example `Garage A1`) — the name is what messages use, so approvals say which printer they mean | Same |
 | Printer connection | Its own LAN host settings (`[bambu] lan_host`, `[prusa] link_host`, `services.moonraker_url`, …) and camera URL | Same |
-| Chat | Its own Discord channel **and** approval user (below) — or its own Telegram chat / Matrix room | Same |
+| Chat | Its own Discord channel **and** approval user (below) — or its own Telegram **bot token** and chat / Matrix room | Same |
 | Spoolman data | Shared — see the next section. Only one instance (or none) runs a bundled Spoolman against the shared inventory | Same |
 
 The default Compose stack publishes no host ports, so two stacks do not collide. If you
@@ -44,30 +44,46 @@ exactly one instance.
 
 ### Chat separation
 
-**One Discord bot token may serve every instance.** That is safe because of how the bot
-scopes itself, not because of the token: the bot core drops every message and every button
-press whose channel is not its configured `discord.chat_id`, and within that channel it
-acts for everyone in the channel by default, or only for users in its own
-`discord.allowed_user_ids` when a whitelist is set. Two instances logged in as the
-same bot therefore cannot see, answer or approve anything in each other's channels — each
-one only ever reads its own. (Both instances register the same slash commands at start-up,
-which is harmless: the command set is identical.) The hard minimum per instance is a
-separate channel **and** a separate approval user, because prompts, approvals and "send
-the files here" delivery are all scoped to the configured channel and approval user.
+**A separate bot (token) per printer is the supported form.** Each printer gets its
+own bot name in the member list, a token can be revoked or rotated for one printer
+without touching the others, and no instance ever sees another instance's traffic.
+The per-platform notes below describe what sharing a token actually does today;
+none of it is as clean as separate tokens.
 
-The scoping is per channel, so the inverse is the hazard: **never let two instances serve
+**Discord: one token can serve every instance, with a caveat.** Messages are scoped
+per channel: the bot core reads only its configured `discord.chat_id` (and its routed
+channels), and within that channel it acts for everyone in the channel by default, or
+only for users in its own `discord.allowed_user_ids` when a whitelist is set. Two
+instances logged in as the same bot therefore never read or approve each other's
+*messages* — each one only ever reads its own channel. (Both instances register the
+same slash commands at start-up, which is harmless: the command set is identical.)
+Button presses are **not** scoped that way yet: a press is answered by user, not
+dropped by channel, so the non-owning instance replies "Not allowed" to the other
+instance's approval user instead of silently ignoring the press, and a slash command
+in the wrong channel draws the same kind of refusal reply. Nothing is approved across
+instances — a prompt can only be resolved in the channel it was asked in, by its own
+instance's approval user — but until interaction handling is channel-scoped, sharing
+a token means competing refusal replies. The hard minimum per instance on Discord is
+a separate channel **and** a separate approval user, because prompts, approvals and
+"send the files here" delivery are all scoped to the configured channel and approval
+user.
+
+The message scoping is per channel, so the inverse is the hazard: **never let two instances serve
 the same channel on one token.** Both receive every message in that channel and both act —
 a leftover instance (an old Hermes profile on another host, a forgotten container) doing
 this looks exactly like random bot misbehaviour, including slicing failures from an
 outdated code path. The standalone bot logs a warning when Discord hands it a second
 READY on a live session, one sign that another process logged in with the same token.
 
-A **separate bot (token) per printer** is still the cleaner form where you can: each
-printer gets its own bot name in the member list, and a token can be revoked or rotated
-for one printer without touching the others. But it is the channel scoping above, not the
-token, that keeps instances apart — never let two instances share a channel, whichever
-token arrangement you choose. The same applies per platform: a separate Telegram chat or
-Matrix room per instance, never one chat watched by two instances.
+**Telegram: a separate bot token per instance is required — a separate chat is not
+enough.** Telegram delivers updates per bot token, not per chat: every instance
+polling a shared token calls `getUpdates` for all of the bot's chats and advances
+the token's update offset as updates arrive, before any chat scoping runs. One
+instance therefore consumes updates meant for the other, and concurrent polling of
+one token can fail outright. Create one bot per printer (BotFather) and give each
+instance its own token **and** its own chat.
+
+**Matrix:** a separate room per instance, never one room watched by two instances.
 
 ## Sharing Spoolman (the one shared piece)
 

@@ -750,9 +750,15 @@ def seed_hardware_record(printer_id, view=None):
     if state_path(printer_id).exists():
         return False
     view = view if view is not None else settings.view_for(printer_id)
+    save(_seed_record(view, printer_id), printer_id)
+    return True
+
+
+def _seed_record(view, printer_id):
+    """The minimal truthful first record for one printer, from its settings view alone."""
     printer = view["printer"]
     pla = (view.get("material_temps") or {}).get("PLA") or DEFAULT_MATERIAL_TEMPS["PLA"]
-    record = {
+    return {
         "printer": printer.get("name") or printer_id,
         "moonraker_url": (view.get("services") or {}).get("moonraker_url") or "",
         "bed_mm": [float(v) for v in printer["bed_mm"]],
@@ -763,7 +769,25 @@ def seed_hardware_record(printer_id, view=None):
         "spool": {},
         "filament_slots": {},
     }
-    save(record, printer_id)
+
+
+def provision_default_record(view=None):
+    """Create the default printer's first hardware record on a fresh install (P1-7).
+
+    A clean install has no record at all, and every pipeline command —
+    including ``printer_state set``, which loads before it saves — failed on
+    the missing file, so the mandatory state could only appear by
+    hand-writing JSON. The seed is the same minimal record guided onboarding
+    writes for a newly added printer (#537), placed at the legacy singleton
+    path the default printer's per-printer reads adopt. An existing record,
+    legacy or per-printer, is never overwritten. Returns True when a record
+    was created.
+    """
+    default_id = settings.default_printer_id()
+    if state_path().exists() or state_path(default_id).exists():
+        return False
+    view = view if view is not None else settings.view_for(default_id)
+    save(_seed_record(view, default_id))
     return True
 
 
@@ -1168,12 +1192,17 @@ def check(st=None, printer_id=None, adapter=None):
 
 def summary(st, calibration_owner="unknown", calibration_valid=None):
     resolution = st.get("temperature_resolution") or {}
-    material = (st.get("spool") or {}).get("material", "unknown")
+    spool = st.get("spool") or {}
+    material = spool.get("material", "unknown")
     source = resolution.get("source", "explicit/legacy state")
     temp_summary = f"{material} nozzle {st['temps_c']['nozzle']}°C, bed {st['temps_c']['bed']}°C ({source})"
+    # A freshly provisioned record names no spool yet (P1-7): the summary
+    # says so instead of crashing on the absent spool fields.
+    spool_summary = (f"Spoolman #{spool['spoolman_id']} {spool['name']} ({material})"
+                     if spool.get("spoolman_id") is not None else "no spool recorded")
     if not printers.current().has_native_screen:
         return (f"{st['nozzle']['diameter_mm']} mm {st['nozzle']['type']} nozzle, "
-                f"Spoolman #{st['spool']['spoolman_id']} {st['spool']['name']} ({material}), "
+                f"{spool_summary}, "
                 f"{temp_summary}")
     if calibration_owner == "native":
         offset = (st.get("calibration_baseline") or {}).get("native_zProbeOffset", "unknown")
@@ -1191,7 +1220,7 @@ def summary(st, calibration_owner="unknown", calibration_valid=None):
     return (f"{st['nozzle']['diameter_mm']} mm {st['nozzle']['type']} nozzle, "
             f"probe z_offset {((st.get('calibration_baseline') or {}).get('probe_z_offset', st.get('z_offset_mm')))}, "
             f"{calibration}, "
-            f"Spoolman #{st['spool']['spoolman_id']} {st['spool']['name']} ({st['spool']['material']}), "
+            f"{spool_summary}, "
             f"{st['temps_c']['nozzle']}/{st['temps_c']['bed']} C")
 
 
@@ -1219,6 +1248,8 @@ def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("check"); sub.add_parser("show")
+    sub.add_parser("provision", help="create the default printer's first hardware record "
+                                     "on a fresh install; never overwrites an existing one")
     s = sub.add_parser("set")
     s.add_argument("--spool", type=int); s.add_argument("--nozzle", type=_nozzle_arg, help="diameter in mm: 0.4, 0,4 or 0.40mm")
     s.add_argument("--nozzle-type"); s.add_argument("--nozzle-temp", type=int); s.add_argument("--bed-temp", type=int)
@@ -1227,7 +1258,23 @@ def main():
     s.add_argument("--pressure-advance", type=float, help="record the pressure advance tuned for the installed nozzle; does not write Klipper")
     s.add_argument("--no-sync-klipper", action="store_true", help="skip syncing nozzle to Klipper printer.cfg")
     a = ap.parse_args()
-    st = load()
+    if a.cmd == "provision":
+        created = provision_default_record()
+        print(f"{'Created' if created else 'Already present:'} {state_path()}")
+        return
+    try:
+        st = load()
+    except FileNotFoundError:
+        if a.cmd != "set":
+            print(f"No hardware record yet at {state_path()}: this install has not been provisioned. "
+                  "Run `python3 -m print_handy.core.printer_state provision` to create the default "
+                  "printer's record from the configured settings, then record the real hardware "
+                  "with `printer_state set`.", file=sys.stderr)
+            sys.exit(2)
+        # A fresh install: `set` is how the record is filled in, so it
+        # provisions the seed first instead of failing on the load (P1-7).
+        provision_default_record()
+        st = load()
     if a.cmd == "show":
         print(json.dumps(st, indent=2)); return
     if a.cmd == "check":

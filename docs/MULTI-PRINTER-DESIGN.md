@@ -101,12 +101,13 @@ identity inside it is singular end to end:
   One honourable exception, and the precedent this design follows: the
   uploaded-G-code print path resolves its adapter *from the job record's
   own model* (`model_job.py:904`), not from settings.
-- **The launch lease is one row in one database.** `jobs.db` holds a
-  `lease` table whose primary key is always the literal string
-  `"printer"` (`print_handy/core/launch_state.py:30-33, 86-95`) — the
-  schema anticipated a key; the value never varied. The lease record does
-  carry `model_key`, so a model swap under a held lease is detected and
-  refused (`launch_state.py:63-77`). `LaunchState` is constructed at five
+- **The launch lease is one row in one database.** The launch state
+  lives in a single SQLite database at the state root,
+  `print_buddy_launches.sqlite3` (the #157 layout; renamed
+  `print_handy_launches.sqlite3` with the project). Its `leases` table
+  is keyed by `_printer_key`: the printer's Moonraker URL, or its model
+  key when no URL applies — there is no literal `"printer"` key and no
+  `model_key` column. `LaunchState` is constructed at five
   sites that would all need the printer identity: the print path
   (`model_job.py:961`), the listener process
   (`print_handy/hermes/listener_process.py:505`), two watcher paths
@@ -135,7 +136,8 @@ identity inside it is singular end to end:
   spool id (`state_files.py:98-117`); the Orca profile cache is keyed by
   content hash (`print_handy/core/orca_profiles.py:15-38`) and the slicer
   runs with the job folder as its working directory — all safe to share.
-  The singleton files are: `printer_hardware.json`, `jobs.db`,
+  The singleton files are: `printer_hardware.json`, the launch database
+  `print_buddy_launches.sqlite3`,
   `selected_spools.json` (`model_job.py:968-973`), `maintenance.json`,
   the listener state/heartbeat files (§1.3), and the platform pairing
   database.
@@ -396,10 +398,13 @@ about one machine:
 - `printer_hardware.json` — that printer's hardware record. Its loader
   caches and the last-good snapshot become keyed by printer (today they
   are process-wide globals, §1.2).
-- `jobs.db` — that printer's launch lease and approval claims. The lease
-  row's key becomes the real printer id instead of the constant
-  `"printer"`; every existing query is otherwise unchanged, including
-  busy detection and the model-swap refusal.
+- `jobs.db` — that printer's launch lease and approval claims. For the
+  default printer it is seeded by copying the legacy launch database
+  (`print_handy_launches.sqlite3`) whole — approval rows and any held
+  lease row intact, under their existing keys — rather than by rekeying
+  rows to the printer id; leases taken after the move are keyed by the
+  job's printer id. Every existing query is otherwise unchanged,
+  including busy detection.
 - `selected_spools.json`, `maintenance.json` — per printer, as their
   contents are per machine.
 - Listener state and heartbeats (`listener_health.json`,
@@ -414,7 +419,11 @@ Compatibility for existing installs: on first start, a printer entry
 whose per-printer files do not exist yet adopts the legacy root-level
 files (read from the legacy location; new writes go to the per-printer
 location; the legacy files are left in place for one release so a
-rollback still finds them). For the migrated single entry this is a
+rollback still finds them). The launch database is the exception in
+mechanism, not in spirit: only the default printer adopts it, by
+copying `print_handy_launches.sqlite3` whole into its `jobs.db` —
+copying it to a second printer would duplicate its held lease and
+consumed approvals. For the migrated single entry this is a
 pure relocation; nothing about the *contents* changes.
 
 **Concurrency.** The lease is per printer, so prints on different

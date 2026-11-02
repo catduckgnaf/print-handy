@@ -141,6 +141,22 @@ class WorkflowTests(unittest.TestCase):
         runs = [step.get("run", "") for step in job["steps"]]
         self.assertTrue(any("check_us_spelling.py" in run for run in runs))
 
+    def test_description_edits_rerun_only_the_spelling_job(self):
+        # P2-237: the spelling job scans the PR description, but the
+        # workflow never fired on description edits, so a wording fix in
+        # the body left the stale failure standing until the next push.
+        workflow = yaml.load(WORKFLOW_PATH.read_text(), Loader=yaml.BaseLoader)
+        types = workflow["on"]["pull_request"]["types"]
+        self.assertIn("edited", types)
+        self.assertIn("opened", types)
+        self.assertIn("synchronize", types)
+        for name, job in workflow["jobs"].items():
+            with self.subTest(job=name):
+                if name == "spelling":
+                    self.assertNotIn("if", job)
+                else:
+                    self.assertEqual("github.event.action != 'edited'", job.get("if"))
+
 
 if __name__ == "__main__":
     unittest.main()

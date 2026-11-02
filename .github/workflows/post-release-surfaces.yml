@@ -178,17 +178,23 @@ jobs:
           # it — and when the pre-release checklist (#657) already
           # opened a "Release checklist: $tag" issue for this version,
           # record this check there instead of opening a competing one.
+          # Every lookup searches by title across all states first
+          # (P2-153/P2-263): an open-only, unfiltered list misses a
+          # closed checklist and any checklist older than the newest
+          # 100 issues, and a miss here opens a duplicate.
           # (Release tags in this repo are the bare version, so the
           # pre-release issue title matches the tag string exactly.)
           issue_title="Post-release surfaces check: $tag"
-          existing="$(gh issue list --repo "$repo" --state open --limit 100 \
+          existing="$(gh issue list --repo "$repo" --state all --limit 100 \
+            --search "in:title \"$issue_title\"" \
             --json number,title \
             | jq -r --arg t "$issue_title" \
               '[.[] | select(.title == $t) | .number] | first // empty')"
           pre_title="Release checklist: $tag"
           pre_existing=""
           if [ -z "$existing" ]; then
-            pre_existing="$(gh issue list --repo "$repo" --state open --limit 100 \
+            pre_existing="$(gh issue list --repo "$repo" --state all --limit 100 \
+              --search "in:title \"$pre_title\"" \
               --json number,title \
               | jq -r --arg t "$pre_title" \
                 '[.[] | select(.title == $t) | .number] | first // empty')"
@@ -245,12 +251,14 @@ jobs:
           # found, fall back to the step summary. Either way this step
           # never fails the run.
           issue_title="Post-release surfaces check: $tag"
-          existing="$(gh issue list --repo "$repo" --state open --limit 100 \
+          existing="$(gh issue list --repo "$repo" --state all --limit 100 \
+            --search "in:title \"$issue_title\"" \
             --json number,title \
             | jq -r --arg t "$issue_title" \
               '[.[] | select(.title == $t) | .number] | first // empty')"
           if [ -z "$existing" ]; then
-            existing="$(gh issue list --repo "$repo" --state open --limit 100 \
+            existing="$(gh issue list --repo "$repo" --state all --limit 100 \
+              --search "in:title \"Release checklist: $tag\"" \
               --json number,title \
               | jq -r --arg t "Release checklist: $tag" \
                 '[.[] | select(.title == $t) | .number] | first // empty')"

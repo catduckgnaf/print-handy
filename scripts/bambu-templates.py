@@ -63,6 +63,12 @@ def main():
         if not a.resources:
             print("REFUSED: --resources <OrcaSlicer resources folder> is required", file=sys.stderr)
             return 1
+        if a.check and a.import_filament:
+            # --check promises "writes nothing" (P2-131): refuse the
+            # combination instead of importing first and never checking.
+            print("REFUSED: --check and --import-filament cannot be combined "
+                  "(--check writes nothing; run the import without --check)", file=sys.stderr)
+            return 1
         if a.import_filament:
             entry = profiles.import_filament(adapter, a.resources, a.import_filament, a.material)
             print(f"registered operator filament preset {entry['name']!r} for {entry['material']} "
