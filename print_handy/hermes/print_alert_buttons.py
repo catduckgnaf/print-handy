@@ -779,17 +779,28 @@ def intake_brand_options(types: list[dict[str, Any]] | None, material: Any) -> l
     return options
 
 
+def _color_label(color: str, material: str) -> str:
+    """Color plus material for display, unless the color already names the material."""
+    if not material or material.casefold() in color.casefold():
+        return color
+    return f"{color} {material}"
+
+
 def intake_color_options(types: list[dict[str, Any]] | None, material: Any) -> list[dict[str, str]]:
     """Colors already known for this material first, then common colors, then Other."""
     material = str(material or "").casefold()
     known = []
+    shown_material = {}
     for entry in types or []:
         if str(entry.get("material") or "").casefold() != material:
             continue
         color = str(entry.get("color") or "").strip()
         if color and color not in known:
             known.append(color)
-    options = [{"label": c, "value": c} for c in known[:15]]
+            shown_material[color] = str(entry.get("material") or "").strip()
+    # The material is only a display hint; the value stays the exact color string so
+    # spool_sync matches the existing filament type instead of creating "Black PLA".
+    options = [{"label": _color_label(c, shown_material.get(c, "")), "value": c} for c in known[:15]]
     for color in INTAKE_COMMON_COLORS:
         if len(options) >= 23:
             break

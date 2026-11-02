@@ -449,3 +449,14 @@ def test_typed_color_in_the_modal_clears_the_picked_swatch(tmp_path, monkeypatch
     latest = max(rows, key=lambda r: r.get("at", 0))
     assert latest["color"] == "Teal"
     assert latest["hex"] is None
+
+
+def test_known_color_label_shows_material_but_value_stays_the_color():
+    types = [{"brand": "Sunlu", "material": "PLA", "color": "Black", "hex": None},
+             {"brand": "Sunlu", "material": "PLA", "color": "Silk PLA Gold", "hex": None}]
+    options = pab.intake_color_options(types, "PLA")
+    black = next(o for o in options if o["value"] == "Black")
+    assert "Black PLA" in black["label"]
+    assert black["value"] == "Black"
+    gold = next(o for o in options if o["value"] == "Silk PLA Gold")
+    assert gold["label"] == "Silk PLA Gold"
