@@ -195,8 +195,10 @@ def rig(tmp_path, monkeypatch):
     from print_handy.core import delivery
     monkeypatch.setattr(delivery, "bambu_handoff", lambda job, gcodes, config=None: [package])
     monkeypatch.setattr(ams_mapping, "resolve_for_print", lambda *a, **k: ([0], "job"))
-    for watch in (octo_watch, bambu_watch, elegoo_watch, prusa_watch, stock_watch):
-        monkeypatch.setattr(watch, "start_monitor", lambda adapter, remote: None)
+    # Launched-print monitors run in the detached monitor worker
+    # (P1-85/P1-98); the start path only has to ask for one.
+    from print_handy.hermes import monitor_worker
+    monkeypatch.setattr(monitor_worker, "spawn", lambda *a, **k: None)
     return mock.Mock(gcode=gcode, package=package, root=tmp_path)
 
 

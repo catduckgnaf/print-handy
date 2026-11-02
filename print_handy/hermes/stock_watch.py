@@ -27,12 +27,15 @@ sized under the platform limit. Duplicate polls and status flaps never
 re-open the session and never post twice: the capture attempt and the
 terminal post each happen at most once per monitor.
 
-The monitor runs on a daemon thread inside whichever process launched
-the print (normally the bot) and keeps its capture state in the session
-manifest on disk, but the monitor itself is not restarted: if that
-process restarts mid-print, monitoring stops with it — the same stated
-limitation as the Bambu monitor. Prints started outside Print Handy are
-never watched: nothing here polls a printer nobody launched a print on.
+The monitor runs on a daemon thread inside the detached monitor
+worker (print_handy.hermes.monitor_worker) the print path starts for
+the launch — print-now itself is a short-lived subprocess, so a monitor
+started there died with the submission (P1-85). The monitor keeps its
+capture state in the session manifest on disk, but the monitor itself
+is not restarted: if the worker dies mid-print, monitoring stops with
+it — the same stated limitation as the Bambu monitor. Prints started
+outside Print Handy are never watched: nothing here polls a printer
+nobody launched a print on.
 
 Everything network- or chat-shaped is injectable (status_fn,
 camera_url_fn, stream_fn, begin_fn, encode_fn, post) so the whole
