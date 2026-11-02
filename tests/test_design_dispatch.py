@@ -80,10 +80,11 @@ def design_env(tmp_path):
            "paths": {"cache": tmp_path / "cache", "hermes_home": tmp_path},
            "printer": {"bed_mm": [220, 220]},
            "discord": {"question_timeout_s": 5}}
+    previous = _config.cfg()  # the session test settings from tests/conftest.py; restore, never clear
     _config.set_override(cfg)
     plugin._HERMES_LLM = None
     yield cfg
-    _config.set_override(None)
+    _config.set_override(previous)
     plugin._HERMES_LLM = None
 
 

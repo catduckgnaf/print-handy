@@ -103,11 +103,12 @@ def _gateway(adapter):
 def confirm_env():
     # Short prompt windows: a prompt that can never be answered (the bug)
     # times out in seconds instead of the production minutes.
+    previous = _config.cfg()  # the session test settings from tests/conftest.py; restore, never clear
     _config.set_override({"discord": {"question_timeout_s": 5,
                                       "safety_confirm_timeout_s": 5,
                                       "cold_pull_outcome_s": 5}})
     yield
-    _config.set_override(None)
+    _config.set_override(previous)
 
 
 async def _wait_for_prompt(stub, count):

@@ -33,12 +33,17 @@ SECOND = "second-printer"
 @pytest.fixture
 def two_printer_state(tmp_path):
     """A full test config whose state root is a temp dir, with a two-printer roster."""
-    data = copy.deepcopy(_config.cfg())
+    # tests/conftest.py installs the test settings as the _config override
+    # for the whole session: restore that object, never None (clearing it
+    # makes _config.cfg() fall back to settings.current() for every later
+    # test in the process).
+    previous = _config.cfg()
+    data = copy.deepcopy(previous)
     data["paths"]["hermes_home"] = tmp_path
     data["printers"] = [{"id": FIRST}, {"id": SECOND}]
     _config.set_override(data)
     yield tmp_path / "state"
-    _config.set_override(None)
+    _config.set_override(previous)
     listeners._set_instance_printer_id(None)
 
 
