@@ -428,6 +428,13 @@ ACTIVITY_PAGE = """<!DOCTYPE html>
 
 # --------------------------------------------------------------------- the HTTP surface
 
+#: How often an idle relay direction re-checks its end conditions, and
+#: how long BOTH directions may stay silent before the relay is ended
+#: as idle (P2-142). Module-level so tests can shrink them.
+_PUMP_POLL_S = 1
+_PUMP_IDLE_CUTOFF_S = 60
+
+
 def _pump(client, upstream, should_close=None):
     """Relay bytes between the client and go2rtc until either side closes.
 
@@ -442,8 +449,16 @@ def _pump(client, upstream, should_close=None):
     sockets are shut down, so a relay cannot outlive the condition
     that allowed it — for the feed proxy, the live viewing session
     (P1-89). A `should_close` that raises counts as closed: the pump
-    fails shut. The 60-second idle cutoff the plain relay always had
-    is preserved either way.
+    fails shut.
+
+    The idle cutoff measures inactivity across BOTH directions
+    (P2-142): during normal MSE playback the page sends its offer once
+    and then only receives, so one direction staying silent is the
+    healthy state, not a dead relay — the old per-direction cutoff cut
+    exactly those streams after 60 seconds and go2rtc sends no pings
+    to prevent it. The relay now ends when either side actually
+    closes, when `should_close` fires, or when both directions have
+    been quiet for the whole cutoff.
     """
 
     def ended():
@@ -454,23 +469,20 @@ def _pump(client, upstream, should_close=None):
         except Exception:
             return True
 
+    activity = {"last": time.monotonic()}
+
     def forward(source, target):
-        idle_slices = 0
         try:
             while not ended():
-                readable, _, _ = select.select(
-                    [source], [], [], 1 if should_close is not None else 60)
+                readable, _, _ = select.select([source], [], [], _PUMP_POLL_S)
                 if not readable:
-                    if should_close is None:
-                        break
-                    idle_slices += 1
-                    if idle_slices >= 60:
+                    if time.monotonic() - activity["last"] >= _PUMP_IDLE_CUTOFF_S:
                         break
                     continue
-                idle_slices = 0
                 chunk = source.recv(65536)
                 if not chunk:
                     break
+                activity["last"] = time.monotonic()
                 target.sendall(chunk)
         except OSError:
             pass
