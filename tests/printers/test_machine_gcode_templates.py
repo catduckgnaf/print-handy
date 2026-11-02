@@ -70,3 +70,9 @@ def test_stock_ad5x_template_heats_waits_homes_and_shuts_down():
     # No Klipper statistics or timelapse macros ride along on layer changes.
     assert "SET_PRINT_STATS_INFO" not in template["layer_change_gcode"]
     assert "TIMELAPSE_TAKE_FRAME" not in template["layer_change_gcode"]
+    # Real-Orca evidence (2.5.0-alpha, this lane): with the klipper flavor Orca emits
+    # SET_VELOCITY_LIMIT lines the stock guard forbids; with marlin2 it requires the
+    # per-layer G92 E0 extruder reset for relative E. A full real slice of this
+    # template passes stock_gcode_problems with no problems.
+    assert template["gcode_flavor"] == "marlin2"
+    assert "G92 E0" in template["layer_change_gcode"].splitlines()
