@@ -188,6 +188,31 @@ class ClassifyRunoutTests(ListenerRunoutCase):
         self.assertEqual(await lis.classify_runout(), (True, 1))
 
 
+class SlotlessQuestionTests(ListenerRunoutCase):
+    async def test_a_slotless_runout_never_suspends_usage_or_persists_a_question(self):
+        """P2-170: on a slotless printer the runout evidence names no slot,
+        and a persisted slot question could never be answered with a spool
+        choice (apply_runout_choice refuses a slotless record) — while
+        suspending usage stops charging EVERY spool until it is answered.
+        The listener posts one plain notice instead and leaves usage
+        running."""
+        from print_handy.hermes import spool_sync
+
+        self.hardware.write_text(json.dumps({"spool": {"spoolman_id": 10}}))
+        lis = self.listener({}, head=False, native=False)
+        self.assertEqual(await lis.classify_runout(), (True, None))
+        state = Path(self.tmp.name) / "runout_pause.json"
+        with mock.patch.object(mel, "RUNOUT_PAUSE_STATE", state), \
+                mock.patch.object(spool_sync, "suspend_usage") as suspend, \
+                mock.patch.object(mel, "post") as post:
+            record = await lis.open_question(None, "runout")
+        self.assertIsNone(record)
+        suspend.assert_not_called()
+        self.assertFalse(state.exists())
+        post.assert_called_once()
+        self.assertIn("no IFS slot", post.call_args[0][0])
+
+
 class PauseTransitionTests(ListenerRunoutCase):
     async def run_pause(self, lis):
         with mock.patch.object(mel, "post_alert") as post_alert, \

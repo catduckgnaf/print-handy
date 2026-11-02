@@ -2513,6 +2513,24 @@ class Listener:
 
     async def open_question(self, slot, cause):
         """Stop charging every spool, remember the question, and ask once. Nag loop repeats it."""
+        if slot is None:
+            # The evidence names no IFS slot (a slotless printer, or a
+            # runout no slot read could place). A persisted slot question
+            # could never be answered with a spool choice here —
+            # apply_runout_choice refuses a slotless record outright —
+            # while suspending usage would stop charging EVERY spool
+            # until that unanswerable question is answered (P2-170).
+            # Post one plain notice and leave usage running instead.
+            log(f"spool question skipped: cause={cause} names no slot; usage left running")
+            await asyncio.to_thread(
+                post,
+                f"**Filament check:** the filament for {clean(self.filename or 'this print')} "
+                f"{'ran out' if cause == 'runout' else 'was unloaded and reloaded mid-print'}, "
+                "but this printer has no IFS slot to ask about, so there is no spool "
+                "question to answer and filament usage has **not** been paused. If you "
+                "loaded a different spool, point usage at it with `/spool` so the "
+                "amounts stay right.")
+            return None
         if load_runout_pause() is not None:
             return None
         from . import spool_sync
