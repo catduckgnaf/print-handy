@@ -3652,51 +3652,59 @@ async def live_dispatch(event, gateway, **kwargs):
         shared_path = live_stream.session_file_path(_config.cfg())
     except Exception:
         shared_path = None
-    shared_existed = shared_path is not None and shared_path.exists()
-    if shared_existed:
-        session = live_stream.read_session_file(shared_path)
-        globals()['_LIVE_SESSION'] = session
-    else:
-        session = _live_session()
-    now = time.time()
-    before = (session.state, session.started_by, session.started_at,
-              session.viewers, session.empty_since)
-    live_stream.expire_empty(session, section, now=now)
-    if verb == 'start':
-        problem = live_stream.start_problem(section)
-        if problem is not None:
-            message, reason = problem, 'print live not configured'
-        elif session.is_live:
+    # P2-143: the read-modify-write below is one transaction over a
+    # record the listener and the Activity server also write; it runs
+    # under the shared cross-process session lock so a presence tick
+    # cannot interleave and resurrect a session this command stops
+    # (or overwrite this command's start with a stale snapshot).
+    _session_guard = (live_stream.session_file_lock(shared_path)
+                      if shared_path is not None else contextlib.nullcontext())
+    with _session_guard:
+        shared_existed = shared_path is not None and shared_path.exists()
+        if shared_existed:
+            session = live_stream.read_session_file(shared_path)
+            globals()['_LIVE_SESSION'] = session
+        else:
+            session = _live_session()
+        now = time.time()
+        before = (session.state, session.started_by, session.started_at,
+                  session.viewers, session.empty_since)
+        live_stream.expire_empty(session, section, now=now)
+        if verb == 'start':
+            problem = live_stream.start_problem(section)
+            if problem is not None:
+                message, reason = problem, 'print live not configured'
+            elif session.is_live:
+                message = live_stream.session_text(session, section, now=now)
+                reason = 'print live already live'
+            else:
+                session.start(str(source.user_id), now=now)
+                message = live_stream.pointer_text(session, section)
+                reason = 'print live started'
+        elif verb == 'stop':
+            if not session.is_live:
+                message = 'The live camera view is not running. `/print-live start` starts it.'
+                reason = 'print live not running'
+            else:
+                session.stop(now=now)
+                message = ('Live camera view stopped. The feed is off and nothing was recorded. '
+                           '`/print-live start` starts it again.')
+                reason = 'print live stopped'
+        elif verb == 'status':
             message = live_stream.session_text(session, section, now=now)
-            reason = 'print live already live'
+            reason = 'print live status shown'
         else:
-            session.start(str(source.user_id), now=now)
-            message = live_stream.pointer_text(session, section)
-            reason = 'print live started'
-    elif verb == 'stop':
-        if not session.is_live:
-            message = 'The live camera view is not running. `/print-live start` starts it.'
-            reason = 'print live not running'
-        else:
-            session.stop(now=now)
-            message = ('Live camera view stopped. The feed is off and nothing was recorded. '
-                       '`/print-live start` starts it again.')
-            reason = 'print live stopped'
-    elif verb == 'status':
-        message = live_stream.session_text(session, section, now=now)
-        reason = 'print live status shown'
-    else:
-        message = ('Use `/print-live start`, `/print-live stop` or `/print-live status`. '
-                   'Nothing changed.')
-        reason = 'print live usage shown'
-    if shared_path is not None:
-        after = (session.state, session.started_by, session.started_at,
-                 session.viewers, session.empty_since)
-        if shared_existed or after != before:
-            try:
-                live_stream.write_session_file(session, shared_path)
-            except Exception:
-                pass  # the record is bookkeeping; the reply still stands
+            message = ('Use `/print-live start`, `/print-live stop` or `/print-live status`. '
+                       'Nothing changed.')
+            reason = 'print live usage shown'
+        if shared_path is not None:
+            after = (session.state, session.started_by, session.started_at,
+                     session.viewers, session.empty_since)
+            if shared_existed or after != before:
+                try:
+                    live_stream.write_session_file(session, shared_path)
+                except Exception:
+                    pass  # the record is bookkeeping; the reply still stands
     await adapter.send(chat_id=source.chat_id, metadata=metadata, content=message)
     return {'action': 'skip', 'reason': reason}
 

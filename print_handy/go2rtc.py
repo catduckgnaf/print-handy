@@ -256,11 +256,15 @@ def transcode_plan(data=None, *, probe=None, run=None) -> dict | None:
     if not live_enabled(data) or not transcode_engaged(section):
         return None
     from .hermes import timelapse_encode
+    # The configured executable is carried in the plan (P2-262): it is
+    # the binary the probe below inspects, so it must also be the one
+    # the generated exec command launches.
+    ffmpeg = data.get("paths", {}).get("ffmpeg") or "ffmpeg"
     if probe is None:
-        ffmpeg = data.get("paths", {}).get("ffmpeg") or "ffmpeg"
         probe = timelapse_encode.probe_ffmpeg(ffmpeg, run=run)
     candidate = timelapse_encode.candidates(str(section.get("encoder") or "auto"), probe)[0]
     return {"candidate": candidate,
+            "ffmpeg": ffmpeg,
             "max_height": int(section.get("max_height") or 720),
             "fps": int(section.get("fps") or 15),
             "bitrate_kbps": int(section.get("max_bitrate_kbps") or 2500)}
@@ -286,7 +290,8 @@ def _transcode_source(plan: dict) -> str:
     """
     argv = build_ffmpeg_args(plan["candidate"], input_url=RESTREAM_URL,
                              max_height=plan["max_height"], fps=plan["fps"],
-                             bitrate_kbps=plan["bitrate_kbps"], output=_OUTPUT_SENTINEL)
+                             bitrate_kbps=plan["bitrate_kbps"], output=_OUTPUT_SENTINEL,
+                             executable=plan.get("ffmpeg") or "ffmpeg")
     argv = argv[:-1] + ["-rtsp_transport", "tcp", "-f", "rtsp", _OUTPUT_SENTINEL]
     return "exec:" + " ".join(shlex.quote(arg) for arg in argv).replace(
         _OUTPUT_SENTINEL, "{output}")

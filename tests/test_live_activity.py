@@ -535,3 +535,111 @@ def test_feed_proxy_reports_a_dead_upstream_as_502():
     finally:
         instance.shutdown()
         instance.server_close()
+
+
+# --------------------------------------------------------------------- P2-122: the handshake waits for both
+
+def test_page_sends_the_mse_handshake_only_once_both_sides_are_open():
+    # P2-122: sourceopen can fire while the WebSocket is still
+    # CONNECTING, and ws.send then throws InvalidStateError — with no
+    # retry the feed never starts. The handshake must be gated on both
+    # the socket's open event and the MediaSource's sourceopen.
+    import re
+
+    page = la.ACTIVITY_PAGE
+    sourceopen = re.search(r'addEventListener\("sourceopen".*?\}\);', page, re.S)
+    assert sourceopen, "the page lost its sourceopen handler"
+    assert "ws.send" not in sourceopen.group(0), \
+        "the sourceopen handler still sends on the socket unconditionally"
+    assert "ws.onopen" in page or 'addEventListener("open"' in page, \
+        "the page never listens for the WebSocket open event"
+    assert page.count('ws.send(JSON.stringify({type: "mse"') == 1
+
+
+# --------------------------------------------------------------------- P2-142: one-way relay survival
+
+def test_pump_preserves_the_relay_when_only_the_camera_sends(monkeypatch):
+    # P2-142: during MSE playback the page sends its offer once and
+    # then only receives. A client direction silent for the whole
+    # stream must not tear the relay down while frames keep flowing.
+    import select as select_module
+    import socket
+
+    real_select = select_module.select
+
+    def capped(rlist, wlist, xlist, timeout=None):
+        # Compress the pump's idle waits so the pre-fix 60 s client
+        # silence cutoff fires inside the test's time budget.
+        return real_select(rlist, wlist, xlist,
+                           0.05 if timeout is None else min(timeout, 0.05))
+
+    monkeypatch.setattr(select_module, "select", capped)
+    browser, client = socket.socketpair()
+    go2rtc, upstream = socket.socketpair()
+    pump = threading.Thread(target=la._pump, args=(client, upstream), daemon=True)
+    pump.start()
+    try:
+        for index in range(10):
+            go2rtc.sendall(b"frame-%d;" % index)
+            time.sleep(0.1)
+        assert pump.is_alive(), \
+            "the relay died while the camera was still sending frames"
+        browser.settimeout(2)
+        received = b""
+        while received.count(b"frame-") < 10:
+            chunk = browser.recv(65536)
+            assert chunk, "the relay closed the browser side mid-stream"
+            received += chunk
+    finally:
+        go2rtc.close()
+        pump.join(timeout=5)
+        browser.close()
+    assert not pump.is_alive(), "the relay did not end when the camera side closed"
+
+
+def test_pump_ends_once_both_directions_have_been_idle_past_the_cutoff(monkeypatch):
+    import socket
+
+    monkeypatch.setattr(la, "_PUMP_IDLE_CUTOFF_S", 0.4)
+    monkeypatch.setattr(la, "_PUMP_POLL_S", 0.05)
+    browser, client = socket.socketpair()
+    go2rtc, upstream = socket.socketpair()
+    pump = threading.Thread(target=la._pump, args=(client, upstream), daemon=True)
+    pump.start()
+    pump.join(timeout=5)
+    try:
+        assert not pump.is_alive(), \
+            "the relay lingered after both directions stayed idle"
+    finally:
+        browser.close()
+        go2rtc.close()
+
+
+# --------------------------------------------------------------------- P2-143: presence takes the shared lock
+
+def test_presence_updates_wait_for_the_shared_session_lock(tmp_path):
+    # P2-143: a presence write is a read-modify-write transaction over
+    # a record other processes own too (the bot's /print-live, the
+    # listener's print-end hook). While another writer holds the
+    # cross-process lock, the presence update must wait — not read a
+    # stale record and overwrite the other writer's transition.
+    from print_handy import live_stream
+
+    path = tmp_path / "live_session.json"
+    live_stream.write_session_file(
+        live_stream.LiveStreamSession().start("42", now=1000.0), path)
+    presence = la.SessionPresence(path, {})
+    done = threading.Event()
+
+    def note():
+        presence.note_viewer("42", now=1001.0)
+        done.set()
+
+    with live_stream.session_file_lock(path):
+        worker = threading.Thread(target=note, daemon=True)
+        worker.start()
+        assert not done.wait(0.5), \
+            "the presence update ran while another writer held the session lock"
+    worker.join(timeout=5)
+    assert done.is_set()
+    assert live_stream.read_session_file(path).viewers == 1

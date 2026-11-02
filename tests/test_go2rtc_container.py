@@ -562,6 +562,17 @@ class LiveTranscodeConfigTests(unittest.TestCase):
         self.assertEqual((plan["max_height"], plan["fps"], plan["bitrate_kbps"]),
                          (1080, 30, 6000))
 
+    def test_plan_carries_the_configured_ffmpeg_and_the_config_uses_it(self):
+        # P2-262: paths.ffmpeg is the executable transcode_plan probes;
+        # the generated exec command must launch that same binary, not
+        # a bare "ffmpeg" that may resolve elsewhere — or nowhere.
+        data = live_data(fps=30)
+        plan = go2rtc.transcode_plan(data, probe=self.cpu_probe)
+        self.assertEqual(plan["ffmpeg"], "/nonexistent/ffmpeg")
+        config = go2rtc.render_config(go2rtc.resolve_source(data), transcode=plan)
+        self.assertIn("exec:/nonexistent/ffmpeg", config)
+        self.assertNotIn("exec:ffmpeg ", config)
+
     def test_rendered_config_publishes_the_transcoded_stream(self):
         data = live_data(max_height=1080, fps=30, max_bitrate_kbps=6000, encoder="cpu")
         config = go2rtc.render_config(go2rtc.resolve_source(data),
@@ -572,7 +583,9 @@ class LiveTranscodeConfigTests(unittest.TestCase):
         # restream, with all four values in the argv and go2rtc's
         # {output} placeholder as the publish target.
         self.assertIn("camera-live:", config)
-        self.assertIn("exec:ffmpeg", config)
+        # P2-262: the exec launches paths.ffmpeg ("/nonexistent/ffmpeg"
+        # in this fixture) — the binary the plan probed.
+        self.assertIn("exec:/nonexistent/ffmpeg", config)
         self.assertIn("-i rtsp://127.0.0.1:8554/camera", config)
         self.assertIn("scale=-2:1080", config)
         self.assertIn("-r 30", config)

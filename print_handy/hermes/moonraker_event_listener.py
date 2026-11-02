@@ -494,12 +494,23 @@ def _live_auto_on_print_start():
         cfg = _config.cfg()
         section = cfg.get("live_stream") or {}
         path = live_stream.session_file_path(cfg)
-        session = live_stream.read_session_file(path)
-        text = live_stream.auto_start(session, section, now=time.time())
-        if text is None:
-            return
-        live_stream.write_session_file(session, path)
-        post(text)
+        posted = []
+
+        def update(session):
+            text = live_stream.auto_start(session, section, now=time.time())
+            if text is None:
+                return False
+            posted.append(text)
+            return True
+
+        # One serialized transaction (P2-143): the record is shared
+        # with the bot's /print-live and the Activity server's
+        # presence writes, so the read-modify-write must not
+        # interleave with theirs. The pointer posts after the lock is
+        # released — posting never holds it.
+        live_stream.transact_session_file(path, update)
+        if posted:
+            post(posted[0])
     except Exception:
         pass
 
@@ -518,10 +529,17 @@ def _live_auto_on_print_end():
         path = live_stream.session_file_path(cfg)
         if not path.exists():
             return
-        session = live_stream.read_session_file(path)
-        if session.is_live and session.started_by == live_stream.AUTO_STARTED_BY:
-            session.stop(now=time.time())
-            live_stream.write_session_file(session, path)
+
+        def update(session):
+            if session.is_live and session.started_by == live_stream.AUTO_STARTED_BY:
+                session.stop(now=time.time())
+                return True
+            return False
+
+        # One serialized transaction (P2-143), like the start hook:
+        # this stop must land after any in-flight presence update, not
+        # be overwritten by its stale live snapshot.
+        live_stream.transact_session_file(path, update)
     except Exception:
         pass
 

@@ -346,11 +346,12 @@ ACTIVITY_PAGE = """<!DOCTYPE html>
     return;
   }
   // go2rtc MSE over WebSocket, on the same origin this page was served
-  // from: ws(s)://<host>/api/ws?src=<stream>. On MediaSource open the
-  // client offers its codecs as {"type": "mse", "value": [<codecs>]};
-  // go2rtc answers with the mime type to build the SourceBuffer with,
-  // then sends binary fMP4 frames. Any failure lands on the plain
-  // fallback message below; the watchdog snapshots in chat keep working.
+  // from: ws(s)://<host>/api/ws?src=<stream>. Once both the socket and
+  // the MediaSource are open the client offers its codecs as
+  // {"type": "mse", "value": [<codecs>]}; go2rtc answers with the mime
+  // type to build the SourceBuffer with, then sends binary fMP4
+  // frames. Any failure lands on the plain fallback message below;
+  // the watchdog snapshots in chat keep working.
   var scheme = location.protocol === "https:" ? "wss:" : "ws:";
   var url = scheme + "//" + location.host + "/api/ws?src=" + encodeURIComponent(stream);
   var codecs = ['video/mp4; codecs="avc1.64001f,mp4a.40.2"',
@@ -366,8 +367,26 @@ ACTIVITY_PAGE = """<!DOCTYPE html>
     if (buffer.updating || queue.length) { queue.push(chunk); }
     else { buffer.appendBuffer(chunk); }
   }
-  mediaSource.addEventListener("sourceopen", function () {
+  // The handshake goes out only once BOTH the WebSocket and the
+  // MediaSource are open (P2-122): sourceopen can fire while the
+  // socket is still CONNECTING, and ws.send in that state throws
+  // InvalidStateError — with the send attempted only there, the feed
+  // would never start even after the socket connected.
+  var wsOpen = false;
+  var msOpen = false;
+  var handshakeSent = false;
+  function sendHandshake() {
+    if (handshakeSent || !wsOpen || !msOpen) { return; }
+    handshakeSent = true;
     ws.send(JSON.stringify({type: "mse", value: codecs}));
+  }
+  ws.addEventListener("open", function () {
+    wsOpen = true;
+    sendHandshake();
+  });
+  mediaSource.addEventListener("sourceopen", function () {
+    msOpen = true;
+    sendHandshake();
   });
   ws.onmessage = function (event) {
     if (typeof event.data === "string") {
@@ -409,6 +428,13 @@ ACTIVITY_PAGE = """<!DOCTYPE html>
 
 # --------------------------------------------------------------------- the HTTP surface
 
+#: How often an idle relay direction re-checks its end conditions, and
+#: how long BOTH directions may stay silent before the relay is ended
+#: as idle (P2-142). Module-level so tests can shrink them.
+_PUMP_POLL_S = 1
+_PUMP_IDLE_CUTOFF_S = 60
+
+
 def _pump(client, upstream, should_close=None):
     """Relay bytes between the client and go2rtc until either side closes.
 
@@ -423,8 +449,16 @@ def _pump(client, upstream, should_close=None):
     sockets are shut down, so a relay cannot outlive the condition
     that allowed it — for the feed proxy, the live viewing session
     (P1-89). A `should_close` that raises counts as closed: the pump
-    fails shut. The 60-second idle cutoff the plain relay always had
-    is preserved either way.
+    fails shut.
+
+    The idle cutoff measures inactivity across BOTH directions
+    (P2-142): during normal MSE playback the page sends its offer once
+    and then only receives, so one direction staying silent is the
+    healthy state, not a dead relay — the old per-direction cutoff cut
+    exactly those streams after 60 seconds and go2rtc sends no pings
+    to prevent it. The relay now ends when either side actually
+    closes, when `should_close` fires, or when both directions have
+    been quiet for the whole cutoff.
     """
 
     def ended():
@@ -435,23 +469,20 @@ def _pump(client, upstream, should_close=None):
         except Exception:
             return True
 
+    activity = {"last": time.monotonic()}
+
     def forward(source, target):
-        idle_slices = 0
         try:
             while not ended():
-                readable, _, _ = select.select(
-                    [source], [], [], 1 if should_close is not None else 60)
+                readable, _, _ = select.select([source], [], [], _PUMP_POLL_S)
                 if not readable:
-                    if should_close is None:
-                        break
-                    idle_slices += 1
-                    if idle_slices >= 60:
+                    if time.monotonic() - activity["last"] >= _PUMP_IDLE_CUTOFF_S:
                         break
                     continue
-                idle_slices = 0
                 chunk = source.recv(65536)
                 if not chunk:
                     break
+                activity["last"] = time.monotonic()
                 target.sendall(chunk)
         except OSError:
             pass
@@ -753,15 +784,22 @@ class SessionPresence:
     def _apply(self, now):
         from . import live_stream
 
-        session = live_stream.read_session_file(self._path)
-        if not session.is_live:
+        # The read-modify-write runs as one cross-process transaction
+        # (P2-143): the bot's /print-live and the listener's hooks own
+        # the same record, and an unlocked presence write could land
+        # its stale live snapshot over their stop.
+        def update(session):
+            if not session.is_live:
+                with self._lock:
+                    self._viewers.clear()
+                return False
             with self._lock:
-                self._viewers.clear()
-            return session
-        session.note_viewers(len(self._viewers), now=now)
-        live_stream.expire_empty(session, self._section, now=now)
-        live_stream.write_session_file(session, self._path)
-        return session
+                viewers = len(self._viewers)
+            session.note_viewers(viewers, now=now)
+            live_stream.expire_empty(session, self._section, now=now)
+            return True
+
+        return live_stream.transact_session_file(self._path, update)
 
     def is_live(self):
         """Whether the shared record currently says the session is live.
