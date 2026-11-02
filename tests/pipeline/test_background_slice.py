@@ -116,3 +116,64 @@ def test_changed_decision_digest_and_source_hash_never_match_prior_slice(tmp_pat
     assert slice_binding(changed_colors, model_job.file_sha256(source)) != original
     source.write_bytes(b'changed source')
     assert slice_binding(first, model_job.file_sha256(source)) != original
+
+
+def _slice_writes_metadata(path, work, marker):
+    """What slice_job does mid-run: output files plus committed JOB.json metadata."""
+    job = json.loads(Path(path).read_text())
+    job.update({'gcode': str(work / f'{marker}.gcode'), 'gcode_verified': True,
+                'sliced_at': f'at-{marker}', 'artifact_binding': {'gcode_sha256': marker},
+                'derived_plates': [{'gcode': f'{marker}.gcode'}]})
+    Path(path).write_text(json.dumps(job))
+    output = work / f'{marker}.gcode'
+    output.write_text('G1 X1\n')
+    return [output]
+
+
+def test_discard_clears_slice_metadata_the_slice_committed(tmp_path):
+    """P2-24: discard removed the output files but left JOB.json claiming the
+    discarded G-code — verified, bound and timestamped — for a later resume
+    or print-next to trust."""
+    async def run():
+        folder = tmp_path / 'intake'
+        folder.mkdir()
+        job_path = folder / 'JOB.json'
+        job_path.write_text(json.dumps({'title': 'keep me'}))
+        runner = BackgroundSlice()
+
+        async def slice_func(path, work, _runner):
+            return _slice_writes_metadata(path, work, 'early')
+
+        await runner.start(job_path, 'binding', slice_func)
+        assert await runner.take('binding') is not None
+        job = json.loads(job_path.read_text())
+        assert job['gcode'].endswith('early.gcode') and job['gcode_verified'] is True
+        await runner.discard()
+        job = json.loads(job_path.read_text())
+        assert job == {'title': 'keep me'}
+
+    asyncio.run(run())
+
+
+def test_discard_restores_the_slice_metadata_that_predates_the_run(tmp_path):
+    """P2-24: restoring is a snapshot, not a blanket clear — a job that already
+    held a completed slice keeps that slice's metadata when only the newer
+    background slice is discarded."""
+    async def run():
+        folder = tmp_path / 'intake'
+        folder.mkdir()
+        job_path = folder / 'JOB.json'
+        prior = {'title': 'keep me', 'gcode': '/old/plate.gcode', 'gcode_verified': True,
+                 'sliced_at': 'at-old', 'artifact_binding': {'gcode_sha256': 'old'}}
+        job_path.write_text(json.dumps(prior))
+        runner = BackgroundSlice()
+
+        async def slice_func(path, work, _runner):
+            return _slice_writes_metadata(path, work, 'new')
+
+        await runner.start(job_path, 'binding', slice_func)
+        assert await runner.take('binding') is not None
+        await runner.discard()
+        assert json.loads(job_path.read_text()) == prior
+
+    asyncio.run(run())
