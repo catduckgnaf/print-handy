@@ -2,7 +2,7 @@
 
 # Unreleased
 
-Nothing yet.
+- Stock Flashforge and OctoPrint completion posts now fall back to a text post when the media post is refused, instead of silently dropping it (#771).
 
 # Version 2.2.4
 
