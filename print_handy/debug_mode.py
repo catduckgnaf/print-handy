@@ -418,7 +418,11 @@ def main(argv=None) -> int:
               f"Capture: {capture_path(data)}. Stop it with: python3 -m print_handy.debug_mode off")
         return 0
     if args.action == "off":
-        if _read_state(data) is None:
+        if _read_state(data) is None and not latest_session(data):
+            # No live state and no capture to recover: genuinely off. (A
+            # session that auto-expired has no state file left — a status
+            # check or listener poll ended it — but its capture remains,
+            # and off_and_export recovers it below.)
             print("Debug mode is already off.")
             return 0
         target, report, ended = off_and_export(data)
