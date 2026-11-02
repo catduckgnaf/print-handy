@@ -2,7 +2,7 @@
 
 # Unreleased
 
-Nothing yet.
+- Attachments are no longer lost when the chat LLM routes a message to a command such as /print-design (#768).
 
 # Version 2.2.4
 
