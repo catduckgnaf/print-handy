@@ -2844,7 +2844,7 @@ async def spool_dispatch(event, gateway, **kwargs):
                 message = 'No printer chosen, so nothing was changed.'
         elif verb == 'sync':
             if await _spool_printer():
-                message = 'Printer screen from Spoolman:\n' + '\n'.join(await asyncio.to_thread(spool_sync.sync_all_screens, **mr_kw))
+                message = 'Printer sync from Spoolman:\n' + '\n'.join(await asyncio.to_thread(spool_sync.sync_all_screens, **mr_kw))
             else:
                 message = 'No printer chosen, so nothing was changed.'
         elif verb == '':
