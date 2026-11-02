@@ -2624,6 +2624,39 @@ def _sync_active_spool(st, slot):
     return result
 
 
+def _clear_active_spool(st):
+    """Clear Moonraker's active spool before a multi-slot launch (P1-24).
+
+    A multi-slot job's usage cannot be apportioned to one spool, so no spool
+    may be charged — but a pointer left over from a single-slot job or a
+    manual selection would keep Moonraker deducting ALL extrusion from that
+    stale spool while the launch claims deduction is disabled. Clear it with
+    verified readback before upload, with _sync_active_spool's posture:
+    Moonraker is a launch dependency (its read failing refuses, and a
+    readback that still names a spool after the clear refuses too), while a
+    failed clear WRITE is Spoolman accounting routed through Moonraker —
+    the launch proceeds and the result carries `spoolman_pending` so the
+    caller records it in the job record for later reconciliation (#387).
+    """
+    try:
+        current = _mr(st, '/server/spoolman/spool_id')['result'].get('spool_id')
+    except Exception as exc:
+        raise RuntimeError(f'Moonraker active spool read failed: {exc}; nothing uploaded or started') from exc
+    if current is None:
+        return {'spool_id': None, 'previous': None, 'changed': False}
+    try:
+        _mr(st, '/server/spoolman/spool_id', data={})
+        back = _mr(st, '/server/spoolman/spool_id')['result'].get('spool_id')
+    except Exception as exc:
+        logger.warning('active spool clear failed for spool #%s: %s', current, exc)
+        spoolman_client.note_unavailable_once()
+        return {'spool_id': current, 'previous': current, 'changed': False, 'spoolman_pending': True}
+    if back is not None:
+        raise RuntimeError(f'Moonraker active spool readback {back!r} after clear; nothing uploaded or started')
+    print(f'ACTIVE SPOOL CLEARED: #{current} -> none (multi-slot job charges no spool)', flush=True)
+    return {'spool_id': None, 'previous': current, 'changed': True}
+
+
 def _verify_readiness_adapter(adapter, state, selection=None):
     """Families without IFS: one Moonraker sample judged by the adapter's own readiness check."""
     try:
@@ -3098,6 +3131,12 @@ def record_start(gcode_path, moonraker_name=None, started_at=None):
         ctx['printer_profile'] = 'Reviewed Orca AD5X native multicolor'
     if (job or {}).get('delivery_format'):
         ctx['delivery_format'] = job['delivery_format']
+    if isinstance((job or {}).get('spoolman_usage_pending'), dict):
+        # Launch-time accounting failure (#387): carry the pending marker and
+        # its intended spool into the start record and the completion sidecar,
+        # so the completion record is marked pending instead of silently
+        # attributing the usage to whatever spool answers then (P2-155).
+        ctx['spoolman_usage_pending'] = job['spoolman_usage_pending']
     ctx["record_path"]=print_records.write_start_record(ctx)
     record_path=ctx["record_path"]
     try: side=json.loads(CONTEXT.read_text())
@@ -6466,6 +6505,20 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
         slots_used = sorted(set(mapped.values()))
         if len(slots_used) > 1:
             print('WARNING: MULTI-SLOT JOB: automatic Spoolman usage deduction disabled; aggregate usage cannot be safely apportioned to selected spools.', flush=True)
+            cleared = _clear_active_spool(st)
+            if cleared.get('spoolman_pending') and job_path is not None:
+                # The clear could not be written: Moonraker may keep charging
+                # the stale spool during this print. Record which spool that
+                # is in the job record for later reconciliation; recording
+                # must never block the launch (#387).
+                job['spoolman_usage_pending'] = {
+                    'spool_id': None, 'stale_spool_id': cleared.get('previous'), 'slots': slots_used,
+                    'reason': 'Moonraker active spool could not be cleared before a multi-slot print; the stale spool may be charged',
+                    'recorded_at': time.time()}
+                try:
+                    write_job(Path(job_path).parent, job)
+                except Exception as exc:
+                    logger.warning('could not record pending Spoolman usage: %s', exc)
         else:
             sync = _sync_active_spool(st, slots_used[0])
             if sync.get('spoolman_pending') and job_path is not None:

@@ -557,6 +557,42 @@ def bind_text(result: dict[str, Any]) -> str:
     return f"Slot {result['slot']} → spool #{result['spool_id']} ({r['name']}{grams}).{moved} {screen}{usage}"
 
 
+def repair_usage_spool(*, mr: Client = moonraker, state_path: Path | None = None,
+                       printer_id: str | None = None) -> str:
+    """Re-point Moonraker's active spool at the recorded spool when the pointer is stale.
+
+    The recovery bind_slot's failure message sends the user to (/spool sync,
+    P2-179): the new slot mapping was saved but re-pointing usage failed, so
+    Moonraker still charges a spool that is loaded nowhere. A pointer naming
+    a spool no record loads is stale; the recorded active spool replaces it,
+    with resume_usage's verified readback. A pointer that names a loaded
+    spool is consistent and is left alone, an empty pointer charges no one
+    and is left alone (a deliberate suspension is not sync's to undo), and
+    nothing is touched while the printer is busy — re-pointing mid-print
+    would corrupt the running print's accounting.
+    """
+    if printer_state(mr) in ("printing", "unknown"):
+        return "Filament charging: left alone while the printer is busy"
+    try:
+        active = active_usage_spool(mr)
+    except Exception:
+        return "Filament charging: could not be checked — try again"
+    if active is None:
+        return "Filament charging: no spool is being charged"
+    state = load_state(state_path, printer_id=printer_id)
+    if active in _loaded_spool_ids(state):
+        return f"Filament charging: spool #{active} — matches the record"
+    target = (state.get("spool") or {}).get("spoolman_id")
+    if not isinstance(target, int) or isinstance(target, bool):
+        return (f"Filament charging: spool #{active} is no longer loaded and no replacement "
+                "is recorded — load the new spool with `/spool change`")
+    try:
+        resume_usage(target, mr)
+    except Exception:
+        return f"Filament charging: could not be re-pointed to spool #{target} — try again"
+    return f"Filament charging: was pointing at spool #{active} (no longer loaded); re-pointed to #{target}"
+
+
 def sync_all_screens(*, mr: Client = moonraker, state_path: Path | None = None,
                      pending_path: Path | None = None, printer_id: str | None = None) -> list[str]:
     state = load_state(state_path, printer_id=printer_id)
@@ -576,6 +612,9 @@ def sync_all_screens(*, mr: Client = moonraker, state_path: Path | None = None,
             out.append(f"Slot {slot}: {pushed}")
         except Exception as exc:
             out.append(f"Slot {slot}: the screen could not be updated — try again")
+    # /spool sync is also the recovery bind_slot names when re-pointing usage
+    # failed (P2-179): it must repair the charging, not just the screens.
+    out.append(repair_usage_spool(mr=mr, state_path=state_path, printer_id=printer_id))
     return out
 
 

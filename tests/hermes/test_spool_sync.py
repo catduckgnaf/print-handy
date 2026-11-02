@@ -69,6 +69,90 @@ def test_suspend_and_resume_usage():
     client2.assert_any_call("POST", "/server/spoolman/spool_id", {"spool_id": 99})
 
 
+def _sync_state_file(tmp_path, *, with_spool=True):
+    state = {"filament_slots": {
+        "1": {"spoolman_id": 11, "material": "PLA", "hex": "F95D73", "name": "New PLA"},
+        "2": {"spoolman_id": 12, "material": "PLA", "hex": "067749", "name": "Other PLA"}}}
+    if with_spool:
+        state["spool"] = {"spoolman_id": 11, "name": "New PLA", "material": "PLA",
+                          "density": 1.24, "diameter_mm": 1.75}
+    path = tmp_path / "printer_hardware.json"
+    path.write_text(json.dumps(state))
+    return path
+
+
+def _sync_mr(active, *, printer="standby", stuck=False):
+    """Moonraker fake for /spool sync: print state, the spool pointer, screen posts."""
+    calls = []
+
+    def mr(method, path, body=None):
+        calls.append((method, path, body))
+        if path.startswith("/printer/objects/query"):
+            return {"result": {"status": {"print_stats": {"state": printer}}}}
+        if path == "/server/spoolman/spool_id":
+            if method == "POST":
+                if not stuck:
+                    active[0] = (body or {}).get("spool_id")
+                return {}
+            return {"result": {"spool_id": active[0]}}
+        return {"result": "ok"}
+
+    return mr, calls
+
+
+def _run_sync(tmp_path, mr, state_path):
+    with mock.patch.object(spool_sync, "push_screen", return_value="pushed"):
+        return spool_sync.sync_all_screens(mr=mr, state_path=state_path,
+                                           pending_path=tmp_path / "pending.json")
+
+
+def test_spool_sync_repairs_a_stale_usage_pointer(tmp_path):
+    # P2-179: bind_slot saved the new mapping but re-pointing Moonraker's
+    # active spool failed, and its message told the user to run /spool sync.
+    # The pointer still names spool #10, which is loaded nowhere; sync must
+    # actually repair the charging, not just refresh the screens.
+    active = [10]
+    mr, _calls = _sync_mr(active)
+    lines = _run_sync(tmp_path, mr, _sync_state_file(tmp_path))
+    assert active[0] == 11
+    assert any("charging" in line and "#11" in line for line in lines)
+
+
+def test_spool_sync_leaves_a_matching_usage_pointer_alone(tmp_path):
+    active = [11]
+    mr, calls = _sync_mr(active)
+    lines = _run_sync(tmp_path, mr, _sync_state_file(tmp_path))
+    assert active[0] == 11
+    assert not any(method == "POST" and path == "/server/spoolman/spool_id" for method, path, _ in calls)
+    assert any("charging" in line and "#11" in line for line in lines)
+
+
+def test_spool_sync_reports_a_stale_pointer_with_no_recorded_replacement(tmp_path):
+    active = [10]
+    mr, calls = _sync_mr(active)
+    lines = _run_sync(tmp_path, mr, _sync_state_file(tmp_path, with_spool=False))
+    assert active[0] == 10
+    assert not any(method == "POST" and path == "/server/spoolman/spool_id" for method, path, _ in calls)
+    assert any("charging" in line and "#10" in line for line in lines)
+
+
+def test_spool_sync_never_repairs_charging_while_printing(tmp_path):
+    active = [10]
+    mr, calls = _sync_mr(active, printer="printing")
+    lines = _run_sync(tmp_path, mr, _sync_state_file(tmp_path))
+    assert active[0] == 10
+    assert not any(method == "POST" and path == "/server/spoolman/spool_id" for method, path, _ in calls)
+    assert any("charging" in line for line in lines)
+
+
+def test_spool_sync_reports_a_failed_repair_without_raising(tmp_path):
+    active = [10]
+    mr, _calls = _sync_mr(active, stuck=True)  # POST accepted, pointer never moves
+    lines = _run_sync(tmp_path, mr, _sync_state_file(tmp_path))
+    assert active[0] == 10
+    assert any("charging" in line and "could not" in line for line in lines)
+
+
 def test_mid_print_slot_tracker():
     tracker = MidPrintSlotTracker(stable_samples=2)
 
