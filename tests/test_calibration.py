@@ -62,8 +62,10 @@ ZMOD_OBJECTS = [
     "gcode_macro LOAD_ZOFFSET_NATIVE", "extruder", "heater_bed",
 ]
 ZMOD_SETTINGS = {
-    "extruder": {"pid_Kp": "22.2", "pid_Ki": "1.5", "pid_Kd": "105.0"},
-    "heater_bed": {"pid_Kp": "70.0", "pid_Ki": "3.0", "pid_Kd": "380.0"},
+    # Klipper's configfile status lowercases every option name, so the PID
+    # terms arrive as pid_kp / pid_ki / pid_kd whatever the file's casing.
+    "extruder": {"pid_kp": "22.2", "pid_ki": "1.5", "pid_kd": "105.0"},
+    "heater_bed": {"pid_kp": "70.0", "pid_ki": "3.0", "pid_kd": "380.0"},
     "input_shaper": {"shaper_type_x": "mzv", "shaper_freq_x": 36.8,
                      "shaper_type_y": "mzv", "shaper_freq_y": 40.1},
     "bed_mesh": {"mesh_min": "10,10"},
@@ -77,8 +79,8 @@ NATIVE_CONFIG = {"leftExtruderOffset": {"zProbeOffset": -1.24}}
 KLIPPER_OBJECTS = ["print_stats", "bed_mesh", "input_shaper", "save_variables",
                    "configfile", "resonance_tester", "extruder", "heater_bed"]
 KLIPPER_SETTINGS = {
-    "extruder": {"pid_Kp": 21.0, "pid_Ki": 1.2, "pid_Kd": 90.0},
-    "heater_bed": {"pid_Kp": 65.0, "pid_Ki": 2.5, "pid_Kd": 300.0},
+    "extruder": {"pid_kp": 21.0, "pid_ki": 1.2, "pid_kd": 90.0},
+    "heater_bed": {"pid_kp": 65.0, "pid_ki": 2.5, "pid_kd": 300.0},
     "input_shaper": {"shaper_type": "mzv", "shaper_freq_x": 40.0, "shaper_freq_y": 44.0},
     "bed_mesh": {"mesh_min": "10,10"},
     "screws_tilt_adjust": {"screw1": "-5,30"},

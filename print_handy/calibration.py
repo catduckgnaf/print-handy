@@ -601,7 +601,11 @@ def _pid_before(settings, heater):
     section = settings.get(heater) if isinstance(settings, dict) else None
     if not isinstance(section, dict):
         return None
-    values = [_num(section.get(key)) for key in ("pid_Kp", "pid_Ki", "pid_Kd")]
+    # Klipper's configfile status lowercases every option name, so the
+    # terms arrive as pid_kp / pid_ki / pid_kd whatever casing the
+    # printer.cfg file itself uses; look them up case-insensitively.
+    lowered = {str(key).lower(): value for key, value in section.items()}
+    values = [_num(lowered.get(key)) for key in ("pid_kp", "pid_ki", "pid_kd")]
     if any(value is None for value in values):
         return None
     return PidValues(*values)
