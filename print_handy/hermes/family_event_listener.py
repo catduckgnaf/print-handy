@@ -101,7 +101,7 @@ class FamilyListener:
         self._sleep = sleep
         self._poll_s = poll_s
         self._state_path = Path(state_path) if state_path else _config.state_file(
-            "PRINT_HANDY_FAMILY_LISTENER_STATE", "family_listener.json")
+            "PRINT_HANDY_FAMILY_LISTENER_STATE", "family_listener.json", per_instance=True)
         self._stopped = False
         self._failures = 0
         self._last_beat_at = None

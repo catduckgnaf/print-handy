@@ -151,11 +151,43 @@ def state_dir() -> Path:
     return settings.state_dir(cfg())
 
 
-def state_file(env_var: str | None, name: str) -> Path:
-    """A state file: the legacy env var if set (tests rely on it), else <state_dir>/<name>."""
+def state_file(env_var: str | None, name: str, *, per_instance: bool = False) -> Path:
+    """A state file: the legacy env var if set (tests rely on it), else <state_dir>/<name>.
+
+    With per_instance, a process serving a non-default roster printer (a
+    per-printer listener instance, #336) gets its own copy under
+    <state_dir>/printers/<id>/ — #334's layout — so sibling listener
+    instances never share operational state (P1-82). The default printer
+    keeps the legacy path: its state was always the singleton's, so
+    nothing is orphaned at upgrade. A process serving no instance (the
+    bot, one-shot tools) is unchanged, and an env override always wins.
+    Files that are cross-process channels by design (the start claims
+    print-now writes and the listeners read) stay shared: callers opt in
+    per file.
+    """
     if env_var and os.environ.get(env_var):
         return Path(os.environ[env_var])
+    if per_instance:
+        namespaced = _instance_state_path(name)
+        if namespaced is not None:
+            return namespaced
     return state_dir() / name
+
+
+def _instance_state_path(name: str) -> Path | None:
+    """<state>/printers/<id>/<name> for a non-default instance printer, else None."""
+    try:
+        from print_handy import instance
+
+        printer_id = instance.printer_id()
+        if not printer_id:
+            return None
+        data = cfg()
+        if printer_id == settings.default_printer_id(data):
+            return None
+        return settings.printer_state_dir(printer_id, data) / name
+    except Exception:
+        return None
 
 
 def service_url(key: str) -> str:

@@ -1518,7 +1518,7 @@ def platform_sized_video(path, max_bytes=None):
 
 
 
-NOTIFICATION_STATE = _config.state_file("PRINT_HANDY_NOTIFICATION_STATE", "lifecycle_notifications.json")
+NOTIFICATION_STATE = _config.state_file("PRINT_HANDY_NOTIFICATION_STATE", "lifecycle_notifications.json", per_instance=True)
 
 
 def _notification_identity(stats):
@@ -1585,15 +1585,18 @@ def clean(filename):
     return print_summary.safe_label(filename, "print")
 
 
+# Start claims stay shared on purpose: print-now writes them and every
+# listener reads them, keyed by the content-hashed remote file name —
+# a cross-process channel, not one listener's operational state (P1-82).
 START_CLAIMS = _config.state_file("PRINT_HANDY_START_CLAIMS", "print_handy_start_claims.json")
 START_CLAIM_TTL_S = float(_LISTENER["start_claim_ttl_s"])
 NATIVE_POLL_SECONDS = float(_LISTENER["ifs_presence_poll_s"])
-IFS_EDGE_STATE = _config.state_file("IFS_EDGE_STATE", "ifs_presence_edges.json")
-IFS_PENDING_STATE = _config.state_file("IFS_PENDING_STATE", "ifs_pending_prompts.json")
-RUNOUT_PAUSE_STATE = _config.state_file("RUNOUT_PAUSE_STATE", "runout_pause.json")
+IFS_EDGE_STATE = _config.state_file("IFS_EDGE_STATE", "ifs_presence_edges.json", per_instance=True)
+IFS_PENDING_STATE = _config.state_file("IFS_PENDING_STATE", "ifs_pending_prompts.json", per_instance=True)
+RUNOUT_PAUSE_STATE = _config.state_file("RUNOUT_PAUSE_STATE", "runout_pause.json", per_instance=True)
 # The last stock-screen error alerted, so a listener restart does not post the same error again.
-NATIVE_ERROR_STATE = _config.state_file("NATIVE_ERROR_STATE", "native_error_alerted.json")
-SPOOLMAN_KNOWN_STATE = _config.state_file("SPOOLMAN_KNOWN_STATE", "spoolman_known_spools.json")
+NATIVE_ERROR_STATE = _config.state_file("NATIVE_ERROR_STATE", "native_error_alerted.json", per_instance=True)
+SPOOLMAN_KNOWN_STATE = _config.state_file("SPOOLMAN_KNOWN_STATE", "spoolman_known_spools.json", per_instance=True)
 RUNOUT_SPOOL_COMMENT = "runout replacement; starting weight supplied by operator"
 # An undelivered new-spool prompt is retried this often, and given up after a day.
 NEW_SPOOL_RETRY_S = 300.0
