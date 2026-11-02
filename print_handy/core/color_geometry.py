@@ -1066,6 +1066,25 @@ def _select_build_items(model_bytes, selected, shift, park=None, fit=None, fit_b
     """
     kept = []
 
+    def with_transform(line, values):
+        """Write the 12 transform values into an item line, inserting the
+        attribute when the item carries none: a direct-mesh core build item
+        may omit it, and an omitted transform is the identity (P2-282)."""
+        rendered = b' '.join(repr(v).encode() for v in values)
+        transform = re.search(br'transform="([^"]+)"', line)
+        if transform is not None:
+            return line[:transform.start(1)] + rendered + line[transform.end(1):]
+        return re.sub(br'\s*/?>$', lambda end: b' transform="' + rendered + b'"' + end.group(0), line, count=1)
+
+    def current_values(line):
+        transform = re.search(br'transform="([^"]+)"', line)
+        if transform is None:
+            return [float(v) for v in IDENTITY]
+        values = list(map(float, transform.group(1).split()))
+        if len(values) != 12:
+            raise RuntimeError('invalid 3MF transform')
+        return values
+
     def edit(match):
         line = match.group(0)
         object_id = re.search(br'\bobjectid="(\d+)"', line).group(1).decode()
@@ -1077,10 +1096,9 @@ def _select_build_items(model_bytes, selected, shift, park=None, fit=None, fit_b
         if object_id not in selected:
             move = (park or {}).get(object_id)
             if move:
-                transform = re.search(br'transform="([^"]+)"', line)
-                values = list(map(float, transform.group(1).split()))
+                values = current_values(line)
                 values[9] += move
-                line = line[:transform.start(1)] + b' '.join(repr(v).encode() for v in values) + line[transform.end(1):]
+                line = with_transform(line, values)
             return line
         kept.append(object_id)
         item_shift = shift.get(object_id, [0.0, 0.0, 0.0]) if isinstance(shift, dict) else shift
@@ -1088,17 +1106,12 @@ def _select_build_items(model_bytes, selected, shift, park=None, fit=None, fit_b
         if fit_by_object and object_id in fit_by_object:
             item_fit = fit_by_object[object_id]
         if any(item_shift) or item_fit:
-            transform = re.search(br'transform="([^"]+)"', line)
-            if transform is None:
-                raise RuntimeError('selected build item has no transform')
-            values = list(map(float, transform.group(1).split()))
-            if len(values) != 12:
-                raise RuntimeError('invalid 3MF transform')
+            values = current_values(line)
             if item_fit:
                 values = _compose(item_fit, values)
             for axis in range(3):
                 values[9 + axis] += item_shift[axis]
-            line = line[:transform.start(1)] + b' '.join(repr(v).encode() for v in values) + line[transform.end(1):]
+            line = with_transform(line, values)
         return line
 
     out = re.sub(br'<item\b[^>]*>', edit, model_bytes)
