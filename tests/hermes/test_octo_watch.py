@@ -213,6 +213,32 @@ def test_media_post_failure_falls_back_to_the_text_completion():
     assert any("post with timelapse failed" in line for line in Harness.logs)
 
 
+def test_start_monitor_tolerates_a_client_without_the_render_queue(monkeypatch):
+    """P2-147 wiring: an adapter client with no timelapse_unrendered
+    (older doubles, partial clients) must still start the monitor —
+    pending_fn degrades to None (single lookup), never to no monitor."""
+    class Client:
+        def status(self):
+            return {}
+        def timelapse_movies(self):
+            return []
+    class Adapter:
+        def client(self):
+            return Client()
+        def normalize_status(self, raw):
+            return _status("printing", 0.5)
+    started = {}
+    def factory(target):
+        class T:
+            def start(self):
+                started["target"] = target
+        return T()
+    thread = octo_watch.start_monitor(Adapter(), REMOTE, post=lambda m: None,
+                                      thread_factory=factory)
+    assert thread is not None
+    assert "target" in started
+
+
 def test_a_pending_render_is_waited_for_and_then_attached():
     """P2-147: OctoPrint renders in a background queue after the print
     ends, so the movie legitimately appears after the terminal poll.

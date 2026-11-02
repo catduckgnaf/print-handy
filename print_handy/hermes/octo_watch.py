@@ -329,7 +329,10 @@ def start_monitor(adapter, filename, *, post=None, thread_factory=None, printer_
             filename,
             status_fn=lambda: adapter.normalize_status(client.status()),
             movies_fn=client.timelapse_movies,
-            pending_fn=client.timelapse_unrendered,
+            # A client without the render-queue read degrades to the
+            # single-lookup behavior (pending_fn None), never to no
+            # monitor at all.
+            pending_fn=getattr(client, "timelapse_unrendered", None),
             video_fn=lambda movie: _fetch_and_size(client, movie),
             post=post or _default_post,
             pause_alerts=family_control.pause_alerts_for(adapter, filename, printer_id))
