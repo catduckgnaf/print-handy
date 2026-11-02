@@ -285,7 +285,13 @@ def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_st
                        "PRINT_VISION_URL" if endpoint else "services.vision_chat_url",
                        type(exc).__name__, exc)
         return "uncertain", "the vision check could not be completed"
-    return str(parsed.get("verdict", "uncertain")).casefold(), str(parsed.get("reason", ""))[:300]
+    verdict = str(parsed.get("verdict", "uncertain")).casefold()
+    if verdict not in VISUAL_VERDICTS:
+        # Model-output drift fails closed: an unrecognized verdict is
+        # "uncertain" (which alerts), never a value a caller's
+        # suspicious-verdict set silently treats as safe.
+        verdict = "uncertain"
+    return verdict, str(parsed.get("reason", ""))[:300]
 
 
 def visual_extract(image, prompt, *, chat_url, model, api_key, context):
