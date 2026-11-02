@@ -733,12 +733,16 @@ def split_plan_100(source, bed=None, height=None, exclusions=None, brim_policy=N
     from . import plate_merge
     from .source_colors import inventory
 
-    bed_x, bed_y, _ = _bed_xy_height(bed, height)
+    bed_x, bed_y, height_limit = _bed_xy_height(bed, height)
     bed = min(bed_x, bed_y)
     manifest = inventory(source)
     if not manifest.get('parts'):
         return None
-    report = per_part_fit(source, bed=(bed_x, bed_y), height=height, exclusions=exclusions,
+    # Pass the normalized limit, not the raw argument: with a 3-element bed
+    # and no explicit height, the raw argument is None and per_part_fit would
+    # fall back to the configured printer height, discarding the caller's
+    # lower Z limit (P2-69).
+    report = per_part_fit(source, bed=(bed_x, bed_y), height=height_limit, exclusions=exclusions,
                           brim_policy=brim_policy, state=state)
     feature = _feature_edge_mm(brim_policy, state)
     if any(not row['fits_full_size'] for row in report):

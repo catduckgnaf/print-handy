@@ -66,6 +66,23 @@ def test_individually_oversized_object_has_no_split_plan(tmp_path):
     assert split_fit.split_plan_100(source, 220) is None
 
 
+def test_split_plan_honors_the_height_carried_by_a_three_part_bed(tmp_path):
+    # P2-69: a (x, y, z) bed carries the Z limit. split_plan_100 dropped it
+    # and judged parts against the configured printer height instead, so a
+    # 210 mm part was planned for a 200 mm limit.
+    source = tmp_path / 'tall-pair.3mf'
+    # Part 2 is over the 185 mm Z limit in every orientation (190 mm square
+    # footprint, 210 mm tall), so no reorientation can save it; its
+    # footprint packs easily, so only the height check can block the plan.
+    _source(source, {'1': (150, 150, 10), '2': (190, 190, 210)}, [['1', '2']])
+    report = split_fit.per_part_fit(source, bed=(220, 220, 185))
+    assert [row['fits_full_size'] for row in report] == [True, False]
+    assert 'height 210' in report[1]['blocking_reason']
+    assert split_fit.split_plan_100(source, bed=(220, 220, 185)) is None
+    # The same parts do plan when the Z limit allows the tall one.
+    assert split_fit.split_plan_100(source, bed=(240, 240, 220)) is not None
+
+
 def test_yaw_envelope_is_dimension_preserving():
     w, d = split_fit.yaw_envelope(230, 130, 90)
     assert (round(w, 6), round(d, 6)) == (130, 230)
