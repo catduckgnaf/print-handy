@@ -90,11 +90,17 @@ requests, so the two can never drift apart.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
+
+try:
+    import fcntl
+except ImportError:  # non-POSIX platform: no cross-process lock available
+    fcntl = None  # type: ignore[assignment]
 
 __all__ = [
     "CAMERA_KINDS",
@@ -122,9 +128,11 @@ __all__ = [
     "redact_url",
     "resolve_moonraker_camera_source",
     "resolve_octoprint_camera_source",
+    "session_file_lock",
     "session_file_path",
     "session_text",
     "start_problem",
+    "transact_session_file",
     "write_session_file",
 ]
 
@@ -1008,3 +1016,61 @@ def read_session_file(path):
             return LiveStreamSession()
         session.viewers = viewers if viewers > 0 else 0
     return session
+
+
+@contextlib.contextmanager
+def session_file_lock(path):
+    """Serialize session read-modify-write transactions across processes (P2-143).
+
+    The record at `path` is shared by three processes — the bot
+    (``/print-live``), the printer listener (auto-start / print-end
+    hooks) and the Activity server (viewer presence) — and every writer
+    runs a read-modify-write transaction over it. Atomic replacement
+    alone cannot protect that transaction: a presence tick that read
+    the live record just before a stop landed could write its stale
+    snapshot back over the stop, resurrecting a session its owner had
+    ended. This lock — an ``flock`` on the sibling ``<path>.lock``
+    file — is the one guard every writer takes, so transactions run
+    one at a time and each reads the record the previous writer left.
+
+    ``flock`` is released by the kernel when a holder dies, so a
+    crashed writer can never wedge the record. Where the lock file
+    cannot be opened (a state directory too broken to hold the record
+    either) or ``fcntl`` is unavailable, the transaction proceeds
+    unguarded rather than breaking the caller: session bookkeeping
+    stays fail-soft, exactly like the reads and writes it protects.
+    """
+    if fcntl is None:
+        yield
+        return
+    path = Path(path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path.with_name(path.name + ".lock"), os.O_CREAT | os.O_RDWR, 0o644)
+    except OSError:
+        yield
+        return
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+
+def transact_session_file(path, update):
+    """Run one serialized read-modify-write transaction over the record at `path`.
+
+    Under :func:`session_file_lock`: read the current session, hand it
+    to `update(session)`, and persist it only when `update` returns
+    True. Returns the session as read (and possibly mutated), so a
+    caller can report the state it acted on. Every session writer goes
+    through here (or holds the lock itself) — see P2-143.
+    """
+    with session_file_lock(path):
+        session = read_session_file(path)
+        if update(session):
+            write_session_file(session, path)
+        return session

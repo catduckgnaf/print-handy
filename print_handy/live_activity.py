@@ -753,15 +753,22 @@ class SessionPresence:
     def _apply(self, now):
         from . import live_stream
 
-        session = live_stream.read_session_file(self._path)
-        if not session.is_live:
+        # The read-modify-write runs as one cross-process transaction
+        # (P2-143): the bot's /print-live and the listener's hooks own
+        # the same record, and an unlocked presence write could land
+        # its stale live snapshot over their stop.
+        def update(session):
+            if not session.is_live:
+                with self._lock:
+                    self._viewers.clear()
+                return False
             with self._lock:
-                self._viewers.clear()
-            return session
-        session.note_viewers(len(self._viewers), now=now)
-        live_stream.expire_empty(session, self._section, now=now)
-        live_stream.write_session_file(session, self._path)
-        return session
+                viewers = len(self._viewers)
+            session.note_viewers(viewers, now=now)
+            live_stream.expire_empty(session, self._section, now=now)
+            return True
+
+        return live_stream.transact_session_file(self._path, update)
 
     def is_live(self):
         """Whether the shared record currently says the session is live.
