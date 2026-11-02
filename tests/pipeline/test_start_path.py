@@ -190,7 +190,7 @@ def rig(tmp_path, monkeypatch):
     monkeypatch.setattr(model_job, "record_start", lambda g, remote: "/records/1")
     monkeypatch.setattr(model_job.printers, "current", lambda *a, **k: FakeAdapter("octoprint", None))
     monkeypatch.setattr(model_job, "_with_gcode_temperatures",
-                        lambda state, text: {**state, "temps_c": {"bed": 60, "nozzle": 210}})
+                        lambda state, text, *a: {**state, "temps_c": {"bed": 60, "nozzle": 210}})
     monkeypatch.setattr(model_job, "_bambu_start_confirm_window", lambda: 30.0)
     from print_handy.core import delivery
     monkeypatch.setattr(delivery, "bambu_handoff", lambda job, gcodes, config=None: [package])

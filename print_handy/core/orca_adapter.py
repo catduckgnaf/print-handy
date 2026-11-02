@@ -1685,6 +1685,12 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         target_label=getattr(printer, 'label', ''), limits=machine_limits(templates),
         aliases=machine_identity(templates))
     return output, {'tool_mapping': mapping, 'source_sha256': digest(source), 'gcode_sha256': digest(output),
+                    # The temperatures this artifact was sliced at, preserved so a
+                    # later verify checks against them instead of re-resolving
+                    # (a Spoolman outage at verify time would otherwise fall
+                    # back to material defaults and refuse a sound file, P2-275).
+                    'temperatures': dict(state['temps_c']),
+                    'temperature_resolution': state.get('temperature_resolution'),
                     'config_sha256': {str(p): digest(p) for p in configs}, 'geometry': geometry,
                     'slice_guard': {'status': 'warnings' if warnings else 'ok', 'warnings': warnings,
                                     'effective_settings': post_gate.effective_settings},

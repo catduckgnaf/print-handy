@@ -332,7 +332,7 @@ def octoprint(tmp_path):
     st = {"temps_c": {"bed": 60, "nozzle": 210}, "nozzle": {"type": "hardened_steel"}}
     with mock.patch.object(model_job.printers, "current", return_value=fake), \
          mock.patch.object(model_job.printer_state, "load", return_value=st), \
-         mock.patch.object(model_job, "_with_gcode_temperatures", side_effect=lambda state, text: state), \
+         mock.patch.object(model_job, "_with_gcode_temperatures", side_effect=lambda state, text, *a: state), \
          mock.patch.object(model_job, "verify_gcode"), \
          mock.patch.object(model_job, "record_start", return_value="/vault/x.md"):
         fake.root = tmp_path
