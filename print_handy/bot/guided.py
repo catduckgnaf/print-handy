@@ -37,6 +37,7 @@ Printer operations and print authorization are deliberately out of scope for the
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -50,6 +51,8 @@ from pathlib import Path
 
 from .. import __version__, printers, settings
 
+logger = logging.getLogger(__name__)
+
 STORE_NAME = "guided-setup.json"
 # A saved checklist survives this long. After it, a plain reply is not consumed as an answer;
 # ``/print-handy setup`` resumes the saved answers and says the session had timed out.
@@ -57,7 +60,7 @@ SESSION_TIMEOUT_S = 24 * 3600
 
 HELP = """**Print Handy setup and debugging** — neither flow prints, moves, or authorizes a printer.
 - `/print-handy setup`: guided setup in small steps. Your checklist is saved, so you can stop and resume later. At the review step, reply `add` to set up more printers — each gets its own channel and state folder.
-- `/print-handy add-printer`: guided onboarding of another printer onto this install — name, connection, a live test of the printer, then your approval. Secrets are never collected in chat.
+- `/print-handy add-printer`: guided onboarding of another printer onto this install — name, connection, a live test of the printer, then your approval. Secrets are never collected in chat. `/print-handy add-printer restart` discards a saved onboarding checklist and starts over.
 - `/print-handy debugging`: read-only checks (configuration, bot login, permissions, connectivity, executables, state and logs). Secrets and private paths are redacted.
 - `/print-handy bundle`: write a redacted diagnostics bundle (versions, configuration summary, doctor output, recent log tail) into the state folder, ready to attach to a bug report. Nothing is uploaded.
 - `/print-handy debug on [minutes]` / `off` / `status`: debug log mode (#478) — temporary DEBUG capture (30 minutes by default, then it turns itself off). Turning it off delivers the sanitized log export for the session here in chat, with its sanitization report. Logging only; printing is unaffected.
@@ -831,19 +834,42 @@ def _onboard_thermal(conn, answers, secrets):
         return {"proposals": [], "note": "the thermal probe did not run; nothing was proposed."}
 
 
+def _rollback_roster_write(result):
+    """Undo a just-committed roster append whose follow-up steps failed
+    (P2-218): restore the backup ``add_printer`` kept next to the settings
+    file, so the file is exactly what it was before the attempt. A rollback
+    failure is logged, never hidden — the original failure is the one the
+    operator sees, and the log names the state the file was left in."""
+    from ..setup_wizard import _atomic_write
+    try:
+        text = Path(result["backup"]).read_text(encoding="utf-8")
+        _atomic_write(Path(result["path"]), text, 0o644)
+    except Exception:
+        logger.warning("could not roll back the roster write in %s after a failed "
+                       "onboarding apply; the new entry may still be in the file",
+                       result["path"], exc_info=True)
+
+
 def _apply_onboarding(answers):
     """The onboarding apply: roster write (converting a legacy config on the
     way), then the new printer's first hardware record. Raises on failure;
-    the handler keeps the session at review so nothing is lost."""
+    the handler keeps the session at review so nothing is lost. A failure
+    after the append rolls the append back (P2-218): the review's 'nothing
+    was written' stays true, and the retry does not die on the duplicate
+    id its own first attempt left behind."""
     from .. import roster_write
     from ..core import printer_state
 
     entry = _onboard_entry(answers)
     result = roster_write.add_printer(entry)
-    view = settings.view_for(entry["id"], settings.load())
-    seeded = printer_state.seed_hardware_record(entry["id"], view)
-    from ..core import thermal_probe
-    confirmed = thermal_probe.record_confirmed(entry["id"], entry["model"], answers.get("thermal"))
+    try:
+        view = settings.view_for(entry["id"], settings.load())
+        seeded = printer_state.seed_hardware_record(entry["id"], view)
+        from ..core import thermal_probe
+        confirmed = thermal_probe.record_confirmed(entry["id"], entry["model"], answers.get("thermal"))
+    except Exception:
+        _rollback_roster_write(result)
+        raise
     converted = (" Your existing single-printer settings were converted into "
                  "the roster's first entry on the way."
                  if result["converted"] else "")
@@ -1403,6 +1429,42 @@ def _apply_answers(answers, config_path):
             "then `/print-handy debugging`.")
 
 
+def _start_onboarding(key, store, now, config_loader, restarted=False):
+    """Begin a fresh onboarding checklist and return its first prompt.
+
+    The current settings must load and the roster must be writable before
+    anyone is walked through the steps; both refusals name the fix.
+    ``restarted`` says a saved checklist was just discarded (P2-219)."""
+    loader = config_loader or (lambda: settings.load())
+    try:
+        cfg = loader()
+    except Exception as exc:
+        return ("**Printer onboarding cannot start** — the current settings do not "
+                f"load: {exc}\nFix the configuration first (`/print-handy debugging` "
+                "shows the checks), then run `/print-handy add-printer` again.")
+    from .. import roster_write
+    refusal = roster_write.write_refusal()
+    if refusal:
+        return f"**Printer onboarding cannot start** — {refusal}"
+    entries = cfg.get("printers") or []
+    session = {"key": key, "flow": "onboard", "status": "onboarding",
+               "ob_answers": {}, "ob_step": 0, "ob_keys": ["model", "name"],
+               "ob_existing": {
+                   "ids": [entry["id"] for entry in entries],
+                   "names": [str(entry["name"]) for entry in entries],
+                   "connections": [printers.MODELS[entry["model"]].vendor.connection
+                                   for entry in entries]},
+               "created_at": now, "updated_at": now}
+    store.save(session)
+    note = ("**Add a printer.** One question at a time; nothing is written until you "
+            "approve it at the end, and the printer is tested live before it is saved. "
+            "Secrets are never collected here — you store each value in the .env and "
+            "reply when it is stored.")
+    if restarted:
+        note = "**Onboarding restarted — the saved checklist was discarded.**\n\n" + note
+    return _onboard_prompt_text(session, note)
+
+
 # ---------------------------------------------------------------------- the flow
 
 def handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
@@ -1465,10 +1527,29 @@ def handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
                 return ("Printer onboarding paused. Your answers are saved in the checklist "
                         "and nothing was written to the configuration.\n"
                         + _onboard_checklist_text(session) +
-                        "\nResume any time with `/print-handy add-printer`.")
+                        "\nResume any time with `/print-handy add-printer`, or discard the "
+                        "checklist and start over with `/print-handy add-printer restart`.")
             return ("Setup paused. Your answers are saved in the checklist and nothing was "
                     "written to the configuration.\n" + checklist_text(session) +
                     "\nResume any time with `/print-handy setup`.")
+        if rest == "add-printer restart":
+            # Discard a saved onboarding checklist and start over (P2-219):
+            # resuming is the default everywhere else, so without this an
+            # accepted model or name could never be corrected, and a
+            # checklist left by a hand-added printer trapped its owner in
+            # a review whose apply must fail on the existing id.
+            if (session is not None and session.get("flow") != "onboard"
+                    and session["status"] in ("in_progress", "awaiting_consent",
+                                               "adding_printer")):
+                return ("A guided setup is in progress here. Finish it, or "
+                        "`/print-handy cancel` to pause it, then run "
+                        "`/print-handy add-printer`.")
+            discarded = (session is not None and session.get("flow") == "onboard"
+                         and session["status"] != "complete")
+            if discarded:
+                store.clear(key)
+            return _start_onboarding(key, store, now, config_loader,
+                                     restarted=discarded)
         if rest == "add-printer":
             if (session is not None and session.get("flow") == "onboard"
                     and session["status"] in ("onboarding", "onboard_review", "cancelled")):
@@ -1490,39 +1571,14 @@ def handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
                 return ("A guided setup is in progress here. Finish it, or "
                         "`/print-handy cancel` to pause it, then run "
                         "`/print-handy add-printer`.")
-            loader = config_loader or (lambda: settings.load())
-            try:
-                cfg = loader()
-            except Exception as exc:
-                return ("**Printer onboarding cannot start** — the current settings do not "
-                        f"load: {exc}\nFix the configuration first (`/print-handy debugging` "
-                        "shows the checks), then run `/print-handy add-printer` again.")
-            from .. import roster_write
-            refusal = roster_write.write_refusal()
-            if refusal:
-                return f"**Printer onboarding cannot start** — {refusal}"
-            entries = cfg.get("printers") or []
-            session = {"key": key, "flow": "onboard", "status": "onboarding",
-                       "ob_answers": {}, "ob_step": 0, "ob_keys": ["model", "name"],
-                       "ob_existing": {
-                           "ids": [entry["id"] for entry in entries],
-                           "names": [str(entry["name"]) for entry in entries],
-                           "connections": [printers.MODELS[entry["model"]].vendor.connection
-                                           for entry in entries]},
-                       "created_at": now, "updated_at": now}
-            store.save(session)
-            return _onboard_prompt_text(
-                session,
-                "**Add a printer.** One question at a time; nothing is written until you "
-                "approve it at the end, and the printer is tested live before it is saved. "
-                "Secrets are never collected here — you store each value in the .env and "
-                "reply when it is stored.")
+            return _start_onboarding(key, store, now, config_loader)
         if rest in ("setup", "setup restart"):
             if (session is not None and session.get("flow") == "onboard"
                     and session["status"] != "complete"):
                 return ("A printer onboarding is in progress here — `/print-handy add-printer` "
-                        "resumes it, or `/print-handy cancel` pauses it. Guided setup can "
-                        "start once it finishes.")
+                        "resumes it, `/print-handy cancel` pauses it, or "
+                        "`/print-handy add-printer restart` discards it and starts over. "
+                        "Guided setup can start once it finishes.")
             if rest == "setup restart" or session is None or session["status"] == "complete":
                 session = _new_session(key, now)
                 store.save(session)
@@ -1576,6 +1632,13 @@ def handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
             try:
                 detail = apply_config(session["answers"])
             except Exception as exc:  # a failed write must not lose the checklist
+                # The reply below names the log as where the detail lives
+                # (P2-180): put it there, redacted, before returning —
+                # actionable refusals (an existing config that must be
+                # edited or moved aside) were discarded silently before
+                # this module logged anything.
+                logger.warning("guided setup apply failed; the checklist was kept: %s",
+                               redact(str(exc)))
                 return ("The settings could not be saved, so nothing was changed. "
                         "This looks like a problem on the Print Handy side, not with your answers — "
                         "the detail is in the log, and `/print-handy bundle` gathers it for a report.\n"

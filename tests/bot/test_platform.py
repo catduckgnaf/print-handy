@@ -119,6 +119,20 @@ def test_live_stream_is_a_discord_only_capability():
     assert matrix_adapter.StandaloneAdapter.supports_live_stream is False
 
 
+def test_serial_polling_is_a_telegram_and_matrix_trait():
+    # P1-109: Telegram (getUpdates) and Matrix (/sync) drive messages from a
+    # serial polling loop, so a wait inside message handling starves the very
+    # loop that must deliver the answer; BotCore backgrounds the did-you-mean
+    # wait for them. Discord dispatches each message independently.
+    from print_handy.bot import adapter as discord_adapter
+    from print_handy.bot import matrix as matrix_adapter
+    from print_handy.bot import telegram as telegram_adapter
+    assert platform.BasePlatformAdapter.polls_serially is False
+    assert discord_adapter.StandaloneAdapter.polls_serially is False
+    assert telegram_adapter.StandaloneAdapter.polls_serially is True
+    assert matrix_adapter.StandaloneAdapter.polls_serially is True
+
+
 def test_prompt_ids_round_trip_through_the_interface():
     cid = "ab" * 16
     assert platform.custom_id(cid, 3) == f"pbq:{cid}:3"

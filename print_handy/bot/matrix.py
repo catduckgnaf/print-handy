@@ -111,6 +111,7 @@ class StandaloneAdapter(BasePlatformAdapter):
     max_buttons = 0
     uses_llm = False
     supports_live_stream = False
+    polls_serially = True  # /sync loop awaits each event (P1-109)
 
     def __init__(self, client, allowed, *, denied=(), approver=None, registry=prompts,
                  upload_max_bytes=None, homeserver=None, token=None, opener=None):
@@ -188,6 +189,14 @@ class StandaloneAdapter(BasePlatformAdapter):
         (P1-65), so an answer is processed while the flow it answers is
         still running; the resolve stays first-wins (the registry decides):
         its result is what this call returns.
+
+        The answer is RESERVED before the note posts (P2-166): the note is
+        a network send that can take up to 30 seconds, and an answer that
+        arrived just before the prompt's timeout used to be discarded as
+        expired while the note was still sending. Reserving records the
+        answer at arrival — the wait holds for the commit — while the
+        resolve itself still happens after the note, so the flow's
+        continuation cannot overtake the note in the room.
         """
         text = str(text or "").strip()
         match = _NUMBER.fullmatch(text)
@@ -201,8 +210,13 @@ class StandaloneAdapter(BasePlatformAdapter):
         cid = self.open_prompt(session_key)
         if cid is None or not self.registry.is_open(cid):
             return False
-        await self.close_prompt(cid, answered_note(text))
-        return bool(self.registry.resolve_gateway_clarify(cid, str(text)))
+        if not self.registry.reserve_gateway_clarify(cid, str(text)):
+            return False
+        try:
+            await self.close_prompt(cid, answered_note(text))
+        finally:
+            resolved = self.registry.resolve_gateway_clarify(cid, str(text))
+        return bool(resolved)
 
     async def close_prompt(self, clarify_id, note):
         """No message edit on Matrix: a short follow-up message records the answer."""

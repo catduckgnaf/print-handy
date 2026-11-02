@@ -3,6 +3,8 @@ walkthrough — model, name, per-domain fields, a live probe step, review,
 apply through the roster writer; secrets never collected or stored."""
 import json
 
+import pytest
+
 from print_handy.bot import commands, guided
 
 EXISTING = {"printers": [{"id": "ad5x", "model": "flashforge.ad5x",
@@ -327,6 +329,70 @@ def test_apply_failure_keeps_the_session_at_review(tmp_path):
     assert st.get("k")["status"] == "onboard_review"
     reply = say(st, "apply", onboard_apply=lambda answers: "written.")
     assert "Printer onboarding complete" in reply
+
+
+def test_apply_rolls_back_the_roster_write_when_a_later_step_fails(tmp_path, monkeypatch):
+    """P2-218: add_printer commits the roster entry before the follow-up
+    steps run. When one of them fails (here the hardware-record seed, e.g.
+    an unwritable state directory), the append is rolled back from the
+    backup the writer kept — otherwise the review's 'nothing was written'
+    is false and the session's retry dies on the duplicate id its own
+    first attempt left behind."""
+    from print_handy import roster_write
+    from print_handy.core import printer_state
+
+    target = tmp_path / "local.yaml"
+    target.write_text("printers: []\n")
+    backup = tmp_path / "local.yaml.bak-test"
+    backup.write_text("printers: []\n")
+
+    def fake_add(entry):
+        target.write_text("printers:\n  - id: bench\n")  # the committed append
+        return {"path": target, "backup": backup, "converted": False,
+                "printer_ids": ["bench"]}
+
+    def fail_seed(pid, view):
+        raise RuntimeError("state dir unwritable")
+
+    monkeypatch.setattr(roster_write, "add_printer", fake_add)
+    monkeypatch.setattr(guided.settings, "load", lambda *a, **k: {})
+    monkeypatch.setattr(guided.settings, "view_for", lambda pid, cfg: object())
+    monkeypatch.setattr(printer_state, "seed_hardware_record", fail_seed)
+    answers = {"printer_id": "bench", "model": "flashforge.ad5x", "name": "Bench"}
+    with pytest.raises(RuntimeError, match="state dir unwritable"):
+        guided._apply_onboarding(answers)
+    assert target.read_text() == "printers: []\n"  # the append was rolled back
+
+
+def test_add_printer_restart_discards_an_unfinished_checklist(tmp_path):
+    """P2-219: a saved onboarding checklist can be discarded and started
+    over. add-printer alone always resumes it, cancel only pauses it, and
+    setup restart is refused while one exists — so a wrong model or name,
+    once accepted, could never be corrected short of applying it."""
+    st = store(tmp_path)
+    start(st, now=1000)
+    say(st, "creality.k1")
+    say(st, "Wrong Name")
+    assert st.get("k")["ob_answers"].get("name") == "Wrong Name"
+    reply = say(st, "/print-handy add-printer restart", config_loader=loader)
+    assert "restarted" in reply and "discarded" in reply and "Printer model" in reply
+    session = st.get("k")
+    assert session["status"] == "onboarding" and session["ob_answers"] == {}
+
+
+def test_add_printer_restart_discards_a_cancelled_checklist(tmp_path):
+    """The manual trap (P2-219): a cancelled checklist — e.g. the person
+    added the printer by hand after choosing manual — still resumes on
+    add-printer and its review apply then fails on the existing id.
+    Restart discards it instead."""
+    st = store(tmp_path)
+    start(st, now=1000)
+    say(st, "creality.k1")
+    say(st, "/print-handy cancel")
+    assert st.get("k")["status"] == "cancelled"
+    reply = say(st, "/print-handy add-printer restart", config_loader=loader)
+    assert "discarded" in reply
+    assert st.get("k")["status"] == "onboarding" and st.get("k")["ob_answers"] == {}
 
 
 def test_manual_at_review_prints_the_roster_yaml(tmp_path):

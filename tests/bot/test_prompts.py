@@ -25,6 +25,29 @@ def test_timeout_closes_the_prompt_and_a_late_click_finds_nothing():
     assert prompts.resolve_gateway_clarify("a2", "Yes") is False
 
 
+def test_a_reserved_answer_survives_the_wait_timeout_until_it_commits():
+    """P2-166: reserving records the answer before slow network I/O (the
+    Matrix close-out note). The waiter's timeout must not discard a reserved
+    prompt: the wait holds until the reserver commits with the same answer.
+    First answer wins — a second reservation or a different resolve fails."""
+    import time
+
+    prompts.register("r1", "s", "Q?", ["Yes", "No"])
+    assert prompts.reserve_gateway_clarify("r1", "Yes") is True
+    assert prompts.reserve_gateway_clarify("r1", "No") is False
+    assert prompts.is_open("r1")  # reserved, not yet resolved: still the open prompt
+    got = []
+    worker = threading.Thread(target=lambda: got.append(prompts.wait_for_response("r1", 0.2)))
+    worker.start()
+    time.sleep(0.5)  # the nominal timeout passes while the note is posting
+    assert worker.is_alive(), "the wait discarded a reserved prompt at its timeout"
+    assert prompts.resolve_gateway_clarify("r1", "No") is False  # not the reserved answer
+    assert prompts.resolve_gateway_clarify("r1", "Yes") is True  # the reserver commits
+    worker.join(5)
+    assert got == ["Yes"]
+    assert not prompts.is_open("r1")
+
+
 def test_cleanup_pattern_of_the_intake_leaves_nothing_behind():
     """ask(): resolve CANCELLED then wait 1 ms, after an answer or after a failed send."""
     before = prompts.open_count()

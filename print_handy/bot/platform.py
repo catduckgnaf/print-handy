@@ -150,6 +150,7 @@ class ChatPlatform(Protocol):
     supports_buttons: bool
     max_buttons: int
     supports_live_stream: bool
+    polls_serially: bool
 
     async def send(self, chat_id, content, reply_to=None, metadata=None) -> SendResult: ...
     async def send_clarify(self, chat_id, question, choices, clarify_id, session_key,
@@ -181,6 +182,13 @@ class BasePlatformAdapter:
     # adapter reports True. Other platforms expose no /print-live command,
     # no stub and no config surface for it.
     supports_live_stream = False
+    # The client drives messages from a serial polling loop (Telegram
+    # getUpdates, Matrix /sync): each update is awaited before the next is
+    # fetched, so a long wait inside message handling starves the loop that
+    # must deliver the answer to an open prompt. BotCore reads this to run
+    # the did-you-mean prompt's wait in a background task (P1-109).
+    # Event-driven clients (Discord) leave it False.
+    polls_serially = False
     # Access model (#386): on a platform whose adapter sets this, the print
     # channel is the access boundary — with no allow list configured, anyone
     # who can post in the channel may use the bot, and the allow/deny lists

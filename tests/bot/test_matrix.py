@@ -413,10 +413,90 @@ def test_a_typed_answer_posts_its_note_before_it_unblocks_the_flow(cfg, tmp_path
         gate.set()
 
 
+def test_a_timely_answer_survives_a_slow_close_out_note(cfg, tmp_path):
+    """P2-166: the answer is reserved before the close-out note posts, so a
+    note send that outlasts the prompt's remaining timeout cannot discard a
+    timely answer as expired. The stub holds the note for 0.6 s; the waiter
+    only has 0.3 s — before the fix the wait expired, the prompt was dropped
+    and answer_typed returned False after posting its note."""
+    import time as time_module
+
+    class SlowNoteStub(HomeserverStub):
+        def __call__(self, req, timeout=None):
+            body = None
+            if req.data and req.headers.get("Content-type") == "application/json":
+                body = json.loads(req.data)
+            if body and str(body.get("body", "")).startswith("> Answered"):
+                time_module.sleep(0.6)
+            return super().__call__(req, timeout=timeout)
+
+    async def scenario():
+        stub = SlowNoteStub()
+        adapter = matrix.StandaloneAdapter(None, [USER], homeserver=HOMESERVER, token=TOKEN, opener=stub)
+        cid = "cd" * 16
+        key = f"matrix:{ROOM}::{USER}"
+        prompts.register(cid, key, "Start the print?", ["Print it"])
+        result = await adapter.send_clarify(chat_id=ROOM, question="Start the print?",
+                                            choices=["Print it"], clarify_id=cid, session_key="flow")
+        assert result.success
+        waiter = asyncio.create_task(asyncio.to_thread(prompts.wait_for_response, cid, 0.3))
+        assert await adapter.answer_typed(key, "1") is True
+        assert await waiter == "Print it"
+
+    run(scenario())
+
+
 def test_a_number_with_no_open_prompt_is_not_an_answer(cfg, tmp_path):
     adapter = matrix.StandaloneAdapter(None, [USER], homeserver=HOMESERVER, token=TOKEN,
                                        opener=HomeserverStub())
     assert run(adapter.answer_typed(f"matrix:{ROOM}::{USER}", "2")) is False
+
+
+def test_a_near_miss_prompt_does_not_block_the_sync_loop(cfg, tmp_path, monkeypatch):
+    """P1-109: the did-you-mean wait must not run inside message handling on
+    a polling platform — the same loop has to deliver the answer. The
+    handler returns at once, the prompt stays open in a background task,
+    and the typed answer (the next event) still dispatches the correction."""
+    monkeypatch.setattr(runtime, "SUGGESTION_TIMEOUT_S", 30)
+    seen = []
+
+    class _Plugin:
+        def register(self, router):
+            async def record(event, gateway):
+                if event.text.startswith("/spool"):
+                    seen.append(event)
+                    return {"action": "skip", "reason": "recorded"}
+                return None
+            router.register_hook("pre_gateway_dispatch", record)
+
+    def text_event(body, event_id):
+        return {"type": "m.room.message", "sender": USER, "event_id": event_id,
+                "content": {"msgtype": "m.text", "body": body}}
+
+    stub = HomeserverStub()
+    client, core = make_core(cfg, stub, tmp_path, router=Router(plugin=_Plugin()))
+
+    async def flow():
+        out = await asyncio.wait_for(client.handle_event(text_event("/spol list", "$e1"), ROOM),
+                                     timeout=5)
+        assert out == {"action": "skip", "reason": "did-you-mean suggestion pending"}
+        await client.handle_event(text_event("1", "$e2"), ROOM)  # "1" = Yes — run it
+        for _ in range(200):
+            if seen:
+                break
+            await asyncio.sleep(0.01)
+        assert [e.text for e in seen] == ["/spool list"]
+
+    run(flow())
+
+
+def test_matrix_help_omits_the_discord_only_live_command(cfg, tmp_path):
+    """Help is a platform surface too (P2-123): Matrix help must not advertise
+    /print-live, which only the Discord adapter can run."""
+    stub = HomeserverStub()
+    client, core = make_core(cfg, stub, tmp_path)
+    assert "/print-live" not in core.help
+    assert "/print-stop" in core.help
 
 
 # ---------------------------------------------------------------------- BotCore wiring

@@ -106,6 +106,19 @@ def make_core(cfg, stub, router=None):
     return client, core
 
 
+def test_registered_commands_omit_the_discord_only_live_command(cfg, tmp_path):
+    """Telegram's command menu must not offer /print_live (P2-123): live
+    viewing is a Discord Activity, the handler deliberately does not run
+    here, so registration is filtered by the platform capability."""
+    stub = BotApiStub()
+    client, core = make_core(cfg, stub)
+    client._register_commands()
+    [payload] = stub.payloads("setMyCommands")
+    names = [entry["command"] for entry in payload["commands"]]
+    assert "print_live" not in names
+    assert "print_stop" in names and "print_handy" in names
+
+
 # ---------------------------------------------------------------------- REST sender
 
 
