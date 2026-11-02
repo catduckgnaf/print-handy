@@ -37,6 +37,7 @@ from .catalog import CATALOG, Field, field_by_id
 MODEL_DEFAULT = "model_default"
 HOME_CONFIG = "home_config"
 SETTINGS_FILE = "settings_file"
+USER_FILE = "user_file"  # the operator's own file (settings.user_config_path), layered over SETTINGS_FILE
 ENVIRONMENT = "environment"
 DEFAULT = "default"  # supplied by validation's defaults; no file or env layer names it
 
@@ -62,6 +63,11 @@ class FieldValue:
     @property
     def env_overridden(self):
         return self.provenance == ENVIRONMENT
+
+    @property
+    def overridden(self):
+        """Set by a layer above the settings file the Web UI writes, so a value saved here would not apply."""
+        return self.provenance in (ENVIRONMENT, USER_FILE)
 
 
 def settings_file_path(environ=None):
@@ -96,14 +102,17 @@ def _file_path(local, environ):
 
 
 def _layers(home, local, environ):
-    """(model_defaults, home_data, file_data, env_data) snapshots, built with
+    """(model_defaults, home_data, file_data, user_data, env_data) snapshots, built with
     settings' own merge/env helpers in settings.load's order."""
     home_data = settings._read(_home_path(home))
     file_path = _file_path(local, environ)
     file_data = settings._read(file_path) if file_path is not None and file_path.is_file() else {}
+    user_path = settings.user_config_path(environ)
+    user_data = settings._read(user_path) if user_path is not None and user_path.is_file() else {}
 
     def pick(name):
         return (environ.get(f"PRINT_HANDY__PRINTER__{name.upper()}")
+                or user_data.get("printer", {}).get(name)
                 or file_data.get("printer", {}).get(name)
                 or home_data.get("printer", {}).get(name))
 
@@ -111,12 +120,12 @@ def _layers(home, local, environ):
     model_defaults = printers.MODELS[key].defaults()
     base = copy.deepcopy(settings._merge(model_defaults, home_data))
     env_data = settings._from_env(base, environ)
-    return model_defaults, home_data, file_data, env_data
+    return model_defaults, home_data, file_data, user_data, env_data
 
 
 def _provenance(field, layers):
-    model_defaults, home_data, file_data, env_data = layers
-    for provenance, layer in ((ENVIRONMENT, env_data), (SETTINGS_FILE, file_data),
+    model_defaults, home_data, file_data, user_data, env_data = layers
+    for provenance, layer in ((ENVIRONMENT, env_data), (USER_FILE, user_data), (SETTINGS_FILE, file_data),
                               (HOME_CONFIG, home_data), (MODEL_DEFAULT, model_defaults)):
         if field.key in (layer.get(field.section) or {}):
             return provenance
@@ -217,6 +226,10 @@ def write_changes(changes, *, config_path=None, home=None, environ=None, timesta
                 f"{field.id} is overridden by the environment "
                 f"(PRINT_HANDY__{field.section.upper()}__{field.key.upper()} or a legacy name); "
                 "change or unset that variable instead — the value was not written to the file")
+        if _provenance(field, layers) == USER_FILE:
+            raise WebUIConfigError(
+                f"{field.id} is set in your own settings file ({settings.user_config_path(environ)}), "
+                "which overrides this one; change it there — the value was not written to the file")
     current = settings._read(target) if target.is_file() else {}
     if not isinstance(current, dict):  # pragma: no cover - settings._read enforces this
         raise WebUIConfigError(f"{target}: top-level config must be a mapping")

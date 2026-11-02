@@ -78,11 +78,11 @@
       ""
     ],
     "filament_flow_ratio": [
-      "0.95"
+      "0.98"
     ],
     "filament_id": "FFG01",
     "filament_max_volumetric_speed": [
-      "25"
+      "12"
     ],
     "filament_minimal_purge_on_wipe_tower": [
       "15"
@@ -174,7 +174,7 @@
       "1"
     ],
     "slow_down_layer_time": [
-      "6"
+      "8"
     ],
     "slow_down_min_speed": [
       "20"
@@ -493,7 +493,7 @@
     "only_one_wall_top": "1",
     "outer_wall_acceleration": "3200",
     "outer_wall_line_width": "100%",
-    "outer_wall_speed": "200",
+    "outer_wall_speed": "60.0",
     "overhang_1_4_speed": "0",
     "overhang_2_4_speed": "40",
     "overhang_3_4_speed": "20",

@@ -121,7 +121,7 @@ def _apply_key_aliases(layer):
 
 
 # Sections whose keys are names you choose, not a fixed set.
-OPEN_SECTIONS = {"cold_pull", "nozzle_temp_offsets", "material_temps"}
+OPEN_SECTIONS = {"cold_pull", "nozzle_temp_offsets", "material_temps", "material_tuning"}
 # Keys that can be optionally specified even if absent from base home.toml.
 OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int,
                  ("printer", "zmod_delivery_format"): str,
@@ -187,6 +187,14 @@ DEFAULT_MATERIAL_TEMPS = {
     "ABS": {"nozzle": 245, "bed": 100}, "ASA": {"nozzle": 260, "bed": 105},
     "TPU": {"nozzle": 230, "bed": 50}, "PA": {"nozzle": 260, "bed": 90},
     "PC": {"nozzle": 275, "bed": 110},
+}
+# Slicing tuning per material family (flow ratio Orca receives, volumetric-speed cap, minimum layer
+# time, outer-wall speed cap). PLA ships the recipe that won the 2026-11-02 AD5X comparison: 0.98 flow,
+# 12 mm³/s, 8 s layers, 60 mm/s outer walls (1.05 flow at 25 mm³/s left visible over-extrusion).
+# Any key set in a config file wins; families not listed keep their template values.
+MATERIAL_TUNING_KEYS = ("flow_ratio", "max_volumetric_speed", "min_layer_time", "outer_wall_speed_max")
+DEFAULT_MATERIAL_TUNING = {
+    "PLA": {"flow_ratio": 0.98, "max_volumetric_speed": 12.0, "min_layer_time": 8.0, "outer_wall_speed_max": 60.0},
 }
 
 
@@ -1464,6 +1472,32 @@ def validate(data):
         for key, value in profile.items():
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value <= 300:
                 raise SettingsError(f"[material_temps] {family}.{key} must be between 1 and 300 °C, got {value!r}")
+    tuning = data.get("material_tuning")
+    if tuning is None:
+        tuning = data["material_tuning"] = {}
+    if not isinstance(tuning, dict):
+        raise SettingsError(f"[material_tuning] must be a table of material families, got {tuning!r}")
+    for family, defaults in DEFAULT_MATERIAL_TUNING.items():
+        profile = tuning.setdefault(family, {})
+        if isinstance(profile, dict):
+            for key, value in defaults.items():
+                profile.setdefault(key, value)
+    limits = {"flow_ratio": (0.5, 1.5), "max_volumetric_speed": (0.5, 100.0),
+              "min_layer_time": (0.0, 120.0), "outer_wall_speed_max": (1.0, 1000.0)}
+    for family, profile in tuning.items():
+        if not isinstance(profile, dict):
+            raise SettingsError(f"[material_tuning] {family} must be a table, got {profile!r}")
+        for key, value in profile.items():
+            if key not in limits:
+                raise SettingsError(f"[material_tuning] {family}.{key} is not a tuning key "
+                                    f"(use {', '.join(MATERIAL_TUNING_KEYS)})")
+            if value is None:
+                continue  # null: keep the printer template's own value for this key
+            low, high = limits[key]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not low <= value <= high:
+                raise SettingsError(f"[material_tuning] {family}.{key} must be between {low:g} and {high:g}, "
+                                    f"got {value!r}")
+            profile[key] = float(value)
     bed = data.get("printer", {}).get("bed_mm")
     if (not isinstance(bed, list) or len(bed) != 2
             or not all(isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 for v in bed)):
@@ -1584,12 +1618,28 @@ def validate(data):
     return data
 
 
-def load(home=None, local=None, environ=None):
+def user_config_path(environ):
+    """The operator's own settings file, layered over the selected config and never shipped by an image.
+
+    $PRINT_HANDY_USER_CONFIG, else $XDG_CONFIG_HOME/print-handy/settings.yaml, else
+    $HOME/.config/print-handy/settings.yaml (in Docker HOME=/data, so /data/.config, which the
+    Unraid template already mounts from appdata). None when the environment names no home.
+    """
+    explicit = environ.get("PRINT_HANDY_USER_CONFIG")
+    if explicit:
+        return Path(explicit)
+    base = environ.get("XDG_CONFIG_HOME") or (environ.get("HOME") and str(Path(environ["HOME"]) / ".config"))
+    return Path(base) / "print-handy" / "settings.yaml" if base else None
+
+
+def load(home=None, local=None, environ=None, user=None):
     """Read and validate settings. Prefer YAML and retain TOML during migration.
 
     Load order: model defaults, home configuration, explicit PRINT_HANDY_CONFIG (or
     local YAML/TOML), then environment. If home.yaml is absent, home.toml is used.
     If local.yaml is absent, local.toml is used. PRINT_HANDY_CONFIG selects one file.
+    The operator's own file (user_config_path) is layered over that file and under the
+    environment, so an image update that replaces the shipped config never touches it.
     Pass environ={} to ignore the process environment.
     """
     environ = os.environ if environ is None else environ
@@ -1607,12 +1657,23 @@ def load(home=None, local=None, environ=None):
         elif LEGACY_LOCAL.is_file():
             local = LEGACY_LOCAL
     extra = _apply_key_aliases(_read(local)) if local else {}
+    if user is None:
+        user = user_config_path(environ)
+        if user is not None and not user.is_file():
+            user = None
+    elif user and not Path(user).is_file():
+        raise SettingsError(f"user settings file is missing: {user}")
+    user_extra = _apply_key_aliases(_read(user)) if user else {}
+    shipped = bool(local) and Path(local).resolve() in SHIPPED_DOCKER_CONFIGS
+    operator = _merge({} if shipped else extra, user_extra)
+    extra = _merge(extra, user_extra)
     declared = _merge(home_data, extra).get("printers")
     if declared is not None:
         # A declared roster replaces the legacy per-printer locations; setting both is refused
         # with the offenders named (#333). Only the operator's layers are checked: home.yaml's
-        # own legacy values are the defaults base, not a second roster.
-        _check_mixed_shape(extra, environ)
+        # own legacy values are the defaults base, not a second roster, and so are the image's
+        # shipped docker config's when the roster comes from the operator's own file.
+        _check_mixed_shape(operator, environ)
     def pick(name):
         return (environ.get(f"PRINT_HANDY__PRINTER__{name.upper()}") or extra.get("printer", {}).get(name)
                 or home_data.get("printer", {}).get(name))
@@ -1625,12 +1686,14 @@ def load(home=None, local=None, environ=None):
     data = _merge(printer_registry.MODELS[key].defaults(), home_data)
     base = copy.deepcopy(data)
     global _model_defaulted
-    shipped = bool(local) and Path(local).resolve() in SHIPPED_DOCKER_CONFIGS
     _model_defaulted = bool(shipped and first is None and not environ.get("PRINT_HANDY__PRINTER__MODEL")
-                            and not environ.get("PRINT_HANDY__PRINTER__VENDOR"))
+                            and not environ.get("PRINT_HANDY__PRINTER__VENDOR")
+                            and not user_extra.get("printer", {}).get("model"))
+    if user:
+        _check_keys(base, user_extra, user)
     if local:
-        _check_keys(base, extra, local)
-        data = _merge(data, extra)
+        _check_keys(base, _apply_key_aliases(_read(local)), local)
+    data = _merge(data, extra)
     env_layer = _from_env(base, environ, declared)
     data = _merge(data, env_layer)
     # layout.spacing fills the gap/margin keys; a key the operator set anywhere wins.

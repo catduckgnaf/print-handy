@@ -21,6 +21,13 @@ ruby = 0.0
 tungsten_carbide = 0.0
 diamond = 0.0
 
+# Slicing tuning per material family; a key set in your own config wins.
+[material_tuning.PLA]
+flow_ratio = 0.98
+max_volumetric_speed = 12.0
+min_layer_time = 8.0
+outer_wall_speed_max = 60.0
+
 [layout]
 # Merged plates longer than this are kept separate. The edge margins and merge gaps come from the printer model.
 max_merged_hours = 12

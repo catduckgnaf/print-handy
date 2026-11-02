@@ -20,6 +20,10 @@ material_temps:
   TPU: {nozzle: 230, bed: 50}
   PA: {nozzle: 260, bed: 90}
   PC: {nozzle: 275, bed: 110}
+# Slicing tuning per material family; a key set in your own config wins. Ships the PLA
+# recipe from the 2026-11-02 AD5X comparison. Set a key to null to keep the template value.
+material_tuning:
+  PLA: {flow_ratio: 0.98, max_volumetric_speed: 12.0, min_layer_time: 8.0, outer_wall_speed_max: 60.0}
 layout:
   max_merged_hours: 12
 orca:
