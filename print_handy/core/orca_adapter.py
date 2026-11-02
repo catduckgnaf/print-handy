@@ -2414,7 +2414,15 @@ def placement_candidates(path_or_triangles, printer_model=None, bed_mm=None, max
         yaw_set = {0.0, 45.0, 90.0}
         for i, a in enumerate(hull):
             b = hull[(i + 1) % len(hull)]
-            yaw_set.add(round(math.degrees(math.atan2(b[1]-a[1], b[0]-a[0])) % 90.0, 6))
+            edge = round(math.degrees(math.atan2(b[1]-a[1], b[0]-a[0])) % 90.0, 6)
+            yaw_set.add(edge)
+            # The inverse rotations align an already-rotated footprint with
+            # the bed axes (P2-49): -edge turns this edge back to 0 degrees,
+            # and its quarter turn (90 - edge) aligns it with the other axis
+            # instead — the fitting one on a rectangular bed. The positive
+            # angle alone rotates the edge farther from both axes.
+            yaw_set.add(round(-edge, 6))
+            yaw_set.add(round(90.0 - edge, 6))
         for yaw in sorted(yaw_set):
             rot = _matmul(_yaw(yaw), matrix)
             # Yaw is about Z, so XY extents come from the 2D hull alone and Z is unchanged.
@@ -2424,18 +2432,22 @@ def placement_candidates(path_or_triangles, printer_model=None, bed_mm=None, max
                     max(p[1] for p in moved) - min(p[1] for p in moved), z_extent]
             mx, my, mz = bed[0]-dims[0], bed[1]-dims[1], height_limit-dims[2]
             euler = _euler_xyz(rot)
-            rows.append({'label': name, 'axis': axis, 'rx_deg': euler[0], 'ry_deg': euler[1], 'rz_deg': round(yaw, 3),
+            rows.append({'label': name, 'axis': axis, 'rx_deg': euler[0], 'ry_deg': euler[1], 'rz_deg': euler[2],
+                         # All three reported angles describe the row's matrix
+                         # (P2-50); the bed yaw that produced it is its own
+                         # field, used for candidate lookup and ranking.
+                         'yaw_deg': round(yaw, 3),
                          'footprint_mm': [round(v, 3) for v in dims], 'margin_x_mm': round(mx, 3),
                          'margin_y_mm': round(my, 3), 'margin_z_mm': round(mz, 3),
                          'min_bed_margin_mm': round(min(mx, my, mz), 3),
                          'fits_bed': dims[0] <= bed[0] and dims[1] <= bed[1] and dims[2] <= height_limit,
                          'diagonal_gain_mm': 0.0, 'rotation': [round(v, 9) for v in rot]})
     for row in rows:
-        cardinal = next((r for r in rows if r['axis'] == row['axis'] and r['rz_deg'] == 0.0), row)
+        cardinal = next((r for r in rows if r['axis'] == row['axis'] and r['yaw_deg'] == 0.0), row)
         row['diagonal_gain_mm'] = round(max(0.0, cardinal['footprint_mm'][0]-row['footprint_mm'][0],
                                                cardinal['footprint_mm'][1]-row['footprint_mm'][1]), 3)
     rows.sort(key=lambda r: (not r['fits_bed'], 0 if r['axis']=='identity' and r['fits_bed'] else 1,
-                             -r['min_bed_margin_mm'], r['footprint_mm'][2], r['label'], r['axis'], r['rz_deg']))
+                             -r['min_bed_margin_mm'], r['footprint_mm'][2], r['label'], r['axis'], r['yaw_deg']))
     for rank, row in enumerate(rows, 1):
         row['rank'] = rank
         row['printer_model'] = printer_model
