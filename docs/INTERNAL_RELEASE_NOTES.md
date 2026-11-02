@@ -3,6 +3,7 @@
 # Unreleased
 
 - Multi-printer routing (SAFE-4): work bound to a non-default printer now acts on that printer end to end — the intake recovery restart reboots the routed printer instead of the default, slicing loads the job printer's own hardware record, G-code verification (the launch paths, the slice checks and slot remap) checks against the target printer's adapter and record, and launched-print pause alerts carry the job's printer_id so their Resume/Cancel buttons act on the printer that is actually paused.
+- Launch readiness (bonus, found during SAFE-4): print_now's filament-readiness check now judges the sample with the job printer's own adapter instead of the default printer's.
 
 # Version 2.2.4
 
