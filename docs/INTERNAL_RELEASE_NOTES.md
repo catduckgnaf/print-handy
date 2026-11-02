@@ -2,6 +2,7 @@
 
 # Unreleased
 
+- Telegram polling now dispatches updates as managed tasks, so a command waiting on a prompt answer no longer stalls message polling (#764).
 - The shipped Marlin templates (OctoPrint and Sovol Marlin) now include the per-layer G92 E0 reset; Orca previously refused to slice them with relative extrusion (#763).
 
 # Version 2.2.4
