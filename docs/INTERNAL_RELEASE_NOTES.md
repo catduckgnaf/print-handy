@@ -2,6 +2,7 @@
 
 # Unreleased
 
+- Telegram polling now dispatches updates as managed tasks, so a command waiting on a prompt answer no longer stalls message polling (#764).
 - The family auto-light no longer carries an idle streak across a failed printer check (Bambu and SDCP families) (#770).
 
 # Version 2.2.4
