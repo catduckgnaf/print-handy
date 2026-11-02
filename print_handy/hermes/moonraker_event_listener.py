@@ -1961,6 +1961,15 @@ class FilamentInsertionMonitor:
                 atomic_write_json(self.edge_path, edges)
                 self._armed(current)
             else:
+                if current != self.last_sample:
+                    # The readings changed shape mid-settle: restart the
+                    # window. It measures how long THIS reading has held,
+                    # not how long any disagreement has existed — adopting
+                    # a two-second-old reading on the first reading's
+                    # clock silently rewrote the edges and later produced
+                    # a false insertion prompt when the readings settled
+                    # back (P2-271).
+                    self.settling_since = time.monotonic()
                 self.last_sample = current
             return []
         if not self.baselined:
