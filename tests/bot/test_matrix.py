@@ -245,11 +245,19 @@ def test_poll_once_serves_only_the_configured_room_and_allowed_senders(cfg, tmp_
     stub = HomeserverStub(sync_script=script)
     client, core = make_core(cfg, stub, tmp_path)
     client._since = "s8"
-    handled = run(client.poll_once())
+
+    async def poll():
+        dispatched = await client.poll_once()
+        await client.drain_handlers()
+        return dispatched
+
+    dispatched = run(poll())
     assert stub.payloads("sync")[0]["since"] == "s8"
     assert client._since == "s9" and (tmp_path / "since").read_text() == "s9"
-    # Only the allowed user's /print-help in the print room produced a result (the help post).
-    assert handled == 1
+    # Both real messages in the print room were dispatched as handler tasks
+    # (P1-65); the bot's own message and the other room's were not. Only the
+    # allowed user's /print-help produced a post (the help text).
+    assert dispatched == 2
     assert any("/print-next" in body for body in stub.sent_bodies())
 
 
@@ -260,6 +268,63 @@ def test_poll_once_joins_the_print_room_when_invited(cfg, tmp_path):
     run(client.poll_once())
     assert "join" in stub.routes()
     assert urllib.parse.quote(ROOM, safe="") in stub.payloads("join")[0]["path"]
+
+
+def test_poll_once_keeps_syncing_while_a_handler_awaits_an_answer(cfg, tmp_path):
+    """P1-65: an intake handler parks on a prompt answer that only a LATER
+    /sync batch can deliver. poll_once must dispatch the handler and return,
+    so the next poll can deliver the answer; the old serial loop awaited the
+    handler inline, so the answer could never arrive and every interactive
+    flow stalled until its prompt timed out."""
+    stub = HomeserverStub(sync_script=[
+        _sync_result([text_event("https://makerworld.com/en/models/931302-holder",
+                                 event_id="$m1")], next_batch="s2"),
+        _sync_result([text_event("2", event_id="$a1")], next_batch="s3"),
+        _sync_result([text_event("1", event_id="$a2")], next_batch="s4"),
+    ])
+    client, core = make_core(cfg, stub, tmp_path)
+    client._since = "s1"
+    seen = {}
+
+    async def fake_prepare(event, adapter_arg, state, root, reuse=None, **kwargs):
+        source = event.source
+        key = runtime.session_key(source)
+        color = await link_intake.ask(adapter_arg, source, key, "Which color?", ["Black", "White"])
+        await adapter_arg.send(chat_id=source.chat_id, content=f"Sliced in {['Black', 'White'][color]}.")
+        start = await link_intake.ask(adapter_arg, source, key, "Start the print?", ["Print it"])
+        seen["answers"] = (color, start)
+        await adapter_arg.send(chat_id=source.chat_id, content="Started.")
+        return {"action": "skip", "reason": "test intake"}
+
+    async def wait_prompt(question):
+        for _ in range(200):
+            cid = next((c for c, row in core.adapter._prompts.items()
+                        if row["question"].startswith(question)), None)
+            if cid is not None:
+                return cid
+            await asyncio.sleep(0.01)
+        raise AssertionError(f"no prompt {question!r}: {core.adapter._prompts}")
+
+    async def flow():
+        # The regression in one line: before the fix this await only returns
+        # once the intake handler finishes, and the handler cannot finish
+        # until a later poll delivers its answer — a deadlock but for the
+        # prompt timeout. Bounded here so the failure is quick.
+        dispatched = await asyncio.wait_for(client.poll_once(), timeout=5)
+        assert dispatched == 1
+        await wait_prompt("Which color?")
+        await client.poll_once()  # delivers the typed answer "2"
+        await wait_prompt("Start the print?")
+        await client.poll_once()  # delivers the typed answer "1"
+        assert await client.drain_handlers(timeout=5)
+
+    with mock.patch("print_handy.core.prepared_intake.prepare_link", fake_prepare), \
+            mock.patch("print_handy.core.printer_state.load", return_value={}):
+        run(flow())
+    assert seen["answers"] == (1, 0)
+    bodies = stub.sent_bodies()
+    assert any("Sliced in White." in b for b in bodies) and bodies[-1] == "Started."
+    assert client._since == "s4"
 
 
 # ---------------------------------------------------------------------- adapter prompts
