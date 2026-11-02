@@ -2551,9 +2551,16 @@ def _verify_readiness_adapter(adapter, state, selection=None):
         raise RuntimeError(f"{adapter.label} readiness unavailable; print refused: {exc}") from exc
 
 
-def _verify_filament_readiness(state, selection=None):
-    """Read current mode, then obtain one freshness-bounded sensor/occupancy sample."""
-    adapter = printers.current()
+def _verify_filament_readiness(state, selection=None, adapter=None):
+    """Read current mode, then obtain one freshness-bounded sensor/occupancy sample.
+
+    The adapter is the printer the state belongs to: print_now passes its
+    job-resolved adapter, because resolving printers.current() here would
+    judge a secondary printer's readiness by the default printer's family
+    (its multi_slot shape, its readiness problems). Without one, the
+    configured printer, as before.
+    """
+    adapter = adapter or printers.current()
     if not adapter.multi_slot:
         return _verify_readiness_adapter(adapter, state, selection)
     try:
@@ -7222,7 +7229,7 @@ def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, r
     if mapping is not None:
         return print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint)
     try:
-        _verify_filament_readiness(st, selection)
+        _verify_filament_readiness(st, selection, adapter=adapter)
     except RuntimeError as exc:
         if adapter.multi_slot: raise
         raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
