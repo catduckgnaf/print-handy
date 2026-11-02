@@ -68,7 +68,11 @@ ABRASIVE_TOKENS: frozenset[str] = frozenset({
     "marble", "stone", "granite", "basalt", "ceramic", "mica",
     "sparkle", "galaxy", "glitter",
 })
-_FUSED_REINFORCEMENT = re.compile(r"^[a-z]+\d*(cf|gf)$")  # PLACF, PA6CF, PETGGF
+# Fused reinforcement written onto the polymer name with no separator: the short
+# PLACF / PA6CF spellings, and the full-length ones material_family() accepts
+# (PLACarbonFiber -> PLA-CARBONFIBER), which bypassed the guard as one token.
+_FUSED_REINFORCEMENT = re.compile(
+    r"^[a-z]+\d*(cf|gf|carbonfiber|carbonfibre|glassfiber|glassfibre)$")
 
 
 class NozzleError(ValueError):
