@@ -322,8 +322,12 @@ def _default_post(message):
     return mel.post(message)
 
 
-def start_monitor(adapter, filename, *, post=None, thread_factory=None):
+def start_monitor(adapter, filename, *, post=None, thread_factory=None, printer_id=None):
     """Start a StockPrintMonitor for a just-launched stock print on a daemon thread.
+    printer_id is the launched job's roster printer: the monitor's pause
+    alerts carry it, so their Resume/Cancel buttons act on that printer
+    rather than the default one (SAFE-4 / P1-101).
+
 
     Returns the thread (or None when monitoring could not start — a
     failed monitor must never fail the print that launched it). With no
@@ -348,7 +352,7 @@ def start_monitor(adapter, filename, *, post=None, thread_factory=None):
             camera_url_fn=lambda: stock_camera.stream_url_for(adapter.client(), host),
             stream_fn=lambda action: stock_camera.set_stream(adapter.client(), action),
             post=post or _default_post,
-            pause_alerts=family_control.pause_alerts_for(adapter, filename),
+            pause_alerts=family_control.pause_alerts_for(adapter, filename, printer_id),
             capture_poll_s=interval)
         factory = thread_factory or (lambda target: threading.Thread(target=target, daemon=True,
                                                                      name=f"stock-watch-{filename}"))

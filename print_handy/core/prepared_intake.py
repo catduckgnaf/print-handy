@@ -1351,8 +1351,13 @@ def _restart_helps(tail):
         'stale', 'retained job', 'not idle', 'state is error'))
 
 
-async def _offer_force_restart(adapter, source, key, message, timeout=None):
-    """Offer the existing safe REBOOT flow; never start the print afterwards."""
+async def _offer_force_restart(adapter, source, key, message, timeout=None, printer_id=None):
+    """Offer the existing safe REBOOT flow; never start the print afterwards.
+
+    The reboot targets the intake's routed printer (printer_id): without it
+    force_reboot would reboot the default printer, not the one whose start
+    was refused (SAFE-4 / P1-79).
+    """
     pc = _external.load('print_control')
     question = (message + '\n\nThe printer looks stuck from a previous job. Force restart clears it '
                 '(and wipes any Resume on the screen). The print will not start by itself afterwards.')
@@ -1365,7 +1370,7 @@ async def _offer_force_restart(adapter, source, key, message, timeout=None):
     with contextlib.suppress(Exception):
         await adapter.send(chat_id=source.chat_id, content='Force restarting the printer now, about two minutes.',
                            metadata=getattr(source, 'metadata', None))
-    ok, result = await asyncio.to_thread(pc.force_reboot)
+    ok, result = await asyncio.to_thread(pc.force_reboot, printer_id=printer_id)
     return result + (' Send the link or press Print again to retry.' if ok else '')
 
 
@@ -2690,7 +2695,8 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         else:
             message = print_summary.scrub(_refusal_text(tail))
             if _restart_helps(tail):
-                message = await _offer_force_restart(adapter, source, key, message, timeout)
+                message = await _offer_force_restart(adapter, source, key, message, timeout,
+                                                     printer_id=printer_id)
             elif start_context.get('prompt_handled'):
                 return {'action': 'skip', 'reason': 'start refused; prompt shows the reason and Retry'}
         sent = await adapter.send(chat_id=source.chat_id, content=message, metadata=metadata)

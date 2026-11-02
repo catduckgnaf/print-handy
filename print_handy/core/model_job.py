@@ -1777,9 +1777,9 @@ def finalize_multicolor(*args, **kwargs):
     return None if native is None else native.finalize(*args, **kwargs)
 
 
-def native_heater_lines_valid(text, bed, hotend):
+def native_heater_lines_valid(text, bed, hotend, adapter=None):
     """Require the documented native startup prefix, not later layer heaters."""
-    valid = printers.current().native.native_startup_valid
+    valid = (adapter or printers.current()).native.native_startup_valid
     return valid(text, bed, hotend)
 
 
@@ -2636,9 +2636,16 @@ def _verify_readiness_adapter(adapter, state, selection=None):
         raise RuntimeError(f"{adapter.label} readiness unavailable; print refused: {exc}") from exc
 
 
-def _verify_filament_readiness(state, selection=None):
-    """Read current mode, then obtain one freshness-bounded sensor/occupancy sample."""
-    adapter = printers.current()
+def _verify_filament_readiness(state, selection=None, adapter=None):
+    """Read current mode, then obtain one freshness-bounded sensor/occupancy sample.
+
+    The adapter is the printer the state belongs to: print_now passes its
+    job-resolved adapter, because resolving printers.current() here would
+    judge a secondary printer's readiness by the default printer's family
+    (its multi_slot shape, its readiness problems). Without one, the
+    configured printer, as before.
+    """
+    adapter = adapter or printers.current()
     if not adapter.multi_slot:
         return _verify_readiness_adapter(adapter, state, selection)
     try:
@@ -2695,15 +2702,17 @@ def _with_gcode_temperatures(state, text):
     return {**state, 'temps_c': temps}
 
 
-def verify_gcode_offline(gcode_path, state):
+def verify_gcode_offline(gcode_path, state, adapter=None):
     """Check startup, checksum, and bed bounds without contacting the printer.
 
     The live sibling reads display mode from Moonraker. This one validates the
     artifact against the already loaded hardware record: MD5 when present,
     native heater prefix, nozzle, material, start and end, and motion bounds.
     """
-    if printers.current().connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp', 'flashforge_stock'):
-        return _verify_offline(gcode_path, state)
+    adapter_given = adapter is not None
+    adapter = adapter or printers.current()
+    if adapter.connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp', 'flashforge_stock'):
+        return _verify_offline(gcode_path, state, adapter) if adapter_given else _verify_offline(gcode_path, state)
     p = Path(gcode_path)
     raw = p.read_bytes()
     text = raw.decode(errors='ignore')
@@ -2717,7 +2726,7 @@ def verify_gcode_offline(gcode_path, state):
         hotend = effective_nozzle_temperature(nozzle_type, float(state['temps_c']['nozzle']))
     except Exception as exc:
         raise RuntimeError("offline G-code verification failed: invalid effective nozzle temperature: " + str(exc)) from exc
-    if not native_heater_lines_valid(text, state['temps_c']['bed'], hotend):
+    if not native_heater_lines_valid(text, state['temps_c']['bed'], hotend, adapter):
         errors.append('startup heater prefix does not match the recorded bed and effective nozzle temperature')
     def config(key):
         match = re.search(rf'^; {re.escape(key)} = (.+)$', text, re.M)
@@ -2747,18 +2756,19 @@ def verify_gcode_offline(gcode_path, state):
     return {'bounds_mm': bounds, 'nozzle': nozzle, 'offline': True}
 
 
-def _verify_offline(gcode_path, state):
+def _verify_offline(gcode_path, state, adapter=None):
     """A printer Print Handy cannot reach (bambulab.a1): the adapter's checks against the hardware record."""
+    adapter = adapter or printers.current()
     from .printer_state import _material_temperature_contract
     try:
         _material_temperature_contract(state)
     except RuntimeError as exc:
         raise RuntimeError(f'offline G-code verification failed: {exc}') from exc
     text = Path(gcode_path).read_text(errors='ignore')
-    problems = printers.current().gcode_problems(text, _with_gcode_temperatures(state, text))
+    problems = adapter.gcode_problems(text, _with_gcode_temperatures(state, text))
     if problems:
         raise RuntimeError('offline G-code verification failed: ' + '; '.join(problems))
-    return {'offline': True, 'connection': printers.current().connection}
+    return {'offline': True, 'connection': adapter.connection}
 
 
 def _detail_tail(detail):
@@ -2783,29 +2793,42 @@ def _print_check_warnings(facts):
         print(f"WARNING: {warning}", file=sys.stderr, flush=True)
 
 
-def verify_gcode(gcode_path):
+def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None):
     """Check a G-code artifact against live nozzle, spool and temperature state.
 
     Spoolman is never a gate here (#235): printer_state.check reports its
     outcomes as warnings, and verification proceeds on the recorded state —
     the spool's recorded material/density and the recorded temperatures are
     the fallback when Spoolman is unreachable.
+
+    With no routing arguments this verifies against the configured printer,
+    exactly as it always has. A caller launching a job for another roster
+    printer passes that job's adapter, hardware record and printer_id, and
+    every check below — connection, native contract, start/end macros,
+    temperatures — is the target printer's, never the default's
+    (SAFE-4 / P1-75).
     """
-    if printers.current().connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp', 'flashforge_stock'):
-        st = printer_state.load(); ok, probs, facts = printer_state.check(st)
-        _print_check_warnings(facts)
-        if not ok: raise RuntimeError("the printer check did not pass:\n  " + "\n  ".join(probs))
-        return _verify_offline(gcode_path, st)
-    st=printer_state.load(); ok, probs, facts=printer_state.check(st)
+    routed = adapter is not None or state is not None or printer_id is not None
+    if adapter is None:
+        adapter = printers.current()
+    if state is None:
+        state = printer_state.load(printer_id) if printer_id else printer_state.load()
+    st = state
+    if routed:
+        ok, probs, facts = printer_state.check(st, printer_id=printer_id, adapter=adapter)
+    else:
+        ok, probs, facts = printer_state.check(st)
     _print_check_warnings(facts)
     if not ok: raise RuntimeError("the printer check did not pass:\n  " + "\n  ".join(probs))
+    if adapter.connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp', 'flashforge_stock'):
+        return _verify_offline(gcode_path, st, adapter) if routed else _verify_offline(gcode_path, st)
     p=Path(gcode_path); raw=p.read_bytes(); text=raw.decode(errors="ignore")
     errors=[]
     # The installed native screen requires ZMod's documented first-line MD5.
     # Screenless files remain accepted without it, but any present checksum is validated.
     if raw.startswith(b"; MD5:") and not zmod_md5_valid(p):
         errors.append("invalid ZMod MD5 checksum")
-    native = _native()
+    native = adapter.has_native_screen
     mode = _mr(st, "/printer/objects/query?save_variables")["result"]["status"]["save_variables"]["variables"].get("display_off") if native else None
     nozzle_type = (st.get("nozzle") or {}).get("type") or settings.current().get("printer", {}).get("nozzle_type") or "hardened_steel"
     st = _with_gcode_temperatures(st, text)
@@ -2821,7 +2844,7 @@ def verify_gcode(gcode_path):
     elif mode == 0:
         if not zmod_md5_valid(p):
             errors.append("native screen requires valid ZMod MD5 checksum")
-        if not native_heater_lines_valid(text, st["temps_c"]["bed"], effective_hotend):
+        if not native_heater_lines_valid(text, st["temps_c"]["bed"], effective_hotend, adapter):
             errors.append("native screen requires immediate startup M190 Sbed / M104 Snozzle T0 consistent with START_PRINT; later heaters do not count")
     elif mode != 1:
         errors.append(f"unknown display_off mode {mode!r}; refusing hardware-dependent G-code validation")
@@ -2842,7 +2865,7 @@ def verify_gcode(gcode_path):
                 errors.append(f"G-code nozzle {nozzle} != live {st['nozzle']['diameter_mm']}")
     material=config("filament_type")
     if native:
-        validate_materials = printers.current().native.validate_materials
+        validate_materials = adapter.native.validate_materials
         try:
             validate_materials(text, material, st)
         except RuntimeError as exc:
@@ -2869,7 +2892,7 @@ def verify_gcode(gcode_path):
                     math.isclose(float(args.get(hotend_key, 'nan')), float(hotend), abs_tol=1e-3))
         except ValueError:
             return False
-    octoprint = getattr(printers.current(), 'transport', None) == 'octoprint'
+    octoprint = getattr(adapter, 'transport', None) == 'octoprint'
     if octoprint:
         for command, target in (('M190', bed), ('M109', hotend)):
             values = re.findall(rf'^{command}\s+S([\d.]+)', text, re.M)
@@ -2879,7 +2902,7 @@ def verify_gcode(gcode_path):
         if not all(re.search(rf'^{cmd}\s+S0(?:\s|$)', text, re.M) for cmd in ('M104', 'M140')):
             errors.append('Marlin slicer end G-code must turn off nozzle and bed (M104 S0, M140 S0)')
     elif not native:
-        macro = printers.current().start_macro
+        macro = adapter.start_macro
         if not (numeric_macro_match(rf'^{re.escape(macro)}\s+([^;]*)', 'BED', 'HOTEND') or
                 sovol_style_start_matches(text, bed, hotend)):
             errors.append(f"missing {macro} matching bed {bed} and effective hotend {hotend}"
@@ -2890,7 +2913,7 @@ def verify_gcode(gcode_path):
               numeric_macro_match(r'^START_PRINT\s+([^;]*)', 'BED_TEMP', 'EXTRUDER_TEMP')):
         errors.append(f"missing START_PRINT/PRINT_START matching bed {bed} and effective hotend {hotend}")
     if not octoprint and not (re.search(r'^PRINT_END(?:\s|$)',text,re.M) or re.search(r'^END_PRINT(?:\s|$)',text,re.M)
-            or (not native and re.search(rf'^{re.escape(printers.current().end_macro)}(?:\s|$)',text,re.M))):
+            or (not native and re.search(rf'^{re.escape(adapter.end_macro)}(?:\s|$)',text,re.M))):
         errors.append("missing END_PRINT/PRINT_END safe end sequence")
     try:
         bounds=cached_motion_bounds(raw, text)
@@ -2953,6 +2976,37 @@ def verify_gcode(gcode_path):
     if errors: raise RuntimeError("the G-code did not pass its safety checks: " + "; ".join(errors))
     print(f"G-CODE OK: {p.name} | {printer_state.summary(st)}")
     return True
+
+
+def _verify_routed(gcode_path, adapter, state, printer_id):
+    """verify_gcode for a launch path that already resolved its printer.
+
+    A job naming a roster printer verifies against that printer's adapter
+    and hardware record (SAFE-4 / P1-75); anything else verifies exactly
+    as before, against the configured printer.
+    """
+    if printer_id:
+        return verify_gcode(gcode_path, adapter=adapter, state=state, printer_id=printer_id)
+    return verify_gcode(gcode_path)
+
+
+def _recorded_printer_id(job):
+    """A job's recorded printer_id, or None (unlike _job_printer_id, no default fallback:
+    launch helpers route verification and monitors only when the job itself names a printer)."""
+    return job.get("printer_id") if isinstance(job, dict) else None
+
+
+def _start_family_monitor(watch, adapter, remote, job):
+    """Start a family's launched-print monitor for a just-started print.
+
+    The job's recorded printer_id rides along so the monitor's pause
+    alerts act on that printer (SAFE-4 / P1-101); a job without one
+    starts its monitor exactly as before.
+    """
+    pid = _recorded_printer_id(job)
+    if pid:
+        return watch.start_monitor(adapter, remote, printer_id=pid)
+    return watch.start_monitor(adapter, remote)
 
 
 CONTEXT = Path(os.environ.get("PRINT_HANDY_CONTEXT_PATH", settings.state_dir()/"print_handy_context.json"))
@@ -4154,7 +4208,7 @@ def _slice_painted_plates(job, job_path, src, manifest, decisions, view, plates,
         geometry = provenance.get('geometry') or {}
         if sorted(r['part_key'] for r in geometry.get('parts', [])) != sorted(keys):
             raise RuntimeError(f"painted plate {plate['id']} dropped or duplicated a source part")
-        check = verify_gcode_offline(out, st)
+        check = verify_gcode_offline(out, st, _job_adapter(job))
         tools = provenance.get('tool_mapping') or {}
         artifacts.append({'plate_id': plate['id'], 'slot': sorted(set(tools.values())),
                           'binding_key': f"{plate['id']}:painted", 'part_keys': keys,
@@ -4304,7 +4358,7 @@ def _slice_merged(job, job_path, src, manifest, decisions, view, verdict, st, br
     labelled = _gcode_object_count(text)
     if labelled and labelled != len(manifest['parts']):
         raise RuntimeError(f'merged G-code prints {labelled} objects but the source has {len(manifest["parts"])}')
-    check = verify_gcode_offline(out, st)
+    check = verify_gcode_offline(out, st, _job_adapter(job))
     latest = json.loads(Path(job_path).read_text())
     if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest):
         raise RuntimeError('source, decisions or slice recipe changed during slicing; artifact not made ready')
@@ -4410,7 +4464,7 @@ def _slice_merged_multi_tool(job, job_path, src, manifest, decisions, view, verd
     labelled = _gcode_object_count(text)
     if labelled and labelled != len(manifest['parts']):
         raise RuntimeError(f'merged G-code prints {labelled} objects but the source has {len(manifest["parts"])}')
-    check = verify_gcode_offline(out, st)
+    check = verify_gcode_offline(out, st, _job_adapter(job))
     latest = json.loads(Path(job_path).read_text())
     if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest):
         raise RuntimeError('source, decisions or slice recipe changed during slicing; artifact not made ready')
@@ -4465,7 +4519,7 @@ def _slice_per_plate(job, job_path, src, manifest, decisions, view, plates, st, 
             slice_dir = work / 'sliced' / 'orca' / uuid.uuid4().hex
             out, provenance, configs = slice_model(plate, slice_dir, st, brim_override, preserve_layout=True, filament_slot=slot, **({'supports': supports} if supports is not None else {}))
             finalize_multicolor(out, None, st, {'0': slot})
-            check = verify_gcode_offline(out, st)
+            check = verify_gcode_offline(out, st, _job_adapter(job))
         except RuntimeError as exc:
             # One plate failing a safety guard (e.g. an off-bed move) must not discard the
             # other plates that sliced and verified cleanly. The failed plate is recorded,
@@ -4849,7 +4903,7 @@ def _slice_full_size_split(job, job_path, src, manifest, decisions, st):
                                                **({'supports': supports}
                                                   if supports is not None else {}))
         finalize_multicolor(out, None, st, {'0': slot})
-        check = verify_gcode_offline(out, st)
+        check = verify_gcode_offline(out, st, _job_adapter(job))
         artifacts.append({'slot': slot, 'plate_id': index, 'binding_key': f'{index}:{slot}',
                           'part_keys': keys, 'plate': str(plate), 'gcode': str(out),
                           **({'yaw_deg': yaw_deg} if yaw_deg is not None else {}),
@@ -4880,7 +4934,12 @@ def _slice_full_size_split(job, job_path, src, manifest, decisions, st):
 def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha256=None):
     # Disk only. Launch still runs printer_state.check inside print_now and
     # verify_gcode. A file that never leaves disk does not need Moonraker or Spoolman.
-    job = json.loads(Path(job_path).read_text()); st = printer_state.load()
+    job = json.loads(Path(job_path).read_text())
+    # The job's own printer record (#334): slicing a secondary printer's job
+    # against the default record would validate its filament selection
+    # against the wrong printer's slots and slice for the wrong hardware
+    # (SAFE-4 / P1-78). A job with no recorded printer keeps the legacy load.
+    st = printer_state.load(job["printer_id"]) if job.get("printer_id") else printer_state.load()
     adapter = _job_adapter(job)
     # "generic" = not sliced through the record-bound IFS machinery (per-slot
     # selections validated against the record map, per-part plates exported by
@@ -5047,7 +5106,7 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
                 raise RuntimeError(f"derived plate physical IFS slot {group['slot']} has no verified material")
             finalize_multicolor(out, None, st, {'0': group['slot']})
             # Verify the exact final bytes (after map, color and MD5 rewrite).
-            check = verify_gcode_offline(out, st)
+            check = verify_gcode_offline(out, st, _job_adapter(job))
             artifacts.append({'slot': group['slot'], 'part_keys': group['part_keys'], 'plate': str(plate),
                               'gcode': str(out), 'offline_check': check, 'plate_report': report,
                               'provenance': provenance, 'slice_config': [str(path) for path in configs]})
@@ -5186,7 +5245,7 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
                                               color_decisions=decisions, copies=copies, **scale_kw)
     _timing(job_path, 'orca_finalize_done')
     if adapter.key == printers.current().key:
-        verify_gcode(out)
+        _verify_routed(out, adapter, st, _recorded_printer_id(job))
     latest = json.loads(Path(job_path).read_text())
     _timing(job_path, 'verify_done')
     if file_sha256(src) != source_sha or decisions_digest(latest.get("color_decisions")) != decision_sha or _recipe_changed(job, latest):
@@ -6577,6 +6636,14 @@ def remap_slot(target, new_slot, tool="0", state=None):
                 job = json.loads(job_path.read_text())
                 break
 
+    # A job bound to another roster printer remaps against that printer's
+    # record and native contract, not the default's (SAFE-4 / P1-75). An
+    # explicit state argument from the caller still wins for the record.
+    routed_id = _recorded_printer_id(job)
+    if routed_id and state is None:
+        st = printer_state.load(routed_id)
+    routed_adapter = _job_adapter(job) if routed_id else printers.current()
+
     slot_int = int(new_slot)
     if slot_int not in range(1, FILAMENT_SLOTS + 1):
         raise ValueError(f"physical IFS slot must be an integer from 1 through {FILAMENT_SLOTS}")
@@ -6596,19 +6663,19 @@ def remap_slot(target, new_slot, tool="0", state=None):
                 break
     mapping = dict(raw_tools) if raw_tools else {}
     mapping[str(tool)] = slot_int
-    normalize_mapping = printers.current().native.normalize_mapping
+    normalize_mapping = routed_adapter.native.normalize_mapping
     mapping = normalize_mapping(mapping, st)
 
     new_sha = None
     if gcode_path.is_file():
-        finalize = printers.current().native.finalize
+        finalize = routed_adapter.native.finalize
         new_sha = finalize(gcode_path, None, st, mapping)
         try:
-            verify_gcode(gcode_path)
+            _verify_routed(gcode_path, routed_adapter, st, routed_id)
         except Exception:
             offline_st = dict(st)
             offline_st.setdefault("temps_c", {"bed": 60, "nozzle": 210})
-            verify_gcode_offline(gcode_path, offline_st)
+            verify_gcode_offline(gcode_path, offline_st, routed_adapter if routed_id else None)
 
     if job is not None and job_path is not None:
         job["filament_selection"] = selection
@@ -6639,7 +6706,7 @@ def _print_octoprint(adapter, state, gcode, job, job_path, wait_s, reprint):
         status = client.status()
         client.require_ready(status)
         observed = adapter.normalize_status(status).get('filename')
-        verify_gcode(gcode)
+        _verify_routed(gcode, adapter, state, _recorded_printer_id(job))
         _refuse_multicolor(gcode.read_text())
     except RuntimeError as exc:
         raise SystemExit(f'REFUSED: {exc}. Nothing uploaded or started.') from exc
@@ -6689,7 +6756,7 @@ def _print_octoprint(adapter, state, gcode, job, job_path, wait_s, reprint):
         # never fails the print.
         try:
             from print_handy.hermes import octo_watch
-            octo_watch.start_monitor(adapter, remote)
+            _start_family_monitor(octo_watch, adapter, remote, job)
         except Exception as exc:
             print(f"WARNING: timelapse monitor did not start: {exc}")
     _announce_polled_outcome(out)
@@ -6784,7 +6851,7 @@ def _print_bambu(adapter, state, gcode, job, job_path, wait_s, reprint):
 
     try:
         _snapshot, observed_norm = ready_snapshot()
-        verify_gcode(gcode)
+        _verify_routed(gcode, adapter, state, _recorded_printer_id(job))
         packages = _delivery.bambu_handoff(job if isinstance(job, dict) else {"printer_model": adapter.key},
                                             [gcode], settings.current())
         if len(packages) != 1:
@@ -6858,7 +6925,7 @@ def _print_bambu(adapter, state, gcode, job, job_path, wait_s, reprint):
         # monitor that cannot start never fails the print.
         try:
             from print_handy.hermes import bambu_watch
-            bambu_watch.start_monitor(adapter, remote)
+            _start_family_monitor(bambu_watch, adapter, remote, job)
         except Exception as exc:
             print(f"WARNING: camera monitor did not start: {exc}")
     _announce_polled_outcome(out)
@@ -6896,7 +6963,7 @@ def _print_elegoo_sdcp(adapter, state, gcode, job, job_path, wait_s, reprint):
 
     try:
         _raw, observed_norm = ready_status()
-        verify_gcode(gcode)
+        _verify_routed(gcode, adapter, state, _recorded_printer_id(job))
         _refuse_multicolor(gcode.read_text(errors="ignore"))
     except RuntimeError as exc:
         raise refuse(exc) from exc
@@ -6943,7 +7010,7 @@ def _print_elegoo_sdcp(adapter, state, gcode, job, job_path, wait_s, reprint):
         # that cannot start never fails the print.
         try:
             from print_handy.hermes import elegoo_watch
-            elegoo_watch.start_monitor(adapter, remote)
+            _start_family_monitor(elegoo_watch, adapter, remote, job)
         except Exception as exc:
             print(f"WARNING: timelapse monitor did not start: {exc}")
     _announce_polled_outcome(out)
@@ -6981,7 +7048,7 @@ def _print_prusa(adapter, state, gcode, job, job_path, wait_s, reprint):
 
     try:
         _snapshot, observed_norm = ready_snapshot()
-        verify_gcode(gcode)
+        _verify_routed(gcode, adapter, state, _recorded_printer_id(job))
         _refuse_multicolor(gcode.read_text(errors="ignore"))
     except RuntimeError as exc:
         raise refuse(exc) from exc
@@ -7026,7 +7093,7 @@ def _print_prusa(adapter, state, gcode, job, job_path, wait_s, reprint):
         # that cannot start never fails the print.
         try:
             from print_handy.hermes import prusa_watch
-            prusa_watch.start_monitor(adapter, remote)
+            _start_family_monitor(prusa_watch, adapter, remote, job)
         except Exception as exc:
             print(f"WARNING: timelapse monitor did not start: {exc}")
     _announce_polled_outcome(out)
@@ -7085,7 +7152,7 @@ def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprin
         if problems:
             raise RuntimeError(problems[0])
         observed = ready_snapshot()
-        verify_gcode(gcode)
+        _verify_routed(gcode, adapter, state, _recorded_printer_id(job))
         adapter.normalize_tool_mapping({str(t): t + 1 for t in sorted(_gcode_tools(text) | {0})}, state)
     except RuntimeError as exc:
         raise refuse(exc) from exc
@@ -7132,7 +7199,7 @@ def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprin
         # monitor that cannot start never fails the print.
         try:
             from print_handy.hermes import stock_watch
-            stock_watch.start_monitor(adapter, remote)
+            _start_family_monitor(stock_watch, adapter, remote, job)
         except Exception as exc:
             print(f"WARNING: timelapse monitor did not start: {exc}")
     _announce_polled_outcome(out)
@@ -7283,7 +7350,7 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
         if 'printer' in _delivery.methods():
             return _print_prusa(adapter, st, g, job, job_path, wait_s, reprint)
         try:
-            verify_gcode(g)
+            _verify_routed(g, adapter, st, printer_id)
         except RuntimeError as exc:
             raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
         raise SystemExit(f"REFUSED: {adapter.label} print delivery is not enabled in Print Handy (add "
@@ -7295,7 +7362,7 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
         if 'printer' in _delivery.methods():
             return _print_elegoo_sdcp(adapter, st, g, job, job_path, wait_s, reprint)
         try:
-            verify_gcode(g)
+            _verify_routed(g, adapter, st, printer_id)
         except RuntimeError as exc:
             raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
         raise SystemExit(f"REFUSED: {adapter.label} print delivery is not enabled in Print Handy (add "
@@ -7309,7 +7376,7 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
         # Print delivery is not enabled for this printer: verify the file for manual handoff;
         # the bed-clear approval is left unused, exactly as for the offline path below.
         try:
-            verify_gcode(g)
+            _verify_routed(g, adapter, st, printer_id)
         except RuntimeError as exc:
             raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
         raise SystemExit(f"REFUSED: {adapter.label} print delivery is not enabled in Print Handy (add "
@@ -7319,7 +7386,7 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
     if adapter.connection == 'offline':
         # No connection exists. Verify the file for manual handoff; the bed-clear approval is left unused.
         try:
-            verify_gcode(g)
+            _verify_routed(g, adapter, st, printer_id)
         except RuntimeError as exc:
             raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
         raise SystemExit(f"REFUSED: {adapter.label} has no live connection in Print Handy (no upload, start or "
@@ -7332,7 +7399,7 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
     try:
         # Pre-upload checks. Report them as one REFUSED line so print_next releases the plate's
         # claim and the operator can retry after fixing the cause (a traceback kept it held).
-        verify_gcode(g)
+        _verify_routed(g, adapter, st, printer_id)
         selection = job.get("filament_selection") if isinstance(job, dict) else None
         _timing(job_path, 'preflight_verify_done')
         if adapter.multi_slot:
@@ -7348,7 +7415,7 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
     if mapping is not None:
         return print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint)
     try:
-        _verify_filament_readiness(st, selection)
+        _verify_filament_readiness(st, selection, adapter=adapter)
     except RuntimeError as exc:
         if adapter.multi_slot: raise
         raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
