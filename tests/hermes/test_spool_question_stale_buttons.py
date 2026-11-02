@@ -138,7 +138,10 @@ def test_runout_answer_depletes_old_spool_through_the_bind():
     record = {"filename": "job.gcode", "slot": 2, "prior_spool_id": 8,
               "cause": "runout", "recorded_at": 1500.0}
     listener = _listener(dict(record))
-    sync = _sync()
+    sync = _sync(bind_slot=mock.Mock(return_value={
+        "slot": 2, "spool_id": 12, "prior_spool_id": 8, "record": {"name": "Sunlu PLA Black"},
+        "screen": "pushed", "usage": "unchanged", "prior_disposition": "depleted"}),
+        bind_text=spool_sync.bind_text)
     message = plugin._answer_spool_question(listener, sync, dict(record),
                                             {"status": "existing", "spool_id": 12})
     sync.bind_slot.assert_called_once()
@@ -146,7 +149,9 @@ def test_runout_answer_depletes_old_spool_through_the_bind():
     sync.spoolman.assert_not_called()
     sync.resume_usage.assert_called_once_with(12)
     listener.clear_runout_pause.assert_called_once_with()
-    assert "Spool #8 marked used up." in message
+    # The old spool's fate is stated once, by bind_text (#787).
+    assert message.count("Spool #8") == 1
+    assert "Spool #8 was marked as depleted (0 g left)." in message
 
 
 def test_swap_answer_keeps_shelf_disposition_and_no_used_up_note():
@@ -159,3 +164,48 @@ def test_swap_answer_keeps_shelf_disposition_and_no_used_up_note():
     assert sync.bind_slot.call_args.kwargs["prior_disposition"] == "shelf"
     sync.spoolman.assert_not_called()
     assert "marked used up" not in message
+
+
+# ---------------------------------------------------------------- #787 (typed twin of P2-204)
+
+def test_new_spool_bind_failure_names_the_created_spool():
+    record = {"filename": "job.gcode", "slot": 2, "prior_spool_id": 8,
+              "cause": "runout", "recorded_at": 1500.0}
+    listener = _listener(dict(record))
+    sync = _sync(create_spool=mock.Mock(return_value={"spool_id": 31}),
+                 bind_slot=mock.Mock(side_effect=spool_sync.SpoolError("Spoolman refused the write")))
+    with pytest.raises(spool_sync.SpoolError) as raised:
+        plugin._answer_spool_question(listener, sync, dict(record),
+                                      {"status": "new", "brand": "Sunlu", "material": "PLA",
+                                       "color": "Black", "grams": "1000"})
+    assert raised.value.spool_created == 31
+    text = str(raised.value)
+    assert "Spool #31 was created" in text and "(Spoolman refused the write)" in text
+    assert "nothing was changed" not in text.casefold()
+    sync.create_spool.assert_called_once()
+    sync.resume_usage.assert_not_called()
+    listener.clear_runout_pause.assert_not_called()
+
+
+def test_new_spool_bind_crash_never_shows_the_raw_exception():
+    record = {"filename": "job.gcode", "slot": 2, "prior_spool_id": 8,
+              "cause": "runout", "recorded_at": 1500.0}
+    sync = _sync(create_spool=mock.Mock(return_value={"spool_id": 31}),
+                 bind_slot=mock.Mock(side_effect=KeyError("filament_slots")))
+    with pytest.raises(spool_sync.SpoolError) as raised:
+        plugin._answer_spool_question(_listener(dict(record)), sync, dict(record),
+                                      {"status": "new", "brand": "Sunlu", "material": "PLA",
+                                       "color": "Black", "grams": "1000"})
+    assert raised.value.spool_created == 31
+    assert "filament_slots" not in str(raised.value)
+
+
+def test_existing_spool_bind_failure_is_not_marked_created():
+    record = {"filename": "job.gcode", "slot": 2, "prior_spool_id": 8,
+              "cause": "runout", "recorded_at": 1500.0}
+    sync = _sync(bind_slot=mock.Mock(side_effect=spool_sync.SpoolError("mapped elsewhere")))
+    with pytest.raises(spool_sync.SpoolError) as raised:
+        plugin._answer_spool_question(_listener(dict(record)), sync, dict(record),
+                                      {"status": "existing", "spool_id": 12})
+    assert not getattr(raised.value, "spool_created", None)
+    sync.create_spool.assert_not_called()

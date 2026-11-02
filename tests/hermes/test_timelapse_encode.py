@@ -167,7 +167,7 @@ def test_no_frames_returns_none(tmp_path):
 # --------------------------------------------------------------- lookup
 
 def write_capture(root, slug, *, job_key, filename, frames=3, state="complete",
-                  finished_at=100.0, dark_frames=0, source=None):
+                  finished_at=100.0, dark_frames=0, source=None, printer_id=None):
     directory = Path(root) / slug
     (directory / "frames").mkdir(parents=True)
     for i in range(1, frames + 1):
@@ -177,6 +177,8 @@ def write_capture(root, slug, *, job_key, filename, frames=3, state="complete",
                 "dark_frames": dark_frames}
     if source is not None:
         manifest["source"] = source
+    if printer_id is not None:
+        manifest["printer_id"] = printer_id
     (directory / "capture.json").write_text(json.dumps(manifest), encoding="utf-8")
     return directory
 
@@ -250,6 +252,47 @@ def test_find_capture_source_mismatch_falls_back_to_newest(tmp_path, monkeypatch
     newest = write_capture(tmp_path, "job-9", job_key="job:9", filename="benchy.gcode",
                            frames=3, finished_at=90.0, source="http://old-cam/snap")
     assert timelapse_encode.find_capture("benchy.gcode", root=tmp_path, data={}) == newest
+
+def test_find_capture_never_takes_another_printers_capture(tmp_path, monkeypatch):
+    # #787 (DATA-5 residual): two printers finish a same-named capture with
+    # no distinguishing camera source. The recorded printer id is positive
+    # evidence: the other printer's newer capture never matches, even when
+    # this printer has none of its own.
+    monkeypatch.setattr(timelapse_capture, "printer_identity", lambda data=None: "a1")
+    monkeypatch.setattr(timelapse_capture, "frame_url", lambda data=None, environ=None: None)
+    mine = write_capture(tmp_path, "job-3", job_key="job:3", filename="benchy.gcode",
+                         frames=3, finished_at=50.0, printer_id="a1")
+    write_capture(tmp_path, "job-9", job_key="job:9", filename="benchy.gcode",
+                  frames=3, finished_at=90.0, printer_id="x1c")
+    assert timelapse_encode.find_capture("benchy.gcode", root=tmp_path, data={}) == mine
+    shutil.rmtree(mine)
+    assert timelapse_encode.find_capture("benchy.gcode", root=tmp_path, data={}) is None
+
+
+def test_find_capture_keeps_legacy_manifests_without_a_printer_id(tmp_path, monkeypatch):
+    monkeypatch.setattr(timelapse_capture, "printer_identity", lambda data=None: "a1")
+    monkeypatch.setattr(timelapse_capture, "frame_url", lambda data=None, environ=None: None)
+    legacy = write_capture(tmp_path, "job-3", job_key="job:3", filename="benchy.gcode",
+                           frames=3, finished_at=50.0)
+    assert timelapse_encode.find_capture("benchy.gcode", root=tmp_path, data={}) == legacy
+
+
+def test_dark_capture_never_takes_another_printers_capture(tmp_path, monkeypatch):
+    monkeypatch.setattr(timelapse_capture, "printer_identity", lambda data=None: "a1")
+    monkeypatch.setattr(timelapse_capture, "frame_url", lambda data=None, environ=None: None)
+    write_capture(tmp_path, "job-9", job_key="job:9", filename="benchy.gcode",
+                  frames=0, dark_frames=5, finished_at=90.0, printer_id="x1c")
+    assert timelapse_encode.dark_capture("benchy.gcode", root=tmp_path, data={}) is None
+
+
+def test_capture_session_manifest_records_its_printer(tmp_path):
+    session = timelapse_capture.CaptureSession(
+        tmp_path, "job:1", "benchy.gcode", trigger=timelapse_capture.make_trigger("interval", 10),
+        printer_id="a1")
+    assert session.start()
+    assert timelapse_capture.read_manifest(session.directory)["printer_id"] == "a1"
+
+
 def test_find_capture_an_all_dark_reprint_decides_over_the_older_usable(tmp_path):
     """P2-185: the newest finished capture for the file decides the outcome.
     A reprint whose capture kept no frames (all dark) must report the

@@ -72,7 +72,7 @@ def build(hms_dir, commit):
     files = {}
     for path in sorted(Path(hms_dir).glob("hms_en_*.json")):
         prefix = path.name[len("hms_en_"):-len(".json")]
-        data = json.loads(path.read_text())["data"]
+        data = json.loads(path.read_text(encoding="utf-8"))["data"]
         files[prefix] = data
     if not files:
         raise SystemExit(f"no hms_en_*.json files in {hms_dir}")
@@ -105,12 +105,12 @@ def main():
     counts = (f"hms: {len(table['hms'])} codes ({sum(len(v) for v in table['hms_by_model'].values())} per-model overrides), "
               f"error: {len(table['error'])} codes ({sum(len(v) for v in table['error_by_model'].values())} per-model overrides)")
     if a.check:
-        if OUT.read_text() != rendered:
+        if OUT.read_text(encoding="utf-8") != rendered:
             print(f"STALE: {OUT} does not match a fresh generation ({counts})")
             return 1
         print(f"current: {OUT} matches ({counts})")
         return 0
-    OUT.write_text(rendered)
+    OUT.write_text(rendered, encoding="utf-8")
     print(f"wrote {OUT} ({counts}) from Bambu Studio {a.commit}")
     return 0
 
