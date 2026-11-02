@@ -968,6 +968,31 @@ def post_visual_dark_notice(token: str, channel_id: str, content: str, filename:
         take(aid)
         return False
 
+def post_visual_text_alert(token: str, channel_id: str, content: str, filename: str,
+                           identity: Any = None) -> bool:
+    """Post a watchdog alert with no image (the camera snapshot itself failed).
+
+    The visual alert's record and buttons without the multipart image
+    upload: the operator can still pause the print or mute this print's
+    watchdog. False means the caller should fall back to a plain post.
+    """
+    if not token or not channel_id:
+        return False
+    aid = record("visual", filename, **({"identity": str(identity)} if identity else {}))
+    body = json.dumps({"content": content[:1990], "components": components(aid, "visual"),
+                       "allowed_mentions": {"parse": []}}).encode()
+    req = urllib.request.Request(f"{rest.API}/channels/{channel_id}/messages", data=body,
+                                 method="POST", headers={"Authorization": f"Bot {token}",
+                                                         "Content-Type": "application/json",
+                                                         "User-Agent": "DiscordBot (hermes-3dprinting, 1.0)"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return 200 <= resp.status < 300
+    except Exception:
+        take(aid)
+        return False
+
+
 def parse_custom_id(custom_id: str) -> tuple[str, str] | None:
     parts = str(custom_id or "").split(":")
     if len(parts) == 3 and parts[0] == PREFIX and parts[1] in ("resume", "cancel", "pause", "acknowledge", "mute"):
