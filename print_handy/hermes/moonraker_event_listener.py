@@ -1946,17 +1946,34 @@ class FilamentInsertionMonitor:
     def __init__(self, edge_path=IFS_EDGE_STATE, pending_path=IFS_PENDING_STATE):
         self.edge_path = Path(edge_path)
         self.pending_path = Path(pending_path)
+        self.warmup_pending = False
+        self.warm_until = None
         self.reset_baseline()
 
-    def reset_baseline(self):
-        """Forget in-memory arming; the persisted edges stay the physical reference."""
+    def reset_baseline(self, *, warmup=False):
+        """Forget in-memory arming; the persisted edges stay the physical reference.
+
+        ``warmup`` marks a Klipper/Moonraker reconnect: ZMod can report one all-empty
+        placeholder sample after it first reads the real slots, which looked like four
+        quick pull-and-reinserts (2026-11-02: four prompts 30 s after a restart). For
+        SETTLE_SECONDS after re-arming, any reading that disagrees with the persisted
+        edges goes through the silent settle path instead of prompting."""
+        if warmup:
+            self.warmup_pending = True
+            self.warm_until = None
         self.baselined = False
         self.last_sample = {}
         self.stable_counts = {}
         self.transition_from = {}
         self.settling_since = None
 
+    def _start_warmup(self):
+        if self.warmup_pending:
+            self.warmup_pending = False
+            self.warm_until = time.monotonic() + self.SETTLE_SECONDS
+
     def _armed(self, current):
+        self._start_warmup()
         self.last_sample = current
         self.stable_counts = {slot: 2 for slot in current}
         self.transition_from = {}
@@ -2010,7 +2027,13 @@ class FilamentInsertionMonitor:
             if any(slot not in edges for slot in current):
                 edges.update(current)
                 atomic_write_json(self.edge_path, edges)
+            self._start_warmup()
             self.baselined = True
+            return []
+        if (self.warm_until is not None and time.monotonic() < self.warm_until
+                and any(slot in edges and edges[slot] != present for slot, present in current.items())):
+            self.settling_since = time.monotonic()
+            self.last_sample = current
             return []
         stable = []
         pending = read_json_object(self.pending_path)
@@ -3414,7 +3437,7 @@ class Listener:
         self._capture_task = asyncio.create_task(self._capture_due(layer))
 
     async def session(self):
-        self.ifs_monitor.reset_baseline()
+        self.ifs_monitor.reset_baseline(warmup=True)
         async with websockets.connect(WS_URL, ping_interval=20, ping_timeout=20, max_size=2**22) as ws:
             self.moonraker_connected = True
             await ws.send(SUBSCRIBE)
@@ -3450,7 +3473,7 @@ class Listener:
                                 log(f"no bed mesh at print start: {self.filename!r}")
                                 await asyncio.to_thread(post, f"{NO_MESH_ALERT}\nPrint: {print_summary.safe_label(self.filename)}")
                     elif method in ("notify_klippy_disconnected", "notify_klippy_shutdown"):
-                        self.ifs_monitor.reset_baseline()
+                        self.ifs_monitor.reset_baseline(warmup=True)
                         log(f"{method} while state={self.state}")
                         if self.state in ("printing", "paused"):
                             if getattr(self, "shutdown_alerted", None) != self.filename:
@@ -3463,7 +3486,7 @@ class Listener:
                             # is not a terminal transition: clean up here.
                             await self._print_ended("error")
                     elif method == "notify_klippy_ready":
-                        self.ifs_monitor.reset_baseline()
+                        self.ifs_monitor.reset_baseline(warmup=True)
                         log("klippy ready; resubscribing")
                         await ws.send(SUBSCRIBE)
                 if time.monotonic() - self.last_native_poll >= NATIVE_POLL_SECONDS:

@@ -293,6 +293,40 @@ class IdleInsertionBaselineTests(unittest.TestCase):
             self.assertEqual(monitor.observe(full, idle=True), [2])
             self.assertEqual(monitor.observe(full, idle=True), [])
 
+    def test_reconnect_placeholder_dip_after_arming_does_not_prompt_every_slot(self):
+        """2026-11-02 restart: readings matched the edges, armed, then ZMod reported one
+        all-empty sample and full again; that posted four insertion prompts."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'edges.json').write_text(json.dumps({str(i): True for i in range(1, 5)}))
+            full = {i: True for i in range(1, 5)}
+            with mock.patch.object(mel.time, 'monotonic') as clock:
+                clock.return_value = 0.0
+                monitor = self.monitor(root)
+                monitor.reset_baseline(warmup=True)
+                self.assertEqual(monitor.observe(full, idle=True), [])
+                clock.return_value = 2.0
+                self.assertEqual(monitor.observe({i: False for i in range(1, 5)}, idle=True), [])
+                clock.return_value = 4.0
+                self.assertEqual(monitor.observe(full, idle=True), [])
+                clock.return_value = 6.0
+                self.assertEqual(monitor.observe(full, idle=True), [])
+                self.assertFalse((root / 'pending.json').exists())
+                # After the warm-up window a real quick pull and reinsert still prompts.
+                clock.return_value = 200.0
+                self.assertEqual(monitor.observe(full, idle=True), [])
+                self.assertEqual(monitor.observe({1: True, 2: False, 3: True, 4: True}, idle=True), [])
+                self.assertEqual(monitor.observe(full, idle=True), [2])
+
+    def test_idle_busy_rebaseline_has_no_warmup_so_post_print_swaps_still_prompt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            monitor = self.monitor(Path(tmp))
+            monitor.observe({1: True}, idle=True)
+            monitor.observe({1: True}, idle=False)  # a print ran
+            self.assertEqual(monitor.observe({1: True}, idle=True), [])
+            self.assertEqual(monitor.observe({1: False}, idle=True), [])
+            self.assertEqual(monitor.observe({1: True}, idle=True), [1])
+
 
 class PendingPromptTests(unittest.TestCase):
     def test_answered_or_emptied_prompts_are_cleared(self):
