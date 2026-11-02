@@ -2866,10 +2866,11 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
     # gate this check (P2-73): the check runs record-only for them, and the
     # print paths re-run the live readiness before any write.
     offline_verify = adapter.connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp', 'flashforge_stock')
+    live_kw = {'live': False} if offline_verify else {}
     if routed:
-        ok, probs, facts = printer_state.check(st, printer_id=printer_id, adapter=adapter, live=not offline_verify)
+        ok, probs, facts = printer_state.check(st, printer_id=printer_id, adapter=adapter, **live_kw)
     else:
-        ok, probs, facts = printer_state.check(st, live=not offline_verify)
+        ok, probs, facts = printer_state.check(st, **live_kw)
     _print_check_warnings(facts)
     if not ok: raise RuntimeError("the printer check did not pass:\n  " + "\n  ".join(probs))
     if offline_verify:
