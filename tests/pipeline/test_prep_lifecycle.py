@@ -374,3 +374,44 @@ def test_color_refusal_that_surfaces_keeps_its_retry_text(env, monkeypatch):
     assert len(asked) == prepared_intake.COLOR_CONFIRM_ROUNDS - 1
     assert adapter.log[-1].startswith("Didn't start: printer slot 1 color is #E53935")
     assert adapter.log[-1].endswith('then press Retry.')
+
+
+def test_screen_unpushed_note_names_every_slot_and_says_the_screen_is_unchanged():
+    one = prepared_intake.screen_unpushed_note([{'slot': 2}])
+    assert one == "Couldn't update the screen color for slot 2, so I'm printing with the screen color unchanged."
+    two = prepared_intake.screen_unpushed_note([{'slot': 1}, {'slot': 3}])
+    assert 'slot 1 and slot 3' in two and two.endswith('printing with the screen color unchanged.')
+    three = prepared_intake.screen_unpushed_note([{'slot': 1}, {'slot': 2}, {'slot': 4}])
+    assert 'slot 1, slot 2 and slot 4' in three
+
+
+def test_set_screen_that_fails_for_a_slot_prints_anyway_and_tells_the_channel(env, monkeypatch):
+    """#798: Set screen to Spoolman color, then print: the slot whose push failed is named, the print goes ahead."""
+    seen = _color_mismatch_start(monkeypatch, TWO_COLOR_REFUSAL)
+    spool_sync = external("spool_sync")
+    calls = []
+
+    def sync_slot_screen(slot, printer_id=None):
+        calls.append(slot)
+        if slot == 2:
+            raise RuntimeError('screen offline')
+        return 'pushed'
+
+    monkeypatch.setattr(spool_sync, 'sync_slot_screen', sync_slot_screen)
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 1])  # ... then Set screen to Spoolman color
+    assert calls == [1, 2]
+    assert receipt['color_mismatch']['screen'] == {'1': 'pushed', '2': 'failed'}
+    notes = [m for m in adapter.log if 'screen color unchanged' in m]
+    assert notes == ["Couldn't update the screen color for slot 2, so I'm printing with the screen color unchanged."]
+    # Only the slot that stayed as it was is accepted; the pushed slot needs no acknowledgement.
+    assert seen[1]['slots'] == [model_job.color_mismatch_key(2, '#1E88E5', '#43A047')]
+    assert receipt['status'] == 'STARTED'
+
+
+def test_set_screen_that_pushes_every_slot_posts_no_note(env, monkeypatch):
+    _color_mismatch_start(monkeypatch)
+    spool_sync = external("spool_sync")
+    monkeypatch.setattr(spool_sync, 'sync_slot_screen', lambda slot, printer_id=None: 'pushed')
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 1])
+    assert not any('screen color unchanged' in m for m in adapter.log)
+    assert receipt['color_mismatch']['screen'] == {'1': 'pushed'}

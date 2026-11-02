@@ -108,7 +108,10 @@ A bed-clear approval starts one print. Starting the same G-code again needs a ne
   differs from the printer's (`live RGB mapping mismatch`); it sends nothing to the printer, and a
   slot filled from another source is logged as needing `/spool sync` (the screen sync, which
   defers while printing). Binding through `/spool` sends the derived code to the screen; the IFS
-  insertion prompt stays inventory-only.
+  insertion prompt stays inventory-only. The ZMod screen has no type for every material, so the
+  screen shows the nearest one it has — ASA, ASA-CF and ABS-CF show ABS; PA, PC, PCTG, nylon and
+  unknown names show `?` — and the bind and `/spool sync` replies say so (for example "screen shows
+  ABS for ASA"). A mapped launch accepts exactly that stand-in label for that material.
 * A slice refused for a deterministic reason says why in plain words (for example "Slot 1 (Matte
   white PLA) was never confirmed as loaded … Is Matte white PLA loaded in slot 1?") with
   `Reference: PH_SLICING_CONFIGURATION`, and offers the one safe fix as a button ("Yes, slot 1 has

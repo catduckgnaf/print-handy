@@ -1390,6 +1390,13 @@ def color_confirm_question(confirms):
               "Spoolman colors and print, or cancel?")
 
 
+def screen_unpushed_note(confirms):
+    """The post for slots 'Set screen to Spoolman color' could not update: the print goes ahead as is (#798)."""
+    slots = [f"slot {c['slot']}" for c in confirms]
+    named = slots[0] if len(slots) == 1 else ', '.join(slots[:-1]) + ' and ' + slots[-1]
+    return f"Couldn't update the screen color for {named}, so I'm printing with the screen color unchanged."
+
+
 def accept_color_mismatch(job_json, target, confirms):
     """Record a single-use Print anyway for this exact G-code and these listed differences (#795)."""
     from . import model_job as mj
@@ -2882,6 +2889,10 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                             unpushed.append(confirm)
                     if unpushed:
                         accept_color_mismatch(jp, target, unpushed)  # screen update unavailable: print as chosen
+                        # The print still goes ahead; the channel is told which slots stayed as they were (#798).
+                        with contextlib.suppress(Exception):
+                            await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                               content=screen_unpushed_note(unpushed))
                 else:
                     receipt['status'] = 'SLICED_NOT_STARTED'
                     receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')

@@ -22,24 +22,24 @@ MATRIX = [
     ("PLA Matte", "PLA", "MATTE PLA", False, 215, 60, "PLA"),
     ("PETG", "PETG", None, False, 240, 85, "PETG"),
     ("ABS", "ABS", None, False, 245, 100, "ABS"),
-    ("ASA", "ASA", None, False, 260, 105, None),
+    ("ASA", "ASA", None, False, 260, 105, "ABS"),
     ("TPU", "TPU", None, False, 230, 50, "TPU"),
-    ("PA", "PA", None, False, 260, 90, None),
-    ("PC", "PC", None, False, 275, 110, None),
+    ("PA", "PA", None, False, 260, 90, "?"),
+    ("PC", "PC", None, False, 275, 110, "?"),
     ("PLA-CF", "PLA-CF", "PLA-CF", True, 215, 60, "PLA-CF"),
     ("PETG-CF", "PETG-CF", "PETG-CF", True, 245, 85, "PETG-CF"),
     # Nylon grades (PA6, PA11, PA12, PAHT) are PA; reinforced grades are PA-CF.
-    ("PA6", "PA", None, False, 260, 90, None),
-    ("PA12", "PA", None, False, 260, 90, None),
-    ("PA11", "PA", None, False, 260, 90, None),
-    ("PA6-CF", "PA-CF", "PA-CF", True, 270, 90, None),
-    ("PA12-CF", "PA-CF", "PA-CF", True, 270, 90, None),
-    ("PAHT-CF", "PA-CF", "PA-CF", True, 270, 90, None),
+    ("PA6", "PA", None, False, 260, 90, "?"),
+    ("PA12", "PA", None, False, 260, 90, "?"),
+    ("PA11", "PA", None, False, 260, 90, "?"),
+    ("PA6-CF", "PA-CF", "PA-CF", True, 270, 90, "?"),
+    ("PA12-CF", "PA-CF", "PA-CF", True, 270, 90, "?"),
+    ("PAHT-CF", "PA-CF", "PA-CF", True, 270, 90, "?"),
     # PET prints like PETG (same polymer, same profile); PCTG is its own family near PETG.
     ("PET", "PETG", None, False, 240, 85, "PETG"),
     ("PET-G", "PETG", None, False, 240, 85, "PETG"),
     ("PET-CF", "PETG-CF", "PETG-CF", True, 245, 85, "PETG-CF"),
-    ("PCTG", "PCTG", None, False, 250, 80, None),
+    ("PCTG", "PCTG", None, False, 250, 80, "?"),
     # Shore hardness is not part of the family.
     ("TPU 95A", "TPU", None, False, 230, 50, "TPU"),
     ("TPU-95A", "TPU", None, False, 230, 50, "TPU"),
@@ -74,9 +74,9 @@ MATRIX = [
     ("Silk PLA+", "PLA", "SILK PLA", False, 220, 60, "SILK"),
     ("Matte PLA+", "PLA", "MATTE PLA", False, 215, 60, "PLA"),
     ("Silk PLA-CF", "PLA-CF", "SILK PLA", True, 220, 60, "PLA-CF"),
-    # The screen's SILK is silk PLA only; it has no ABS-CF type.
+    # The screen's SILK is silk PLA only; it has no ABS-CF type, so ABS-CF shows ABS (#798).
     ("Silk PETG", "PETG", None, False, 240, 85, "PETG"),
-    ("ABS-CF", "ABS-CF", "REINFORCED", True, 250, 100, None),
+    ("ABS-CF", "ABS-CF", "REINFORCED", True, 250, 100, "ABS"),
     # Bambu sub-brands carry the vendor name.
     ("Bambu PLA Basic", "PLA", None, False, 210, 60, "PLA"),
 ]
@@ -101,10 +101,12 @@ REFUSED = ["HS", "HF", "High Speed", "High Speed PLA", "PLA HS", "PETG-HF", "NoP
 
 
 @pytest.mark.parametrize("label", REFUSED, ids=[repr(label) for label in REFUSED])
-def test_refused_labels_have_no_temperatures_and_no_screen_type(label):
+def test_refused_labels_have_no_temperatures_and_only_the_placeholder_screen_type(label):
     with pytest.raises(ValueError, match="Unsupported filament material"):
         printer_state.resolve_material_temperatures(label, {}, {"material_temps": {}})
-    assert screen.screen_type(label) is None
+    # No family is guessed for slicing, but the screen still gets its "?" placeholder (#798);
+    # a blank material has nothing to show.
+    assert screen.screen_type(label) == (None if not label else "?")
 
 
 def test_support_grades_are_their_own_families_and_never_match_the_polymer_they_support():

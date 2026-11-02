@@ -48,6 +48,9 @@ class ZmodAdapter(PrinterAdapter):
     def screen_command(self, slot, material, hex_code):
         return self.native.screen.screen_command(slot, material, hex_code)
 
+    def screen_fallback_note(self, material):
+        return self.native.screen.fallback_note(material)
+
     def stock_api_url(self, host):
         return f"http://{host}:{self.config['services']['stock_api_port']}/detail"
 

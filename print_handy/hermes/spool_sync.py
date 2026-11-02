@@ -42,6 +42,9 @@ class SpoolError(RuntimeError):
 
 # ---------------------------------------------------------------- transports
 
+# _http is the Moonraker transport only. Spoolman never goes through it: spoolman()
+# below routes every Spoolman call through core.spoolman_client (#387, #798), and
+# tests/pipeline/test_spoolman_wrapper_contract.py fails if _http is given a Spoolman base.
 def _http(base: str, method: str, path: str, body: Any = None, timeout: float = 8) -> Any:
     if not base:
         raise SpoolError("the service for this request is not configured "
@@ -225,6 +228,18 @@ def screen_hex(value: Any) -> str | None:
 def screen_command(slot: int, material: str, hex_code: str, adapter=None) -> str:
     """CHANGE_ZCOLOR line for the printer screen; the printer's adapter builds it."""
     return (adapter or printers.current()).screen_command(slot, material, hex_code)
+
+
+def screen_fallback_note(material: str, adapter=None) -> str | None:
+    """'screen shows ABS for ASA' when the screen label is a stand-in for the material, else None (#798).
+
+    Purely informational, so any failure to work it out reads as no note.
+    """
+    try:
+        note = (adapter or printers.current()).screen_fallback_note(material)
+    except Exception:
+        return None
+    return note if isinstance(note, str) and note else None
 
 
 def _printer_adapter(printer_id: str | None):
@@ -479,8 +494,11 @@ def bind_slot(slot: int, spool_id: int, *, client: Client = spoolman, mr: Client
             screen = "not updated — run `/spool sync` to try again"
     else:
         screen = "not requested"
+    screen_note = (screen_fallback_note(record["material"], _printer_adapter(printer_id))
+                   if screen in ("pushed", "deferred") else None)
     return {"slot": slot, "spool_id": int(spool_id), "prior_spool_id": prior, "record": record,
-            "screen": screen, "usage": usage, "prior_disposition": prior_disposition}
+            "screen": screen, "screen_note": screen_note, "usage": usage,
+            "prior_disposition": prior_disposition}
 
 
 def backfill_slot_colors(*, client: Client = spoolman, mr: Client = moonraker,
@@ -577,6 +595,8 @@ def bind_text(result: dict[str, Any]) -> str:
     screen = {"pushed": "Printer screen updated.",
               "deferred": "Printer screen will update when this print ends."}.get(result["screen"],
                                                                                    f"Printer screen {result['screen']}.")
+    if result.get("screen_note"):
+        screen = screen[:-1] + f" ({result['screen_note']})."
     usage = "" if result["usage"] == "unchanged" else f" Filament usage {result['usage']}."
     return f"Slot {result['slot']} → spool #{result['spool_id']} ({r['name']}{grams}).{moved} {screen}{usage}"
 
@@ -644,7 +664,9 @@ def sync_all_screens(*, mr: Client = moonraker, state_path: Path | None = None,
                                       adapter=_printer_adapter(printer_id))
             else:
                 pushed = push_screen(slot, rec.get('material') or '', rec.get('hex') or '', mr=mr, pending_path=pending_path)
-            out.append(f"Slot {slot}: {pushed}")
+            note = (screen_fallback_note(rec.get('material') or '', _printer_adapter(printer_id))
+                    if pushed in ("pushed", "deferred") else None)
+            out.append(f"Slot {slot}: {pushed}" + (f" ({note})" if note else ""))
         except Exception as exc:
             out.append(f"Slot {slot}: the screen could not be updated — try again")
     # /spool sync is also the recovery bind_slot names when re-pointing usage

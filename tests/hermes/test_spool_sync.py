@@ -107,8 +107,37 @@ def test_screen_material_coercion():
     assert screen.screen_type("PLA+") == "PLA"
     assert screen.screen_type("pla") == "PLA"
     assert screen.screen_type("PETG-CF") == "PETG-CF"
-    assert screen.screen_type("UnknownType") is None
+    assert screen.screen_type("UnknownType") == "?"  # no type for it: the screen's placeholder (#798)
     assert screen.screen_type("") is None
+    assert screen.screen_type(None) is None
+
+
+@pytest.mark.parametrize("material, expected, note", [
+    ("ASA", "ABS", "screen shows ABS for ASA"),
+    ("ASA-CF", "ABS", "screen shows ABS for ASA-CF"),
+    ("ABS-CF", "ABS", "screen shows ABS for ABS-CF"),
+    ("PA", "?", "screen shows ? for PA"),
+    ("Nylon", "?", "screen shows ? for Nylon"),
+    ("PC", "?", "screen shows ? for PC"),
+    ("UnknownType", "?", "screen shows ? for UnknownType"),
+    # Mapped already, so no fallback phrase: the screen's PLA is the PLA family.
+    ("PLA+", "PLA", None),
+    ("PLA Pro", "PLA", None),
+    ("Matte PLA", "PLA", None),
+    ("ABS", "ABS", None),
+    ("Silk PLA", "SILK", None),
+    ("", None, None),
+])
+def test_screen_type_falls_back_to_the_nearest_type_and_says_so(material, expected, note):
+    assert screen.screen_type(material) == expected
+    assert screen.fallback_note(material) == note
+
+
+def test_screen_command_uses_the_fallback_type_instead_of_refusing():
+    assert screen.screen_command(1, "ASA", "#112233") == "CHANGE_ZCOLOR SLOT=1 TYPE=ABS HEX=112233"
+    assert screen.screen_command(2, "PA", "112233") == "CHANGE_ZCOLOR SLOT=2 TYPE=? HEX=112233"
+    with pytest.raises(spool_sync.SpoolError, match="no type"):
+        screen.screen_command(1, "", "112233")  # a blank material is still left alone
 
 
 def test_screen_hex_format():
@@ -280,3 +309,80 @@ def test_screen_label_matches_the_type_print_handy_writes():
     assert not screen.label_matches("PLA", "PLA-CF")
     assert not screen.label_matches("?", "PLA")
     assert not screen.label_matches(None, "PLA")
+
+
+def test_screen_label_matches_the_fallback_type_it_wrote():
+    # #798: the screen shows ABS for an ASA spool and "?" for PA. A mapped launch must accept
+    # exactly the label Print Handy wrote, or it would refuse its own sync.
+    assert screen.label_matches("ABS", "ASA")
+    assert screen.label_matches("ABS", "ASA-CF")
+    assert screen.label_matches("ABS", "ABS-CF")
+    assert screen.label_matches("?", "PA")
+    assert screen.label_matches("?", "PC")
+    assert screen.label_matches("?", "Nylon")
+    # ...and nothing wider.
+    assert not screen.label_matches("?", "PETG")
+    assert not screen.label_matches("?", "PLA+")
+    assert not screen.label_matches("ABS", "PLA")
+    assert not screen.label_matches("PETG", "ASA")
+    assert not screen.label_matches("", "PA")
+    assert not screen.label_matches(None, "ASA")
+    # The adapter's native hook is the one model_job.print_mapped_native calls.
+    from print_handy.printers.flashforge import zmod
+    assert zmod.screen_label_matches("ABS", "ASA")
+    assert zmod.screen_label_matches("?", "PA")
+
+
+def test_screen_fallback_note_comes_from_the_adapter_and_never_raises():
+    zmod_like = mock.Mock(screen_fallback_note=screen.fallback_note)
+    assert spool_sync.screen_fallback_note("ASA", zmod_like) == "screen shows ABS for ASA"
+    assert spool_sync.screen_fallback_note("PLA+", zmod_like) is None
+    assert spool_sync.screen_fallback_note("ASA", mock.Mock(screen_fallback_note=mock.Mock(side_effect=OSError))) is None
+    assert spool_sync.screen_fallback_note("ASA", mock.Mock()) is None  # not a phrase
+
+
+def test_bind_text_says_when_the_screen_shows_a_stand_in():
+    result = {"slot": 2, "spool_id": 9, "record": {"name": "Gray ASA"}, "prior_spool_id": None,
+              "screen": "pushed", "screen_note": "screen shows ABS for ASA", "usage": "unchanged"}
+    assert spool_sync.bind_text(result) == (
+        "Slot 2 → spool #9 (Gray ASA). Printer screen updated (screen shows ABS for ASA).")
+    deferred = {**result, "screen": "deferred"}
+    assert "ends (screen shows ABS for ASA)." in spool_sync.bind_text(deferred)
+    plain = {**result, "screen_note": None}
+    assert spool_sync.bind_text(plain) == "Slot 2 → spool #9 (Gray ASA). Printer screen updated."
+
+
+def test_bind_slot_carries_the_fallback_note_only_when_the_screen_was_told(tmp_path):
+    state = tmp_path / "printer_hardware.json"
+    state.write_text(json.dumps({"spool": {}, "filament_slots": {}}))
+    spool = {"id": 9, "remaining_weight": 800, "filament": {
+        "name": "Gray ASA", "material": "ASA", "color_hex": "808080", "weight": 1000}}
+    client = lambda method, path, body=None: spool if method == "GET" else {}
+    adapter = mock.Mock(screen_fallback_note=screen.fallback_note)
+    with mock.patch.object(spool_sync, "_printer_adapter", return_value=adapter), \
+            mock.patch.object(spool_sync, "push_screen", return_value="pushed"), \
+            mock.patch.object(spool_sync, "active_usage_spool", return_value=None):
+        told = spool_sync.bind_slot(2, 9, client=client, mr=mock.Mock(), state_path=state)
+    assert told["screen"] == "pushed" and told["screen_note"] == "screen shows ABS for ASA"
+    state.write_text(json.dumps({"spool": {}, "filament_slots": {}}))
+    with mock.patch.object(spool_sync, "_printer_adapter", return_value=adapter), \
+            mock.patch.object(spool_sync, "active_usage_spool", return_value=None):
+        quiet = spool_sync.bind_slot(2, 9, client=client, mr=mock.Mock(), state_path=state,
+                                     push_screen_update=False)
+    assert quiet["screen"] == "not requested" and quiet["screen_note"] is None
+
+
+def test_spool_sync_names_the_stand_in_the_screen_shows(tmp_path):
+    state = {"filament_slots": {
+        "1": {"spoolman_id": 11, "material": "ASA", "hex": "F95D73", "name": "Red ASA"},
+        "2": {"spoolman_id": 12, "material": "PLA", "hex": "067749", "name": "Other PLA"}}}
+    path = tmp_path / "printer_hardware.json"
+    path.write_text(json.dumps(state))
+    active = [11]
+    mr, _calls = _sync_mr(active)
+    adapter = mock.Mock(screen_fallback_note=screen.fallback_note)
+    with mock.patch.object(spool_sync, "_printer_adapter", return_value=adapter), \
+            mock.patch.object(spool_sync.printers, "current", return_value=adapter):
+        lines = _run_sync(tmp_path, mr, path)
+    assert lines[0] == "Slot 1: pushed (screen shows ABS for ASA)"
+    assert lines[1] == "Slot 2: pushed"

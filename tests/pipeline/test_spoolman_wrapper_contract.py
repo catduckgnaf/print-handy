@@ -23,6 +23,8 @@ import ast
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2] / "print_handy"
 WRAPPER = ROOT / "core" / "spoolman_client.py"
 
@@ -92,3 +94,59 @@ def test_no_spoolman_base_resolution_with_raw_transport_outside_wrapper():
                         f"base URL and opens raw HTTP {sorted(bad)}; route it through "
                         "print_handy.core.spoolman_client (#387)")
     assert not violations, "\n".join(violations)
+
+
+# #798: the /spool command layer (hermes/spool_sync.py) is covered whole-module, not only by the
+# per-function rules above. Its one remaining private transport, _http, is Moonraker's.
+SPOOL_SYNC = ROOT / "hermes" / "spool_sync.py"
+MOONRAKER_BASES = {"MOONRAKER", "base"}  # the module setting and moonraker_for's per-printer base
+
+
+def test_spool_sync_private_transport_is_only_ever_given_a_moonraker_base():
+    tree = ast.parse(SPOOL_SYNC.read_text(), filename=str(SPOOL_SYNC))
+    calls = [node for node in ast.walk(tree)
+             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "_http"]
+    assert calls, "spool_sync no longer calls _http; update this contract if the transport moved"
+    bad = [f"spool_sync.py:{node.lineno} _http({ast.unparse(node.args[0])}, ...)"
+           for node in calls if ast.unparse(node.args[0]) not in MOONRAKER_BASES]
+    assert not bad, "\n".join(bad) + "\nSpoolman must go through print_handy.core.spoolman_client (#387)"
+
+
+def test_spool_sync_does_not_open_its_own_connections_to_spoolman():
+    tree = ast.parse(SPOOL_SYNC.read_text(), filename=str(SPOOL_SYNC))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            text = ast.unparse(node)
+            if "SPOOLMAN" in text and any(name in text for name in ("urlopen", "Request(")):
+                pytest.fail(f"spool_sync.py:{node.lineno} opens HTTP with the Spoolman base: {text}")
+
+
+def test_spool_sync_spoolman_transport_is_the_client_with_the_same_contract(monkeypatch):
+    import urllib.request
+
+    from print_handy.core import spoolman_client
+    from print_handy.hermes import spool_sync
+
+    def no_direct_http(*args, **kwargs):
+        pytest.fail("spool_sync.spoolman opened its own connection")
+
+    monkeypatch.setattr(urllib.request, "urlopen", no_direct_http)
+    seen = []
+
+    def fake_request(method, path, body=None, *, base_url=None, timeout=None):
+        seen.append((method, path, body, base_url, timeout))
+        return {"id": 1}
+
+    monkeypatch.setattr(spoolman_client, "request", fake_request)
+    monkeypatch.setattr(spool_sync, "SPOOLMAN", "http://spoolman.test")
+    assert spool_sync.spoolman("PATCH", "/api/v1/spool/1", {"location": "Shelf"}) == {"id": 1}
+    # The base is the module's setting and the timeout is the long-standing 8 s, not the client's 5 s.
+    assert seen == [("PATCH", "/api/v1/spool/1", {"location": "Shelf"}, "http://spoolman.test", 8)]
+
+    def down(*args, **kwargs):
+        raise spoolman_client.SpoolmanUnavailable("connection refused")
+
+    monkeypatch.setattr(spoolman_client, "request", down)
+    with pytest.raises(spool_sync.SpoolError, match="connection refused") as raised:
+        spool_sync.spoolman("GET", "/api/v1/spool/1")
+    assert isinstance(raised.value.__cause__, spoolman_client.SpoolmanUnavailable)
