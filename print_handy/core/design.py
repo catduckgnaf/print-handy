@@ -61,6 +61,47 @@ _FORBIDDEN = (
     ("use", re.compile(r"\buse\s*<", re.I)),
     ("surface", re.compile(r"\bsurface\s*\(", re.I)),
 )
+
+
+def _scad_token_stream(source: str) -> str:
+    """The SCAD source as OpenSCAD's lexer sees it, for the forbidden scan.
+
+    Comments are token separators in OpenSCAD, so ``import/**/("x")`` is the
+    same statement as ``import ("x")`` — matching raw text lets a comment
+    split a forbidden call past the scan (P1-92, P1-94). Replace every
+    comment with a single space and blank every string literal's contents
+    (a quoted ``"import("`` is data, not a statement), then match on the
+    result. String delimiters are kept so ``surface(file="")`` still scans
+    as a call with an argument.
+    """
+    out: list[str] = []
+    i, n = 0, len(source or "")
+    while i < n:
+        ch = source[i]
+        nxt = source[i + 1] if i + 1 < n else ""
+        if ch == "/" and nxt == "/":
+            end = source.find("\n", i)
+            i = n if end == -1 else end
+            out.append(" ")
+        elif ch == "/" and nxt == "*":
+            end = source.find("*/", i + 2)
+            i = n if end == -1 else end + 2
+            out.append(" ")
+        elif ch == '"':
+            out.append('""')
+            i += 1
+            while i < n:
+                if source[i] == "\\":
+                    i += 2
+                elif source[i] == '"':
+                    i += 1
+                    break
+                else:
+                    i += 1
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
 _FENCE = re.compile(r"```(?:openscad|scad)?\s*\n(.*?)```", re.S | re.I)
 _SCAD_HINT = re.compile(
     r"\b(cube|sphere|cylinder|polyhedron|translate|rotate|scale|mirror|difference|union|"
@@ -219,7 +260,8 @@ def extract_scad(reply) -> str:
 
 def external_refs(source: str) -> list[str]:
     """The file-access statement kinds a SCAD text uses (empty when self-contained)."""
-    return [name for name, pattern in _FORBIDDEN if pattern.search(source or "")]
+    tokens = _scad_token_stream(source or "")
+    return [name for name, pattern in _FORBIDDEN if pattern.search(tokens)]
 
 
 def convert_to_stl(source_path, dest_path) -> Path:
@@ -377,8 +419,9 @@ def scan_scad(source: str) -> None:
         raise DesignError(
             f"the design model returned {len(source.encode('utf-8'))} bytes of OpenSCAD; "
             f"the limit for one design file is {MAX_SCAD_BYTES} bytes, so nothing was run")
+    tokens = _scad_token_stream(source)
     for name, pattern in _FORBIDDEN:
-        if pattern.search(source):
+        if pattern.search(tokens):
             raise DesignError(
                 f"the design uses a '{name}' statement, which design files may not use: "
                 "a design is one self-contained file and may not read other files. "
