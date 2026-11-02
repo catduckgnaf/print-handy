@@ -176,7 +176,7 @@ def run_print_again(tmp_path, job_printer, chat_id=HOME):
     from print_handy.hermes import discord_print_summary as summary
     with mock.patch.object(pc, "resolve_print", lambda query: dict(target)), \
             mock.patch.object(pc, "again_question", lambda given: "Print Ghost again?"), \
-            mock.patch.object(pc, "queue_copies", lambda given: queued.append(given)), \
+            mock.patch.object(pc, "queue_copies", lambda given, **kw: queued.append(given)), \
             mock.patch.object(pc, "start_estimate_text", lambda *a, **k: "estimate"), \
             mock.patch.object(summary, "gcode_metadata", lambda path: (60, 1.0)), \
             mock.patch.object(summary, "_print_number", lambda given: 7), \

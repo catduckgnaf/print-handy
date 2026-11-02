@@ -4197,14 +4197,16 @@ async def print_again_dispatch(event, gateway, **kwargs):
         return {'action': 'skip', 'reason': 'print again list handled'}
     if query.casefold() in ('stop', 'cancel', 'clear'):
         if channel_pid is not None:
-            pending = await asyncio.to_thread(pc.pending_copy)
+            # Queues are per printer (P2-135): this channel reads and drops
+            # only its own printer's queue.
+            pending = await asyncio.to_thread(pc.pending_copy, printer_id=channel_pid)
             pending_owner = _job_owner_pid(pending['job_json']) if pending else None
             if pending_owner is not None and pending_owner != channel_pid:
                 await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                    content=f"The queued copies belong to {_printer_label(_job_owner_pid(pending['job_json']))}, "
                                            "not this channel's printer. Nothing dropped.")
                 return {'action': 'skip', 'reason': 'print again queue belongs to another printer'}
-        had = await asyncio.to_thread(pc.cancel_copies)
+        had = await asyncio.to_thread(pc.cancel_copies, printer_id=channel_pid)
         await adapter.send(chat_id=source.chat_id, metadata=metadata,
                            content='Remaining copies dropped. The current print is untouched.' if had
                            else 'No copies were queued.')
@@ -4217,7 +4219,7 @@ async def print_again_dispatch(event, gateway, **kwargs):
     try:
         is_next = query.casefold() in ('next', 'continue')
         if is_next:
-            target = await asyncio.to_thread(pc.next_copy_target)
+            target = await asyncio.to_thread(pc.next_copy_target, printer_id=channel_pid)
             question = pc.next_copy_question(target)
         else:
             query, copies = pc.split_count(query)
@@ -4257,8 +4259,13 @@ async def print_again_dispatch(event, gateway, **kwargs):
                                content=f"Preparing to start {target['title']}. {number_line}{estimate}.")
             ok, detail = await print_next.start(target)
             if ok:
-                await asyncio.to_thread(pc.mark_copy_started if is_next else pc.queue_copies,
-                                        *(() if is_next else (target,)))
+                # Queue bookkeeping lands in the job owner's own queue file,
+                # never another printer's (P2-135).
+                queue_owner = target_owner if target_owner is not None else channel_pid
+                if is_next:
+                    await asyncio.to_thread(pc.mark_copy_started, printer_id=queue_owner)
+                else:
+                    await asyncio.to_thread(pc.queue_copies, target, printer_id=queue_owner)
                 # The start claimed its announcement in model_job, so the
                 # listener will not post one; post and register it here
                 # (the listener edits this post after warmup) (P2-56).
