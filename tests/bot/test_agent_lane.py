@@ -158,7 +158,7 @@ def test_agent_and_llm_replies_can_name_a_file_but_never_attach_it(agent_cfg, tm
             discord, core = make(agent_cfg, agent_opener=FakeAgent(reply))
         else:
             agent_cfg["agent"]["chat_url"] = ""
-            agent_cfg["llm"].update(chat_url=LLM_URL)
+            agent_cfg["llm"].update(chat_url=LLM_URL, model="small-model")
             discord, core = make(agent_cfg, llm_opener=FakeLLM(reply))
         asyncio.run(core.handle_message(discord.message("send me the logs")))
         assert [m.files for m in discord.messages] == [[]], lane
