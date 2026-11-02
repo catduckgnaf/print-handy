@@ -419,6 +419,59 @@ def test_live_command_filtered_from_unsupported_platform_surfaces(cfg):
     assert "/print-live" in core.help  # the Discord core keeps advertising it
 
 
+def _event_router(seen, prefix):
+    """A stub plugin recording every event whose text starts with ``prefix``."""
+    class _Plugin:
+        def register(self, router):
+            async def record(event, gateway):
+                if event.text.startswith(prefix):
+                    seen.append(event)
+                    return {"action": "skip", "reason": "recorded"}
+                return None
+            router.register_hook("pre_gateway_dispatch", record)
+    return Router(plugin=_Plugin())
+
+
+def test_did_you_mean_keeps_the_attachment_on_the_corrected_dispatch(cfg):
+    """Accepting a correction behaves like typing the correct command with
+    the same attachment (P2-222): the dropped .scad rides the original
+    event's media into the corrected dispatch, so design edits the upload
+    instead of treating the instruction as a request for a new model."""
+    seen = []
+    discord, core = make(cfg, router=_event_router(seen, "/print-design"))
+    source = runtime.make_source(discord.operator.id, discord.channel.id)
+
+    async def flow():
+        event = runtime.make_event(source, "/desing make it taller", "m1",
+                                   media_urls=["/tmp/uploads/model.scad"])
+        task = asyncio.create_task(core.process(event))
+        await press(discord, runtime.SUGGEST_YES_LABEL)
+        return await task
+
+    out = run(flow())
+    assert out == {"action": "skip", "reason": "recorded"}
+    assert [e.text for e in seen] == ["/print-design make it taller"]
+    assert seen[0].media_urls == ["/tmp/uploads/model.scad"]
+
+
+def test_did_you_mean_pick_list_keeps_the_attachment(cfg):
+    """The pick-list dispatch preserves the original media the same way (P2-222)."""
+    seen = []
+    discord, core = make(cfg, router=_event_router(seen, "/print-"))
+    source = runtime.make_source(discord.operator.id, discord.channel.id)
+
+    async def flow():
+        event = runtime.make_event(source, "/prnt", "m1", media_urls=["/tmp/uploads/part.stl"])
+        task = asyncio.create_task(core.process(event))
+        await press(discord, "/print-stop")
+        return await task
+
+    out = run(flow())
+    assert out == {"action": "skip", "reason": "recorded"}
+    assert [e.text for e in seen] == ["/print-stop"]
+    assert seen[0].media_urls == ["/tmp/uploads/part.stl"]
+
+
 def test_print_handy_slash_carries_debug_arguments():
     """The /print-handy slash command must reach 'debug on [minutes]' (P2-186):
     a free-form second option carries the words after the action, so the

@@ -620,7 +620,11 @@ class BotCore:
             return {"action": "skip", "reason": "command list"}
         if answer == SUGGEST_YES_LABEL or (isinstance(answer, str) and answer.strip().casefold() in {"yes", "y"}):
             await self.adapter.close_prompt(clarify_id, f"Running {suggestion} — watch for its own confirmation.")
-            routed = make_event(source, suggestion, f"{event.message_id}:fuzzy", metadata={"fuzzy_command": True})
+            # The corrected dispatch carries the original attachments (P2-222):
+            # accepting a suggestion must behave like typing the correct
+            # command with the same files attached.
+            routed = make_event(source, suggestion, f"{event.message_id}:fuzzy",
+                                media_urls=event.media_urls, metadata={"fuzzy_command": True})
             return await self.process(routed, allow_llm=False)
         if answer is None:
             await self.adapter.close_prompt(clarify_id, "That suggestion expired — nothing ran.")
@@ -670,7 +674,8 @@ class BotCore:
             return {"action": "skip", "reason": "command list"}
         if answer in candidates:
             await self.adapter.close_prompt(clarify_id, f"Running {answer} — watch for its own confirmation.")
-            routed = make_event(source, answer, f"{event.message_id}:fuzzy", metadata={"fuzzy_command": True})
+            routed = make_event(source, answer, f"{event.message_id}:fuzzy",
+                                media_urls=event.media_urls, metadata={"fuzzy_command": True})
             return await self.process(routed, allow_llm=False)
         if answer is None:
             await self.adapter.close_prompt(clarify_id, "That suggestion expired — nothing ran.")
