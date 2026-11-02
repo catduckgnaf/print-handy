@@ -96,6 +96,46 @@ def test_post_visual_dark_notice_posts_only_the_mute_button(tmp_path, monkeypatc
     assert rows and rows[0]["identity"] == "job:3"
 
 
+def test_post_visual_text_alert_posts_the_visual_buttons_without_an_image(tmp_path, monkeypatch):
+    # The snapshot-failure alert (#765): post_visual_alert's buttons on a
+    # plain JSON message — no multipart upload, because there is no frame.
+    seen = {}
+
+    class Response:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+
+    def fake_open(request, timeout):
+        seen["request"], seen["timeout"] = request, timeout
+        return Response()
+
+    with patch.object(pab, "STATE", tmp_path / "alerts.json"), \
+         patch.object(pab.urllib.request, "urlopen", fake_open):
+        assert pab.post_visual_text_alert("token", "channel", "Camera snapshot failed", "f.gcode", identity="job:3")
+        rows = [r for r in pab._load().values() if isinstance(r, dict) and r.get("kind") == "visual"]
+    import json as _json
+    body = _json.loads(seen["request"].data)
+    assert seen["request"].headers["Content-type"] == "application/json"
+    assert body["content"] == "Camera snapshot failed"
+    labels = [b["label"] for row in body["components"] for b in row["components"]]
+    assert labels == ["Pause", "It's fine", "Stop asking for this print"]
+    assert rows and rows[0]["identity"] == "job:3"
+
+
+def test_post_visual_text_alert_failure_drops_the_record_and_returns_false(tmp_path):
+    def fake_open(request, timeout):
+        raise OSError("discord unreachable")
+
+    with patch.object(pab, "STATE", tmp_path / "alerts.json"), \
+         patch.object(pab.urllib.request, "urlopen", fake_open):
+        assert not pab.post_visual_text_alert("token", "channel", "Camera snapshot failed", "f.gcode")
+        assert pab._load() == {}
+    # The return-bool contract: missing routing is a False, never a raise.
+    assert not pab.post_visual_text_alert("", "channel", "x", "f.gcode")
+    assert not pab.post_visual_text_alert("token", "", "x", "f.gcode")
+
+
 def test_no_hardcoded_discord_api_base():
     # #502: every request URL must be built from the shared bot.rest.API base.
     import pathlib

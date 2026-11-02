@@ -312,6 +312,71 @@ def test_muted_bambu_print_posts_no_alert(monkeypatch, tmp_path):
     assert len(alerts) == 1  # only the unmuted print alerted
 
 
+def test_snapshot_failure_alerts_text_only_instead_of_staying_silent():
+    # Bonus (found in the DATA-5 lane): the Bambu mirror of the Moonraker
+    # watchdog had P2-8's defect — when the camera snapshot itself
+    # raises, image stays None and the failure was only logged, so the
+    # print silently lost its watchdog. A text-only alert must go out.
+    alerts, texts = [], []
+    clock = FakeClock()
+    monitor = bambu_watch.BambuPrintMonitor(
+        REMOTE, status_fn=scripted([st("complete")]),
+        camera_fn=lambda: (_ for _ in ()).throw(ConnectionError("camera unreachable")),
+        post=lambda text: None,
+        watch=vw.VisualPrintWatch(sensitivity=3),
+        verdict=lambda image, prompt: ("ok", ""),
+        alert=lambda filename, image, reason, identity=None: alerts.append(reason),
+        text_alert=lambda filename, reason, identity=None: texts.append(reason),
+        clock=clock, wall=clock, sleep=clock.sleep, poll_s=10)
+    monitor.visual_check("layer2", 2)
+    assert alerts == []  # no image exists to attach
+    assert len(texts) == 1 and "camera" in texts[0]
+
+
+def test_snapshot_failure_alerts_are_throttled_to_the_periodic_interval():
+    # Once the camera dies after a baseline capture, the failed capture
+    # never advances the watch's snapshot baseline, so due() offers a
+    # layer_progress probe on every poll (~30 s). The camera-failure
+    # alert must still respect the profile's periodic interval (900 s at
+    # sensitivity 3): repeated failed probes inside it post once.
+    texts = []
+    clock = FakeClock()
+    camera = {"fail": False}
+
+    def camera_fn():
+        if camera["fail"]:
+            raise ConnectionError("camera unreachable")
+        return JPEG
+
+    monitor = bambu_watch.BambuPrintMonitor(
+        REMOTE, status_fn=scripted([st("complete")]), camera_fn=camera_fn,
+        post=lambda text: None,
+        watch=vw.VisualPrintWatch(sensitivity=3),
+        verdict=lambda image, prompt: ("ok", "fine"),
+        alert=lambda filename, image, reason, identity=None: (_ for _ in ()).throw(
+            AssertionError("image alert for a failed snapshot")),
+        text_alert=lambda filename, reason, identity=None: texts.append(reason),
+        changed=lambda before, after: True,
+        clock=clock, wall=clock, sleep=clock.sleep, poll_s=10)
+    monitor.poll_active(st("printing", layer=2))
+    monitor.poll_active(st("printing", layer=5))
+    assert texts == []
+    camera["fail"] = True
+    for layer in (8, 8, 9, 10):
+        clock.t += 30  # one status poll
+        monitor.poll_active(st("printing", layer=layer))
+    assert len(texts) == 1 and "camera" in texts[0]
+    clock.t += 900  # the periodic interval elapses with the camera still down
+    monitor.poll_active(st("printing", layer=11))
+    assert len(texts) == 2
+    # Probes were never throttled, only alerts: a recovered camera is
+    # picked up on the very next poll, inside the interval.
+    camera["fail"] = False
+    clock.t += 30
+    monitor.poll_active(st("printing", layer=14))
+    assert len(texts) == 2
+
+
 def test_dark_notice_delivery_posts_only_the_mute_button(monkeypatch):
     from print_handy.hermes import print_alert_buttons as pab
     seen = {}
@@ -342,6 +407,53 @@ def test_visual_alert_delivery_buttonless_posts_plain_media(monkeypatch):
     path = bambu_watch.deliver_visual_alert(REMOTE, JPEG, "periodic: uncertain; test",
                                             post=posts.append, token="tok", chat_id="42", buttonless="telegram")
     assert len(posts) == 1 and f"MEDIA:{path}" in posts[0]
+
+
+def test_text_alert_delivery_uses_the_real_button_helper(monkeypatch, tmp_path):
+    # deliver_visual_text_alert must reach print_alert_buttons'
+    # post_visual_text_alert itself — a missing helper raises
+    # AttributeError there and the alert loses its buttons — so this
+    # test stubs only the Discord transport under the real helper.
+    import json as _json
+    from unittest.mock import patch as _patch
+    from print_handy.hermes import print_alert_buttons as pab
+    seen = {}
+
+    class Response:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+
+    def fake_open(request, timeout):
+        seen["request"] = request
+        return Response()
+
+    with _patch.object(pab, "STATE", tmp_path / "alerts.json"), \
+         _patch.object(pab.urllib.request, "urlopen", fake_open):
+        bambu_watch.deliver_visual_text_alert(
+            REMOTE, "layer_progress at layer 8: the camera snapshot could not be captured",
+            post=lambda text: (_ for _ in ()).throw(AssertionError("fallback used")),
+            token="tok", chat_id="42", buttonless=False, identity="bambu:job")
+    body = _json.loads(seen["request"].data)
+    labels = [b["label"] for row in body["components"] for b in row["components"]]
+    assert labels == ["Pause", "It's fine", "Stop asking for this print"]
+    assert "camera snapshot could not be captured" in body["content"]
+
+
+def test_text_alert_delivery_buttonless_posts_plain_text():
+    posts = []
+    bambu_watch.deliver_visual_text_alert(REMOTE, "periodic: camera down", post=posts.append,
+                                          token="tok", chat_id="42", buttonless="telegram")
+    assert len(posts) == 1 and "Print camera check" in posts[0] and "MEDIA:" not in posts[0]
+
+
+def test_text_alert_delivery_falls_back_to_plain_text_when_the_button_post_fails(monkeypatch):
+    from print_handy.hermes import print_alert_buttons as pab
+    monkeypatch.setattr(pab, "post_visual_text_alert", lambda *args, **kwargs: False)
+    posts = []
+    bambu_watch.deliver_visual_text_alert(REMOTE, "periodic: camera down", post=posts.append,
+                                          token="tok", chat_id="42", buttonless=False)
+    assert len(posts) == 1 and "Print camera check" in posts[0]
 
 
 # -- Stage 3: the alert's Pause button on Bambu ---------------------------------

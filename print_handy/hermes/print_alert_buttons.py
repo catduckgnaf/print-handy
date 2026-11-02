@@ -944,6 +944,34 @@ def post_visual_alert(token: str, channel_id: str, content: str, filename: str, 
         return False
 
 
+def post_visual_text_alert(token: str, channel_id: str, content: str, filename: str,
+                           identity: Any = None) -> bool:
+    """Post a visual alert with no image: the camera snapshot itself failed.
+
+    post_visual_alert's buttons (Pause / "It's fine" / the per-print mute)
+    and its return-bool contract on a plain JSON message — the multipart
+    upload needs a frame, and this alert exists precisely because there is
+    none. ``identity`` rides on the alert record exactly as in
+    post_visual_alert (#476), so the mute silences this print. False means
+    the caller should fall back to a plain post.
+    """
+    if not token or not channel_id:
+        return False
+    aid = record("visual", filename, **({"identity": str(identity)} if identity else {}))
+    body = json.dumps({"content": content[:1990], "components": components(aid, "visual"),
+                       "allowed_mentions": {"parse": []}}).encode()
+    req = urllib.request.Request(f"{rest.API}/channels/{channel_id}/messages", data=body,
+                                 method="POST", headers={"Authorization": f"Bot {token}",
+                                                         "Content-Type": "application/json",
+                                                         "User-Agent": "DiscordBot (hermes-3dprinting, 1.0)"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return 200 <= resp.status < 300
+    except Exception:
+        take(aid)
+        return False
+
+
 def post_visual_dark_notice(token: str, channel_id: str, content: str, filename: str,
                             identity: Any = None) -> bool:
     """Post the once-per-print dark-camera notice (#476): text plus the mute button only.
