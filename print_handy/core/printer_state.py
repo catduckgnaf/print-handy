@@ -956,7 +956,7 @@ def _check_spoolman(st, warnings, facts):
                         "printing can continue (#235)")
 
 
-def check(st=None, printer_id=None, adapter=None):
+def check(st=None, printer_id=None, adapter=None, *, live=True):
     """Return (ok, problems, facts). Never raises on network errors; reports them.
 
     Spoolman outcomes never affect `ok`: they are collected in
@@ -968,6 +968,12 @@ def check(st=None, printer_id=None, adapter=None):
     entry's — the adapter is built on the entry's settings view — and the
     result's facts name the printer ("printer_id", "printer_name"). Without
     one, this is the configured default printer, exactly as before.
+
+    `live=False` is for offline slice verification (P2-73): the LAN families
+    then run their record-only readiness checks without fetching a live
+    snapshot, so a busy printer or Developer Mode being off cannot fail a
+    slice-time verify — the print paths re-check live readiness before any
+    write. The default keeps every other caller on the live behavior.
     """
     st = st or load(printer_id)
     probs, facts = [], {}
@@ -1003,7 +1009,7 @@ def check(st=None, printer_id=None, adapter=None):
         # the original offline behaviour, not an error.
         facts["connection"] = "bambulab_lan"
         facts["lan_configured"] = adapter.lan_configured()
-        if adapter.lan_configured():
+        if live and adapter.lan_configured():
             try:
                 snapshot = adapter.client().snapshot()
                 facts["bambu"] = adapter.normalize_status(snapshot)
@@ -1021,7 +1027,7 @@ def check(st=None, printer_id=None, adapter=None):
         # offline behaviour, not an error.
         facts["connection"] = "prusalink"
         facts["link_configured"] = adapter.link_configured()
-        if adapter.link_configured():
+        if live and adapter.link_configured():
             try:
                 snapshot = adapter.client().snapshot()
                 facts["prusa"] = adapter.normalize_status(snapshot)
@@ -1038,7 +1044,7 @@ def check(st=None, printer_id=None, adapter=None):
         # the offline behaviour, not an error.
         facts["connection"] = "elegoo_sdcp"
         facts["sdcp_configured"] = adapter.sdcp_configured()
-        if adapter.sdcp_configured():
+        if live and adapter.sdcp_configured():
             try:
                 snapshot = adapter.client().status()
                 facts["elegoo_sdcp"] = adapter.normalize_status(snapshot)
@@ -1053,12 +1059,16 @@ def check(st=None, printer_id=None, adapter=None):
         # Stock Flashforge: the hardware record and Spoolman, plus read-only /detail over the
         # stock LAN API. Never Moonraker: stock firmware does not speak it (#211).
         facts["connection"] = "flashforge_stock"
-        try:
-            detail = adapter.client().detail()
-            facts["flashforge_stock"] = adapter.normalize_status(detail)
-            probs.extend(adapter.readiness_problems(st, detail))
-        except RuntimeError as exc:
-            probs.append(str(exc))
+        if live:
+            # Stock Flashforge readiness has no record-only checks: its
+            # verdict is entirely the live /detail state, so an offline
+            # verify skips it rather than judging an empty payload (P2-73).
+            try:
+                detail = adapter.client().detail()
+                facts["flashforge_stock"] = adapter.normalize_status(detail)
+                probs.extend(adapter.readiness_problems(st, detail))
+            except RuntimeError as exc:
+                probs.append(str(exc))
         _check_spoolman(st, warnings, facts)
         return (not probs), probs, facts
     if adapter.connection == 'offline':
