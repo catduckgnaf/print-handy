@@ -296,6 +296,10 @@ def model_capacity(real_multi_plate, source_triangles, plate_count):
         across = int((bed[0] - 6.0 + spacing_mm) // (extent[0] + spacing_mm))
         down = int((bed[1] - 6.0 + spacing_mm) // (extent[1] + spacing_mm))
         return max(1, min(int(copy_limit), across * down))
+    # The fit-check timing keys on the step's __name__ (FIT_CHECK_STEPS, matched
+    # in thread_heavy): the stand-in must carry the production name or the
+    # probes it replaces are never timed in mock mode (P2-281).
+    capacity.__name__ = "orca_plate_capacity"
     return capacity
 
 
