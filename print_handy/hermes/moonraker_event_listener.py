@@ -3553,6 +3553,26 @@ class Listener:
         except Exception as exc:
             log(f"slot color backfill skipped: {exc!r}")
 
+    async def reconcile_spools(self):
+        """Rebuild this printer's slot cache from Spoolman's ph_slot assignments (#798).
+
+        Best effort, like the color backfill beside it: runs at startup and
+        on each reconnect, migrates the local cache into Spoolman on the
+        first run, names conflicts in the log instead of picking silently,
+        and never fails the session — a Spoolman that does not answer leaves
+        the local record untouched and is logged as such.
+        """
+        try:
+            from . import spool_sync
+            from .. import listeners as _listeners
+            instance_id = _listeners.instance_printer_id()
+            mr = spool_sync.moonraker_for(instance_id) if instance_id else spool_sync.moonraker
+            result = await asyncio.to_thread(spool_sync.reconcile, instance_id, mr=mr)
+            for line in spool_sync.reconcile_text(result).splitlines():
+                log(f"spool reconcile: {line}")
+        except Exception as exc:
+            log(f"spool reconcile skipped: {exc!r}")
+
     async def forever(self):
         delay = 5
         self.moonraker_connected = False
@@ -3560,6 +3580,7 @@ class Listener:
         try:
             while True:
                 await self.backfill_slot_colors()
+                await self.reconcile_spools()
                 try:
                     await self.session()
                 except Exception as exc:

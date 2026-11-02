@@ -3085,7 +3085,18 @@ async def spool_dispatch(event, gateway, **kwargs):
                 message = 'No printer chosen, so nothing was changed.'
         elif verb == 'sync':
             if await _spool_printer():
-                message = 'Printer sync from Spoolman:\n' + '\n'.join(await asyncio.to_thread(spool_sync.sync_all_screens, **mr_kw))
+                # Reconcile first (#798): Spoolman's ph_slot assignments rebuild
+                # the local cache and converge the screens, then the existing
+                # screen sync runs as before. The message shows both outcomes.
+                try:
+                    reconciled = await asyncio.to_thread(spool_sync.reconcile, **mr_kw)
+                    reconcile_line = spool_sync.reconcile_text(reconciled)
+                except Exception:
+                    logger.exception('/spool sync reconcile failed')
+                    reconcile_line = ('Spool reconcile: could not run — the local slot record '
+                                      'was left unchanged')
+                message = (reconcile_line + '\nPrinter sync from Spoolman:\n'
+                           + '\n'.join(await asyncio.to_thread(spool_sync.sync_all_screens, **mr_kw)))
             else:
                 message = 'No printer chosen, so nothing was changed.'
         elif verb == '':

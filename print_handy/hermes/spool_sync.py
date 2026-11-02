@@ -1,8 +1,12 @@
 """Spoolman -> printer one-way spool sync and the /spool command logic.
 
-Spoolman is the source of truth. The AD5X screen is only *told* what Spoolman
-says, through the Z-Mod `CHANGE_ZCOLOR SLOT= TYPE= HEX=` macro. Nothing here
-reads the screen back into Spoolman.
+Spoolman is the source of truth. Which spool sits in which slot lives in the
+Spoolman extra field ``ph_slot`` (``<printer_id>:<slot>``, #798); ``location``
+stays human-readable (`IFS Slot N` / `Shelf`) and is written but never read
+as truth, and ``printer_hardware.json``'s ``filament_slots`` is a cache that
+:func:`reconcile` rebuilds from Spoolman. The AD5X screen is only *told*
+what Spoolman says, through the Z-Mod `CHANGE_ZCOLOR SLOT= TYPE= HEX=`
+macro. Nothing here reads the screen back into Spoolman.
 
 Usage accounting: Moonraker charges extrusion to its active Spoolman spool.
 `suspend_usage()` clears that so an unidentified mid-print swap charges no one
@@ -337,6 +341,149 @@ def resume_usage(spool_id: int, mr: Client = moonraker) -> None:
         raise SpoolError(f"Moonraker active spool readback {back!r} != #{spool_id}")
 
 
+# ---------------------------------------------------------------- ph_slot (#798)
+
+PH_SLOT_FIELD = "ph_slot"
+PH_SLOT_FIELD_NAME = "Print Handy slot"
+
+
+def _default_printer_id() -> str | None:
+    """The default roster printer's id, derived from config like the rest of this module."""
+    try:
+        return str(_config.cfg()["printers"][0]["id"])
+    except Exception:
+        return None
+
+
+def format_ph_slot(printer_id: str, slot: int) -> str:
+    """The ``ph_slot`` value naming one slot of one printer: ``<printer_id>:<slot>``."""
+    return f"{printer_id}:{int(slot)}"
+
+
+def _decode_extra_value(raw: Any) -> str | None:
+    """One Spoolman extra value as plain text.
+
+    Spoolman stores extra values JSON-encoded (a text value ``ad5x:2`` comes
+    back as the string ``'"ad5x:2"'``); decode when quoted, tolerate a raw
+    string from a client or a hand edit.
+    """
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    if text.startswith('"'):
+        try:
+            decoded = json.loads(text)
+        except ValueError:
+            decoded = None
+        if isinstance(decoded, str):
+            text = decoded.strip()
+    return text or None
+
+
+def parse_ph_slot(value: Any) -> tuple[str, int] | None:
+    """(printer_id, slot) for a ``ph_slot`` value in any spelling Spoolman returns, else None."""
+    text = _decode_extra_value(value)
+    if not text:
+        return None
+    match = re.fullmatch(r"(.+):(\d+)", text)
+    if not match:
+        return None
+    slot = int(match.group(2))
+    if slot not in SLOTS:
+        return None
+    return match.group(1), slot
+
+
+def spool_ph_slot(spool: dict[str, Any] | None) -> tuple[str, int] | None:
+    """The (printer_id, slot) a spool record claims through ``ph_slot``, else None."""
+    if not isinstance(spool, dict):
+        return None
+    extra = spool.get("extra")
+    if not isinstance(extra, dict):
+        return None
+    return parse_ph_slot(extra.get(PH_SLOT_FIELD))
+
+
+def spool_ph_slot_text(spool: dict[str, Any] | None) -> str | None:
+    """The raw ``ph_slot`` text a spool record carries (even an unparseable one), else None."""
+    if not isinstance(spool, dict):
+        return None
+    extra = spool.get("extra")
+    if not isinstance(extra, dict):
+        return None
+    return _decode_extra_value(extra.get(PH_SLOT_FIELD))
+
+
+def _call_client(client: Any, method: str, path: str, body: Any = None) -> Any:
+    """Call a Spoolman client in whichever shape it offers (callable, or an object with ``request``)."""
+    if callable(client):
+        return client(method, path, body)
+    request = getattr(client, "request", None)
+    if callable(request):
+        return request(method, path, body)
+    raise TypeError(f"Spoolman client {client!r} is not callable")
+
+
+def ensure_ph_slot_field(client: Client = spoolman) -> bool:
+    """Create the ``ph_slot`` extra field definition in Spoolman when it is missing (#798).
+
+    Best effort by design: returns True when the field is defined (or was
+    just created), False when Spoolman did not answer or the client does not
+    speak the field endpoints — and never raises into a caller, so a fake or
+    partial client in a test, or a Spoolman without field support, costs
+    only the field, never the bind or reconcile that asked.
+    """
+    try:
+        fields = _call_client(client, "GET", "/api/v1/field/spool", None)
+    except Exception:
+        return False
+    if not isinstance(fields, list):
+        return False
+    if any(isinstance(row, dict) and row.get("key") == PH_SLOT_FIELD for row in fields):
+        return True
+    try:
+        _call_client(client, "POST", f"/api/v1/field/spool/{PH_SLOT_FIELD}",
+                     {"name": PH_SLOT_FIELD_NAME, "field_type": "text"})
+    except Exception:
+        return False
+    return True
+
+
+def _set_ph_slot(client: Client, spool_id: int, value: str | None) -> bool:
+    """Write (or, with None, clear) one spool's ``ph_slot``. Best effort: False on any failure."""
+    ensure_ph_slot_field(client)
+    try:
+        _call_client(client, "PATCH", f"/api/v1/spool/{int(spool_id)}",
+                     {"extra": {PH_SLOT_FIELD: json.dumps(value) if value is not None else None}})
+    except Exception:
+        return False
+    return True
+
+
+def _clear_ph_slot_claims(client: Client, printer_id: str, slot: int, *, keep_spool_id: int | None) -> list[int]:
+    """Clear the ``ph_slot`` claim on (printer, slot) from every spool except ``keep_spool_id``.
+
+    Best effort: a Spoolman that does not answer the list call leaves the
+    claims alone (reconcile names them later); returns the spool ids cleared.
+    """
+    cleared: list[int] = []
+    try:
+        rows = _call_client(client, "GET", "/api/v1/spool?allow_archived=true", None)
+    except Exception:
+        return cleared
+    if not isinstance(rows, list):
+        return cleared
+    for row in rows:
+        if not isinstance(row, dict) or row.get("id") is None:
+            continue
+        if keep_spool_id is not None and int(row["id"]) == int(keep_spool_id):
+            continue
+        if spool_ph_slot(row) == (printer_id, int(slot)):
+            if _set_ph_slot(client, int(row["id"]), None):
+                cleared.append(int(row["id"]))
+    return cleared
+
+
 # ---------------------------------------------------------------- slot binding
 
 def _slot_record(slot: int, spool: dict[str, Any], old: dict[str, Any] | None, note: str) -> dict[str, Any]:
@@ -441,25 +588,71 @@ def bind_slot(slot: int, spool_id: int, *, client: Client = spoolman, mr: Client
                          f"#{int(expected_prior_spool_id)} (the spool in the confirmation), "
                          f"but it now holds {actual}. Nothing changed — the confirmed "
                          "spool was not touched. Start the change again")
+    # The ph_slot identity this bind writes (#798): the named printer, else
+    # the default roster printer derived from config. No derivable printer
+    # means no ph_slot writes — a value is never invented.
+    effective_printer = printer_id or _default_printer_id()
+    _prior_cache: dict[str, Any] = {}
+
+    def prior_record() -> dict[str, Any]:
+        """The replaced spool's Spoolman record, best effort ({} when it cannot be read)."""
+        if "rec" not in _prior_cache:
+            try:
+                got = client("GET", f"/api/v1/spool/{int(prior)}", None)
+            except Exception:
+                got = None
+            _prior_cache["rec"] = got if isinstance(got, dict) else {}
+        return _prior_cache["rec"]
+
+    def prior_claims_slot() -> bool:
+        """True when the replaced spool still claims this slot through ph_slot."""
+        return bool(effective_printer) and \
+            spool_ph_slot(prior_record()) == (effective_printer, slot)
+
     client("PATCH", f"/api/v1/spool/{int(spool_id)}", {"location": f"IFS Slot {slot}"})
+    if effective_printer:
+        # Spoolman is the source of truth for the assignment: the new spool
+        # claims the slot, and any stale claim by another spool for the same
+        # printer:slot is cleared. Both are best effort — the location write
+        # above is the bind's contract, and reconcile repairs a missed claim.
+        _set_ph_slot(client, int(spool_id), format_ph_slot(effective_printer, slot))
+        _clear_ph_slot_claims(client, effective_printer, slot, keep_spool_id=int(spool_id))
     if prior and int(prior) != int(spool_id) and prior_disposition == "shelf":
-        prior_rec = client("GET", f"/api/v1/spool/{int(prior)}", None)
+        prior_rec = prior_record()
         if isinstance(prior_rec, dict) and not prior_rec.get("archived") and \
                 str(prior_rec.get("location") or "") in ("", f"IFS Slot {slot}"):
-            client("PATCH", f"/api/v1/spool/{int(prior)}", {"location": SHELF})
+            body: dict[str, Any] = {"location": SHELF}
+            if prior_claims_slot():
+                body["extra"] = {PH_SLOT_FIELD: None}
+            client("PATCH", f"/api/v1/spool/{int(prior)}", body)
+        elif prior_claims_slot():
+            _set_ph_slot(client, int(prior), None)
     if prior and int(prior) != int(spool_id) and prior_disposition == "archive":
         # The operator picked this fate in the guided change flow (#475):
-        # the old spool leaves the live inventory, its record kept.
-        client("PATCH", f"/api/v1/spool/{int(prior)}", {"archived": True})
+        # the old spool leaves the live inventory, its record kept. An
+        # archived spool must not keep claiming the slot (#798), so a claim
+        # it holds is cleared in the same write.
+        body = {"archived": True}
+        if prior_claims_slot():
+            body["extra"] = {PH_SLOT_FIELD: None}
+        client("PATCH", f"/api/v1/spool/{int(prior)}", body)
     if prior and int(prior) != int(spool_id) and prior_disposition == "depleted":
         # Same shape as the runout pattern: archived, 0 g left, depleted.
-        client("PATCH", f"/api/v1/spool/{int(prior)}",
-               {"archived": True, "remaining_weight": 0, "location": "depleted"})
+        body = {"archived": True, "remaining_weight": 0, "location": "depleted"}
+        if prior_claims_slot():
+            body["extra"] = {PH_SLOT_FIELD: None}
+        client("PATCH", f"/api/v1/spool/{int(prior)}", body)
     if prior and int(prior) != int(spool_id) and prior_disposition == "delete":
         # The operator explicitly picked Delete for the replaced spool
         # (#512): its Spoolman record is removed, not archived. This is the
         # one destructive disposition, so no flow passes it by default.
+        # The record going away takes any ph_slot claim with it (#798).
         client("DELETE", f"/api/v1/spool/{int(prior)}", None)
+    if prior and int(prior) != int(spool_id) and prior_disposition == "keep":
+        # The caller already handled the replaced spool's fate; its ph_slot
+        # claim on this slot is still Print Handy's to clear (#798).
+        if prior_claims_slot():
+            _set_ph_slot(client, int(prior), None)
     record = _slot_record(slot, spool, old, note)
     slots[str(slot)] = record
     if (state.get("spool") or {}).get("spoolman_id") == prior and prior is not None:
@@ -599,6 +792,273 @@ def bind_text(result: dict[str, Any]) -> str:
         screen = screen[:-1] + f" ({result['screen_note']})."
     usage = "" if result["usage"] == "unchanged" else f" Filament usage {result['usage']}."
     return f"Slot {result['slot']} → spool #{result['spool_id']} ({r['name']}{grams}).{moved} {screen}{usage}"
+
+
+# ---------------------------------------------------------------- reconcile (#798)
+
+def _reconcile_lock(printer_id: str):
+    """The existing per-printer control lock for one printer, or None when it cannot be built.
+
+    Same discipline as print_control._lock_for: the shared flock-backed lock
+    from core.control_lock, keyed by printer under this install's state dir,
+    so a reconcile never interleaves with a print start, a slot load or
+    another reconcile for the same printer in another process.
+    """
+    try:
+        from ..core import control_lock as _cl
+        return _cl.control_lock(str(printer_id), state_dir=_config.state_dir())
+    except Exception:
+        return None
+
+
+def reconcile(printer_id: str | None = None, *, client: Client = spoolman, mr: Client = moonraker,
+              state_path: Path | None = None, pending_path: Path | None = None) -> dict[str, Any]:
+    """Make Spoolman, the local slot cache and the screen agree, with Spoolman winning (#798).
+
+    The single writer of the ``filament_slots`` cache: slot assignments are
+    read from the Spoolman ``ph_slot`` extra field, never from ``location``.
+    On the first run — when Spoolman carries no ``ph_slot`` values at all —
+    the existing local cache is migrated into Spoolman instead. Conflicts
+    (two spools claiming one slot, a slot claimed by an archived spool, a
+    local record naming a spool Spoolman no longer has, an identity
+    cross-check mismatch) are named in the result, never silently picked.
+    Screens are converged through push_screen (which defers while printing)
+    and Moonraker's usage pointer through repair_usage_spool.
+
+    Idempotent: a second run over the same facts writes nothing. Runs under
+    the per-printer control lock; a held lock is a named busy result, not a
+    queue. An unreachable Spoolman is a named failure and the local cache is
+    left untouched. Never raises for a Spoolman or printer failure.
+    """
+    pid = printer_id or _default_printer_id()
+    result: dict[str, Any] = {"ok": False, "printer_id": pid, "migrated": False,
+                              "assignments": {}, "conflicts": [], "screens": [],
+                              "usage": None, "error": None, "changed": False}
+    if not pid:
+        result["error"] = ("Spool reconcile: no printer could be derived from the "
+                           "configuration, so nothing was changed")
+        return result
+    lock = _reconcile_lock(pid)
+    if lock is not None:
+        try:
+            acquired = lock.acquire(blocking=False)
+        except Exception:
+            acquired, lock = True, None  # a lock that cannot be taken must not block the reconcile
+        if not acquired:
+            result["error"] = (f"Spool reconcile for {pid}: another printer control action is "
+                               "in flight, so nothing was changed — run it again when the printer is free")
+            return result
+    try:
+        return _reconcile_locked(pid, result, client=client, mr=mr,
+                                 state_path=state_path, pending_path=pending_path)
+    finally:
+        if lock is not None:
+            try:
+                lock.release()
+            except Exception:
+                pass
+
+
+def _reconcile_locked(pid: str, result: dict[str, Any], *, client: Client, mr: Client,
+                      state_path: Path | None, pending_path: Path | None) -> dict[str, Any]:
+    ensure_ph_slot_field(client)
+    try:
+        rows = _call_client(client, "GET", "/api/v1/spool?allow_archived=true", None)
+    except Exception:
+        rows = None
+    if not isinstance(rows, list):
+        result["error"] = ("Spool reconcile: Spoolman did not answer, so the local slot "
+                           "record was left unchanged")
+        return result
+    spools = [row for row in rows if isinstance(row, dict) and row.get("id") is not None]
+    by_id = {int(row["id"]): row for row in spools}
+    try:
+        state = load_state(state_path, printer_id=pid)
+    except FileNotFoundError:
+        state = {"filament_slots": {}}  # no cache yet: a rebuild from Spoolman, not a conflict
+    except Exception:
+        state = {"filament_slots": {}}
+        result["conflicts"].append("The local slot record could not be read; it was rebuilt from Spoolman")
+    old_slots = {str(key): dict(rec) for key, rec in (state.get("filament_slots") or {}).items()
+                 if isinstance(rec, dict)}
+    claims: dict[int, list[dict[str, Any]]] = {}
+    any_ph_slot = False
+    for row in spools:
+        if spool_ph_slot_text(row) is not None:
+            any_ph_slot = True
+        parsed = spool_ph_slot(row)
+        if parsed is not None and parsed[0] == pid:
+            claims.setdefault(parsed[1], []).append(row)
+    if not any_ph_slot:
+        assignments = _reconcile_migrate(pid, result, client=client, by_id=by_id, old_slots=old_slots)
+    else:
+        assignments = _reconcile_rebuild(pid, result, client=client, state=state, old_slots=old_slots,
+                                         claims=claims, by_id=by_id, state_path=state_path)
+    result["assignments"] = {slot: assignments[slot] for slot in sorted(assignments)}
+    # Converge the screens for the slots Spoolman settled (push_screen itself
+    # defers while printing), then repair the usage pointer like /spool sync.
+    try:
+        adapter = _printer_adapter(pid)
+    except Exception:
+        adapter = None
+    for slot in sorted(assignments):
+        rec = (result.get("_records") or {}).get(str(slot)) or {}
+        if not rec.get("hex"):
+            spool = by_id.get(assignments[slot]) or {}
+            rec = _slot_record(slot, spool, old_slots.get(str(slot)), "Reconciled from Spoolman (#798)")
+        try:
+            pushed = push_screen(slot, rec.get("material") or "", rec.get("hex") or "", mr=mr,
+                                 pending_path=_pending_path(pending_path, pid), adapter=adapter)
+            note = (screen_fallback_note(rec.get("material") or "", adapter)
+                    if pushed in ("pushed", "deferred") else None)
+            result["screens"].append(f"Slot {slot}: {pushed}" + (f" ({note})" if note else ""))
+        except Exception:
+            result["screens"].append(f"Slot {slot}: the screen could not be updated — try again")
+    result.pop("_records", None)
+    try:
+        result["usage"] = repair_usage_spool(mr=mr, state_path=state_path, printer_id=pid)
+    except Exception:
+        result["usage"] = "Filament charging: could not be checked — try again"
+    result["ok"] = True
+    return result
+
+
+def _reconcile_migrate(pid: str, result: dict[str, Any], *, client: Client,
+                       by_id: dict[int, dict[str, Any]],
+                       old_slots: dict[str, dict[str, Any]]) -> dict[int, int]:
+    """First run: write the local cache's assignments into Spoolman ``ph_slot`` (#798)."""
+    assignments: dict[int, int] = {}
+    records: dict[str, dict[str, Any]] = {}
+    for key in sorted(old_slots, key=lambda k: int(k) if k.isdigit() else 0):
+        rec = old_slots[key]
+        sid = rec.get("spoolman_id")
+        if sid is None or not key.isdigit():
+            continue
+        slot = int(key)
+        spool = by_id.get(int(sid))
+        if spool is None:
+            result["conflicts"].append(
+                f"Slot {slot}: the local record names spool #{sid}, which Spoolman no longer "
+                "has — it was not migrated")
+            continue
+        if spool.get("archived"):
+            result["conflicts"].append(
+                f"Slot {slot}: the local record names spool #{sid}, which is archived in "
+                "Spoolman — it was not migrated")
+            continue
+        if _set_ph_slot(client, int(sid), format_ph_slot(pid, slot)):
+            assignments[slot] = int(sid)
+            records[key] = rec
+        else:
+            result["conflicts"].append(
+                f"Slot {slot}: spool #{sid} could not be written to Spoolman — it was not migrated")
+    if assignments:
+        result["migrated"] = True
+        result["changed"] = True
+    result["_records"] = records
+    return assignments
+
+
+def _reconcile_rebuild(pid: str, result: dict[str, Any], *, client: Client, state: dict[str, Any],
+                       old_slots: dict[str, dict[str, Any]],
+                       claims: dict[int, list[dict[str, Any]]], by_id: dict[int, dict[str, Any]],
+                       state_path: Path | None) -> dict[int, int]:
+    """Rebuild the local cache from Spoolman's ``ph_slot`` assignments (#798)."""
+    assignments: dict[int, int] = {}
+    records: dict[str, dict[str, Any]] = {}
+    new_slots: dict[str, dict[str, Any]] = {}
+    for slot in sorted(claims):
+        claimants = claims[slot]
+        live = [row for row in claimants if not row.get("archived")]
+        for row in claimants:
+            if row.get("archived"):
+                result["conflicts"].append(
+                    f"Slot {slot}: spool #{row['id']} is archived but still claims this slot in "
+                    "Spoolman — the claim was cleared and the slot was not taken from it")
+                _set_ph_slot(client, int(row["id"]), None)
+        if len(live) > 1:
+            ids = " and ".join(f"#{row['id']}" for row in sorted(live, key=lambda r: int(r["id"])))
+            result["conflicts"].append(
+                f"Slot {slot}: spools {ids} both claim this slot in Spoolman — neither was "
+                "picked; fix the claim in Spoolman and run the sync again")
+            if str(slot) in old_slots:
+                new_slots[str(slot)] = old_slots[str(slot)]
+            continue
+        if not live:
+            continue
+        spool = live[0]
+        sid = int(spool["id"])
+        old = old_slots.get(str(slot))
+        record = _slot_record(slot, spool, old, "Rebuilt from Spoolman ph_slot by reconcile (#798)")
+        if old is not None and old.get("spoolman_id") == sid:
+            # Identity cross-check: the cache and Spoolman name the same spool
+            # for this slot, so a material or color disagreement is a fact
+            # worth naming — Spoolman's record still wins the rebuild.
+            filament = spool.get("filament") or {}
+            old_material = str(old.get("material") or "").strip()
+            new_material = str(filament.get("material") or "").strip()
+            if old_material and new_material and old_material.casefold() != new_material.casefold() \
+                    and old_material.casefold() != "unknown" and new_material.casefold() != "unknown":
+                result["conflicts"].append(
+                    f"Slot {slot}: spool #{sid} is {new_material} in Spoolman but the local "
+                    f"record said {old_material} — the Spoolman record was used")
+            old_color = str(old.get("color") or "").strip()
+            if old_color and record.get("color") and old_color.casefold() != str(record["color"]).casefold():
+                result["conflicts"].append(
+                    f"Slot {slot}: spool #{sid} is {record['color']} in Spoolman but the local "
+                    f"record said {old_color} — the Spoolman record was used")
+            # Idempotence: an unchanged assignment keeps its existing record
+            # (and its timestamp) instead of being rewritten every run.
+            if all(old.get(field) == record.get(field)
+                   for field in ("spoolman_id", "name", "material", "color", "hex", "remaining_grams")):
+                record = old
+        assignments[slot] = sid
+        records[str(slot)] = record
+        new_slots[str(slot)] = record
+    for key, rec in old_slots.items():
+        sid = rec.get("spoolman_id")
+        if sid is not None and int(sid) not in by_id and key not in new_slots:
+            result["conflicts"].append(
+                f"Slot {key}: the local record named spool #{sid}, which Spoolman no longer "
+                "has (it may have been deleted) — the slot was rebuilt from Spoolman")
+    if new_slots != old_slots:
+        state["filament_slots"] = new_slots
+        active = state.get("spool") or {}
+        active_id = active.get("spoolman_id")
+        if active_id is not None and int(active_id) in assignments.values():
+            spool = by_id.get(int(active_id)) or {}
+            filament = spool.get("filament") or {}
+            state["spool"] = {**active,
+                              "name": filament.get("name") or active.get("name"),
+                              "material": filament.get("material") or active.get("material"),
+                              "density": filament.get("density") or active.get("density"),
+                              "diameter_mm": filament.get("diameter") or active.get("diameter_mm")}
+        save_state(state, state_path, printer_id=pid)
+        result["changed"] = True
+    result["_records"] = records
+    return assignments
+
+
+def reconcile_text(result: dict[str, Any]) -> str:
+    """The /spool sync and log wording for one reconcile result (#798)."""
+    if result.get("error"):
+        return str(result["error"])
+    pid = result.get("printer_id") or "the printer"
+    assignments = result.get("assignments") or {}
+    if assignments:
+        named = ", ".join(f"slot {slot} → spool #{assignments[slot]}" for slot in sorted(assignments))
+        lead = f"Spool reconcile for {pid}: {named} (from Spoolman)."
+    else:
+        lead = f"Spool reconcile for {pid}: no spools are assigned to slots in Spoolman."
+    if result.get("migrated"):
+        lead += " The local slot record was migrated into Spoolman (first run)."
+    lines = [lead]
+    for conflict in result.get("conflicts") or []:
+        lines.append(f"Conflict: {conflict}")
+    lines.extend(result.get("screens") or [])
+    if result.get("usage"):
+        lines.append(str(result["usage"]))
+    return "\n".join(lines)
 
 
 def repair_usage_spool(*, mr: Client = moonraker, state_path: Path | None = None,
