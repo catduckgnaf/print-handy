@@ -5967,11 +5967,12 @@ def _native_file_matches(reported, remote):
 
 
 def _moonraker_started_files(st):
-    """Moonraker's recent job history as (filename, start_epoch) pairs, for settling an uncertain
-    earlier start (launch_state.reached_printer). Unreadable history settles nothing."""
+    """Moonraker's recent job history as (job_id, filename, start_epoch) triples, for settling
+    an uncertain earlier start (launch_state.reached_printer) and for the pre-submission
+    history baseline (launch_state.acquire). Unreadable history settles nothing."""
     try:
         jobs = _mr(st, '/server/history/list?limit=20&order=desc', timeout=10)['result']['jobs']
-        return [(j.get('filename'), j.get('start_time')) for j in jobs
+        return [(j.get('job_id'), j.get('filename'), j.get('start_time')) for j in jobs
                 if isinstance(j, dict) and j.get('filename') and isinstance(j.get('start_time'), (int, float))]
     except Exception:
         return []
