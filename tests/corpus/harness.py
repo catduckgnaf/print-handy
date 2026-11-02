@@ -406,6 +406,9 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, in_gateway_env=
         # Multicolor summaries probe live ZMod purge settings. This offline corpus models
         # an unavailable reading explicitly, rather than attempting (and swallowing) I/O.
         patch(printer_state, "read_purge_mode", lambda st: None)
+        # The first confirmation card's spool-remap note reads the ZMod version
+        # the same fail-soft way (P2-242); model it unavailable too.
+        patch(model_job, "_zmod_version", lambda st: None)
         patch(print_next, "start", start)
         patch(prepared_intake.print_summary, "find_job", find_job)
         patch(prepared_intake._external.load("moonraker_event_listener"), "generate_roast", lambda *a, **kw: "")
