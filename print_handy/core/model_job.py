@@ -6534,7 +6534,7 @@ def accepted_color_mismatches(job, gcode_sha256):
     return frozenset(str(key) for key in accepted.get('slots') or [])
 
 
-def _check_mapped_slot_color(slot, tool, live_raw, expected, accepted=frozenset()):
+def _check_mapped_slot_color(slot, tool, live_raw, expected, accepted=frozenset(), found=None):
     """The printer screen's slot color against the recorded one, before a mapped launch.
 
     The two are compared as colors, not strings (FFFFFF == FAFAFA, 0C6283FF == 0C6283),
@@ -6542,6 +6542,10 @@ def _check_mapped_slot_color(slot, tool, live_raw, expected, accepted=frozenset(
     or merely close value prints a WARNING and proceeds, and so does a difference from
     a record hex we guessed ourselves (``hex_source`` name/default): that is our own
     guess disagreeing with the screen, not the operator's evidence of a wrong spool.
+
+    With ``found`` (a list), an unacknowledged clear difference is appended there as
+    ``(slot, tool, shown_live, shown_recorded)`` instead of refusing, so the caller can
+    gather every mismatched slot and ask once (#795).
     """
     live = filament_color.normalize_hex(live_raw)
     recorded = filament_color.first_hex(expected.get('hex'))
@@ -6554,6 +6558,9 @@ def _check_mapped_slot_color(slot, tool, live_raw, expected, accepted=frozenset(
         if color_mismatch_key(slot, shown_live, shown_recorded) in accepted:
             print(f"WARNING: printer slot {slot} color is {shown_live} but Spoolman has {shown_recorded} "
                   f"there (T{tool}); the operator chose Print anyway for this G-code.", flush=True)
+            return
+        if found is not None:
+            found.append((slot, tool, shown_live, shown_recorded))
             return
         # Never a hard refusal (#795): the intake asks Print anyway / set the screen / Cancel.
         raise SystemExit(f"REFUSED: printer slot {slot} color is {shown_live} but Spoolman has "
@@ -6616,6 +6623,7 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
     label_matches = adapter.native.screen_label_matches
     mapped = normalize_mapping(mapping, st)
     accepted_colors = accepted_color_mismatches(job, file_sha256(g))
+    color_found = []  # every unacknowledged slot color difference, refused together below (#795)
     for tool, slot in mapped.items():
         expected = st['filament_slots'][str(slot)]
         matches = [item for item in configured if str(item.get('ID')) == str(slot)]
@@ -6628,12 +6636,17 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
         if not label_matches(label, expected['material']):
             raise SystemExit(f"REFUSED: printer slot {slot} is labeled {label or 'blank'} but Spoolman has "
                              f"{expected['material']} there (T{tool}). Nothing uploaded or started.")
-        _check_mapped_slot_color(slot, tool, matches[0].get('HEX'), expected, accepted_colors)
+        _check_mapped_slot_color(slot, tool, matches[0].get('HEX'), expected, accepted_colors, color_found)
         if occupancy.get(slot) is not True:
             # Operator-confirmed loaded feeders supersede idle false occupancy,
             # never unknown telemetry or an actual native error/activity.
             if occupancy.get(slot) is not False or expected.get('physical_loading_verified') is not True:
                 raise RuntimeError(f'T{tool} slot {slot} occupancy is unknown or unconfirmed')
+    if color_found:
+        # One refusal naming every mismatched slot, so the intake asks once (#795).
+        raise SystemExit('REFUSED: ' + '; '.join(
+            f"printer slot {slot} color is {live} but Spoolman has {recorded} there (T{tool})"
+            for slot, tool, live, recorded in color_found) + '. Nothing uploaded or started.')
     sha = file_sha256(g)
     remote = remote_name(g, sha, job)
     upload_path, upload_sha, remote, delivery = _zmod_upload_artifact(adapter, st, g, sha, remote)

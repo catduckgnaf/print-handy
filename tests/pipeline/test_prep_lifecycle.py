@@ -287,7 +287,12 @@ COLOR_REFUSAL = ("REFUSED: printer slot 1 color is #E53935 but Spoolman has #CD7
                  "Nothing uploaded or started.")
 
 
-def _color_mismatch_start(monkeypatch):
+TWO_COLOR_REFUSAL = ("REFUSED: printer slot 1 color is #E53935 but Spoolman has #CD7F32 there (T0); "
+                     "printer slot 2 color is #1E88E5 but Spoolman has #43A047 there (T1). "
+                     "Nothing uploaded or started.")
+
+
+def _color_mismatch_start(monkeypatch, refusal=COLOR_REFUSAL):
     """First start stops on the color difference; later starts record what JOB.json allowed."""
     seen = []
 
@@ -295,7 +300,7 @@ def _color_mismatch_start(monkeypatch):
         job = json.loads(Path(target['job_json']).read_text())
         seen.append(job.get('color_mismatch_accepted'))
         if len(seen) == 1:
-            return False, COLOR_REFUSAL
+            return False, refusal
         return True, 'started'
 
     monkeypatch.setattr(print_next, 'start', start)
@@ -329,6 +334,43 @@ def test_color_mismatch_cancel_uploads_nothing(env, monkeypatch):
 def test_label_mismatch_is_still_a_retry_refusal():
     tail = ("REFUSED: printer slot 2 is labeled PETG but Spoolman has Silk PLA there (T0). "
             "Nothing uploaded or started.")
-    assert prepared_intake.color_confirm(tail) is None
-    assert prepared_intake.color_confirm(COLOR_REFUSAL) == {'slot': 1, 'live': '#E53935',
-                                                            'recorded': '#CD7F32', 'tool': 0}
+    assert prepared_intake.color_confirm(tail) == []
+    assert prepared_intake.color_confirm(COLOR_REFUSAL) == [{'slot': 1, 'live': '#E53935',
+                                                             'recorded': '#CD7F32', 'tool': 0}]
+    assert [c['slot'] for c in prepared_intake.color_confirm(TWO_COLOR_REFUSAL)] == [1, 2]
+
+
+def test_two_mismatched_slots_get_one_prompt_and_one_print_anyway_for_both(env, monkeypatch):
+    """#795 review: both slots are named in one question, and one answer covers both."""
+    seen = _color_mismatch_start(monkeypatch, TWO_COLOR_REFUSAL)
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 0])  # ... then Print anyway
+    asked = [q for q in adapter.questions if prepared_intake.PRINT_ANYWAY_LABEL in q['choices']]
+    assert len(asked) == 1
+    question = asked[0]['question']
+    assert 'slot 1' in question and 'slot 2' in question
+    assert 'red #E53935' in question and 'bronze #CD7F32' in question
+    assert 'blue #1E88E5' in question and 'green #43A047' in question
+    assert len(seen) == 2  # one refused attempt, one that reaches the upload
+    assert seen[1]['slots'] == sorted([model_job.color_mismatch_key(1, '#E53935', '#CD7F32'),
+                                       model_job.color_mismatch_key(2, '#1E88E5', '#43A047')])
+    assert receipt['status'] == 'STARTED' and receipt['color_mismatch']['choice'] == 0
+
+
+def test_two_mismatched_slots_cancel_uploads_nothing(env, monkeypatch):
+    seen = _color_mismatch_start(monkeypatch, TWO_COLOR_REFUSAL)
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 2])
+    assert len(seen) == 1
+    assert receipt['status'] == 'SLICED_NOT_STARTED' and receipt['started'] is False
+
+
+def test_color_refusal_that_surfaces_keeps_its_retry_text(env, monkeypatch):
+    """When no question can follow (the rounds are used up), the refusal says Retry like any other."""
+    async def start(target):
+        return False, COLOR_REFUSAL
+
+    monkeypatch.setattr(print_next, 'start', start)
+    adapter, result, receipt = run_flow(env, [1, 0, 0] + [0] * (prepared_intake.COLOR_CONFIRM_ROUNDS - 1))
+    asked = [q for q in adapter.questions if prepared_intake.PRINT_ANYWAY_LABEL in q['choices']]
+    assert len(asked) == prepared_intake.COLOR_CONFIRM_ROUNDS - 1
+    assert adapter.log[-1].startswith("Didn't start: printer slot 1 color is #E53935")
+    assert adapter.log[-1].endswith('then press Retry.')
