@@ -2,6 +2,7 @@
 
 # Unreleased
 
+- Thermal probe at add-printer (#741): after the live connection test passes, `/print-handy add-printer` reads the printer's chamber sensor, fans and door switch, read-only (Moonraker objects, the Bambu report, the SDCP status frame, a PrusaLink schema check; OctoPrint cannot be probed). Findings the model record does not already carry are proposed with their evidence, and only the ones you confirm are saved for that printer, as operator-confirmed. They show in that printer's slice summary. The model registry never changes, and nothing is sent to the printer.
 - Web UI auth opt-out: `webui.require_auth` (`PRINT_HANDY__WEBUI__REQUIRE_AUTH`, default `true`). Set `false` on a trusted network and the Web UI starts on a LAN bind with no access token and no login; a token left set is ignored. The Docker gate logs `authentication OFF` at start. Not editable from the Web UI itself.
 - One "Print started" post per start: the start claim and recorded start message now match the printer's 3MF unpack path (`3mf_print/X.gcode`), so the listener edits the intake's post instead of posting a second one.
 - "Preparing to start" shows the nozzle and bed targets read from the uploaded G-code.

@@ -572,7 +572,7 @@ def format_slice_summary(job, now=None):
     # it sends no fan, temperature or chamber command.
     try:
         from ..knowledge.thermal import thermal_lines_for_model
-        lines.extend(thermal_lines_for_model(job.get("printer_model")))
+        lines.extend(thermal_lines_for_model(job.get("printer_model"), printer_id=job.get("printer_id")))
     except Exception:
         pass
     return scrub("\n".join(lines))
