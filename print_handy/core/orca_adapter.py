@@ -665,7 +665,7 @@ def _sanitize_imported_settings(path, templates, slot_count, filament_profiles=(
             count = len(settings[key]) if isinstance(settings[key], list) else slot_count
             existing = settings[key] if isinstance(settings[key], list) else [settings[key]]
             replacement = [
-                item if sg.is_allowed_filament_id(item, {template_id}) else template_id
+                item if sg.is_allowed_filament_id(item, {template_id}, slot_count=slot_count) else template_id
                 for item in existing
             ]
             if len(replacement) < count:

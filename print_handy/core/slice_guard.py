@@ -77,7 +77,7 @@ TIME_HEADER=re.compile(r"(?im)^;\s*(?:estimated printing time(?:\s*\([^)]*\))?|e
                        r"|^;.*\b(?:model printing time|total estimated time)\s*:\s*\S|^;\s*time\s*:\s*\S")
 MOVE=re.compile(r"^\s*G[0-3]\b([^;]*)",re.I)
 WORD=re.compile(r"\b([XYZE])\s*(-?(?:\d+(?:\.\d*)?|\.\d+))",re.I)
-HERMES_SLOT_PATTERN = re.compile(r"^Hermes slot \d+(?:\s+\S.*)?$", re.I)
+HERMES_SLOT_PATTERN = re.compile(r"^Hermes slot (\d+)\s+(\S.*)$", re.I)
 # Per-line patterns, compiled once: a large plate runs to 10M+ lines.
 OPCODE = re.compile(r"^([GMT])0*(\d)")
 WORD_TOKEN = re.compile(r"([A-Z])(-?(?:\d+(?:\.\d*)?|\.\d+))")
@@ -91,14 +91,28 @@ EFFECTIVE_SETTING = re.compile(
     r"print_settings_id|brim_type)\s*=\s*(.*)$", re.I)
 
 
-def is_allowed_filament_id(value, own_ids=None):
-    """Check if a filament profile ID is an allowed template ID or Print Handy generated Hermes slot."""
+def is_allowed_filament_id(value, own_ids=None, slot_count=None):
+    """Whether a filament profile ID is one of ours: an exact active profile ID, or a
+    Print Handy generated Hermes slot ID for a configured slot.
+
+    Exact membership in own_ids (the IDs collected from the active generated
+    profiles, or the template's own ID) is the proof. The Hermes shape alone
+    proves nothing — an imported project can name itself "Hermes slot 999
+    Totally Foreign" — so the pattern only counts when the caller supplies
+    the configured slot count and the named slot is inside it (P2-27).
+    """
     if not value or not isinstance(value, str):
         return False
     v = value.strip().strip('"')
     if own_ids and v in own_ids:
         return True
-    return bool(HERMES_SLOT_PATTERN.match(v))
+    match = HERMES_SLOT_PATTERN.match(v)
+    if not match or slot_count is None:
+        return False
+    try:
+        return 1 <= int(match.group(1)) <= int(slot_count)
+    except (TypeError, ValueError):
+        return False
 
 
 # Slicer identity, read from what each supported slicer actually writes (#434). OrcaSlicer and
@@ -416,7 +430,7 @@ def post_slice(gcode, *, filament_slots=None, tool_slots=None, bed=None, result_
             own_ids = {str(value).strip().strip('"') for value in (raw_ids if isinstance(raw_ids, (list, set, tuple)) else [raw_ids])}
             for slot, entry in enumerate(entries, 1):
                 value = entry.strip().strip('"')
-                is_allowed = is_allowed_filament_id(value, own_ids) if key == 'filament_settings_id' else (value in own_ids)
+                is_allowed = is_allowed_filament_id(value, own_ids, slot_count=filament_slots) if key == 'filament_settings_id' else (value in own_ids)
                 if not value or not is_allowed:
                     r.block(f"Foreign effective setting {match.group(1)} slot {slot}: {value!r}.")
         match = ARC_FITTING.match(line)
