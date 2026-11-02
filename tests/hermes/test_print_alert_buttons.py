@@ -588,3 +588,18 @@ def test_retire_alerts_scoped_to_the_owning_printer(tmp_path):
         # listener retires its own printer's alerts that way.
         assert pab.retire_alerts("token", "f.gcode", "Closed.", ("paused",)) == 1
         assert pab.peek(theirs) is None
+
+
+def test_retire_alerts_legacy_unscoped_alert_retires_for_the_default_printer_only(tmp_path):
+    """2.2.5 review (P2-176): an alert stored without a printer_id belongs to
+    the default printer; another printer's scoped retirement leaves it alone."""
+    with patch.object(pab, "STATE", tmp_path / "alerts.json"), \
+            patch("print_handy.settings.default_printer_id", return_value="printer-a"), \
+            patch.object(pab.urllib.request, "urlopen", lambda req, timeout: _RetireResponse()):
+        legacy = _record_with_message("paused", "f.gcode")
+        assert pab.retire_alerts("token", "f.gcode", "Closed.", ("paused",),
+                                 printer_id="printer-b") == 0
+        assert pab.peek(legacy) is not None
+        assert pab.retire_alerts("token", "f.gcode", "Closed.", ("paused",),
+                                 printer_id="printer-a") == 1
+        assert pab.peek(legacy) is None

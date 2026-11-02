@@ -679,14 +679,29 @@ def finalize_from_history(job_key):
     return result
 
 
-def _finished_history_job(filename):
+# How far a history entry's end may sit from the completion time and still
+# be this print (2.2.5 review): wide enough for completion retries, narrow
+# enough that an older print of the same file is never mistaken for it.
+HISTORY_MATCH_WINDOW_S = 600
+
+
+def _finished_history_job(filename, completed_at=None):
     """Moonraker's newest finished history entry for filename, or None.
 
     History is the stable identity source for a physical print (P2-150):
     its start_time names the same print on every completion retry,
     unlike the wall clock. An unavailable or unmatched read changes
-    nothing — the record falls back to today's behaviour.
+    nothing — the record falls back to today's behaviour. An entry whose
+    end_time is not within HISTORY_MATCH_WINDOW_S of the completion time
+    (completed_at, else the clock) is an earlier print of the same file that
+    history has not caught up with: it is refused, so its start_time can
+    never collide this print's record id with the earlier one.
     """
+    try:
+        reference = (datetime.strptime(completed_at, "%Y-%m-%dT%H:%M:%SZ")
+                     .replace(tzinfo=timezone.utc).timestamp() if completed_at else time.time())
+    except (TypeError, ValueError):
+        return None
     try:
         jobs = (get_json("/server/history/list?limit=50&order=desc").get("result") or {}).get("jobs") or []
     except Exception:
@@ -694,7 +709,12 @@ def _finished_history_job(filename):
     for job in jobs:
         if isinstance(job, dict) and job.get("filename") == filename \
                 and job.get("status") not in (None, "in_progress") and job.get("start_time"):
-            return job
+            try:
+                if abs(float(job.get("end_time")) - reference) <= HISTORY_MATCH_WINDOW_S:
+                    return job
+            except (TypeError, ValueError):
+                pass
+            return None  # the newest finished entry is not this print
     return None
 
 
@@ -704,7 +724,7 @@ def record_completion(job_key, filename, stats, completed_at=None):
     context["job_key"] = job_key
     stats = dict(stats or {})
     if not context.get("started_at") and not (stats.get("start_time") or stats.get("print_start_time")):
-        history_job = _finished_history_job(filename)
+        history_job = _finished_history_job(filename, completed_at)
         if history_job is not None:
             stats["start_time"] = history_job["start_time"]
             if completed_at is None and history_job.get("end_time"):

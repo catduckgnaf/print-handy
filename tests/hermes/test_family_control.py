@@ -307,3 +307,23 @@ def test_bambu_sink_default_retirer_is_scoped_to_the_owning_printer(monkeypatch)
     sink("completion", {"status": {"state": "complete", "filename": REMOTE},
                         "transition": None})
     assert seen == [(REMOTE, "Print complete.", "printer-b")]
+
+
+def test_default_printer_pause_alerts_post_and_retire_under_its_real_id(monkeypatch):
+    """2.2.5 review (P2-176): printer_id None (the default printer) must not
+    reach the retirer as "every printer" or be stored without an id."""
+    from print_handy import settings
+    from print_handy.hermes import print_alert_buttons as pab
+    monkeypatch.setattr(settings, "default_printer_id", lambda data=None: "printer-a")
+    mel = fc._mel()
+    monkeypatch.setattr(mel, "_buttonless_standalone", lambda: False)
+    monkeypatch.setattr(mel, "_bot_token", lambda: "tok")
+    posted, retired = [], []
+    monkeypatch.setattr(pab, "post_with_buttons",
+                        lambda *a, **kw: posted.append(kw.get("printer_id")) or True)
+    monkeypatch.setattr(pab, "retire_alerts",
+                        lambda *a, **kw: retired.append(kw.get("printer_id")) or 1)
+    assert fc.post_pause_alert(REMOTE, "prusalink", None, st("paused"))
+    fc.retire_pause_alerts(REMOTE, "Print ended.", None)
+    assert posted == ["printer-a"]
+    assert retired == ["printer-a"]

@@ -339,7 +339,9 @@ def test_record_completion_retry_writes_one_record(tmp_path, monkeypatch):
     from datetime import datetime, timezone
     monkeypatch.setattr(records, "PRINTS_DIR", tmp_path / "Prints")
     monkeypatch.setattr(records, "PLANS_DIR", tmp_path / "Plans")
-    start, end = 1790220700, 1790224300
+    import time
+    end = int(time.time()) - 60  # just finished: history agrees with the clock
+    start = end - 3600
     fmt = "%Y-%m-%dT%H:%M:%SZ"
     history = {"result": {"jobs": [{"filename": "job.gcode", "status": "completed",
                                     "start_time": start, "end_time": end,
@@ -360,6 +362,29 @@ def test_record_completion_retry_writes_one_record(tmp_path, monkeypatch):
     record = json.loads(files[0].read_text())
     assert record["started_at"] == datetime.fromtimestamp(start, timezone.utc).strftime(fmt)
     assert record["completed_at"] == datetime.fromtimestamp(end, timezone.utc).strftime(fmt)
+
+
+def test_record_completion_ignores_an_older_print_of_the_same_file(tmp_path, monkeypatch):
+    """2.2.5 review (P2-150): the just-finished print is not in history yet,
+    so the newest same-named entry is an OLDER print. Its start_time must not
+    become this record's identity (it would overwrite that print's record)."""
+    import time
+    monkeypatch.setattr(records, "PRINTS_DIR", tmp_path / "Prints")
+    monkeypatch.setattr(records, "PLANS_DIR", tmp_path / "Plans")
+    old_end = int(time.time()) - 86400
+    history = {"result": {"jobs": [{"filename": "job.gcode", "status": "completed",
+                                    "start_time": old_end - 3600, "end_time": old_end,
+                                    "print_duration": 3600, "filament_used": 100.0}]}}
+    monkeypatch.setattr(watcher, "get_json",
+                        lambda path: history if path.startswith("/server/history") else {})
+    monkeypatch.setattr(watcher, "get_file_metadata", lambda filename: {})
+    monkeypatch.setattr(watcher, "get_active_spool", lambda: {})
+    monkeypatch.setattr(watcher, "load_context", lambda job_key: {})
+    monkeypatch.setattr(watcher, "utc_now", lambda: "2026-09-24T05:00:00Z")
+    watcher.record_completion("job.gcode", "job.gcode", {"state": "complete", "print_duration": 60})
+    record = json.loads(next((tmp_path / "Prints").glob("*.json")).read_text())
+    assert record["completed_at"] == "2026-09-24T05:00:00Z"
+    assert record["started_at"] != time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(old_end - 3600))
 
 
 def test_multipart_summary_shows_remaining_filament_for_multi_copy_parts():

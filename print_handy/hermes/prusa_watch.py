@@ -130,8 +130,19 @@ class PrusaPrintMonitor:
     # -- capture lifecycle -------------------------------------------------
 
     def _begin_default(self, url, fetch):
-        return timelapse_capture.begin(
+        session = timelapse_capture.begin(
             self.filename, self.filename, url=url, fetch=fetch, log=log)
+        if session is not None and getattr(session.trigger, "name", "") == "layer":
+            # Prusa status carries no layer, so a layer-triggered session
+            # could never fire on this family. Fall back to the configured
+            # interval so the capture actually runs (stock_watch's P2-140
+            # twin, 2.2.5 review). A "both" trigger already has its interval
+            # floor.
+            interval = timelapse_capture.capture_settings()["capture_interval_s"]
+            session.trigger = timelapse_capture.IntervalTrigger(interval)
+            log(f"prusa capture for {self.filename!r}: the layer trigger cannot "
+                f"fire without layer status; capturing every {interval:g}s instead")
+        return session
 
     def _begin_capture(self):
         """Open the one capture session for this print. Never raises.
@@ -269,10 +280,10 @@ def _default_post(message):
 
 def start_monitor(adapter, filename, *, post=None, thread_factory=None, printer_id=None):
     """Start a PrusaPrintMonitor for a just-launched Prusa print on a daemon thread.
+
     printer_id is the launched job's roster printer: the monitor's pause
     alerts carry it, so their Resume/Cancel buttons act on that printer
     rather than the default one (SAFE-4 / P1-101).
-
 
     Returns the thread (or None when monitoring could not start — a
     failed monitor must never fail the print that launched it). With no

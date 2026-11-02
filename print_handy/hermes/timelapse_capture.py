@@ -343,6 +343,11 @@ class CaptureSession:
             self._say(f"timelapse frame fetch failed for {self.filename!r} "
                       f"from {redact_url(self.url or '')}: {exc!r}")
             return False
+        if not self.active:
+            # stop() ran while the fetch was in flight (2.2.5 review, P2-133):
+            # the manifest is already stamped, so a late frame would disagree
+            # with its frame count and land in the directory the encoder reads.
+            return False
         if frame_dark(image):
             # #476: a completely dark frame is a camera problem, not
             # footage — never stored, so a dark spell can never become

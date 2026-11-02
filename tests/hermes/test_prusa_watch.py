@@ -389,3 +389,34 @@ def test_a_refused_media_post_falls_back_to_the_text_completion(capture_logs):
     assert len(attempts) == 2
     assert "MEDIA:" in attempts[0]
     assert "MEDIA:" not in attempts[1]
+
+
+# -- layer trigger fallback (stock_watch's P2-140 twin) -------------------------
+
+
+def test_a_layer_trigger_falls_back_to_interval_on_prusa(monkeypatch):
+    """2.2.5 review: Prusa status carries no layer, so a layer-triggered
+    session could never fire. The watch substitutes the configured interval."""
+    import types
+
+    session = types.SimpleNamespace(trigger=timelapse_capture.LayerTrigger())
+    monkeypatch.setattr(timelapse_capture, "begin", lambda *a, **k: session)
+    monkeypatch.setattr(timelapse_capture, "capture_settings",
+                        lambda data=None: {"capture_interval_s": 45})
+    rig = Rig([st("printing")])
+    assert rig.monitor._begin_default(SNAP_URL, "fetch") is session
+    assert isinstance(session.trigger, timelapse_capture.IntervalTrigger)
+    assert session.trigger.interval_s == 45
+
+
+def test_an_interval_trigger_is_left_alone_on_prusa(monkeypatch):
+    import types
+
+    trigger = timelapse_capture.IntervalTrigger(30)
+    session = types.SimpleNamespace(trigger=trigger)
+    monkeypatch.setattr(timelapse_capture, "begin", lambda *a, **k: session)
+    monkeypatch.setattr(timelapse_capture, "capture_settings",
+                        lambda data=None: {"capture_interval_s": 45})
+    rig = Rig([st("printing")])
+    assert rig.monitor._begin_default(SNAP_URL, "fetch") is session
+    assert session.trigger is trigger
