@@ -2714,9 +2714,22 @@ def _verify_filament_readiness(state, selection=None, adapter=None):
         raise RuntimeError(f"filament readiness unavailable; print refused: {exc}") from exc
 
 
-def _with_gcode_temperatures(state, text):
+def _with_gcode_temperatures(state, text, recorded=None):
     """state with temps_c set to what this G-code's own spool resolves to (printer_state.gcode_temperatures),
-    so a slot job sliced at its spool's temperature is checked against that, not the printer-wide record."""
+    so a slot job sliced at its spool's temperature is checked against that, not the printer-wide record.
+
+    `recorded` temperatures — the ones preserved in the artifact's slice
+    provenance (P2-275) — win outright when usable: re-resolving at verify
+    time can see a different answer than slicing did (Spoolman down falls
+    back to material defaults) and refuse a sound artifact.
+    """
+    if recorded:
+        try:
+            temps = {'nozzle': float(recorded['nozzle']), 'bed': float(recorded['bed'])}
+        except (KeyError, TypeError, ValueError):
+            temps = None
+        if temps is not None:
+            return {**state, 'temps_c': temps}
     from .orca_config import split_config_list
     from . import spoolman_client
     match = re.search(r'^; filament_type = (.+)$', text, re.M)
@@ -2735,7 +2748,7 @@ def _with_gcode_temperatures(state, text):
     return {**state, 'temps_c': temps}
 
 
-def verify_gcode_offline(gcode_path, state, adapter=None):
+def verify_gcode_offline(gcode_path, state, adapter=None, recorded_temps=None):
     """Check startup, checksum, and bed bounds without contacting the printer.
 
     The live sibling reads display mode from Moonraker. This one validates the
@@ -2745,14 +2758,15 @@ def verify_gcode_offline(gcode_path, state, adapter=None):
     adapter_given = adapter is not None
     adapter = adapter or printers.current()
     if adapter.connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp', 'flashforge_stock'):
-        return _verify_offline(gcode_path, state, adapter) if adapter_given else _verify_offline(gcode_path, state)
+        kw = {'recorded_temps': recorded_temps} if recorded_temps else {}
+        return _verify_offline(gcode_path, state, adapter, **kw) if adapter_given else _verify_offline(gcode_path, state, **kw)
     p = Path(gcode_path)
     raw = p.read_bytes()
     text = raw.decode(errors='ignore')
     errors = []
     if raw.startswith(b'; MD5:') and not zmod_md5_valid(p):
         errors.append('invalid ZMod MD5 checksum')
-    state = _with_gcode_temperatures(state, text)
+    state = _with_gcode_temperatures(state, text, recorded_temps)
     from .nozzle import effective_nozzle_temperature
     nozzle_type = (state.get('nozzle') or {}).get('type') or settings.current().get('printer', {}).get('nozzle_type') or 'hardened_steel'
     try:
@@ -2789,7 +2803,7 @@ def verify_gcode_offline(gcode_path, state, adapter=None):
     return {'bounds_mm': bounds, 'nozzle': nozzle, 'offline': True}
 
 
-def _verify_offline(gcode_path, state, adapter=None):
+def _verify_offline(gcode_path, state, adapter=None, recorded_temps=None):
     """A printer Print Handy cannot reach (bambulab.a1): the adapter's checks against the hardware record."""
     adapter = adapter or printers.current()
     from .printer_state import _material_temperature_contract
@@ -2798,7 +2812,7 @@ def _verify_offline(gcode_path, state, adapter=None):
     except RuntimeError as exc:
         raise RuntimeError(f'offline G-code verification failed: {exc}') from exc
     text = Path(gcode_path).read_text(errors='ignore')
-    problems = adapter.gcode_problems(text, _with_gcode_temperatures(state, text))
+    problems = adapter.gcode_problems(text, _with_gcode_temperatures(state, text, recorded_temps))
     if problems:
         raise RuntimeError('offline G-code verification failed: ' + '; '.join(problems))
     return {'offline': True, 'connection': adapter.connection}
@@ -2826,7 +2840,7 @@ def _print_check_warnings(facts):
         print(f"WARNING: {warning}", file=sys.stderr, flush=True)
 
 
-def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None):
+def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded_temps=None):
     """Check a G-code artifact against live nozzle, spool and temperature state.
 
     Spoolman is never a gate here (#235): printer_state.check reports its
@@ -2847,14 +2861,21 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None):
     if state is None:
         state = printer_state.load(printer_id) if printer_id else printer_state.load()
     st = state
+    # The offline/LAN families verify without a live session, so their
+    # write-readiness state (busy, Developer Mode, a live fault) must not
+    # gate this check (P2-73): the check runs record-only for them, and the
+    # print paths re-run the live readiness before any write.
+    offline_verify = adapter.connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp', 'flashforge_stock')
+    live_kw = {'live': False} if offline_verify else {}
     if routed:
-        ok, probs, facts = printer_state.check(st, printer_id=printer_id, adapter=adapter)
+        ok, probs, facts = printer_state.check(st, printer_id=printer_id, adapter=adapter, **live_kw)
     else:
-        ok, probs, facts = printer_state.check(st)
+        ok, probs, facts = printer_state.check(st, **live_kw)
     _print_check_warnings(facts)
     if not ok: raise RuntimeError("the printer check did not pass:\n  " + "\n  ".join(probs))
-    if adapter.connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp', 'flashforge_stock'):
-        return _verify_offline(gcode_path, st, adapter) if routed else _verify_offline(gcode_path, st)
+    if offline_verify:
+        kw = {'recorded_temps': recorded_temps} if recorded_temps else {}
+        return _verify_offline(gcode_path, st, adapter, **kw) if routed else _verify_offline(gcode_path, st, **kw)
     p=Path(gcode_path); raw=p.read_bytes(); text=raw.decode(errors="ignore")
     errors=[]
     # The installed native screen requires ZMod's documented first-line MD5.
@@ -2864,7 +2885,7 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None):
     native = adapter.has_native_screen
     mode = _mr(st, "/printer/objects/query?save_variables")["result"]["status"]["save_variables"]["variables"].get("display_off") if native else None
     nozzle_type = (st.get("nozzle") or {}).get("type") or settings.current().get("printer", {}).get("nozzle_type") or "hardened_steel"
-    st = _with_gcode_temperatures(st, text)
+    st = _with_gcode_temperatures(st, text, recorded_temps)
     from .printer_state import _material_temperature_contract
     try:
         _material_temperature_contract(st)
@@ -3034,16 +3055,42 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None):
     return True
 
 
-def _verify_routed(gcode_path, adapter, state, printer_id):
+def _recorded_temperatures(job, gcode_path):
+    """The temperatures a job's artifact was sliced at, from its slice provenance (P2-275).
+
+    The single-plate provenance lives on the job; a split job's lives on
+    the derived_plates row for this file. None when the job records none —
+    artifacts sliced before temperatures were preserved verify as before.
+    """
+    if not isinstance(job, dict):
+        return None
+    target = str(gcode_path)
+    provenance = None
+    if str(job.get('gcode') or '') == target:
+        provenance = job.get('provenance')
+    else:
+        for row in job.get('derived_plates') or []:
+            if isinstance(row, dict) and str(row.get('gcode')) == target:
+                provenance = row.get('provenance')
+                break
+    temps = (provenance or {}).get('temperatures') if isinstance(provenance, dict) else None
+    return temps if isinstance(temps, dict) else None
+
+
+def _verify_routed(gcode_path, adapter, state, printer_id, job=None):
     """verify_gcode for a launch path that already resolved its printer.
 
     A job naming a roster printer verifies against that printer's adapter
     and hardware record (SAFE-4 / P1-75); anything else verifies exactly
-    as before, against the configured printer.
+    as before, against the configured printer. A job's recorded slice
+    temperatures ride along so the verify checks the artifact against
+    what it was sliced at (P2-275).
     """
+    recorded = _recorded_temperatures(job, gcode_path)
+    kw = {'recorded_temps': recorded} if recorded else {}
     if printer_id:
-        return verify_gcode(gcode_path, adapter=adapter, state=state, printer_id=printer_id)
-    return verify_gcode(gcode_path)
+        return verify_gcode(gcode_path, adapter=adapter, state=state, printer_id=printer_id, **kw)
+    return verify_gcode(gcode_path, **kw)
 
 
 def _recorded_printer_id(job):
@@ -3738,6 +3785,31 @@ def _recipe_binding(job):
     return {'recipe_version': job['slice_recipe']['version'], 'recipe_sha256': job['slice_recipe']['sha256']}
 
 
+def _placed_bounds_by_object(geometry, object_of_key):
+    """Per-object placed bounds from a multicolor exporter report (P2-85).
+
+    The union of the part rows' bounds and the cutter volumes' bounds. The
+    merged-placement proof compares these against bounds computed from ALL
+    of an object's authored volumes, so the landed side must include the
+    cutters too: a negative volume reaching past its body otherwise reads
+    as the export having landed somewhere else, and a sound slice is
+    refused.
+    """
+    placed = {}
+
+    def fold(oid, box):
+        if oid in placed:
+            prev = placed[oid]
+            box = [(min(prev[a][0], box[a][0]), max(prev[a][1], box[a][1])) for a in range(3)]
+        placed[oid] = box
+
+    for row in geometry.get('parts', []):
+        fold(object_of_key[row['part_key']], row['bounds_mm'])
+    for oid, box in (geometry.get('cutter_bounds_by_object') or {}).items():
+        fold(str(oid), box)
+    return placed
+
+
 def _recipe_changed(job, latest):
     """True when JOB.json, the hardware record, profiles or slicer now give another recipe than the one sliced."""
     from .slice_recipe import recipe_sha256, slice_recipe
@@ -4018,7 +4090,7 @@ def _plates_for(source, manifest):
                  'object_ids': sorted({int(p['object_id']) for p in manifest['parts']})}]
 
 
-def full_size_one_plate(source, state, decisions=None, capacity=None, multi_tool=False):
+def full_size_one_plate(source, state, decisions=None, capacity=None, multi_tool=False, job=None):
     """A 100%-scale, one-plate rearrangement the slicer will honor exactly, or None.
 
     This is the cheap first fit check after the author's layout fails the bed:
@@ -4030,6 +4102,9 @@ def full_size_one_plate(source, state, decisions=None, capacity=None, multi_tool
       merge spacing, bed-edge margin and prime-tower room for multi-slot jobs;
       ``capacity``/``multi_tool`` carry the job printer's position count and
       kind into that planner, exactly as ``slice_multi_plate`` passes them;
+      ``job`` is the real job, carried into the planner under the flag: the
+      planner reads the author's own text from it (a listing summary asking
+      for separate printing), which a synthetic flag-only job hid (P2-235);
     * a single-color or generic single-plate source slices through
       ``geometry_layout.arrange_and_export``, so it is checked with
       ``probe_single_plate_rearrange`` at the same defaults.
@@ -4054,7 +4129,7 @@ def full_size_one_plate(source, state, decisions=None, capacity=None, multi_tool
             return None
         view = _per_part_view(manifest, decisions)
         slots = _part_slots(view, manifest)
-        flagged = {'full_size_rearrange_plan': {'rearrange_plate': True}}
+        flagged = {**(job or {}), 'full_size_rearrange_plan': {'rearrange_plate': True}}
         verdict = plate_merge.plan(source, manifest, _plates_for(source, manifest), slots, st,
                                    bed=int(bed[0]), job=flagged,
                                    edge=_merge_edge(st.get('brim_override')),
@@ -4411,14 +4486,7 @@ def _slice_merged(job, job_path, src, manifest, decisions, view, verdict, st, br
             from .color_geometry import _world_points as _points_of
             from .orca_adapter import _rotate as _rotate_point
             object_of_key = {p['key']: str(p['object_id']) for p in manifest['parts']}
-            placed_by_object = {}
-            for row in geometry.get('parts', []):
-                oid = object_of_key[row['part_key']]
-                box = row['bounds_mm']
-                if oid in placed_by_object:
-                    prev = placed_by_object[oid]
-                    box = [(min(prev[a][0], box[a][0]), max(prev[a][1], box[a][1])) for a in range(3)]
-                placed_by_object[oid] = box
+            placed_by_object = _placed_bounds_by_object(geometry, object_of_key)
             shifts = {str(k): v for k, v in verdict['shifts'].items()}
             with zipfile.ZipFile(src) as archive:
                 turned_points = {oid: _points_of(archive, {oid}) for oid in fit_by_object}
@@ -4518,14 +4586,7 @@ def _slice_merged_multi_tool(job, job_path, src, manifest, decisions, view, verd
         from .color_geometry import _world_points as _points_of
         from .orca_adapter import _rotate as _rotate_point
         object_of_key = {p['key']: str(p['object_id']) for p in manifest['parts']}
-        placed_by_object = {}
-        for row in geometry.get('parts', []):
-            oid = object_of_key[row['part_key']]
-            box = row['bounds_mm']
-            if oid in placed_by_object:
-                prev = placed_by_object[oid]
-                box = [(min(prev[a][0], box[a][0]), max(prev[a][1], box[a][1])) for a in range(3)]
-            placed_by_object[oid] = box
+        placed_by_object = _placed_bounds_by_object(geometry, object_of_key)
         shifts = {str(k): v for k, v in verdict['shifts'].items()}
         with zipfile.ZipFile(src) as archive:
             turned_points = {oid: _points_of(archive, {oid}) for oid in fit_by_object}
@@ -5361,7 +5422,7 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
                                               color_decisions=slice_decisions, copies=copies, **scale_kw)
     _timing(job_path, 'orca_finalize_done')
     if adapter.key == printers.current().key:
-        _verify_routed(out, adapter, st, _recorded_printer_id(job))
+        _verify_routed(out, adapter, st, _recorded_printer_id(job), job=job)
     latest = json.loads(Path(job_path).read_text())
     _timing(job_path, 'verify_done')
     if file_sha256(src) != source_sha or decisions_digest(latest.get("color_decisions")) != decision_sha or _recipe_changed(job, latest):
@@ -6775,6 +6836,25 @@ def remap_slot(target, new_slot, tool="0", state=None):
         st = printer_state.load(routed_id)
     routed_adapter = _job_adapter(job) if routed_id else printers.current()
 
+    # A split job's artifact binding hashes each derived plate apart (a dict
+    # keyed like require_current_artifact builds it). The remap below must
+    # update only the remapped plate's entry — and a file no derived plate
+    # names has no entry to update, so it is refused here, before finalize
+    # rewrites anything (P2-29).
+    binding_key = None
+    if job is not None and isinstance(job.get("artifact_binding"), dict):
+        recorded = job["artifact_binding"].get("gcode_sha256")
+        if isinstance(recorded, dict):
+            for row in job.get("derived_plates") or []:
+                if isinstance(row, dict) and row.get("gcode") \
+                        and Path(row["gcode"]).expanduser().resolve() == gcode_path:
+                    binding_key = str(row.get("binding_key") or row.get("slot"))
+                    break
+            if binding_key is None or binding_key not in recorded:
+                raise RuntimeError(
+                    f"split job artifact binding has no binding entry for {gcode_path}; "
+                    "refusing to remap a plate the binding does not name")
+
     slot_int = int(new_slot)
     if slot_int not in range(1, FILAMENT_SLOTS + 1):
         raise ValueError(f"physical IFS slot must be an integer from 1 through {FILAMENT_SLOTS}")
@@ -6802,7 +6882,7 @@ def remap_slot(target, new_slot, tool="0", state=None):
         finalize = routed_adapter.native.finalize
         new_sha = finalize(gcode_path, None, st, mapping)
         try:
-            _verify_routed(gcode_path, routed_adapter, st, routed_id)
+            _verify_routed(gcode_path, routed_adapter, st, routed_id, job=job)
         except Exception:
             offline_st = dict(st)
             offline_st.setdefault("temps_c", {"bed": 60, "nozzle": 210})
@@ -6811,11 +6891,17 @@ def remap_slot(target, new_slot, tool="0", state=None):
     if job is not None and job_path is not None:
         job["filament_selection"] = selection
         if new_sha:
-            job["gcode_sha256"] = new_sha
             job["gcode_verified"] = True
-            if "artifact_binding" in job and isinstance(job["artifact_binding"], dict):
-                job["artifact_binding"]["gcode_sha256"] = new_sha
+            if binding_key is not None:
+                # Split job: the one plate's new hash, in its own entry only;
+                # the job-level single hash does not exist for a split job.
+                job["artifact_binding"]["gcode_sha256"][binding_key] = new_sha
                 job["artifact_binding"]["decisions_sha256"] = decisions_digest(job.get("color_decisions"))
+            else:
+                job["gcode_sha256"] = new_sha
+                if "artifact_binding" in job and isinstance(job["artifact_binding"], dict):
+                    job["artifact_binding"]["gcode_sha256"] = new_sha
+                    job["artifact_binding"]["decisions_sha256"] = decisions_digest(job.get("color_decisions"))
         write_job(job_path.parent, job)
 
     return {
@@ -6837,7 +6923,7 @@ def _print_octoprint(adapter, state, gcode, job, job_path, wait_s, reprint):
         status = client.status()
         client.require_ready(status)
         observed = adapter.normalize_status(status).get('filename')
-        _verify_routed(gcode, adapter, state, _recorded_printer_id(job))
+        _verify_routed(gcode, adapter, state, _recorded_printer_id(job), job=job)
         _refuse_multicolor(gcode.read_text())
     except RuntimeError as exc:
         raise SystemExit(f'REFUSED: {exc}. Nothing uploaded or started.') from exc
@@ -6982,7 +7068,7 @@ def _print_bambu(adapter, state, gcode, job, job_path, wait_s, reprint):
 
     try:
         _snapshot, observed_norm = ready_snapshot()
-        _verify_routed(gcode, adapter, state, _recorded_printer_id(job))
+        _verify_routed(gcode, adapter, state, _recorded_printer_id(job), job=job)
         packages = _delivery.bambu_handoff(job if isinstance(job, dict) else {"printer_model": adapter.key},
                                             [gcode], settings.current())
         if len(packages) != 1:
@@ -7094,7 +7180,7 @@ def _print_elegoo_sdcp(adapter, state, gcode, job, job_path, wait_s, reprint):
 
     try:
         _raw, observed_norm = ready_status()
-        _verify_routed(gcode, adapter, state, _recorded_printer_id(job))
+        _verify_routed(gcode, adapter, state, _recorded_printer_id(job), job=job)
         _refuse_multicolor(gcode.read_text(errors="ignore"))
     except RuntimeError as exc:
         raise refuse(exc) from exc
@@ -7179,7 +7265,7 @@ def _print_prusa(adapter, state, gcode, job, job_path, wait_s, reprint):
 
     try:
         _snapshot, observed_norm = ready_snapshot()
-        _verify_routed(gcode, adapter, state, _recorded_printer_id(job))
+        _verify_routed(gcode, adapter, state, _recorded_printer_id(job), job=job)
         _refuse_multicolor(gcode.read_text(errors="ignore"))
     except RuntimeError as exc:
         raise refuse(exc) from exc
@@ -7283,7 +7369,7 @@ def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprin
         if problems:
             raise RuntimeError(problems[0])
         observed = ready_snapshot()
-        _verify_routed(gcode, adapter, state, _recorded_printer_id(job))
+        _verify_routed(gcode, adapter, state, _recorded_printer_id(job), job=job)
         adapter.normalize_tool_mapping({str(t): t + 1 for t in sorted(_gcode_tools(text) | {0})}, state)
     except RuntimeError as exc:
         raise refuse(exc) from exc
@@ -7505,7 +7591,7 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
         if 'printer' in _delivery.methods():
             return _print_prusa(adapter, st, g, job, job_path, wait_s, reprint)
         try:
-            _verify_routed(g, adapter, st, printer_id)
+            _verify_routed(g, adapter, st, printer_id, job=job)
         except RuntimeError as exc:
             raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
         raise SystemExit(f"REFUSED: {adapter.label} print delivery is not enabled in Print Handy (add "
@@ -7517,7 +7603,7 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
         if 'printer' in _delivery.methods():
             return _print_elegoo_sdcp(adapter, st, g, job, job_path, wait_s, reprint)
         try:
-            _verify_routed(g, adapter, st, printer_id)
+            _verify_routed(g, adapter, st, printer_id, job=job)
         except RuntimeError as exc:
             raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
         raise SystemExit(f"REFUSED: {adapter.label} print delivery is not enabled in Print Handy (add "
@@ -7531,7 +7617,7 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
         # Print delivery is not enabled for this printer: verify the file for manual handoff;
         # the bed-clear approval is left unused, exactly as for the offline path below.
         try:
-            _verify_routed(g, adapter, st, printer_id)
+            _verify_routed(g, adapter, st, printer_id, job=job)
         except RuntimeError as exc:
             raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
         raise SystemExit(f"REFUSED: {adapter.label} print delivery is not enabled in Print Handy (add "
@@ -7541,7 +7627,7 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
     if adapter.connection == 'offline':
         # No connection exists. Verify the file for manual handoff; the bed-clear approval is left unused.
         try:
-            _verify_routed(g, adapter, st, printer_id)
+            _verify_routed(g, adapter, st, printer_id, job=job)
         except RuntimeError as exc:
             raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
         raise SystemExit(f"REFUSED: {adapter.label} has no live connection in Print Handy (no upload, start or "
@@ -7554,7 +7640,7 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
     try:
         # Pre-upload checks. Report them as one REFUSED line so print_next releases the plate's
         # claim and the operator can retry after fixing the cause (a traceback kept it held).
-        _verify_routed(g, adapter, st, printer_id)
+        _verify_routed(g, adapter, st, printer_id, job=job)
         selection = job.get("filament_selection") if isinstance(job, dict) else None
         _timing(job_path, 'preflight_verify_done')
         if adapter.multi_slot:

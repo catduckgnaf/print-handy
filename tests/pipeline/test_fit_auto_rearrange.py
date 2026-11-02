@@ -92,6 +92,21 @@ def test_full_size_one_plate_per_part_uses_the_merge_planner(tmp_path):
     assert model_job.full_size_one_plate(two, st, None) is None
 
 
+def test_full_size_one_plate_honors_the_listings_separate_instruction(tmp_path):
+    """P2-235: the feasibility check passed a synthetic flagged job to the
+    merge planner, so a listing summary asking for separate printing was
+    invisible to it — intake announced a one-plate fit that slicing, which
+    plans with the real job, then refused."""
+    source = tmp_path / 'turns.3mf'
+    _turn_needed_source(source)
+    st = json.loads(STATE.read_text())
+    decisions = _two_slot_decisions(source_colors.inventory(source))
+    job = {'summary': 'Print each part separately, one plate at a time.'}
+    assert model_job.full_size_one_plate(source, st, decisions, job=job) is None
+    # The same source without the instruction still proves the one-plate fit.
+    assert model_job.full_size_one_plate(source, st, decisions)['rearrange_plate'] is True
+
+
 def _per_part_job(tmp_path, source):
     manifest = source_colors.inventory(source)
     decisions = _two_slot_decisions(manifest)
@@ -192,7 +207,7 @@ def _oversized(env, monkeypatch, one_plate):
     monkeypatch.setattr(model_job, 'per_part_fit_options', lambda path, decisions, options, bed: options)
     checked = []
 
-    def full_size_one_plate(path, st, decisions, capacity=None, multi_tool=False):
+    def full_size_one_plate(path, st, decisions, capacity=None, multi_tool=False, job=None):
         checked.append(decisions)
         return one_plate
     monkeypatch.setattr(model_job, 'full_size_one_plate', full_size_one_plate)

@@ -205,3 +205,49 @@ def test_single_body_flow_skips_rearrange_and_split_and_offers_the_turned_size(e
     job = json.loads(next(env.root.parent.glob('archive/*/JOB.json')).read_text())
     assert job['scale'] == 0.963 and job['orientation']['axis'] == '+Z'
     assert job['fit_brim_policy']['width_mm'] == 0.0  # the chosen turn prints without a brim
+
+
+def test_chosen_rotation_is_confirmed_with_the_exact_single_probe(env, monkeypatch):
+    """P1-115: rotation_alternatives verifies a turn with the exact-single
+    probe (copy_limit=1: one centered copy, no arranging). The confirmation
+    of the chosen turn must reuse that same probe — with the default
+    multi-copy limit the probe arranges instead, and a part that only fits
+    as one centered copy is refused as 'no longer verifies a fit'."""
+    from print_handy.core import orca_adapter, plate_merge, split_fit
+    monkeypatch.setattr(model_job, 'printables_inventory', lambda url: {
+        'site': 'printables', 'slug': 'desk', 'title': 'Desk organizer',
+        'sources': [{'name': 'desk_oganizer.stl', 'instance_id': 1}]})
+
+    def download(job, chosen, dest):
+        dest.mkdir(parents=True, exist_ok=True)
+        out = dest / 'desk_oganizer.stl'
+        _stl(out, [(0, 0, 0, 231.31, 157.01, 135.0)])
+        return out
+
+    monkeypatch.setattr(model_job, 'printables_download', download)
+    monkeypatch.setattr(model_job, 'audit', lambda path: {
+        'plates': 1, 'mesh_audit': {'shells': 1, 'dimensions_mm': [231.31, 157.01, 135.0]}})
+    monkeypatch.setattr(model_job, 'full_size_one_plate', lambda *a, **k: None)
+    monkeypatch.setattr(split_fit, 'split_plan_100', lambda *a, **k: None)
+    monkeypatch.setattr(plate_merge, 'full_size_split_possible', lambda *a, **k: False)
+
+    def capacity(path, st, scale=1.0, copy_limit=16, **kw):
+        if kw.get('rotation'):
+            # The turned part fits only as the exact single the search probed.
+            return 1 if copy_limit == 1 else 0
+        return 0 if scale == 1.0 else 1
+
+    monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', capacity)
+
+    def fit_options(path, st):
+        return {'scales': [0.916, 0.75, 0.5], 'rotations': [TURN, END],
+                'brim_policy': {'type': 'no_brim', 'width_mm': 0.0, 'label': 'No brim'}}
+
+    monkeypatch.setattr(orca_adapter, 'fit_options', fit_options)
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+              message_id='desk-organizer-exact', text='https://www.printables.com/model/1-ghost')
+    adapter = Adapter([0, 0, 1, 1])
+    asyncio.run(pi.prepare_link(event, adapter, state(), env.root, timeout=1))
+    assert not any('no longer verifies a fit' in text for text in adapter.sent)
+    job = json.loads(next(env.root.parent.glob('archive/*/JOB.json')).read_text())
+    assert job['scale'] == 0.963 and job['orientation']['axis'] == '+Z'

@@ -164,6 +164,17 @@ class StandaloneAdapter(BasePlatformAdapter):
             logger.info("Telegram delete failed: %r", exc)
             return False
 
+    async def edit_message(self, chat_id, message_id, content, metadata=None):
+        """Replace a posted message's text in place (progress updates, P2-236)."""
+        try:
+            await asyncio.to_thread(self._call, "editMessageText",
+                                    {"chat_id": str(chat_id), "message_id": int(message_id),
+                                     "text": str(content)[:self.message_limit]})
+        except Exception as exc:
+            logger.info("Telegram edit failed: %r", exc)
+            return SendResult(False, error=str(exc))
+        return SendResult(True, message_id=str(message_id))
+
     async def send_clarify(self, chat_id, question, choices, clarify_id, session_key, metadata=None):
         """One message with an inline keyboard, one button per choice."""
         labels = [str(c) for c in choices][:MAX_BUTTONS]

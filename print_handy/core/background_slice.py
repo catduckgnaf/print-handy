@@ -7,11 +7,31 @@ writes after the cleanup. Nothing here uploads or starts a print.
 """
 import asyncio
 import contextlib
+import json
+import os
 import shutil
 import time
 from pathlib import Path
 
 from . import owned_worker, slice_recipe
+
+# The JOB.json fields a slice commits (the set model_job's decision changes
+# retire into artifact_history, plus the derived-plate and check records).
+# discard() restores exactly these to their pre-run values: removing the
+# output files while leaving JOB.json claiming that G-code — verified,
+# bound and timestamped — left a discarded slice trusted by a later resume
+# or print-next (P2-24).
+SLICE_JOB_FIELDS = ('gcode', 'gcode_verified', 'provenance', 'artifact_binding', 'sliced_at',
+                    'slice_config', 'slice_recipe', 'derived_plates', 'refused_plates',
+                    'multipart_plan', 'offline_check', 'plate_merge', 'merged', 'tool_mapping')
+
+
+def _read_job(job_path):
+    try:
+        data = json.loads(Path(job_path).read_text())
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 class BackgroundSlice:
@@ -23,6 +43,7 @@ class BackgroundSlice:
         self.job_path = None
         self.work = None
         self.before = None  # what the staging folder held before this run, or None if it did not exist
+        self.job_before = None  # the job's slice fields before this run, restored by discard()
         self.result = None
         self.error = None
         self.finished_at = None
@@ -45,6 +66,9 @@ class BackgroundSlice:
         self.job_path = str(job_path)
         self.work = Path(job_path).parent / 'sliced'
         self.before = _entries(self.work) if self.work.exists() else None
+        job = _read_job(job_path)
+        self.job_before = ({key: job[key] for key in SLICE_JOB_FIELDS if key in job}
+                           if job is not None else None)
         self.work.mkdir(parents=True, exist_ok=True)
         self.result = None
         self.error = None
@@ -102,6 +126,22 @@ class BackgroundSlice:
                         path.unlink(missing_ok=True)
             self.work = None
             self.before = None
+        if self.job_before is not None and self.job_path is not None:
+            # The slice's JOB.json writes go with its files (P2-24): restore
+            # the slice fields snapshotted at start(), atomically, as
+            # model_job.write_job does — intake reads JOB.json concurrently.
+            job = _read_job(self.job_path)
+            if job is not None:
+                for key in SLICE_JOB_FIELDS:
+                    if key in self.job_before:
+                        job[key] = self.job_before[key]
+                    else:
+                        job.pop(key, None)
+                target = Path(self.job_path)
+                tmp = target.with_name(f".JOB.json.{os.getpid()}.{time.monotonic_ns()}.tmp")
+                tmp.write_text(json.dumps(job, indent=2) + "\n")
+                os.replace(tmp, target)
+            self.job_before = None
 
 
 def _entries(work):

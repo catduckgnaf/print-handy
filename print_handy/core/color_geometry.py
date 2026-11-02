@@ -286,6 +286,7 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
                         'vertices': len(points), 'triangles': len(new_mesh.find(tag('triangles'))),
                         'bounds_mm': box})
     next_id = len(leaves) + 1
+    cutter_bounds = {}
     for key, mesh, points in cut_leaves:
         row = cutter_rows[key]
         group = group_of[item_of(row['instance_key'])]
@@ -297,11 +298,23 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
         for node in new_mesh.iter():
             node.tag = tag(node.tag.split('}')[-1])
             node.attrib.pop('paint_color', None)
+        placed = []
         for vertex, point in zip(new_mesh.find(tag('vertices')), points):
+            xyz = tuple(point[a] + move[a] for a in range(3))
+            placed.append(xyz)
             for a, axis in enumerate(('x', 'y', 'z')):
-                vertex.set(axis, repr(point[a] + move[a]))
+                vertex.set(axis, repr(xyz[a]))
         obj.append(new_mesh)
         group['cutters'].append((cut_id, row['name'], row['subtype']))
+        # The report's part rows carry bounds but cutter rows never did, so
+        # the merged-placement proof compared part-only landed bounds
+        # against all-volume authored bounds and refused sound exports
+        # whose cutter reaches past the body (P2-85).
+        box = [(min(p[a] for p in placed), max(p[a] for p in placed)) for a in range(3)]
+        oid = str(row['object_id'])
+        prev = cutter_bounds.get(oid)
+        cutter_bounds[oid] = box if prev is None else [
+            (min(prev[a][0], box[a][0]), max(prev[a][1], box[a][1])) for a in range(3)]
     for group in group_of.values():
         wrapper_id = str(next_id)
         next_id += 1
@@ -339,6 +352,7 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
     towers = prime_tower_candidates(part_bounds, tower=tower_mm)
     tower = towers[0]
     return mapping, {'source_sha256': digest(source), 'converted_sha256': digest(target), 'parts': records,
+                     **({'cutter_bounds_by_object': cutter_bounds} if cutter_bounds else {}),
                      'build_bounds_mm': bounds, 'translation_mm': delta if item_shifts is None else None, 'merged_placement': item_shifts is not None, 'prime_tower_xy_mm': list(tower),
                      'prime_tower_candidates_mm': [list(t) for t in towers],
                      **({'fit_by_object': {oid: {'rotation': matrix} for oid, matrix in rotations.items()}} if rotations else {}),

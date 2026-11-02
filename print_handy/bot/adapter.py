@@ -105,6 +105,22 @@ class StandaloneAdapter(BasePlatformAdapter):
             logger.info("Discord delete failed: %r", exc)
             return False
 
+    async def edit_message(self, chat_id, message_id, content, metadata=None):
+        """Replace a posted message's text in place (progress updates, P2-236).
+
+        Without this, intake progress (FitStatus) could only post a new
+        message per phase on the production adapters, though the intake
+        already knew how to edit when an adapter offers it.
+        """
+        try:
+            channel = await self._channel(chat_id, metadata)
+            await channel.get_partial_message(int(message_id)).edit(
+                content=str(content)[:rest.LIMIT])
+        except Exception as exc:
+            logger.info("Discord edit failed: %r", exc)
+            return SendResult(False, error=str(exc))
+        return SendResult(True, message_id=str(message_id))
+
     async def send_clarify(self, chat_id, question, choices, clarify_id, session_key, metadata=None):
         """One message with one button per choice. A press resolves ``clarify_id`` in the registry."""
         import discord

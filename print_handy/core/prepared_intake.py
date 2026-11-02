@@ -254,6 +254,22 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
     return result
 
 
+async def _await_background_slice(runner, binding):
+    """Await the background slice without losing a cancellation (P2-58).
+
+    BackgroundSlice.take() absorbs CancelledError — it waits out its own
+    slice task — so a Stop delivered as a cancellation during the wait
+    would be swallowed and the intake would carry on as if the slice had
+    simply found nothing. Re-raise it, so _with_stop's race turns the
+    press back into the operator's Stop.
+    """
+    result = await runner.take(binding)
+    task = asyncio.current_task()
+    if task is not None and task.cancelling():
+        raise asyncio.CancelledError
+    return result
+
+
 # Fit-check progress: one status line, refreshed while a check runs. When the
 # chat adapter can edit messages (Discord, Matrix, Telegram) the same message is
 # updated; otherwise a new line is posted only when the phase changes or, for a
@@ -2084,7 +2100,8 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                                  _heavy(mj.full_size_one_plate, path, state,
                                                         latest.get('color_decisions'),
                                                         capacity=mj.position_limit(job_adapter),
-                                                        multi_tool=job_adapter.multi_tool))
+                                                        multi_tool=job_adapter.multi_tool,
+                                                        job=latest))
                 rearrange_checked = True
             except Exception:
                 logger.exception('one-plate rearrangement check failed; falling back to the full fit search')
@@ -2182,7 +2199,9 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                     raise LookupError('a split plan or a 100% one-plate fit already answers this')
                 full_size_split = await fit_status.run('trying a split onto separate plates at 100%',
                                                        _heavy(plate_merge.full_size_split_possible, path, manifest,
-                                                              int((state.get('bed_mm') or BED)[0])))
+                                                              int((state.get('bed_mm') or BED)[0]),
+                                                              brim_policy=options.get('brim_policy'),
+                                                              state=state))
             except Exception:
                 full_size_split = False
             if split_plan:
@@ -2350,6 +2369,13 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                             _heavy(orca_adapter.orca_plate_capacity, path, state,
                                                    scale=selected_scale,
                                                    **({'rotation': rotation, 'supports': bool(row.get('supports')),
+                                                       # The search verified this turn with the
+                                                       # exact-single probe (copy_limit=1: one
+                                                       # centered copy, no arranging); confirming
+                                                       # with the default multi-copy probe arranges
+                                                       # instead and refuses turns that only fit
+                                                       # as one centered copy (P1-115).
+                                                       'copy_limit': 1,
                                                        **({'brim_policy': {'type': 'outer_only',
                                                                            'width_mm': orca_adapter.ORIENTATION_BRIM_MM}}
                                                           if row.get('brim') else {})}
@@ -2437,9 +2463,15 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         enabled = delivery.methods()
         can_print = delivery.PRINTER in enabled
         first_labels = [print_label, 'Slice only', 'Stop with colors saved', cancel_label][0 if can_print else 1:]
+        # The Spoolman remap warning belongs on THIS confirmation too (P2-242):
+        # 'Slice and print now' is the choice that starts the print, and it
+        # never saw the note only the slice-only flow's second question got.
+        from .spool_remap import confirm_note
+        remap_note = confirm_note(mj._job_adapter(latest), latest, state)
         choice = await _ask(adapter, source, key,
             ' · '.join(x for x in ('Ready to slice', names, estimate_text) if x)
-            + ('\n' + spool_text if spool_text else '') + caveat,
+            + ('\n' + spool_text if spool_text else '') + caveat
+            + ('\n' + remap_note if remap_note else ''),
             first_labels, timeout,
             on_shown=early.release.set, approval=True)
         choice = choice if can_print else choice + 1
@@ -2466,7 +2498,17 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         mj._timing(jp, 'intake_slice_requested')
         prep_sent = False  # one combined Preparing + Uploading message after slicing, with the real estimate
         try:
-            out = await early.take(binding)  # finished while the question was up, or still running
+            if early.running():
+                # Still slicing: the wait goes through the same progress/Stop
+                # flow as a foreground slice (P2-58). A bare take() here gave
+                # the potentially longest wait of the intake no progress and
+                # a Stop button that did nothing.
+                out = await _with_stop(adapter, source, key, metadata,
+                                       "Waiting for the background slice to finish. Press Stop to cancel.",
+                                       _await_background_slice(early, binding),
+                                       allow_stop=True)
+            else:
+                out = await early.take(binding)  # finished while the question was up
             if out is None and early.error is not None:
                 raise early.error
             if out is None:
@@ -2747,6 +2789,16 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         # warming start with a known file can be edited by the listener later, so
         # only that start defers its roast (#374).
         remote = print_next.started_file(tail) if warming else None
+        if remote is not None:
+            # The deferred roast is added by EDITING this post, and the only
+            # edit path for it is Discord (the listener edits via Discord
+            # REST). On a transport that cannot be edited that way the roast
+            # would never arrive, so it rides this post now instead (P2-144).
+            platform = getattr(source, 'platform', None)
+            platform_name = str(getattr(platform, 'value', None)
+                                or getattr(adapter, 'name', None) or 'discord')
+            if platform_name.casefold() != 'discord':
+                remote = None
         if unknown:
             message = START_PENDING_MESSAGE
         elif ok or pending:
@@ -2805,6 +2857,12 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         return {'action': 'skip', 'reason': reason}
     except IntakeExpired:
         logger.warning('intake question expired')
+        if jp is not None:
+            # A failed intake discards its background slice (P2-23), as the
+            # cancelled path above already does: the slice's output must not
+            # outlive the intake that produced it. Resume re-slices.
+            with contextlib.suppress(Exception):
+                await runner_for(jp).discard()
         # The receipt and JOB.json written before this question stay on disk. Resume
         # re-reads them instead of asking for the link again.
         receipt.update(status='EXPIRED', sliced=False, uploaded=False, started=False)
@@ -2850,6 +2908,12 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         return {'action': 'skip', 'reason': 'expired before a choice'}
     except Exception as exc:
         logger.exception('intake failed')
+        if jp is not None:
+            # A failed intake discards its background slice (P2-23), as the
+            # cancelled path above already does: the slice's output must not
+            # outlive the intake that produced it.
+            with contextlib.suppress(Exception):
+                await runner_for(jp).discard()
         from .site_accounts import chat_safe, short_cause
         from . import model_job as _mj
         if isinstance(exc, SiteLoginNeeded):
@@ -2877,9 +2941,15 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         elif isinstance(exc, mj.DirectLinkError):
             # Also curated and user-phrased (#607): a direct file link that
             # returned a web page, pointed at a non-public address, or could
-            # not be reached. The text names the cause and the remedy, so
-            # keep it — the generic wording would hide both.
-            content = (f'That file could not be fetched. {exc}')
+            # not be reached. Every curated case is on the diagnostics
+            # allowlist (#683), so a recognised failure posts the known-cause
+            # wording (P2-270); the branch's older text remains only for a
+            # direct-link error the allowlist does not recognise.
+            content = (diagnostics.known_post(
+                'That file could not be fetched.',
+                not_happened='Nothing was downloaded or sliced.',
+                subsystem='intake', exc=exc)
+                or f'That file could not be fetched. {exc}')
         elif isinstance(exc, ValueError) and str(exc).startswith('requires one to four distinct configured'):
             # Also curated and user-phrased: a multi-slot/toolhead printer
             # with nothing configured. The text names the exact setup gap,

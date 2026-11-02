@@ -153,6 +153,20 @@ class StandaloneAdapter(BasePlatformAdapter):
             logger.info("Matrix redact failed: %r", exc)
             return False
 
+    async def edit_message(self, chat_id, message_id, content, metadata=None):
+        """Replace a posted message's text in place (progress updates, P2-236).
+
+        Matrix edits are new events pointing at the original, so the result
+        keeps the original message id: later edits target it again.
+        """
+        try:
+            await asyncio.to_thread(mx.edit_message, self.homeserver, self.token, str(chat_id),
+                                    str(message_id), str(content)[:mx.LIMIT], opener=self.opener)
+        except Exception as exc:
+            logger.info("Matrix edit failed: %r", exc)
+            return SendResult(False, error=str(exc))
+        return SendResult(True, message_id=str(message_id))
+
     async def send_clarify(self, chat_id, question, choices, clarify_id, session_key, metadata=None):
         """The question plus a numbered choice list; answers come back as typed replies."""
         labels = [str(c) for c in choices]

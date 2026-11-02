@@ -149,6 +149,22 @@ def test_author_note_requests_separate_printing(tmp_path, monkeypatch):
     assert 'author notes' in saved['plate_merge']['reason']
 
 
+def test_full_size_split_possible_applies_the_brim_budget(tmp_path):
+    """P2-79: the legacy split fallback ignored the job's brim, so 'Split
+    plates at 100%' was offered for parts whose brims would cross the bed
+    edge — the same parts the brim-aware check had already refused."""
+    bed = 220
+    width = bed - 2 * plate_merge.EDGE_MARGIN_MM - 2  # fits the plain edge budget, barely
+    source = tmp_path / 's.3mf'
+    _source(source, {'1': (width, 40, 10), '2': (40, 40, 10)}, [['1'], ['2']])
+    manifest = source_colors.inventory(source)
+    assert plate_merge.full_size_split_possible(source, manifest, bed=bed)
+    policy = {'type': 'outer_only', 'width_mm': 3.0}
+    assert not plate_merge.full_size_split_possible(source, manifest, bed=bed, brim_policy=policy)
+    assert not plate_merge.full_size_split_possible(source, manifest, bed=bed,
+                                                     state={'brim_policy': policy})
+
+
 def test_explicit_separate_mode_skips_merge(tmp_path, monkeypatch):
     source = tmp_path / 's.3mf'
     _source(source, {'1': (40, 40, 10), '2': (40, 40, 10)}, [['1'], ['2']])
