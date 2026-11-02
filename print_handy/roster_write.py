@@ -108,6 +108,11 @@ def _converted_first_entry(resolved):
         derived_cam = f"http://{host}/webcam/?action=snapshot" if host else ""
         if resolved.get("camera_snapshot_url") and resolved["camera_snapshot_url"] != derived_cam:
             entry["camera_snapshot_url"] = resolved["camera_snapshot_url"]
+    elif resolved.get("camera_snapshot_url"):
+        # No Moonraker URL means no camera URL was derived from one, so a
+        # resolved camera URL can only be an explicit one; keep it, or the
+        # legacy strip below removes the only copy.
+        entry["camera_snapshot_url"] = resolved["camera_snapshot_url"]
     if resolved.get("lan_access_code_env") not in (None, "", "BAMBU_LAN_PASSWORD"):
         entry["lan_access_code_env"] = resolved["lan_access_code_env"]
     if resolved.get("start_confirm_s") not in (None, 90):
