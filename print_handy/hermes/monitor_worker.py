@@ -94,6 +94,7 @@ def _adapter_for(printer_id):
     listeners._set_instance_printer_id(printer_id)
     # Like the launcher: every log line from this process carries its printer_id.
     logs.bind(printer_id=printer_id)
+    logs.bind_process(printer_id=printer_id)  # worker threads inherit no ContextVar (P2-161)
     return printers.get(entry["model"], settings.view_for(printer_id, data))
 
 
