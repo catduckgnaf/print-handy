@@ -2318,7 +2318,8 @@ async def runout_intake_dispatch(event, gateway, **kwargs):
         # Only an answer that created a spool before failing says so; every
         # other failure changed nothing and keeps the pinned fail-closed copy.
         await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                           content=str(exc) if getattr(exc, 'spool_created', None) else
+                           content=str(exc) if getattr(exc, 'spool_created', None)
+                           or getattr(exc, 'color_sanity', None) else
                            'That answer did not work, so nothing was changed. Usage is still paused; please answer again.')
         return {'action': 'skip', 'reason': 'spool answer failed closed'}
     await adapter.send(chat_id=source.chat_id, metadata=metadata, content=message)
@@ -2345,6 +2346,22 @@ def _answer_spool_question(listener, spool_sync, context, choice):
         raise spool_sync.SpoolError('I could not tell which slot changed; use `/spool change <slot> <spool#>`')
     created = ''
     if choice['status'] == 'new':
+        # Parsed-color sanity (#792 part 2): a text answer that parses to
+        # multiple colors or a fragment is not minted unconfirmed. The
+        # walkthrough's own answers carry color_confirmed (its confirmation
+        # step named the color); a bare text answer is refused with what
+        # was understood, so the operator corrects it or uses the New spool
+        # button, whose walkthrough asks the confirm-or-correct step.
+        if not choice.get('color_confirmed'):
+            from print_handy.core import filament_color
+            sanity_text = filament_color.color_sanity_text(choice.get('color'), choice.get('material'))
+            if sanity_text is not None:
+                error = spool_sync.SpoolError(
+                    f'{sanity_text} Nothing was created or changed, and usage is still paused. '
+                    'Answer again with the color exactly as labeled, or tap New spool and confirm '
+                    'the color there.')
+                error.color_sanity = True  # its text is written for the operator; show it as-is
+                raise error
         state = spool_sync.load_state()
         previous_slot = (state.get('filament_slots') or {}).get(str(slot)) or {}
         # The color code: a picked swatch, else the color name read against
@@ -2614,8 +2631,23 @@ def _spool_is_cancel(answer):
 
 
 def _spool_type_label(filament_type):
-    head = ' '.join(x for x in (filament_type.get('brand'), filament_type.get('material')) if x)
-    return f"{head} — {filament_type['color']}" if head else str(filament_type['color'])
+    """A filament type in the picker shape (#792 part 2): 'color · material · brand'.
+
+    A type is not a spool, so it has no spool number or grams to show;
+    color and material lead, in the same order and separator the spool
+    pickers use, with the brand last.
+    """
+    parts = [str(filament_type.get('color') or '').strip(),
+             str(filament_type.get('material') or '').strip(),
+             str(filament_type.get('brand') or '').strip()]
+    return ' · '.join(x for x in parts if x)
+
+
+def _picker_label(entry):
+    """The one spool picker label for a shelf entry (#792 part 2)."""
+    from print_handy.hermes.discord_print_summary import spool_picker_label
+    return spool_picker_label(entry.get('name'), entry.get('material'),
+                              entry.get('spool_id'), entry.get('remaining_grams'))
 
 
 def _spool_spec_text(spec):
@@ -2630,7 +2662,14 @@ async def _spool_slot_ask(adapter, source, metadata, gateway, spool_sync, state,
     for slot in spool_sync.SLOTS:
         rec = slots.get(str(slot)) or {}
         sid = rec.get('spoolman_id')
-        lines.append(f"Slot {slot}: #{sid} {rec.get('name') or ''}".rstrip() if sid else f"Slot {slot}: empty")
+        if not sid:
+            lines.append(f"Slot {slot}: empty")
+        elif rec.get('color') and rec.get('material'):
+            # A fully recorded slot names its spool in the one picker shape.
+            from print_handy.hermes.discord_print_summary import spool_picker_label
+            lines.append(f"Slot {slot}: {spool_picker_label(rec['color'], rec['material'], sid, rec.get('remaining_grams'))}")
+        else:
+            lines.append(f"Slot {slot}: #{sid} {rec.get('name') or ''}".rstrip())
     answer = await _spool_ask(adapter, source, metadata, gateway, '\n'.join(lines),
                               [f'Slot {slot}' for slot in spool_sync.SLOTS])
     if _spool_is_cancel(answer):
@@ -2691,14 +2730,32 @@ async def _spool_new_type_details(adapter, source, metadata, gateway, lead=''):
     material = str(answer).strip()
     if not material:
         return _SPOOL_UNCLEAR
-    answer = await _spool_ask(adapter, source, metadata, gateway,
-                              'What is the color called? Type the color name — no color code is needed.',
-                              ['Cancel'])
-    if _spool_is_cancel(answer):
-        return _SPOOL_CANCELLED
-    color = str(answer).strip()
-    if not color:
-        return _SPOOL_UNCLEAR
+    while True:
+        answer = await _spool_ask(adapter, source, metadata, gateway,
+                                  'What is the color called? Type the color name — no color code is needed.',
+                                  ['Cancel'])
+        if _spool_is_cancel(answer):
+            return _SPOOL_CANCELLED
+        color = str(answer).strip()
+        if not color:
+            return _SPOOL_UNCLEAR
+        # Parsed-color sanity (#792 part 2): a color that parses to
+        # multiple colors or carries unrecognized fragment words gets a
+        # confirm-or-correct step naming what was understood, instead of
+        # minting a spool record with a possible garble baked in.
+        from print_handy.core import filament_color
+        sanity_text = filament_color.color_sanity_text(color, material)
+        if sanity_text is None:
+            break
+        answer = await _spool_ask(adapter, source, metadata, gateway,
+                                  sanity_text + ' Is that exactly as labeled, or do you want to type it again?',
+                                  ['That is exactly as labeled', 'Type it again', 'Cancel'])
+        if _spool_is_cancel(answer):
+            return _SPOOL_CANCELLED
+        if str(answer).strip() == 'That is exactly as labeled':
+            break
+        if str(answer).strip() != 'Type it again':
+            return _SPOOL_UNCLEAR
     return {'brand': brand, 'material': material, 'color': color, 'hex': None}
 
 
@@ -2802,6 +2859,20 @@ async def _spool_guided_new(adapter, source, metadata, gateway, spool_sync, pid,
             ((state.get('filament_slots') or {}).get(str(slot)) or {}).get('remaining_grams'))
         if disposition is None:
             return made_id, f"{message} Nothing was loaded; slot {slot} is unchanged."
+    # One confirmation naming the exact spool before the bind (#792 part 2):
+    # the load used to happen on the slot answer alone.
+    fate = {'shelf': f" Spool #{old_id} goes back on the shelf.",
+            'archive': f" Spool #{old_id} will be archived.",
+            'depleted': f" Spool #{old_id} will be marked as depleted (0 g left).",
+            'delete': f" Spool #{old_id} will be DELETED from Spoolman."}.get(disposition, '') if old_id else ''
+    from print_handy.hermes.discord_print_summary import spool_picker_label
+    label = spool_picker_label(spec.get('color'), spec.get('material'), made_id, spec.get('grams'))
+    load_label = f'Load spool #{made_id}'
+    answer = await _spool_ask(adapter, source, metadata, gateway,
+                              f"Load spool {label} into slot {slot}?{fate}", [load_label, 'Cancel'])
+    if answer != load_label:
+        return made_id, (f"{message} Nothing was loaded; slot {slot} is unchanged."
+                         if _spool_is_cancel(answer) else f"{message} {_SPOOL_UNCLEAR}")
     result = await asyncio.to_thread(spool_sync.bind_slot, slot, made_id,
                                      prior_disposition=disposition,
                                      expected_prior_spool_id=int(old_id) if old_id else None,
@@ -2823,9 +2894,7 @@ async def _spool_guided_change(adapter, source, metadata, gateway, spool_sync, p
     lines = [f"Which spool goes into slot {slot}? Pick one from the shelf, or choose Add a new spool."]
     if listed:
         for i, entry in enumerate(listed, 1):
-            grams = (f", {entry['remaining_grams']:g} g left" if entry.get('remaining_grams') is not None else '')
-            from print_handy.hermes.discord_print_summary import filament_label
-            lines.append(f"{i}. #{entry['spool_id']} {filament_label(entry['name'], entry['material'])}{grams}".rstrip())
+            lines.append(f"{i}. {_picker_label(entry)}")
     else:
         lines.append('(nothing on the shelf)')
     if listed:
@@ -2834,8 +2903,9 @@ async def _spool_guided_change(adapter, source, metadata, gateway, spool_sync, p
     # adapters truncate only the displayed button text and resolve a click
     # back to the registered value, so a [:80] truncation here — or offering
     # only the first three — made clicks and typed numbers land on the
-    # wrong entry or on no entry at all.
-    choices = [f"#{entry['spool_id']} {entry['name']}" for entry in listed] + ['Add a new spool']
+    # wrong entry or on no entry at all. The label is the one picker shape
+    # (#792 part 2): color · material · #id · grams left (or grams unknown).
+    choices = [_picker_label(entry) for entry in listed] + ['Add a new spool']
     if not listed:
         choices = ['Add a new spool', 'Cancel']
     answer = await _spool_ask(adapter, source, metadata, gateway, '\n'.join(lines), choices)
@@ -2862,8 +2932,11 @@ async def _spool_guided_change(adapter, source, metadata, gateway, spool_sync, p
             elif any(entry['spool_id'] == number for entry in shelf):
                 new_id = number
         else:
+            # The registered picker label, or the pre-#792 '#id name' form
+            # a typed answer may still use.
             pick = next((entry for entry in listed
-                         if text.casefold() == f"#{entry['spool_id']} {entry['name']}".casefold()), None)
+                         if text.casefold() in (_picker_label(entry).casefold(),
+                                                f"#{entry['spool_id']} {entry['name']}".casefold())), None)
             new_id = pick['spool_id'] if pick else None
         if new_id is None:
             return _SPOOL_UNCLEAR
@@ -2881,9 +2954,25 @@ async def _spool_guided_change(adapter, source, metadata, gateway, spool_sync, p
             'archive': f" Spool #{old_id} will be archived.",
             'depleted': f" Spool #{old_id} will be marked as depleted (0 g left).",
             'delete': f" Spool #{old_id} will be DELETED from Spoolman."}.get(disposition, '') if old_id else ''
+    # The confirmation names the exact spool (#792 part 2): number, color,
+    # material and remaining — not just the number the picker carried.
+    picked = next((entry for entry in listed if entry['spool_id'] == int(new_id)), None)
+    if picked is not None:
+        exact = _picker_label(picked)
+    elif created_note:
+        # A spool created inside this flow is on the shelf now: name it
+        # exactly too, when the shelf can be re-read.
+        try:
+            fresh = await asyncio.to_thread(spool_sync.shelf_spools, **_pkw(pid))
+        except Exception:
+            fresh = []
+        made = next((entry for entry in fresh if entry['spool_id'] == int(new_id)), None)
+        exact = _picker_label(made) if made is not None else f"#{new_id}"
+    else:
+        exact = f"#{new_id}"
     confirm_label = f'Change slot {slot}'
     answer = await _spool_ask(adapter, source, metadata, gateway,
-                              f"Change slot {slot} to spool #{new_id}?{fate}", [confirm_label, 'Cancel'])
+                              f"Change slot {slot} to spool {exact}?{fate}", [confirm_label, 'Cancel'])
     if answer != confirm_label:
         return (f"{created_note}The change was cancelled; slot {slot} is unchanged."
                 if created_note else
@@ -3226,6 +3315,18 @@ async def spool_dispatch(event, gateway, **kwargs):
                                                      spool_sync, pid, mr_kw)
         elif verb in ('new', 'add'):
             if new_spec is not None:
+                # Parsed-color sanity (#792 part 2): the one-shot form has
+                # no confirmation step, so a color that parses to multiple
+                # colors or a fragment is not minted from it — the guided
+                # form asks the confirm-or-correct step instead.
+                from print_handy.core import filament_color
+                sanity_text = filament_color.color_sanity_text(new_spec.get('color'),
+                                                               new_spec.get('material'))
+                if sanity_text is not None:
+                    message = (f"{sanity_text} Nothing was created. Run `/spool new` and confirm "
+                               f"the color there, or retype the color exactly as labeled.")
+                    await adapter.send(chat_id=source.chat_id, metadata=metadata, content=message)
+                    return {'action': 'skip', 'reason': 'spool new color needs confirmation'}
                 made = await asyncio.to_thread(spool_sync.create_spool, new_spec)
                 message = (f"Created spool #{made['spool_id']} on the shelf"
                            f"{' (existing filament type reused)' if made['reused_filament'] else ''}. "
@@ -5133,7 +5234,7 @@ def alert_button_handlers(bot, adapter):
                                    custom_id=f'pbinsertselect:{select_aid}')
         view = discord.ui.View(timeout=(globals().get('_config').question_timeout_s() if globals().get('_config') else 1800))
         view.add_item(select)
-        await interaction.response.edit_message(content='Choose the shelf spool to map to this IFS slot. Nothing changes until you select one.', view=view)
+        await interaction.response.edit_message(content='Choose the shelf spool to map to this IFS slot. Nothing changes until you confirm the bind.', view=view)
 
     def intake_view(components):
         import discord
@@ -5197,7 +5298,7 @@ def alert_button_handlers(bot, adapter):
                  'grams': None, 'old_spool_id': old_spool_id, 'old_remaining': old_remaining,
                  'disposition': None, 'photo_offered': _photo_intake_ready(),
                  'from_photo': False, 'photo_route': None,
-                 'nozzle_temp': None, 'bed_temp': None, 'hex': None}
+                 'nozzle_temp': None, 'bed_temp': None, 'hex': None, 'color_confirmed': False}
         await intake_advance(interaction, state)
 
     async def intake_post_step(channel, state):
@@ -5324,6 +5425,7 @@ def alert_button_handlers(bot, adapter):
                         # name derive its own — the select path's color
                         # branch already does exactly this.
                         new_state['hex'] = None
+                        new_state['color_confirmed'] = False
                 # A modal submission answers with a fresh message carrying the next step.
                 new_state = {**new_state, 'step': pab.intake_next_step(new_state)}
                 aid = await asyncio.to_thread(pab.record, 'intake', '', **new_state)
@@ -5351,7 +5453,11 @@ def alert_button_handlers(bot, adapter):
                 choice = {'status': 'new', 'brand': values['brand'] or None, 'material': values['material'],
                           'color': values['color'], 'grams': values['grams'], 'lot': None,
                           'nozzle_temp': values['nozzle_temp'], 'bed_temp': values['bed_temp'],
-                          'hex': values['hex']}
+                          'hex': values['hex'],
+                          # The walkthrough's confirmation step named this
+                          # color (and its colorcheck step, when the parse
+                          # was suspicious, confirmed it explicitly).
+                          'color_confirmed': True}
                 result = await asyncio.to_thread(_answer_spool_question, listener, spool_sync,
                                                  state.get('context') or {}, choice)
             else:
@@ -5377,7 +5483,8 @@ def alert_button_handlers(bot, adapter):
         state = {key: alert.get(key) for key in
                  ('origin', 'slot', 'context', 'step', 'predicted_id', 'prompt_brand', 'types',
                   'brand', 'material', 'color', 'grams', 'old_spool_id', 'old_remaining', 'disposition',
-                  'photo_offered', 'from_photo', 'photo_route', 'nozzle_temp', 'bed_temp', 'hex')}
+                  'photo_offered', 'from_photo', 'photo_route', 'nozzle_temp', 'bed_temp', 'hex',
+                  'color_confirmed')}
         # Claim the step before acting on it: two clicks can both peek the
         # same alert, but only one take() succeeds. Without this check a
         # double confirmation would run intake_finish twice and create/bind
@@ -5407,6 +5514,18 @@ def alert_button_handlers(bot, adapter):
             task = asyncio.create_task(intake_photo_wait(interaction, state))
             _photo_tasks.add(task)
             task.add_done_callback(_photo_tasks.discard)
+            return
+        if action == 'color_ok':
+            # The confirm-or-correct step (#792 part 2): the operator
+            # confirmed the parsed color exactly as labeled.
+            state['color_confirmed'] = True
+            await intake_advance(interaction, state)
+            return
+        if action == 'color_fix':
+            # Correct it instead: back to the color step, color cleared so
+            # the new pick/typing starts the sanity check afresh.
+            await intake_show_step(interaction, {**state, 'step': 'color', 'color': None,
+                                                 'hex': None, 'color_confirmed': False})
             return
         if action == 'edit':
             # Switching to manual entry discards the photo-extracted
@@ -5442,7 +5561,8 @@ def alert_button_handlers(bot, adapter):
         state = {key: alert.get(key) for key in
                  ('origin', 'slot', 'context', 'step', 'predicted_id', 'prompt_brand', 'types',
                   'brand', 'material', 'color', 'grams', 'old_spool_id', 'old_remaining', 'disposition',
-                  'photo_offered', 'from_photo', 'photo_route', 'nozzle_temp', 'bed_temp', 'hex')}
+                  'photo_offered', 'from_photo', 'photo_route', 'nozzle_temp', 'bed_temp', 'hex',
+                  'color_confirmed')}
         value = str((getattr(interaction, 'data', {}) or {}).get('values', [''])[0] or '')
         if value == pab.INTAKE_OTHER:
             field = 'brand' if state.get('step') == 'brand' else 'color'
@@ -5455,6 +5575,7 @@ def alert_button_handlers(bot, adapter):
         else:
             state['color'] = value
             state['hex'] = None  # a new color name is read afresh
+            state['color_confirmed'] = False  # and its parse is sanity-checked afresh
         await intake_advance(interaction, state)
 
     async def spool_question_select(interaction, alert):
@@ -5484,7 +5605,7 @@ def alert_button_handlers(bot, adapter):
                                    custom_id=f'pbspoolselect:{select_aid}')
         view = discord.ui.View(timeout=(globals().get('_config').question_timeout_s() if globals().get('_config') else 1800))
         view.add_item(select)
-        await interaction.response.edit_message(content='Choose the shelf spool to charge for the rest of this print. Nothing changes until you select one.', view=view)
+        await interaction.response.edit_message(content='Choose the shelf spool to charge for the rest of this print. Nothing changes until you confirm the bind.', view=view)
 
     async def spool_question_modal(interaction, alert):
         """'New spool' on a paused spool question opens the same walkthrough (#512)."""
@@ -5547,6 +5668,78 @@ def alert_button_handlers(bot, adapter):
             return
         await interaction.followup.send(result)
 
+    async def bind_confirm_show(interaction, *, origin, slot, spool_id, context=None):
+        """The confirm step after a spool picker selection (#792 part 2).
+
+        Selecting a spool never binds it: this message names the exact
+        spool (color · material · #id · grams left, re-read from Spoolman)
+        and the displaced spool's fate — shelf by default, depleted only
+        for a runout question's spent spool — and only its Confirm bind
+        button writes anything.
+        """
+        from print_handy.hermes import spool_sync
+        from print_handy.hermes.discord_print_summary import spool_picker_label
+        label = spool_picker_label(None, None, spool_id, None)
+        try:
+            spool = await asyncio.to_thread(spool_sync.spoolman, 'GET', f'/api/v1/spool/{int(spool_id)}', None)
+            filament = (spool or {}).get('filament') or {}
+            label = spool_picker_label(filament.get('name'), filament.get('material'),
+                                       spool_id, (spool or {}).get('remaining_weight'))
+        except Exception:
+            logger.debug('bind confirmation could not re-read the spool', exc_info=True)
+        old_id = None
+        if origin == 'insertion':
+            try:
+                state = await asyncio.to_thread(spool_sync.load_state)
+                old_id = ((state.get('filament_slots') or {}).get(str(slot)) or {}).get('spoolman_id')
+            except Exception:
+                logger.debug('bind confirmation could not read slot state', exc_info=True)
+        else:
+            old_id = (context or {}).get('prior_spool_id')
+        fate = ''
+        if old_id and int(old_id) != int(spool_id):
+            fate = (f" Spool #{old_id} will be marked as depleted (0 g left)."
+                    if origin == 'spool-question' and (context or {}).get('cause') == 'runout'
+                    else f" Spool #{old_id} goes back on the shelf.")
+        confirm_aid = await asyncio.to_thread(
+            pab.record, 'bind-confirm', '', origin=origin, slot=int(slot), spool_id=int(spool_id),
+            label=label, context=context or {},
+            old_spool_id=int(old_id) if old_id else None)
+        if origin == 'insertion':
+            content = f'Bind spool {label} to slot {slot}?{fate} Nothing changes until you confirm.'
+        else:
+            content = (f'Charge the rest of this print to spool {label} in slot {slot}?{fate} '
+                       'Nothing changes until you confirm.')
+        await interaction.response.edit_message(
+            content=content, view=intake_view(pab.bind_confirm_components(confirm_aid)))
+
+    async def handle_bind_confirm(interaction, action, aid):
+        pending = await asyncio.to_thread(pab.take, aid)
+        if not pending or pending.get('kind') != 'bind-confirm':
+            await interaction.response.send_message('That bind confirmation is old or was already used. Nothing changed.', ephemeral=True)
+            return
+        if action == 'cancel':
+            await interaction.response.edit_message(content='Bind cancelled. Nothing changed.', view=None)
+            return
+        # Acknowledge before the bind (P2-191): the Spoolman/Moonraker
+        # calls inside can outlast Discord's 3 s initial-response window.
+        await interaction.response.defer()
+        try:
+            from print_handy.hermes import spool_sync
+            if pending.get('origin') == 'insertion':
+                result = await asyncio.to_thread(pab.bind_insertion_existing, pending['slot'],
+                                                 pending['spool_id'], spool_sync)
+            else:
+                from print_handy.hermes import moonraker_event_listener as listener
+                result = await asyncio.to_thread(_answer_spool_question, listener, spool_sync,
+                                                 pending['context'],
+                                                 {'status': 'existing', 'spool_id': pending['spool_id']})
+        except Exception as exc:
+            logger.exception('bind confirmation failed')
+            await interaction.followup.send('Nothing was changed. Check what you entered and try again.', ephemeral=True)
+            return
+        await interaction.edit_original_response(content=result, view=None)
+
     async def handle_spool_question_select(interaction, aid):
         pending = await asyncio.to_thread(pab.take, aid)
         if not pending or pending.get('kind') != 'spool-question-select':
@@ -5554,15 +5747,16 @@ def alert_button_handlers(bot, adapter):
             return
         try:
             spool_id = int((getattr(interaction, 'data', {}) or {}).get('values', [None])[0])
-            from print_handy.hermes import moonraker_event_listener as listener
-            from print_handy.hermes import spool_sync
-            result = await asyncio.to_thread(_answer_spool_question, listener, spool_sync,
-                                             pending['context'], {'status': 'existing', 'spool_id': spool_id})
+            context = pending['context'] or {}
+            slot = context.get('slot')
+            if slot not in (1, 2, 3, 4):
+                raise ValueError('spool question has no usable slot')
         except Exception as exc:
             logger.exception('existing spool-question spool failed')
             await interaction.response.send_message('Nothing was changed. Check what you entered and try again.', ephemeral=True)
             return
-        await interaction.response.edit_message(content=result, view=None)
+        await bind_confirm_show(interaction, origin='spool-question', slot=slot,
+                                spool_id=spool_id, context=context)
 
     async def handle_insertion(interaction, action, aid):
         alert = await asyncio.to_thread(pab.take, aid)
@@ -5588,13 +5782,12 @@ def alert_button_handlers(bot, adapter):
             return
         try:
             spool_id = int((getattr(interaction, 'data', {}) or {}).get('values', [None])[0])
-            from print_handy.hermes import spool_sync
-            result = await asyncio.to_thread(pab.bind_insertion_existing, pending['slot'], spool_id, spool_sync)
         except Exception as exc:
             logger.exception('existing insertion spool failed')
             await interaction.response.send_message('Nothing was changed. Check what you entered and try again.', ephemeral=True)
             return
-        await interaction.response.edit_message(content=result, view=None)
+        await bind_confirm_show(interaction, origin='insertion', slot=pending['slot'],
+                                spool_id=spool_id)
 
     async def new_spool_slot_select(interaction, spool_id, label):
         """The load step of the new-spool prompt (#483): pick a slot, preselected spool.
@@ -5996,6 +6189,13 @@ def alert_button_handlers(bot, adapter):
                 return
             await {'pick': handle_plate_pick, 'go': handle_plate_go,
                    'spool': handle_plate_spool, 'drop': handle_plate_drop}[plate[0]](interaction, plate[1])
+            return
+        bind_confirm = pab.parse_bind_confirm_custom_id(custom_id)
+        if bind_confirm:
+            if not allowed(interaction):
+                await reject(interaction)
+                return
+            await handle_bind_confirm(interaction, *bind_confirm)
             return
         parsed = pab.parse_custom_id(custom_id)
         insertion = pab.parse_insertion_custom_id(custom_id)

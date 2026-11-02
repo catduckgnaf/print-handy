@@ -315,6 +315,13 @@ def test_walkthrough_clicks_create_and_bind_with_disposition(tmp_path, monkeypat
     sink.clear()
     asyncio.run(on_interaction(_interaction(sink, select_id, values=["Rose Red Blue Green"])))
     kind, content, view = sink[-1]
+    # The multi-color parse earns the confirm-or-correct step (#792 part 2).
+    assert "Check that color" in content and "more than one color" in content
+    color_ok = next(cid for cid in _custom_ids(view) if ":color_ok:" in cid)
+
+    sink.clear()
+    asyncio.run(on_interaction(_interaction(sink, color_ok)))
+    kind, content, view = sink[-1]
     weight = next(cid for cid in _custom_ids(view) if ":w_500:" in cid)
 
     sink.clear()
@@ -371,6 +378,8 @@ def _walk_to_confirm(tmp_path, monkeypatch):
     asyncio.run(on_interaction(_interaction(sink, mat)))
     select_id = _custom_ids(sink[-1][2])[0]
     asyncio.run(on_interaction(_interaction(sink, select_id, values=["Rose Red Blue Green"])))
+    color_ok = next(cid for cid in _custom_ids(sink[-1][2]) if ":color_ok:" in cid)
+    asyncio.run(on_interaction(_interaction(sink, color_ok)))
     weight = next(cid for cid in _custom_ids(sink[-1][2]) if ":w_500:" in cid)
     asyncio.run(on_interaction(_interaction(sink, weight)))
     depleted = next(cid for cid in _custom_ids(sink[-1][2]) if ":disp_depleted:" in cid)
@@ -456,7 +465,9 @@ def test_known_color_label_shows_material_but_value_stays_the_color():
              {"brand": "Sunlu", "material": "PLA", "color": "Silk PLA Gold", "hex": None}]
     options = pab.intake_color_options(types, "PLA")
     black = next(o for o in options if o["value"] == "Black")
-    assert "Black PLA" in black["label"]
+    assert black["label"] == "Black · PLA"
+    white = next(o for o in options if o["value"] == "White")
+    assert white["label"] == "White · PLA"  # common colors carry the same shape (#792 part 2)
     assert black["value"] == "Black"
     gold = next(o for o in options if o["value"] == "Silk PLA Gold")
     assert gold["label"] == "Silk PLA Gold"

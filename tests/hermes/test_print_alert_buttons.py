@@ -475,7 +475,7 @@ def test_insertion_options_name_the_material_once():
     spools = [{"id": 21, "remaining_weight": 800,
                "filament": {"name": "Coffee PLA+", "material": "PLA+"}}]
     label = pab_.insertion_select_options(spools)[0]["label"]
-    assert label == "#21 Coffee PLA+ 800 g"
+    assert label == "Coffee · PLA+ · #21 · 800 g left"
 
 
 def test_plate_picker_maps_long_part_ids_instead_of_truncating(tmp_path):

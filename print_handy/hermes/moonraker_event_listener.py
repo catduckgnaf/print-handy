@@ -825,7 +825,9 @@ def compatible_offers(spools, material, color):
             continue
         if spool_matches_recovery(material, filament.get("material") or item.get("material"),
                                   color, filament.get("name") or item.get("color") or item.get("name")):
-            offers.append({"id": item.get("id"), "remaining_weight": item.get("remaining_weight")})
+            offers.append({"id": item.get("id"), "remaining_weight": item.get("remaining_weight"),
+                           "name": filament.get("name") or item.get("color") or item.get("name"),
+                           "material": filament.get("material") or item.get("material")})
     return offers
 
 
@@ -963,7 +965,9 @@ def manual_resume_tracking_message(filename, slot=None, compatible_spools=None):
     choices = []
     for item in compatible_spools or []:
         if isinstance(item, dict) and item.get("id") is not None:
-            choices.append(f"#{item['id']} ({item.get('remaining_weight', 'unknown')} g remaining)")
+            # Offered spools are named in the one picker shape (#792 part 2).
+            choices.append(print_summary.spool_picker_label(
+                item.get("name"), item.get("material"), item["id"], item.get("remaining_weight")))
     offer = (" Compatible same-color PLA/PLA+ spool found: " + ", ".join(choices) + ". You may choose its number; I will not select it automatically." if choices else "")
     return (
         f"Filament runout recovery for {print_summary.safe_label(filename)}, {slot_text}. "
@@ -1793,12 +1797,17 @@ def insertion_confirmation_text(slot):
 
 
 def spool_display_label(spool):
-    """'#21 Sunlu PLA+ Matte White' — number, brand, material, colour from the filament record."""
+    """The one picker label shape (#792 part 2): 'Matte White · PLA+ · #21 · 1000 g left'.
+
+    Color, material, spool number and grams left, with unknowns said in
+    place — the same label the spool pickers show, so the new-spool
+    prompt, its slot question and its load confirmation all name the
+    exact same spool the same way.
+    """
     filament = (spool or {}).get("filament") or {}
-    brand = str((filament.get("vendor") or {}).get("name") or "").strip()
-    parts = [brand, str(filament.get("material") or "").strip(),
-             str(filament.get("name") or "").strip()]
-    return f"#{(spool or {}).get('id')} " + (" ".join(part for part in parts if part) or "unknown filament")
+    return print_summary.spool_picker_label(
+        filament.get("name"), filament.get("material"),
+        (spool or {}).get("id"), (spool or {}).get("remaining_weight"))
 
 
 def new_spool_prompt_text(spool):

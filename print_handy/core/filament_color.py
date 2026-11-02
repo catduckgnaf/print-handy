@@ -280,6 +280,85 @@ def derive_hex(name: Any, material: Any = None) -> str | None:
     return guess.hex if guess else None
 
 
+def color_sanity(name: Any, material: Any = None) -> dict[str, Any] | None:
+    """A parsed color that needs a confirm-or-correct step before minting, else None (#792 part 2).
+
+    A single recognizable color is clean, however unusual its name. Two
+    things are not: a name that parses to MORE than one color ("Rose red
+    blue green" — a real multi-color blend reads exactly like a parse
+    garble, so the operator confirms which it is), and a name carrying
+    words no color reading recognizes alongside a color it does
+    recognize, or a truncation marker ("term NoPLA+ Natural",
+    "term No...") — the shape of a label read that lost or merged text.
+    A lone unrecognized word ("Galaxy", "Nebula") is NOT flagged here:
+    the swatch step already handles a color name that simply cannot be
+    read. The result names what was understood, so the confirmation can
+    say it back: ``understood`` color words, ``unknown`` leftover words,
+    and the ``multi`` / ``fragment`` flags.
+    """
+    text = " ".join(str(name or "").split()).strip()
+    if not text:
+        return None
+    truncated = "..." in text or "…" in text
+    guess = derive(text, material)
+    cleaned = text.casefold()
+    if material:
+        cleaned = re.sub(rf"(?<![a-z]){re.escape(str(material).casefold())}(?![a-z])", " ", cleaned)
+    words = [w for w in re.split(r"[^a-z]+", cleaned) if w and w not in _IGNORED]
+    understood: list[str] = []
+    unknown: list[str] = []
+    i = 0
+    while i < len(words):
+        pair = " ".join(words[i:i + 2])
+        if len(words) - i >= 2 and pair in _COMPOUND:
+            understood.append(pair)
+            i += 2
+            continue
+        word = words[i]
+        if word in _MODIFIERS and i + 1 < len(words):
+            nxt = " ".join(words[i + 1:i + 3])
+            base = _COMPOUND.get(nxt) or _SINGLE.get(words[i + 1])
+            if base:
+                shown = nxt if nxt in _COMPOUND else words[i + 1]
+                understood.append(f"{word} {shown}")
+                i += 1 + len(shown.split())
+                continue
+        if word in _PALETTES or word in _SINGLE:
+            understood.append(word)
+            i += 1
+            continue
+        unknown.append(word)
+        i += 1
+    multi = bool(guess and guess.multi)
+    fragment = bool(truncated or len(unknown) >= 2 or (unknown and understood))
+    if not multi and not fragment:
+        return None
+    return {"multi": multi, "fragment": fragment, "truncated": truncated,
+            "understood": tuple(dict.fromkeys(understood)),
+            "unknown": tuple(dict.fromkeys(unknown))}
+
+
+def color_sanity_text(name: Any, material: Any = None) -> str | None:
+    """One plain sentence naming what a suspicious color parse understood, else None."""
+    sanity = color_sanity(name, material)
+    if sanity is None:
+        return None
+    text = " ".join(str(name or "").split()).strip()
+    parts = []
+    if sanity["multi"]:
+        parts.append("it names more than one color ("
+                     + ", ".join(sanity["understood"]) + ")")
+    if sanity["unknown"]:
+        parts.append("it includes words I do not recognize as a color ("
+                     + ", ".join(sanity["unknown"]) + ")")
+    if sanity["truncated"] and not sanity["unknown"]:
+        parts.append("it looks truncated")
+    if not parts:
+        parts.append("it looks truncated")
+    return (f"I read the color as “{text}”: " + " and ".join(parts)
+            + ". That can be exactly as labeled, or a garbled parse.")
+
+
 def resolve(record: Mapping[str, Any] | None = None, *, spoolman_hex: Any = None,
             spoolman_multi: Any = None, printer_hex: Any = None, name: Any = None,
             material: Any = None, prefer_printer: bool = False,
