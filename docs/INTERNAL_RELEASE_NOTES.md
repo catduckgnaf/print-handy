@@ -36,6 +36,7 @@ Nothing yet.
 - Source-profile warnings (#727, #722): when a model's project settings name a different printer, the slice confirmation warns about each authored speed, acceleration or fan value outside the target's verified limits. Printer identity is matched exactly against the target and its own template names (a Kobra 2 Pro profile is not a Kobra 2), and every filament's fan value is checked. Warnings never change a setting.
 - Steel nozzle offsets (#703): the #513 +5 °C compensation for stainless and hardened steel nozzles now ships instead of zeros in the shipped defaults.
 - Vendor filament ranges (#707): vendor filament profiles passed to Orca widen their temperature range to include the explicit spool target, like nonvendor profiles already did.
+- Stale spool record (#759): when Moonraker's live active spool differs from the saved printer record, `printer_state check` looks up and reports the live spool (`facts.effective_spool_source = "moonraker"`) and warns that the record is stale, instead of blocking a correctly loaded printer for the wrong spool. The record on disk is not rewritten; warning-only behavior (#235) is unchanged.
 
 # Version 2.2.3
 
