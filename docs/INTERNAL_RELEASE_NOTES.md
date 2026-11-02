@@ -2,7 +2,7 @@
 
 # Unreleased
 
-Nothing yet.
+- Live camera feed proxy (Codex backlog SEC-4): the Discord Activity feed is now gated on the shared live-session record — a new connection is refused while no viewing session is live, and an open relay is closed when the session ends (/print-live stop, empty-timeout expiry or print end), instead of only changing the bookkeeping; the browser Origin is rewritten to the loopback origin on the authenticated hop to go2rtc, whose origin check otherwise refused tunnel viewers with a 403.
 
 # Version 2.2.4
 
