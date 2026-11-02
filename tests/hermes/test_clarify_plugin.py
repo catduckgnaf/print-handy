@@ -240,6 +240,9 @@ def test_typed_answer_dispatch_retires_a_parser_prompts_message(monkeypatch):
     opener = FakeOpener()
     ui = posted_question(opener)
     monkeypatch.setattr(plugin, "_CLARIFY_UI", ui)
+    # The switch's register() half: the own registry is the gateway, so a
+    # parser prompt registered here is the one typed_reply resolves.
+    monkeypatch.setattr(prompts, "_active", True)
     scope = link_intake._scope(make_event("3").source)
     monkeypatch.setattr(link_intake, "_typed_prompts",
                         {scope + (KEY,): (CID, lambda text: int(str(text).strip()))})
