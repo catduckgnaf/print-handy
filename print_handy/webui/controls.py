@@ -137,11 +137,46 @@ def _fact(adapter, name):
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
-def temperature_limit(adapter, view, heater):
-    """The highest target this printer accepts for ``heater`` (°C)."""
+def _fitted_nozzle_type(view, printer_id):
+    """The nozzle type whose temperature limit applies to this printer.
+
+    The fitted nozzle lives in the addressed printer's hardware record
+    (written by ``/nozzle change`` and ``printer_state set``): a recorded
+    type wins over the configured ``[printer] nozzle_type``, which names
+    the nozzle the printer shipped with, not the one fitted now. No
+    record, a record naming no type, or a recorded type that cannot be
+    recognized keeps the configured behavior. A recorded ``"stock"`` is
+    an unconfirmed factory nozzle and resolves exactly like a configured
+    one (the caller maps it to the softest option).
+    """
+    configured = (view.get("printer") or {}).get("nozzle_type") or "brass"
+    if printer_id is None:
+        return configured
+    try:
+        from ..core import printer_state
+        record = printer_state.load(printer_id)
+    except Exception:  # no readable hardware record: configuration is all there is
+        return configured
+    recorded = (record.get("nozzle") or {}).get("type") if isinstance(record, dict) else None
+    if isinstance(recorded, str) and recorded.strip() and recorded.strip().lower() != "stock":
+        from ..core import nozzle
+        try:
+            nozzle.normalize_nozzle_type(recorded)
+        except nozzle.NozzleError:
+            return configured
+        return recorded
+    return configured
+
+
+def temperature_limit(adapter, view, heater, printer_id=None):
+    """The highest target this printer accepts for ``heater`` (°C).
+
+    The nozzle limit follows the FITTED nozzle: ``printer_id``'s hardware
+    record when it names a type, else the configured nozzle type.
+    """
     if heater == "nozzle":
         from ..core import nozzle
-        nozzle_type = (view.get("printer") or {}).get("nozzle_type") or "brass"
+        nozzle_type = _fitted_nozzle_type(view, printer_id)
         if str(nozzle_type).strip().lower() == "stock":
             nozzle_type = "brass"  # the unconfirmed factory nozzle: the softest option
         limits = [nozzle._nozzle_type_defaults()[nozzle.normalize_nozzle_type(nozzle_type)]
@@ -221,7 +256,7 @@ def set_temperature(data, printer_id, body=None, *, adapter=None, read=None, sen
         if isinstance(target, bool) or not isinstance(target, (int, float)) or target != target:
             raise ControlError(400, "target must be a number of °C. Nothing sent.")
         adapter = adapter or printers.get(entry["model"], view)
-        limit = temperature_limit(adapter, view, heater)
+        limit = temperature_limit(adapter, view, heater, printer_id)
         if not 0 <= target <= limit:
             raise ControlError(400, f"{heater} target {target:g}°C is outside 0..{limit:g}°C "
                                     "for this printer. Nothing sent.")
@@ -273,7 +308,7 @@ def set_targets(data, printer_id, body=None, *, adapter=None, read=None, send=No
         adapter = adapter or printers.get(entry["model"], view)
         limits = {}
         for key, heater, target in wanted:
-            limits[key] = temperature_limit(adapter, view, heater)
+            limits[key] = temperature_limit(adapter, view, heater, printer_id)
             if not 0 <= target <= limits[key]:
                 raise ControlError(400, f"{key} {target:g}°C is outside 0..{limits[key]:g}°C "
                                         "for this printer. Nothing sent.")
