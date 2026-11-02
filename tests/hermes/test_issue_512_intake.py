@@ -183,6 +183,10 @@ def test_create_and_bind_insertion_passes_expected_prior_spool():
             return {"material": "PLA", "color": "Black", "grams": 1000}
 
         @staticmethod
+        def load_state():
+            return {"filament_slots": {"1": {"spoolman_id": 13}}}
+
+        @staticmethod
         def create_spool(spec):
             return {"spool_id": 18}
 

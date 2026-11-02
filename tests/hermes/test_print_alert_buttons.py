@@ -1,6 +1,8 @@
 """print_alert_buttons: cause text, buttons, click safety. Offline; no printer traffic."""
 from unittest.mock import patch
 
+import pytest
+
 from print_handy.hermes import print_alert_buttons as pab
 from print_handy.hermes import moonraker_event_listener as mel
 
