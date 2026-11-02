@@ -1068,7 +1068,13 @@ def run_announcer(reason):
 
 
 def _short_meta(job_key):
-    """Overlay metadata for a vertical short, from what the listener already knows (#317)."""
+    """Overlay metadata for a vertical short, from what the listener already knows (#317).
+
+    Read from where the data actually lives (P2-112): a normal
+    record_start context nests the material under active_spool.material
+    and carries no duration at all; the elapsed time is the completed
+    record's print_duration_seconds.
+    """
     context = {}
     try:
         context = print_records.load_context(job_key) if job_key else {}
@@ -1079,11 +1085,20 @@ def _short_meta(job_key):
         printer_name = printers.current().display_name
     except Exception:
         printer_name = ""
+    spool = context.get("active_spool")
+    material = (context.get("filament_material") or context.get("material")
+                or (spool.get("material") if isinstance(spool, dict) else None))
+    elapsed = context.get("print_duration") or context.get("elapsed_s")
+    if not elapsed and job_key:
+        try:
+            elapsed = print_records.latest_completed_record(job_key).get("print_duration_seconds")
+        except Exception:
+            elapsed = None
     return {
         "title": context.get("title") or clean(job_key or "print"),
         "printer": printer_name,
-        "material": context.get("filament_material") or context.get("material"),
-        "elapsed_s": context.get("print_duration") or context.get("elapsed_s"),
+        "material": material,
+        "elapsed_s": elapsed,
         "outcome": "Done",
     }
 
