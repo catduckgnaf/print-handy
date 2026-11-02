@@ -127,6 +127,44 @@ def test_slice_records_versioned_recipe_hash_in_the_artifact(tmp_path, monkeypat
     mj.require_current_artifact(job, job['gcode'])
 
 
+def test_launch_refuses_when_the_nozzle_changes_after_slicing(tmp_path, monkeypatch):
+    # P2-52: require_current_artifact must recompute the recipe at launch. The
+    # stored record is internally consistent, but the hardware record no longer
+    # matches what was sliced, so the old artifact must be refused.
+    import copy
+    jp, st, gcode = setup_job(tmp_path, monkeypatch)
+    persisted = json.loads(jp.read_text())
+    mj.require_current_artifact(persisted, gcode)  # unchanged inputs: still accepted
+    changed = copy.deepcopy(st)
+    changed['nozzle']['diameter_mm'] = 0.4  # the fixture slices with a 0.6 nozzle
+    monkeypatch.setattr(mj.printer_state, 'load', lambda: changed)
+    with pytest.raises(RuntimeError, match='stale color artifact'):
+        mj.require_current_artifact(persisted, gcode)
+
+
+def test_launch_refuses_when_a_job_transform_changes_after_slicing(tmp_path, monkeypatch):
+    # P2-52: a transform edited in JOB.json after slicing changes the current
+    # recipe even though the stored recipe still hashes to its stored digest.
+    jp, _st, gcode = setup_job(tmp_path, monkeypatch)
+    persisted = json.loads(jp.read_text())
+    persisted['scale'] = 0.5
+    with pytest.raises(RuntimeError, match='stale color artifact'):
+        mj.require_current_artifact(persisted, gcode)
+
+
+def test_launch_refuses_when_slice_settings_change_after_slicing(tmp_path, monkeypatch):
+    # P2-52: settings that are recipe inputs (here the prime tower) changing
+    # after slicing must refuse the old artifact at launch.
+    from print_handy import settings
+    jp, _st, gcode = setup_job(tmp_path, monkeypatch)
+    persisted = json.loads(jp.read_text())
+    changed = dict(settings.current())
+    changed['prime_tower'] = {**changed['prime_tower'], 'size_mm': 99}
+    monkeypatch.setattr(settings, 'current', lambda: changed)
+    with pytest.raises(RuntimeError, match='stale color artifact'):
+        mj.require_current_artifact(persisted, gcode)
+
+
 def test_worker_refuses_a_request_bound_to_another_recipe(tmp_path, monkeypatch):
     jp, _st, _gcode = setup_job(tmp_path, monkeypatch)
     before = jp.read_bytes()

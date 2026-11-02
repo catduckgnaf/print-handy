@@ -3560,6 +3560,19 @@ def require_current_artifact(job, gcode):
         raise RuntimeError('stale color artifact: reslice current JOB before launch')
     from .slice_recipe import RECIPE_VERSION, require_recorded
     recipe_sha = require_recorded(job, binding)
+    # The stored record hashing to its own digest only proves it was not edited;
+    # it says nothing about the world since slicing. Recompute the recipe from
+    # the launch-time job, hardware record, profiles and settings (with the
+    # recorded overrides, exactly as _recipe_changed does during slicing) and
+    # refuse when the inputs moved after the artifact was sliced (P2-52).
+    try:
+        recipe_changed = _recipe_changed(job, job)
+    except Exception as exc:
+        raise RuntimeError('stale color artifact: the current slice recipe could not be '
+                           f'recomputed before launch ({exc}); reslice before launch') from exc
+    if recipe_changed:
+        raise RuntimeError('stale color artifact: the nozzle, profiles or job inputs changed '
+                           'after slicing; reslice before launch')
     stored_hash = binding.get('gcode_sha256')
     presented = Path(gcode).resolve()
     if isinstance(stored_hash, dict):
