@@ -73,6 +73,20 @@ class NightlyWorkflowContract(unittest.TestCase):
         self.assertNotIn("docker push", steps[push]["run"])
         self.assertNotIn("docker tag", steps[push]["run"])
 
+    def test_publish_step_verifies_the_pushed_image_is_the_accepted_one(self):
+        # Bonus (found in this lane, same defect as P2-87 in
+        # docker-publish.yml): the nightly push step also re-runs the build
+        # after evidence/ was written; it carries the same accepted-image
+        # identity proof before the digest is handed to the manifest job.
+        steps = load_workflow()["jobs"]["build"]["steps"]
+        push = next(s for s in steps if s.get("id") == "publish")
+        run = push["run"]
+        self.assertIn("docker image inspect", run)
+        self.assertIn("imagetools inspect --raw", run)
+        self.assertIn('doc["config"]["digest"]', run)
+        self.assertIn("evidence/identity-check.txt", run)
+        self.assertLess(run.index("imagetools inspect --raw"), run.index("digest-out"))
+
     def test_manifest_publishes_only_the_nightly_tags(self):
         workflow = load_workflow()
         manifest = workflow["jobs"]["manifest"]
