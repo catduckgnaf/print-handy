@@ -2,7 +2,7 @@
 
 # Unreleased
 
-Nothing yet.
+- Web UI temperature limits now follow the fitted nozzle (SAFE-8, P1-125): the control endpoints load the addressed printer's hardware record and cap nozzle targets at the recorded nozzle type's limit from `data/nozzles.toml` (a nozzle recorded as stainless steel caps at 300 °C even when the configuration names hardened steel); with no recorded type the configured nozzle type decides, exactly as before.
 
 # Version 2.2.4
 
