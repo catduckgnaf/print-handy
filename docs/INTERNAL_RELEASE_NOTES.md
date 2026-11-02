@@ -2,7 +2,7 @@
 
 # Unreleased
 
-Nothing yet.
+- Readiness and status fail closed (SAFE-7): ZMod multi-tool readiness (Creator 5 / 5 Pro) now checks every extruder object and the zmod_color active-tool telemetry unconditionally — a Moonraker sample with idle print_stats and ready webhooks but no extruder objects no longer passes as a ready four-tool printer. Bambu Lab snapshot reads (Web UI status polls included) connect with a fresh, distinct MQTT client ID per read instead of the listener's session ID, so a status poll can no longer disconnect the event listener, and concurrent polls cannot disconnect each other.
 
 # Version 2.2.4
 

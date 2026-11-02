@@ -117,6 +117,77 @@ def test_snapshot_unreachable_and_timeout_are_plain_errors():
         client.snapshot()
 
 
+def test_snapshot_reads_use_distinct_client_ids_never_the_listener_id(monkeypatch):
+    # P2-265: a status poll must not connect with the listener's MQTT client
+    # ID (print-handy-<serial>) — MQTT disconnects the existing client when a
+    # new connection reuses its ID, so every poll would kick the listener,
+    # and two polls sharing an ID would kick each other. Each snapshot read
+    # on the built-in factory path asks for a fresh, distinct ID.
+    from print_handy.printers.bambulab import client as client_mod
+
+    seen = []
+    fakes = [FakeMqtt(complete_snapshot_parts()), FakeMqtt(complete_snapshot_parts())]
+
+    def recording_factory(host, serial, access_code, client_id=None):
+        seen.append(client_id)
+        return fakes.pop(0)
+
+    monkeypatch.setattr(client_mod, "_paho_factory", recording_factory)
+    client = BambuLanClient("192.168.1.50", SERIAL, CODE, timeout_s=5)  # built-in factory path
+    client.snapshot()
+    client.snapshot()
+    listener_id = f"print-handy-{SERIAL.lower()}"
+    assert len(seen) == 2 and all(seen), seen
+    assert seen[0] != seen[1], seen  # concurrent polls cannot disconnect each other
+    assert all(cid != listener_id for cid in seen), seen  # never the listener's session ID
+    assert all(cid.startswith(listener_id) for cid in seen), seen
+
+
+def test_paho_factory_defaults_to_the_session_id_and_honors_an_explicit_one(monkeypatch):
+    # The listener's persistent session keeps the fixed print-handy-<serial>
+    # ID (the factory's default); only a caller asking for a distinct ID —
+    # a snapshot read — gets one. paho is stubbed: no broker, no socket.
+    import sys
+    import types
+
+    built = []
+
+    class StubClient:
+        def __init__(self, *args, **kwargs):
+            built.append(kwargs)
+
+        def username_pw_set(self, *args, **kwargs):
+            pass
+
+        def tls_set_context(self, *args, **kwargs):
+            pass
+
+        def tls_insecure_set(self, *args, **kwargs):
+            pass
+
+        def reconnect_delay_set(self, *args, **kwargs):
+            pass
+
+    stub = types.SimpleNamespace(
+        Client=StubClient, MQTTv311=5,
+        CallbackAPIVersion=types.SimpleNamespace(VERSION2=2))
+    paho = types.ModuleType("paho")
+    mqtt_pkg = types.ModuleType("paho.mqtt")
+    client_mod_stub = types.ModuleType("paho.mqtt.client")
+    client_mod_stub.Client = StubClient
+    client_mod_stub.MQTTv311 = 5
+    client_mod_stub.CallbackAPIVersion = stub.CallbackAPIVersion
+    monkeypatch.setitem(sys.modules, "paho", paho)
+    monkeypatch.setitem(sys.modules, "paho.mqtt", mqtt_pkg)
+    monkeypatch.setitem(sys.modules, "paho.mqtt.client", client_mod_stub)
+
+    from print_handy.printers.bambulab.client import _paho_factory
+    _paho_factory("192.168.1.50", SERIAL, CODE)
+    assert built[-1]["client_id"] == f"print-handy-{SERIAL.lower()}"
+    _paho_factory("192.168.1.50", SERIAL, CODE, client_id="print-handy-x-status-1")
+    assert built[-1]["client_id"] == "print-handy-x-status-1"
+
+
 @pytest.mark.parametrize("kwargs", [
     {"host": "https://192.168.1.50"}, {"host": "192.168.1.50:8883"}, {"host": ""},
     {"serial": ""}, {"access_code": ""}, {"timeout_s": 0}, {"timeout_s": True},
