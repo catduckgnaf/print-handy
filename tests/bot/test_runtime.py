@@ -406,6 +406,19 @@ def test_did_you_mean_no_sends_the_unmatched_reply_and_dispatches_nothing(cfg):
     assert discord.sent[-1] == runtime.unmatched_text(cfg["discord"]["bot_name"])
 
 
+def test_live_command_filtered_from_unsupported_platform_surfaces(cfg):
+    """print-live is Discord-only (P2-123): the shared command table keeps it
+    for Discord registration and help, and filters it out of both surfaces
+    for platforms whose adapter reports no live-stream support."""
+    assert "print-live" in dict(commands.registrations())
+    assert "print-live" not in dict(commands.registrations(supports_live_stream=False))
+    assert "/print-live" in commands.help_text()
+    assert "/print-live" not in commands.help_text(supports_live_stream=False)
+    assert "/print-live" in commands.help_text("Print Handy")  # Hermes/Discord default unchanged
+    _discord, core = make(cfg)
+    assert "/print-live" in core.help  # the Discord core keeps advertising it
+
+
 def test_print_handy_slash_carries_debug_arguments():
     """The /print-handy slash command must reach 'debug on [minutes]' (P2-186):
     a free-form second option carries the words after the action, so the

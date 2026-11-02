@@ -337,8 +337,12 @@ class TelegramClient:
             logger.info("health check on :%d/healthz", port)
 
     def _register_commands(self):
+        # The menu is filtered by this platform's capabilities (P2-123):
+        # Telegram registers no /print_live, which only Discord can run.
+        live = bool(self.core is not None
+                    and getattr(self.core.adapter, "supports_live_stream", False))
         payload = {"commands": [{"command": name.replace("-", "_"), "description": c.description[:256]}
-                                for name, c in commands.registrations()]}
+                                for name, c in commands.registrations(supports_live_stream=live)]}
         tg.call(self.token, "setMyCommands", payload, opener=self.opener)
 
     async def _heartbeat(self):

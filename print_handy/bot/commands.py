@@ -24,6 +24,11 @@ class Command:
     # parses and answers exactly like the canonical name — slash registration,
     # the typed form and help all derive from this one table entry.
     aliases: tuple[str, ...] = ()
+    # Live viewing (#311) is a Discord Activity: a command marked here is
+    # registered and advertised only on platforms whose adapter reports
+    # supports_live_stream (P2-123) — other platforms must not offer a
+    # command their handler deliberately refuses to run.
+    live_stream: bool = False
 
 
 COMMANDS = (
@@ -66,7 +71,7 @@ COMMANDS = (
             "/print-calibration [mesh|screws|pid|shaper|belts|zoffset|records]"),
     Command("print-live", "Live camera in the voice channel (Discord only)",
             (Option("action", "start, stop or status", ("start", "stop", "status")),),
-            "/print-live [start | stop | status]"),
+            "/print-live [start | stop | status]", live_stream=True),
     Command("print-design", "Design or edit a model with AI (asks before slicing)",
             (Option("prompt", "What to make or change, e.g. a 40x20x3 plate with two 4 mm holes, or 'make it taller' with a file dropped"),),
             "/print-design <what to make or change>", aliases=("design",)),
@@ -78,7 +83,7 @@ COMMANDS = (
              # them, and a fixed-choice action alone can only ever send
              # '/print-handy debug' (the status form).
              Option("args", "Extra words after the action — for debug: on, off, or on 5 (minutes)")),
-            "/print-handy [setup | add-printer | debug on|off [minutes] | status | help]"),
+            "/print-handy [setup | add-printer | debug | status | help]"),
     Command("print-source", "Which model sites are connected", usage="/print-source"),
     Command("print-help", "What Print Handy can do", usage="/print-help"),
 )
@@ -88,10 +93,15 @@ def by_name(name):
     return next((c for c in COMMANDS if c.name == name or name in c.aliases), None)
 
 
-def registrations():
-    """(name, command) for every slash registration: canonical names, then aliases."""
-    return [(c.name, c) for c in COMMANDS] + \
-        [(alias, c) for c in COMMANDS for alias in c.aliases]
+def registrations(supports_live_stream=True):
+    """(name, command) for every slash registration: canonical names, then aliases.
+
+    A platform whose adapter reports no live-stream support registers
+    without the live command (P2-123); Discord, the default, registers all.
+    """
+    visible = [c for c in COMMANDS if supports_live_stream or not c.live_stream]
+    return [(c.name, c) for c in visible] + \
+        [(alias, c) for c in visible for alias in c.aliases]
 
 
 def as_text(name, values):
@@ -101,7 +111,7 @@ def as_text(name, values):
     return " ".join(["/" + name] + [a for a in args if a])
 
 
-def help_text(bot_name="Print Handy"):
+def help_text(bot_name="Print Handy", supports_live_stream=True):
     lines = [f"**{bot_name}** prints from this channel. Nothing starts without a button press.",
              "- Post a model link or a .3mf/.stl to print; `/print-source` lists the sites.",
              '- "print it" after a link, or "print the last one again", reuses the last model.',
@@ -109,5 +119,6 @@ def help_text(bot_name="Print Handy"):
              '- "add new filament" / "add a new spool" / "swap the filament" starts the guided /spool flow.']
     lines += [f"- `{c.usage}`: {c.description}"
               + (f" (also `/{c.aliases[0]}`)" if c.aliases else "")
-              for c in COMMANDS if c.name != "print-help"]
+              for c in COMMANDS if c.name != "print-help"
+              and (supports_live_stream or not c.live_stream)]
     return "\n".join(lines)

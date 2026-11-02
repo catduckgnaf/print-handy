@@ -354,6 +354,15 @@ def test_a_number_with_no_open_prompt_is_not_an_answer(cfg, tmp_path):
     assert run(adapter.answer_typed(f"matrix:{ROOM}::{USER}", "2")) is False
 
 
+def test_matrix_help_omits_the_discord_only_live_command(cfg, tmp_path):
+    """Help is a platform surface too (P2-123): Matrix help must not advertise
+    /print-live, which only the Discord adapter can run."""
+    stub = HomeserverStub()
+    client, core = make_core(cfg, stub, tmp_path)
+    assert "/print-live" not in core.help
+    assert "/print-stop" in core.help
+
+
 # ---------------------------------------------------------------------- BotCore wiring
 
 

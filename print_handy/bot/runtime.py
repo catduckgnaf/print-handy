@@ -403,7 +403,11 @@ class BotCore:
         self.agent_unavailable = agent_unavailable_text()
         self._refusal_notices: dict[str, float] = {}  # user_id -> last notice time (#386)
         self.bot_name = str(section.get("bot_name") or discord.get("bot_name") or "").strip() or "Print Handy"
-        self.help = commands.help_text(self.bot_name)
+        # Help is a platform surface: a platform that cannot run the live
+        # command does not advertise it (P2-123).
+        self.help = commands.help_text(
+            self.bot_name,
+            supports_live_stream=bool(getattr(self.adapter, "supports_live_stream", False)))
         self.unmatched = unmatched_text(self.bot_name)
         self.started_at = time.time()
 
