@@ -353,10 +353,21 @@ def _from_env(home, environ, declared=None):
             if (section, key) in OPTIONAL_KEYS:
                 expected_type = OPTIONAL_KEYS[(section, key)]
                 expected = expected_type() if expected_type in (bool, int, float) else ""
-                out.setdefault(section, {})[key] = _coerce(expected, raw, name)
-                continue
-            raise _unknown(f"${name}", section, key)
-        out.setdefault(section, {})[key] = _coerce(home[section][key], raw, name)
+            else:
+                raise _unknown(f"${name}", section, key)
+        else:
+            expected = home[section][key]
+        # A blank value is "not supplied", not an override (P1-64): Compose
+        # injects an empty string for every feature variable the operator
+        # left unset, and because the environment layer merges last it would
+        # erase the mounted config file's value — an existing vision endpoint
+        # became empty, disabling camera checks. String settings follow the
+        # same rule the list settings above already follow ("an empty value
+        # keeps the file value", docs/SETTINGS.md). Non-string settings keep
+        # their strict parsing, so a blank number or boolean still errors.
+        if isinstance(expected, str) and not raw.strip():
+            continue
+        out.setdefault(section, {})[key] = _coerce(expected, raw, name)
     return out
 
 

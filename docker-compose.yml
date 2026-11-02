@@ -22,7 +22,9 @@ services:
       # empty-bed and stall checks. Sensitivity 1 (quietest) to 5 (most alerts).
       PRINT_HANDY__VISUAL_WATCH__ENABLED: ${PRINT_HANDY__VISUAL_WATCH__ENABLED:-true}
       PRINT_HANDY__VISUAL_WATCH__SENSITIVITY: ${PRINT_HANDY__VISUAL_WATCH__SENSITIVITY:-3}
-      # Feature-enabling variables (#252): empty means the feature stays off. Secrets
+      # Feature-enabling variables (#252): empty means not supplied here, so
+      # the config file's value stands (for the shipped docker config that is
+      # off). Secrets
       # (CLIPROXY_API_KEY, AD5X_SERIAL, AD5X_CHECK_CODE, BAMBU_LAN_PASSWORD,
       # MOONRAKER_API_KEY, LLM_API_KEY) are not listed here; they reach the container
       # through the .env env_file above, like DISCORD_BOT_TOKEN.
