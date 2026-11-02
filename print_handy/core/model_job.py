@@ -3614,6 +3614,19 @@ def require_current_artifact(job, gcode):
         raise RuntimeError('stale color artifact: reslice current JOB before launch')
     from .slice_recipe import RECIPE_VERSION, require_recorded
     recipe_sha = require_recorded(job, binding)
+    # The stored record hashing to its own digest only proves it was not edited;
+    # it says nothing about the world since slicing. Recompute the recipe from
+    # the launch-time job, hardware record, profiles and settings (with the
+    # recorded overrides, exactly as _recipe_changed does during slicing) and
+    # refuse when the inputs moved after the artifact was sliced (P2-52).
+    try:
+        recipe_changed = _recipe_changed(job, job)
+    except Exception as exc:
+        raise RuntimeError('stale color artifact: the current slice recipe could not be '
+                           f'recomputed before launch ({exc}); reslice before launch') from exc
+    if recipe_changed:
+        raise RuntimeError('stale color artifact: the nozzle, profiles or job inputs changed '
+                           'after slicing; reslice before launch')
     stored_hash = binding.get('gcode_sha256')
     presented = Path(gcode).resolve()
     if isinstance(stored_hash, dict):
@@ -6013,11 +6026,12 @@ def _native_file_matches(reported, remote):
 
 
 def _moonraker_started_files(st):
-    """Moonraker's recent job history as (filename, start_epoch) pairs, for settling an uncertain
-    earlier start (launch_state.reached_printer). Unreadable history settles nothing."""
+    """Moonraker's recent job history as (job_id, filename, start_epoch) triples, for settling
+    an uncertain earlier start (launch_state.reached_printer) and for the pre-submission
+    history baseline (launch_state.acquire). Unreadable history settles nothing."""
     try:
         jobs = _mr(st, '/server/history/list?limit=20&order=desc', timeout=10)['result']['jobs']
-        return [(j.get('filename'), j.get('start_time')) for j in jobs
+        return [(j.get('job_id'), j.get('filename'), j.get('start_time')) for j in jobs
                 if isinstance(j, dict) and j.get('filename') and isinstance(j.get('start_time'), (int, float))]
     except Exception:
         return []

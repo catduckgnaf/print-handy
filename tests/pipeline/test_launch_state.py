@@ -699,6 +699,45 @@ def test_history_is_read_only_when_the_current_file_does_not_settle_it():
     assert not launch_state.reached_printer(held_row(), "", broken)
 
 
+def test_history_baseline_excludes_a_prior_run_inside_the_slack():
+    # P1-121: a run cancelled 60 s before the retry's lease sits inside the 120 s
+    # clock slack, so the time rule alone accepts it as the retry's confirmation.
+    prior = ("job-old", "3mf_print/Bag-Clip_plate_1_bf4e.gcode", epoch("2026-10-30T19:20:32-0400"))
+    assert launch_state.reached_printer(held_row(), "", [prior])
+    # A pre-submission baseline naming that job excludes it: it predates the
+    # submission, so it says nothing about whether the submission arrived.
+    baseline = [launch_state.history_key(prior)]
+    assert not launch_state.reached_printer(held_row(), "", [prior], baseline=baseline)
+    # The submission's own run — started after the lease, absent from the
+    # baseline — still settles it, clock tolerance intact.
+    own = ("job-new", "3mf_print/Bag-Clip_plate_1_bf4e.gcode", epoch("2026-10-30T19:24:41-0400"))
+    assert launch_state.reached_printer(held_row(), "", [prior, own], baseline=baseline)
+
+
+def test_a_prior_run_cannot_settle_a_new_submissions_uncertain_lease():
+    # P1-121 end to end: the retry's lease captures the history baseline before
+    # submission; when the retry then goes uncertain, the prior same-name run
+    # inside the slack must not release the lease for another launch.
+    import time
+    key = "printer-p1-121"
+    remote = "Retry_plate_1.gcode"
+    history = [("job-old", remote, time.time() - 60)]  # the cancelled earlier run
+    lease = launch_state.acquire(key, job_json="/archive/retry/JOB.json", gcode_sha256="f" * 64,
+                                 remote=remote, started_files=lambda: list(history))
+    lease.submitting()
+    lease.uncertain("start request did not complete")
+    simulate_restart()
+    with pytest.raises(SystemExit, match="REFUSED: an earlier start on this printer is uncertain"):
+        launch_state.acquire(key, job_json="/archive/next/JOB.json", gcode_sha256="a" * 64,
+                             remote=remote, started_files=lambda: list(history))
+    # Once the retry's own run appears in history, the lease reconciles and the
+    # next launch proceeds.
+    history.append(("job-new", remote, time.time()))
+    lease2 = launch_state.acquire(key, job_json="/archive/next/JOB.json", gcode_sha256="a" * 64,
+                                  remote=remote, started_files=lambda: list(history))
+    lease2.release()
+
+
 def hold_uncertain(key, remote):
     lease = launch_state.acquire(key, job_json="/archive/earlier/JOB.json", gcode_sha256="e" * 64, remote=remote)
     lease.uncertain("start request did not complete: TimeoutError('timed out')")

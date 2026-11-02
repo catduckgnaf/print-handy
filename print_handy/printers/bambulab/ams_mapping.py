@@ -11,9 +11,11 @@ Wire facts are from the #298 Stage 0 audit of maziggy/bambuddy at 98ecaf5
     filament slots: a regular AMS / AMS Lite tray is `ams_id * 4 + slot_id`,
     an AMS-HT unit is its unit id (128-135, single tray), the external spool
     is 254 (left on a dual-nozzle printer) or 255 (right), -1 is unmapped.
-  - A user-supplied mapping that is present and not all-unmapped is trusted
-    verbatim; a missing or all-unmapped one is recomputed from live status,
-    and a recompute that cannot cover every slot fails loudly — a job must
+  - A fully mapped user-supplied mapping is trusted verbatim; a partially
+    unmapped one keeps its manual choices and has the remaining slots
+    resolved from live status (or refused when no tray can serve one); a
+    missing or all-unmapped one is recomputed from live status, and a
+    recompute that cannot cover every slot fails loudly — a job must
     never silently print from the external spool.
   - Matching is nozzle-aware: on a dual-nozzle printer, candidates for a
     filament slot are hard-filtered to the extruder that slot prints with —
@@ -154,6 +156,12 @@ def validate_supplied(mapping, slot_count):
                 tray == UNMAPPED_TRAY or tray in EXTERNAL_TRAYS or 0 <= tray <= 135):
             raise MappingError(f"the job's ams_mapping holds {tray!r}, which is not a canonical "
                                "tray id (-1 unmapped, 0-135 AMS trays, 254/255 external spool)")
+    assigned = [tray for tray in mapping if tray != UNMAPPED_TRAY]
+    if len(set(assigned)) != len(assigned):
+        # A tray serves one slot (resolve() enforces the same rule): one physical
+        # tray cannot hold two of the job's filaments at once.
+        raise MappingError(f"the job's ams_mapping assigns a tray to more than one filament "
+                           f"slot: {mapping!r}; each filament slot needs its own tray")
     return list(mapping)
 
 
@@ -189,16 +197,52 @@ def resolve(requirements, trays, *, dual=False, fts=False):
     return mapping
 
 
+def complete_supplied(supplied, requirements, trays, *, dual=False, fts=False):
+    """A partially unmapped supplied mapping, completed from the reported trays.
+
+    The operator's manual tray choices stand exactly as supplied; each slot
+    still marked unmapped is matched like resolve() does — by material family,
+    nozzle-aware on a dual-nozzle printer — against the trays the manual
+    choices did not take. A slot no reported tray can serve raises MappingError
+    naming it: a partially unmapped mapping must never reach submission
+    verbatim, or the job would start with an unresolved slot (P1-68).
+    """
+    from ...core.printer_state import same_material
+    completed = list(supplied)
+    used = {tray for tray in supplied if tray != UNMAPPED_TRAY}
+    for index, req in enumerate(requirements):
+        if completed[index] != UNMAPPED_TRAY:
+            continue
+        candidates = [t for t in trays if t["tray"] not in used
+                      and same_material(req["material"], t["material"] or "")]
+        if dual and not fts and req.get("extruder") is not None:
+            candidates = [t for t in candidates if t["extruder"] == req["extruder"]]
+        if not candidates:
+            where = (f" for extruder {req['extruder']}" if dual and req.get("extruder") is not None
+                     and not fts else "")
+            raise MappingError(
+                f"filament slot {index + 1} needs {req['material']!r}{where}, but the job's "
+                "ams_mapping leaves it unmapped and no loaded AMS tray or external spool on "
+                "the printer reports it; load that filament (or fix the job's ams_mapping) "
+                "— the job will not be started with an unresolved slot")
+        completed[index] = candidates[0]["tray"]
+        used.add(candidates[0]["tray"])
+    return completed
+
+
 def resolve_for_print(text, snapshot, *, job_mapping=None, dual=False, fts=False):
     """(mapping | None, source) for one print start; source is "job", "snapshot" or "legacy".
 
-    A job-supplied mapping wins verbatim. Otherwise the mapping is recomputed
-    from the snapshot. A multi-slot or tool-changing job whose mapping cannot
-    be resolved raises MappingError — it was refused before #308 and still is,
-    now with the reason. A single-slot job that matches nothing reported falls
-    back to (None, "legacy"): the pre-#308 payload, sliced for the recorded
-    spool, which telemetry may not report (for example an external spool the
-    snapshot does not describe); refusing it would regress every current model.
+    A fully mapped job-supplied mapping wins verbatim; a partially unmapped
+    one keeps its manual choices and has the remaining slots resolved from
+    the snapshot (or refused, when no reported tray can serve one). Otherwise
+    the mapping is recomputed from the snapshot. A multi-slot or tool-changing
+    job whose mapping cannot be resolved raises MappingError — it was refused
+    before #308 and still is, now with the reason. A single-slot job that
+    matches nothing reported falls back to (None, "legacy"): the pre-#308
+    payload, sliced for the recorded spool, which telemetry may not report
+    (for example an external spool the snapshot does not describe); refusing
+    it would regress every current model.
     """
     requirements = requirements_from_gcode(text)
     if not requirements:
@@ -207,8 +251,12 @@ def resolve_for_print(text, snapshot, *, job_mapping=None, dual=False, fts=False
         return None, "legacy"
     if job_mapping is not None:
         supplied = validate_supplied(job_mapping, len(requirements))
-        if any(tray != UNMAPPED_TRAY for tray in supplied):
+        if all(tray != UNMAPPED_TRAY for tray in supplied):
             return supplied, "job"
+        if any(tray != UNMAPPED_TRAY for tray in supplied):
+            # Partially unmapped: complete it from the snapshot, never submit it verbatim.
+            return complete_supplied(supplied, requirements, trays_from_snapshot(snapshot),
+                                     dual=dual, fts=fts), "job"
         # An all-unmapped stored mapping counts as missing (audit): recompute below.
     trays = trays_from_snapshot(snapshot)
     multi = len(requirements) > 1 or any(tool > 0 for tool in tools_used(text))
