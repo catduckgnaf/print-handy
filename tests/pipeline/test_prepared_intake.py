@@ -637,6 +637,42 @@ def test_start_already_printing_posts_exactly_one_roast_and_records_nothing(env,
     assert print_next.take_start_message('ghost_plate_1_abc.gcode') is None
 
 
+def test_warming_start_on_telegram_posts_its_roast_right_away(env, monkeypatch, tmp_path):
+    """P2-144: the deferred roast is added by editing the start post, and the
+    only edit path for it is Discord (the listener edits via Discord REST).
+    A warming start on Telegram can never be edited, so the roast rides the
+    original post and no message id is recorded for the impossible edit."""
+    monkeypatch.setattr(print_next, 'START_MESSAGES', tmp_path / 'start_messages.json')
+    mel = external('moonraker_event_listener')
+    roast_calls = []
+
+    def fake_roast(title, summary=''):
+        roast_calls.append((title, summary))
+        return 'One roast for the Ghost Stand'
+    monkeypatch.setattr(mel, 'generate_roast', fake_roast)
+
+    async def preparing(target):
+        env.starts.append(target)
+        return True, REAL_AWAITING
+    monkeypatch.setattr(print_next, 'start', preparing)
+
+    async def send(self, chat_id, content, reply_to=None, metadata=None):
+        self.sent.append(content)
+        return S(success=True, message_id=f'm{len(self.sent)}')
+    monkeypatch.setattr(Adapter, 'send', send)
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u',
+                       platform=S(value='telegram')),
+              message_id='m1', text='https://www.printables.com/model/1-ghost')
+    adapter = Adapter([1, 0, 0])
+    result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
+    receipt = json.loads(next(env.root.glob('*.json')).read_text())
+    assert receipt['status'] == 'STARTED' and len(env.starts) == 1
+    starts = [m for m in adapter.sent if m.startswith('Print started')]
+    assert len(starts) == 1 and starts[0].count('One roast for the Ghost Stand') == 1
+    assert len(roast_calls) == 1
+    assert print_next.take_start_message('ghost_plate_1_abc.gcode') is None
+
+
 def test_start_refused_posts_no_roast(env, monkeypatch, tmp_path):
     """#374: refusals and failed starts never invoke the roast generator."""
     monkeypatch.setattr(print_next, 'START_MESSAGES', tmp_path / 'start_messages.json')

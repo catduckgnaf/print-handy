@@ -2725,6 +2725,16 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         # warming start with a known file can be edited by the listener later, so
         # only that start defers its roast (#374).
         remote = print_next.started_file(tail) if warming else None
+        if remote is not None:
+            # The deferred roast is added by EDITING this post, and the only
+            # edit path for it is Discord (the listener edits via Discord
+            # REST). On a transport that cannot be edited that way the roast
+            # would never arrive, so it rides this post now instead (P2-144).
+            platform = getattr(source, 'platform', None)
+            platform_name = str(getattr(platform, 'value', None)
+                                or getattr(adapter, 'name', None) or 'discord')
+            if platform_name.casefold() != 'discord':
+                remote = None
         if unknown:
             message = START_PENDING_MESSAGE
         elif ok or pending:
