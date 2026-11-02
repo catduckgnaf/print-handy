@@ -487,6 +487,8 @@ def test_supported_toolpath_motion_passes(lines):
     (body_with("G1 Z256.5\nG1 X101 Y101 E1\n"), "extrudes off the"),            # extrusion above the build height
     (body_with("G2 X110 Y110 I5 J0 E1\n"), "Extruding arc in the toolpath"),
     (body_with("G3 I200 J0\n"), "Arc path leaves the machine envelope"),
+    (body_with("G3 X300 Y100 I1 J0\n"), "Arc ends outside the machine envelope"),  # small circle, far endpoint
+    (body_with("G3 X150 Y100 I1 J0\n"), "Arc endpoint is not on its circle"),
     (body_with("G2 X110 Y110\n"), "Arc without a centre offset"),
     (body_with("G18\n"), "Unsupported command in the toolpath"),
     (body_with("G28\n"), "Unsupported command in the toolpath"),
@@ -548,6 +550,11 @@ def test_bambu_studio_helical_end_lift_is_accepted():
     I/J centre, no E); the verified arc form admits it (#434)."""
     body = body_with("G1 Z20 F720\nG17\nG3 Z20.4 I1.217 J0 P1 F42000\n")
     assert problems(a1_gcode(body, generator="BambuStudio 02.08.02.61")) == []
+
+
+def test_a_non_extruding_arc_that_ends_on_its_circle_is_accepted():
+    # Codex on #441: the endpoint is checked too; a half circle from X100 to X102 around X101 is fine.
+    assert problems(a1_gcode(body_with("G1 Z20 F720\nG3 X102 Y100 I1 J0\n"))) == []
 
 
 def test_abrasive_filament_on_hardened_steel_passes():

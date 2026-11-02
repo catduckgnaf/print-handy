@@ -170,6 +170,8 @@ def toolpath(text):
 def _mm(value):
     return "?" if value is None else f"{value:g}"
 
+# An arc endpoint further than this from its I/J circle is not the arc the circle bounds.
+ARC_END_TOLERANCE_MM = 0.05
 # G-codes allowed in a checked toolpath. Moves, modes (G17 selects the XY arc plane and moves nothing),
 # E-only G92, dwell, units, Bambu clog detection (G392) and the in-print nozzle clump and head-wrap probes
 # (G39, G39.3), which leave Z unknown. Anything else (homing, probing, coordinate resets) is refused there
@@ -268,6 +270,12 @@ def _toolpath_arc_problem(words, target, start, envelope, height, z_headroom):
     if not (envelope[0] <= centre_x - radius and centre_x + radius <= envelope[2]
             and envelope[1] <= centre_y - radius and centre_y + radius <= envelope[3]):
         return "Arc path leaves the machine envelope"
+    # The circle bounds the path only if the move ends on it: firmware still finishes at X/Y, so an
+    # endpoint off the circle (or outside the envelope) is motion the circle does not cover.
+    if not (envelope[0] <= target["X"] <= envelope[2] and envelope[1] <= target["Y"] <= envelope[3]):
+        return f"Arc ends outside the machine envelope at X{_mm(target['X'])} Y{_mm(target['Y'])}"
+    if abs(math.hypot(target["X"] - centre_x, target["Y"] - centre_y) - radius) > ARC_END_TOLERANCE_MM:
+        return "Arc endpoint is not on its circle; its path cannot be verified"
     z_low, z_high = min(start["Z"], target["Z"]), max(start["Z"], target["Z"])
     if z_low < 0:
         return f"Arc move to Z{target['Z']:g} is below 0 mm"
