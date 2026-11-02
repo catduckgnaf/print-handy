@@ -2534,7 +2534,7 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         # the estimate everywhere it is shown (duration answer, split notice, start question).
         try:
             from ..knowledge.thermal import thermal_lines_for_model
-            thermal = thermal_lines_for_model(sliced.get('printer_model'))
+            thermal = thermal_lines_for_model(sliced.get('printer_model'), printer_id=sliced.get('printer_id'))
         except Exception:
             thermal = []
         if thermal:

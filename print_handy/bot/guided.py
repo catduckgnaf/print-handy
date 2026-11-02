@@ -27,6 +27,10 @@ print-feedback plugin share one implementation:
   ``apply`` at review; the write itself is the roster writer (which converts a legacy
   single-printer config), followed by the printer's first hardware record. The flow never
   restarts anything — it says plainly that a restart brings the new printer live.
+  A passed test also runs the read-only thermal probe (#741, ``core.thermal_probe``);
+  facts it finds that the model record does not already carry become one more step,
+  where the person confirms or declines each, and only confirmed ones are written to
+  the printer's hardware record at apply.
 
 Printer operations and print authorization are deliberately out of scope for these flows.
 """
@@ -528,7 +532,30 @@ def _onboard_keys(answers):
             keys.append("stock_secrets")
             if answers.get("stock_secrets"):
                 keys.append("probe")
+    if "probe" in keys and _thermal_proposals(answers):
+        keys.append("thermal")
     return keys
+
+
+def _thermal_proposals(answers):
+    """The thermal facts a passed connection test proposed (#741), or []."""
+    probe = answers.get("probe") or {}
+    thermal = probe.get("thermal") if probe.get("ok") else None
+    return list((thermal or {}).get("proposals") or [])
+
+
+def _validate_thermal(value, answers):
+    """`all`, `none`, or the numbers of the proposals to confirm. Returns the confirmed proposals."""
+    items = _thermal_proposals(answers)
+    low = value.strip().casefold()
+    if low in ("all", "yes", "y"):
+        return items
+    if low in ("none", "no", "n", "skip"):
+        return []
+    picked = [p for p in re.split(r"[,\s]+", low) if p]
+    if not picked or not all(p.isdigit() and 1 <= int(p) <= len(items) for p in picked):
+        raise ValueError(f"reply `all`, `none`, or numbers from 1 to {len(items)} separated by commas")
+    return [items[i - 1] for i in sorted({int(p) for p in picked})]
 
 
 _STEP_LABELS_OB = {
@@ -541,6 +568,7 @@ _STEP_LABELS_OB = {
     "octoprint_url": "Printer URL", "octo_secret": "API key (stored, never pasted)",
     "stock_secrets": "Serial + check code (stored, never pasted)",
     "probe": "Live connection test",
+    "thermal": "Thermal facts from the printer",
 }
 
 
@@ -671,6 +699,18 @@ def _onboard_step_defs(session, probe_runner=None):
             "and `offline` saves the printer unverified instead.",
             probe_runner or _default_onboard_probe),
     }
+    proposals = _thermal_proposals(answers)
+    if proposals:
+        from ..core.thermal_probe import proposal_lines
+        defs["thermal"] = Step(
+            "thermal", _STEP_LABELS_OB["thermal"],
+            f"The connected printer was read (read-only) for the thermal facts the {label} "
+            "model record does not settle. Each line below is a proposal from what this "
+            "printer itself reports:\n" + "\n".join(proposal_lines(proposals)) +
+            "\nReply `all` to record every one for this printer, the numbers to record "
+            "only some (for example `1,3`), or `none` to record nothing. Confirmed facts are "
+            "saved for this printer only, as operator-confirmed; the model record never changes.",
+            _validate_thermal)
     return defs
 
 
@@ -763,7 +803,8 @@ def _default_onboard_probe(answers):
     if result.ok:
         extra = {key: result.detail[key] for key in ("geometry", "geometry_error")
                  if result.detail.get(key)}
-        return ProbeOutcome(True, result.summary, extra=extra or None)
+        extra["thermal"] = _onboard_thermal(conn, answers, secrets)
+        return ProbeOutcome(True, result.summary, extra=extra)
     secret_step = {"bambulab_lan": "lan_secret", "prusalink": "prusa_secret",
                    "octoprint": "octo_secret",
                    "flashforge_stock": "stock_secrets"}.get(conn)
@@ -774,6 +815,20 @@ def _default_onboard_probe(answers):
                   "octoprint": "octoprint_url",
                   "flashforge_stock": "host"}.get(conn)
     return ProbeOutcome(False, result.error, first_step)
+
+
+def _onboard_thermal(conn, answers, secrets):
+    """Run the read-only thermal probe (#741) once the connection is proven.
+    Returns {"proposals": [...], "note": str}; a failure is a note, never an error."""
+    from ..core import thermal_probe
+    from ..knowledge import thermal_entry_for_model
+    try:
+        entry = thermal_entry_for_model(answers["model"])
+        result = thermal_probe.probe(conn, _onboard_entry(answers), secrets)
+        found = thermal_probe.proposals(result, entry.thermal) if entry is not None else []
+        return {"proposals": found, "note": result.note}
+    except Exception:
+        return {"proposals": [], "note": "the thermal probe did not run; nothing was proposed."}
 
 
 def _apply_onboarding(answers):
@@ -787,12 +842,17 @@ def _apply_onboarding(answers):
     result = roster_write.add_printer(entry)
     view = settings.view_for(entry["id"], settings.load())
     seeded = printer_state.seed_hardware_record(entry["id"], view)
+    from ..core import thermal_probe
+    confirmed = thermal_probe.record_confirmed(entry["id"], entry["model"], answers.get("thermal"))
     converted = (" Your existing single-printer settings were converted into "
                  "the roster's first entry on the way."
                  if result["converted"] else "")
     record = (" Its first hardware record was created."
               if seeded else
               " A hardware record already existed for it and was kept.")
+    if confirmed:
+        record += (f" {confirmed} thermal fact{'s' if confirmed != 1 else ''} confirmed from the "
+                   "printer were recorded for it (operator-confirmed).")
     return (f"**{entry['name']}** (`{entry['id']}`) was added to "
             f"{result['path'].name}; the previous file is kept as "
             f"{result['backup'].name}.{converted}{record} "
@@ -861,6 +921,37 @@ def _onboard_geometry_lines(answers, model):
     return lines
 
 
+def _onboard_thermal_lines(answers):
+    """Review lines for the thermal probe (#741): what was confirmed, or why
+    nothing could be probed, and how many thermal facts stay open questions."""
+    probe = answers.get("probe") or {}
+    thermal = probe.get("thermal") if probe.get("ok") else None
+    if not isinstance(thermal, dict):
+        return []
+    lines = []
+    proposals = thermal.get("proposals") or []
+    confirmed = answers.get("thermal") or []
+    if proposals:
+        names = ", ".join(f"{p['field']} {p['value']}" for p in confirmed) or "none"
+        lines.append(f"- Thermal facts from the printer: {len(confirmed)} of {len(proposals)} "
+                     f"confirmed ({names}); saved for this printer only, as operator-confirmed")
+    elif not thermal.get("note"):
+        lines.append("- Thermal probe: the printer reports nothing the model record does not already say")
+    if thermal.get("note"):
+        lines.append(f"- Thermal probe: {thermal['note']}")
+    try:
+        from ..knowledge import thermal_entry_for_model, thermal_setup_questions
+        entry = thermal_entry_for_model(answers["model"])
+        install = {p["field"]: {"value": p["value"]} for p in confirmed}
+        questions = thermal_setup_questions(entry, install) if entry is not None else []
+    except Exception:
+        questions = []
+    if questions:
+        lines.append("- Thermal facts still unknown for this printer (not assumed): "
+                     + "; ".join(q["question"] for q in questions))
+    return lines
+
+
 def _onboard_review_text(session, note=""):
     answers = session["ob_answers"]
     model = printers.MODELS[answers["model"]]
@@ -891,6 +982,7 @@ def _onboard_review_text(session, note=""):
         lines.append("- Live test: not run — the entry is saved unverified "
                      "(its secret step was skipped).")
     lines.extend(_onboard_geometry_lines(answers, model))
+    lines.extend(_onboard_thermal_lines(answers))
     lines += ["",
               _onboard_checklist_text(session),
               "",
@@ -977,6 +1069,8 @@ def _onboard_probe_answer(session, raw, step, *, store, now):
                 recorded["geometry"] = extra["geometry"]
             if extra.get("geometry_error"):
                 recorded["geometry_error"] = extra["geometry_error"]
+            if isinstance(extra.get("thermal"), dict):
+                recorded["thermal"] = extra["thermal"]
             answers["probe"] = recorded
             session.pop("ob_probe_error", None)
             session.pop("ob_back_key", None)

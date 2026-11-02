@@ -110,6 +110,13 @@ until `apply` at the review step.
    uses the model you picked.
    A failure says why and offers `retry`, `back` to the step that failed, or `offline` to
    save the printer unverified instead.
+   A passed test also reads the printer's thermal facts, read-only (chamber sensor and
+   reading, fans, door switch; see
+   [PRINTER-PROFILES.md](PRINTER-PROFILES.md#per-printer-facts-from-the-connected-printer-741)).
+   When the printer reports something its model record does not already say, one more
+   step lists each proposal with its evidence. Reply `all`, `none`, or the numbers to keep.
+   Confirmed facts are saved for this printer only, at `apply`. OctoPrint printers cannot
+   be probed, and a busy or failed probe proposes nothing.
 6. **Review and `apply`** — the review names the printer, its id, its connection and whether
    the live test passed. Applying appends the entry to the `printers:` roster in the
    settings file (a legacy single-printer file is converted into the roster first — the
