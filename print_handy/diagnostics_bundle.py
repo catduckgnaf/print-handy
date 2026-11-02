@@ -65,7 +65,10 @@ def _summarise(value, key: str = ""):
     if isinstance(value, (list, tuple)):
         return [_summarise(v) for v in value]
     if isinstance(value, str) and len(value) > 80:
-        return value[:77] + "..."
+        # Redact BEFORE truncating: a URL credential whose @ sits past the
+        # cut would otherwise survive as a bare password fragment, because
+        # the redaction pass in config_summary can no longer see the @.
+        return logs.redact(value)[:77] + "..."
     return value
 
 

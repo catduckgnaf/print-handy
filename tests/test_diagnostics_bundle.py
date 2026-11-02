@@ -46,6 +46,15 @@ class BundleTests(unittest.TestCase):
         self.assertEqual(len(tail.splitlines()), 5)
         self.assertNotIn(secret, tail)
 
+    def test_long_url_credentials_redact_before_truncation(self):
+        # The userinfo @ sits past the 77-char truncation point: truncating
+        # first would strand the password with no @ left for the credential
+        # pattern in logs.redact to match (P1-95).
+        value = "http://" + "a" * 65 + ":s3cretpw@cam.local:7125/" + "x" * 30
+        summary = diagnostics_bundle._summarise({"moonraker_url": value}, "services")
+        self.assertNotIn("s3cretpw", str(summary))
+        self.assertNotIn("s3cr", str(summary))
+
     def test_missing_log_file_setting_is_explained_not_silent(self):
         with tempfile.TemporaryDirectory() as tmp:
             tail = diagnostics_bundle.log_tail(_data(tmp))
