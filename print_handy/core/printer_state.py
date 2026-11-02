@@ -367,7 +367,8 @@ def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True
     It is used when its temperature_resolution names this exact spool and material, or
     when the record has no resolution at all (explicit legacy temperatures, kept as
     _material_temperature_contract always has; the spool-sync paths mark the record
-    stale instead of leaving it bare), or when the resolution is a legacy one that
+    stale instead of leaving it bare), an exact-match resolution is honored whether
+    or not the caller prefetched the spool's filament (P2-273), or when the resolution is a legacy one that
     names only this spool's material family: records written before resolutions
     carried material/spoolman_id hold temperatures recorded for the spool (often its
     Spoolman filament's explicit values), so they are preserved and the resolution is
@@ -399,6 +400,17 @@ def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True
             legacy = resolution.get("material_family") == material_family(material)
         except Exception:
             legacy = False
+    if stored_ok and stored and isinstance(resolution, dict) \
+            and resolution.get("material") == material \
+            and resolution.get("spoolman_id") == spool.get("spoolman_id"):
+        # The stored temperatures are attested for this exact spool and
+        # material (an operator `set --nozzle-temp`, or a `set --spool`
+        # resolution): they win whether or not the caller already fetched
+        # the spool's filament (P2-273). Verification resolves with
+        # filament=None and honors them; slicing used to bypass them
+        # whenever orca_adapter prefetched the filament, and verification
+        # then refused the G-code slicing had produced.
+        return dict(stored), resolution
     if filament is None and stored_ok and stored and (not resolution or legacy) \
             and _is_seeded_default(material, stored):
         # A bare or legacy record holding exactly the family default (what seeding writes:
@@ -534,19 +546,57 @@ def gcode_tool_temperatures(state, materials, text, fetch_filament=None):
                                       None, fetch_filament,
                                       stored_ok=_is_active_spool(state, {"spoolman_id": sid, "material": label}))[0]
                    for sid in ids]
-        if not any(abs(float(o["nozzle"]) - (shown - offset)) <= 1e-3 for o in options):
+        matching = [o for o in options if abs(float(o["nozzle"]) - (shown - offset)) <= 1e-3]
+        if not matching:
             raise RuntimeError(f"G-code tool T{tool} ({label}) is set to {shown:g} C but its spool resolves to "
                                + " or ".join(f"{float(o['nozzle']) + offset:g} C" for o in options))
-        resolved[tool] = {"nozzle": shown - offset, "bed": options[0]["bed"]}
+        # The bed is the matching spool's, not the first candidate's (P2-277):
+        # options are sorted by spool id, and the spool whose nozzle target
+        # the header carries need not be the lowest-numbered holder.
+        resolved[tool] = {"nozzle": shown - offset, "bed": matching[0]["bed"]}
     nozzle = resolved[start]["nozzle"]
     # One plate heats the whole job: its target is the lowest-numbered tool's, the one orca_adapter sliced the bed at.
     return {"nozzle": int(nozzle) if float(nozzle).is_integer() else nozzle, "bed": resolved[min(resolved)]["bed"]}
 
 
+def _job_map_spool_ids(state, text):
+    """The spool ids an artifact's `hermes_tool_slots` map names, in tool order.
+
+    The map is the artifact's own record of what it was sliced for: dict
+    values carry the spool id directly; the older plain form names physical
+    slots, whose bound spool the slot record supplies. Unparseable or
+    absent maps name nothing.
+    """
+    match = re.search(r"^;\s*hermes_tool_slots\s*=\s*(.+)$", text or "", re.M)
+    if not match:
+        return []
+    try:
+        parsed = json.loads(match.group(1).strip())
+    except ValueError:
+        return []
+    if not isinstance(parsed, dict):
+        return []
+    slots = state.get("filament_slots") or {}
+    ids = []
+    for value in parsed.values():
+        sid = None
+        if isinstance(value, dict):
+            sid = value.get("spoolman_id")
+            if sid is None and value.get("physical_slot") is not None:
+                sid = (slots.get(str(value["physical_slot"])) or {}).get("spoolman_id")
+        elif isinstance(value, int) and not isinstance(value, bool):
+            sid = (slots.get(str(value)) or {}).get("spoolman_id")
+        if sid is not None and sid not in ids:
+            ids.append(sid)
+    return ids
+
+
 def gcode_temperatures(state, materials, fetch_filament=None, text=None):
     """The temperatures a G-code sliced for ``materials`` (its filament_type list) must carry,
-    resolved for the same spool slice_temperatures used: the active spool when its material is
-    the G-code's, else the one slot spool holding that material, else the material defaults.
+    resolved for the same spool slice_temperatures used: the spool the artifact's
+    hermes_tool_slots map names when it names exactly one, else the active spool when its
+    material is the G-code's, else the one slot spool holding that material, else the
+    material defaults.
     A multi-filament G-code (``text`` given) is checked per tool against its own header instead
     (gcode_tool_temperatures). Two slot spools with that material and different targets are
     ambiguous and refuse.
@@ -560,6 +610,16 @@ def gcode_temperatures(state, materials, fetch_filament=None, text=None):
     if len(labels) != 1:
         return slice_temperatures(state, None, fetch_filament)[0]
     label = labels.pop()
+    mapped = _job_map_spool_ids(state, text)
+    if len(mapped) == 1:
+        # The artifact names the one spool it was sliced for (P2-272):
+        # resolve that spool, not whichever spool is active now — launch
+        # synchronizes the active spool only after verification, so the
+        # active spool merely holding the same material proves nothing.
+        sid = mapped[0]
+        return slice_temperatures({**state, "spool": {**spool, "spoolman_id": sid, "material": label}},
+                                  None, fetch_filament,
+                                  stored_ok=sid == spool.get("spoolman_id"))[0]
     ids = sorted({rec.get("spoolman_id") for rec in (state.get("filament_slots") or {}).values()
                   if isinstance(rec, dict) and " ".join(str(rec.get("material") or "").split()).casefold()
                   == label.casefold()}, key=str)

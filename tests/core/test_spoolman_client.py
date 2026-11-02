@@ -108,6 +108,18 @@ def test_unconfigured_is_unavailable_not_a_crash():
         spoolman_client.request("GET", "/api/v1/spool/7", base_url="")
 
 
+def test_malformed_base_url_is_unavailable_not_a_value_error():
+    # P2-154: a configured URL with a malformed authority passes the
+    # prefix-only settings validation, and urllib.request.Request raises
+    # ValueError while *constructing* the request. That failure is an
+    # unavailability outcome (Spoolman bookkeeping must stay non-blocking),
+    # never an exception escaping get_spool()/call().
+    with pytest.raises(spoolman_client.SpoolmanUnavailable):
+        spoolman_client.request("GET", "/api/v1/spool/1", base_url="http://[::1")
+    assert spoolman_client.get_spool(1, base_url="http://[::1") is None
+    assert spoolman_client.call("GET", "/api/v1/spool/1", base_url="http://[::1") is None
+
+
 def test_notice_is_emitted_exactly_once_until_reset(capsys):
     spoolman_client.reset_notice()
     assert spoolman_client.note_unavailable_once() is True
