@@ -110,6 +110,23 @@ class WebUIServerError(RuntimeError):
     """The Web UI server was refused: disabled, unconfigured, or unsafe."""
 
 
+# Suffixes public DNS never serves (mDNS, RFC 6762/8375 home and private-use names).
+PRIVATE_SUFFIXES = (".local", ".lan", ".home", ".internal", ".home.arpa", ".localhost")
+
+
+def private_hostname(name):
+    """True for a Host a DNS-rebinding site cannot own: an IP literal, a single-label
+    name ("tower") or a private-use suffix ("unraid.local", "nas.home.arpa")."""
+    name = str(name or "").rstrip(".")
+    if not name:
+        return False
+    try:
+        ipaddress.ip_address(name)
+        return True
+    except ValueError:
+        return "." not in name or name.endswith(PRIVATE_SUFFIXES)
+
+
 def is_loopback(host):
     """True for loopback bind hosts (127.0.0.0/8, ::1, "localhost") only."""
     if host in LOOPBACK_NAMES:
@@ -268,9 +285,18 @@ class _Handler(BaseHTTPRequestHandler):
         could read the token and post settings changes. Such a request
         still names the attacker's hostname in Host (and Origin), so only
         the loopback names and the bind address are accepted.
+
+        A LAN bind with no password (first-run setup, or the "leave it open"
+        choice) has the same exposure on any address, and #708 makes it the
+        container default. A rebinding site needs a public DNS name it
+        controls, so there only names it cannot serve are accepted (an IP
+        literal, a single-label name, a private-use suffix), and a write's
+        Origin must be the same host, which also refuses cross-site posts.
+        Re-read per request: finishing setup replaces server.access.
         """
         allowed = self.server.allowed_hosts
-        if allowed is None:
+        open_lan = not is_loopback(self.server.bind_host) and not self.server.access.required
+        if allowed is None and not open_lan:
             return False
         def hostname(value):
             value = str(value or "").strip().lower()
@@ -281,10 +307,17 @@ class _Handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         if post and origin and origin != "null":
             names.append(hostname(urlparse(origin).netloc))
-        if all(name in allowed for name in names):
+        if allowed is not None:
+            if all(name in allowed for name in names):
+                return False
+            self._send(403, "Forbidden: this Web UI answers only to its own loopback address.",
+                       "text/plain; charset=utf-8")
+            return True
+        if private_hostname(names[0]) and all(name == names[0] for name in names[1:]):
             return False
-        self._send(403, "Forbidden: this Web UI answers only to its own loopback address.",
-                   "text/plain; charset=utf-8")
+        self._send(403, "Forbidden: with no Web UI password this page answers only by IP "
+                        "address or a local host name. Set a password on the setup page to "
+                        "reach it through another name.", "text/plain; charset=utf-8")
         return True
 
     def _send(self, code, body, content_type, headers=()):

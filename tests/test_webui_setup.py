@@ -183,6 +183,45 @@ class SetupFlowTests(unittest.TestCase):
         self.assertEqual(httpd.access.mode, access.OPEN)
         self.assertEqual(self.request(port, "GET", "/api/status")[0], 200)
 
+    def test_a_rebinding_host_is_refused_while_setup_or_open_runs_on_the_lan(self):
+        # Codex on #704: with no password, a site that rebinds its own name to this LAN
+        # address is "same origin", so it could read the setup token and choose for you.
+        httpd, port, _ = self.start()
+        evil = {"Host": f"rebind.attacker.example:{port}"}
+        self.assertEqual(self.request(port, "GET", "/setup", headers=evil)[0], 403)
+        token = self.form_token(port)  # the operator, by IP
+        choice = urlencode({pages.CSRF_FIELD: token, "choice": "open", "confirm_open": "yes"})
+        self.assertEqual(self.request(port, "POST", "/setup", body=choice,
+                                      headers={**FORM, **evil})[0], 403)
+        self.assertEqual(httpd.access.mode, access.SETUP)
+        # A cross-site post by IP is refused on its Origin.
+        self.assertEqual(self.request(port, "POST", "/setup", body=choice, headers={
+            **FORM, "Origin": "http://rebind.attacker.example"})[0], 403)
+        self.assertEqual(httpd.access.mode, access.SETUP)
+        # Choosing "open" by IP works, and the guard keeps running afterwards.
+        self.assertEqual(self.request(port, "POST", "/setup", body=choice, headers=FORM)[0], 303)
+        self.assertEqual(httpd.access.mode, access.OPEN)
+        self.assertEqual(self.request(port, "GET", "/api/status", headers=evil)[0], 403)
+        for host in ("192.168.1.20", "tower", "unraid.local", "nas.home.arpa", "[fd00::5]"):
+            self.assertEqual(self.request(port, "GET", "/api/status",
+                                          headers={"Host": f"{host}:{port}"})[0], 200, host)
+        self.assertNotEqual(self.request(port, "GET", "/healthz", headers=evil)[0], 403)
+
+    def test_a_password_install_answers_to_any_host_name(self):
+        # Behind a reverse proxy name the password, not the Host, is the guard.
+        _, port, _ = self.start()
+        self.post_setup(port, **{pages.CSRF_FIELD: self.form_token(port), "choice": "password",
+                                 "password": PASSWORD, "password_again": PASSWORD})
+        self.assertEqual(self.request(port, "GET", "/api/status", headers={
+            "Host": "print.example.com", server.TOKEN_HEADER: PASSWORD})[0], 200)
+
+    def test_private_hostname(self):
+        for name in ("192.168.1.2", "fd00::1", "tower", "unraid.local", "nas.lan", "x.home.arpa",
+                     "box.internal", "tower."):
+            self.assertTrue(server.private_hostname(name), name)
+        for name in ("", "attacker.example", "evil.com", "local.evil.com", "lan.attacker.io"):
+            self.assertFalse(server.private_hostname(name), name)
+
     def test_bad_password_choice_is_refused_without_saving(self):
         _, port, data = self.start()
         code, _, body = self.post_setup(port, **{pages.CSRF_FIELD: self.form_token(port),
