@@ -807,7 +807,49 @@ def _design_command_args(text):
     return None
 
 
+_DESIGN_BUSY: set = set()
+
+
 async def design_dispatch(event, gateway, **kwargs):
+    """Serialize design turns per owner around _design_dispatch_turns (P2-151).
+
+    A turn awaits the model (and then its Slice/Change/Cancel prompt) with
+    the session's files as shared state. A second owner message arriving
+    in that window used to load the same session and run a concurrent
+    turn: both turns wrote the same SCAD/STL/preview files, and the first
+    turn's still-open approval buttons could hand off the second turn's
+    geometry. Hold a per-owner claim for the whole dispatch and refuse a
+    concurrent one with a busy note; other commands and unrelated chat
+    still fall through untouched.
+    """
+    if not _is_print_discord_event(event):
+        return None
+    source = event.source
+    owner = f"{source.chat_id}:{source.thread_id or ''}:{source.user_id}"
+    if owner in _DESIGN_BUSY:
+        text = str(getattr(event, 'text', '') or '').strip()
+        if _design_command_args(text) is None and text.startswith('/'):
+            return None  # another command: not design's to refuse
+        from print_handy.core import design as _design
+        if _design_command_args(text) is None and not _design.find_session_for_owner(
+                _design_root(_config.cfg()), owner):
+            return None  # no live design session: not a design message
+        adapter = _adapter_for(gateway, source)
+        if adapter is None:
+            return {'action': 'skip', 'reason': 'design turn already running'}
+        metadata = {'thread_id': source.thread_id} if source.thread_id else None
+        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                           content='A design turn is already running — let it finish, '
+                                   'then send your change again. Nothing was changed.')
+        return {'action': 'skip', 'reason': 'design turn already running'}
+    _DESIGN_BUSY.add(owner)
+    try:
+        return await _design_dispatch_turns(event, gateway, **kwargs)
+    finally:
+        _DESIGN_BUSY.discard(owner)
+
+
+async def _design_dispatch_turns(event, gateway, **kwargs):
     """/print-design (alias /design) and natural design requests (#388).
 
     Create loop (Stage 1): /print-design <what to make>, Slice it / Change

@@ -706,3 +706,45 @@ def test_awaiting_revision_still_wins_over_trigger_words(design_env, tmp_path):
     assert "Design turn 2" in adapter.sent[-2]
     (session,) = _sessions(tmp_path)
     assert session["kind"] == "create" and session["turns"] == 2
+
+
+def test_second_message_during_a_turn_is_refused_not_run_concurrently(design_env):
+    """While one turn's model call is outstanding, a second owner message
+    must not load the same session and run a concurrent turn over the same
+    SCAD/STL files: it gets a busy refusal and the model is not called
+    again until the first turn finishes (P2-151)."""
+    async def scenario():
+        gate = asyncio.Event()
+        calls = []
+
+        async def complete(messages):
+            calls.append(messages)
+            await gate.wait()
+            return GOOD
+
+        adapter1, adapter2 = FakeAdapter(), FakeAdapter()
+        with mock.patch.object(plugin, "_design_transport", return_value=(complete, "http")), \
+                mock.patch.object(core_prompts, "gateway", return_value=core_prompts), \
+                mock.patch.object(core_prompts, "wait_for_response", return_value=design.CANCEL_LABEL):
+            first = asyncio.create_task(plugin.design_dispatch(
+                _event("/print-design a bracket"), _gateway(adapter1)))
+            for _ in range(100):
+                if calls:
+                    break
+                await asyncio.sleep(0.01)
+            assert len(calls) == 1  # the first turn is inside its model call
+            second = await plugin.design_dispatch(
+                _event("/print-design another bracket"), _gateway(adapter2))
+            assert second == {"action": "skip", "reason": "design turn already running"}
+            assert any("already running" in (c or "") for c in adapter2.sent)
+            assert len(calls) == 1  # no concurrent turn reached the model
+            gate.set()
+            await first
+            # The claim is released once the turn is over: a fresh dispatch
+            # reaches the model again.
+            third_adapter = FakeAdapter()
+            await plugin.design_dispatch(
+                _event("/print-design a third bracket"), _gateway(third_adapter))
+            assert len(calls) == 2
+
+    asyncio.run(scenario())
