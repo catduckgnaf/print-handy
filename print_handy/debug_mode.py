@@ -363,10 +363,12 @@ def build_export(data=None, *, state=None, now=None) -> tuple[str, str, str]:
         "```",
         "",
     ]
-    discord = (data or {}).get("discord") or {}
-    sanitizer = sanitize_logs.Sanitizer(
-        known_user_ids=str(discord.get("allowed_user_ids") or "").replace(",", " ").split(),
-        known_channel_ids=[str(discord.get("chat_id") or "")])
+    # Every platform's IDs, list-safe: the same registry the diagnostics
+    # bundle uses. Building this from the Discord section alone (and by
+    # string-splitting it) leaked Telegram/Matrix/approval IDs and mangled
+    # a list-valued allowed_user_ids into bracketed fragments.
+    users, channels = diagnostics_bundle._known_ids(data or {})
+    sanitizer = sanitize_logs.Sanitizer(known_user_ids=users, known_channel_ids=channels)
     clean = sanitizer.sanitize("\n".join(parts))
     report = sanitizer.report()
     return export_name(state, now=now), clean.replace("{REPORT}", report), report

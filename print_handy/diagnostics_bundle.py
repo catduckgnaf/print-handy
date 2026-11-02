@@ -134,6 +134,9 @@ def _known_ids(data):
             users.extend(str(v) for v in raw_users)
         elif raw_users:
             users.extend(str(raw_users).replace(",", " ").split())
+        for key in ("approval_user_id", "bot_user_id"):
+            if cfg.get(key):
+                users.append(str(cfg[key]))
         for key in ("chat_id", "room_id"):
             if cfg.get(key):
                 channels.append(str(cfg[key]))

@@ -84,6 +84,22 @@ class BundleTests(unittest.TestCase):
             self.assertEqual(written, target)
             self.assertIn("diagnostics bundle", target.read_text())
 
+    def test_known_ids_cover_approval_and_bot_ids(self):
+        users, channels = diagnostics_bundle._known_ids({
+            "discord": {"allowed_user_ids": "111, 222", "approval_user_id": "333",
+                        "chat_id": "444"},
+            "telegram": {"allowed_user_ids": [555], "approval_user_id": "666",
+                         "chat_id": "-777"},
+            "matrix": {"allowed_user_ids": "@a:example.org",
+                       "approval_user_id": "@b:example.org",
+                       "bot_user_id": "@bot:example.org", "room_id": "!r:example.org"},
+        })
+        for expected in ("111", "222", "333", "555", "666", "@a:example.org",
+                         "@b:example.org", "@bot:example.org"):
+            self.assertIn(expected, users)
+        for expected in ("444", "-777", "!r:example.org"):
+            self.assertIn(expected, channels)
+
     def test_missing_log_file_setting_is_explained_not_silent(self):
         with tempfile.TemporaryDirectory() as tmp:
             tail = diagnostics_bundle.log_tail(_data(tmp))
