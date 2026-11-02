@@ -219,6 +219,11 @@ class StandaloneAdapter(BasePlatformAdapter):
         if not self._is_allowed_user(user_id, S(bot=bool(sender.get("is_bot")))):
             await answer("Not allowed. Nothing changed.")
             return True
+        if prompts.is_approval(cid) and not self.may_approve_id(user_id):
+            # Print approvals stay separate from channel access (P1-93), as
+            # on Discord: only the approval user resolves a start prompt.
+            await answer("Not allowed. Nothing changed.")
+            return True
         # A prompt is answered in the chat it was asked in (#335): the chat
         # is the approval's target, so a callback from another chat never
         # resolves this chat's question.

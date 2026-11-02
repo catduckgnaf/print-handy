@@ -156,6 +156,14 @@ class StandaloneAdapter(BasePlatformAdapter):
                         getattr(user, "id", ""), self.refusal_reason(getattr(user, "id", "")))
             await interaction.response.send_message("Not allowed. Nothing changed.", ephemeral=True)
             return True
+        if prompts.is_approval(cid) and not self.may_approve_id(getattr(user, "id", "")):
+            # Print approvals stay separate from open channel access (P1-93):
+            # anyone in the channel may chat, but only the approval user
+            # resolves a prompt whose answer starts a print.
+            logger.info("refused approval button press from Discord user %s: %s",
+                        getattr(user, "id", ""), self.approval_refusal_reason(getattr(user, "id", "")))
+            await interaction.response.send_message("Not allowed. Nothing changed.", ephemeral=True)
+            return True
         row = self._prompts.get(cid)
         if row is not None:
             # A prompt is answered in the channel it was asked in (#335): the

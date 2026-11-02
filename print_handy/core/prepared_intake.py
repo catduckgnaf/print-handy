@@ -1405,7 +1405,8 @@ async def _delivery_menu(adapter, source, key, metadata, timeout, question, enab
         shown = True
         choices = (([print_next.START_LABEL] if can_print else []) + [delivery.LABELS[m] for m in buttons]
                    + [delivery.DONE_LABEL])
-        picked = await _ask(adapter, source, key, question + ('\n' + note if note else ''), choices, timeout)
+        picked = await _ask(adapter, source, key, question + ('\n' + note if note else ''), choices, timeout,
+                            approval=True)
         label = choices[picked]
         if label == print_next.START_LABEL:
             return 0
@@ -2383,7 +2384,7 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             ' · '.join(x for x in ('Ready to slice', names, estimate_text) if x)
             + ('\n' + spool_text if spool_text else '') + caveat,
             first_labels, timeout,
-            on_shown=early.release.set)
+            on_shown=early.release.set, approval=True)
         choice = choice if can_print else choice + 1
         if choice in (2, 3):
             await early.discard()  # the early slice was for a job that will not print
@@ -2616,7 +2617,8 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             if remap:
                 question += '\n' + remap
             if delivery.only_printer(enabled):
-                go = await _ask(adapter, source, key, question, [print_next.START_LABEL, print_next.CANCEL_LABEL], timeout)
+                go = await _ask(adapter, source, key, question, [print_next.START_LABEL, print_next.CANCEL_LABEL], timeout,
+                                approval=True)
             else:
                 if not can_print:
                     question = breakdown + '\nSliced and validated. What should I do with the files?'

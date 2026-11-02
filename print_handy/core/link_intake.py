@@ -199,10 +199,15 @@ CANCEL_LABEL = "Cancel"
 
 
 async def ask(adapter, source, session_key, question, choices, timeout=None, allow_other=False, parser=None,
-              live_key=None):
+              live_key=None, approval=False):
     """Ask a button question. With ``parser``, a typed reply in the same chat is also accepted;
     ``live_key`` registers under the live chat session so a busy gateway routes the text here
-    instead of queueing it as a new agent turn."""
+    instead of queueing it as a new agent turn. ``approval`` marks a print
+    approval (P1-93): the prompt is registered wherever the gateway keeps it,
+    but the mark always lands in this package's own registry, whose
+    ``is_approval`` the standalone adapters consult before resolving — so
+    only the approval user can answer it when one is configured."""
+    from . import prompts as _prompt_marks
     from .prompts import gateway as _prompts
     cm = _prompts()
     registration_key = live_key or session_key
@@ -218,6 +223,8 @@ async def ask(adapter, source, session_key, question, choices, timeout=None, all
             # and re-registering afterwards would discard that answer.
             cid = uuid.uuid4().hex
             cm.register(cid, registration_key, question, shown)
+            if approval:
+                _prompt_marks.mark_approval(cid)
             _open_prompts.pop(typed_key, None)  # re-added last, like _typed_prompts below
             _open_prompts[typed_key] = cid
             if parser is not None:
@@ -266,6 +273,8 @@ async def ask(adapter, source, session_key, question, choices, timeout=None, all
             _open_prompts.pop(typed_key, None)
         if parser is not None and _typed_prompts.get(typed_key, (None,))[0] == cid:
             _typed_prompts.pop(typed_key, None)
+        if approval and cid is not None:
+            _prompt_marks.forget_approval(cid)
         cm.resolve_gateway_clarify(cid, cm.CANCELLED)
         cm.wait_for_response(cid, 0.001)
 
