@@ -146,6 +146,17 @@ def test_p1s_gcode_guard_accepts_p1s_and_rejects_a1_ad5x_and_temperature_abuse(p
     assert any("limit of 300 C" in item for item in adapter_for().gcode_problems(too_hot))
 
 
+def test_p1s_guard_refuses_extrusion_in_the_declared_exclusion(p1s_profiles):
+    # P2-63: the P1S fact declares the front-left 18 x 28 mm exclusion; the
+    # guard must hold toolpath extrusion out of it, not just check profile
+    # identity. Extrusion inside it is refused, extrusion clear of it passes.
+    inside = ("G1 Z.2 F720\nG1 X5 Y5 F30000\nG1 X10 Y5 E.8\nG1 X10 Y10 E.8\nG1 E-.8\nM106 S0\n")
+    problems = adapter_for().gcode_problems(p1s_gcode(inside), state())
+    assert any("exclusion" in item for item in problems), problems
+    clear = ("G1 Z.2 F720\nG1 X20 Y5 F30000\nG1 X30 Y5 E.8\nG1 X30 Y15 E.8\nG1 E-.8\nM106 S0\n")
+    assert adapter_for().gcode_problems(p1s_gcode(clear), state()) == []
+
+
 def test_p1s_slice_passes_guard_while_preserving_no_live_delivery(p1s_profiles, tmp_path, monkeypatch):
     calls = []
 

@@ -186,3 +186,52 @@ class BaselineTests(unittest.TestCase):
         self.approve()
         r = sg.enforce_approved_baseline(self.gcode(end="END_PRINT M84"), path=self.baseline)
         self.assertIn("machine_end_gcode", r.blocked[0])
+
+
+P1S_EXCLUSION = ((0.0, 0.0), (18.0, 0.0), (18.0, 28.0), (0.0, 28.0))
+
+
+def _toolpath_file(body):
+    """A minimal marker-shaped file: prelude, one toolpath, epilogue."""
+    return ("G90\nM83\nG28\n; CHANGE_LAYER\nG1 Z0.2 F720\n" + body
+            + "; FEATURE: Custom\nM104 S0\n")
+
+
+class ToolpathExclusionTests(unittest.TestCase):
+    """Declared bed exclusions in toolpath_motion_problems (P2-63).
+
+    The P1S exclusion is the front-left 18 x 28 mm rectangle. Extrusion that
+    lands in it — or crosses it — must be refused; travel through it and
+    extrusion clear of it must not be.
+    """
+
+    def check(self, body, exclusions=(P1S_EXCLUSION,)):
+        return sg.toolpath_motion_problems(_toolpath_file(body), (256.0, 256.0),
+                                           (0.0, 0.0, 256.0, 256.0), 256.0,
+                                           exclusions=exclusions)
+
+    def test_extrusion_inside_the_exclusion_is_refused(self):
+        problems = self.check("G1 X5 Y5 F30000\nG1 X10 Y5 E0.8\nG1 X10 Y10 E0.8\n")
+        self.assertTrue(any("exclusion" in p for p in problems), problems)
+
+    def test_extrusion_crossing_the_exclusion_is_refused(self):
+        # Both endpoints are outside the rectangle; the segment crosses it.
+        problems = self.check("G1 X30 Y5 F30000\nG1 X5 Y35 E0.8\n")
+        self.assertTrue(any("exclusion" in p for p in problems), problems)
+
+    def test_extrusion_clear_of_the_exclusion_passes(self):
+        problems = self.check("G1 X20 Y5 F30000\nG1 X30 Y5 E0.8\nG1 X30 Y15 E0.8\n")
+        self.assertEqual(problems, [])
+
+    def test_travel_through_the_exclusion_passes(self):
+        # Travel may cross the exclusion; the extrusion after it starts clear of it.
+        problems = self.check("G1 X5 Y5 F30000\nG1 X100 Y100\nG1 X120 Y100 E0.8\n")
+        self.assertEqual(problems, [])
+
+    def test_no_exclusions_declared_means_no_exclusion_check(self):
+        problems = self.check("G1 X5 Y5 F30000\nG1 X10 Y5 E0.8\n", exclusions=())
+        self.assertEqual(problems, [])
+
+    def test_a_bare_polygon_is_accepted_as_one_exclusion(self):
+        problems = self.check("G1 X5 Y5 F30000\nG1 X10 Y5 E0.8\n", exclusions=P1S_EXCLUSION)
+        self.assertTrue(any("exclusion" in p for p in problems), problems)
