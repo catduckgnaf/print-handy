@@ -563,7 +563,8 @@ def prepare_cad_split(
     Always writes:
     - The preferred intact rotated STL (`*_OnePiece_Diagonal45.stl`) when rotation fits the bed.
     - Printable chamfered dowel STL (`*_Printable_Dowels.stl`) when the plan includes printable dowels.
-    - Reproducible OpenSCAD script (`*_split.scad`).
+    - Reproducible OpenSCAD script (`*_split.scad`), with a copy of the source
+      STL beside it so the script's bare-name import resolves.
     - Machine-readable `split_validation.json` with the 5-stage `status_ladder` and structural warnings.
 
     When `execute_openscad=True`, invokes OpenSCAD to generate left/right/combined split STLs and
