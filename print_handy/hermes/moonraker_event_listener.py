@@ -2977,7 +2977,16 @@ class Listener:
             log(f"deferred screen sync failed: {exc!r}")
         if new_state == "complete":
             from . import print_control
-            prompt = print_control.next_copy_prompt(self.filename)
+            # Reprint queues are per printer (P2-135): a listener instance
+            # consults only its own printer's queue; with no instance
+            # identity the legacy queue is read exactly as before.
+            instance_id = None
+            try:
+                from .. import listeners as _listeners
+                instance_id = _listeners.instance_printer_id()
+            except Exception:
+                instance_id = None
+            prompt = print_control.next_copy_prompt(self.filename, printer_id=instance_id)
             if prompt:
                 await asyncio.to_thread(post, prompt)
 

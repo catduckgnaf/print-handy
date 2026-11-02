@@ -310,6 +310,9 @@ class Interaction:
         interaction = self
 
         class Response:
+            async def defer(self, **kw):
+                pass  # the P2-191 ack: no visible message of its own
+
             async def send_message(self, content, ephemeral=False, **kw):
                 interaction.out.append(("send", content))
 
@@ -319,6 +322,9 @@ class Interaction:
         self.response = Response()
         self.followup = S(send=self._followup)
         self.message = S(edit=self._edit)
+
+    async def edit_original_response(self, content=None, view=None, **kw):
+        self.out.append(("edit", content, view))
 
     async def _followup(self, content, view=None):
         self.out.append(("followup", content))

@@ -213,7 +213,7 @@ class _Interaction:
         self.response = _Response()
         self.followup = S(send=self._followup)
 
-    async def _followup(self, content, view=None):
+    async def _followup(self, content, view=None, ephemeral=False):
         self.out.append(("followup", content))
 
 
@@ -239,8 +239,11 @@ def test_cancel_button_cancels_and_closes_question(tmp_path, monkeypatch):
     asyncio.run(on_interaction(interaction))
     cancel.assert_called_once_with(RECORD["filename"])
     cleared.assert_called_once_with()
+    # The tap is acknowledged first (P2-164); the outcome arrives by follow-up.
     sends = [entry for entry in interaction.out if entry[0] == "send"]
-    assert sends and "Print cancelled" in sends[-1][1] and "reminders are off" in sends[-1][1]
+    assert sends and "tapped Cancel print" in sends[0][1]
+    followups = [entry for entry in interaction.out if entry[0] == "followup"]
+    assert followups and "Print cancelled" in followups[-1][1] and "reminders are off" in followups[-1][1]
 
 
 def test_cancel_button_failure_keeps_question_answerable(tmp_path, monkeypatch):
@@ -256,5 +259,5 @@ def test_cancel_button_failure_keeps_question_answerable(tmp_path, monkeypatch):
     interaction = _Interaction(f"pbspool:cancel:{aid}")
     asyncio.run(on_interaction(interaction))
     cleared.assert_not_called()
-    sends = [entry for entry in interaction.out if entry[0] == "send"]
-    assert sends and "was not cancelled" in sends[-1][1] and "still open" in sends[-1][1]
+    followups = [entry for entry in interaction.out if entry[0] == "followup"]
+    assert followups and "was not cancelled" in followups[-1][1] and "still open" in followups[-1][1]

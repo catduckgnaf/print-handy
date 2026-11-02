@@ -706,3 +706,73 @@ def test_awaiting_revision_still_wins_over_trigger_words(design_env, tmp_path):
     assert "Design turn 2" in adapter.sent[-2]
     (session,) = _sessions(tmp_path)
     assert session["kind"] == "create" and session["turns"] == 2
+
+
+def test_second_message_during_a_turn_is_refused_not_run_concurrently(design_env):
+    """While one turn's model call is outstanding, a second owner message
+    must not load the same session and run a concurrent turn over the same
+    SCAD/STL files: it gets a busy refusal and the model is not called
+    again until the first turn finishes (P2-151)."""
+    async def scenario():
+        gate = asyncio.Event()
+        calls = []
+
+        async def complete(messages):
+            calls.append(messages)
+            await gate.wait()
+            return GOOD
+
+        adapter1, adapter2 = FakeAdapter(), FakeAdapter()
+        with mock.patch.object(plugin, "_design_transport", return_value=(complete, "http")), \
+                mock.patch.object(core_prompts, "gateway", return_value=core_prompts), \
+                mock.patch.object(core_prompts, "wait_for_response", return_value=design.CANCEL_LABEL):
+            first = asyncio.create_task(plugin.design_dispatch(
+                _event("/print-design a bracket"), _gateway(adapter1)))
+            for _ in range(100):
+                if calls:
+                    break
+                await asyncio.sleep(0.01)
+            assert len(calls) == 1  # the first turn is inside its model call
+            second = await plugin.design_dispatch(
+                _event("/print-design another bracket"), _gateway(adapter2))
+            assert second == {"action": "skip", "reason": "design turn already running"}
+            assert any("already running" in (c or "") for c in adapter2.sent)
+            assert len(calls) == 1  # no concurrent turn reached the model
+            gate.set()
+            await first
+            # The claim is released once the turn is over: a fresh dispatch
+            # reaches the model again.
+            third_adapter = FakeAdapter()
+            await plugin.design_dispatch(
+                _event("/print-design a third bracket"), _gateway(third_adapter))
+            assert len(calls) == 2
+
+    asyncio.run(scenario())
+
+
+def test_attached_model_wins_over_link_in_the_same_message(design_env, tmp_path):
+    """A message carrying both an attached model and a model link must edit
+    the attachment — the exact source the operator supplied — not fetch the
+    link and edit the downloaded version (P2-156)."""
+    attached = _plate_stl(tmp_path, "attached.stl")
+    calls = []
+
+    def fake_start_edit(self, owner, chat_id, description, source_path=None, **kwargs):
+        calls.append((source_path, kwargs.get("link_url")))
+        raise RuntimeError("stop after routing")
+
+    fetched = []
+    adapter = FakeAdapter()
+    with mock.patch.object(design.DesignEngine, "start_edit_session", fake_start_edit), \
+            mock.patch.object(plugin, "_fetch_design_link",
+                              side_effect=lambda url, folder: fetched.append(url)):
+        out = _dispatch_event(
+            _media_event("redesign this https://www.printables.com/model/9-x — double the height",
+                         attached),
+            adapter, scripted([EDIT_BODY]), design.CANCEL_LABEL)
+    assert out["reason"] == "design turn failed"  # stopped by the sentinel above
+    assert fetched == []  # the link was never fetched
+    assert len(calls) == 1
+    source_path, link_url = calls[0]
+    assert source_path is not None and Path(source_path).name == "attached.stl"
+    assert link_url is None

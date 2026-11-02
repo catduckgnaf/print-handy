@@ -260,12 +260,40 @@ def spool_question_components(aid: str, prior_spool_id: int | None = None) -> li
     return [{"type": 1, "components": buttons}]
 
 
+def plate_picker_options(options: list[dict[str, str]]) -> tuple[list[dict[str, str]], dict[str, str]]:
+    """Map picker options to Discord-safe select values.
+
+    Discord caps a select value at 100 characters. A part id longer than
+    that must travel as a short opaque token mapped back to the full id
+    (stored on the alert record), never truncated: a truncated id matches
+    nothing in print_next.resolve_next's exact-id lookup, so the plate
+    could never be started from the picker. Returns (options, mapping).
+    """
+    mapped, full = [], {}
+    for index, option in enumerate(options[:25]):
+        value = str(option["value"])
+        if len(value) > 100:
+            token = f"part-{index}"
+            full[token] = value
+            value = token
+        mapped.append({"label": str(option["label"])[:100], "value": value})
+    return mapped, full
+
+
+def plate_part_id(alert: dict[str, Any] | None, selected: Any) -> str:
+    """Resolve a returned picker value to the full part id it stands for."""
+    selected = str(selected)
+    mapping = (alert or {}).get("part_ids") or {}
+    return str(mapping.get(selected, selected))
+
+
 def plate_picker_components(aid: str, options: list[dict[str, str]]) -> list[dict[str, Any]]:
     """One select menu listing the remaining plates; choosing one only prepares a Confirm button."""
+    mapped, _full = plate_picker_options(options)
     return [{"type": 1, "components": [
         {"type": 3, "custom_id": f"{PLATE_PREFIX}:pick:{aid}", "placeholder": "Choose the next plate",
          "min_values": 1, "max_values": 1,
-         "options": [{"label": o["label"][:100], "value": o["value"][:100]} for o in options[:25]]}]}]
+         "options": mapped}]}]
 
 
 def parse_plate_custom_id(custom_id: str) -> tuple[str, str] | None:
@@ -281,7 +309,8 @@ def post_plate_picker(token: str, channel_id: str, content: str, plan_id: str,
     """Post the remaining-plate picker. False means the caller should fall back to a plain-text line."""
     if not token or not channel_id or not plan_id or not options:
         return False
-    aid = record("plate-picker", "", plan_id=plan_id)
+    _mapped, part_ids = plate_picker_options(options)
+    aid = record("plate-picker", "", plan_id=plan_id, part_ids=part_ids)
     body = json.dumps({"content": content[:1990], "components": plate_picker_components(aid, options),
                        "allowed_mentions": {"parse": []}}).encode()
     req = urllib.request.Request(f"{rest.API}/channels/{channel_id}/messages", data=body,
@@ -825,10 +854,32 @@ def create_and_bind_insertion(slot: int, values: dict[str, Any], spool_sync,
     for key in ("nozzle_temp", "bed_temp"):
         if values.get(key) is not None:
             spec[key] = values[key]
+    if expected_prior_spool_id is not None:
+        # Re-check the confirmed mapping BEFORE creating anything (P2-204):
+        # bind_slot's own guard runs after creation, so a slot rebound while
+        # the confirmation was open would otherwise leave an unaccounted
+        # duplicate spool behind when the bind aborted.
+        prior_now = ((spool_sync.load_state().get("filament_slots") or {})
+                     .get(str(slot)) or {}).get("spoolman_id")
+        if int(prior_now or 0) != int(expected_prior_spool_id):
+            actual = f"spool #{prior_now}" if prior_now else "no spool"
+            raise spool_sync.SpoolError(
+                f"slot {slot} no longer holds spool #{expected_prior_spool_id} "
+                f"(it now holds {actual}), so that confirmation is stale. "
+                "Nothing was created or changed — answer the prompt again.")
     made = spool_sync.create_spool(spec)
-    result = spool_sync.bind_slot(slot, int(made["spool_id"]), note="Created and bound from Discord IFS insertion",
-                                  push_screen_update=False, prior_disposition=prior_disposition,
-                                  expected_prior_spool_id=expected_prior_spool_id)
+    try:
+        result = spool_sync.bind_slot(slot, int(made["spool_id"]), note="Created and bound from Discord IFS insertion",
+                                      push_screen_update=False, prior_disposition=prior_disposition,
+                                      expected_prior_spool_id=expected_prior_spool_id)
+    except Exception as exc:
+        # The spool exists now; never report a bare failure (P2-204) — name
+        # it and where it lives, so the operator loads it instead of
+        # retrying into a duplicate.
+        raise spool_sync.SpoolError(
+            f"spool #{made['spool_id']} was created and is on the shelf, but loading it "
+            f"into slot {slot} failed: {exc} The slot was not changed; load spool "
+            f"#{made['spool_id']} from the shelf rather than creating another.") from exc
     record = result["record"]
     prior = result.get("prior_spool_id")
     moved = ""

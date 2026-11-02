@@ -228,3 +228,30 @@ def test_typed_answer_dispatch_is_not_registered_while_the_switch_is_off():
     dispatch = [fn for name, fn in hooks if name == "pre_gateway_dispatch"]
     assert plugin.typed_quantity_dispatch in dispatch  # today's hook keeps its place
     assert plugin.typed_answer_dispatch not in dispatch  # the swap is the switch's, not the default
+
+
+def test_typed_answer_dispatch_retires_a_parser_prompts_message(monkeypatch):
+    """A parser-backed prompt (a quantity question) resolved by a typed
+    reply must also retire its rendered question (P2-209): the registry
+    resolution alone left the message's buttons standing, inviting a
+    second answer into a prompt that no longer exists."""
+    from print_handy.core import link_intake
+    plugin = load_plugin()
+    opener = FakeOpener()
+    ui = posted_question(opener)
+    monkeypatch.setattr(plugin, "_CLARIFY_UI", ui)
+    # The switch's register() half: the own registry is the gateway, so a
+    # parser prompt registered here is the one typed_reply resolves.
+    monkeypatch.setattr(prompts, "_active", True)
+    scope = link_intake._scope(make_event("3").source)
+    monkeypatch.setattr(link_intake, "_typed_prompts",
+                        {scope + (KEY,): (CID, lambda text: int(str(text).strip()))})
+    result = asyncio.run(plugin.typed_answer_dispatch(make_event("3"), FakeGateway()))
+    assert result == {"action": "skip", "reason": "typed print quantity handled"}
+    assert prompts.wait_for_response(CID, 1) == "3"
+    patches = opener.patches()
+    assert len(patches) == 1
+    assert patches[0][2]["content"] == f"{QUESTION}\n> Answered by message: 3"
+    assert patches[0][2]["components"] == []
+    # The resolved id was consumed by the dispatch, not left for a later reply.
+    assert link_intake.take_resolved_prompt_id() is None

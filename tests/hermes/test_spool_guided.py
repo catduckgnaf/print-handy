@@ -481,3 +481,77 @@ def test_one_shot_list_unchanged():
     out, adapter, fake = _run("/spool list", [])
     assert adapter.clarifies == []
     assert "Slot 2: #12" in adapter.sent[-1]
+
+
+# ------------------------------------------------------- numbering (P2-182) / labels (P2-183)
+
+def _guided_harness(monkeypatch, answers):
+    """Patch plugin._confirm with a recorder; answers are callables per call
+    receiving (question, choices) — what an adapter would hand back."""
+    calls = []
+
+    async def fake_confirm(adapter, source, metadata, prefix, question, choices, timeout,
+                           live_key=None, approval=False):
+        calls.append((question, list(choices)))
+        return answers[len(calls) - 1](question, list(choices))
+
+    monkeypatch.setattr(plugin, "_confirm", fake_confirm)
+    source = S(chat_id="c", thread_id=None)
+    gateway = S(_session_key_for_source=lambda s: "live-session")
+    return calls, source, gateway
+
+
+def test_guided_new_choices_match_the_numbered_type_list(monkeypatch):
+    """The question numbers every listed type, so the registered choices
+    must be the same entries in the same order (plus New filament type
+    last): on Matrix a typed '4' is translated to choices[3] before the
+    flow sees it, and with only the first three types registered that
+    opened new-type entry instead of the displayed fourth type (P2-182)."""
+    types = [{"brand": f"Brand{i}", "material": "PLA", "color": f"Color{i}", "hex": "000000"}
+             for i in range(1, 6)]
+    monkeypatch.setattr(spool_sync, "filament_types", lambda: [dict(t) for t in types])
+    monkeypatch.setattr(spool_sync, "next_spool_id", lambda: 20)
+    created = []
+    monkeypatch.setattr(spool_sync, "create_spool",
+                        lambda spec: created.append(dict(spec)) or {"spool_id": 20})
+    calls, source, gateway = _guided_harness(monkeypatch, [
+        lambda q, choices: choices[3],  # Matrix: typed '4' -> the 4th registered choice
+        lambda q, choices: "1000",
+        lambda q, choices: choices[0],  # Create spool #20
+        lambda q, choices: "Leave it on the shelf",
+    ])
+    made_id, _message = asyncio.run(plugin._spool_guided_new(
+        FakeAdapter(), source, None, gateway, spool_sync, None, {}))
+    question, choices = calls[0]
+    labels = [plugin._spool_type_label(t) for t in types]
+    assert choices == labels + ["New filament type"]
+    assert f"4. {labels[3]}" in question and "6. New filament type" in question
+    assert made_id == 20
+    assert created and created[0]["brand"] == "Brand4" and created[0]["color"] == "Color4"
+
+
+def test_guided_change_long_shelf_name_resolves_by_full_label(monkeypatch):
+    """A shelf label over 80 chars must be registered whole: adapters
+    truncate only the displayed button text and resolve a click back to
+    the full registered choice, so truncating at registration made every
+    click end with 'That answer was not clear' (P2-183)."""
+    long_name = "Matte White " + "x" * 90
+    shelf = [{"spool_id": 7, "name": long_name, "material": "PLA+", "remaining_grams": 400.0}]
+    state = {"filament_slots": {"2": {"spoolman_id": 12, "name": "Red PETG"}}}
+    monkeypatch.setattr(spool_sync, "load_state", lambda **kw: json.loads(json.dumps(state)))
+    monkeypatch.setattr(spool_sync, "shelf_spools", lambda **kw: [dict(s) for s in shelf])
+    bound = []
+    monkeypatch.setattr(spool_sync, "bind_slot",
+                        lambda slot, spool_id, **kw: bound.append((slot, spool_id)) or _fake_bind(slot, spool_id))
+    calls, source, gateway = _guided_harness(monkeypatch, [
+        lambda q, choices: "Slot 2",
+        lambda q, choices: choices[0],  # the click resolves to the registered label
+        lambda q, choices: "Move to shelf" if "Move to shelf" in choices else choices[0],
+        lambda q, choices: choices[0],  # Change slot 2
+    ])
+    result = asyncio.run(plugin._spool_guided_change(
+        FakeAdapter(), source, None, gateway, spool_sync, None, {}))
+    shelf_choices = calls[1][1]
+    assert shelf_choices[0] == f"#7 {long_name}"  # registered whole, not [:80]
+    assert bound == [(2, 7)]
+    assert "not clear" not in result

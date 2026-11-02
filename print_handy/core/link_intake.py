@@ -128,10 +128,15 @@ def typed_reply(source, text):
     if len(printers) > 1:
         return None
     cid, parser = _typed_prompts[keys[-1]]
+    global _resolved_prompt_id
     if str(text or '').strip().casefold() in CANCEL_WORDS:
-        return '' if cm.resolve_gateway_clarify(cid, 'cancel') else None
+        if cm.resolve_gateway_clarify(cid, 'cancel'):
+            _resolved_prompt_id = cid
+            return ''
+        return None
     global _secret_taken
     _secret_taken = False
+    _resolved_prompt_id = None
     try:
         value = parser(text)
     except ValueError as exc:
@@ -152,6 +157,8 @@ def typed_reply(source, text):
     resolved = cm.resolve_gateway_clarify(cid, wire)
     if not resolved:
         _secret_taken = False
+    else:
+        _resolved_prompt_id = cid
     return '' if resolved else None
 
 
@@ -172,6 +179,21 @@ def take_secret_reply():
     """True once after a typed_reply that accepted a secret: delete that message."""
     global _secret_taken
     taken, _secret_taken = _secret_taken, False
+    return taken
+
+
+# The prompt a typed_reply just resolved (P2-209): the registry resolution
+# alone leaves the prompt's rendered message standing, so the dispatcher
+# takes the id here — once, right after the resolving reply — and retires
+# the message through the clarify UI's close_prompt, the same end state a
+# button click or an own-registry typed answer produces.
+_resolved_prompt_id = None
+
+
+def take_resolved_prompt_id():
+    """The clarify id the last typed_reply resolved, once; None otherwise."""
+    global _resolved_prompt_id
+    taken, _resolved_prompt_id = _resolved_prompt_id, None
     return taken
 
 

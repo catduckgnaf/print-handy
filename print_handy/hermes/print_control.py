@@ -602,16 +602,41 @@ def split_count(query: str) -> tuple[str, int]:
     return q, 1
 
 
-def _read_queue(path: Path | None = None) -> dict[str, Any]:
+def _default_printer_id() -> str | None:
     try:
-        value = json.loads(Path(path or REPRINT_QUEUE).read_text(encoding="utf-8"))
+        return str(_config.cfg()["printers"][0]["id"])
+    except Exception:
+        return None
+
+
+def _queue_path(path: Path | None = None, printer_id: str | None = None) -> Path:
+    """The reprint queue file for one printer (P2-135).
+
+    Pending copies are per printer: one global file let printer B's
+    /print-again delete or replace printer A's remaining copies. The
+    default printer keeps the legacy singleton path (its queue was always
+    the singleton's, so nothing is orphaned at upgrade); every other
+    printer gets <state>/printers/<id>/reprint_queue.json, the #334
+    layout. An explicit path always wins.
+    """
+    if path is not None:
+        return Path(path)
+    if printer_id and str(printer_id) != _default_printer_id():
+        return _config.state_dir() / "printers" / str(printer_id) / "reprint_queue.json"
+    return REPRINT_QUEUE
+
+
+def _read_queue(path: Path | None = None, printer_id: str | None = None) -> dict[str, Any]:
+    try:
+        value = json.loads(_queue_path(path, printer_id).read_text(encoding="utf-8"))
         return value if isinstance(value, dict) else {}
     except (OSError, ValueError):
         return {}
 
 
-def _write_queue(value: dict[str, Any] | None, path: Path | None = None) -> None:
-    target = Path(path or REPRINT_QUEUE)
+def _write_queue(value: dict[str, Any] | None, path: Path | None = None,
+                 printer_id: str | None = None) -> None:
+    target = _queue_path(path, printer_id)
     if not value:
         target.unlink(missing_ok=True)
         return
@@ -621,27 +646,29 @@ def _write_queue(value: dict[str, Any] | None, path: Path | None = None) -> None
     os.replace(tmp, target)
 
 
-def queue_copies(target: dict[str, Any], path: Path | None = None) -> None:
+def queue_copies(target: dict[str, Any], path: Path | None = None,
+                 printer_id: str | None = None) -> None:
     """Remember the remaining copies of a multi-copy reprint. Starts nothing."""
     copies = int(target.get("copies") or 1)
     if copies <= 1:
-        _write_queue(None, path)
+        _write_queue(None, path, printer_id)
         return
     _write_queue({"job_json": target["job_json"], "gcode": target["gcode"], "title": target["title"],
                   "gcode_sha256": target["gcode_sha256"], "total": copies, "started": 1,
-                  "queued_at": time.time()}, path)
+                  "queued_at": time.time()}, path, printer_id)
 
 
-def pending_copy(path: Path | None = None) -> dict[str, Any] | None:
-    q = _read_queue(path)
+def pending_copy(path: Path | None = None, printer_id: str | None = None) -> dict[str, Any] | None:
+    q = _read_queue(path, printer_id)
     return q if q and int(q.get("started", 0)) < int(q.get("total", 0)) else None
 
 
-def next_copy_target(path: Path | None = None, archive: Path | None = None) -> dict[str, Any]:
+def next_copy_target(path: Path | None = None, archive: Path | None = None,
+                     printer_id: str | None = None) -> dict[str, Any]:
     """Exact target for the next queued copy, re-verified against the archive. Read only."""
     from .print_next import NextPlateError, _sha256
 
-    q = pending_copy(path)
+    q = pending_copy(path, printer_id)
     if q is None:
         raise NextPlateError("no copies are queued")
     archive = (archive or ARCHIVE).resolve()
@@ -658,24 +685,25 @@ def next_copy_target(path: Path | None = None, archive: Path | None = None) -> d
             "gcode_sha256": _sha256(gcode)}
 
 
-def mark_copy_started(path: Path | None = None) -> None:
-    q = _read_queue(path)
+def mark_copy_started(path: Path | None = None, printer_id: str | None = None) -> None:
+    q = _read_queue(path, printer_id)
     if q:
         q["started"] = int(q.get("started", 0)) + 1
-        _write_queue(q if q["started"] < int(q.get("total", 0)) else None, path)
+        _write_queue(q if q["started"] < int(q.get("total", 0)) else None, path, printer_id)
 
 
-def cancel_copies(path: Path | None = None) -> bool:
-    had = bool(_read_queue(path))
-    _write_queue(None, path)
+def cancel_copies(path: Path | None = None, printer_id: str | None = None) -> bool:
+    had = bool(_read_queue(path, printer_id))
+    _write_queue(None, path, printer_id)
     return had
 
 
-def next_copy_prompt(finished_filename: str, path: Path | None = None) -> str | None:
+def next_copy_prompt(finished_filename: str, path: Path | None = None,
+                     printer_id: str | None = None) -> str | None:
     """Completion line for a multi-copy reprint, or None when this file isn't the queued one.
 
     Uploaded names embed the G-code SHA-256, so the match is exact."""
-    q = pending_copy(path)
+    q = pending_copy(path, printer_id)
     if q is None or not q.get("gcode_sha256") or q["gcode_sha256"] not in str(finished_filename or ""):
         return None
     started, total = int(q["started"]), int(q["total"])

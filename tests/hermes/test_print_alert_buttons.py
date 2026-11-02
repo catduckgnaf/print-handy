@@ -1,6 +1,8 @@
 """print_alert_buttons: cause text, buttons, click safety. Offline; no printer traffic."""
 from unittest.mock import patch
 
+import pytest
+
 from print_handy.hermes import print_alert_buttons as pab
 from print_handy.hermes import moonraker_event_listener as mel
 
@@ -434,3 +436,95 @@ def test_insertion_options_name_the_material_once():
                "filament": {"name": "Coffee PLA+", "material": "PLA+"}}]
     label = pab_.insertion_select_options(spools)[0]["label"]
     assert label == "#21 Coffee PLA+ 800 g"
+
+
+def test_plate_picker_maps_long_part_ids_instead_of_truncating(tmp_path):
+    """A part id over Discord's 100-char select-value cap must travel as a
+    short opaque token mapped to the full id in the alert record; a
+    truncated id can never match resolve_next's exact-id lookup (P2-12)."""
+    import json as _json
+    long_id = "part-" + "x" * 140
+    seen = {}
+
+    class Response:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+
+    def fake_open(request, timeout):
+        seen["request"] = request
+        return Response()
+
+    options = [{"label": "Plate 1", "value": "short-id"},
+               {"label": "Plate 2", "value": long_id}]
+    with patch.object(pab, "STATE", tmp_path / "alerts.json"), \
+         patch.object(pab.urllib.request, "urlopen", fake_open):
+        assert pab.post_plate_picker("token", "channel", "Which plate?", "plan1", options)
+        rows = [r for r in pab._load().values() if isinstance(r, dict) and r.get("kind") == "plate-picker"]
+        assert len(rows) == 1
+        alert = rows[0]
+    body = _json.loads(seen["request"].data)
+    posted = body["components"][0]["components"][0]["options"]
+    assert posted[0]["value"] == "short-id"
+    token = posted[1]["value"]
+    assert token != long_id[:100] and len(token) <= 100
+    # The pick handler resolves the token back to the exact full id.
+    assert pab.plate_part_id(alert, token) == long_id
+    assert pab.plate_part_id(alert, "short-id") == "short-id"
+    assert pab.plate_part_id({}, token) == token  # pre-mapping alerts pass through
+
+
+def _insertion_sync(*, slot_prior=7, bind_error=None):
+    """A fake spool_sync for the insertion create+bind path (P2-204)."""
+    from print_handy.hermes import spool_sync as real_sync
+
+    class Sync:
+        SpoolError = real_sync.SpoolError
+        calls = []
+
+        @staticmethod
+        def parse_new(text):
+            return {"brand": "B", "material": "PLA", "color": "Black", "grams": 1000}
+
+        @staticmethod
+        def load_state():
+            return {"filament_slots": {"2": {"spoolman_id": slot_prior}}}
+
+        @staticmethod
+        def create_spool(spec):
+            Sync.calls.append("create")
+            return {"spool_id": 42}
+
+        @staticmethod
+        def bind_slot(slot, spool_id, **kwargs):
+            Sync.calls.append("bind")
+            if bind_error is not None:
+                raise bind_error
+            return {"record": {"name": "Black PLA"}, "prior_spool_id": slot_prior}
+
+    return Sync
+
+
+def test_stale_confirmation_creates_nothing():
+    """The expected prior spool is re-checked against the slot's live
+    mapping BEFORE the new spool is created (P2-204)."""
+    from print_handy.hermes import spool_sync as real_sync
+    Sync = _insertion_sync(slot_prior=9)
+    with pytest.raises(real_sync.SpoolError) as excinfo:
+        pab.create_and_bind_insertion(2, {"material": "PLA", "color": "Black", "grams": "1000"},
+                                      Sync, expected_prior_spool_id=7)
+    assert Sync.calls == [], "a spool was created for a stale confirmation"
+    assert "#7" in str(excinfo.value) and "Nothing was created" in str(excinfo.value)
+
+
+def test_bind_failure_reports_the_created_spool():
+    """When the bind refuses after creation, the error names the created
+    spool and that it stays on the shelf — never a bare failure that makes
+    a retry create a duplicate (P2-204)."""
+    from print_handy.hermes import spool_sync as real_sync
+    Sync = _insertion_sync(bind_error=real_sync.SpoolError("spool #42 is archived"))
+    with pytest.raises(real_sync.SpoolError) as excinfo:
+        pab.create_and_bind_insertion(2, {"material": "PLA", "color": "Black", "grams": "1000"},
+                                      Sync, expected_prior_spool_id=7)
+    message = str(excinfo.value)
+    assert "#42" in message and "shelf" in message and "slot 2" in message

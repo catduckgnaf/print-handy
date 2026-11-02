@@ -295,6 +295,9 @@ class _FakeResponse:
     def __init__(self, sink):
         self.sink = sink
 
+    async def defer(self, **kw):
+        self.sink.append(("defer", None, None))
+
     async def send_message(self, content=None, view=None, ephemeral=False, **kw):
         self.sink.append(("send", content, view))
 
@@ -371,9 +374,17 @@ def _photo_harness(monkeypatch, tmp_path, vision_answer):
 
 
 def _interaction(sink, custom_id, channel, values=None):
+    async def _edit_original(content=None, view=None, **kw):
+        sink.append(("edit", content, view))
+
+    async def _followup_send(content=None, view=None, **kw):
+        sink.append(("send", content, view))
+
     return S(user=S(id="42", bot=False, display_name="catduck"),
              data={"custom_id": custom_id, "values": values or []},
              response=_FakeResponse(sink), message=_FakeMessage(),
+             edit_original_response=_edit_original,
+             followup=S(send=_followup_send),
              channel_id="99", channel=channel, guild=None)
 
 

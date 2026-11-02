@@ -183,6 +183,10 @@ def test_create_and_bind_insertion_passes_expected_prior_spool():
             return {"material": "PLA", "color": "Black", "grams": 1000}
 
         @staticmethod
+        def load_state():
+            return {"filament_slots": {"1": {"spoolman_id": 13}}}
+
+        @staticmethod
         def create_spool(spec):
             return {"spool_id": 18}
 
@@ -240,6 +244,9 @@ class _FakeResponse:
     async def edit_message(self, content=None, view=None, **kw):
         self.sink.append(("edit", content, view))
 
+    async def defer(self, **kw):
+        self.sink.append(("defer", None, None))
+
     async def send_modal(self, modal):
         self.sink.append(("modal", modal))
 
@@ -250,10 +257,20 @@ class _FakeMessage:
 
 
 def _interaction(sink, custom_id, values=None):
-    return S(user=S(id="42", bot=False, display_name="catduck"),
-             data={"custom_id": custom_id, "values": values or []},
-             response=_FakeResponse(sink), message=_FakeMessage(),
-             channel_id="99", guild=None)
+    interaction = S(user=S(id="42", bot=False, display_name="catduck"),
+                    data={"custom_id": custom_id, "values": values or []},
+                    response=_FakeResponse(sink), message=_FakeMessage(),
+                    channel_id="99", guild=None)
+
+    async def edit_original_response(content=None, view=None, **kw):
+        sink.append(("edit", content, view))
+
+    async def followup_send(content, **kw):
+        sink.append(("send", content, None))
+
+    interaction.edit_original_response = edit_original_response
+    interaction.followup = S(send=followup_send)
+    return interaction
 
 
 def _custom_ids(view):
@@ -386,3 +403,49 @@ def test_walkthrough_confirm_that_loses_the_claim_race_creates_nothing(tmp_path,
     kind, content, view = sink[-1]
     assert kind == "send" and "already answered" in content
     assert created == [] and binds == []
+
+
+def test_edit_details_clears_photo_extracted_temperatures(tmp_path, monkeypatch):
+    """Edit details switches to manual entry, which has no temperature
+    step: the photo-extracted nozzle/bed temperatures must be dropped, not
+    silently saved onto the new filament over its material defaults (P2-198)."""
+    monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
+    monkeypatch.setattr(plugin, "_prompt_brand", lambda: False)
+    bot = S(listeners={}, add_listener=lambda fn, name: bot.listeners.__setitem__(name, fn))
+    plugin.alert_button_handlers(bot, S())
+    on_interaction = bot.listeners["on_interaction"]
+    aid = pab.record("intake", "", origin="insertion", slot=2, step="confirm",
+                     brand="Sunlu", material="Silk PLA", color="Rose Red", grams=500,
+                     from_photo=True, photo_route="vision", nozzle_temp=215, bed_temp=65,
+                     disposition="shelf", old_spool_id=None)
+    sink = []
+    asyncio.run(on_interaction(_interaction(sink, f"pbintake:edit:{aid}")))
+    rows = [r for r in pab._load().values() if isinstance(r, dict) and r.get("kind") == "intake"]
+    assert rows, "the re-entered walkthrough step was not recorded"
+    latest = max(rows, key=lambda r: r.get("at", 0))
+    assert latest["nozzle_temp"] is None and latest["bed_temp"] is None
+
+
+def test_typed_color_in_the_modal_clears_the_picked_swatch(tmp_path, monkeypatch):
+    """Typing a color in the edit modal supersedes a swatch picked earlier:
+    the stale hex must be cleared, or create_spool would record the old
+    swatch for the new color name (P2-233). The select path's color branch
+    already clears it; the modal path must match."""
+    monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
+    monkeypatch.setattr(plugin, "_prompt_brand", lambda: False)
+    bot = S(listeners={}, add_listener=lambda fn, name: bot.listeners.__setitem__(name, fn))
+    plugin.alert_button_handlers(bot, S())
+    on_interaction = bot.listeners["on_interaction"]
+    aid = pab.record("intake", "", origin="insertion", slot=2, step="color",
+                     brand="Sunlu", material="PLA", color="Red", hex="#FF0000",
+                     grams=1000, disposition="shelf", old_spool_id=None)
+    sink = []
+    click = _interaction(sink, f"{pab.INTAKE_SELECT_PREFIX}:{aid}", values=[pab.INTAKE_OTHER])
+    asyncio.run(on_interaction(click))
+    modal = next(entry[1] for entry in sink if entry[0] == "modal")
+    modal.item._value = "Teal"
+    asyncio.run(modal.on_submit(S(response=_FakeResponse(sink))))
+    rows = [r for r in pab._load().values() if isinstance(r, dict) and r.get("kind") == "intake"]
+    latest = max(rows, key=lambda r: r.get("at", 0))
+    assert latest["color"] == "Teal"
+    assert latest["hex"] is None
