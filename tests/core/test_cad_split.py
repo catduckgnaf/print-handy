@@ -149,6 +149,59 @@ def test_prepare_cad_split_rack_adapter_synthetic(tmp_path: Path):
     assert ladder['physical_print_tested'] == 'not_run'
 
 
+def test_plan_without_pin_fields_generates_the_validated_dowel_defaults():
+    # Validation derives the pin defaults from the bore (diameter - 0.4,
+    # 2*depth - 2.5); generation must produce those dimensions, not the fixed
+    # 5.0 x 30.5 fallbacks, or the dowel cannot fit the joint it passed for (P2-48).
+    plan = cad_split.load_split_plan({
+        'plan_id': 'small_bore', 'cut_axis': 'x', 'cut_coord_mm': 0.0,
+        'bores': [{'y_mm': 0.0, 'z_mm': 5.0, 'bore_diameter_mm': 3.0,
+                   'depth_each_side_mm': 5.0, 'pin_chamfer_mm': 0.3,
+                   'pin_tip_diameter_mm': 2.2}],
+    })
+    assert plan['bores'][0]['pin_diameter_mm'] == pytest.approx(2.6)
+    assert plan['bores'][0]['pin_length_mm'] == pytest.approx(7.5)
+    desc = describe_triangles(cad_split.generate_dowel_row_triangles(plan, segments=24))
+    assert abs(desc['dimensions_mm'][0] - 2.6) < 1e-4
+    assert abs(desc['dimensions_mm'][2] - 7.5) < 1e-4
+    scad = cad_split.render_openscad_script('small.stl', plan)
+    assert 'DOWEL_D = 2.6000;' in scad
+    assert 'DOWEL_LENGTH = 7.5000;' in scad
+
+
+def test_prepare_cad_split_resolves_a_relative_outdir_before_openscad(tmp_path: Path, monkeypatch):
+    # OpenSCAD runs with cwd=<tmp scad dir>; a relative output path would land
+    # there instead of the caller's outdir, so prepare must resolve it first (P1-51).
+    stl_path = tmp_path / '10to19_adapter_with_ears.stl'
+    write_binary_stl(_box_triangles(-122.5, -14.75, 0.0, 122.5, 29.75, 20.0), stl_path)
+    seen = []
+
+    def fake_run(scad_path, out_path, defines=None, timeout=210):
+        seen.append(Path(out_path))
+        raise RuntimeError('stop after recording')
+
+    monkeypatch.setattr(cad_split, '_run_openscad', fake_run)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(RuntimeError, match='stop after recording'):
+        cad_split.prepare_cad_split(stl_path, Path('relative_out'), 'rack_adapter_10to19',
+                                    execute_openscad=True)
+    assert seen and all(p.is_absolute() for p in seen)
+
+
+def test_prepare_cad_split_copies_the_source_next_to_the_exported_scad(tmp_path: Path):
+    # The exported script imports the source by bare name; without a copy next
+    # to it, the advertised reproducible artifact cannot load its model (P2-47).
+    stl_path = tmp_path / '10to19_adapter_with_ears.stl'
+    write_binary_stl(_box_triangles(-122.5, -14.75, 0.0, 122.5, 29.75, 20.0), stl_path)
+    outdir = tmp_path / 'elsewhere'
+    report = cad_split.prepare_cad_split(stl_path, outdir, 'rack_adapter_10to19')
+    scad_text = (outdir / report['openscad_script']).read_text(encoding='utf-8')
+    assert f'import("{stl_path.name}"' in scad_text
+    copied = outdir / stl_path.name
+    assert copied.is_file()
+    assert copied.read_bytes() == stl_path.read_bytes()
+
+
 def test_check_source_rejects_wrong_dimensions_or_shell_count(tmp_path: Path):
     wrong_stl = tmp_path / 'wrong.stl'
     write_binary_stl(_box_triangles(-50.0, -10.0, 0.0, 50.0, 10.0, 20.0), wrong_stl)
