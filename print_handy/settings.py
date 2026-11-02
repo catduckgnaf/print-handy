@@ -650,6 +650,16 @@ def _check_roster(raw):
                 if isinstance(value, bool) or not isinstance(value, (str, int)):
                     raise SettingsError(f"[printers] entry {pid!r}: chat_id must be a channel ID, got {value!r}")
                 stub[key] = str(value)
+            elif key in PRINTER_ENTRY_STR_KEYS:
+                if not isinstance(value, str):
+                    raise SettingsError(f"[printers] entry {pid!r}: {key} should be a string, "
+                                        f"got {value!r}")
+                stub[key] = value
+            elif key in PRINTER_ENTRY_INT_KEYS:
+                if isinstance(value, bool) or not isinstance(value, int):
+                    raise SettingsError(f"[printers] entry {pid!r}: {key} should be a whole "
+                                        f"number, got {value!r}")
+                stub[key] = value
             else:
                 stub[key] = value
         stubs.append(stub)
@@ -794,7 +804,15 @@ def _validate_entry(stub):
             scratch["bambu"][key] = stub[key]
     if "api_key_env" in stub:
         scratch["prusa"]["api_key_env"] = stub["api_key_env"]
+    # Seed the scratch printer from the model's own defaults before the
+    # stub's explicit values: the default entry gets nozzle_type /
+    # tool_count from the defaults merge in load(), and a non-default
+    # entry must resolve the same way or its consumers see a thinner
+    # printer than the model describes.
+    model_printer = model.defaults().get("printer") or {}
     for key in ("nozzle_type", "tool_count"):
+        if key in model_printer:
+            scratch["printer"][key] = model_printer[key]
         if key in stub:
             scratch["printer"][key] = stub[key]
     try:

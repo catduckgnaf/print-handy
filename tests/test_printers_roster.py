@@ -259,6 +259,65 @@ printers:
                     load_local(text)
 
 
+class EntryModelDefaultsTests(unittest.TestCase):
+    """A non-default entry is validated against a scratch view seeded with
+    its model's defaults, so the model's nozzle_type / tool_count reach the
+    resolved entry exactly as they do for the default entry (P2-125)."""
+
+    def test_non_default_entries_keep_their_model_defaults(self):
+        data = load_local("""
+printers:
+  - id: bench-ad5x
+    model: flashforge.ad5x
+    moonraker_url: http://192.168.1.61:7125
+  - id: workshop-creator5
+    model: flashforge.creator5
+    moonraker_url: http://192.168.1.62:7125
+  - id: spare-a1
+    model: bambulab.a1
+    lan_host: 192.168.1.63
+    lan_serial: "00M00A000000001"
+""")
+        entries = {entry["id"]: entry for entry in data["printers"]}
+        self.assertEqual(entries["workshop-creator5"].get("tool_count"), 4)
+        self.assertEqual(entries["spare-a1"].get("nozzle_type"), "stainless_steel")
+
+    def test_explicit_entry_values_still_win_over_model_defaults(self):
+        data = load_local("""
+printers:
+  - id: bench-ad5x
+    model: flashforge.ad5x
+    moonraker_url: http://192.168.1.61:7125
+  - id: workshop-creator5
+    model: flashforge.creator5
+    moonraker_url: http://192.168.1.62:7125
+    tool_count: 2
+""")
+        entries = {entry["id"]: entry for entry in data["printers"]}
+        self.assertEqual(entries["workshop-creator5"].get("tool_count"), 2)
+
+
+class EntryScalarTypeTests(unittest.TestCase):
+    """Roster scalar values are type-checked when the entry is copied, so a
+    wrong-shaped value refuses with the entry named instead of crashing a
+    consumer later (P2-126)."""
+
+    def test_wrong_scalar_types_refuse_with_the_entry_named(self):
+        for text, message in (
+            ('printers:\n  - id: ad5x\n    model: flashforge.ad5x\n'
+             '    camera_snapshot_url: 123\n', "camera_snapshot_url should be a string"),
+            ('printers:\n  - id: ad5x\n    model: flashforge.ad5x\n'
+             '    name: [a, b]\n', "name should be a string"),
+            ('printers:\n  - id: ad5x\n    model: flashforge.ad5x\n'
+             '    tool_count: "4"\n', "tool_count should be a whole number"),
+            ('printers:\n  - id: ad5x\n    model: flashforge.ad5x\n'
+             '    start_confirm_s: true\n', "start_confirm_s should be a whole number"),
+        ):
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(settings.SettingsError, message):
+                    load_local(text)
+
+
 class ClaimRefusalTests(unittest.TestCase):
     def test_duplicate_id_refuses(self):
         with self.assertRaisesRegex(settings.SettingsError, "duplicate printer id 'ad5x'"):
