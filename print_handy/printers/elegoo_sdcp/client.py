@@ -259,7 +259,17 @@ class SdcpClient:
         except SdcpError as exc:
             raise SdcpError(f"the uploaded file {remote} could not be verified on the printer: {exc}") from exc
         size = info.get("FileSize", info.get("Size")) if isinstance(info, dict) else None
-        if size is not None and int(size) != len(data):
+        try:
+            reported = int(size) if size is not None else None
+        except (TypeError, ValueError):
+            reported = None
+        if reported is None:
+            # A missing or unreadable size is a failed verification, not a
+            # skipped one: nothing may start a copy that was never verified
+            # against what was uploaded (P2-90).
+            raise SdcpError(f"the uploaded file {remote} could not be verified on the printer "
+                            f"(it reported no usable file size)")
+        if reported != len(data):
             raise SdcpError(f"the uploaded file {remote} could not be verified on the printer "
                             f"(printer reports {size} bytes, uploaded {len(data)})")
         return remote

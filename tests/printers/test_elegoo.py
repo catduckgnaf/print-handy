@@ -307,6 +307,43 @@ def test_sdcp_upload_size_mismatch_refuses(tmp_path):
         client.upload(gcode)
 
 
+def test_sdcp_upload_missing_size_refuses(tmp_path):
+    # file_info answers but reports no size: the copy is unverified, so the
+    # upload must fail instead of letting start_print run on it (P2-90).
+    server = FakeSdcpServer()
+    client, _posts = sdcp_client(server)
+    gcode = tmp_path / "x.gcode"
+    gcode.write_bytes(b"G28\n")
+    server.file_size = None  # the FileSize field comes back empty
+    with pytest.raises(SdcpError, match="could not be verified"):
+        client.upload(gcode)
+
+
+class EmptyInfoServer(FakeSdcpServer):
+    def answer(self, cmd, data):
+        if cmd == 260:
+            return {}  # an empty file-info response carries no size at all
+        return super().answer(cmd, data)
+
+
+def test_sdcp_upload_empty_file_info_refuses(tmp_path):
+    client, _posts = sdcp_client(EmptyInfoServer())
+    gcode = tmp_path / "x.gcode"
+    gcode.write_bytes(b"G28\n")
+    with pytest.raises(SdcpError, match="could not be verified"):
+        client.upload(gcode)
+
+
+def test_sdcp_upload_invalid_size_refuses(tmp_path):
+    server = FakeSdcpServer()
+    client, _posts = sdcp_client(server)
+    gcode = tmp_path / "x.gcode"
+    gcode.write_bytes(b"G28\n")
+    server.file_size = "not-a-number"  # a size that cannot be read is no verification
+    with pytest.raises(SdcpError, match="could not be verified"):
+        client.upload(gcode)
+
+
 class SilentWs:
     """A peer that takes the request but never answers (P2-89).
 
