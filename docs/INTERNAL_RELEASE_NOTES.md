@@ -2,7 +2,7 @@
 
 # Unreleased
 
-Nothing yet.
+- SEC-5 (Codex backlog): JSON log lines now redact each field value before serialization, so quoted credentials in a message, bound field or traceback can no longer survive redaction or corrupt the JSON; `redact_url` redacts the nested camera URL inside go2rtc `ffmpeg:` sources before the gate logs them; malformed camera URLs raise a sanitized `LiveStreamError` with no exception chain, instead of a `ValueError` whose text carries the credential-bearing authority.
 
 # Version 2.2.4
 

@@ -155,6 +155,19 @@ class Go2rtcGateAndConfigTests(unittest.TestCase):
         self.assertEqual(source.kind, "rtsp")
         self.assertEqual(go2rtc.source_url(source), "rtsp://cam.example/live")
 
+    def test_gate_never_prints_ffmpeg_source_credentials(self):
+        # P1-71: the gate prints the resolved source; an ffmpeg: source wraps
+        # a nested rtsp URL whose password must not reach the log line.
+        data = make_data(
+            capture_source_url="ffmpeg:rtsp://user:hunter2@cam.example/live#video=h264")
+        import io
+        from contextlib import redirect_stdout
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(go2rtc.gate(data), 0)
+        self.assertNotIn("hunter2", out.getvalue())
+        self.assertIn("cam.example", out.getvalue())
+
     def test_snapshot_only_source_still_renders(self):
         data = make_data()
         data["services"]["camera_snapshot_url"] = "http://printer.example/snap.jpg"
