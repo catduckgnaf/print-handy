@@ -284,12 +284,14 @@ def _scan_match(root, key, data):
       key's full filename outranks one matching only by basename — two
       folders can hold files with the same basename.
     - Printer tier: the capture root is shared (paths.cache is shared by
-      every printer's settings view), so when this view resolves a
-      camera source and a candidate recorded that same source, only
-      those candidates stay — another printer's capture of a same-named
-      file is not this printer's footage. When no candidate matches the
-      source (it changed, or none was recorded), all candidates stay:
-      the filter is a preference, never a gate.
+      every printer's settings view). A candidate whose manifest records
+      a different printer id is another printer's capture and never
+      matches (#787, DATA-5) — that is positive evidence, so it is a
+      gate; a manifest written before printer ids were recorded carries
+      none and stays. Then, when this view resolves a camera source and
+      a candidate recorded that same source, only those candidates stay.
+      When no candidate matches the source (it changed, or none was
+      recorded), all candidates stay: that filter is a preference.
     - Newest only: within what remains, the newest finished capture is
       the current print's. Callers reject it when it is not usable for
       them rather than reaching back to an earlier print's capture —
@@ -308,6 +310,10 @@ def _scan_match(root, key, data):
             tiers[0].append((directory, manifest))
         elif Path(recorded).name == wanted:
             tiers[1].append((directory, manifest))
+    printer_id = timelapse_capture.printer_identity(data)
+    if printer_id:
+        tiers = tuple([c for c in tier if str(c[1].get("printer_id") or printer_id) == printer_id]
+                      for tier in tiers)
     candidates = tiers[0] or tiers[1]
     if not candidates:
         return None

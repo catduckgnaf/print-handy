@@ -243,9 +243,10 @@ class CaptureSession:
     """Frames for one job. Every method fails soft: nothing here raises."""
 
     def __init__(self, root, job_key, filename="", *, trigger, max_frames=0,
-                 max_bytes=0, url=None, fetch=None, log=None, now=None):
+                 max_bytes=0, url=None, fetch=None, log=None, now=None, printer_id=""):
         self.job_key = str(job_key or "")
         self.filename = str(filename or "")
+        self.printer_id = str(printer_id or "")
         self.directory = job_dir(root, self.job_key or self.filename)
         self.frames_dir = self.directory / "frames"
         self.manifest_path = self.directory / "capture.json"
@@ -409,6 +410,7 @@ class CaptureSession:
             "capped": self.capped,
             "trigger": getattr(self.trigger, "name", "interval"),
             "source": redact_url(self.url or ""),
+            "printer_id": self.printer_id,
             "frames": self._frames,
             "bytes": self._bytes,
             "failures": self.failures,
@@ -474,7 +476,7 @@ def begin(job_key, filename="", *, data=None, fetch=None, log=None, environ=None
             root, key, filename,
             trigger=make_trigger(knobs["capture_trigger"], knobs["capture_interval_s"]),
             max_frames=knobs["capture_max_frames"], max_bytes=knobs["capture_max_bytes"],
-            url=url, fetch=fetch, log=log)
+            url=url, fetch=fetch, log=log, printer_id=printer_identity(data))
         if not session.start():
             return None
         # A new print starting is the natural sweep point: drop finished
@@ -494,6 +496,22 @@ def begin(job_key, filename="", *, data=None, fetch=None, log=None, environ=None
             except Exception:
                 pass
         return None
+
+
+def printer_identity(data=None) -> str:
+    """The roster id of the printer this process captures for, or "".
+
+    The capture root is shared by every printer (#787, DATA-5), so each
+    manifest records whose capture it is: the listener process's own
+    printer, else the default printer for the single-printer layout.
+    """
+    try:
+        from print_handy import instance, settings
+
+        return instance.printer_id() or settings.default_printer_id(
+            _config.cfg() if data is None else data)
+    except Exception:
+        return ""
 
 
 def read_manifest(directory) -> dict | None:
