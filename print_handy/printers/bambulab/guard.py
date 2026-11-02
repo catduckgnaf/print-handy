@@ -267,6 +267,10 @@ def gcode_problems(text, adapter, *, state=None):
             nozzle_entries = []
             break
     nozzle_mm = nozzle_entries[0] if nozzle_entries else None
+    if nozzle_mm is None and not str(nozzle or "").strip():
+        # Every Orca and Bambu Studio footer names it; without it the size and recorded-nozzle checks
+        # below would silently pass (Codex on #330).
+        problems.append("G-code carries no nozzle_diameter; its nozzle cannot be checked")
     if nozzle_mm is not None and any(
             not any(math.isclose(entry, s, abs_tol=1e-3) for s in nozzle_sizes) for entry in nozzle_entries):
         bad = next(entry for entry in nozzle_entries

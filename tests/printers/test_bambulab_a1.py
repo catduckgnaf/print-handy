@@ -520,6 +520,7 @@ def test_other_printers_keep_the_whole_file_bounds_check(tmp_path):
     ({"material": "PLA-CF"}, "needs a hardened steel nozzle"),
     ({"material": "PLA;PETG"}, "each filament slot needs its own checked profile"),
     ({"nozzle": "0.6"}, "nozzle 0.6 mm has no Bambu Lab A1 template"),
+    ({"nozzle": ""}, "carries no nozzle_diameter"),  # Codex on #330: no metadata is no longer a pass
     ({"nozzle_type": "brass"}, "nozzle type brass is not a Bambu Lab A1 hotend option"),
     ({"plate": "Cool Plate"}, "plate type must be 'Textured PEI Plate'"),
     ({"generator": "PrusaSlicer 2.8.0"}, "unverified slicer output"),
