@@ -263,6 +263,9 @@ def test_evidence_pass_representative_pins(registry):
     thermal = _entry(registry, "qidi.xsmart3").thermal
     assert thermal.fan_auxiliary_present == "absent"
     assert thermal.chamber_heater_present == "absent"
+    # Sovol SV07 Plus: the manual ships an auxiliary blower kit; an Orca accessory flag cannot
+    # prove it absent, so the fact stays unknown (#743 review).
+    assert _entry(registry, "sovol.sv07_plus").thermal.fan_auxiliary_present == "unknown"
     # Sovol Zero: the stock Sovol Klipper config names every fan object and
     # the exhaust temperature fan whose thermistor is the chamber sensor.
     thermal = _entry(registry, "sovol.zero").thermal
