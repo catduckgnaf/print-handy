@@ -293,7 +293,7 @@ def feed_server():
     upstream.join(timeout=5)
 
 
-def _ws_handshake(server, path, cookie=None):
+def _ws_handshake(server, path, cookie=None, extra_headers=()):
     """Returns (connection, head, rest): `rest` is whatever arrived with the
     headers (a fast upstream's first frame can share the segment, so a
     test must not expect it from a later recv)."""
@@ -303,6 +303,7 @@ def _ws_handshake(server, path, cookie=None):
              "Sec-WebSocket-Version: 13"]
     if cookie:
         lines.append(f"Cookie: {cookie}")
+    lines.extend(extra_headers)
     connection.sendall(("\r\n".join(lines) + "\r\n\r\n").encode())
     head = b""
     while b"\r\n\r\n" not in head:
@@ -383,6 +384,137 @@ def test_transcoded_stream_name_drives_the_page_default_and_the_proxy():
         finally:
             connection.close()
         assert b"GET /api/ws?src=camera-live" in upstream.request_head
+    finally:
+        instance.shutdown()
+        instance.server_close()
+        upstream.join(timeout=5)
+
+
+def test_feed_proxy_rewrites_the_browser_origin_for_the_loopback_hop(feed_server):
+    # P1-88: through the tunnel the browser's Origin is the public
+    # origin, while the proxy rebuilds Host as the loopback upstream.
+    # go2rtc (api.origin unset) refuses an Origin whose host differs
+    # from Host, so forwarding the browser Origin verbatim earns an
+    # upstream 403; the proxy must rewrite it to the loopback origin.
+    instance, upstream = feed_server
+    cookie = _session_cookie(instance)
+    connection, head, rest = _ws_handshake(
+        instance, "/api/ws?src=camera", cookie=cookie,
+        extra_headers=("Origin: https://tunnel.example.invalid",))
+    try:
+        assert b"101" in head.split(b"\r\n", 1)[0]
+        assert (rest or connection.recv(4096)) == b"\x82\x03fmp"
+    finally:
+        connection.close()
+    assert b"tunnel.example.invalid" not in upstream.request_head
+    assert (f"Origin: http://127.0.0.1:{upstream.port}".encode()
+            in upstream.request_head)
+
+
+def _session_feed_server(session_active):
+    upstream = FakeGo2rtc()
+    upstream.start()
+    instance = la.make_server("127.0.0.1", 0, transport=FakeTransport(),
+                              allowlist=ALLOWLIST, secret=SECRET,
+                              feed_upstream=("127.0.0.1", upstream.port),
+                              session_active=session_active)
+    thread = threading.Thread(target=instance.serve_forever, daemon=True)
+    thread.start()
+    return instance, upstream
+
+
+def test_feed_proxy_refuses_a_new_connection_when_the_session_is_not_live():
+    # P1-89: a valid cookie alone must not open the feed while the
+    # shared viewing session is idle (never started, stopped, expired
+    # or ended with the print). The refusal happens before the upstream
+    # is contacted, and a session check that fails is a refusal too
+    # (fail closed: the privacy gate never fails open).
+    for session_active in (lambda: False,
+                           lambda: (_ for _ in ()).throw(RuntimeError("record gone"))):
+        instance, upstream = _session_feed_server(session_active)
+        try:
+            cookie = _session_cookie(instance)
+            connection, head, _ = _ws_handshake(instance, "/api/ws?src=camera",
+                                                cookie=cookie)
+            assert b"403" in head.split(b"\r\n", 1)[0]
+            connection.close()
+            assert upstream.request_head == b""
+        finally:
+            instance.shutdown()
+            instance.server_close()
+            upstream.join(timeout=5)
+
+
+class StreamingGo2rtc(threading.Thread):
+    """A fake go2rtc that keeps the feed open, sending a frame every
+    0.1 s until the socket dies — the shape a real relay has while a
+    viewer is watching."""
+
+    def __init__(self):
+        super().__init__(daemon=True)
+        self.listener = _socket.socket()
+        self.listener.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+        self.listener.bind(("127.0.0.1", 0))
+        self.listener.listen(1)
+        self.port = self.listener.getsockname()[1]
+        self.request_head = b""
+
+    def run(self):
+        connection, _ = self.listener.accept()
+        with connection:
+            head = b""
+            while b"\r\n\r\n" not in head:
+                chunk = connection.recv(4096)
+                if not chunk:
+                    return
+                head += chunk
+            self.request_head = head
+            connection.sendall(b"HTTP/1.1 101 Switching Protocols\r\n"
+                               b"Upgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+            try:
+                while True:
+                    connection.sendall(b"\x82\x03fmp")
+                    time.sleep(0.1)
+            except OSError:
+                return
+
+
+def test_feed_proxy_closes_an_open_relay_when_the_session_ends():
+    # P1-89: ending the viewing session (stop, expiry, print end) must
+    # end the frames too — an already-open relay is closed by the proxy
+    # once the session is no longer live, not left running until the
+    # viewer happens to disconnect.
+    live = {"on": True}
+    upstream = StreamingGo2rtc()
+    upstream.start()
+    instance = la.make_server("127.0.0.1", 0, transport=FakeTransport(),
+                              allowlist=ALLOWLIST, secret=SECRET,
+                              feed_upstream=("127.0.0.1", upstream.port),
+                              session_active=lambda: live["on"])
+    thread = threading.Thread(target=instance.serve_forever, daemon=True)
+    thread.start()
+    try:
+        cookie = _session_cookie(instance)
+        connection, head, rest = _ws_handshake(instance, "/api/ws?src=camera",
+                                               cookie=cookie)
+        try:
+            assert b"101" in head.split(b"\r\n", 1)[0]
+            assert (rest or connection.recv(4096)) == b"\x82\x03fmp"
+            live["on"] = False
+            connection.settimeout(5)
+            closed = False
+            try:
+                while True:
+                    if not connection.recv(4096):
+                        closed = True
+                        break
+            except ConnectionResetError:
+                closed = True
+            except _socket.timeout:
+                closed = False
+            assert closed, "the relay kept running after the session ended"
+        finally:
+            connection.close()
     finally:
         instance.shutdown()
         instance.server_close()

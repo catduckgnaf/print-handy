@@ -165,6 +165,20 @@ class PresenceTests(unittest.TestCase):
             self.assertFalse(presence.tick(now=1000.0 + 300).is_live)
             self.assertFalse(live_stream.read_session_file(path).is_live)
 
+    def test_is_live_tracks_the_record_as_other_processes_change_it(self):
+        # P1-89: the feed proxy's lifecycle gate reads presence.is_live,
+        # so it must reflect a stop written by the bot process (and a
+        # missing record) on the very next call, with no tick in between.
+        with tempfile.TemporaryDirectory() as tmp:
+            path, presence = self.make_presence(tmp)
+            self.assertTrue(presence.is_live())
+            session = live_stream.read_session_file(path)
+            session.stop(now=1500.0)
+            live_stream.write_session_file(session, path)
+            self.assertFalse(presence.is_live())
+            path.unlink()
+            self.assertFalse(presence.is_live())
+
     def test_tick_keeps_a_watched_session_live(self):
         with tempfile.TemporaryDirectory() as tmp:
             path, presence = self.make_presence(tmp)
