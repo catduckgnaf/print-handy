@@ -2610,7 +2610,14 @@ def fit_options(source: Path, state: dict, brim_override=None) -> dict:
     except (RuntimeError, ValueError, OSError) as exc:
         return {'scales': scales, 'rotations': [], 'rotation_error': str(exc)}
     result = {'scales': scales, 'rotations': rotations,
-              'brim_policy': policy if scales and scales[0] < 0.97 else None,
+              # The policy is the one the winning scale was verified under,
+              # however close to full size that scale is: intake stores it
+              # and the slice applies it, so dropping it for a near-full-size
+              # option would silently change the brim the job was offered
+              # with (P2-254). With no verified scale there is no policy to
+              # preserve — the loop variable is then only the unverified
+              # last-resort fallback.
+              'brim_policy': policy if scales else None,
               'fit_search_deferred': bool(source.suffix.lower() == '.3mf' and _source_plate_count(source) > 1)}
     try:
         if state.get('fit_rearrange_checked'):
@@ -2636,9 +2643,13 @@ def fit_options(source: Path, state: dict, brim_override=None) -> dict:
             try:
                 from . import split_fit
                 bed = tuple(state.get('bed_mm') or BED)
+                # Judge the parts under the same brim policy the scale
+                # search settled on: without it a part the chosen brim
+                # blocks is reported as fitting at full size (P2-80).
                 per_part = {row['object_id']: row for row in split_fit.per_part_fit(
                     source, bed=(float(bed[0]), float(bed[1])),
-                    height=float(state.get('max_print_height_mm', MAX_HEIGHT_MM)))}
+                    height=float(state.get('max_print_height_mm', MAX_HEIGHT_MM)),
+                    brim_policy=policy, state=state)}
             except Exception:
                 per_part = {}
             details = []

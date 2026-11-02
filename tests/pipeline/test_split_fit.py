@@ -165,6 +165,41 @@ def test_fit_options_reports_blocking_parts_before_any_scale(tmp_path, monkeypat
     assert 'yaw sweep 0-90 degrees' in part['orientations_checked']
 
 
+def test_fit_options_judges_parts_under_the_chosen_brim_policy(tmp_path, monkeypatch):
+    from print_handy.core import orca_adapter as oa
+    # P2-80: the per-part report must be judged under the brim policy the
+    # option search settled on. With an operator 10 mm brim the 200 mm cube
+    # fits only without its brim, so the report must name it blocking —
+    # judged with no policy (the old call) it was reported as fitting.
+    source = tmp_path / 'brim-cube.3mf'
+    _mesh_source(source, {'1': _rect_points(200, 200, 200)}, [['1']])
+    monkeypatch.setattr(oa, 'verified_scale_choices', lambda *a, **k: [])
+    monkeypatch.setattr(oa, 'rotation_alternatives', lambda *a, **k: [])
+    options = oa.fit_options(source, {'bed_mm': [220, 220], 'max_print_height_mm': 220,
+                                      'resolved_hop_types': ['Normal Lift'],
+                                      'brim_override': 10.0, 'fit_rearrange_checked': True})
+    (part,) = options['parts']
+    assert part['fits_full_size'] is False
+    assert 'brim' in part['blocking_reason']
+    assert options['blocking_parts'] == [part['name']]
+
+
+def test_fit_options_preserves_the_verified_policy_for_a_near_full_size_scale(tmp_path, monkeypatch):
+    from print_handy.core import orca_adapter as oa
+    # P2-254: a 98% option verified under the no-brim policy keeps that
+    # policy in the result. Dropping it (the old near-full-size cutoff)
+    # handed the slice a different brim than the option was verified with.
+    source = tmp_path / 'near-full.3mf'
+    _source(source, {'1': (150, 150, 10)}, [['1']])
+    monkeypatch.setattr(oa, 'verified_scale_choices',
+                        lambda src, st, brim_policy=None: [0.98] if brim_policy and brim_policy['type'] == 'no_brim' else [])
+    monkeypatch.setattr(oa, 'rotation_alternatives', lambda *a, **k: [])
+    options = oa.fit_options(source, {'bed_mm': [220, 220], 'max_print_height_mm': 220,
+                                      'fit_rearrange_checked': True})
+    assert options['scales'] == [0.98]
+    assert options['brim_policy'] == {'type': 'no_brim', 'width_mm': 0.0, 'label': 'No brim'}
+
+
 def test_split_plan_gives_a_yaw_only_part_its_own_turned_plate(tmp_path):
     # A part that only fits when turned in the bed plane is offered a split
     # plan now: it sits alone on its own plate and the plan records the exact
