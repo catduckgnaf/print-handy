@@ -366,6 +366,6 @@ def test_the_printer_check_reads_stock_detail_not_moonraker(monkeypatch):
     adapter = _stock_adapter()
     for detail, ok in (({"status": "ready"}, True), ({"status": "printing"}, False)):
         monkeypatch.setattr(adapter, "client", lambda d=detail: _FakeStock([d]))
-        result, problems, facts = printer_state.check({}, adapter=adapter)  # no moonraker_url in the record
+        result, problems, facts = printer_state.check({"nozzle": {}}, adapter=adapter)  # no moonraker_url
         assert result is ok and facts["connection"] == "flashforge_stock"
         assert problems == ([] if ok else ["printer state is 'printing', not idle"])
