@@ -54,6 +54,15 @@ class OctoPrintAdapter(KlipperAdapter):
                  'standby' if flags.get('ready') and flags.get('operational') else 'unknown')
         temp = p.get('temperature') or {}
         completion = (j.get('progress') or {}).get('completion')
+        left = _number((j.get('progress') or {}).get('printTimeLeft'))  # seconds; null when unknown
+        # Plain OctoPrint reports no layer numbers, so no layer keys are emitted here.
         return {'state': state, 'filename': ((j.get('job') or {}).get('file') or {}).get('path', ''),
                 'progress': completion / 100 if isinstance(completion, (int, float)) else None,
-                'hotend_c': (temp.get('tool0') or {}).get('actual'), 'bed_c': (temp.get('bed') or {}).get('actual')}
+                'hotend_c': (temp.get('tool0') or {}).get('actual'), 'bed_c': (temp.get('bed') or {}).get('actual'),
+                'hotend_target_c': _number((temp.get('tool0') or {}).get('target')),
+                'bed_target_c': _number((temp.get('bed') or {}).get('target')),
+                'remaining_min': left // 60 if left is not None else None}
+
+
+def _number(value):
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None

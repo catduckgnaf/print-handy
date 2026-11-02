@@ -304,3 +304,23 @@ def test_stock_print_starts_no_monitor_when_the_start_is_unconfirmed(monkeypatch
     out, _fake, _events = _stock_print(monkeypatch, tmp_path, [idle, idle], slot=1, after=after)
     assert out["started"] is False
     assert started == []
+
+
+def _stock_adapter():
+    from print_handy import printers, settings
+    model = "flashforge_stock.ad5x"
+    return printers.get(model, settings.load(local=False, environ={"PRINT_HANDY__PRINTER__MODEL": model}))
+
+
+def test_normalize_status_reports_detail_targets():
+    detail = {"status": "printing", "printProgress": 0.4, "rightTargetTemp": 220.0, "platTargetTemp": 60}
+    for raw in (detail, {"detail": detail}):
+        out = _stock_adapter().normalize_status(raw)
+        assert (out["hotend_target_c"], out["bed_target_c"]) == (220.0, 60)
+        assert (out["state"], out["hotend_c"], out["bed_c"]) == ("printing", None, None)
+
+
+@pytest.mark.parametrize("raw", [{}, {"status": "ready"}, {"rightTargetTemp": True, "platTargetTemp": "60"}])
+def test_normalize_status_targets_are_none_when_absent(raw):
+    out = _stock_adapter().normalize_status(raw)
+    assert out["hotend_target_c"] is None and out["bed_target_c"] is None

@@ -58,3 +58,33 @@ def test_request_auth_and_empty_response():
     assert req.full_url == 'http://octoprint.invalid/base/api/job'
     assert req.get_header('X-api-key') == 'test-key'
     assert json.loads(req.data) == {'command': 'cancel'}
+
+
+def _adapter():
+    from print_handy import printers, settings
+    model = 'octoprint.marlin'
+    return printers.get(model, settings.load(local=False, environ={'PRINT_HANDY__PRINTER__MODEL': model}))
+
+
+def test_status_reports_targets_and_remaining_time():
+    out = _adapter().normalize_status({
+        'printer': {'state': {'flags': {'printing': True}},
+                    'temperature': {'tool0': {'actual': 214.6, 'target': 215.0},
+                                    'bed': {'actual': 59.8, 'target': 60}}},
+        'job': {'job': {'file': {'path': 'a.gcode'}},
+                'progress': {'completion': 40.0, 'printTimeLeft': 3725}}})
+    assert (out['hotend_target_c'], out['bed_target_c']) == (215.0, 60)
+    assert out['remaining_min'] == 62
+    assert (out['state'], out['progress'], out['hotend_c']) == ('printing', 0.4, 214.6)
+
+
+@pytest.mark.parametrize('raw', [
+    {},
+    {'printer': {'temperature': {'tool0': {'target': None}, 'bed': {}}}, 'job': {'progress': {'printTimeLeft': None}}},
+    {'printer': {'temperature': {'tool0': {'target': True}, 'bed': {'target': '60'}}},
+     'job': {'progress': {'printTimeLeft': False}}},
+])
+def test_status_extended_fields_are_none_when_absent(raw):
+    out = _adapter().normalize_status(raw)
+    for key in ('hotend_target_c', 'bed_target_c', 'remaining_min'):
+        assert key in out and out[key] is None, key

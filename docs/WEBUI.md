@@ -90,12 +90,9 @@ Never put the token value in YAML. If Print Handy runs under systemd or another 
 
 ## Enable it with Docker Compose
 
-The container path is covered in [Docker](DOCKER.md#web-ui-optional-286). In `.env`, set:
+The container path is covered in [Docker](DOCKER.md#web-ui-optional-286). Since #708 the container serves the Web UI on `0.0.0.0:8088` by default, so there is nothing to enable. Optionally set an access token in `.env` (otherwise the first visit shows the [first-run setup](#first-run-setup) page):
 
 ```dotenv
-PRINT_HANDY__WEBUI__ENABLED=true
-PRINT_HANDY__WEBUI__HOST=0.0.0.0
-PRINT_HANDY__WEBUI__PORT=8088
 WEBUI_ACCESS_TOKEN=<choose-a-long-random-token>
 ```
 
@@ -112,7 +109,7 @@ Recreate the container:
 docker compose up -d
 ```
 
-On startup, the supervisor's Web UI gate reads the resolved configuration. It starts `python3 -m print_handy.webui` only when the Web UI is enabled and a port is set. If the configuration cannot be resolved, the gate stops the container rather than guessing. If the Web UI is enabled on a non-loopback host without its access-token secret, the gate reports the blocked start with the fix in the log and the container carries on without the Web UI (#440) — the standalone server still refuses that bind outright, because a LAN-reachable Web UI must never run unauthenticated.
+On startup, the supervisor's Web UI gate reads the resolved configuration. It starts `python3 -m print_handy.webui` only when the Web UI is enabled and a port is set. If the configuration cannot be resolved, the gate stops the container rather than guessing. A non-loopback bind with no access token and no saved setup choice starts in [first-run setup](#first-run-setup) and the gate logs `first-run setup is waiting` (before #708 it was not started at all, #440).
 
 The Web UI can also be enabled in the selected Docker YAML or TOML file (`webui` in `config/docker.yaml`, or `[webui]` in `config/docker.toml`). Environment values override the file, so an environment setting left at the Compose default can be the reason a file change appears to have no effect; the configuration page marks those fields as environment-overridden.
 
@@ -123,19 +120,31 @@ In the in-repo Unraid template:
 1. The template sets **Web UI** (`PRINT_HANDY__WEBUI__ENABLED`) to `true` for you; set it to `false` only to turn the Web UI off entirely.
 2. Leave **Web UI bind host** at the template default `0.0.0.0` when the page must be reachable through the port mapping.
 3. Keep **Web UI port setting** (`PRINT_HANDY__WEBUI__PORT`) and the **Web UI port** mapping matched; the template uses `8088` for both.
-4. Set the masked **Web UI access token** (`WEBUI_ACCESS_TOKEN`) to a long random value. This step is required: with no token, the Web UI does not start (the container keeps running and its log explains the fix).
-5. Apply/restart the container.
+4. Optional: set the masked **Web UI access token** (`WEBUI_ACCESS_TOKEN`) to a long random value. Leave it empty to use the [first-run setup](#first-run-setup) page instead.
+5. Apply/restart the container, then open the **WebUI** link.
 
-The template's **WebUI** link points at the mapped port; the browser is redirected to the login page, where the token from step 4 signs it in. The port mapping exists even while the Web UI is disabled or blocked; then, nothing answers on it.
+With a token set, the link lands on the login page, where the token signs the browser in. Without one, the first visit shows the setup page; after that, the login page asks for the password you chose (or nothing, if you chose to leave it open). The port mapping exists even while the Web UI is disabled; then, nothing answers on it.
 
 The published Community Applications template is separate from the in-repo template and follows the normal release-time sync; do not treat this guide as proof that a published template has already picked up a source change.
 
+## First-run setup
+
+A Web UI on a non-loopback bind with no access token, no `require_auth = false`, and no saved choice starts in setup mode (#708). Until a choice is made it serves only `/setup` (and `/healthz` for the container healthcheck): page visits redirect there, and API requests answer `503` with `first-run setup is not finished`. The setup page offers two forms:
+
+- **Set a password** (at least 8 characters, typed twice). The password is stored only as a salted PBKDF2-SHA256 hash in `webui_access.json` in the Print Handy state folder (in Docker, under `/data`, so it survives updates). The browser that set it is signed in. Afterwards the login page asks for it, and API clients such as the Home Assistant integration send it as the `X-WebUI-Token` header, exactly like an access token.
+- **Leave it open:** tick the box confirming that anyone who can reach the port may use the Web UI. Nothing else is shown until the box is ticked.
+
+The form carries the page's `_csrf` token, so another site cannot answer setup for you. Anyone on your network who reaches the page first can complete it, so do it right after the first start. To change the choice later, delete `webui_access.json` from the state folder and restart (setup runs again), or set an access token in the environment, which always takes precedence over the saved choice.
+
 ## Access token and browser access
 
-The token's value is a secret held only in the environment variable named by `webui.access_token_env`. The default name is `WEBUI_ACCESS_TOKEN`.
+The token's value is a secret held only in the environment variable named by `webui.access_token_env`. The default name is `WEBUI_ACCESS_TOKEN`. Who may use the Web UI is decided in this order, first match wins:
 
-- **Loopback bind** (`127.0.0.1`, another loopback address, `::1`, or `localhost`): the token is optional. If the named environment variable is set, the token is still required for requests.
-- **Any other bind host:** the token is required. If it is empty, the server refuses to start.
+1. **`webui.require_auth = false`:** open (see below); a token is ignored.
+2. **The access token is set:** it is required on every bind.
+3. **A saved setup choice:** the setup password is required, or access is open if that was chosen.
+4. **Loopback bind** (`127.0.0.1`, another loopback address, `::1`, or `localhost`): open.
+5. **Any other bind host:** [first-run setup](#first-run-setup).
 - **`webui.require_auth = false`** (`PRINT_HANDY__WEBUI__REQUIRE_AUTH=false`): the explicit opt-out for a network you trust. The token is neither required nor checked on any bind host, even if it is set, and there is no login page. Anyone who can reach the port gets the whole Web UI, including printer controls and configuration writes (the per-form `_csrf` check still applies). The Docker gate logs `authentication OFF` at every start. The setting is deliberately not a Web UI field: turning auth off is a file or environment decision.
 - Requests that need the access token send it as the `X-WebUI-Token` header. For example:
 
@@ -224,12 +233,12 @@ If the selected settings file is a legacy TOML file, the Web UI refuses to rewri
 | Symptom | Check |
 |---|---|
 | `webui: not started: [webui] enabled is false` | Set `webui.enabled` to `true` in the effective settings file, or `PRINT_HANDY__WEBUI__ENABLED=true`; then restart the process/container. |
-| `webui: not started: [webui] port is 0 (unset)` | Port `0` means no port has been chosen. Set `webui.port` (the deployment examples use `8080`), then restart. |
-| `webui: refusing to bind ... a non-loopback bind requires an access token` | Set the secret named by `webui.access_token_env` (default `WEBUI_ACCESS_TOKEN`) in the server/container environment, or bind `127.0.0.1`. In Docker, the gate instead logs the blocked start (next row) and the container carries on without the Web UI. |
-| `webui gate: enabled on ... but $WEBUI_ACCESS_TOKEN is empty ... it was not started` | The container is healthy; only the Web UI is off. Set `WEBUI_ACCESS_TOKEN` (Unraid: the **Web UI access token** field) to a long random value and restart, or bind `127.0.0.1` to keep the Web UI inside the container. |
+| `webui: not started: [webui] port is 0 (unset)` | Port `0` means no port has been chosen. Set `webui.port` (the container uses `8088`), then restart. |
+| `webui gate: ... first-run setup is waiting` or `503 first-run setup is not finished` | Open the Web UI in a browser and choose a password or leave it open on the setup page. See [First-run setup](#first-run-setup). |
+| Forgot the setup password | Delete `webui_access.json` from the Print Handy state folder (Docker: under `/data/hermes/state`) and restart; the setup page appears again. |
 | `401` with `missing or wrong X-WebUI-Token` | In a browser, open `/login` and enter the access token (sessions last 12 hours and end when the server restarts). For scripts, send the exact token value in the `X-WebUI-Token` header. See [Access token and browser access](#access-token-and-browser-access). |
 | `403` with `missing or wrong form token` on a configuration post | Load `/config` from the running server and submit its own form, so the current in-memory `_csrf` value is included. Restarting the server creates a new form token, so an old page must be reloaded. |
-| The Docker container stops after enabling the Web UI | Read the container log for the gate or server refusal. An unresolved settings file still stops the container; a non-loopback bind with no `WEBUI_ACCESS_TOKEN` no longer does (the gate logs the blocked start and the container carries on without the Web UI — #440). Fix the named setting and restart. |
+| The Docker container stops after enabling the Web UI | Read the container log for the gate or server refusal. An unresolved settings file still stops the container; a non-loopback bind with no `WEBUI_ACCESS_TOKEN` does not (it starts in first-run setup, #708). Fix the named setting and restart. |
 | The Web UI healthcheck row says `enabled but no port chosen; not started` | This is an `ok` row, not a serving Web UI. Choose a port and restart if you intended to run it. |
 | The Web UI healthcheck row says `disabled` | This is an `ok` skip. Nothing is listening, as configured. |
 | The status page says **attention needed**, but `/healthz` is `200` | They answer different questions: `/healthz` is only the bot heartbeat, while the status page also includes the listener, Spoolman and doctor rows. Read the failing row on `/` or `/api/status`. |

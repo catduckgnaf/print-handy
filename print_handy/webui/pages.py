@@ -41,6 +41,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from . import access as access_module
 from . import config as config_api
 from .catalog import choice_label, choices_for, config_page_visible, field_by_id
 
@@ -50,6 +51,12 @@ CONFIRM_FIELD = "confirm"
 # compared against the access token by the server and is never rendered
 # back into any page, logged, or stored.
 LOGIN_TOKEN_FIELD = "token"
+# First-run setup form fields (POST /setup, #708). Passwords are hashed by
+# webui.access and never rendered back.
+SETUP_CHOICE_FIELD = "choice"
+SETUP_PASSWORD_FIELD = "password"
+SETUP_CONFIRM_FIELD = "password_again"
+SETUP_OPEN_FIELD = "confirm_open"
 # Hidden field on the confirm form listing the field ids the preview
 # parsed; the save POST parses exactly those, no others.
 FIELDS_FIELD = "_fields"
@@ -210,29 +217,76 @@ def _page(title, body):
             f"<h1>Print Handy {_esc(title)}</h1>{body}</body></html>\n")
 
 
-def render_login_page(error=None):
+def render_login_page(error=None, password=False):
     """The GET /login page: a single password field for the access token.
 
     A browser cannot send the ``X-WebUI-Token`` header, so this form is
     how a person signs in: a correct POST /login earns a session cookie
     (see server.py). ``error`` is a fixed message chosen by the server;
-    the submitted token is never reflected here.
+    the submitted token is never reflected here. ``password`` is true
+    when the credential is the password chosen on the setup page (#708).
     """
-    parts = [
-        '<p>This Web UI is protected by an access token (the value of the '
-        'environment variable the <code>[webui] access_token_env</code> '
-        'setting names). Enter it once and this browser stays signed in '
-        'until the session expires or the server restarts.</p>',
-    ]
+    if password:
+        intro = ('<p>This Web UI is protected by the password chosen during setup. '
+                 'Enter it once and this browser stays signed in until the session '
+                 'expires or the server restarts.</p>')
+    else:
+        intro = ('<p>This Web UI is protected by an access token (the value of the '
+                 'environment variable the <code>[webui] access_token_env</code> '
+                 'setting names). Enter it once and this browser stays signed in '
+                 'until the session expires or the server restarts.</p>')
+    parts = [intro]
     if error:
         parts.append(f'<p class="error">{_esc(error)}</p>')
+    label = "Password" if password else "Access token"
     parts.append(
         f'<form method="post" action="/login">'
-        f'<p><label for="f-{LOGIN_TOKEN_FIELD}">Access token</label> '
+        f'<p><label for="f-{LOGIN_TOKEN_FIELD}">{label}</label> '
         f'<input type="password" id="f-{LOGIN_TOKEN_FIELD}" '
         f'name="{LOGIN_TOKEN_FIELD}" autocomplete="current-password" required></p>'
         '<p><button type="submit">Log in</button></p></form>')
     return _page("log in", "".join(parts))
+
+
+def render_setup_page(form_token, error=None):
+    """The GET /setup page (#708): set a password, or affirmatively leave it open.
+
+    Shown only while no access rule exists for a LAN bind. Submitted
+    passwords are hashed by the server and never rendered back.
+    """
+    parts = [
+        '<p>Welcome. Before this Web UI shows anything, choose how it is protected. '
+        'Anyone who can reach this page on your network can complete this step, '
+        'so do it now.</p>',
+    ]
+    if error:
+        parts.append(f'<p class="error">{_esc(error)}</p>')
+    csrf = f'<input type="hidden" name="{CSRF_FIELD}" value="{_esc(form_token)}">'
+    parts.append(
+        '<h2>Set a password (recommended)</h2>'
+        '<form method="post" action="/setup">' + csrf +
+        f'<input type="hidden" name="{SETUP_CHOICE_FIELD}" value="password">'
+        f'<p><label for="f-{SETUP_PASSWORD_FIELD}">Password</label> '
+        f'<input type="password" id="f-{SETUP_PASSWORD_FIELD}" name="{SETUP_PASSWORD_FIELD}" '
+        f'autocomplete="new-password" minlength="{access_module.MIN_PASSWORD_LENGTH}" required></p>'
+        f'<p><label for="f-{SETUP_CONFIRM_FIELD}">Password again</label> '
+        f'<input type="password" id="f-{SETUP_CONFIRM_FIELD}" name="{SETUP_CONFIRM_FIELD}" '
+        f'autocomplete="new-password" required></p>'
+        '<p>Home Assistant and other tools send this same password as the '
+        f'<code>X-WebUI-Token</code> header.</p>'
+        '<p><button type="submit">Save password</button></p></form>')
+    parts.append(
+        '<h2>Or leave it open</h2>'
+        '<form method="post" action="/setup">' + csrf +
+        f'<input type="hidden" name="{SETUP_CHOICE_FIELD}" value="open">'
+        f'<p><input type="checkbox" id="f-{SETUP_OPEN_FIELD}" name="{SETUP_OPEN_FIELD}" '
+        f'value="yes" required> <label for="f-{SETUP_OPEN_FIELD}">I trust everyone on my '
+        'network: anyone who can reach this port can use the Web UI.</label></p>'
+        '<p><button type="submit">Leave it open</button></p></form>')
+    parts.append(
+        '<p>To change this later, delete <code>webui_access.json</code> from the Print Handy '
+        'state folder and restart, or set an access token in the environment.</p>')
+    return _page("setup", "".join(parts))
 
 
 def render_config_page(field_values, *, data, form_token, errors=None,
