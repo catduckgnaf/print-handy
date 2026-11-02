@@ -2758,7 +2758,8 @@ def verify_gcode_offline(gcode_path, state, adapter=None, recorded_temps=None):
     adapter_given = adapter is not None
     adapter = adapter or printers.current()
     if adapter.connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp', 'flashforge_stock'):
-        return _verify_offline(gcode_path, state, adapter, recorded_temps=recorded_temps) if adapter_given else _verify_offline(gcode_path, state, recorded_temps=recorded_temps)
+        kw = {'recorded_temps': recorded_temps} if recorded_temps else {}
+        return _verify_offline(gcode_path, state, adapter, **kw) if adapter_given else _verify_offline(gcode_path, state, **kw)
     p = Path(gcode_path)
     raw = p.read_bytes()
     text = raw.decode(errors='ignore')
@@ -2872,7 +2873,8 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded
     _print_check_warnings(facts)
     if not ok: raise RuntimeError("the printer check did not pass:\n  " + "\n  ".join(probs))
     if offline_verify:
-        return _verify_offline(gcode_path, st, adapter, recorded_temps=recorded_temps) if routed else _verify_offline(gcode_path, st, recorded_temps=recorded_temps)
+        kw = {'recorded_temps': recorded_temps} if recorded_temps else {}
+        return _verify_offline(gcode_path, st, adapter, **kw) if routed else _verify_offline(gcode_path, st, **kw)
     p=Path(gcode_path); raw=p.read_bytes(); text=raw.decode(errors="ignore")
     errors=[]
     # The installed native screen requires ZMod's documented first-line MD5.
