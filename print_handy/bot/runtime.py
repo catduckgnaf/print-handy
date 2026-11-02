@@ -541,7 +541,8 @@ class BotCore:
                     if replied:
                         await self.adapter.send(chat_id=source.chat_id, content=rest.inert_media(reply),
                                                 reply_to=event.message_id, metadata=metadata)
-                    routed = make_event(source, command, f"{event.message_id}:llm", metadata={"llm_command": True})
+                    routed = make_event(source, command, f"{event.message_id}:llm",
+                                        media_urls=event.media_urls, metadata={"llm_command": True})
                     return await self.process(routed, allow_llm=False, _llm_replied=replied)
                 if reply:
                     await self.adapter.send(chat_id=source.chat_id, content=rest.inert_media(reply),

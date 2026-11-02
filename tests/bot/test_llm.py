@@ -85,6 +85,35 @@ def test_llm_picked_stop_still_waits_for_the_button_and_writes_nothing_without_i
     assert len(opener.requests) == 1 and opener.requests[0]["model"] == "small-model"
 
 
+def test_llm_named_command_keeps_the_message_attachments(llm_cfg):
+    """A command the LLM names is dispatched with the message's attachments
+    (bonus, same defect as P2-222): dropping the dropped .scad made design
+    treat an edit instruction as a new-model request."""
+    from print_handy.bot.router import Router
+
+    seen = []
+
+    class _Plugin:
+        def register(self, router):
+            async def record(event, gateway):
+                if event.text.startswith("/print-design"):
+                    seen.append(event)
+                    return {"action": "skip", "reason": "recorded"}
+                return None
+            router.register_hook("pre_gateway_dispatch", record)
+
+    opener = FakeLLM("Editing it now.", "/print-design make it taller")
+    discord = fake_discord.FakeDiscord(auto=False, chat_id=int(llm_cfg["discord"]["chat_id"]),
+                                       operator_id=int(llm_cfg["discord"]["allowed_user_ids"]))
+    core = runtime.BotCore(discord.client, llm_cfg, llm_opener=opener, router=Router(plugin=_Plugin()))
+    source = runtime.make_source(discord.operator.id, discord.channel.id)
+    event = runtime.make_event(source, "make it taller", "m1", media_urls=["/tmp/uploads/model.scad"])
+    out = asyncio.run(core.process(event))
+    assert out == {"action": "skip", "reason": "recorded"}
+    assert [e.text for e in seen] == ["/print-design make it taller"]
+    assert seen[0].media_urls == ["/tmp/uploads/model.scad"]
+
+
 def test_llm_naming_a_write_command_runs_nothing(llm_cfg):
     opener = FakeLLM("Syncing the screens now!", "/spool sync")
     discord, core = make(llm_cfg, opener)
