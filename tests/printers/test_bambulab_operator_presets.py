@@ -159,6 +159,17 @@ def test_import_refusals(tmp_path, mutate, message):
     assert not (operator_dir() / "upstream" / "PETG.json").exists()
 
 
+def test_import_accepts_the_unset_retraction_sentinel(tmp_path):
+    # P2-130: Orca writes a filament preset that leaves retraction at the
+    # printer default as ["nil"] — the unset sentinel, not a malformed
+    # number. The import must accept it (there is no operator-supplied
+    # retraction value to bound-check) instead of refusing the whole preset.
+    entry = import_petg(tmp_path, {**PETG_PRESET, "filament_retraction_length": ["nil"]})
+    assert entry["material"] == "PETG"
+    flat = json.loads((operator_dir() / "upstream" / "PETG.json").read_text())
+    assert flat["filament_retraction_length"] == ["nil"]  # preserved, not rewritten
+
+
 def test_import_with_a_material_that_does_not_match_the_parent(tmp_path):
     with pytest.raises(profiles.ProfileError, match=re.escape(
             "--material PLA does not match the parent profile 'Generic PETG @BBL A1', which is a PETG profile")):

@@ -559,12 +559,19 @@ def operator_template(adapter, material, folder=None):
 
 
 def _preset_numbers(data, key):
-    """Every value of a numeric filament setting as floats; None when a value is not a number, [] when unset."""
+    """Every value of a numeric filament setting as floats; None when a value is not a number, [] when unset.
+
+    Orca's "nil" is the unset sentinel for a nullable setting (a preset
+    that leaves retraction at the printer default flattens to ["nil"]), so
+    it counts as unset, not as a malformed number (P2-130).
+    """
     if key not in data:
         return []
     values = data[key] if isinstance(data[key], list) else [data[key]]
     out = []
     for value in values:
+        if value == "nil":
+            continue
         try:
             out.append(float(value))
         except (TypeError, ValueError):
