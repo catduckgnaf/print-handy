@@ -85,6 +85,19 @@ class OctoPrintClient:
         movies = result.get('files') if isinstance(result, dict) else None
         return movies if isinstance(movies, list) else []
 
+    def timelapse_unrendered(self):
+        """The timelapse renders still in OctoPrint's background queue.
+
+        The same GET /api/timelapse listing carries them under
+        "unrendered": a just-finished job's movie legitimately appears
+        there first and only moves to "movies" when its render lands,
+        so a completion lookup that finds no movie yet checks here
+        before concluding there is no video (P2-147).
+        """
+        result = self.request('GET', '/api/timelapse')
+        pending = result.get('unrendered') if isinstance(result, dict) else None
+        return pending if isinstance(pending, list) else []
+
     def download(self, path):
         """Raw bytes of a server-relative path (e.g. a movie's url).
 

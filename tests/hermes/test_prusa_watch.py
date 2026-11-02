@@ -371,3 +371,21 @@ def test_full_lifecycle_produces_a_valid_h264_mp4_under_the_limit(tmp_path, monk
     frames = list((session_dir / "frames").glob("frame-*.jpg"))
     assert len(frames) >= 2
     assert frames[0].read_bytes().startswith(b"\xff\xd8")  # stored frames are JPEG
+
+
+def test_a_refused_media_post_falls_back_to_the_text_completion(capture_logs):
+    """P2-169: the production sender returns False on a refusal instead of
+    raising. A refused MEDIA post must not be reported as delivered —
+    the completion still reaches the chat as text."""
+    rig = Rig([st("printing"), st("complete")])
+    attempts = []
+
+    def post(message):
+        attempts.append(message)
+        return "MEDIA:" not in message
+
+    rig.monitor._post = post
+    assert rig.monitor.run() == "complete"
+    assert len(attempts) == 2
+    assert "MEDIA:" in attempts[0]
+    assert "MEDIA:" not in attempts[1]

@@ -94,7 +94,13 @@ class FamilyListener:
         self._start_poster = start_poster or family_control.post_family_event
         self._pause_poster = pause_poster or family_control.post_pause_alert
         self._terminal_poster = terminal_poster or family_control.post_family_event
-        self._retirer = retirer or family_control.retire_pause_alerts
+        if retirer is None:
+            # The default retirer is scoped to this listener's printer
+            # (P2-176); an injected retirer keeps the two-argument
+            # (filename, headline) contract.
+            retirer = lambda fn, headline: family_control.retire_pause_alerts(
+                fn, headline, printer_id)
+        self._retirer = retirer
         self._light = light
         self._beat_fn = beat or (lambda **details: healthcheck.beat(runtime=self._runtime, **details))
         self._clock = clock

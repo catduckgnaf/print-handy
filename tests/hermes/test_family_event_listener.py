@@ -264,3 +264,23 @@ def test_bambu_sink_error_event_posts_the_error_terminal():
     rig("error", event("error"))
     assert posts.terminals == [("error", REMOTE)]
     assert posts.retires == [(REMOTE, "Print stopped with an error.")]
+
+
+def test_the_default_retirer_is_scoped_to_the_owning_printer(tmp_path, monkeypatch):
+    """P2-176: with no retirer injected, the family listener retires
+    through retire_pause_alerts carrying its own printer_id."""
+    seen = []
+    monkeypatch.setattr(
+        fel.family_control, "retire_pause_alerts",
+        lambda fn, headline, printer_id=None: seen.append((fn, headline, printer_id)) or 1)
+    posts = Posts()
+    rig = fel.FamilyListener(
+        "prusalink", scripted([st("standby"), st("printing"), st("complete")]),
+        printer_id="printer-a",
+        claim_fn=lambda _f: False,
+        start_poster=posts.start, pause_poster=posts.pause,
+        terminal_poster=posts.terminal,
+        beat=posts.beat, sleep=lambda _s: None, clock=lambda: 0.0,
+        state_path=tmp_path / "fam.json")
+    drive(rig, 3)
+    assert seen == [(REMOTE, "Print complete.", "printer-a")]

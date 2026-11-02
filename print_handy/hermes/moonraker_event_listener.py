@@ -205,6 +205,16 @@ def post_alert(message, kind, filename):
 def post_plate_picker(plan_id):
     """Post the interactive remaining-plate picker; name the command only when it cannot be delivered."""
     if _buttonless_standalone():
+        try:
+            # Register the pending offer here too (P2-246): the only
+            # remember() call used to sit in the Discord branch below,
+            # so on buttonless platforms (Telegram/Matrix) the plan was
+            # never registered and the empty-bed next-plate offer could
+            # never become due.
+            from . import next_plate_offer
+            next_plate_offer.remember(plan_id)
+        except Exception as exc:
+            log(f"next-plate offer registration failed plan={plan_id}: {exc!r}")
         return post(f"To start the next plate, type `/print-next {plan_id}`.")
     try:
         from . import print_alert_buttons as pab
@@ -420,17 +430,27 @@ def generate_roast(title, summary=""):
         return ""
 
 
-def start_message_with_roast(filename, archive=None, context_path=None):
-    """Format the canonical start message and append a best-effort model roast."""
-    message = print_summary.format_event("started", filename, archive=archive, context_path=context_path)
+def _objects_line(filename, archive=None, context_path=None):
+    """The "Objects still printing: …" line for a job's plate G-code, or "".
+
+    One helper for both start announcements (P2-244): the fresh start
+    post and the claimed start's warmup-done edit must name the same
+    objects. Best-effort — any lookup failure is simply no line.
+    """
     try:
         from ..core.exclude_object import objects_line_for_path
         _job, plate = print_summary.find_job(filename, archive=archive, context_path=context_path)
-        line = objects_line_for_path((plate or {}).get("gcode"))
-        if line:
-            message += "\n" + line
+        return objects_line_for_path((plate or {}).get("gcode")) or ""
     except Exception:
-        pass
+        return ""
+
+
+def start_message_with_roast(filename, archive=None, context_path=None):
+    """Format the canonical start message and append a best-effort model roast."""
+    message = print_summary.format_event("started", filename, archive=archive, context_path=context_path)
+    line = _objects_line(filename, archive=archive, context_path=context_path)
+    if line:
+        message += "\n" + line
     job, _plate = print_summary.find_job(filename, archive=archive)
     title = (job or {}).get("title") or Path(str(filename or "")).stem
     roast = generate_roast(title)
@@ -664,29 +684,61 @@ def filament_sensor_names(objects):
             if isinstance(name, str) and name.startswith(FILAMENT_SENSOR_PREFIXES)]
 
 
+def _sensor_suffix_tokens(name):
+    """The name tokens after a filament sensor's object prefix.
+
+    "filament_switch_sensor extruder1" -> {"extruder1"}; the tokens are
+    how a sensor is associated with an extruder — a whole-token match,
+    so "extruder1" never associates with the "extruder" tool.
+    """
+    suffix = name
+    for prefix in FILAMENT_SENSOR_PREFIXES:
+        if name.startswith(prefix):
+            suffix = name[len(prefix):]
+            break
+    return {token for token in re.split(r"[^0-9A-Za-z]+", suffix) if token}
+
+
 def head_sensor_from_status(status):
     """True/False when an enabled filament sensor at the head answers, else None.
 
     Fail-safe (#442): a sensor that is absent, disabled, or reporting a
-    non-boolean value yields None (unknown), never False — an unreadable
-    sensor must not turn every pause into a runout. Any enabled sensor
-    reporting no filament is decisive (False wins); otherwise one enabled
-    sensor reporting filament means the head is loaded.
+    non-boolean value yields no evidence — an unreadable sensor must not
+    turn every pause into a runout.
+
+    The evidence is restricted to the ACTIVE filament path (P2-171): on
+    a multi-extruder printer the idle tool's sensor reads empty
+    normally, so when the toolhead names the active extruder and some
+    sensors associate with it (the extruder name is a whole token of
+    the sensor's suffix), only those sensors decide — among them, any
+    empty reading is decisive, as before. When no association can be
+    determined, agreeing sensors decide together, and conflicting
+    readings are unknown (None), never a runout on a guess.
     """
     if not isinstance(status, dict):
         return None
-    saw_loaded = False
+    readings = []
     for name, sensor in status.items():
         if not (isinstance(name, str) and name.startswith(FILAMENT_SENSOR_PREFIXES)):
             continue
         if not isinstance(sensor, dict) or sensor.get("enabled") is not True:
             continue
         detected = sensor.get("filament_detected")
-        if detected is False:
-            return False
-        if detected is True:
-            saw_loaded = True
-    return True if saw_loaded else None
+        if isinstance(detected, bool):
+            readings.append((name, detected))
+    if not readings:
+        return None
+    toolhead = status.get("toolhead")
+    active = toolhead.get("extruder") if isinstance(toolhead, dict) else None
+    if isinstance(active, str) and active:
+        associated = [detected for name, detected in readings
+                      if active in _sensor_suffix_tokens(name)]
+        if associated:
+            return False if any(detected is False for detected in associated) else True
+    values = {detected for _name, detected in readings}
+    if len(values) == 1:
+        return values.pop()
+    return None
 
 
 def read_head_sensor():
@@ -703,7 +755,9 @@ def read_head_sensor():
         names = filament_sensor_names(objects)
         if not names:
             return None
-        query = "&".join(urllib.parse.quote(name, safe="") for name in names)
+        # The toolhead rides along: which extruder is active decides
+        # whose sensor counts as runout evidence (P2-171).
+        query = "&".join(urllib.parse.quote(name, safe="") for name in [*names, "toolhead"])
         data = print_control._call(f"/printer/objects/query?{query}")
         status = ((data.get("result") or {}).get("status")
                   if isinstance(data, dict) else None)
@@ -924,14 +978,100 @@ def _post_completion(message, completion_message):
         if announcer.pending_completion_message(state) == completion_message:
             announcer.clear_pending_completion_message(state, completion_message)
             announcer.clear_pending_timelapse_job_key(state)
+            announcer.clear_pending_timelapse_routing(state)
             state["announced_completion"] = True
             announcer.save_state(state)
     return delivered
 
 
+def _persist_timelapse_routing(plan_id, tl_plan):
+    """Record a pending completion's multipart routing beside its job key.
+
+    The pending job key alone cannot replay a multipart completion after
+    a restart: the retry needs the plan marker and the plate picker the
+    original pass parsed from the announcer's one-shot markers (P2-146).
+    """
+    try:
+        state = announcer.load_state()
+        announcer.set_pending_timelapse_routing(state, plan_id, tl_plan)
+        announcer.save_state(state)
+    except Exception as exc:
+        log(f"could not persist timelapse routing: {exc!r}")
+
+
+def _run_announcer_main(reason):
+    """Run one announcer pass and return its stdout ("" when the pass failed)."""
+    out = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(out):
+            announcer.main()
+    except Exception as exc:  # never let one bad pass kill the listener
+        log(f"announcer error ({reason}): {exc!r}")
+        return ""
+    return out.getvalue()
+
+
+def _announcer_markers(output):
+    """One announcer pass's output, split into (marker, plan_id, tl_plan, message)."""
+    lines = output.splitlines()
+    marker = next((line for line in lines if line.startswith("TIMELAPSE_POSTPROCESS:")), None)
+    picker = next((line for line in lines if line.startswith(announcer.PLATE_PICKER_MARKER)), None)
+    plan_id = picker.split(":", 1)[1].strip() if picker else None
+    tl_line = next((line for line in lines if line.startswith(plan_timelapse.PLAN_MARKER)), None)
+    message = "\n".join(line for line in lines
+                        if not line.startswith(("TIMELAPSE_POSTPROCESS:", announcer.PLATE_PICKER_MARKER,
+                                                plan_timelapse.PLAN_MARKER))).strip()
+    tl_plan = None
+    if tl_line:
+        try:
+            tl_id, tl_stage, tl_order = tl_line[len(plan_timelapse.PLAN_MARKER):].strip().split(":")
+            tl_plan = (tl_id, tl_stage, int(tl_order))
+        except ValueError:
+            log(f"ignoring malformed timelapse plan marker {tl_line!r}")
+    return marker, plan_id, tl_plan, message
+
+
+def _process_announcer_markers(output):
+    """Act on the one-shot markers of a pass whose text is handled elsewhere (P2-38).
+
+    A pending-completion pass runs the announcer to advance its state; the
+    pending delivery owns this pass's text, so the announcer's message is
+    NOT posted here. Its markers are one-shot, though: when the same file
+    was printed again while the old completion sat undelivered, the pass
+    consumes the new print's TIMELAPSE_POSTPROCESS / plan / picker
+    markers, and discarding them would skip that print's timelapse and
+    picker permanently. Process them against the text the announcer
+    printed for them — which the pass also stored as the pending
+    completion, so _post_completion acknowledges exactly that delivery.
+    """
+    marker, plan_id, tl_plan, message = _announcer_markers(output)
+    if not marker and not tl_plan and not plan_id:
+        return
+    if not message:
+        message = announcer.pending_completion_message(announcer.load_state()) or ""
+    if tl_plan and tl_plan[1] == "partial":
+        # Plan stopped midway: post what exists so far, labeled partial. No picker.
+        threading.Thread(target=_plan_timelapse_post, args=(None, message, tl_plan), daemon=True,
+                         name="timelapse-partial").start()
+        return
+    if not marker:
+        if tl_plan and tl_plan[1] == "final":
+            _plan_timelapse_post(None, message, tl_plan)
+        if plan_id:
+            post_plate_picker(plan_id)
+        return
+    job_key = announcer._timelapse_job_key(marker.split(":", 1)[1].strip())
+    if not job_key:
+        log(f"timelapse postprocess has no matching active job for {marker!r}")
+        if plan_id:
+            post_plate_picker(plan_id)
+        return
+    _persist_timelapse_routing(plan_id, tl_plan)
+    _start_postprocess(job_key, message, plan_id, tl_plan, "timelapse-postprocess")
+
+
 def run_announcer(reason):
     """Run announcer once; wait to make completion and its video one Discord message."""
-    out = io.StringIO()
     pending = announcer.pending_completion_message(announcer.load_state())
     if pending:
         tl_key = announcer.pending_timelapse_job_key(announcer.load_state())
@@ -946,50 +1086,28 @@ def run_announcer(reason):
             # A render for this key still running in this process is the
             # original postprocess, not a restart: leave it to post once.
             if _claim_postprocess(tl_key):
-                state = announcer.load_state()
-                announcer.clear_pending_timelapse_job_key(state, tl_key)
-                announcer.save_state(state)
-                _start_postprocess(tl_key, pending, None, None, "timelapse-postprocess-retry", claimed=True)
+                # The persisted key stays until the postprocess's delivery
+                # is acknowledged (_post_completion clears it): clearing it
+                # here would lose the video leg entirely if this process
+                # died again mid-retrieval (P2-145). The in-memory claim
+                # above is what keeps one process from re-driving it twice.
+                # The persisted routing replays the original multipart
+                # flow instead of a bare single-plate post (P2-146).
+                plan_id, tl_plan = announcer.pending_timelapse_routing(announcer.load_state())
+                _start_postprocess(tl_key, pending, plan_id, tl_plan,
+                                   "timelapse-postprocess-retry", claimed=True)
             else:
                 log(f"timelapse postprocess for {tl_key!r} still running; not re-driving it")
-            try:
-                with contextlib.redirect_stdout(io.StringIO()):
-                    announcer.main()
-            except Exception as exc:  # never let one bad pass kill the listener
-                log(f"announcer error ({reason}): {exc!r}")
+            _process_announcer_markers(_run_announcer_main(reason))
             return
         delivered = _post_completion(pending, pending)
         if not delivered or announcer.pending_completion_message(announcer.load_state()):
             # Avoid a second identical delivery attempt from main() in this pass.
-            try:
-                with contextlib.redirect_stdout(io.StringIO()):
-                    announcer.main()
-            except Exception as exc:  # never let one bad pass kill the listener
-                log(f"announcer error ({reason}): {exc!r}")
+            _process_announcer_markers(_run_announcer_main(reason))
             return
-    try:
-        with contextlib.redirect_stdout(out):
-            announcer.main()
-    except Exception as exc:  # never let one bad pass kill the listener
-        log(f"announcer error ({reason}): {exc!r}")
-        return
-    lines = out.getvalue().splitlines()
-    marker = next((line for line in lines if line.startswith("TIMELAPSE_POSTPROCESS:")), None)
-    picker = next((line for line in lines if line.startswith(announcer.PLATE_PICKER_MARKER)), None)
-    plan_id = picker.split(":", 1)[1].strip() if picker else None
-    tl_line = next((line for line in lines if line.startswith(plan_timelapse.PLAN_MARKER)), None)
-    message = "\n".join(line for line in lines
-                        if not line.startswith(("TIMELAPSE_POSTPROCESS:", announcer.PLATE_PICKER_MARKER,
-                                                plan_timelapse.PLAN_MARKER))).strip()
+    marker, plan_id, tl_plan, message = _announcer_markers(_run_announcer_main(reason))
     if not message:
         return
-    tl_plan = None
-    if tl_line:
-        try:
-            tl_id, tl_stage, tl_order = tl_line[len(plan_timelapse.PLAN_MARKER):].strip().split(":")
-            tl_plan = (tl_id, tl_stage, int(tl_order))
-        except ValueError:
-            log(f"ignoring malformed timelapse plan marker {tl_line!r}")
     if tl_plan and tl_plan[1] == "partial":
         # Plan stopped midway: post what exists so far, labeled partial. No picker.
         threading.Thread(target=_plan_timelapse_post, args=(None, message, tl_plan), daemon=True,
@@ -1017,11 +1135,18 @@ def run_announcer(reason):
             post_plate_picker(plan_id)
         return
     # Rendering can take minutes; leave the websocket loop alone and post once when done.
+    _persist_timelapse_routing(plan_id, tl_plan)
     _start_postprocess(job_key, message, plan_id, tl_plan, "timelapse-postprocess")
 
 
 def _short_meta(job_key):
-    """Overlay metadata for a vertical short, from what the listener already knows (#317)."""
+    """Overlay metadata for a vertical short, from what the listener already knows (#317).
+
+    Read from where the data actually lives (P2-112): a normal
+    record_start context nests the material under active_spool.material
+    and carries no duration at all; the elapsed time is the completed
+    record's print_duration_seconds.
+    """
     context = {}
     try:
         context = print_records.load_context(job_key) if job_key else {}
@@ -1032,11 +1157,20 @@ def _short_meta(job_key):
         printer_name = printers.current().display_name
     except Exception:
         printer_name = ""
+    spool = context.get("active_spool")
+    material = (context.get("filament_material") or context.get("material")
+                or (spool.get("material") if isinstance(spool, dict) else None))
+    elapsed = context.get("print_duration") or context.get("elapsed_s")
+    if not elapsed and job_key:
+        try:
+            elapsed = print_records.latest_completed_record(job_key).get("print_duration_seconds")
+        except Exception:
+            elapsed = None
     return {
         "title": context.get("title") or clean(job_key or "print"),
         "printer": printer_name,
-        "material": context.get("filament_material") or context.get("material"),
-        "elapsed_s": context.get("print_duration") or context.get("elapsed_s"),
+        "material": material,
+        "elapsed_s": elapsed,
         "outcome": "Done",
     }
 
@@ -1845,6 +1979,15 @@ class FilamentInsertionMonitor:
                 atomic_write_json(self.edge_path, edges)
                 self._armed(current)
             else:
+                if current != self.last_sample:
+                    # The readings changed shape mid-settle: restart the
+                    # window. It measures how long THIS reading has held,
+                    # not how long any disagreement has existed — adopting
+                    # a two-second-old reading on the first reading's
+                    # clock silently rewrote the edges and later produced
+                    # a false insertion prompt when the readings settled
+                    # back (P2-271).
+                    self.settling_since = time.monotonic()
                 self.last_sample = current
             return []
         if not self.baselined:
@@ -1941,12 +2084,16 @@ def announce_warmup_done(filename):
     post and no roast is posted elsewhere.
     """
     text = print_summary.format_event("started", filename)
+    line = _objects_line(filename)
+    if line:
+        text += "\n" + line
     text += "\nWarmup complete, now printing."
     message_id = None
+    channel_id = None
     roast = ""
     try:
         from . import print_next
-        message_id = print_next.take_start_message(filename)
+        message_id, channel_id = print_next.take_start_message_target(filename)
     except Exception as exc:
         log(f"start message lookup failed file={filename!r}: {exc!r}")
     if not message_id:
@@ -1964,7 +2111,10 @@ def announce_warmup_done(filename):
     if message_id:
         try:
             from . import print_alert_buttons as pab
-            if pab.edit_message(_bot_token(), announcer.DISCORD_CHAT_ID,
+            # Edit where the start post actually lives (P2-11): the intake may
+            # have originated in another channel or a thread. Rows recorded
+            # before destinations were kept fall back to the configured one.
+            if pab.edit_message(_bot_token(), channel_id or announcer.DISCORD_CHAT_ID,
                                 message_id, text):
                 log(f"start message edited id={message_id} file={filename!r}")
                 return True
@@ -2462,8 +2612,11 @@ class Listener:
         self.display_off = None  # live ZMod display mode from the last presence poll; None until read
         self.presence_failure = None  # last presence poll failure, logged once until it changes
         self.capture_session = None  # #246 stage 2: active timelapse_capture session, if any
+        self._capture_task = None  # in-flight scheduled capture fetch (P2-133)
+        self.shutdown_alerted = None  # filename whose firmware-stop alert fired for THIS attempt (P2-57)
         self.print_identity = None  # this print's identity, fixed at its fresh start
         self._auto_light = None  # #516: AutoLightPolicy, built lazily from [vision]
+        self._light_idle_task = None  # in-flight scheduled idle light check (P2-200)
         self.light_target = None  # #516: resolved Moonraker light object, cached
         self.light_target_resolved = False
         self.light_unresolved_logged = False
@@ -2482,6 +2635,24 @@ class Listener:
 
     async def open_question(self, slot, cause):
         """Stop charging every spool, remember the question, and ask once. Nag loop repeats it."""
+        if slot is None:
+            # The evidence names no IFS slot (a slotless printer, or a
+            # runout no slot read could place). A persisted slot question
+            # could never be answered with a spool choice here —
+            # apply_runout_choice refuses a slotless record outright —
+            # while suspending usage would stop charging EVERY spool
+            # until that unanswerable question is answered (P2-170).
+            # Post one plain notice and leave usage running instead.
+            log(f"spool question skipped: cause={cause} names no slot; usage left running")
+            await asyncio.to_thread(
+                post,
+                f"**Filament check:** the filament for {clean(self.filename or 'this print')} "
+                f"{'ran out' if cause == 'runout' else 'was unloaded and reloaded mid-print'}, "
+                "but this printer has no IFS slot to ask about, so there is no spool "
+                "question to answer and filament usage has **not** been paused. If you "
+                "loaded a different spool, point usage at it with `/spool` so the "
+                "amounts stay right.")
+            return None
         if load_runout_pause() is not None:
             return None
         from . import spool_sync
@@ -2799,6 +2970,10 @@ class Listener:
             # An unclaimed start gets its own so a mute outlives midnight.
             self.print_identity = identity or f"file:{self.filename}|seen:{time.time()}"
             identity = self.print_identity
+            # The firmware-stop alert dedups per print attempt, not per
+            # filename for the listener's lifetime: a reprint of the same
+            # file must alert again if it stops too (P2-57).
+            self.shutdown_alerted = None
         else:
             identity = self.print_identity or identity
         # A job that ends into standby (printer-side stop, job removed, Klipper
@@ -3107,6 +3282,15 @@ class Listener:
             action = policy.note_verdict(verdict, time.time())
             log(f"auto light idle check verdict={verdict} detail={detail!r}")
             if action == "turn_off":
+                if self.state not in _AUTO_LIGHT_IDLE_STATES:
+                    # A new print started while the snapshot or the vision
+                    # request was in flight: the verdict describes the
+                    # plate as it was, not as it is. Revalidate before
+                    # issuing OFF — never switch the light off under a
+                    # running print (P2-200).
+                    log(f"auto light: idle verdict went stale (printer is "
+                        f"{self.state}); light stays on")
+                    return
                 _on, off_script = light_control.light_scripts(target)
                 await asyncio.to_thread(_send_light_script, off_script)
                 log(f"auto light: plate seen empty for "
@@ -3114,7 +3298,27 @@ class Listener:
         except Exception as exc:
             log(f"auto light idle check failed: {exc!r}")
             with contextlib.suppress(Exception):
-                self._auto_light_policy().note_check(time.time())
+                # A check that could not observe the plate (the camera is
+                # down, say) is an uncertain observation, like a failed
+                # vision verdict: it resets the empty streak instead of
+                # merely advancing the cadence, so one empty verdict after
+                # the camera recovers cannot satisfy the sustained-empty
+                # requirement on a pre-outage streak (P2-201).
+                self._auto_light_policy().note_verdict("uncertain", time.time())
+
+    def _schedule_light_idle_tick(self):
+        """Run the idle light check as a task, off the receive loop (P2-200).
+
+        Awaited inline, the check's snapshot + vision round trip stalled
+        status processing, so a print starting mid-check could not update
+        self.state before the OFF decision. As a task the loop keeps
+        receiving; light_idle_tick revalidates the state before it sends.
+        Single-flight, like the capture fetch.
+        """
+        task = self._light_idle_task
+        if task is not None and not task.done():
+            return
+        self._light_idle_task = asyncio.create_task(self.light_idle_tick())
 
     async def offer_next_plate_if_clear(self):
         """One empty-bed look for a queued plate. Posts an offer. Starts nothing.
@@ -3185,6 +3389,22 @@ class Listener:
         except Exception as exc:
             log(f"timelapse capture tick failed file={self.filename!r}: {exc!r}")
 
+    def _schedule_capture(self, layer):
+        """Run one due capture as a task, off the websocket receive loop (P2-133).
+
+        Awaiting the fetch inline held the receive loop for up to the
+        fetch timeout per attempt, delaying pause/runout handling,
+        firmware-shutdown alerts and completion processing behind a slow
+        camera. Single-flight: a fetch still running when the next status
+        lands is the capture in progress — statuses never queue fetches
+        behind it, and the due check inside the task decides if a frame
+        is owed at all.
+        """
+        task = self._capture_task
+        if task is not None and not task.done():
+            return
+        self._capture_task = asyncio.create_task(self._capture_due(layer))
+
     async def session(self):
         self.ifs_monitor.reset_baseline()
         async with websockets.connect(WS_URL, ping_interval=20, ping_timeout=20, max_size=2**22) as ws:
@@ -3205,12 +3425,12 @@ class Listener:
                         else:
                             status = ((msg.get("result") or {}).get("status") or {}).get("print_stats") or {}
                             await self.on_status(status, "subscribe")
-                            await self._capture_due(_visual_layer(self.last_stats))
+                            self._schedule_capture(_visual_layer(self.last_stats))
                     elif method == "notify_status_update":
                         ps = (msg.get("params") or [{}])[0].get("print_stats")
                         if ps:
                             await self.on_status(ps, "event")
-                            await self._capture_due(_visual_layer(self.last_stats))
+                            self._schedule_capture(_visual_layer(self.last_stats))
                             if self.state == "printing" and _config.cfg()["visual_watch"]["enabled"]:
                                 layer = _visual_layer(self.last_stats)
                                 reason_due = self.visual_watch.due(layer, time.time())
@@ -3250,7 +3470,7 @@ class Listener:
                     except Exception as exc:
                         log(f"spool nag failed: {exc!r}")
                     try:
-                        await self.light_idle_tick()
+                        self._schedule_light_idle_tick()
                     except Exception as exc:
                         log(f"auto light idle tick failed: {exc!r}")
                     try:

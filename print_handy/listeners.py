@@ -268,6 +268,7 @@ def launch(data=None, printer_id=None):
     # exactly like the instance identity above.
     from . import logs
     logs.bind(printer_id=printer_id)
+    logs.bind_process(printer_id=printer_id)  # worker threads inherit no ContextVar (P2-161)
     _run_domain_module(domain.module)
     return 0
 

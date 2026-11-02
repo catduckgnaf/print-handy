@@ -191,8 +191,14 @@ class PrusaPrintMonitor:
                 f"({session.failures} failed fetch(es)); posting the completion without it")
         if video is not None:
             try:
-                self._post(f"{text}\nMEDIA:{video}")
-                return kind
+                # The production sender reports a refusal as a False
+                # return, not an exception (P2-169): only an explicit
+                # False means undelivered — injected senders returning
+                # None delivered fine.
+                if self._post(f"{text}\nMEDIA:{video}") is not False:
+                    return kind
+                log(f"prusa completion post with timelapse was refused for {self.filename!r}; "
+                    "posting the text only")
             except Exception as exc:
                 log(f"prusa completion post with timelapse failed for {self.filename!r}: {exc!r}; "
                     "posting the text only")

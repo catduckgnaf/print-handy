@@ -624,6 +624,38 @@ def clear_pending_timelapse_job_key(state, job_key=None):
     _pending_clear(state, "pending_timelapse_job_keys", "pending_timelapse_job_key", job_key)
 
 
+def pending_timelapse_routing(state):
+    """This printer's pending completion video routing: (plan_id, tl_plan).
+
+    The multipart routing the listener parsed from the completion's
+    one-shot markers, persisted beside the pending timelapse job key so a
+    restart retry replays the original flow (P2-146). (None, None) when
+    nothing was recorded — a plain single-plate completion.
+    """
+    raw = _pending_get(state, "pending_timelapse_routings", "pending_timelapse_routing")
+    if not isinstance(raw, dict):
+        return None, None
+    plan_id = raw.get("plan_id") or None
+    tl_plan = None
+    tl = raw.get("tl_plan")
+    if isinstance(tl, (list, tuple)) and len(tl) == 3:
+        try:
+            tl_plan = (str(tl[0]), str(tl[1]), int(tl[2]))
+        except (TypeError, ValueError):
+            tl_plan = None
+    return plan_id, tl_plan
+
+
+def set_pending_timelapse_routing(state, plan_id, tl_plan):
+    value = {"plan_id": plan_id or None,
+             "tl_plan": [tl_plan[0], tl_plan[1], tl_plan[2]] if tl_plan else None}
+    _pending_set(state, "pending_timelapse_routings", "pending_timelapse_routing", value)
+
+
+def clear_pending_timelapse_routing(state):
+    _pending_clear(state, "pending_timelapse_routings", "pending_timelapse_routing")
+
+
 HISTORY_STATE = {"completed": "complete", "cancelled": "cancelled"}
 
 
@@ -749,7 +781,8 @@ def main():
             "record_written": False,
             "print_started_at": time.time() if state in ACTIVE_STATES else None,
         }
-        for pending_key in ("pending_completion_messages", "pending_timelapse_job_keys"):
+        for pending_key in ("pending_completion_messages", "pending_timelapse_job_keys",
+                            "pending_timelapse_routings"):
             if isinstance(previous.get(pending_key), dict) and previous[pending_key]:
                 fresh[pending_key] = previous[pending_key]
         previous = fresh
@@ -773,6 +806,10 @@ def main():
             # the retrieval instead of posting the pending text bare and
             # losing the video (#373).
             set_pending_timelapse_job_key(previous, job_key)
+            # A new completion supersedes any earlier routing: the listener
+            # records THIS completion's routing from the markers below
+            # before the pass ends (P2-146).
+            clear_pending_timelapse_routing(previous)
         # No roast here (#374): the one roast per print belongs to the start
         # announcement, added when printing begins. Completion never invokes
         # the roast generator.

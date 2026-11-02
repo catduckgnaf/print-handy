@@ -933,13 +933,22 @@ def post_with_buttons(token: str, channel_id: str, content: str, kind: str, file
 
 
 def retire_alerts(token: str, filename: str | None, note: str, kinds: tuple[str, ...] = ("shutdown", "error", "pause", "paused"),
-                  *, headline: str = "Printer firmware stopped.") -> int:
-    """Strip the buttons from stale alerts for this job and say why, so a dead Cancel button is not left behind."""
+                  *, headline: str = "Printer firmware stopped.", printer_id: str | None = None) -> int:
+    """Strip the buttons from stale alerts for this job and say why, so a dead Cancel button is not left behind.
+
+    ``printer_id`` scopes the retirement to one printer's alerts
+    (P2-176): two printers can pause the same filename in one channel,
+    and one printer's print ending must not strip the other's live
+    Resume/Cancel buttons. Unscoped (None) retires every match, as
+    before — the Moonraker listener retires its own printer's alerts
+    that way.
+    """
     retired = 0
     with _LOCK:
         data = _load()
         stale = {aid: a for aid, a in data.items() if isinstance(a, dict) and a.get("kind") in kinds
-                 and (filename is None or a.get("filename") == filename)}
+                 and (filename is None or a.get("filename") == filename)
+                 and (printer_id is None or a.get("printer_id") == printer_id)}
         for aid in stale:
             data.pop(aid, None)
         _save(data)

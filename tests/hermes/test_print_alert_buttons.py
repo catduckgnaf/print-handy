@@ -528,3 +528,23 @@ def test_bind_failure_reports_the_created_spool():
                                       Sync, expected_prior_spool_id=7)
     message = str(excinfo.value)
     assert "#42" in message and "shelf" in message and "slot 2" in message
+def test_retire_alerts_scoped_to_the_owning_printer(tmp_path):
+    """P2-176: two printers can pause the same filename in one channel.
+    One printer's terminal transition retires only its own alerts; the
+    other printer's live Resume/Cancel buttons survive."""
+    with patch.object(pab, "STATE", tmp_path / "alerts.json"), \
+            patch.object(pab.urllib.request, "urlopen", lambda req, timeout: _RetireResponse()):
+        mine = pab.record("paused", "f.gcode", printer_id="printer-a")
+        theirs = pab.record("paused", "f.gcode", printer_id="printer-b")
+        data = pab._load()
+        data[mine].update(message_id="m1", channel_id="c1")
+        data[theirs].update(message_id="m2", channel_id="c1")
+        pab._save(data)
+        assert pab.retire_alerts("token", "f.gcode", "Closed.", ("paused",),
+                                 printer_id="printer-a") == 1
+        assert pab.peek(mine) is None
+        assert pab.peek(theirs) is not None
+        # Unscoped retirement still clears the rest — the Moonraker
+        # listener retires its own printer's alerts that way.
+        assert pab.retire_alerts("token", "f.gcode", "Closed.", ("paused",)) == 1
+        assert pab.peek(theirs) is None

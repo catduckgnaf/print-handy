@@ -359,21 +359,27 @@ class BambuLanClient:
         if rc != 0:
             raise BambuLanError(f"Bambu Lab LAN request was not accepted by the MQTT client (rc={rc}); nothing was sent")
 
-    def _snapshot_mqtt_client(self):
-        """The MQTT client for one snapshot read, on a distinct client ID.
+    def _one_shot_mqtt_client(self, purpose):
+        """The MQTT client for one one-shot interaction, on a distinct client ID.
 
-        A snapshot is a read, not the persistent session: connecting with the
-        listener's client ID (`print-handy-<serial>`) would disconnect the
-        listener (MQTT 3.1.1 §3.1.4), and two reads sharing an ID would
-        disconnect each other, so every read gets a fresh ID (P2-265). Only
-        the built-in Paho factory takes the `client_id` argument; an injected
-        factory keeps the plain (host, serial, access_code) call — that seam
-        is how tests substitute fakes, and no real connection happens there.
+        A one-shot interaction is not the persistent session: connecting with
+        the listener's client ID (`print-handy-<serial>`) would disconnect
+        the listener (MQTT 3.1.1 §3.1.4), and two one-shots sharing an ID
+        would disconnect each other, so every one gets a fresh ID naming its
+        purpose (snapshot reads: P2-265; chamber-light commands: P2-206).
+        Only the built-in Paho factory takes the `client_id` argument; an
+        injected factory keeps the plain (host, serial, access_code) call —
+        that seam is how tests substitute fakes, and no real connection
+        happens there.
         """
         if self._mqtt_factory is _paho_factory:
-            client_id = f"print-handy-{self.serial.lower()}-status-{secrets.token_hex(4)}"
+            client_id = f"print-handy-{self.serial.lower()}-{purpose}-{secrets.token_hex(4)}"
             return _paho_factory(self.host, self.serial, self._access_code, client_id=client_id)
         return self._mqtt_factory(self.host, self.serial, self._access_code)
+
+    def _snapshot_mqtt_client(self):
+        """The MQTT client for one snapshot read (see _one_shot_mqtt_client)."""
+        return self._one_shot_mqtt_client("status")
 
     def snapshot(self):
         """Return {"print": {...}, "info": {...} | None, "online": True} from a complete pushall.
@@ -479,14 +485,20 @@ class BambuLanClient:
                                 "this file — delete it on the printer and upload again")
         return name
 
-    def _send(self, payload):
+    def _send(self, payload, *, one_shot=None):
         """Publish one command payload and wait until the client accepts it. Transport only.
 
         A successful return means the payload was handed to the MQTT client without an
         error — not that the printer acted on it. Callers confirm effects from a fresh
         snapshot. Raises BambuLanError on refusal, access denial or timeout.
+
+        ``one_shot`` names a fire-and-forget purpose (the chamber light):
+        the send then connects on a fresh distinct client ID instead of
+        the listener's session ID, so it can never disconnect the
+        listener's session (P2-206).
         """
-        client = self._mqtt_factory(self.host, self.serial, self._access_code)
+        client = (self._one_shot_mqtt_client(one_shot) if one_shot
+                  else self._mqtt_factory(self.host, self.serial, self._access_code))
         state = {"sent": False, "denied": False, "failed": None}
 
         def on_connect(mqtt_client, _userdata, _flags, reason_code, *_rest):
@@ -555,5 +567,9 @@ class BambuLanClient:
         A successful return means the command was handed to the MQTT
         client — callers confirm the effect from a fresh snapshot's
         lights_report, the same posture as the print controls.
+
+        Sent as a one-shot (P2-206): the auto light-off driver toggles
+        the light at every print start/end and idle-off, and each toggle
+        on the listener's session ID would disconnect the listener.
         """
-        self._send(chamber_light_payload(on))
+        self._send(chamber_light_payload(on), one_shot="light")

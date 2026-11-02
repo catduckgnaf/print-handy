@@ -603,6 +603,47 @@ class ListenerCaptureHookTests(unittest.IsolatedAsyncioTestCase):
         listener.after_print.assert_awaited_once_with("error")
         listener._retire_paused_prompt.assert_awaited_once_with("error")
 
+    async def test_a_fresh_start_resets_the_shutdown_alert_dedup(self):
+        # P2-57: the firmware-stop alert dedups per print ATTEMPT. A first
+        # attempt's alert must not suppress the alert for a reprint of the
+        # same file: the marker resets when a genuinely new print begins.
+        self.install_config(capture_enabled=True)
+        listener = mel.Listener()
+        listener.shutdown_alerted = "benchy.gcode"  # attempt 1 already alerted
+        with mock.patch.object(timelapse_capture, "fetch_frame", return_value=JPEG):
+            await self.drive_start(listener)  # attempt 2 of the same file begins
+        self.assertIsNone(listener.shutdown_alerted)
+
+    async def test_capture_is_scheduled_single_flight_off_the_receive_loop(self):
+        # P2-133: scheduling a capture returns at once (the fetch runs in a
+        # task, not inline in the websocket receive path), and a second
+        # schedule while a fetch is in flight starts no second fetch.
+        import asyncio as _asyncio
+        self.install_config(capture_enabled=True)
+        listener = mel.Listener()
+        with mock.patch.object(timelapse_capture, "fetch_frame", return_value=JPEG):
+            await self.drive_start(listener)
+            session = listener.capture_session
+            ticks = []
+            gate = _asyncio.Event()
+
+            async def blocking_tick(layer):
+                ticks.append(layer)
+                await gate.wait()
+
+            listener._capture_due = blocking_tick
+            listener._schedule_capture(1)
+            listener._schedule_capture(2)  # in flight already: no second task
+            self.assertEqual(ticks, [])  # nothing ran inline in the caller
+            await _asyncio.sleep(0)
+            self.assertEqual(ticks, [1])
+            gate.set()
+            await listener._capture_task
+            listener._schedule_capture(3)  # free again: a new task may run
+            await listener._capture_task
+            self.assertEqual(ticks, [1, 3])
+            listener._capture_end("complete")
+
     async def test_a_new_print_replaces_a_capture_a_missed_end_left_open(self):
         self.install_config(capture_enabled=True)
         listener = mel.Listener()

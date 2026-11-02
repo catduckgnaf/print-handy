@@ -52,6 +52,22 @@ def test_timelapse_movies_tolerates_a_missing_key():
     assert client.timelapse_movies() == []
 
 
+def test_timelapse_unrendered_parses_the_render_queue():
+    """P2-147: the same listing carries the renders still in OctoPrint's
+    background queue — the monitor waits on those before giving up."""
+    seen = []
+    client = _client([json.dumps({"movies": [],
+                                   "unrendered": [{"name": "job_20261026171200.mp4"}]}).encode()],
+                     seen)
+    assert client.timelapse_unrendered() == [{"name": "job_20261026171200.mp4"}]
+    assert seen[0].full_url == "http://octo.test:5000/api/timelapse"
+
+
+def test_timelapse_unrendered_tolerates_a_missing_key():
+    client = _client([b"{}"], [])
+    assert client.timelapse_unrendered() == []
+
+
 def test_download_returns_raw_bytes_with_auth():
     seen = []
     client = _client([b"\x00\x01video"], seen)

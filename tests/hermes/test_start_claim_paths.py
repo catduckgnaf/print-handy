@@ -22,3 +22,25 @@ def test_start_message_found_by_printer_path(tmp_path, monkeypatch):
     print_next.record_start_message(UPLOADED, "123")
     assert print_next.take_start_message("3mf_print/Slim_plate_1_ab.gcode") == "123"
     assert print_next.take_start_message("3mf_print/Slim_plate_1_ab.gcode") is None
+
+
+def test_start_message_records_originating_channel(tmp_path, monkeypatch):
+    """P2-11: the destination the start post went to is recorded with the id,
+    so the warmup edit targets the originating channel, not the configured one."""
+    monkeypatch.setattr(print_next, "START_MESSAGES", tmp_path / "messages.json")
+    print_next.record_start_message(UPLOADED, "123", chat_id="chan9")
+    assert print_next.take_start_message_target("3mf_print/Slim_plate_1_ab.gcode") == ("123", "chan9")
+    assert print_next.take_start_message_target("3mf_print/Slim_plate_1_ab.gcode") == (None, None)
+
+
+def test_start_message_records_originating_thread_over_channel(tmp_path, monkeypatch):
+    """A start posted into a Discord thread lives in the thread channel."""
+    monkeypatch.setattr(print_next, "START_MESSAGES", tmp_path / "messages.json")
+    print_next.record_start_message(UPLOADED, "124", chat_id="chan9", thread_id="thread7")
+    assert print_next.take_start_message_target(UPLOADED) == ("124", "thread7")
+
+
+def test_start_message_without_destination_records_none(tmp_path, monkeypatch):
+    monkeypatch.setattr(print_next, "START_MESSAGES", tmp_path / "messages.json")
+    print_next.record_start_message(UPLOADED, "125")
+    assert print_next.take_start_message_target(UPLOADED) == ("125", None)

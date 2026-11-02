@@ -60,6 +60,26 @@ def test_dismiss_clears_the_offer_state():
     assert "next_plate_offer" in drop and "clear" in drop
 
 
+def test_the_picker_registers_the_plan_on_a_buttonless_platform(tmp_path, monkeypatch):
+    """P2-246: Telegram/Matrix have no buttons, so post_plate_picker
+    returns early with the typed command — but the next-plate offer
+    registration lived behind that return (inside the Discord branch),
+    so on buttonless platforms the plan was never registered and the
+    empty-bed offer could never become due."""
+    from print_handy.hermes import _config
+    from print_handy.hermes import moonraker_event_listener as mel
+    from print_handy.hermes import next_plate_offer as npo
+    monkeypatch.setenv("PRINT_HANDY_NEXT_PLATE_OFFER", str(tmp_path / "offer.json"))
+    monkeypatch.setitem(_config.cfg()["bot"], "mode", "standalone")
+    monkeypatch.setitem(_config.cfg()["bot"], "platform", "telegram")
+    posted = []
+    monkeypatch.setattr(mel, "post", lambda message: posted.append(message) or True)
+    assert mel.post_plate_picker("plan-9") is True
+    assert posted and "/print-next plan-9" in posted[0]
+    assert npo._load()["plan_id"] == "plan-9"
+    assert npo.due(now=10**12) is True
+
+
 def test_bed_check_does_not_run_during_a_print(tmp_path, monkeypatch):
     import asyncio
     from print_handy.hermes import moonraker_event_listener as mel

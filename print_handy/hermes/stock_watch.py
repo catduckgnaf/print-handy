@@ -170,9 +170,21 @@ class StockPrintMonitor:
     # -- capture lifecycle -------------------------------------------------
 
     def _begin_default(self, url):
-        return timelapse_capture.begin(
+        session = timelapse_capture.begin(
             self.filename, self.filename, url=url,
             fetch=timelapse_capture.fetch_mjpeg_frame, log=log)
+        if session is not None and getattr(session.trigger, "name", "") == "layer":
+            # Stock status carries no layer (the stock client's status
+            # has no layer field), so a layer-triggered session could
+            # never fire on this family. Fall back to the configured
+            # interval so the capture actually runs (P2-140). A "both"
+            # trigger needs no fallback: its interval floor already
+            # fires without layer changes.
+            interval = timelapse_capture.capture_settings()["capture_interval_s"]
+            session.trigger = timelapse_capture.IntervalTrigger(interval)
+            log(f"stock capture for {self.filename!r}: the layer trigger cannot "
+                f"fire without layer status; capturing every {interval:g}s instead")
+        return session
 
     def _begin_capture(self):
         """Open the one capture session for this print. Never raises.
@@ -193,14 +205,12 @@ class StockPrintMonitor:
                 "(cameraStreamUrl empty — no camera installed or camera disabled); "
                 "no timelapse for this print")
             return None
-        try:
-            self._stream_fn("open")
-            self._stream_open = True
-        except Exception as exc:
-            # The stream may already be open (or the firmware may serve it
-            # without the control); capture proceeds and the fetch decides.
-            log(f"stock camera stream open failed for {self.filename!r}: {exc!r}; "
-                "trying to capture anyway")
+        # The capture gate runs first (P2-139): begin() decides whether a
+        # session exists at all (it refuses when capture is disabled).
+        # Only a created session may open the camera stream — opening it
+        # for a refused capture switches the camera on for a session that
+        # can never take a frame, and the stale open flag would later
+        # "close" a stream this monitor never opened.
         try:
             session = self._begin_fn(url)
         except Exception as exc:
@@ -209,6 +219,15 @@ class StockPrintMonitor:
         if session is None:
             log(f"timelapse capture unavailable for {self.filename!r} "
                 "(capture disabled or refused); the print continues without it")
+            return None
+        try:
+            self._stream_fn("open")
+            self._stream_open = True
+        except Exception as exc:
+            # The stream may already be open (or the firmware may serve it
+            # without the control); capture proceeds and the fetch decides.
+            log(f"stock camera stream open failed for {self.filename!r}: {exc!r}; "
+                "trying to capture anyway")
         return session
 
     def _stop_capture(self, state):
@@ -255,8 +274,13 @@ class StockPrintMonitor:
                     f"({session.failures} failed fetch(es)); posting the completion without it")
         if video is not None:
             try:
-                self._post(f"{text}\nMEDIA:{video}")
-                return kind
+                # The production sender reports a refusal as a False
+                # return, not an exception (the P2-169/P2-173 contract):
+                # only an explicit False means undelivered.
+                if self._post(f"{text}\nMEDIA:{video}") is not False:
+                    return kind
+                log(f"stock completion post with timelapse was refused for {self.filename!r}; "
+                    "posting the text only")
             except Exception as exc:
                 log(f"stock completion post with timelapse failed for {self.filename!r}: {exc!r}; "
                     "posting the text only")

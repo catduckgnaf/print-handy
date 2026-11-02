@@ -117,6 +117,32 @@ def load_context(job_key: str, path: Path | None = None) -> dict[str, Any]:
     return {}
 
 
+def latest_completed_record(job_key: str) -> dict[str, Any]:
+    """The newest finished record for a job key, or {} when none is written.
+
+    Completion facts (duration above all) live in the completed record,
+    not the start context; readers that need them after the fact — the
+    vertical short's overlay (P2-112) — look here. In-progress records
+    never answer: their duration is not the print's yet.
+    """
+    best: dict[str, Any] = {}
+    best_at = ""
+    try:
+        paths = list(PRINTS_DIR.glob("*.json"))
+    except OSError:
+        return {}
+    for path in paths:
+        record = _read_json_record(path)
+        if not record or record.get("job_key") != job_key:
+            continue
+        if record.get("status") in (None, "printing"):
+            continue
+        at = str(record.get("completed_at") or "")
+        if not best or at >= best_at:
+            best, best_at = record, at
+    return best
+
+
 def _valid_print_number(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
 
