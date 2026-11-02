@@ -72,7 +72,7 @@ A bed-clear approval starts one print. Starting the same G-code again needs a ne
   every platform. The fuzzy extension scores near misses of those asks against rival spool
   intents with the shared scorer: only a clear, uncontested match earns a did-you-mean prompt,
   and the view shows only on a yes. The scorer's canonical fold also equates the color
-  spellings (colour/color, grey/gray), so a "Silk Grey" spool matches a "gray" ask everywhere
+  spellings (colour/color, grey/gray), so a "Silk Grey" spool matches a "gray" ask everywhere <!-- us-spelling: allow colour -->
   fuzzy matching runs. A slot with
   filament recorded but no spool bound is named as unrecorded rather than dropped, and a
   Spoolman outage costs only the amounts (named unavailable), per the #387 fail-soft posture.
