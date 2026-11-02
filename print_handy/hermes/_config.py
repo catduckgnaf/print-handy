@@ -33,6 +33,25 @@ def profile_config_path() -> Path:
     return hermes_home() / "config.yaml"
 
 
+def _parse_yaml(text: str):
+    """Parse YAML text with settings' loader fallback (P2-149).
+
+    PyYAML is preferred, but the Hermes plugin runtime ships ruamel.yaml
+    instead (#170) — settings resolved that choice at its own import, so
+    reuse its loader rather than importing yaml unconditionally (which
+    raised ImportError out of the platform check on ruamel-only hosts).
+    Raises when no YAML library is reachable at all; the caller maps
+    that to its 'unreadable' state.
+    """
+    try:
+        import yaml
+    except ImportError:
+        if settings._yaml_load is None:
+            raise
+        return settings._yaml_load(text)
+    return yaml.safe_load(text)
+
+
 def profile_platform_state(platform: str = "discord", path: Path | None = None) -> tuple[str, Path]:
     """(state, path): the gateway platform switch in the Hermes profile config.
 
@@ -50,9 +69,8 @@ def profile_platform_state(platform: str = "discord", path: Path | None = None) 
     path = Path(path) if path is not None else profile_config_path()
     if not path.is_file():
         return "missing", path
-    import yaml
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        data = _parse_yaml(path.read_text(encoding="utf-8"))
     except Exception:
         return "unreadable", path
     if not isinstance(data, dict):
