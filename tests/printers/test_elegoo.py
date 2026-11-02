@@ -166,7 +166,7 @@ class FakeWs:
                                       "Data": {"Cmd": body["Cmd"], "Data": payload,
                                                "RequestID": body["RequestID"], "Ack": 0}}))
 
-    def recv(self):
+    def recv(self, timeout=None):
         return self.queue.pop(0)
 
     def close(self):
@@ -305,6 +305,40 @@ def test_sdcp_upload_size_mismatch_refuses(tmp_path):
     server.file_size = 9999  # the printer's copy disagrees with what was uploaded
     with pytest.raises(SdcpError, match="could not be verified"):
         client.upload(gcode)
+
+
+class SilentWs:
+    """A peer that takes the request but never answers (P2-89).
+
+    Models the real socket: recv() with no timeout would block forever, so it
+    raises a distinctive error instead; recv(timeout=...) raises TimeoutError,
+    the way the websockets sync client does when the deadline passes.
+    """
+
+    def __init__(self):
+        self.recv_timeouts = []
+
+    def send(self, raw):
+        pass
+
+    def recv(self, timeout=None):
+        self.recv_timeouts.append(timeout)
+        if timeout is None:
+            raise RuntimeError("recv without a timeout would block forever")
+        raise TimeoutError("timed out")
+
+    def close(self):
+        pass
+
+
+def test_sdcp_request_recv_is_bounded_by_request_timeout():
+    ws = SilentWs()
+    client = SdcpClient("192.168.1.80", "MID123", ws_factory=lambda url: ws,
+                        request_timeout=0.5)
+    with pytest.raises(SdcpError, match="did not answer SDCP command 0 in time"):
+        client.status()
+    # Every receive was handed a positive slice of the request deadline.
+    assert ws.recv_timeouts and all(t is not None and 0 < t <= 0.5 for t in ws.recv_timeouts)
 
 
 def test_sdcp_bad_inputs(tmp_path):

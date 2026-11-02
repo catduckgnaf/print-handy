@@ -173,9 +173,18 @@ class SdcpClient:
             self.close()
             raise SdcpError(f"sending SDCP command {cmd} to {self.host} failed: {exc}") from exc
         deadline = time.monotonic() + (timeout or self.request_timeout)
-        while time.monotonic() < deadline:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
             try:
-                raw = ws.recv()
+                # Each receive is bounded by what is left of the deadline: a
+                # printer that holds the socket open but stops answering must
+                # not block the request past request_timeout (P2-89).
+                raw = ws.recv(timeout=remaining)
+            except TimeoutError as exc:
+                self.close()
+                raise SdcpError(f"the printer did not answer SDCP command {cmd} in time") from exc
             except Exception as exc:
                 self.close()
                 raise SdcpError(f"the SDCP connection to {self.host} dropped during command {cmd}: {exc}") from exc
