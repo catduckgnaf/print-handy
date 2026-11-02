@@ -180,11 +180,17 @@ def _clarify_gateway_stand_in():
             prompts.pop(cid, None)
         return e.answer if got else None
 
+    def is_open(cid):
+        with lock:
+            e = prompts.get(cid)
+            return e is not None and not e.event.is_set()
+
     module = types.ModuleType("tools.clarify_gateway")
     module.CANCELLED = "__cancelled__"
     module.register = register
     module.resolve_gateway_clarify = resolve_gateway_clarify
     module.wait_for_response = wait_for_response
+    module.is_open = is_open
     package = sys.modules.get("tools") or types.ModuleType("tools")
     package.clarify_gateway = module
     sys.modules["tools"] = package

@@ -128,6 +128,17 @@ def typed_reply(source, text):
     if len(printers) > 1:
         return None
     cid, parser = _typed_prompts[keys[-1]]
+    is_open = getattr(cm, 'is_open', None)
+    if is_open is not None and not is_open(cid):
+        # The prompt already closed — a button answered it, it expired, it
+        # was cancelled — but this entry outlives it until the intake's own
+        # cleanup runs. Never run the parser for a closed prompt (P2-253):
+        # a connect prompt's parser writes the pasted credential to config,
+        # so a token arriving after Cancel or Save would still be saved,
+        # and the message would then fall through to ordinary chat handling.
+        # (A gateway build without is_open keeps the resolve-time check
+        # below instead of breaking every typed reply.)
+        return None
     global _resolved_prompt_id
     if str(text or '').strip().casefold() in CANCEL_WORDS:
         if cm.resolve_gateway_clarify(cid, 'cancel'):
@@ -155,11 +166,16 @@ def typed_reply(source, text):
         wire = str(text)
     # A prompt a button already answered is closed: let the text fall through instead of swallowing it.
     resolved = cm.resolve_gateway_clarify(cid, wire)
-    if not resolved:
-        _secret_taken = False
-    else:
+    if resolved:
         _resolved_prompt_id = cid
-    return '' if resolved else None
+        return ''
+    if _secret_taken:
+        # The parser saved a secret but the prompt closed underneath it (a
+        # button won the race mid-parse): the reply is still consumed and
+        # the dispatcher still deletes the message — a saved credential
+        # must never fall through to ordinary chat handling (P2-253).
+        return ''
+    return None
 
 
 # A parser that took a secret (a pasted login token) calls note_secret_reply()

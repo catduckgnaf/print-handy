@@ -99,7 +99,7 @@ def _scratch_state(tmp_path, monkeypatch):
 @pytest.fixture(scope="package", autouse=True)
 def _clarify_gateway_stand_in():
     """Hermes' clarify gateway is not installed in CI. Install an in-memory stand in with the same
-    four calls the intake code makes (register, wait_for_response, resolve_gateway_clarify, CANCELLED).
+    calls the intake code makes (register, wait_for_response, resolve_gateway_clarify, is_open, CANCELLED).
     Package scope so it leaves with tests/pipeline (see tests/hermes/conftest.py)."""
     try:
         import tools.clarify_gateway  # noqa: F401
@@ -135,11 +135,17 @@ def _clarify_gateway_stand_in():
             prompts.pop(cid, None)
         return e.answer if got else None
 
+    def is_open(cid):
+        with lock:
+            e = prompts.get(cid)
+            return e is not None and not e.event.is_set()
+
     module = types.ModuleType("tools.clarify_gateway")
     module.CANCELLED = "__cancelled__"
     module.register = register
     module.resolve_gateway_clarify = resolve_gateway_clarify
     module.wait_for_response = wait_for_response
+    module.is_open = is_open
     package = sys.modules.get("tools") or types.ModuleType("tools")
     package.clarify_gateway = module
     sys.modules["tools"] = package
