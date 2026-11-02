@@ -53,6 +53,25 @@ def test_unrelated_text_is_not_consumed_without_a_session(tmp_path):
     assert say(store(tmp_path), "/print-stop") is None
 
 
+def test_a_failed_setup_apply_logs_the_reason_it_names(tmp_path, caplog):
+    """The failure reply says 'the detail is in the log' (P2-180), so the
+    exception must actually be logged before the reply drops it: actionable
+    refusals (an existing config that must be edited or moved aside) were
+    lost entirely because this handler never logged and guided had no
+    logger. The checklist stays at review for the retry either way."""
+    st = store(tmp_path)
+    finish_steps(st)
+
+    def boom(answers):
+        raise RuntimeError("the existing config/local.yaml already describes a printer; move it aside")
+
+    with caplog.at_level("WARNING", logger="print_handy.bot.guided"):
+        out = say(st, "apply", apply_config=boom)
+    assert "the detail is in the log" in out
+    assert "already describes a printer" in caplog.text
+    assert st.get("k")["status"] == "awaiting_consent"
+
+
 # ---------------------------------------------------------------------- setup flow
 
 def test_setup_walks_small_steps_and_persists_a_checklist(tmp_path):

@@ -23,47 +23,147 @@ _active = False
 
 
 class _Prompt:
-    __slots__ = ("session_key", "question", "choices", "event", "answer", "created")
+    __slots__ = ("session_key", "question", "choices", "event", "answer", "created", "approval",
+                 "reserved")
 
-    def __init__(self, session_key, question, choices):
+    def __init__(self, session_key, question, choices, approval=False):
         self.session_key = str(session_key or "")
         self.question = str(question or "")
         self.choices = list(choices or [])
         self.event = threading.Event()
         self.answer = None
         self.created = time.monotonic()
+        self.approval = bool(approval)
+        self.reserved = None  # an answer recorded but not yet committed (P2-166)
 
 
-def register(clarify_id, session_key, question, choices):
-    """Open a prompt. Call before the buttons are sent: a fast click must find it."""
+def register(clarify_id, session_key, question, choices, approval=False):
+    """Open a prompt. Call before the buttons are sent: a fast click must find it.
+
+    ``approval`` marks a print approval (P1-93): a prompt whose answer starts
+    a print. Platform adapters resolve those only for the approval user when
+    one is configured, however open the channel otherwise is.
+    """
     with _lock:
-        _prompts[str(clarify_id)] = _Prompt(session_key, question, choices)
+        _prompts[str(clarify_id)] = _Prompt(session_key, question, choices, approval)
+        if approval:
+            _approval_marks[str(clarify_id)] = time.monotonic()
+
+
+# Approval marks live outside the registry on purpose: a flow may register
+# its prompt with the Hermes clarify gateway (whose register() takes no
+# approval flag) while the standalone adapters still need to know the prompt
+# is an approval. Marks are consulted by is_approval() whenever the prompt
+# itself is not in this registry, and pruned a day after they are made —
+# far beyond any prompt's wait.
+_APPROVAL_MARK_TTL_S = 24 * 3600
+_approval_marks: dict[str, float] = {}
+
+
+def mark_approval(clarify_id):
+    """Mark an already-registered prompt as a print approval (P1-93)."""
+    with _lock:
+        _approval_marks[str(clarify_id)] = time.monotonic()
+        prompt = _prompts.get(str(clarify_id))
+        if prompt is not None:
+            prompt.approval = True
+
+
+def forget_approval(clarify_id):
+    """Drop a prompt's approval mark (it resolved, expired or was cancelled)."""
+    with _lock:
+        _approval_marks.pop(str(clarify_id), None)
+
+
+def is_approval(clarify_id):
+    """True while ``clarify_id`` names a print-approval prompt (P1-93)."""
+    key = str(clarify_id)
+    with _lock:
+        prompt = _prompts.get(key)
+        if prompt is not None and not prompt.event.is_set():
+            return bool(prompt.approval)
+        marked = _approval_marks.get(key)
+        if marked is None:
+            return False
+        if time.monotonic() - marked > _APPROVAL_MARK_TTL_S:
+            _approval_marks.pop(key, None)
+            return False
+        return True
+
+
+def reserve_gateway_clarify(clarify_id, answer):
+    """Record an answer without waking the waiter yet (P2-166).
+
+    A platform that must finish network I/O before the flow may continue
+    (Matrix posts its close-out note first, #416) reserves the answer the
+    moment it arrives: the waiter's timeout then holds for the commit
+    instead of discarding the prompt, and the reserver commits with
+    :func:`resolve_gateway_clarify` — the same answer — once its I/O is
+    done. First answer wins: a reservation refuses later answers exactly
+    like a resolution does. True when this call reserved the prompt.
+    """
+    with _lock:
+        prompt = _prompts.get(str(clarify_id))
+        if prompt is None or prompt.event.is_set() or prompt.reserved is not None:
+            return False
+        prompt.reserved = answer
+        return True
 
 
 def resolve_gateway_clarify(clarify_id, answer):
-    """Answer an open prompt. True for the first answer, False when it is unknown or already answered."""
+    """Answer an open prompt. True for the first answer, False when it is unknown or already answered.
+
+    A prompt with a reserved answer (P2-166) resolves only with that
+    answer — the reserver committing its reservation; any other answer
+    arrived second and loses."""
     with _lock:
         prompt = _prompts.get(str(clarify_id))
         if prompt is None or prompt.event.is_set():
             return False
+        if prompt.reserved is not None and answer != prompt.reserved:
+            return False
         prompt.answer = answer
         prompt.event.set()
+        _approval_marks.pop(str(clarify_id), None)
         return True
+
+
+# How long a wait may outlast its own timeout for a reserved prompt's
+# commit (P2-166). The reserver's remaining I/O is one close-out note
+# send — a single HTTP call with its own 30 s timeout — so this is
+# generous headroom, never the normal path.
+_RESERVE_GRACE_S = 120
 
 
 def wait_for_response(clarify_id, timeout=None):
     """Block until the prompt is answered. Returns the answer, or None on timeout or an unknown id.
 
     The prompt is closed either way, so a late click finds nothing to resolve.
+    A prompt whose answer is reserved (P2-166) is not discarded when the
+    timeout passes: its reserver is mid-commit, so the wait extends once,
+    by a bounded grace period, for the commit to land.
     """
     with _lock:
         prompt = _prompts.get(str(clarify_id))
     if prompt is None:
         return None
-    got = prompt.event.wait(timeout)
+    deadline = None if timeout is None else time.monotonic() + timeout
+    extended = False
+    while True:
+        remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
+        got = prompt.event.wait(remaining)
+        if got:
+            break
+        with _lock:
+            reserved = prompt.reserved is not None and _prompts.get(str(clarify_id)) is prompt
+        if not reserved or extended:
+            break
+        extended = True
+        deadline = time.monotonic() + _RESERVE_GRACE_S
     with _lock:
         if _prompts.get(str(clarify_id)) is prompt:
             _prompts.pop(str(clarify_id), None)
+        _approval_marks.pop(str(clarify_id), None)
     return prompt.answer if got else None
 
 

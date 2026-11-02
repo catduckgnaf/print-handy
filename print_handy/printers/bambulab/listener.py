@@ -23,7 +23,8 @@ docs/BAMBU-CONNECTIVITY.md):
 - State is a persistent merged object (``client.merge_print``): partial
   frames update the fields they carry, nothing else.
 - **Staleness + hard-reset reconnect:** no message for 60 s means the
-  session is stale. A reconnect retires the MQTT client object entirely
+  session is stale; the clock starts at connect, so a session that never
+  receives a first report is recycled on the same deadline. A reconnect retires the MQTT client object entirely
   and builds a fresh one from the factory (clean session), so a publish
   queued on the dead client can never replay into a later session — the
   safety property behind Bambuddy's hard reset. Reconnects wait a 30 s
@@ -123,6 +124,12 @@ class BambuListener:
         self._status_key = None
         self._terminal_key = None
         self._error_key = None
+        # Periodic-hook state: the staleness clock starts at connect (P2-116),
+        # and the idle-observation / debug-poll hooks run on the heartbeat
+        # cadence inside the session loop (P1-107, P2-187).
+        self._session_started_at = None
+        self._status_emitted_at = None
+        self._last_debug_poll_at = None
 
     # ------------------------------------------------------------ events
     def _emit(self, kind, status, **details):
@@ -161,10 +168,14 @@ class BambuListener:
             transition = "paused"
         elif state == "standby" and prev_state in ("printing", "paused"):
             transition = "cancelled"  # a stop returns the printer to idle
-        key = (state, filename, status.get("layer"))
+        # Dedupe against the whole reported status (P2-117): a delta that
+        # changes only progress, temperatures, targets or remaining time is
+        # a real update the sink must see, not a repeat.
+        key = json.dumps(status, sort_keys=True, default=str)
         if transition is not None or key != self._status_key:
             self._emit("status", status, transition=transition)
             self._status_key = key
+            self._status_emitted_at = self._clock()
         if state == "complete" and prev_state in ("printing", "paused"):
             terminal = ("completion", filename)
             if self._terminal_key != terminal:
@@ -253,6 +264,8 @@ class BambuListener:
         self._snapshot_announced = False
         self._layer1_pushall_for = None
         self._last_message_at = None
+        self._session_started_at = self._clock()
+        self._status_emitted_at = None
         try:
             try:
                 client.connect(lan.host, MQTT_PORT, keepalive=KEEPALIVE_S)
@@ -267,18 +280,61 @@ class BambuListener:
                     raise BambuLanError(f"Bambu Lab LAN connection failed: {box['failed']}")
                 client.loop(timeout=LOOP_TICK_S)
                 now = self._clock()
-                if (self._last_message_at is not None
-                        and now - self._last_message_at > STALE_AFTER_S):
+                # The staleness clock starts at connect (P2-116): a session
+                # that never receives a first report goes stale on the same
+                # 60 s deadline instead of being held forever.
+                last_heard = (self._last_message_at if self._last_message_at is not None
+                              else self._session_started_at)
+                if last_heard is not None and now - last_heard > STALE_AFTER_S:
                     raise _StaleConnection(
-                        f"no message from the printer for {now - self._last_message_at:.0f}s")
+                        f"no message from the printer for {now - last_heard:.0f}s")
                 self._maybe_layer1_pushall(client)
                 self._maybe_beat()
+                self._maybe_poll_debug()
+                self._maybe_idle_observation()
         finally:
             self._connected = False
             try:
                 client.disconnect()
             except Exception:
                 pass
+
+    # Terminal states for the idle-observation hook; mirrors the set the
+    # family event sink feeds the auto-light policy (family_control).
+    _TERMINAL_STATES = ("complete", "cancelled", "error", "standby")
+
+    def _maybe_idle_observation(self):
+        """Forward an idle observation on the heartbeat cadence (P1-107).
+
+        Status events are deduped, so a printer sitting unchanged in a
+        terminal state emits nothing further — and the sink's auto-light
+        idle checks, which run off status observations, starve with the
+        window open. While the state stays terminal, re-forward the
+        current status periodically, independently of dedupe; the sink's
+        policy gates how often a plate check really runs.
+        """
+        if self._status is None or self._status["state"] not in self._TERMINAL_STATES:
+            return
+        now = self._clock()
+        if (self._status_emitted_at is not None
+                and now - self._status_emitted_at < healthcheck.HEARTBEAT_S):
+            return
+        self._status_emitted_at = now
+        self._emit("status", self._status, transition=None)
+
+    def _maybe_poll_debug(self):
+        """Poll the shared debug-mode state on the heartbeat cadence (P2-187).
+
+        run_forever polls between sessions, but a healthy session can run
+        for hours: debug start, stop and expiry must be observed while it
+        is live, not only after a reconnect.
+        """
+        now = self._clock()
+        if (self._last_debug_poll_at is not None
+                and now - self._last_debug_poll_at < healthcheck.HEARTBEAT_S):
+            return
+        self._last_debug_poll_at = now
+        self._poll_debug_mode()
 
     def _maybe_layer1_pushall(self, client):
         """pushall once at layer 1 when the layer total is still unknown (audit fact)."""

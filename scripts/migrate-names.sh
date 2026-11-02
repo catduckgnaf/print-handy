@@ -75,12 +75,35 @@ rename_tree "$ARCHIVE" print_buddy print_handy
 edit_file() {  # edit_file FILE
     local f="$1"
     if [ ! -f "$f" ]; then say "skipped $f (not found)"; return 0; fi
-    if ! grep -qE 'PRINT_(BUDDY|BITCH)_|\bPB_ORCA_CMD\b' "$f"; then say "ok      $f (no old names)"; return 0; fi
-    if [ -e "$f.pre-rename" ]; then say "skipped $f (backup $f.pre-rename already exists; check it by hand)"; return 0; fi
+    local old_names=0 orca_names=0
+    grep -qE 'PRINT_(BUDDY|BITCH)_' "$f" && old_names=1
+    grep -qE '\bPB_ORCA_CMD\b' "$f" && orca_names=1
+    if [ "$old_names" = 0 ] && [ "$orca_names" = 0 ]; then say "ok      $f (no old names)"; return 0; fi
+    if [ -e "$f.pre-rename" ]; then
+        # The existing backup already preserves the pre-rename original, so
+        # it is never overwritten. PRINT_BUDDY_/PRINT_BITCH_ leftovers stay
+        # a by-hand check, as before — but PB_ORCA_CMD still migrates
+        # (P2-194): a file an earlier rename pass already migrated can
+        # carry it, and the current code no longer reads the stale name.
+        if [ "$old_names" = 1 ]; then
+            say "skipped $f: PRINT_BUDDY_/PRINT_BITCH_ pass (backup $f.pre-rename already exists; check it by hand)"
+        fi
+        if [ "$orca_names" = 1 ]; then
+            act "edit   $f: PB_ORCA_CMD -> PRINT_HANDY_ORCA_CMD ($(grep -cE '\bPB_ORCA_CMD\b' "$f") lines)"
+            [ "$DRY" = 1 ] || sed -i 's/\bPB_ORCA_CMD\b/PRINT_HANDY_ORCA_CMD/g' "$f"
+        fi
+        return 0
+    fi
     act "backup $f -> $f.pre-rename"
     [ "$DRY" = 1 ] || cp -p "$f" "$f.pre-rename"
-    act "edit   $f: PRINT_BUDDY_/PRINT_BITCH_ -> PRINT_HANDY_, PB_ORCA_CMD -> PRINT_HANDY_ORCA_CMD ($(grep -cE 'PRINT_(BUDDY|BITCH)_|\bPB_ORCA_CMD\b' "$f") lines)"
-    [ "$DRY" = 1 ] || sed -i 's/PRINT_BUDDY_/PRINT_HANDY_/g; s/PRINT_BITCH_/PRINT_HANDY_/g; s/\bPB_ORCA_CMD\b/PRINT_HANDY_ORCA_CMD/g' "$f"
+    if [ "$old_names" = 1 ]; then
+        act "edit   $f: PRINT_BUDDY_/PRINT_BITCH_ -> PRINT_HANDY_ ($(grep -cE 'PRINT_(BUDDY|BITCH)_' "$f") lines)"
+        [ "$DRY" = 1 ] || sed -i 's/PRINT_BUDDY_/PRINT_HANDY_/g; s/PRINT_BITCH_/PRINT_HANDY_/g' "$f"
+    fi
+    if [ "$orca_names" = 1 ]; then
+        act "edit   $f: PB_ORCA_CMD -> PRINT_HANDY_ORCA_CMD ($(grep -cE '\bPB_ORCA_CMD\b' "$f") lines)"
+        [ "$DRY" = 1 ] || sed -i 's/\bPB_ORCA_CMD\b/PRINT_HANDY_ORCA_CMD/g' "$f"
+    fi
 }
 edit_file "$LOCAL_CONFIG"
 edit_file "$HERMES_HOME/.env"

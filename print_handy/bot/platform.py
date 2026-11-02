@@ -150,6 +150,7 @@ class ChatPlatform(Protocol):
     supports_buttons: bool
     max_buttons: int
     supports_live_stream: bool
+    polls_serially: bool
 
     async def send(self, chat_id, content, reply_to=None, metadata=None) -> SendResult: ...
     async def send_clarify(self, chat_id, question, choices, clarify_id, session_key,
@@ -181,6 +182,13 @@ class BasePlatformAdapter:
     # adapter reports True. Other platforms expose no /print-live command,
     # no stub and no config surface for it.
     supports_live_stream = False
+    # The client drives messages from a serial polling loop (Telegram
+    # getUpdates, Matrix /sync): each update is awaited before the next is
+    # fetched, so a long wait inside message handling starves the loop that
+    # must deliver the answer to an open prompt. BotCore reads this to run
+    # the did-you-mean prompt's wait in a background task (P1-109).
+    # Event-driven clients (Discord) leave it False.
+    polls_serially = False
     # Access model (#386): on a platform whose adapter sets this, the print
     # channel is the access boundary — with no allow list configured, anyone
     # who can post in the channel may use the bot, and the allow/deny lists
@@ -195,6 +203,10 @@ class BasePlatformAdapter:
         # Latched at construction, too: a runtime mutation of ``allowed``
         # (tests do this) must not silently flip the mode either way.
         self.channel_open = bool(self.channel_is_boundary and not {str(u) for u in allowed})
+        # The approver is ALSO kept apart from the allowed set (P1-93): being
+        # allowed to act and being allowed to approve a print are separate
+        # checks, and an open channel must not blur them.
+        self.approver = str(approver) if approver else None
         self.allowed = {str(u) for u in allowed}
         if approver:
             self.allowed.add(str(approver))
@@ -222,6 +234,29 @@ class BasePlatformAdapter:
             return "user is on the denied list"
         if not self.is_allowed_id(uid):
             return "user is not on the allowed list"
+        return None
+
+    def may_approve_id(self, user_id):
+        """May this user approve a print (P1-93)? Separate from acting: when
+        an approval user is configured, only they approve — however open the
+        channel is for intake. With none configured, approval follows the
+        general check, as before. Deny beats everything, as everywhere."""
+        uid = str(user_id or "")
+        if not uid or uid in self.denied:
+            return False
+        if self.approver is None:
+            return self.is_allowed_id(uid)
+        return uid == self.approver
+
+    def approval_refusal_reason(self, user_id):
+        """Why ``user_id`` may not approve a print, in log words, or None."""
+        uid = str(user_id or "")
+        if uid and uid in self.denied:
+            return "user is on the denied list"
+        if not self.is_allowed_id(uid):
+            return "user is not on the allowed list"
+        if not self.may_approve_id(uid):
+            return "only the approval user may approve prints"
         return None
 
     def access_description(self):
@@ -278,6 +313,14 @@ class BasePlatformAdapter:
         its own acknowledgement (an interaction reply, a callback answer).
         """
         if user_id is not None and not self._is_allowed_user(str(user_id), user):
+            return None
+        if user_id is not None and prompts.is_approval(clarify_id) \
+                and not self.may_approve_id(user_id):
+            # A print approval is not ordinary channel access (P1-93): the
+            # press resolves nothing and the prompt stays open for the
+            # approval user.
+            logger.info("refused approval button press from %s user %s: %s",
+                        self.name, user_id, self.approval_refusal_reason(user_id))
             return None
         row = self._prompts.get(str(clarify_id))
         labels = row["choices"] if row else (self.registry.choices(clarify_id) or [])

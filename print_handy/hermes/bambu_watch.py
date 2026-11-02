@@ -304,6 +304,7 @@ class BambuPrintMonitor:
         self._capture_poll_s = max(1.0, min(float(capture_poll_s), poll_s))
         self._session = None
         self._last_frame = None
+        self._last_layer = None
         self._last_periodic_at = None
         # When the last camera-failure text alert went out. A failed
         # capture never advances the watch's snapshot baseline, so due()
@@ -398,8 +399,14 @@ class BambuPrintMonitor:
                 message += f"\n{path}\nMEDIA:{path}"
             message += f"\nMEDIA:{video}"
             try:
-                self._post(message)
-                return kind
+                # The production sender reports a refusal as a False
+                # return, not an exception (P2-173): only an explicit
+                # False means undelivered — injected senders returning
+                # None delivered fine.
+                if self._post(message) is not False:
+                    return kind
+                log(f"bambu completion post with timelapse was refused for {self.filename!r}; "
+                    "posting without the video")
             except Exception as exc:
                 log(f"bambu completion post with timelapse failed for {self.filename!r}: {exc!r}; "
                     "posting without the video")
@@ -407,7 +414,10 @@ class BambuPrintMonitor:
             text = f"{text}\n{_too_big_text()}"
         if path is not None:
             try:
-                self._post(text + f"\n{path}\nMEDIA:{path}")
+                if self._post(text + f"\n{path}\nMEDIA:{path}") is False:
+                    log(f"bambu completion post with the snapshot was refused for "
+                        f"{self.filename!r}; posting the text only")
+                    self._post(text)
             except Exception as exc:
                 log(f"bambu completion post with the snapshot failed for {self.filename!r}: {exc!r}; "
                     "posting the text only")
@@ -444,13 +454,18 @@ class BambuPrintMonitor:
                 if self._pause_alerts:
                     self._pause_alerts.note(state, st)
                 self.poll_active(st)
+                layer = st.get("layer")
+                if isinstance(layer, int) and not isinstance(layer, bool):
+                    # The layer the session's ticks carry: without it a
+                    # layer-triggered capture can never fire (P2-172).
+                    self._last_layer = layer
                 if not capture_attempted:
                     capture_attempted = True
                     self._session = self._begin_capture()
                 if self._session is not None and state == "printing":
                     # A pause holds the session open but takes no frames,
                     # exactly as the other launched-print monitors do.
-                    self._session.tick()
+                    self._session.tick(self._last_layer)
                 self._sleep_between_polls(tick=state == "printing")
             elif state in _TERMINAL:
                 if seen_active or not self.filename or fname == self.filename:
@@ -487,7 +502,7 @@ class BambuPrintMonitor:
             self._sleep(step)
             elapsed += step
             if self._session is not None:
-                self._session.tick()
+                self._session.tick(self._last_layer)
 
     def poll_active(self, st):
         """One active-print poll: the camera watchdog's trigger (#294 stage 3).
@@ -700,8 +715,12 @@ def _default_verdict(adapter, streak=None):
 
 
 def start_monitor(adapter, filename, *, post=None, camera_fn=None, status_fn=None,
-                  camera_source_fn=None, thread_factory=None):
+                  camera_source_fn=None, thread_factory=None, printer_id=None):
     """Start a BambuPrintMonitor for a just-launched print on a daemon thread.
+    printer_id is the launched job's roster printer: the monitor's pause
+    alerts carry it, so their Resume/Cancel buttons act on that printer
+    rather than the default one (SAFE-4 / P1-101).
+
 
     Returns the thread (or None when monitoring could not start — a failed
     monitor must never fail the print that launched it).
@@ -736,7 +755,7 @@ def start_monitor(adapter, filename, *, post=None, camera_fn=None, status_fn=Non
             watch=watch, verdict=verdict, alert=alert, dark_notice=dark_notice,
             text_alert=text_alert,
             camera_source_fn=camera_source_fn, capture_poll_s=interval,
-            pause_alerts=family_control.pause_alerts_for(adapter, filename))
+            pause_alerts=family_control.pause_alerts_for(adapter, filename, printer_id))
         factory = thread_factory or (lambda target: threading.Thread(target=target, daemon=True,
                                                                      name=f"bambu-watch-{filename}"))
         thread = factory(monitor.run)

@@ -86,9 +86,12 @@ CASE_CLICKS = {
 # product's own intake limits, so the honest pinned expectation is the
 # refusal receipt - the corpus case documents the limit behaviour.
 CASE_EXPECT = {
-    "fnaf-mask": {"status": "FAILED"},       # STL 36,467,384 B > 32 MiB intake cap
-    "gyroid-surface": {"status": "FAILED"},  # STL 45,001,084 B > 32 MiB intake cap
-    "chinese-dragon": {"status": "FAILED"},  # 3MF model XML > 400 MiB intake cap
+    # The refusal cases pin the refusal reason too (P2-177): any FAILED
+    # receipt — including one from an unrelated intake regression — must
+    # not satisfy them. The texts are intake_resources' refusal messages.
+    "fnaf-mask": {"status": "FAILED", "error_contains": "STL exceeds 32 MiB limit"},
+    "gyroid-surface": {"status": "FAILED", "error_contains": "STL exceeds 32 MiB limit"},
+    "chinese-dragon": {"status": "FAILED", "error_contains": "model XML exceeds 400 MiB limit"},
     # What a working flow must do for the live 2026-10-29 failure: start one
     # full-size print with the chosen per-part colors on one rearranged plate.
     # Failed on 2.1.9; fixed by #601 (passes on main since).

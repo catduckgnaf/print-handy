@@ -147,6 +147,21 @@ def _http_error(status):
     return discord.HTTPException(mock.Mock(status=status, reason="test"), {"message": "oops"})
 
 
+def test_dns_classification_survives_an_aiohttp_without_the_dns_error_class(monkeypatch):
+    """aiohttp before 3.10 has no ClientConnectorDNSError (P2-136), and
+    requirements still permit it through discord.py: with the class absent,
+    the classifier must not raise AttributeError (which masked the original
+    startup failure), and a DNS failure — which then arrives as a plain
+    connector error wrapping the gaierror — still classifies through its
+    OS error."""
+    monkeypatch.setattr(client, "_DNS_ERROR", None)
+    key = ConnectionKey("discord.com", 443, True, None, None, None, None)
+    dns = aiohttp.ClientConnectorError(
+        key, socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution"))
+    assert client._is_transient_startup_error(dns)
+    assert not client._is_transient_startup_error(ValueError("programming error"))
+
+
 def test_transient_startup_error_classification():
     key = ConnectionKey("discord.com", 443, True, None, None, None, None)
 

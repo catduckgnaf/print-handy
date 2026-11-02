@@ -78,3 +78,18 @@ def test_best_fuzzy_score_takes_the_best_target():
     assert fuzzy.best_fuzzy_score("adheison", ["zzz", "adhesion failure", "adhesion"]) >= 85
     assert fuzzy.best_fuzzy_score("pizza", ["zzz", "adhesion"]) == 0
     assert fuzzy.best_fuzzy_score("adheison", []) == 0
+
+
+def test_nondecimal_unicode_digits_do_not_crash_normalization():
+    # P2-264: '❶' (U+2776) and friends report isdigit() == True but int()
+    # refuses them — they are not decimal digits. Scoring or normalizing a
+    # query/title containing one must return a result, never raise, so one
+    # archived title like "Desk stand ❶" cannot abort every fuzzy lookup
+    # that scans it.
+    for char in ("❶", "➀", "፩"):
+        assert isinstance(fuzzy.fuzzy_score(char, "nozzle"), int)
+        assert isinstance(fuzzy.windowed_fuzzy_score("desk stand", f"Desk stand {char}"), int)
+    # The character itself survives normalization (it is content, not noise).
+    assert "❶" in fuzzy.canonical("Desk stand ❶")
+    # Real decimal digits — ASCII or not — still fold to their value.
+    assert fuzzy.canonical("mk 3") == fuzzy.canonical("mk ٣")

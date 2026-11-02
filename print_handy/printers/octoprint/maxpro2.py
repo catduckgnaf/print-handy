@@ -18,6 +18,7 @@ MODEL = PrinterModel(
     label="Anycubic 4Max Pro 2 (OctoPrint)",
     adapter=OctoPrintAdapter,
     templates="octoprint_maxpro2",
+    baseline="protected-settings-baseline.octoprint.maxpro2.json",
     vendor=VENDOR,
     supported_nozzle_sizes=(0.4,),
     settings={"printer": {

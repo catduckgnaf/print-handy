@@ -52,11 +52,12 @@ def _gateway(adapter, authorized=True):
 
 @pytest.fixture(autouse=True)
 def _live_config():
+    previous = _config.cfg()  # the session test settings from tests/conftest.py; restore, never clear
     _config.set_override({"live_stream": dict(ENABLED)})
     plugin._LIVE_SESSION = live_stream.LiveStreamSession()
     yield
     plugin._LIVE_SESSION = live_stream.LiveStreamSession()
-    _config.set_override(None)
+    _config.set_override(previous)
 
 
 def _run(text, adapter=None, platform="discord", authorized=True):

@@ -18,6 +18,7 @@ MODEL = PrinterModel(
     label="Anycubic Kobra Max (OctoPrint)",
     adapter=OctoPrintAdapter,
     templates="octoprint_kobramax",
+    baseline="protected-settings-baseline.octoprint.kobramax.json",
     vendor=VENDOR,
     supported_nozzle_sizes=(0.4,),
     settings={"printer": {

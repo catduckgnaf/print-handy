@@ -49,6 +49,7 @@ def test_register_skips_the_locale_patch_with_the_switch_on(monkeypatch):
     plugin = load_plugin()
     restore = with_config(monkeypatch, clarify_ui=True)
     monkeypatch.setattr(prompts, "activate", lambda on=True: None)
+    monkeypatch.setattr(_config, "discord_token", lambda: "tok")
     ctx = mock.Mock()
     ctx.llm = object()
     try:
@@ -56,6 +57,29 @@ def test_register_skips_the_locale_patch_with_the_switch_on(monkeypatch):
     finally:
         restore()
     assert ctx.register_locale.call_args_list == []
+
+
+def test_register_without_a_token_keeps_the_own_registry_off(monkeypatch):
+    """Switch on but no resolvable bot token: the clarify adapter can
+    never be installed, so the own prompt registry must NOT activate —
+    questions registered there would render nowhere and sit unanswered
+    until timeout (P2-208). The locale patch and today's typed hook stay."""
+    plugin = load_plugin()
+    restore = with_config(monkeypatch, clarify_ui=True)
+    activated = []
+    monkeypatch.setattr(prompts, "activate", lambda on=True: activated.append(on))
+    monkeypatch.setattr(_config, "discord_token", lambda: "")
+    ctx = mock.Mock()
+    ctx.llm = object()
+    try:
+        plugin.register(ctx)
+    finally:
+        restore()
+    assert activated == []
+    assert len(ctx.register_locale.call_args_list) == 1
+    hooks = [item.args for item in ctx.register_hook.call_args_list]
+    dispatch = [fn for name, fn in hooks if name == "pre_gateway_dispatch"]
+    assert plugin.typed_answer_dispatch not in dispatch
 
 
 def test_register_keeps_the_locale_patch_with_the_switch_off(monkeypatch):

@@ -157,10 +157,13 @@ def _score(query, targets):
     The tiers are exact (100), substring (85) and shared tokens (75 / scaled),
     plus the #468 stage-1 fuzzy tier: a typo'd query ("adheison", "nozzel
     clog") shares too few tokens with the right entry for the tiers above, so
-    whole-string difflib similarity (``core.fuzzy``, floor 65, capped at 99)
-    is the last chance before no match. Lookup is read-only — a fuzzy hit is
-    a ranked candidate the user reads, never an action — and exact matches
-    still score 100 and sort first.
+    whole-string difflib similarity (``core.fuzzy``, floor 65) is the last
+    chance before no match. The fuzzy tier is capped at 84 — below the
+    substring tier — so a fuzzy-only candidate can never outrank another
+    entry's deterministic substring match (P2-220): typo tolerance must not
+    redirect a correctly spelled partial command name. Lookup is read-only —
+    a fuzzy hit is a ranked candidate the user reads, never an action — and
+    exact matches still score 100 and sort first.
     """
     q = _norm(query)
     if not q:
@@ -181,7 +184,7 @@ def _score(query, targets):
             if qtokens <= ttokens:
                 best = max(best, 75)
             best = max(best, round(60 * len(shared) / max(len(qtokens), len(ttokens))))
-        best = max(best, fuzzy.fuzzy_score(q, t))
+        best = max(best, min(fuzzy.fuzzy_score(q, t), 84))
     return best
 
 
@@ -247,7 +250,9 @@ class Registry:
         """Ranked matches across all registries.
 
         `firmware` restricts firmware entries to one family; `printer` keeps only
-        firmware entries known to apply to that printer model (plus "*" entries);
+        firmware entries known to apply to that printer model (plus "*" entries
+        whose firmware is the printer's own firmware family — "*" means every
+        printer on that firmware, not every registered printer);
         `pack` keeps only firmware entries belonging to that macro pack (entries
         without a pack are the firmware's stock set, so pack="" keeps only those).
         Symptoms, flows and printers are never filtered out: a symptom report
@@ -257,13 +262,27 @@ class Registry:
         if firmware and firmware not in FIRMWARES:
             raise RegistryError(f"firmware must be one of {', '.join(FIRMWARES)}, got {firmware!r}")
         printer = str(printer or "").strip() or None
+        printer_family = None
+        if printer:
+            for known in self.printers:
+                if known.key == printer:
+                    printer_family = known.firmware_family
+                    break
         pack = _norm(pack).replace(" ", "-") if pack is not None else None
         scored: list[Match] = []
         for entry in self.firmware_entries:
             if firmware and entry.firmware != firmware:
                 continue
-            if printer and "*" not in entry.printers and printer not in entry.printers:
-                continue
+            if printer and printer not in entry.printers:
+                if "*" not in entry.printers:
+                    continue
+                # A wildcard entry applies to every printer on the entry's
+                # firmware, not to every registered printer (P2-77): never
+                # offer another family's commands for this printer. An
+                # unregistered printer key has no family to constrain by
+                # and keeps the historical behaviour.
+                if printer_family is not None and entry.firmware != printer_family:
+                    continue
             if pack is not None and entry.pack != pack:
                 continue
             score = _score(query, (entry.name, entry.id, *entry.aliases))

@@ -149,6 +149,20 @@ def test_author_note_requests_separate_printing(tmp_path, monkeypatch):
     assert 'author notes' in saved['plate_merge']['reason']
 
 
+def test_full_size_split_possible_applies_the_brim_budget(tmp_path):
+    """P2-79: the legacy split fallback ignored the job's brim, so 'Split
+    plates at 100%' was offered for parts whose brims would cross the bed
+    edge — the same parts the brim-aware check had already refused."""
+    bed = 220
+    width = bed - 2 * plate_merge.EDGE_MARGIN_MM - 2  # fits the plain edge budget, barely
+    source = tmp_path / 's.3mf'
+    _source(source, {'1': (width, 40, 10), '2': (40, 40, 10)}, [['1'], ['2']])
+    manifest = source_colors.inventory(source)
+    assert plate_merge.full_size_split_possible(source, manifest, bed=bed)
+    policy = {'type': 'outer_only', 'width_mm': 3.0}
+    assert not plate_merge.full_size_split_possible(source, manifest, bed=bed, brim_policy=policy)
+    assert not plate_merge.full_size_split_possible(source, manifest, bed=bed,
+                                                     state={'brim_policy': policy})
 def _plan_with_slot_materials(tmp_path, slot_materials):
     """plate_merge.plan for a two-plate source whose parts use slots 1 and 2,
     with the fixture slots' materials (and colors) replaced by slot_materials
@@ -335,6 +349,29 @@ def _plan(source):
     plates = model_job.plate_manifest(source)['plates']
     slots = {p['key']: 1 for p in manifest['parts']}
     return plate_merge.plan(source, manifest, plates, slots, state)
+
+
+def test_plan_reserves_the_fitted_nozzles_tower_width(tmp_path, monkeypatch):
+    # P2-34: the merge planner reserves room for the tower the slice will
+    # actually emit — a 0.6 mm nozzle's 60 mm tower, not the 45 mm default.
+    source = tmp_path / 'two.3mf'
+    _source(source, {'1': (60, 60, 10), '2': (60, 60, 10)}, [['1'], ['2']])
+    state = json.loads(STATE.read_text())
+    state['nozzle']['diameter_mm'] = 0.6
+    manifest = source_colors.inventory(source)
+    plates = model_job.plate_manifest(source)['plates']
+    slots = {p['key']: i + 1 for i, p in enumerate(manifest['parts'])}
+    seen = []
+    real_pack = plate_merge.pack
+
+    def spy_pack(extents, bed, spacing=None, edge=None, reserve_y=0.0):
+        seen.append(reserve_y)
+        return real_pack(extents, bed, spacing, edge=edge, reserve_y=reserve_y)
+    monkeypatch.setattr(plate_merge, 'pack', spy_pack)
+    plate_merge.plan(source, manifest, plates, slots, state)
+    expected = (60 + plate_merge.TOWER_CLEARANCE_MM + plate_merge.TOWER_SLACK_MM
+                + plate_merge.EDGE_MARGIN_MM)
+    assert max(seen) == pytest.approx(expected)
 
 
 def _placed_hulls(source, verdict):
@@ -775,3 +812,47 @@ def test_polygon_merge_slices_to_one_gcode_at_the_recorded_corners(tmp_path, mon
             corner = (verdict['placed_bounds_mm'][oid][0][0], verdict['placed_bounds_mm'][oid][1][0])
             assert bounds[0][0] == pytest.approx(corner[0]) and bounds[1][0] == pytest.approx(corner[1])
     assert plate_merge.hull_distance(placed['1'], placed['2']) >= plate_merge.SPACING_MM - 1e-6
+
+
+# ---------------------------------------------------------------------------
+# DATA-3 (P1-72): the merge planner's capacity is the job printer's position
+# count, not the configured printer's IFS slot count. A multi_tool model keeps
+# filament_slots=1 by design, so a Creator-configured process imported
+# plate_merge with FILAMENT_SLOTS=1 and refused every multi-toolhead merge
+# before the merged slicer ever ran.
+
+def _two_single_part_plates(tmp_path):
+    source = tmp_path / 'two.3mf'
+    _source(source, {'1': (20, 20, 10), '2': (20, 20, 10)}, [['1'], ['2']])
+    return source
+
+
+def test_plan_toolhead_capacity_comes_from_the_caller(tmp_path, monkeypatch):
+    monkeypatch.setattr(plate_merge, 'FILAMENT_SLOTS', 1)  # a Creator-configured process
+    source = _two_single_part_plates(tmp_path)
+    manifest = source_colors.inventory(source)
+    plates = [{'id': 1, 'object_ids': [1]}, {'id': 2, 'object_ids': [2]}]
+    slots = {part['key']: slot for part, slot in zip(manifest['parts'], [2, 4])}
+    state = {'bed_mm': [256, 256], 'max_print_height_mm': 256,
+             'filament_slots': {'2': {'material': 'PLA'}, '4': {'material': 'PLA'}}}
+    refused = plate_merge.plan(source, manifest, plates, slots, state)
+    assert refused['mode'] == 'split'
+    assert refused['reason'] == 'needs 2 filament slots; one IFS job has 1'
+    merged = plate_merge.plan(source, manifest, plates, slots, state, capacity=4, multi_tool=True)
+    assert merged['mode'] == 'merge', merged['reason']
+
+
+def test_plan_multi_tool_allows_mixed_materials_across_toolheads(tmp_path, monkeypatch):
+    monkeypatch.setattr(plate_merge, 'FILAMENT_SLOTS', 1)
+    source = _two_single_part_plates(tmp_path)
+    manifest = source_colors.inventory(source)
+    plates = [{'id': 1, 'object_ids': [1]}, {'id': 2, 'object_ids': [2]}]
+    slots = {part['key']: slot for part, slot in zip(manifest['parts'], [2, 4])}
+    state = {'bed_mm': [256, 256], 'max_print_height_mm': 256,
+             'filament_slots': {'2': {'material': 'PLA'}, '4': {'material': 'PETG'}}}
+    # One extruder fed by slots cannot change material mid-job; two toolheads
+    # carry one filament each and can.
+    refused = plate_merge.plan(source, manifest, plates, slots, state, capacity=4)
+    assert refused['mode'] == 'split' and 'mixed materials across slots' in refused['reason']
+    merged = plate_merge.plan(source, manifest, plates, slots, state, capacity=4, multi_tool=True)
+    assert merged['mode'] == 'merge', merged['reason']

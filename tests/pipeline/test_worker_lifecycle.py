@@ -18,6 +18,38 @@ import pytest
 from print_handy.core import model_job, orca_adapter, prepared_intake, source_colors
 from print_handy.core.background_slice import BackgroundSlice
 
+
+def test_heavy_worker_configures_logging_and_binds_the_forwarded_context(monkeypatch):
+    # P2-55: the worker entrypoint installs the shared logging (its lines go
+    # to stderr; stdout stays the JSON reply channel) and binds the log
+    # context the parent forwarded in the request.
+    import io
+    import logging as _logging
+
+    from print_handy import logs
+    from print_handy.core import heavy_worker
+    source = Path(__file__).parents[1] / 'corpus/cases/single-part/model.3mf'
+    request = {'module': 'source_colors', 'func': 'inventory', 'args': [str(source)],
+               'log_context': {'intake': 't-55'}}
+    out = io.StringIO()
+    root = _logging.getLogger()
+    old_level = root.level
+    monkeypatch.setattr(sys, 'stdin', io.StringIO(json.dumps(request)))
+    monkeypatch.setattr(sys, 'stdout', out)
+    try:
+        heavy_worker.main()
+        assert logs.bound_context() == {'intake': 't-55'}
+        assert any(getattr(h, '_print_handy_handler', False) for h in root.handlers)
+    finally:
+        logs.clear_context()
+        for handler in list(root.handlers):
+            if getattr(handler, '_print_handy_handler', False):
+                root.removeHandler(handler)
+                handler.close()
+        root.setLevel(old_level)
+    reply = json.loads(out.getvalue().rstrip().rsplit('\n', 1)[-1])
+    assert reply['ok'] is True
+
 FAKE = r'''
 import json, os, signal, subprocess, sys, time
 mode, box = os.environ['FAKE_MODE'], os.environ['FAKE_DIR']
@@ -197,6 +229,36 @@ def test_shutdown_stops_every_running_worker(fake):
     asyncio.run(asyncio.wait_for(run(), 8))
     assert (fake.box / 'term').exists()
     assert _wait_gone(fake.pids(), 0.5) == []
+
+
+def test_queued_worker_is_rejected_once_shutdown_begins(tmp_path):
+    """A run queued on a full lane must not spawn once shutdown() has begun:
+    stopping the running worker frees its slot, and the queued run used to
+    start a brand-new process that nothing stopped (P2-51, P2-54)."""
+    from print_handy.core import owned_worker
+    lane = owned_worker.Lane('test lane', slots=1, waiting=4)
+    marker = tmp_path / 'started.txt'
+    script = "import time\nopen(%r, 'a').write('start\\n')\ntime.sleep(10)\n" % str(marker)
+
+    async def run():
+        first = asyncio.ensure_future(owned_worker.run(
+            [sys.executable, '-c', script], b'', label='first step', lane=lane))
+        for _ in range(200):
+            if marker.exists():
+                break
+            await asyncio.sleep(0.025)
+        assert marker.exists()
+        second = asyncio.ensure_future(owned_worker.run(
+            [sys.executable, '-c', script], b'', label='second step', lane=lane))
+        await asyncio.sleep(0.3)  # the second run is now queued on the lane
+        await owned_worker.shutdown()
+        return await asyncio.gather(first, second, return_exceptions=True)
+
+    results = asyncio.run(asyncio.wait_for(run(), 15))
+    assert isinstance(results[0], owned_worker.WorkerError) and 'shutting down' in str(results[0])
+    assert isinstance(results[1], owned_worker.WorkerError) and 'shutting down' in str(results[1])
+    assert marker.read_text().splitlines() == ['start']  # the queued worker never spawned
+    assert not owned_worker._LIVE
 
 
 def test_worker_output_is_size_limited(fake):

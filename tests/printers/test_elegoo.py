@@ -166,7 +166,7 @@ class FakeWs:
                                       "Data": {"Cmd": body["Cmd"], "Data": payload,
                                                "RequestID": body["RequestID"], "Ack": 0}}))
 
-    def recv(self):
+    def recv(self, timeout=None):
         return self.queue.pop(0)
 
     def close(self):
@@ -224,17 +224,47 @@ def sdcp_client(server, **kw):
     return client, posts
 
 
+def _discovery_payload(mid):
+    return json.dumps({"Id": "x", "Data": {"MainboardID": mid}}).encode()
+
+
 def test_sdcp_discovery_via_udp():
-    payload = json.dumps({"Id": "x", "Data": {"MainboardID": "MID999"}}).encode()
+    payload = _discovery_payload("MID999")
     seen = {}
 
     def udp(host, timeout):
         seen["host"] = host
-        return payload
+        return payload, ("192.168.1.80", 3000)  # the configured printer answers
 
     client = SdcpClient("192.168.1.80", udp=udp)
     assert client.discover() == "MID999" and seen["host"] == "255.255.255.255"
     assert client.mainboard_id == "MID999"
+
+
+def test_sdcp_discovery_ignores_other_printers():
+    # Another SDCP printer on the LAN answers the broadcast first; its MainboardID
+    # must not be remembered for requests sent to the configured host (P2-91).
+    answers = iter([
+        (_discovery_payload("OTHER1"), ("192.168.1.99", 3000)),
+        (_discovery_payload("MID999"), ("192.168.1.80", 3000)),
+    ])
+
+    def udp(host, timeout):
+        return next(answers)
+
+    client = SdcpClient("192.168.1.80", udp=udp)
+    assert client.discover() == "MID999"
+    assert client.mainboard_id == "MID999"
+
+
+def test_sdcp_discovery_refuses_when_only_other_printers_answer():
+    def udp(host, timeout):
+        return _discovery_payload("OTHER1"), ("192.168.1.99", 3000)
+
+    client = SdcpClient("192.168.1.80", udp=udp)
+    with pytest.raises(SdcpError, match="other printers"):
+        client.discover()
+    assert client.mainboard_id == ""
 
 
 def test_sdcp_status_upload_start_control(tmp_path):
@@ -275,6 +305,77 @@ def test_sdcp_upload_size_mismatch_refuses(tmp_path):
     server.file_size = 9999  # the printer's copy disagrees with what was uploaded
     with pytest.raises(SdcpError, match="could not be verified"):
         client.upload(gcode)
+
+
+def test_sdcp_upload_missing_size_refuses(tmp_path):
+    # file_info answers but reports no size: the copy is unverified, so the
+    # upload must fail instead of letting start_print run on it (P2-90).
+    server = FakeSdcpServer()
+    client, _posts = sdcp_client(server)
+    gcode = tmp_path / "x.gcode"
+    gcode.write_bytes(b"G28\n")
+    server.file_size = None  # the FileSize field comes back empty
+    with pytest.raises(SdcpError, match="could not be verified"):
+        client.upload(gcode)
+
+
+class EmptyInfoServer(FakeSdcpServer):
+    def answer(self, cmd, data):
+        if cmd == 260:
+            return {}  # an empty file-info response carries no size at all
+        return super().answer(cmd, data)
+
+
+def test_sdcp_upload_empty_file_info_refuses(tmp_path):
+    client, _posts = sdcp_client(EmptyInfoServer())
+    gcode = tmp_path / "x.gcode"
+    gcode.write_bytes(b"G28\n")
+    with pytest.raises(SdcpError, match="could not be verified"):
+        client.upload(gcode)
+
+
+def test_sdcp_upload_invalid_size_refuses(tmp_path):
+    server = FakeSdcpServer()
+    client, _posts = sdcp_client(server)
+    gcode = tmp_path / "x.gcode"
+    gcode.write_bytes(b"G28\n")
+    server.file_size = "not-a-number"  # a size that cannot be read is no verification
+    with pytest.raises(SdcpError, match="could not be verified"):
+        client.upload(gcode)
+
+
+class SilentWs:
+    """A peer that takes the request but never answers (P2-89).
+
+    Models the real socket: recv() with no timeout would block forever, so it
+    raises a distinctive error instead; recv(timeout=...) raises TimeoutError,
+    the way the websockets sync client does when the deadline passes.
+    """
+
+    def __init__(self):
+        self.recv_timeouts = []
+
+    def send(self, raw):
+        pass
+
+    def recv(self, timeout=None):
+        self.recv_timeouts.append(timeout)
+        if timeout is None:
+            raise RuntimeError("recv without a timeout would block forever")
+        raise TimeoutError("timed out")
+
+    def close(self):
+        pass
+
+
+def test_sdcp_request_recv_is_bounded_by_request_timeout():
+    ws = SilentWs()
+    client = SdcpClient("192.168.1.80", "MID123", ws_factory=lambda url: ws,
+                        request_timeout=0.5)
+    with pytest.raises(SdcpError, match="did not answer SDCP command 0 in time"):
+        client.status()
+    # Every receive was handed a positive slice of the request deadline.
+    assert ws.recv_timeouts and all(t is not None and 0 < t <= 0.5 for t in ws.recv_timeouts)
 
 
 def test_sdcp_bad_inputs(tmp_path):

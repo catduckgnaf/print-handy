@@ -190,13 +190,15 @@ def rig(tmp_path, monkeypatch):
     monkeypatch.setattr(model_job, "record_start", lambda g, remote: "/records/1")
     monkeypatch.setattr(model_job.printers, "current", lambda *a, **k: FakeAdapter("octoprint", None))
     monkeypatch.setattr(model_job, "_with_gcode_temperatures",
-                        lambda state, text: {**state, "temps_c": {"bed": 60, "nozzle": 210}})
+                        lambda state, text, *a: {**state, "temps_c": {"bed": 60, "nozzle": 210}})
     monkeypatch.setattr(model_job, "_bambu_start_confirm_window", lambda: 30.0)
     from print_handy.core import delivery
     monkeypatch.setattr(delivery, "bambu_handoff", lambda job, gcodes, config=None: [package])
     monkeypatch.setattr(ams_mapping, "resolve_for_print", lambda *a, **k: ([0], "job"))
-    for watch in (octo_watch, bambu_watch, elegoo_watch, prusa_watch, stock_watch):
-        monkeypatch.setattr(watch, "start_monitor", lambda adapter, remote: None)
+    # Launched-print monitors run in the detached monitor worker
+    # (P1-85/P1-98); the start path only has to ask for one.
+    from print_handy.hermes import monitor_worker
+    monkeypatch.setattr(monitor_worker, "spawn", lambda *a, **k: None)
     return mock.Mock(gcode=gcode, package=package, root=tmp_path)
 
 
@@ -505,7 +507,10 @@ def test_item8_generic_lost_post_is_reconciled_like_the_mapped_path(printer, mon
 
 def test_item8_both_paths_share_one_reconcile():
     import inspect
-    source = inspect.getsource(model_job.print_now) + inspect.getsource(model_job.print_mapped_native)
+    # print_now is a thin wrapper since the SAFE-6 control lock (P1-33); its body
+    # is _print_now_locked. Both start paths must call the one reconcile helper.
+    source = (inspect.getsource(model_job.print_now) + inspect.getsource(model_job._print_now_locked)
+              + inspect.getsource(model_job.print_mapped_native))
     assert source.count("_settle_lost_start(") == 2
 
 

@@ -62,6 +62,37 @@ def test_json_format_is_one_object_per_line_with_traceback():
     assert "Traceback" in record["exception"] and "ValueError: bad plate" in record["exception"]
 
 
+def test_json_format_redacts_quoted_credentials_before_serializing():
+    # P1-52: values are redacted before json.dumps, so escaped quotes in the
+    # serialized form cannot defeat the patterns or corrupt the JSON.
+    stream = io.StringIO()
+    logs.configure({"level": "INFO", "format": "json"}, stream=stream)
+    logging.getLogger("print_handy.demo").error(
+        'payload {"api_key": "hunter2xyz"} and password="hunter2xyz"')
+    (line,) = lines(stream)
+    record = json.loads(line)  # the line must stay valid JSON
+    assert "hunter2xyz" not in line
+    assert record["message"] == 'payload {"api_key": "***"} and password="***"'
+
+
+def test_json_format_redacts_bound_fields_and_tracebacks():
+    stream = io.StringIO()
+    logs.configure({"level": "INFO", "format": "json"}, stream=stream)
+    token = logs.bind(camera="http://user:hunter2xyz@cam.local/webcam/")
+    try:
+        try:
+            raise ValueError('token="hunter2xyz" refused')
+        except ValueError:
+            logging.getLogger("print_handy.demo").exception("camera failed")
+    finally:
+        logs.unbind(token)
+    (line,) = lines(stream)
+    record = json.loads(line)
+    assert "hunter2xyz" not in line
+    assert record["camera"] == "http://***@cam.local/webcam/"
+    assert 'token="***"' in record["exception"]
+
+
 def test_level_controls_verbosity_and_debug_shows_detail():
     stream = io.StringIO()
     logs.configure({"level": "INFO"}, stream=stream)
@@ -248,3 +279,32 @@ def test_redact_hides_matrix_access_tokens_and_leaves_user_ids_alone():
     assert "since=s1" in query
     ordinary = "@catduck:matrix.org posted in !prints:matrix.org at 12:34"
     assert logs.redact(ordinary) == ordinary
+
+
+def test_process_binding_reaches_worker_threads_and_task_bind_still_wins():
+    """P2-161: a plain threading.Thread does not inherit the ContextVar
+    binding, so listener worker-thread lines lost their printer_id. The
+    process-wide binding is the fallback every thread sees; a task-level
+    bind still overrides it, and clear_context drops both."""
+    import threading
+
+    stream = io.StringIO()
+    logs.configure({"level": "INFO", "format": "text"}, stream=stream)
+    logs.clear_context()
+    try:
+        logs.bind_process(printer_id="moon-two")
+        worker = threading.Thread(
+            target=lambda: logging.getLogger("print_handy.demo").info("from a worker thread"))
+        worker.start()
+        worker.join()
+        assert any("printer_id=moon-two" in line for line in lines(stream))
+        token = logs.bind(printer_id="moon-one")
+        try:
+            logging.getLogger("print_handy.demo").info("task line")
+        finally:
+            logs.unbind(token)
+        assert any("printer_id=moon-one" in line for line in lines(stream))
+        assert logs.bound_context()["printer_id"] == "moon-two"
+    finally:
+        logs.clear_context()
+    assert logs.bound_context() == {}

@@ -33,6 +33,25 @@ def profile_config_path() -> Path:
     return hermes_home() / "config.yaml"
 
 
+def _parse_yaml(text: str):
+    """Parse YAML text with settings' loader fallback (P2-149).
+
+    PyYAML is preferred, but the Hermes plugin runtime ships ruamel.yaml
+    instead (#170) — settings resolved that choice at its own import, so
+    reuse its loader rather than importing yaml unconditionally (which
+    raised ImportError out of the platform check on ruamel-only hosts).
+    Raises when no YAML library is reachable at all; the caller maps
+    that to its 'unreadable' state.
+    """
+    try:
+        import yaml
+    except ImportError:
+        if settings._yaml_load is None:
+            raise
+        return settings._yaml_load(text)
+    return yaml.safe_load(text)
+
+
 def profile_platform_state(platform: str = "discord", path: Path | None = None) -> tuple[str, Path]:
     """(state, path): the gateway platform switch in the Hermes profile config.
 
@@ -50,9 +69,8 @@ def profile_platform_state(platform: str = "discord", path: Path | None = None) 
     path = Path(path) if path is not None else profile_config_path()
     if not path.is_file():
         return "missing", path
-    import yaml
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        data = _parse_yaml(path.read_text(encoding="utf-8"))
     except Exception:
         return "unreadable", path
     if not isinstance(data, dict):
@@ -151,11 +169,43 @@ def state_dir() -> Path:
     return settings.state_dir(cfg())
 
 
-def state_file(env_var: str | None, name: str) -> Path:
-    """A state file: the legacy env var if set (tests rely on it), else <state_dir>/<name>."""
+def state_file(env_var: str | None, name: str, *, per_instance: bool = False) -> Path:
+    """A state file: the legacy env var if set (tests rely on it), else <state_dir>/<name>.
+
+    With per_instance, a process serving a non-default roster printer (a
+    per-printer listener instance, #336) gets its own copy under
+    <state_dir>/printers/<id>/ — #334's layout — so sibling listener
+    instances never share operational state (P1-82). The default printer
+    keeps the legacy path: its state was always the singleton's, so
+    nothing is orphaned at upgrade. A process serving no instance (the
+    bot, one-shot tools) is unchanged, and an env override always wins.
+    Files that are cross-process channels by design (the start claims
+    print-now writes and the listeners read) stay shared: callers opt in
+    per file.
+    """
     if env_var and os.environ.get(env_var):
         return Path(os.environ[env_var])
+    if per_instance:
+        namespaced = _instance_state_path(name)
+        if namespaced is not None:
+            return namespaced
     return state_dir() / name
+
+
+def _instance_state_path(name: str) -> Path | None:
+    """<state>/printers/<id>/<name> for a non-default instance printer, else None."""
+    try:
+        from print_handy import instance
+
+        printer_id = instance.printer_id()
+        if not printer_id:
+            return None
+        data = cfg()
+        if printer_id == settings.default_printer_id(data):
+            return None
+        return settings.printer_state_dir(printer_id, data) / name
+    except Exception:
+        return None
 
 
 def service_url(key: str) -> str:

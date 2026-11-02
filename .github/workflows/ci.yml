@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+    # edited: the spelling job scans the PR description, so a description fix must
+    # retrigger CI (P2-237); every other job skips edited events below.
+    types: [opened, edited, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 defaults:
@@ -23,6 +26,7 @@ env:
 
 jobs:
   offline-tests:
+    if: github.event.action != 'edited'
     runs-on: ubuntu-24.04  # Debian 13 container; hosted runner supplies the VM only.
     container:
       image: python:${{ matrix.python-version }}-slim-trixie
@@ -66,6 +70,7 @@ jobs:
         run: python -m pytest -q -rs tests
 
   discord-timing:
+    if: github.event.action != 'edited'
     # Fake Discord flow timing on both transports, mock slicer, 3 repeats; medians must stay within
     # tests/corpus/timing_baseline.json (+10% +0.5 s, #734). Raising a baseline needs a "reason".
     # The baseline is re-recorded from this job's artifact on every release (tests/README.md, Slicing-speed gate).
@@ -100,6 +105,7 @@ jobs:
           path: timing/
 
   slicer-timing-real:
+    if: github.event.action != 'edited'
     name: Slicer timing (real Orca, reporting only)
     # #734 real-slicer leg: a small fixed set of corpus cases goes end to end through the fake Discord
     # flow with the pinned Orca (same install as Slicer test (stable)), 3 repeats, medians compared to
@@ -171,6 +177,7 @@ jobs:
           path: slicer-timing/
 
   dependency-audit:
+    if: github.event.action != 'edited'
     # Known-vulnerability check of the requirement files. It does not upgrade anything.
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -188,6 +195,7 @@ jobs:
         run: python -m pip_audit -r requirements.txt -r requirements-test.txt
 
   standalone-no-hermes:
+    if: github.event.action != 'edited'
     # #73: the standalone bot installs from requirements.txt alone, loads every handler and imports no Hermes module.
     runs-on: ubuntu-24.04  # Debian 13 container; hosted runner supplies the VM only.
     container:
@@ -235,6 +243,7 @@ jobs:
           "/tmp/clean/bin/python" -m print_handy.bot check
 
   slicer-test-stable:
+    if: github.event.action != 'edited'
     name: Slicer test (stable)
     # The production track: the stable build docker/orca-prebuilt.sh pins is the shipped slicer (#356), so the full
     # corpus and the slicer fixtures run against its upstream flatpak bundle. That bundle ships
@@ -274,6 +283,7 @@ jobs:
         run: xvfb-run -a python -m pytest -v -s tests/corpus
 
   slicer-test-preview:
+    if: github.event.action != 'edited'
     name: Slicer test (preview)
     # The preview channel pins the same build as production (both
     # channels in docker/orca-prebuilt.sh pin it), so this job runs the same
@@ -318,6 +328,7 @@ jobs:
           tests/corpus/test_corpus.py::test_discord_flow[plates-multicolor]
 
   slicer-test-bambu:
+    if: github.event.action != 'edited'
     name: Slicer test (bambu)
     # Bambu Studio is the Bambu Lab vendor default slicer and the one-shot fallback when
     # Orca execution fails, but it stays out of the published image (the image
@@ -378,6 +389,7 @@ jobs:
         run: xvfb-run -a python -m pytest -v -s tests/slicer/test_bambu_real_a1.py
 
   spoolman:
+    if: github.event.action != 'edited'
     # spool_sync against a real, throwaway Spoolman.
     runs-on: ubuntu-24.04  # Debian 13 container; hosted runner supplies the VM only.
     container:

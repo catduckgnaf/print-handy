@@ -14,6 +14,7 @@ MODEL = PrinterModel(
     label="Sovol SV06 Plus ACE (Klipper)",
     adapter=KlipperAdapter,
     templates="sovol_sv06_plus_ace",
+    baseline="protected-settings-baseline.sovol.sv06_plus_ace.json",
     vendor=VENDOR,
     supported_nozzle_sizes=(0.2, 0.4, 0.6, 0.8),
     supported_nozzle_types=("brass", "hardened_steel", "ruby", "tungsten_carbide", "diamond"),

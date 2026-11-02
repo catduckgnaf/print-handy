@@ -20,9 +20,15 @@ services:
       PRINT_HANDY__SERVICES__SPOOLMAN_URL: ${PRINT_HANDY__SERVICES__SPOOLMAN_URL:-http://127.0.0.1:8000}
       # Camera watchdog (docs/DOCKER.md "Camera watch"): alert-only spaghetti, detached,
       # empty-bed and stall checks. Sensitivity 1 (quietest) to 5 (most alerts).
-      PRINT_HANDY__VISUAL_WATCH__ENABLED: ${PRINT_HANDY__VISUAL_WATCH__ENABLED:-true}
-      PRINT_HANDY__VISUAL_WATCH__SENSITIVITY: ${PRINT_HANDY__VISUAL_WATCH__SENSITIVITY:-3}
-      # Feature-enabling variables (#252): empty means the feature stays off. Secrets
+      # PRINT_HANDY__VISUAL_WATCH__ENABLED / __SENSITIVITY are deliberately NOT
+      # listed here (P2-88): a ${...:-default} entry would be applied after the
+      # mounted config and silently undo a watchdog the operator configured
+      # there. Set them in .env (env_file above) to override; unset, the
+      # mounted config's values — or the shipped defaults, enabled at
+      # sensitivity 3 — stand.
+      # Feature-enabling variables (#252): empty means not supplied here, so
+      # the config file's value stands (for the shipped docker config that is
+      # off). Secrets
       # (CLIPROXY_API_KEY, AD5X_SERIAL, AD5X_CHECK_CODE, BAMBU_LAN_PASSWORD,
       # MOONRAKER_API_KEY, LLM_API_KEY) are not listed here; they reach the container
       # through the .env env_file above, like DISCORD_BOT_TOKEN.

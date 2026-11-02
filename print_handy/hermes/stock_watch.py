@@ -27,12 +27,15 @@ sized under the platform limit. Duplicate polls and status flaps never
 re-open the session and never post twice: the capture attempt and the
 terminal post each happen at most once per monitor.
 
-The monitor runs on a daemon thread inside whichever process launched
-the print (normally the bot) and keeps its capture state in the session
-manifest on disk, but the monitor itself is not restarted: if that
-process restarts mid-print, monitoring stops with it — the same stated
-limitation as the Bambu monitor. Prints started outside Print Handy are
-never watched: nothing here polls a printer nobody launched a print on.
+The monitor runs on a daemon thread inside the detached monitor
+worker (print_handy.hermes.monitor_worker) the print path starts for
+the launch — print-now itself is a short-lived subprocess, so a monitor
+started there died with the submission (P1-85). The monitor keeps its
+capture state in the session manifest on disk, but the monitor itself
+is not restarted: if the worker dies mid-print, monitoring stops with
+it — the same stated limitation as the Bambu monitor. Prints started
+outside Print Handy are never watched: nothing here polls a printer
+nobody launched a print on.
 
 Everything network- or chat-shaped is injectable (status_fn,
 camera_url_fn, stream_fn, begin_fn, encode_fn, post) so the whole
@@ -167,9 +170,21 @@ class StockPrintMonitor:
     # -- capture lifecycle -------------------------------------------------
 
     def _begin_default(self, url):
-        return timelapse_capture.begin(
+        session = timelapse_capture.begin(
             self.filename, self.filename, url=url,
             fetch=timelapse_capture.fetch_mjpeg_frame, log=log)
+        if session is not None and getattr(session.trigger, "name", "") == "layer":
+            # Stock status carries no layer (the stock client's status
+            # has no layer field), so a layer-triggered session could
+            # never fire on this family. Fall back to the configured
+            # interval so the capture actually runs (P2-140). A "both"
+            # trigger needs no fallback: its interval floor already
+            # fires without layer changes.
+            interval = timelapse_capture.capture_settings()["capture_interval_s"]
+            session.trigger = timelapse_capture.IntervalTrigger(interval)
+            log(f"stock capture for {self.filename!r}: the layer trigger cannot "
+                f"fire without layer status; capturing every {interval:g}s instead")
+        return session
 
     def _begin_capture(self):
         """Open the one capture session for this print. Never raises.
@@ -190,14 +205,12 @@ class StockPrintMonitor:
                 "(cameraStreamUrl empty — no camera installed or camera disabled); "
                 "no timelapse for this print")
             return None
-        try:
-            self._stream_fn("open")
-            self._stream_open = True
-        except Exception as exc:
-            # The stream may already be open (or the firmware may serve it
-            # without the control); capture proceeds and the fetch decides.
-            log(f"stock camera stream open failed for {self.filename!r}: {exc!r}; "
-                "trying to capture anyway")
+        # The capture gate runs first (P2-139): begin() decides whether a
+        # session exists at all (it refuses when capture is disabled).
+        # Only a created session may open the camera stream — opening it
+        # for a refused capture switches the camera on for a session that
+        # can never take a frame, and the stale open flag would later
+        # "close" a stream this monitor never opened.
         try:
             session = self._begin_fn(url)
         except Exception as exc:
@@ -206,6 +219,15 @@ class StockPrintMonitor:
         if session is None:
             log(f"timelapse capture unavailable for {self.filename!r} "
                 "(capture disabled or refused); the print continues without it")
+            return None
+        try:
+            self._stream_fn("open")
+            self._stream_open = True
+        except Exception as exc:
+            # The stream may already be open (or the firmware may serve it
+            # without the control); capture proceeds and the fetch decides.
+            log(f"stock camera stream open failed for {self.filename!r}: {exc!r}; "
+                "trying to capture anyway")
         return session
 
     def _stop_capture(self, state):
@@ -327,8 +349,12 @@ def _default_post(message):
     return mel.post(message)
 
 
-def start_monitor(adapter, filename, *, post=None, thread_factory=None):
+def start_monitor(adapter, filename, *, post=None, thread_factory=None, printer_id=None):
     """Start a StockPrintMonitor for a just-launched stock print on a daemon thread.
+    printer_id is the launched job's roster printer: the monitor's pause
+    alerts carry it, so their Resume/Cancel buttons act on that printer
+    rather than the default one (SAFE-4 / P1-101).
+
 
     Returns the thread (or None when monitoring could not start — a
     failed monitor must never fail the print that launched it). With no
@@ -353,7 +379,7 @@ def start_monitor(adapter, filename, *, post=None, thread_factory=None):
             camera_url_fn=lambda: stock_camera.stream_url_for(adapter.client(), host),
             stream_fn=lambda action: stock_camera.set_stream(adapter.client(), action),
             post=post or _default_post,
-            pause_alerts=family_control.pause_alerts_for(adapter, filename),
+            pause_alerts=family_control.pause_alerts_for(adapter, filename, printer_id),
             capture_poll_s=interval)
         factory = thread_factory or (lambda target: threading.Thread(target=target, daemon=True,
                                                                      name=f"stock-watch-{filename}"))

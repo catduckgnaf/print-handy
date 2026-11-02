@@ -66,6 +66,23 @@ def test_individually_oversized_object_has_no_split_plan(tmp_path):
     assert split_fit.split_plan_100(source, 220) is None
 
 
+def test_split_plan_honors_the_height_carried_by_a_three_part_bed(tmp_path):
+    # P2-69: a (x, y, z) bed carries the Z limit. split_plan_100 dropped it
+    # and judged parts against the configured printer height instead, so a
+    # 210 mm part was planned for a 200 mm limit.
+    source = tmp_path / 'tall-pair.3mf'
+    # Part 2 is over the 185 mm Z limit in every orientation (190 mm square
+    # footprint, 210 mm tall), so no reorientation can save it; its
+    # footprint packs easily, so only the height check can block the plan.
+    _source(source, {'1': (150, 150, 10), '2': (190, 190, 210)}, [['1', '2']])
+    report = split_fit.per_part_fit(source, bed=(220, 220, 185))
+    assert [row['fits_full_size'] for row in report] == [True, False]
+    assert 'height 210' in report[1]['blocking_reason']
+    assert split_fit.split_plan_100(source, bed=(220, 220, 185)) is None
+    # The same parts do plan when the Z limit allows the tall one.
+    assert split_fit.split_plan_100(source, bed=(240, 240, 220)) is not None
+
+
 def test_yaw_envelope_is_dimension_preserving():
     w, d = split_fit.yaw_envelope(230, 130, 90)
     assert (round(w, 6), round(d, 6)) == (130, 230)
@@ -146,6 +163,41 @@ def test_fit_options_reports_blocking_parts_before_any_scale(tmp_path, monkeypat
     assert part['blocking_reason']
     assert options['blocking_parts'] == [part['name']]
     assert 'yaw sweep 0-90 degrees' in part['orientations_checked']
+
+
+def test_fit_options_judges_parts_under_the_chosen_brim_policy(tmp_path, monkeypatch):
+    from print_handy.core import orca_adapter as oa
+    # P2-80: the per-part report must be judged under the brim policy the
+    # option search settled on. With an operator 10 mm brim the 200 mm cube
+    # fits only without its brim, so the report must name it blocking —
+    # judged with no policy (the old call) it was reported as fitting.
+    source = tmp_path / 'brim-cube.3mf'
+    _mesh_source(source, {'1': _rect_points(200, 200, 200)}, [['1']])
+    monkeypatch.setattr(oa, 'verified_scale_choices', lambda *a, **k: [])
+    monkeypatch.setattr(oa, 'rotation_alternatives', lambda *a, **k: [])
+    options = oa.fit_options(source, {'bed_mm': [220, 220], 'max_print_height_mm': 220,
+                                      'resolved_hop_types': ['Normal Lift'],
+                                      'brim_override': 10.0, 'fit_rearrange_checked': True})
+    (part,) = options['parts']
+    assert part['fits_full_size'] is False
+    assert 'brim' in part['blocking_reason']
+    assert options['blocking_parts'] == [part['name']]
+
+
+def test_fit_options_preserves_the_verified_policy_for_a_near_full_size_scale(tmp_path, monkeypatch):
+    from print_handy.core import orca_adapter as oa
+    # P2-254: a 98% option verified under the no-brim policy keeps that
+    # policy in the result. Dropping it (the old near-full-size cutoff)
+    # handed the slice a different brim than the option was verified with.
+    source = tmp_path / 'near-full.3mf'
+    _source(source, {'1': (150, 150, 10)}, [['1']])
+    monkeypatch.setattr(oa, 'verified_scale_choices',
+                        lambda src, st, brim_policy=None: [0.98] if brim_policy and brim_policy['type'] == 'no_brim' else [])
+    monkeypatch.setattr(oa, 'rotation_alternatives', lambda *a, **k: [])
+    options = oa.fit_options(source, {'bed_mm': [220, 220], 'max_print_height_mm': 220,
+                                      'fit_rearrange_checked': True})
+    assert options['scales'] == [0.98]
+    assert options['brim_policy'] == {'type': 'no_brim', 'width_mm': 0.0, 'label': 'No brim'}
 
 
 def test_split_plan_gives_a_yaw_only_part_its_own_turned_plate(tmp_path):
@@ -347,6 +399,103 @@ def test_split_plan_on_an_exclusion_bed_still_blocks_without_a_placement(tmp_pat
     assert split_fit.split_plan_100(source, 220, exclusions=[(0, 0, 18, 28)]) is None
 
 
+# The Qidi X-Plus 4 exclusion chain, as recorded in qidi/facts.py: one polygon
+# list tracing two disjoint zones (a top-left strip and a bottom-right strip),
+# joined by zero-area runs along the bed edges.
+_XPLUS4_EXCLUSION = ((0, 305), (0, 302), (35, 302), (35, 305), (305, 305), (305, 305),
+                     (305, 305), (305, 20), (293, 20), (293, 0), (305, 0), (305, 20),
+                     (305, 305))
+
+
+def test_exclusion_rectangles_split_disjoint_zones_instead_of_the_bounding_box():
+    # P2-193: collapsing the X-Plus 4 chain to its bounding rectangle excludes
+    # the whole 305 mm bed; the decomposition must keep only the two zones.
+    zones = split_fit._exclusion_rectangles(_XPLUS4_EXCLUSION)
+    assert sorted(zones) == [(0.0, 302.0, 35.0, 305.0), (293.0, 0.0, 305.0, 20.0)]
+    # A single rectangle polygon stays the one rectangle it declares.
+    assert split_fit._exclusion_rectangles(((0, 0), (18, 0), (18, 28), (0, 28))) == [
+        (0.0, 0.0, 18.0, 28.0)]
+    # The Qidi Q1 Pro chain traces two back-edge strips the same way.
+    q1pro = ((25, 245), (25, 240), (115, 240), (115, 245), (208, 245), (208, 240),
+             (245, 240), (245, 245), (208, 245))
+    assert sorted(split_fit._exclusion_rectangles(q1pro)) == [
+        (25.0, 240.0, 115.0, 245.0), (208.0, 240.0, 245.0, 245.0)]
+    # A polygon with a diagonal edge keeps the conservative bounding rectangle.
+    assert split_fit._exclusion_rectangles(((0, 0), (10, 0), (0, 10))) == [(0.0, 0.0, 10.0, 10.0)]
+    assert split_fit._exclusion_rectangles(()) == []
+
+
+def test_declared_exclusions_for_the_xplus4_are_its_two_zones(monkeypatch):
+    from print_handy import settings as settings_module
+    monkeypatch.setattr(settings_module, 'current',
+                        lambda: {'printer': {'model': 'qidi.xplus4'}})
+    zones = split_fit._declared_exclusions()
+    assert sorted(zones) == [(0.0, 302.0, 35.0, 305.0), (293.0, 0.0, 305.0, 20.0)]
+
+
+def test_per_part_fit_fits_a_small_part_on_the_xplus4_bed(tmp_path):
+    # P2-193's example: even a 10 x 10 mm part was rejected on the X-Plus 4
+    # because the collapsed exclusion covered the whole bed.
+    source = tmp_path / 'small.3mf'
+    _mesh_source(source, {'1': _rect_points(10, 10, 10)}, [['1']])
+    zones = split_fit._exclusion_rectangles(_XPLUS4_EXCLUSION)
+    (row,) = split_fit.per_part_fit(source, 305, exclusions=zones)
+    assert row['fits_full_size'] is True
+    px, py = row['placement_mm']
+    for x0, y0, x1, y1 in zones:
+        assert px + 10 <= x0 or px >= x1 or py + 10 <= y0 or py >= y1
+    # Against the old whole-bed bounding rectangle the same part cannot fit.
+    (blocked,) = split_fit.per_part_fit(source, 305, exclusions=[(0, 0, 305, 305)])
+    assert blocked['fits_full_size'] is False
+
+
+def test_split_plan_records_the_yaw_that_proved_an_exclusion_avoiding_placement(tmp_path):
+    # P2-78: a 200 x 190 mm part fits the 204 mm usable bed as authored, but
+    # every authored placement overlaps the (0, 0) to (18, 28) exclusion; only
+    # the 90-degree turn can be placed, at [18, 8]. The plan must record that
+    # turn alongside the placement — recording the placement alone would
+    # slice the unturned 200 mm width at x=18, past the proved usable area.
+    source = tmp_path / 'turn-to-avoid.3mf'
+    _mesh_source(source, {'1': _rect_points(200, 190, 10), '2': _rect_points(50, 50, 10)},
+                 [['1', '2']])
+    rows = {row['object_id']: row for row in
+            split_fit.per_part_fit(source, 220, exclusions=[(0, 0, 18, 28)])}
+    assert rows['1']['fits_authored'] is True
+    assert rows['1']['best_yaw_deg'] == 90.0
+    assert rows['1']['placement_mm'] == [18.0, 8.0]
+    plan = split_fit.split_plan_100(source, 220, exclusions=[(0, 0, 18, 28)])
+    assert plan is not None
+    assert plan['yaw_by_object'] == {'1': 90.0}
+    assert plan['placement_by_object']['1'] == [18.0, 8.0]
+
+
+def test_slicing_a_turned_exclusion_split_applies_the_turn_and_the_placement(tmp_path, monkeypatch):
+    # P2-78 end to end: the derived plate for the turned part is exported
+    # with the recorded 90-degree turn composed with the recorded placement,
+    # so its placed bounds are the proved 190 x 200 footprint at [18, 8],
+    # clear of the exclusion — not the authored 200 mm width at x=18.
+    import json
+
+    from print_handy.core import model_job, orca_adapter
+    from .test_plate_merge import _fake_slice
+    source = tmp_path / 'turn-to-avoid.3mf'
+    _mesh_source(source, {'1': _rect_points(200, 190, 10), '2': _rect_points(50, 50, 10)},
+                 [['1', '2']])
+    plan = split_fit.split_plan_100(source, 220, exclusions=[(0, 0, 18, 28)])
+    assert plan and plan['yaw_by_object'] == {'1': 90.0}
+    job_path = _split_job(tmp_path, source, plan)
+    fake = _fake_slice()
+    monkeypatch.setattr(orca_adapter, 'slice_model', fake)
+    paths = model_job.slice_job(job_path)
+    assert len(paths) == 2 and len(fake.calls) == 2
+    saved = json.loads(job_path.read_text())
+    turned = next(row for row in saved['derived_plates'] if row['part_keys'] == ['1:1'])
+    assert turned['yaw_deg'] == 90.0
+    assert turned['placement_mm'] == [18.0, 8.0]
+    placed = turned['plate_report']['placed_bounds_mm']
+    assert placed[0] == [18.0, 208.0] and placed[1] == [8.0, 208.0]
+
+
 def test_fit_choice_rows_carry_the_split_placement():
     from print_handy.core.prepared_intake import fit_choice_rows
     rows = fit_choice_rows({'scales': [], 'rotations': [],
@@ -520,6 +669,53 @@ def test_per_part_fit_brim_and_exclusion_compose(tmp_path):
     assert 'brim' in row['blocking_reason']
     assert split_fit.split_plan_100(tight, 220, exclusions=exclusions,
                                     brim_policy=_BRIM_10, state=_BRIM_STATE) is None
+
+
+def test_split_plan_keeps_a_one_plate_polygon_merge(tmp_path):
+    # P2-81: the two complementary triangles on ONE authored plate polygon-
+    # pack into a single bin. The plan is the only full-size offer for the
+    # source; discarding it for having one plate dropped the offer entirely.
+    source = tmp_path / 'tri-one-plate.3mf'
+    _mesh_source(source, {'1': _tri_prism(_TRI_A), '2': _tri_prism(_TRI_B)}, [['1', '2']])
+    plan = split_fit.split_plan_100(source, 220)
+    assert plan is not None
+    assert plan['plates'] == [['1:1', '2:1']]
+    (shifts,) = plan['shifts_by_plate']
+    assert set(shifts) == {'1', '2'}
+
+
+def test_split_plan_keeps_a_shared_yaw_plan_that_collapses_to_one_plate(tmp_path):
+    # P2-83: two yaw-only bars pair at their shared yaw onto one plate.
+    source = tmp_path / 'shared-yaw.3mf'
+    _source(source, {'1': (210, 35, 20), '2': (210, 35, 20)}, [['1', '2']])
+    plan = split_fit.split_plan_100(source, 220)
+    assert plan is not None
+    assert plan['plates'] == [['1:1', '2:1']]
+    assert set(plan['yaw_by_object']) == {'1', '2'}
+    assert all(0 < yaw < 90 for yaw in plan['yaw_by_object'].values())
+    (shifts,) = plan['shifts_by_plate']
+    assert set(shifts) == {'1', '2'}
+
+
+def test_split_plan_keeps_the_plan_when_a_turned_part_joins_the_only_bin(tmp_path):
+    # P2-84: the turned bar joins the only authored bin; the shared polygon
+    # placement (yaw + shifts) is the plan, on one plate.
+    source = tmp_path / 'join-bin.3mf'
+    _source(source, {'1': (150, 40, 10), '2': (210, 35, 20)}, [['1', '2']])
+    plan = split_fit.split_plan_100(source, 220)
+    assert plan is not None
+    assert plan['plates'] == [['1:1', '2:1']]
+    assert set(plan['yaw_by_object']) == {'2'}
+    (shifts,) = plan['shifts_by_plate']
+    assert set(shifts) == {'1', '2'}
+
+
+def test_split_plan_bare_one_plate_grouping_stays_no_plan(tmp_path):
+    # No transform, no offer: a single part that already fits as authored
+    # gains nothing from a "split" plan.
+    source = tmp_path / 'single.3mf'
+    _source(source, {'1': (150, 150, 10)}, [['1']])
+    assert split_fit.split_plan_100(source, 220) is None
 
 
 # --- #221 P2: polygon (convex hull) bins on the split path -----------------

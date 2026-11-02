@@ -245,11 +245,19 @@ def test_poll_once_serves_only_the_configured_room_and_allowed_senders(cfg, tmp_
     stub = HomeserverStub(sync_script=script)
     client, core = make_core(cfg, stub, tmp_path)
     client._since = "s8"
-    handled = run(client.poll_once())
+
+    async def poll():
+        dispatched = await client.poll_once()
+        await client.drain_handlers()
+        return dispatched
+
+    dispatched = run(poll())
     assert stub.payloads("sync")[0]["since"] == "s8"
     assert client._since == "s9" and (tmp_path / "since").read_text() == "s9"
-    # Only the allowed user's /print-help in the print room produced a result (the help post).
-    assert handled == 1
+    # Both real messages in the print room were dispatched as handler tasks
+    # (P1-65); the bot's own message and the other room's were not. Only the
+    # allowed user's /print-help produced a post (the help text).
+    assert dispatched == 2
     assert any("/print-next" in body for body in stub.sent_bodies())
 
 
@@ -260,6 +268,63 @@ def test_poll_once_joins_the_print_room_when_invited(cfg, tmp_path):
     run(client.poll_once())
     assert "join" in stub.routes()
     assert urllib.parse.quote(ROOM, safe="") in stub.payloads("join")[0]["path"]
+
+
+def test_poll_once_keeps_syncing_while_a_handler_awaits_an_answer(cfg, tmp_path):
+    """P1-65: an intake handler parks on a prompt answer that only a LATER
+    /sync batch can deliver. poll_once must dispatch the handler and return,
+    so the next poll can deliver the answer; the old serial loop awaited the
+    handler inline, so the answer could never arrive and every interactive
+    flow stalled until its prompt timed out."""
+    stub = HomeserverStub(sync_script=[
+        _sync_result([text_event("https://makerworld.com/en/models/931302-holder",
+                                 event_id="$m1")], next_batch="s2"),
+        _sync_result([text_event("2", event_id="$a1")], next_batch="s3"),
+        _sync_result([text_event("1", event_id="$a2")], next_batch="s4"),
+    ])
+    client, core = make_core(cfg, stub, tmp_path)
+    client._since = "s1"
+    seen = {}
+
+    async def fake_prepare(event, adapter_arg, state, root, reuse=None, **kwargs):
+        source = event.source
+        key = runtime.session_key(source)
+        color = await link_intake.ask(adapter_arg, source, key, "Which color?", ["Black", "White"])
+        await adapter_arg.send(chat_id=source.chat_id, content=f"Sliced in {['Black', 'White'][color]}.")
+        start = await link_intake.ask(adapter_arg, source, key, "Start the print?", ["Print it"])
+        seen["answers"] = (color, start)
+        await adapter_arg.send(chat_id=source.chat_id, content="Started.")
+        return {"action": "skip", "reason": "test intake"}
+
+    async def wait_prompt(question):
+        for _ in range(200):
+            cid = next((c for c, row in core.adapter._prompts.items()
+                        if row["question"].startswith(question)), None)
+            if cid is not None:
+                return cid
+            await asyncio.sleep(0.01)
+        raise AssertionError(f"no prompt {question!r}: {core.adapter._prompts}")
+
+    async def flow():
+        # The regression in one line: before the fix this await only returns
+        # once the intake handler finishes, and the handler cannot finish
+        # until a later poll delivers its answer — a deadlock but for the
+        # prompt timeout. Bounded here so the failure is quick.
+        dispatched = await asyncio.wait_for(client.poll_once(), timeout=5)
+        assert dispatched == 1
+        await wait_prompt("Which color?")
+        await client.poll_once()  # delivers the typed answer "2"
+        await wait_prompt("Start the print?")
+        await client.poll_once()  # delivers the typed answer "1"
+        assert await client.drain_handlers(timeout=5)
+
+    with mock.patch("print_handy.core.prepared_intake.prepare_link", fake_prepare), \
+            mock.patch("print_handy.core.printer_state.load", return_value={}):
+        run(flow())
+    assert seen["answers"] == (1, 0)
+    bodies = stub.sent_bodies()
+    assert any("Sliced in White." in b for b in bodies) and bodies[-1] == "Started."
+    assert client._since == "s4"
 
 
 # ---------------------------------------------------------------------- adapter prompts
@@ -348,10 +413,90 @@ def test_a_typed_answer_posts_its_note_before_it_unblocks_the_flow(cfg, tmp_path
         gate.set()
 
 
+def test_a_timely_answer_survives_a_slow_close_out_note(cfg, tmp_path):
+    """P2-166: the answer is reserved before the close-out note posts, so a
+    note send that outlasts the prompt's remaining timeout cannot discard a
+    timely answer as expired. The stub holds the note for 0.6 s; the waiter
+    only has 0.3 s — before the fix the wait expired, the prompt was dropped
+    and answer_typed returned False after posting its note."""
+    import time as time_module
+
+    class SlowNoteStub(HomeserverStub):
+        def __call__(self, req, timeout=None):
+            body = None
+            if req.data and req.headers.get("Content-type") == "application/json":
+                body = json.loads(req.data)
+            if body and str(body.get("body", "")).startswith("> Answered"):
+                time_module.sleep(0.6)
+            return super().__call__(req, timeout=timeout)
+
+    async def scenario():
+        stub = SlowNoteStub()
+        adapter = matrix.StandaloneAdapter(None, [USER], homeserver=HOMESERVER, token=TOKEN, opener=stub)
+        cid = "cd" * 16
+        key = f"matrix:{ROOM}::{USER}"
+        prompts.register(cid, key, "Start the print?", ["Print it"])
+        result = await adapter.send_clarify(chat_id=ROOM, question="Start the print?",
+                                            choices=["Print it"], clarify_id=cid, session_key="flow")
+        assert result.success
+        waiter = asyncio.create_task(asyncio.to_thread(prompts.wait_for_response, cid, 0.3))
+        assert await adapter.answer_typed(key, "1") is True
+        assert await waiter == "Print it"
+
+    run(scenario())
+
+
 def test_a_number_with_no_open_prompt_is_not_an_answer(cfg, tmp_path):
     adapter = matrix.StandaloneAdapter(None, [USER], homeserver=HOMESERVER, token=TOKEN,
                                        opener=HomeserverStub())
     assert run(adapter.answer_typed(f"matrix:{ROOM}::{USER}", "2")) is False
+
+
+def test_a_near_miss_prompt_does_not_block_the_sync_loop(cfg, tmp_path, monkeypatch):
+    """P1-109: the did-you-mean wait must not run inside message handling on
+    a polling platform — the same loop has to deliver the answer. The
+    handler returns at once, the prompt stays open in a background task,
+    and the typed answer (the next event) still dispatches the correction."""
+    monkeypatch.setattr(runtime, "SUGGESTION_TIMEOUT_S", 30)
+    seen = []
+
+    class _Plugin:
+        def register(self, router):
+            async def record(event, gateway):
+                if event.text.startswith("/spool"):
+                    seen.append(event)
+                    return {"action": "skip", "reason": "recorded"}
+                return None
+            router.register_hook("pre_gateway_dispatch", record)
+
+    def text_event(body, event_id):
+        return {"type": "m.room.message", "sender": USER, "event_id": event_id,
+                "content": {"msgtype": "m.text", "body": body}}
+
+    stub = HomeserverStub()
+    client, core = make_core(cfg, stub, tmp_path, router=Router(plugin=_Plugin()))
+
+    async def flow():
+        out = await asyncio.wait_for(client.handle_event(text_event("/spol list", "$e1"), ROOM),
+                                     timeout=5)
+        assert out == {"action": "skip", "reason": "did-you-mean suggestion pending"}
+        await client.handle_event(text_event("1", "$e2"), ROOM)  # "1" = Yes — run it
+        for _ in range(200):
+            if seen:
+                break
+            await asyncio.sleep(0.01)
+        assert [e.text for e in seen] == ["/spool list"]
+
+    run(flow())
+
+
+def test_matrix_help_omits_the_discord_only_live_command(cfg, tmp_path):
+    """Help is a platform surface too (P2-123): Matrix help must not advertise
+    /print-live, which only the Discord adapter can run."""
+    stub = HomeserverStub()
+    client, core = make_core(cfg, stub, tmp_path)
+    assert "/print-live" not in core.help
+    assert "/print-stop" in core.help
 
 
 # ---------------------------------------------------------------------- BotCore wiring

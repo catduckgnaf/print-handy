@@ -778,7 +778,7 @@ def write_geometry_only_3mf(placed_objects, target: Path) -> Path:
     return target
 
 
-def preserve_3mf_package_layout(source: Path, placed, target: Path, bed=DEFAULT_BED_MM, margin: float = DEFAULT_MARGIN_MM) -> dict:
+def preserve_3mf_package_layout(source: Path, placed, target: Path, bed=DEFAULT_BED_MM, margin: float = DEFAULT_MARGIN_MM, input_unit: str | None = None) -> dict:
     """Rewrite build item transforms in a 3MF archive in-place so metadata/colors stay intact."""
     source = Path(source)
     target = Path(target)
@@ -789,6 +789,18 @@ def preserve_3mf_package_layout(source: Path, placed, target: Path, bed=DEFAULT_
         root = ET.fromstring(payload['3D/3dmodel.model'])
         declared_unit = (root.get('unit') or 'millimeter').lower()
         mm_factor = UNIT_TO_MM.get(declared_unit, 1.0)
+    if input_unit is not None:
+        # The placements were computed from geometry converted by the override,
+        # but preservation rewrites transforms against the archive's original
+        # vertices in its declared units: with differing units the preserved
+        # package would have different physical dimensions (P2-46).
+        override_factor = UNIT_TO_MM.get(str(input_unit).lower())
+        if override_factor is None:
+            raise RuntimeError(f'unrecognized input unit {input_unit!r}; cannot preserve the 3MF package')
+        if abs(override_factor - mm_factor) > 1e-9:
+            raise RuntimeError(
+                f'input unit {input_unit!r} differs from the archive unit {declared_unit!r}; '
+                'the preserved 3MF package would not match the arranged geometry')
     if abs(mm_factor - 1.0) > 1e-6:
         raise RuntimeError('in-place 3MF transform preservation requires millimeter source units')
 
@@ -1076,7 +1088,7 @@ def arrange_and_export(
     if path.suffix.lower() == '.3mf' and not split_stl:
         try:
             preserved_target = outdir / f'{path.stem}_100pct_arranged_preserved.3mf'
-            preserved_info = preserve_3mf_package_layout(path, result, preserved_target, bed=bed, margin=margin)
+            preserved_info = preserve_3mf_package_layout(path, result, preserved_target, bed=bed, margin=margin, input_unit=input_unit)
         except Exception as exc:
             warnings.append(f'In-place 3MF metadata preservation skipped: {exc}')
 
@@ -1090,6 +1102,10 @@ def arrange_and_export(
     reloaded_topo = mesh_topology(reloaded_stl)
     report = {
         **baseline,
+        # The arrange pass's own warnings (its load_parts warnings plus the
+        # preservation-skip note) supersede the baseline inspection's list,
+        # which otherwise silently swallows the skip.
+        'warnings': warnings,
         'result': 'geometry_fits_nominal_bed',
         'packing_search_nodes': nodes,
         'gap_mm': gap,

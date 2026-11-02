@@ -77,7 +77,7 @@ TIME_HEADER=re.compile(r"(?im)^;\s*(?:estimated printing time(?:\s*\([^)]*\))?|e
                        r"|^;.*\b(?:model printing time|total estimated time)\s*:\s*\S|^;\s*time\s*:\s*\S")
 MOVE=re.compile(r"^\s*G[0-3]\b([^;]*)",re.I)
 WORD=re.compile(r"\b([XYZE])\s*(-?(?:\d+(?:\.\d*)?|\.\d+))",re.I)
-HERMES_SLOT_PATTERN = re.compile(r"^Hermes slot \d+(?:\s+\S.*)?$", re.I)
+HERMES_SLOT_PATTERN = re.compile(r"^Hermes slot (\d+)\s+(\S.*)$", re.I)
 # Per-line patterns, compiled once: a large plate runs to 10M+ lines.
 OPCODE = re.compile(r"^([GMT])0*(\d)")
 WORD_TOKEN = re.compile(r"([A-Z])(-?(?:\d+(?:\.\d*)?|\.\d+))")
@@ -91,14 +91,28 @@ EFFECTIVE_SETTING = re.compile(
     r"print_settings_id|brim_type)\s*=\s*(.*)$", re.I)
 
 
-def is_allowed_filament_id(value, own_ids=None):
-    """Check if a filament profile ID is an allowed template ID or Print Handy generated Hermes slot."""
+def is_allowed_filament_id(value, own_ids=None, slot_count=None):
+    """Whether a filament profile ID is one of ours: an exact active profile ID, or a
+    Print Handy generated Hermes slot ID for a configured slot.
+
+    Exact membership in own_ids (the IDs collected from the active generated
+    profiles, or the template's own ID) is the proof. The Hermes shape alone
+    proves nothing — an imported project can name itself "Hermes slot 999
+    Totally Foreign" — so the pattern only counts when the caller supplies
+    the configured slot count and the named slot is inside it (P2-27).
+    """
     if not value or not isinstance(value, str):
         return False
     v = value.strip().strip('"')
     if own_ids and v in own_ids:
         return True
-    return bool(HERMES_SLOT_PATTERN.match(v))
+    match = HERMES_SLOT_PATTERN.match(v)
+    if not match or slot_count is None:
+        return False
+    try:
+        return 1 <= int(match.group(1)) <= int(slot_count)
+    except (TypeError, ValueError):
+        return False
 
 
 # Slicer identity, read from what each supported slicer actually writes (#434). OrcaSlicer and
@@ -284,7 +298,68 @@ def _toolpath_arc_problem(words, target, start, envelope, height, z_headroom):
     return None
 
 
-def toolpath_motion_problems(text, bed, envelope, height=None, z_headroom=1.0):
+def _as_exclusion_polygons(exclusions):
+    """Declared exclusions as a list of polygons, each a list of (x, y) float points.
+
+    Accepts one bare polygon — the shape of the printer models' bed_exclude_area
+    fact — or an iterable of polygons. A polygon with fewer than three points
+    covers no area and is dropped.
+    """
+    if not exclusions:
+        return []
+    first = exclusions[0]
+    if (isinstance(first, (list, tuple)) and len(first) == 2
+            and all(isinstance(v, (int, float)) for v in first)):
+        exclusions = [exclusions]
+    return [[(float(x), float(y)) for x, y in polygon]
+            for polygon in exclusions if len(polygon) >= 3]
+
+
+def _point_in_polygon(x, y, polygon):
+    """Even-odd point-in-polygon; a point on an edge counts as inside (conservative)."""
+    inside = False
+    for (x0, y0), (x1, y1) in zip(polygon, polygon[1:] + polygon[:1]):
+        cross = (x - x0) * (y1 - y0) - (y - y0) * (x1 - x0)
+        if (abs(cross) <= 1e-9 and min(x0, x1) - 1e-9 <= x <= max(x0, x1) + 1e-9
+                and min(y0, y1) - 1e-9 <= y <= max(y0, y1) + 1e-9):
+            return True
+        if (y0 > y) != (y1 > y):
+            if x < x0 + (y - y0) * (x1 - x0) / (y1 - y0):
+                inside = not inside
+    return inside
+
+
+def _segments_cross(ax, ay, bx, by, cx, cy, dx, dy):
+    """True when segment AB and segment CD share any point (crossing, touching or overlapping)."""
+    def orient(px, py, qx, qy, rx, ry):
+        value = (qx - px) * (ry - py) - (qy - py) * (rx - px)
+        return 0.0 if abs(value) <= 1e-9 else value
+
+    def on_segment(px, py, qx, qy, rx, ry):
+        return (min(px, rx) - 1e-9 <= qx <= max(px, rx) + 1e-9
+                and min(py, ry) - 1e-9 <= qy <= max(py, ry) + 1e-9)
+
+    d1 = orient(cx, cy, dx, dy, ax, ay)
+    d2 = orient(cx, cy, dx, dy, bx, by)
+    d3 = orient(ax, ay, bx, by, cx, cy)
+    d4 = orient(ax, ay, bx, by, dx, dy)
+    if ((d1 > 0) != (d2 > 0) and d1 and d2 and (d3 > 0) != (d4 > 0) and d3 and d4):
+        return True
+    return ((d1 == 0 and on_segment(cx, cy, ax, ay, dx, dy))
+            or (d2 == 0 and on_segment(cx, cy, bx, by, dx, dy))
+            or (d3 == 0 and on_segment(ax, ay, cx, cy, bx, by))
+            or (d4 == 0 and on_segment(ax, ay, dx, dy, bx, by)))
+
+
+def _segment_enters_polygon(x0, y0, x1, y1, polygon):
+    """True when the segment from (x0, y0) to (x1, y1) touches the polygon's area at any point."""
+    if _point_in_polygon(x0, y0, polygon) or _point_in_polygon(x1, y1, polygon):
+        return True
+    return any(_segments_cross(x0, y0, x1, y1, ex, ey, fx, fy)
+               for (ex, ey), (fx, fy) in zip(polygon, polygon[1:] + polygon[:1]))
+
+
+def toolpath_motion_problems(text, bed, envelope, height=None, z_headroom=1.0, exclusions=()):
     """Motion checks for G-code whose vendor start/end G-code parks the head off the bed (Bambu wiper, purge lane).
 
     Modal state runs through the whole file. In the prelude and epilogue every move with a known XY position must
@@ -293,11 +368,17 @@ def toolpath_motion_problems(text, bed, envelope, height=None, z_headroom=1.0):
     and every possibly extruding move must be at a known position on the bed at 0 < Z <= height. An E move whose
     extruder mode is unknown counts as extruding. Homing, probing and XYZ coordinate resets are refused there;
     arcs are refused too, except the verified non-extruding form (see _toolpath_arc_problem).
+
+    ``exclusions`` declares bed areas the printer model excludes from printing (its
+    bed_exclude_area fact, one polygon or several): an extruding toolpath move whose
+    segment touches an exclusion's area is refused. Travel moves may cross an
+    exclusion freely — only where plastic lands is checked.
     """
     split = split_toolpath(text)
     if split is None:
         return ["Cannot locate Orca's toolpath (no layer change or end G-code marker); bounds cannot be checked."]
     problems = []
+    polygons = _as_exclusion_polygons(exclusions)
     motion = Motion()
 
     def outside(x, y):
@@ -309,11 +390,14 @@ def toolpath_motion_problems(text, bed, envelope, height=None, z_headroom=1.0):
             motion.forget("XYZ")
         for number, line in enumerate(lines.splitlines(), 1):
             # An arc's centre is relative to where the head is before the move; step() advances
-            # the modal position, so snapshot the start of a toolpath arc first.
+            # the modal position, so snapshot the start of a toolpath arc first. The same
+            # snapshot is the extrusion segment's start for the exclusion check.
             arc_start = None
             if part == "toolpath":
                 tokens = line.split(";", 1)[0].split()
                 if tokens and OPCODE.sub(r"\1\2", tokens[0].upper()) in ("G2", "G3"):
+                    arc_start = dict(motion.pos)
+                elif tokens and OPCODE.sub(r"\1\2", tokens[0].upper()) in ("G0", "G1"):
                     arc_start = dict(motion.pos)
             op, words, target, delta = motion.step(line)
             where = f"{part} line {number}: {line.split(';', 1)[0].strip()[:60]}"
@@ -353,6 +437,22 @@ def toolpath_motion_problems(text, bed, envelope, height=None, z_headroom=1.0):
                           and 0 < z and (height is None or z <= height)):
                     problems.append(f"G-code extrudes off the {bed[0]:g}x{bed[1]:g} mm bed at "
                                     f"X{target['X']:g} Y{target['Y']:g} Z{z:g} ({where}).")
+                elif polygons:
+                    # Only the segment's known endpoints bound where plastic lands: with a
+                    # known start the whole segment is checked, otherwise the endpoint alone.
+                    start = arc_start or {}
+                    sx, sy = start.get("X"), start.get("Y")
+                    entered = next((polygon for polygon in polygons
+                                    if _segment_enters_polygon(
+                                        target["X"] if sx is None else sx,
+                                        target["Y"] if sy is None else sy,
+                                        target["X"], target["Y"], polygon)), None)
+                    if entered is not None:
+                        xs = [p[0] for p in entered]
+                        ys = [p[1] for p in entered]
+                        problems.append(f"G-code extrudes inside the declared bed exclusion "
+                                        f"({min(xs):g}, {min(ys):g}) to ({max(xs):g}, {max(ys):g}) mm at "
+                                        f"X{target['X']:g} Y{target['Y']:g} Z{z:g} ({where}).")
     return problems[:10]
 
 def post_slice(gcode, *, filament_slots=None, tool_slots=None, bed=None, result_json=None,
@@ -416,7 +516,7 @@ def post_slice(gcode, *, filament_slots=None, tool_slots=None, bed=None, result_
             own_ids = {str(value).strip().strip('"') for value in (raw_ids if isinstance(raw_ids, (list, set, tuple)) else [raw_ids])}
             for slot, entry in enumerate(entries, 1):
                 value = entry.strip().strip('"')
-                is_allowed = is_allowed_filament_id(value, own_ids) if key == 'filament_settings_id' else (value in own_ids)
+                is_allowed = is_allowed_filament_id(value, own_ids, slot_count=filament_slots) if key == 'filament_settings_id' else (value in own_ids)
                 if not value or not is_allowed:
                     r.block(f"Foreign effective setting {match.group(1)} slot {slot}: {value!r}.")
         match = ARC_FITTING.match(line)

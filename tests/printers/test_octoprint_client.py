@@ -31,17 +31,41 @@ def _client(payloads, seen):
 
 
 def test_timelapse_movies_parses_the_listing():
+    # OctoPrint's GET /api/timelapse lists rendered movies under "files"
+    # (https://docs.octoprint.org/en/main/api/timelapse.html#timelapse-list);
+    # there is no "movies" key in a real response.
     seen = []
-    client = _client([json.dumps({"movies": [{"name": "a.mp4", "url": "/dl/a.mp4"}],
+    client = _client([json.dumps({"files": [{"name": "a.mp4", "url": "/dl/a.mp4"}],
                                    "unrendered": []}).encode()], seen)
     assert client.timelapse_movies() == [{"name": "a.mp4", "url": "/dl/a.mp4"}]
     assert seen[0].full_url == "http://octo.test:5000/api/timelapse"
     assert seen[0].get_header("X-api-key") == "SECRETKEY"
 
 
+def test_timelapse_movies_ignores_the_nonexistent_movies_key():
+    client = _client([json.dumps({"movies": [{"name": "a.mp4", "url": "/dl/a.mp4"}]}).encode()], [])
+    assert client.timelapse_movies() == []
+
+
 def test_timelapse_movies_tolerates_a_missing_key():
     client = _client([b"{}"], [])
     assert client.timelapse_movies() == []
+
+
+def test_timelapse_unrendered_parses_the_render_queue():
+    """P2-147: the same listing carries the renders still in OctoPrint's
+    background queue — the monitor waits on those before giving up."""
+    seen = []
+    client = _client([json.dumps({"movies": [],
+                                   "unrendered": [{"name": "job_20261026171200.mp4"}]}).encode()],
+                     seen)
+    assert client.timelapse_unrendered() == [{"name": "job_20261026171200.mp4"}]
+    assert seen[0].full_url == "http://octo.test:5000/api/timelapse"
+
+
+def test_timelapse_unrendered_tolerates_a_missing_key():
+    client = _client([b"{}"], [])
+    assert client.timelapse_unrendered() == []
 
 
 def test_download_returns_raw_bytes_with_auth():
@@ -50,6 +74,23 @@ def test_download_returns_raw_bytes_with_auth():
     assert client.download("/downloads/timelapse/a.mp4") == b"\x00\x01video"
     assert seen[0].full_url == "http://octo.test:5000/downloads/timelapse/a.mp4"
     assert seen[0].get_header("X-api-key") == "SECRETKEY"
+
+
+def test_download_resolves_against_the_origin_when_the_base_has_a_prefix():
+    # P2-148: OctoPrint under a URL prefix returns movie URLs that already
+    # include the prefix (it builds them from url_for("index")). Resolving
+    # the server-relative path against the configured base would double
+    # the prefix (/octoprint/octoprint/...); the origin is the right base.
+    # API requests keep using the full base, prefix included.
+    seen = []
+
+    def opener(req, timeout=None):
+        seen.append(req)
+        return _Response(b"video")
+
+    client = OctoPrintClient("http://octo.test:5000/octoprint", "SECRETKEY", opener=opener)
+    assert client.download("/octoprint/downloads/timelapse/a.mp4") == b"video"
+    assert seen[0].full_url == "http://octo.test:5000/octoprint/downloads/timelapse/a.mp4"
 
 
 @pytest.mark.parametrize("path", ["http://evil.test/x", "//evil.test/x", "relative.mp4", ""])

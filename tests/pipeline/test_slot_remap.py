@@ -176,3 +176,59 @@ def test_cli_remap_slot_subcommand(tmp_path):
     assert run.returncode == 0
     assert "SLOT REMAPPED" in run.stdout
     assert '"slot": 2' in run.stdout
+
+
+def _split_job(tmp_path):
+    """A two-plate split job whose artifact binding hashes each plate apart."""
+    st = _state()
+    plates = []
+    for index in (1, 2):
+        plate = tmp_path / f"plate_{index}.gcode"
+        plate.write_text(_artifact())
+        contract.finalize(plate, None, st, {"0": 1})
+        plates.append(plate)
+    job_data = {
+        "model_id": "split-model-1",
+        "gcode": str(plates[0]),
+        "color_decisions": {"mode": "single_color", "selection": {"slot": 1}},
+        "derived_plates": [
+            {"gcode": str(plates[0]), "slot": 1, "plate_id": 1},
+            {"gcode": str(plates[1]), "slot": 2, "plate_id": 2},
+        ],
+        "artifact_binding": {
+            "source_sha256": "fake_source",
+            "decisions_sha256": "fake_decisions",
+            "gcode_sha256": {"1": job.file_sha256(plates[0]), "2": job.file_sha256(plates[1])},
+        },
+    }
+    job_file = tmp_path / "JOB.json"
+    job_file.write_text(json.dumps(job_data, indent=2))
+    return st, plates, job_file
+
+
+def test_remap_slot_on_split_job_updates_only_that_plates_hash(tmp_path):
+    """P2-29: a split job's binding maps plate key -> hash. Remapping one
+    plate must update only its own entry, not replace the whole map with
+    that plate's single hash (which failed every later binding check)."""
+    st, plates, job_file = _split_job(tmp_path)
+    res = job.remap_slot(plates[1], 3, state=st)
+    assert res["ok"] is True and res["slot"] == 3
+    updated = json.loads(job_file.read_text())
+    binding = updated["artifact_binding"]["gcode_sha256"]
+    assert isinstance(binding, dict)
+    assert binding["1"] == job.file_sha256(plates[0])  # the untouched plate keeps its hash
+    assert binding["2"] == res["gcode_sha256"] == job.file_sha256(plates[1])
+    assert contract.embedded_mapping(plates[1].read_text(), st) == {"0": 3}
+
+
+def test_remap_slot_refuses_a_file_outside_a_split_jobs_binding(tmp_path):
+    """P2-29: with a per-plate binding, a file no derived plate names cannot
+    be remapped into the job — refused before the file is rewritten."""
+    st, _plates, _job_file = _split_job(tmp_path)
+    stray = tmp_path / "plate_9.gcode"
+    stray.write_text(_artifact())
+    contract.finalize(stray, None, st, {"0": 1})
+    before = stray.read_bytes()
+    with pytest.raises(RuntimeError, match="no binding entry"):
+        job.remap_slot(stray, 3, state=st)
+    assert stray.read_bytes() == before

@@ -117,6 +117,77 @@ def test_snapshot_unreachable_and_timeout_are_plain_errors():
         client.snapshot()
 
 
+def test_snapshot_reads_use_distinct_client_ids_never_the_listener_id(monkeypatch):
+    # P2-265: a status poll must not connect with the listener's MQTT client
+    # ID (print-handy-<serial>) — MQTT disconnects the existing client when a
+    # new connection reuses its ID, so every poll would kick the listener,
+    # and two polls sharing an ID would kick each other. Each snapshot read
+    # on the built-in factory path asks for a fresh, distinct ID.
+    from print_handy.printers.bambulab import client as client_mod
+
+    seen = []
+    fakes = [FakeMqtt(complete_snapshot_parts()), FakeMqtt(complete_snapshot_parts())]
+
+    def recording_factory(host, serial, access_code, client_id=None):
+        seen.append(client_id)
+        return fakes.pop(0)
+
+    monkeypatch.setattr(client_mod, "_paho_factory", recording_factory)
+    client = BambuLanClient("192.168.1.50", SERIAL, CODE, timeout_s=5)  # built-in factory path
+    client.snapshot()
+    client.snapshot()
+    listener_id = f"print-handy-{SERIAL.lower()}"
+    assert len(seen) == 2 and all(seen), seen
+    assert seen[0] != seen[1], seen  # concurrent polls cannot disconnect each other
+    assert all(cid != listener_id for cid in seen), seen  # never the listener's session ID
+    assert all(cid.startswith(listener_id) for cid in seen), seen
+
+
+def test_paho_factory_defaults_to_the_session_id_and_honors_an_explicit_one(monkeypatch):
+    # The listener's persistent session keeps the fixed print-handy-<serial>
+    # ID (the factory's default); only a caller asking for a distinct ID —
+    # a snapshot read — gets one. paho is stubbed: no broker, no socket.
+    import sys
+    import types
+
+    built = []
+
+    class StubClient:
+        def __init__(self, *args, **kwargs):
+            built.append(kwargs)
+
+        def username_pw_set(self, *args, **kwargs):
+            pass
+
+        def tls_set_context(self, *args, **kwargs):
+            pass
+
+        def tls_insecure_set(self, *args, **kwargs):
+            pass
+
+        def reconnect_delay_set(self, *args, **kwargs):
+            pass
+
+    stub = types.SimpleNamespace(
+        Client=StubClient, MQTTv311=5,
+        CallbackAPIVersion=types.SimpleNamespace(VERSION2=2))
+    paho = types.ModuleType("paho")
+    mqtt_pkg = types.ModuleType("paho.mqtt")
+    client_mod_stub = types.ModuleType("paho.mqtt.client")
+    client_mod_stub.Client = StubClient
+    client_mod_stub.MQTTv311 = 5
+    client_mod_stub.CallbackAPIVersion = stub.CallbackAPIVersion
+    monkeypatch.setitem(sys.modules, "paho", paho)
+    monkeypatch.setitem(sys.modules, "paho.mqtt", mqtt_pkg)
+    monkeypatch.setitem(sys.modules, "paho.mqtt.client", client_mod_stub)
+
+    from print_handy.printers.bambulab.client import _paho_factory
+    _paho_factory("192.168.1.50", SERIAL, CODE)
+    assert built[-1]["client_id"] == f"print-handy-{SERIAL.lower()}"
+    _paho_factory("192.168.1.50", SERIAL, CODE, client_id="print-handy-x-status-1")
+    assert built[-1]["client_id"] == "print-handy-x-status-1"
+
+
 @pytest.mark.parametrize("kwargs", [
     {"host": "https://192.168.1.50"}, {"host": "192.168.1.50:8883"}, {"host": ""},
     {"serial": ""}, {"access_code": ""}, {"timeout_s": 0}, {"timeout_s": True},
@@ -136,6 +207,33 @@ def test_chamber_light_payload_shape():
                    "led_on_time": 500, "led_off_time": 500,
                    "loop_times": 0, "interval_time": 0}}
     assert chamber_light_payload(False)["system"]["led_mode"] == "off"
+
+
+def test_chamber_light_commands_use_distinct_client_ids_never_the_listener_id(monkeypatch):
+    # P2-206: the auto light-off driver sends a chamber-light command at
+    # every print start/end and again at idle-off, and each command built
+    # its MQTT client with the listener's session ID — disconnecting the
+    # listener's session every time (MQTT reuses an ID by kicking the
+    # existing client). One-shot light commands get a fresh distinct ID,
+    # the same treatment snapshot reads got in P2-265.
+    from print_handy.printers.bambulab import client as client_mod
+
+    seen = []
+    fakes = [FakeMqtt(), FakeMqtt()]
+
+    def recording_factory(host, serial, access_code, client_id=None):
+        seen.append(client_id)
+        return fakes.pop(0)
+
+    monkeypatch.setattr(client_mod, "_paho_factory", recording_factory)
+    client = BambuLanClient("192.168.1.50", SERIAL, CODE, timeout_s=5)  # built-in factory path
+    client.set_chamber_light(True)
+    client.set_chamber_light(False)
+    listener_id = f"print-handy-{SERIAL.lower()}"
+    assert len(seen) == 2 and all(seen), seen
+    assert seen[0] != seen[1], seen  # repeated toggles cannot disconnect each other
+    assert all(cid != listener_id for cid in seen), seen  # never the listener's session ID
+    assert all("-light-" in cid for cid in seen), seen
 
 
 def test_set_chamber_light_publishes_ledctrl_to_the_request_topic():
@@ -169,6 +267,25 @@ def test_merge_print_merges_nested_dicts_and_replaces_leaves():
     merged = merge_print({"ams": {"ams": [{"id": 0}], "tray_now": 1}, "mc_percent": 1},
                          {"ams": {"tray_now": 2}, "mc_percent": 5})
     assert merged == {"ams": {"ams": [{"id": 0}], "tray_now": 2}, "mc_percent": 5}
+
+
+def test_merge_print_merges_ams_units_and_trays_by_id():
+    # P2-107: a tray-level delta must merge into the accumulated snapshot,
+    # not replace the tray list wholesale and lose the sibling trays and
+    # the updated tray's material.
+    full = {"ams": {"ams": [{"id": "0", "tray": [{"id": "0", "tray_type": "PLA", "remain": 90},
+                                                  {"id": "1", "tray_type": "PETG", "remain": 50}]}],
+                    "tray_now": "0"}}
+    delta = {"ams": {"ams": [{"id": "0", "tray": [{"id": "0", "remain": 80}]}]}}
+    merged = merge_print(full, delta)
+    unit = merged["ams"]["ams"][0]
+    assert [tray["id"] for tray in unit["tray"]] == ["0", "1"]
+    assert unit["tray"][0] == {"id": "0", "tray_type": "PLA", "remain": 80}
+    assert unit["tray"][1] == {"id": "1", "tray_type": "PETG", "remain": 50}
+    assert merged["ams"]["tray_now"] == "0"
+    # A unit the snapshot has never seen is appended, existing units kept.
+    merged = merge_print(full, {"ams": {"ams": [{"id": "1", "tray": []}]}})
+    assert [u["id"] for u in merged["ams"]["ams"]] == ["0", "1"]
 
 
 # --------------------------------------------------------------------- adapter

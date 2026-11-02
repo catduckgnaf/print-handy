@@ -31,6 +31,7 @@ from __future__ import annotations
 import copy
 import ftplib
 import json
+import secrets
 import ssl
 import time
 from pathlib import Path
@@ -179,12 +180,39 @@ def signature_required(print_payload) -> bool:
         return False
 
 
+def _id_keyed(entries) -> bool:
+    """True when every entry is a dict carrying an `id` (AMS units, their trays)."""
+    return all(isinstance(entry, dict) and "id" in entry for entry in entries)
+
+
+def _merge_id_list(accumulated: list, update: list) -> list:
+    """Merge two id-keyed lists entry by entry: entries the update names are
+    merged in place, entries it does not name survive, new ids append."""
+    out = copy.deepcopy(accumulated)
+    positions = {entry["id"]: index for index, entry in enumerate(out)}
+    for entry in update:
+        if entry["id"] in positions:
+            out[positions[entry["id"]]] = merge_print(out[positions[entry["id"]]], entry)
+        else:
+            positions[entry["id"]] = len(out)
+            out.append(copy.deepcopy(entry))
+    return out
+
+
 def merge_print(accumulated: dict, update: dict) -> dict:
-    """Merge one (possibly delta) `print` payload into the accumulated snapshot state."""
+    """Merge one (possibly delta) `print` payload into the accumulated snapshot state.
+
+    Id-keyed lists (the AMS unit list, a unit's tray list) merge by id
+    (P2-107): a delta naming one tray must not discard its siblings or the
+    fields it does not repeat. Every other list replaces wholesale.
+    """
     out = copy.deepcopy(accumulated)
     for key, value in (update or {}).items():
         if isinstance(value, dict) and isinstance(out.get(key), dict):
             out[key] = merge_print(out[key], value)
+        elif (isinstance(value, list) and value and isinstance(out.get(key), list)
+              and _id_keyed(out[key]) and _id_keyed(value)):
+            out[key] = _merge_id_list(out[key], value)
         else:
             out[key] = copy.deepcopy(value)
     return out
@@ -200,8 +228,15 @@ def lan_ssl_context() -> ssl.SSLContext:
     return context
 
 
-def _paho_factory(host, serial, access_code):
-    """Build the real Paho client. Imported lazily: paho-mqtt is only needed with LAN on."""
+def _paho_factory(host, serial, access_code, client_id=None):
+    """Build the real Paho client. Imported lazily: paho-mqtt is only needed with LAN on.
+
+    The default client ID is the persistent session's (`print-handy-<serial>`),
+    the one the listener connects with. A caller that must not disturb that
+    session — a snapshot read (P2-265) — passes its own distinct `client_id`:
+    MQTT disconnects the existing client when a new connection reuses its ID.
+    """
+    client_id = client_id or f"print-handy-{serial.lower()}"
     try:
         import paho.mqtt.client as mqtt
     except ImportError as exc:
@@ -209,9 +244,9 @@ def _paho_factory(host, serial, access_code):
                             "(pip install paho-mqtt, or use the full requirements.txt)") from exc
     try:
         client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, protocol=mqtt.MQTTv311,
-                             client_id=f"print-handy-{serial.lower()}", clean_session=True)
+                             client_id=client_id, clean_session=True)
     except (AttributeError, TypeError):  # paho < 2 has no CallbackAPIVersion
-        client = mqtt.Client(protocol=mqtt.MQTTv311, client_id=f"print-handy-{serial.lower()}",
+        client = mqtt.Client(protocol=mqtt.MQTTv311, client_id=client_id,
                              clean_session=True)
     client.username_pw_set(MQTT_USER, password=access_code)
     client.tls_set_context(lan_ssl_context())
@@ -324,6 +359,28 @@ class BambuLanClient:
         if rc != 0:
             raise BambuLanError(f"Bambu Lab LAN request was not accepted by the MQTT client (rc={rc}); nothing was sent")
 
+    def _one_shot_mqtt_client(self, purpose):
+        """The MQTT client for one one-shot interaction, on a distinct client ID.
+
+        A one-shot interaction is not the persistent session: connecting with
+        the listener's client ID (`print-handy-<serial>`) would disconnect
+        the listener (MQTT 3.1.1 §3.1.4), and two one-shots sharing an ID
+        would disconnect each other, so every one gets a fresh ID naming its
+        purpose (snapshot reads: P2-265; chamber-light commands: P2-206).
+        Only the built-in Paho factory takes the `client_id` argument; an
+        injected factory keeps the plain (host, serial, access_code) call —
+        that seam is how tests substitute fakes, and no real connection
+        happens there.
+        """
+        if self._mqtt_factory is _paho_factory:
+            client_id = f"print-handy-{self.serial.lower()}-{purpose}-{secrets.token_hex(4)}"
+            return _paho_factory(self.host, self.serial, self._access_code, client_id=client_id)
+        return self._mqtt_factory(self.host, self.serial, self._access_code)
+
+    def _snapshot_mqtt_client(self):
+        """The MQTT client for one snapshot read (see _one_shot_mqtt_client)."""
+        return self._one_shot_mqtt_client("status")
+
     def snapshot(self):
         """Return {"print": {...}, "info": {...} | None, "online": True} from a complete pushall.
 
@@ -331,7 +388,7 @@ class BambuLanClient:
         or does not answer with a complete snapshot before the timeout. Error text carries
         no access code and no payload content.
         """
-        client = self._mqtt_factory(self.host, self.serial, self._access_code)
+        client = self._snapshot_mqtt_client()
         state = {"print": {}, "info": None, "complete": False, "denied": False, "failed": None}
 
         def on_connect(mqtt_client, _userdata, _flags, reason_code, *_rest):
@@ -428,14 +485,20 @@ class BambuLanClient:
                                 "this file — delete it on the printer and upload again")
         return name
 
-    def _send(self, payload):
+    def _send(self, payload, *, one_shot=None):
         """Publish one command payload and wait until the client accepts it. Transport only.
 
         A successful return means the payload was handed to the MQTT client without an
         error — not that the printer acted on it. Callers confirm effects from a fresh
         snapshot. Raises BambuLanError on refusal, access denial or timeout.
+
+        ``one_shot`` names a fire-and-forget purpose (the chamber light):
+        the send then connects on a fresh distinct client ID instead of
+        the listener's session ID, so it can never disconnect the
+        listener's session (P2-206).
         """
-        client = self._mqtt_factory(self.host, self.serial, self._access_code)
+        client = (self._one_shot_mqtt_client(one_shot) if one_shot
+                  else self._mqtt_factory(self.host, self.serial, self._access_code))
         state = {"sent": False, "denied": False, "failed": None}
 
         def on_connect(mqtt_client, _userdata, _flags, reason_code, *_rest):
@@ -504,5 +567,9 @@ class BambuLanClient:
         A successful return means the command was handed to the MQTT
         client — callers confirm the effect from a fresh snapshot's
         lights_report, the same posture as the print controls.
+
+        Sent as a one-shot (P2-206): the auto light-off driver toggles
+        the light at every print start/end and idle-off, and each toggle
+        on the listener's session ID would disconnect the listener.
         """
-        self._send(chamber_light_payload(on))
+        self._send(chamber_light_payload(on), one_shot="light")

@@ -37,13 +37,21 @@ taking ``(method, path, body=None)`` and returning the parsed JSON body.
 """
 from __future__ import annotations
 
+import inspect
 import re
 import time
+import urllib.error
 from dataclasses import dataclass, replace
 
 UPDATE_STATUS_PATH = "/machine/update/status"
 UPDATE_REFRESH_PATH = "/machine/update/refresh"
 UPDATE_UPGRADE_PATH = "/machine/update/upgrade"
+# Moonraker's upgrade handler awaits the whole update before answering,
+# so the POST is bounded by an upgrade-sized timeout, not the read-sized
+# client timeout (15s in spool_sync.moonraker_for). Fifteen minutes
+# covers ordinary component and system-package updates; the bounded
+# verification re-reads remain the real outcome check either way.
+UPGRADE_TIMEOUT_S = 900.0
 SYSTEM_INFO_PATH = "/machine/system_info"
 PRINT_STATE_PATH = "/printer/objects/query?print_stats=state"
 MCU_STATE_PATH = "/printer/objects/query?mcu"
@@ -240,9 +248,14 @@ def fetch_status(transport, *, refresh=False) -> UpdateStatus:
     """
     if refresh:
         try:
-            return parse_update_status(transport("POST", UPDATE_REFRESH_PATH))
+            refreshed = parse_update_status(transport("POST", UPDATE_REFRESH_PATH))
         except Exception:
             pass  # fall through to the plain read below
+        else:
+            # The refresh response gets the same ZMod OS-info enrichment
+            # as the plain read; the live /print-firmware handler always
+            # reads with refresh=True.
+            return _with_zmod_from_system_info(refreshed, transport)
     try:
         payload = transport("GET", UPDATE_STATUS_PATH)
     except FirmwareError:
@@ -616,6 +629,42 @@ def update_prompt_text(prepared: PreparedUpdate) -> str:
         "Only this one component updates — ZMod's own guidance is one module at a time."])
 
 
+def _update_verified(prepared: Component, component: Component) -> bool:
+    """Whether a post-update re-read proves the confirmed update landed.
+
+    Verification is against the exact change the operator confirmed. For
+    a versioned component the installed version must now equal the
+    prepared target: "no update shows as available" alone proves nothing,
+    because a remote version Moonraker can no longer read ("?") also
+    reads as no update while the installed version stays unchanged
+    (P2-229). The ``system`` component reports packages, not versions, so
+    its proof stays the offered package count clearing.
+    """
+    if prepared.remote is not None:
+        return component.current == prepared.remote
+    if prepared.package_count:
+        return not component.update_available
+    return not component.update_available and not component.remote_unknown
+
+
+def _post_upgrade(transport, name) -> None:
+    """POST the one upgrade, with an upgrade-sized timeout when the
+    transport accepts one (see UPGRADE_TIMEOUT_S). The transport's
+    signature is inspected rather than probed, so a transport that
+    cannot take a timeout is called plainly — the POST is never sent
+    twice."""
+    try:
+        params = inspect.signature(transport).parameters
+        accepts_timeout = "timeout" in params or any(
+            param.kind is inspect.Parameter.VAR_KEYWORD for param in params.values())
+    except (TypeError, ValueError):
+        accepts_timeout = False
+    if accepts_timeout:
+        transport("POST", UPDATE_UPGRADE_PATH, {"name": name}, timeout=UPGRADE_TIMEOUT_S)
+    else:
+        transport("POST", UPDATE_UPGRADE_PATH, {"name": name})
+
+
 def send_update(transport, prepared: PreparedUpdate, *, verify_attempts=3,
                 verify_delay_s=5.0, sleep=time.sleep) -> str:
     """Re-check idle, POST the one confirmed upgrade, then verify by re-reading.
@@ -624,9 +673,18 @@ def send_update(transport, prepared: PreparedUpdate, *, verify_attempts=3,
     idle check is repeated here; a busy or unreadable re-check sends
     nothing. After the POST, the status is re-read (a bounded number of
     attempts, waiting between them for a printer that may be restarting)
-    and the outcome reported from that re-read only: updated, still
-    showing the update (failed or unverified), or the printer never came
-    back. A failed POST is reported as failed/uncertain.
+    and the outcome reported from that re-read only: verified only when
+    the re-read shows the confirmed target version installed (see
+    :func:`_update_verified`); otherwise still showing the update, an
+    update state that can no longer be read, or the printer never came
+    back — none of which is reported as success.
+
+    A POST the printer answered with an HTTP error was refused and is
+    reported as failed at once. Any other POST failure (a timeout, a
+    dropped connection) is uncertain — Moonraker awaits the update
+    before answering, so the request may well have landed — and enters
+    the same bounded verification instead of failing on the spot; the
+    POST is never resent.
     """
     try:
         state = print_state(transport)
@@ -635,12 +693,15 @@ def send_update(transport, prepared: PreparedUpdate, *, verify_attempts=3,
                               "update was not sent. Nothing was sent.") from None
     _require_idle(state, recheck=True)
     name = prepared.component.name
+    post_error = None
     try:
-        transport("POST", UPDATE_UPGRADE_PATH, {"name": name})
-    except Exception as exc:
-        raise FirmwareError(f"The update request did not succeed ({exc}). It is not known "
-                            "whether the printer started updating — check the printer "
-                            "before trying again.") from exc
+        _post_upgrade(transport, name)
+    except urllib.error.HTTPError as exc:
+        raise FirmwareError(f"The printer refused the update request ({exc}). "
+                            "Nothing was updated by it — check the printer's own "
+                            "update screen for the reason.") from exc
+    except Exception as exc:  # uncertain outcome: verify by re-reading below
+        post_error = exc
     last_status = None
     for attempt in range(max(1, verify_attempts)):
         if attempt:
@@ -651,20 +712,35 @@ def send_update(transport, prepared: PreparedUpdate, *, verify_attempts=3,
             last_status = None
             continue
         component = last_status.component(name)
-        if component is not None and not component.update_available:
+        if component is not None and _update_verified(prepared.component, component):
             return (f"Updated **{name}** to {component.current or 'its latest version'} — "
                     "verified by re-reading the printer's firmware state after the update.")
+    uncertain = (f" The update request itself did not finish ({post_error}), so it is "
+                 "not known whether the printer started updating."
+                 ) if post_error is not None else ""
     if last_status is not None:
         component = last_status.component(name)
         if component is not None:
-            return (f"The update was requested, but **{name}** still shows "
-                    f"{component.remote} as available (current: "
-                    f"{component.current or 'version not reported'}). Treat the update as "
-                    "failed or not yet applied — check the printer's own update screen "
-                    "before trying again.")
+            if component.remote_unknown:
+                return (f"The update was requested, but the printer no longer reports "
+                        f"the latest version of **{name}**, so Print Handy cannot verify "
+                        f"the update landed (it reports "
+                        f"{component.current or 'no version'} installed). Check the "
+                        "printer's own update screen before trying again.") + uncertain
+            if component.update_available:
+                return (f"The update was requested, but **{name}** still shows "
+                        f"{component.remote} as available (current: "
+                        f"{component.current or 'version not reported'}). Treat the update as "
+                        "failed or not yet applied — check the printer's own update screen "
+                        "before trying again.") + uncertain
+            return (f"The update was requested, but **{name}** now reports "
+                    f"{component.current or 'version not reported'} installed, not the "
+                    f"confirmed target {prepared.component.remote}, and no update shows "
+                    "as available. Treat the update as unverified — check the printer's "
+                    "own update screen before trying again.") + uncertain
     return ("The printer did not answer after the update request, so Print Handy cannot "
             f"verify what happened to **{name}**. It may still be restarting — give it a "
-            "few minutes, then run `/print-firmware` to see the state it reports.")
+            "few minutes, then run `/print-firmware` to see the state it reports.") + uncertain
 
 
 # --------------------------------------------------------------------- stage 3: guides

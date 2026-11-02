@@ -1435,12 +1435,12 @@ def _refuse_non_public(host):
         "internet can open. Nothing was downloaded.")
 
 
-def assert_public_url(url):
-    """Refuse a fetch URL whose destination is not a public address.
+def _validated_public_ips(url):
+    """The validated public addresses for a fetch URL, or raise DirectLinkError.
 
-    Runs before the first connection and again on every redirect target:
-    a redirect to localhost or a private address is the standard way to
-    smuggle one past a check on the original URL."""
+    Every address the host resolves to must be public; the caller connects
+    to one of these addresses itself (see _open_once) rather than letting
+    the transport resolve the name again."""
     parts = urllib.parse.urlsplit(str(url))
     if parts.scheme not in ("http", "https"):
         raise DirectLinkError(
@@ -1469,6 +1469,16 @@ def assert_public_url(url):
                 "send the link again.") from None
     if any(not ip.is_global for ip in ips):
         _refuse_non_public(host)
+    return ips
+
+
+def assert_public_url(url):
+    """Refuse a fetch URL whose destination is not a public address.
+
+    Runs before the first connection and again on every redirect target:
+    a redirect to localhost or a private address is the standard way to
+    smuggle one past a check on the original URL."""
+    _validated_public_ips(url)
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -1478,10 +1488,85 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
         return None
 
 
+class _PinnedConnection:
+    """Dial one pre-validated address instead of re-resolving the host name.
+
+    http.client takes the Host header — and, for HTTPS, the TLS server
+    name and certificate check — from the host name the connection was
+    built with. Only the socket target changes: _create_connection is
+    pointed at the validated IP, so DNS is never consulted again between
+    the public-address check and the connection."""
+
+    def __init__(self, *args, _pinned_ip, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._pinned_ip = str(_pinned_ip)
+        self._create_connection = self._dial_pinned
+
+    def _dial_pinned(self, address, timeout, source_address):
+        return socket.create_connection(
+            (self._pinned_ip, address[1]), timeout, source_address)
+
+
+class _PinnedHTTPConnection(_PinnedConnection, http.client.HTTPConnection):
+    pass
+
+
+class _PinnedHTTPSConnection(_PinnedConnection, http.client.HTTPSConnection):
+    pass
+
+
+class _PinnedHTTPHandler(urllib.request.HTTPHandler):
+    def __init__(self, pinned_ip):
+        super().__init__()
+        self._pinned_ip = pinned_ip
+
+    def http_open(self, req):
+        pinned = self._pinned_ip
+        return self.do_open(
+            lambda host, **kwargs: _PinnedHTTPConnection(
+                host, _pinned_ip=pinned, **kwargs),
+            req)
+
+
+class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, pinned_ip):
+        super().__init__()
+        self._pinned_ip = pinned_ip
+
+    def https_open(self, req):
+        pinned = self._pinned_ip
+        return self.do_open(
+            lambda host, **kwargs: _PinnedHTTPSConnection(
+                host, _pinned_ip=pinned, **kwargs),
+            req, context=self._context)
+
+
 def _open_once(url):
-    """One GET with no redirect following (module-level so tests can fake the transport)."""
+    """One GET with no redirect following (module-level so tests can fake the transport).
+
+    The connection is pinned to an address from the resolution that was
+    just validated (_validated_public_ips): the host name is never
+    re-resolved at connect time, so a DNS answer that changes between
+    the check and the connection (rebinding) cannot steer the fetch at
+    a private address — on this hop or any redirect hop, since every hop
+    goes through here. Environment proxies are disabled for the same
+    reason: a proxy would resolve the name itself, outside the validated
+    set. Each validated address is tried in turn before giving up."""
     req = urllib.request.Request(url, headers={"User-Agent": UA})
-    return urllib.request.build_opener(_NoRedirectHandler()).open(req, timeout=90)
+    last_error = None
+    for ip in _validated_public_ips(url):
+        opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}),
+            _NoRedirectHandler(),
+            _PinnedHTTPHandler(ip),
+            _PinnedHTTPSHandler(ip))
+        try:
+            return opener.open(req, timeout=90)
+        except urllib.error.HTTPError:
+            raise
+        except (urllib.error.URLError, OSError) as exc:
+            last_error = exc
+    raise last_error
 
 
 _REDIRECT_CODES = (301, 302, 303, 307, 308)
@@ -1692,9 +1777,9 @@ def finalize_multicolor(*args, **kwargs):
     return None if native is None else native.finalize(*args, **kwargs)
 
 
-def native_heater_lines_valid(text, bed, hotend):
+def native_heater_lines_valid(text, bed, hotend, adapter=None):
     """Require the documented native startup prefix, not later layer heaters."""
-    valid = printers.current().native.native_startup_valid
+    valid = (adapter or printers.current()).native.native_startup_valid
     return valid(text, bed, hotend)
 
 
@@ -2539,6 +2624,39 @@ def _sync_active_spool(st, slot):
     return result
 
 
+def _clear_active_spool(st):
+    """Clear Moonraker's active spool before a multi-slot launch (P1-24).
+
+    A multi-slot job's usage cannot be apportioned to one spool, so no spool
+    may be charged — but a pointer left over from a single-slot job or a
+    manual selection would keep Moonraker deducting ALL extrusion from that
+    stale spool while the launch claims deduction is disabled. Clear it with
+    verified readback before upload, with _sync_active_spool's posture:
+    Moonraker is a launch dependency (its read failing refuses, and a
+    readback that still names a spool after the clear refuses too), while a
+    failed clear WRITE is Spoolman accounting routed through Moonraker —
+    the launch proceeds and the result carries `spoolman_pending` so the
+    caller records it in the job record for later reconciliation (#387).
+    """
+    try:
+        current = _mr(st, '/server/spoolman/spool_id')['result'].get('spool_id')
+    except Exception as exc:
+        raise RuntimeError(f'Moonraker active spool read failed: {exc}; nothing uploaded or started') from exc
+    if current is None:
+        return {'spool_id': None, 'previous': None, 'changed': False}
+    try:
+        _mr(st, '/server/spoolman/spool_id', data={})
+        back = _mr(st, '/server/spoolman/spool_id')['result'].get('spool_id')
+    except Exception as exc:
+        logger.warning('active spool clear failed for spool #%s: %s', current, exc)
+        spoolman_client.note_unavailable_once()
+        return {'spool_id': current, 'previous': current, 'changed': False, 'spoolman_pending': True}
+    if back is not None:
+        raise RuntimeError(f'Moonraker active spool readback {back!r} after clear; nothing uploaded or started')
+    print(f'ACTIVE SPOOL CLEARED: #{current} -> none (multi-slot job charges no spool)', flush=True)
+    return {'spool_id': None, 'previous': current, 'changed': True}
+
+
 def _verify_readiness_adapter(adapter, state, selection=None):
     """Families without IFS: one Moonraker sample judged by the adapter's own readiness check."""
     try:
@@ -2596,9 +2714,22 @@ def _verify_filament_readiness(state, selection=None, adapter=None):
         raise RuntimeError(f"filament readiness unavailable; print refused: {exc}") from exc
 
 
-def _with_gcode_temperatures(state, text):
+def _with_gcode_temperatures(state, text, recorded=None):
     """state with temps_c set to what this G-code's own spool resolves to (printer_state.gcode_temperatures),
-    so a slot job sliced at its spool's temperature is checked against that, not the printer-wide record."""
+    so a slot job sliced at its spool's temperature is checked against that, not the printer-wide record.
+
+    `recorded` temperatures — the ones preserved in the artifact's slice
+    provenance (P2-275) — win outright when usable: re-resolving at verify
+    time can see a different answer than slicing did (Spoolman down falls
+    back to material defaults) and refuse a sound artifact.
+    """
+    if recorded:
+        try:
+            temps = {'nozzle': float(recorded['nozzle']), 'bed': float(recorded['bed'])}
+        except (KeyError, TypeError, ValueError):
+            temps = None
+        if temps is not None:
+            return {**state, 'temps_c': temps}
     from .orca_config import split_config_list
     from . import spoolman_client
     match = re.search(r'^; filament_type = (.+)$', text, re.M)
@@ -2617,29 +2748,32 @@ def _with_gcode_temperatures(state, text):
     return {**state, 'temps_c': temps}
 
 
-def verify_gcode_offline(gcode_path, state):
+def verify_gcode_offline(gcode_path, state, adapter=None, recorded_temps=None):
     """Check startup, checksum, and bed bounds without contacting the printer.
 
     The live sibling reads display mode from Moonraker. This one validates the
     artifact against the already loaded hardware record: MD5 when present,
     native heater prefix, nozzle, material, start and end, and motion bounds.
     """
-    if printers.current().connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp', 'flashforge_stock'):
-        return _verify_offline(gcode_path, state)
+    adapter_given = adapter is not None
+    adapter = adapter or printers.current()
+    if adapter.connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp', 'flashforge_stock'):
+        kw = {'recorded_temps': recorded_temps} if recorded_temps else {}
+        return _verify_offline(gcode_path, state, adapter, **kw) if adapter_given else _verify_offline(gcode_path, state, **kw)
     p = Path(gcode_path)
     raw = p.read_bytes()
     text = raw.decode(errors='ignore')
     errors = []
     if raw.startswith(b'; MD5:') and not zmod_md5_valid(p):
         errors.append('invalid ZMod MD5 checksum')
-    state = _with_gcode_temperatures(state, text)
+    state = _with_gcode_temperatures(state, text, recorded_temps)
     from .nozzle import effective_nozzle_temperature
     nozzle_type = (state.get('nozzle') or {}).get('type') or settings.current().get('printer', {}).get('nozzle_type') or 'hardened_steel'
     try:
         hotend = effective_nozzle_temperature(nozzle_type, float(state['temps_c']['nozzle']))
     except Exception as exc:
         raise RuntimeError("offline G-code verification failed: invalid effective nozzle temperature: " + str(exc)) from exc
-    if not native_heater_lines_valid(text, state['temps_c']['bed'], hotend):
+    if not native_heater_lines_valid(text, state['temps_c']['bed'], hotend, adapter):
         errors.append('startup heater prefix does not match the recorded bed and effective nozzle temperature')
     def config(key):
         match = re.search(rf'^; {re.escape(key)} = (.+)$', text, re.M)
@@ -2669,18 +2803,19 @@ def verify_gcode_offline(gcode_path, state):
     return {'bounds_mm': bounds, 'nozzle': nozzle, 'offline': True}
 
 
-def _verify_offline(gcode_path, state):
+def _verify_offline(gcode_path, state, adapter=None, recorded_temps=None):
     """A printer Print Handy cannot reach (bambulab.a1): the adapter's checks against the hardware record."""
+    adapter = adapter or printers.current()
     from .printer_state import _material_temperature_contract
     try:
         _material_temperature_contract(state)
     except RuntimeError as exc:
         raise RuntimeError(f'offline G-code verification failed: {exc}') from exc
     text = Path(gcode_path).read_text(errors='ignore')
-    problems = printers.current().gcode_problems(text, _with_gcode_temperatures(state, text))
+    problems = adapter.gcode_problems(text, _with_gcode_temperatures(state, text, recorded_temps))
     if problems:
         raise RuntimeError('offline G-code verification failed: ' + '; '.join(problems))
-    return {'offline': True, 'connection': printers.current().connection}
+    return {'offline': True, 'connection': adapter.connection}
 
 
 def _detail_tail(detail):
@@ -2705,32 +2840,52 @@ def _print_check_warnings(facts):
         print(f"WARNING: {warning}", file=sys.stderr, flush=True)
 
 
-def verify_gcode(gcode_path):
+def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None, recorded_temps=None):
     """Check a G-code artifact against live nozzle, spool and temperature state.
 
     Spoolman is never a gate here (#235): printer_state.check reports its
     outcomes as warnings, and verification proceeds on the recorded state —
     the spool's recorded material/density and the recorded temperatures are
     the fallback when Spoolman is unreachable.
+
+    With no routing arguments this verifies against the configured printer,
+    exactly as it always has. A caller launching a job for another roster
+    printer passes that job's adapter, hardware record and printer_id, and
+    every check below — connection, native contract, start/end macros,
+    temperatures — is the target printer's, never the default's
+    (SAFE-4 / P1-75).
     """
-    if printers.current().connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp', 'flashforge_stock'):
-        st = printer_state.load(); ok, probs, facts = printer_state.check(st)
-        _print_check_warnings(facts)
-        if not ok: raise RuntimeError("the printer check did not pass:\n  " + "\n  ".join(probs))
-        return _verify_offline(gcode_path, st)
-    st=printer_state.load(); ok, probs, facts=printer_state.check(st)
+    routed = adapter is not None or state is not None or printer_id is not None
+    if adapter is None:
+        adapter = printers.current()
+    if state is None:
+        state = printer_state.load(printer_id) if printer_id else printer_state.load()
+    st = state
+    # The offline/LAN families verify without a live session, so their
+    # write-readiness state (busy, Developer Mode, a live fault) must not
+    # gate this check (P2-73): the check runs record-only for them, and the
+    # print paths re-run the live readiness before any write.
+    offline_verify = adapter.connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp', 'flashforge_stock')
+    live_kw = {'live': False} if offline_verify else {}
+    if routed:
+        ok, probs, facts = printer_state.check(st, printer_id=printer_id, adapter=adapter, **live_kw)
+    else:
+        ok, probs, facts = printer_state.check(st, **live_kw)
     _print_check_warnings(facts)
     if not ok: raise RuntimeError("the printer check did not pass:\n  " + "\n  ".join(probs))
+    if offline_verify:
+        kw = {'recorded_temps': recorded_temps} if recorded_temps else {}
+        return _verify_offline(gcode_path, st, adapter, **kw) if routed else _verify_offline(gcode_path, st, **kw)
     p=Path(gcode_path); raw=p.read_bytes(); text=raw.decode(errors="ignore")
     errors=[]
     # The installed native screen requires ZMod's documented first-line MD5.
     # Screenless files remain accepted without it, but any present checksum is validated.
     if raw.startswith(b"; MD5:") and not zmod_md5_valid(p):
         errors.append("invalid ZMod MD5 checksum")
-    native = _native()
+    native = adapter.has_native_screen
     mode = _mr(st, "/printer/objects/query?save_variables")["result"]["status"]["save_variables"]["variables"].get("display_off") if native else None
     nozzle_type = (st.get("nozzle") or {}).get("type") or settings.current().get("printer", {}).get("nozzle_type") or "hardened_steel"
-    st = _with_gcode_temperatures(st, text)
+    st = _with_gcode_temperatures(st, text, recorded_temps)
     from .printer_state import _material_temperature_contract
     try:
         _material_temperature_contract(st)
@@ -2743,7 +2898,7 @@ def verify_gcode(gcode_path):
     elif mode == 0:
         if not zmod_md5_valid(p):
             errors.append("native screen requires valid ZMod MD5 checksum")
-        if not native_heater_lines_valid(text, st["temps_c"]["bed"], effective_hotend):
+        if not native_heater_lines_valid(text, st["temps_c"]["bed"], effective_hotend, adapter):
             errors.append("native screen requires immediate startup M190 Sbed / M104 Snozzle T0 consistent with START_PRINT; later heaters do not count")
     elif mode != 1:
         errors.append(f"unknown display_off mode {mode!r}; refusing hardware-dependent G-code validation")
@@ -2764,7 +2919,7 @@ def verify_gcode(gcode_path):
                 errors.append(f"G-code nozzle {nozzle} != live {st['nozzle']['diameter_mm']}")
     material=config("filament_type")
     if native:
-        validate_materials = printers.current().native.validate_materials
+        validate_materials = adapter.native.validate_materials
         try:
             validate_materials(text, material, st)
         except RuntimeError as exc:
@@ -2791,7 +2946,7 @@ def verify_gcode(gcode_path):
                     math.isclose(float(args.get(hotend_key, 'nan')), float(hotend), abs_tol=1e-3))
         except ValueError:
             return False
-    octoprint = getattr(printers.current(), 'transport', None) == 'octoprint'
+    octoprint = getattr(adapter, 'transport', None) == 'octoprint'
     if octoprint:
         for command, target in (('M190', bed), ('M109', hotend)):
             values = re.findall(rf'^{command}\s+S([\d.]+)', text, re.M)
@@ -2801,7 +2956,7 @@ def verify_gcode(gcode_path):
         if not all(re.search(rf'^{cmd}\s+S0(?:\s|$)', text, re.M) for cmd in ('M104', 'M140')):
             errors.append('Marlin slicer end G-code must turn off nozzle and bed (M104 S0, M140 S0)')
     elif not native:
-        macro = printers.current().start_macro
+        macro = adapter.start_macro
         if not (numeric_macro_match(rf'^{re.escape(macro)}\s+([^;]*)', 'BED', 'HOTEND') or
                 sovol_style_start_matches(text, bed, hotend)):
             errors.append(f"missing {macro} matching bed {bed} and effective hotend {hotend}"
@@ -2811,9 +2966,22 @@ def verify_gcode(gcode_path):
     elif not (numeric_macro_match(r'^PRINT_START\s+([^;]*)', 'BED', 'HOTEND') or
               numeric_macro_match(r'^START_PRINT\s+([^;]*)', 'BED_TEMP', 'EXTRUDER_TEMP')):
         errors.append(f"missing START_PRINT/PRINT_START matching bed {bed} and effective hotend {hotend}")
-    if not octoprint and not (re.search(r'^PRINT_END(?:\s|$)',text,re.M) or re.search(r'^END_PRINT(?:\s|$)',text,re.M)
-            or (not native and re.search(rf'^{re.escape(printers.current().end_macro)}(?:\s|$)',text,re.M))):
-        errors.append("missing END_PRINT/PRINT_END safe end sequence")
+    if not octoprint:
+        if native:
+            if not (re.search(r'^PRINT_END(?:\s|$)',text,re.M) or re.search(r'^END_PRINT(?:\s|$)',text,re.M)):
+                errors.append("missing END_PRINT/PRINT_END safe end sequence")
+        else:
+            end_macro = adapter.end_macro
+            default_end_macro = (adapter.model.defaults().get("printer") or {}).get("end_macro")
+            if end_macro != default_end_macro:
+                # A customized [printer] end_macro is the only safe end (P2-13): a file
+                # ending in a different macro would run a shutdown sequence this printer
+                # does not define, so PRINT_END/END_PRINT no longer substitute for it.
+                if not re.search(rf'^{re.escape(end_macro)}(?:\s|$)',text,re.M):
+                    errors.append(f"missing {end_macro} safe end sequence")
+            elif not (re.search(r'^PRINT_END(?:\s|$)',text,re.M) or re.search(r'^END_PRINT(?:\s|$)',text,re.M)
+                      or re.search(rf'^{re.escape(end_macro)}(?:\s|$)',text,re.M)):
+                errors.append("missing END_PRINT/PRINT_END safe end sequence")
     try:
         bounds=cached_motion_bounds(raw, text)
     except RuntimeError as exc:
@@ -2846,15 +3014,25 @@ def verify_gcode(gcode_path):
             # features merely to raise this metadata median.
             role = None
             widths = []
+            # The width in effect when a feature starts is inherited, but it
+            # counts for that feature only once extrusion actually uses it: a
+            # ;WIDTH line that follows replaces it before any plastic is laid,
+            # so counting it anyway would credit the feature with the previous
+            # feature's width and could lift the median past the floor (P2-66).
+            inherited = None
             for line in block.splitlines():
                 if line.startswith(";TYPE:"):
                     role = line[6:].strip().casefold()
-                    if carried[0] is not None and role not in ("gap infill", "gap fill"):
-                        widths.append(carried[0])
-                if line.startswith(";WIDTH:"):
+                    inherited = carried[0]
+                elif line.startswith(";WIDTH:"):
                     carried[0] = float(line[7:])
+                    inherited = None
                     if role not in ("gap infill", "gap fill"):
                         widths.append(carried[0])
+                elif inherited is not None and re.match(r'G[01] [^;]*E[0-9.]*[1-9]', line):
+                    if role not in ("gap infill", "gap fill"):
+                        widths.append(inherited)
+                    inherited = None
             if not widths and carried[0] is not None and role not in ("gap infill", "gap fill") \
                     and re.search(r'^G[01] [^;\n]*E[0-9.]*[1-9]', block, re.M):
                 # Extrudes with no new ;TYPE/;WIDTH line: the width in effect still applies.
@@ -2875,6 +3053,66 @@ def verify_gcode(gcode_path):
     if errors: raise RuntimeError("the G-code did not pass its safety checks: " + "; ".join(errors))
     print(f"G-CODE OK: {p.name} | {printer_state.summary(st)}")
     return True
+
+
+def _recorded_temperatures(job, gcode_path):
+    """The temperatures a job's artifact was sliced at, from its slice provenance (P2-275).
+
+    The single-plate provenance lives on the job; a split job's lives on
+    the derived_plates row for this file. None when the job records none —
+    artifacts sliced before temperatures were preserved verify as before.
+    """
+    if not isinstance(job, dict):
+        return None
+    target = str(gcode_path)
+    provenance = None
+    if str(job.get('gcode') or '') == target:
+        provenance = job.get('provenance')
+    else:
+        for row in job.get('derived_plates') or []:
+            if isinstance(row, dict) and str(row.get('gcode')) == target:
+                provenance = row.get('provenance')
+                break
+    temps = (provenance or {}).get('temperatures') if isinstance(provenance, dict) else None
+    return temps if isinstance(temps, dict) else None
+
+
+def _verify_routed(gcode_path, adapter, state, printer_id, job=None):
+    """verify_gcode for a launch path that already resolved its printer.
+
+    A job naming a roster printer verifies against that printer's adapter
+    and hardware record (SAFE-4 / P1-75); anything else verifies exactly
+    as before, against the configured printer. A job's recorded slice
+    temperatures ride along so the verify checks the artifact against
+    what it was sliced at (P2-275).
+    """
+    recorded = _recorded_temperatures(job, gcode_path)
+    kw = {'recorded_temps': recorded} if recorded else {}
+    if printer_id:
+        return verify_gcode(gcode_path, adapter=adapter, state=state, printer_id=printer_id, **kw)
+    return verify_gcode(gcode_path, **kw)
+
+
+def _recorded_printer_id(job):
+    """A job's recorded printer_id, or None (unlike _job_printer_id, no default fallback:
+    launch helpers route verification and monitors only when the job itself names a printer)."""
+    return job.get("printer_id") if isinstance(job, dict) else None
+
+
+def _start_family_monitor(watch, adapter, remote, job):
+    """Start a family's launched-print monitor for a just-started print.
+
+    The monitor runs in a detached worker process (hermes.monitor_worker),
+    never on a thread here: print-now is a short-lived subprocess, so an
+    in-process daemon thread dies with the submission and the print loses
+    its completion post and timelapse (P1-85, P1-98). The worker rebuilds
+    the job printer's adapter there — this process's adapter only
+    identifies the family, through the watch module it pairs with. The
+    job's recorded printer_id rides along so the worker serves that
+    printer and the monitor's pause alerts act on it (SAFE-4 / P1-101).
+    """
+    from print_handy.hermes import monitor_worker
+    return monitor_worker.spawn(watch.__name__, remote, _recorded_printer_id(job))
 
 
 CONTEXT = Path(os.environ.get("PRINT_HANDY_CONTEXT_PATH", settings.state_dir()/"print_handy_context.json"))
@@ -2953,6 +3191,12 @@ def record_start(gcode_path, moonraker_name=None, started_at=None):
         ctx['printer_profile'] = 'Reviewed Orca AD5X native multicolor'
     if (job or {}).get('delivery_format'):
         ctx['delivery_format'] = job['delivery_format']
+    if isinstance((job or {}).get('spoolman_usage_pending'), dict):
+        # Launch-time accounting failure (#387): carry the pending marker and
+        # its intended spool into the start record and the completion sidecar,
+        # so the completion record is marked pending instead of silently
+        # attributing the usage to whatever spool answers then (P2-155).
+        ctx['spoolman_usage_pending'] = job['spoolman_usage_pending']
     ctx["record_path"]=print_records.write_start_record(ctx)
     record_path=ctx["record_path"]
     try: side=json.loads(CONTEXT.read_text())
@@ -3482,6 +3726,19 @@ def require_current_artifact(job, gcode):
         raise RuntimeError('stale color artifact: reslice current JOB before launch')
     from .slice_recipe import RECIPE_VERSION, require_recorded
     recipe_sha = require_recorded(job, binding)
+    # The stored record hashing to its own digest only proves it was not edited;
+    # it says nothing about the world since slicing. Recompute the recipe from
+    # the launch-time job, hardware record, profiles and settings (with the
+    # recorded overrides, exactly as _recipe_changed does during slicing) and
+    # refuse when the inputs moved after the artifact was sliced (P2-52).
+    try:
+        recipe_changed = _recipe_changed(job, job, _recorded_printer_id(job))
+    except Exception as exc:
+        raise RuntimeError('stale color artifact: the current slice recipe could not be '
+                           f'recomputed before launch ({exc}); reslice before launch') from exc
+    if recipe_changed:
+        raise RuntimeError('stale color artifact: the nozzle, profiles or job inputs changed '
+                           'after slicing; reslice before launch')
     stored_hash = binding.get('gcode_sha256')
     presented = Path(gcode).resolve()
     if isinstance(stored_hash, dict):
@@ -3528,11 +3785,46 @@ def _recipe_binding(job):
     return {'recipe_version': job['slice_recipe']['version'], 'recipe_sha256': job['slice_recipe']['sha256']}
 
 
-def _recipe_changed(job, latest):
-    """True when JOB.json, the hardware record, profiles or slicer now give another recipe than the one sliced."""
+def _placed_bounds_by_object(geometry, object_of_key):
+    """Per-object placed bounds from a multicolor exporter report (P2-85).
+
+    The union of the part rows' bounds and the cutter volumes' bounds. The
+    merged-placement proof compares these against bounds computed from ALL
+    of an object's authored volumes, so the landed side must include the
+    cutters too: a negative volume reaching past its body otherwise reads
+    as the export having landed somewhere else, and a sound slice is
+    refused.
+    """
+    placed = {}
+
+    def fold(oid, box):
+        if oid in placed:
+            prev = placed[oid]
+            box = [(min(prev[a][0], box[a][0]), max(prev[a][1], box[a][1])) for a in range(3)]
+        placed[oid] = box
+
+    for row in geometry.get('parts', []):
+        fold(object_of_key[row['part_key']], row['bounds_mm'])
+    for oid, box in (geometry.get('cutter_bounds_by_object') or {}).items():
+        fold(str(oid), box)
+    return placed
+
+
+def _recipe_changed(job, latest, printer_id=None):
+    """True when JOB.json, the hardware record, profiles or slicer now give another recipe than the one sliced.
+
+    The recomputation loads the job's own printer record, exactly as
+    slice_job did when it recorded the recipe: a secondary printer whose
+    nozzle or filament slots differ from the default printer's must not
+    read as a changed recipe, and reslicing must be able to clear the
+    mismatch. A job with no recorded printer keeps the legacy load.
+    """
     from .slice_recipe import recipe_sha256, slice_recipe
     sliced = job['slice_recipe']['recipe']
-    current = slice_recipe(latest, sliced['source_sha256'], printer_state.load(), **sliced['overrides'])
+    if printer_id is None:
+        printer_id = _recorded_printer_id(job) or _recorded_printer_id(latest)
+    state = printer_state.load(printer_id) if printer_id else printer_state.load()
+    current = slice_recipe(latest, sliced['source_sha256'], state, **sliced['overrides'])
     return recipe_sha256(current) != job['slice_recipe']['sha256']
 
 
@@ -3808,7 +4100,7 @@ def _plates_for(source, manifest):
                  'object_ids': sorted({int(p['object_id']) for p in manifest['parts']})}]
 
 
-def full_size_one_plate(source, state, decisions=None):
+def full_size_one_plate(source, state, decisions=None, capacity=None, multi_tool=False, job=None):
     """A 100%-scale, one-plate rearrangement the slicer will honor exactly, or None.
 
     This is the cheap first fit check after the author's layout fails the bed:
@@ -3818,6 +4110,11 @@ def full_size_one_plate(source, state, decisions=None):
     * per-part color decisions on a 3MF slice through the merge planner
       (``plate_merge.plan``) with the rearrangement flag, which keeps the
       merge spacing, bed-edge margin and prime-tower room for multi-slot jobs;
+      ``capacity``/``multi_tool`` carry the job printer's position count and
+      kind into that planner, exactly as ``slice_multi_plate`` passes them;
+      ``job`` is the real job, carried into the planner under the flag: the
+      planner reads the author's own text from it (a listing summary asking
+      for separate printing), which a synthetic flag-only job hid (P2-235);
     * a single-color or generic single-plate source slices through
       ``geometry_layout.arrange_and_export``, so it is checked with
       ``probe_single_plate_rearrange`` at the same defaults.
@@ -3842,10 +4139,11 @@ def full_size_one_plate(source, state, decisions=None):
             return None
         view = _per_part_view(manifest, decisions)
         slots = _part_slots(view, manifest)
-        flagged = {'full_size_rearrange_plan': {'rearrange_plate': True}}
+        flagged = {**(job or {}), 'full_size_rearrange_plan': {'rearrange_plate': True}}
         verdict = plate_merge.plan(source, manifest, _plates_for(source, manifest), slots, st,
                                    bed=int(bed[0]), job=flagged,
-                                   edge=_merge_edge(st.get('brim_override')))
+                                   edge=_merge_edge(st.get('brim_override')),
+                                   capacity=capacity, multi_tool=multi_tool)
         if verdict.get('mode') != 'merge':
             return None
         boxes = list((verdict.get('placed_bounds_mm') or {}).values())
@@ -3971,9 +4269,14 @@ def slice_multi_plate(job, job_path, src, manifest, decisions, st, brim_override
         verdict['reason'] = 'Resized per-part job: one fitted plate per slot'
     elif mode == 'merge':
         _, _, plan_brim = _job_fit(job, brim_override)
-        verdict = plate_merge.plan(src, manifest, plates, slots, st, job=job, edge=_merge_edge(plan_brim))
+        adapter = _job_adapter(job)
+        # The planner's capacity is the job printer's position count: a
+        # multi_tool model's toolheads, not the configured printer's IFS
+        # slots (a Creator-configured process has filament_slots=1) (P1-72).
+        verdict = plate_merge.plan(src, manifest, plates, slots, st, job=job, edge=_merge_edge(plan_brim),
+                                   capacity=position_limit(adapter), multi_tool=adapter.multi_tool)
         if verdict['mode'] == 'merge':
-            merged_slice = (_slice_merged_multi_tool if _job_adapter(job).multi_tool else _slice_merged)
+            merged_slice = (_slice_merged_multi_tool if adapter.multi_tool else _slice_merged)
             try:
                 result = merged_slice(job, job_path, src, manifest, decisions, view, verdict, st, brim_override, work)
             except plate_merge.SplitNeeded as exc:
@@ -4076,7 +4379,7 @@ def _slice_painted_plates(job, job_path, src, manifest, decisions, view, plates,
         geometry = provenance.get('geometry') or {}
         if sorted(r['part_key'] for r in geometry.get('parts', [])) != sorted(keys):
             raise RuntimeError(f"painted plate {plate['id']} dropped or duplicated a source part")
-        check = verify_gcode_offline(out, st)
+        check = verify_gcode_offline(out, st, _job_adapter(job))
         tools = provenance.get('tool_mapping') or {}
         artifacts.append({'plate_id': plate['id'], 'slot': sorted(set(tools.values())),
                           'binding_key': f"{plate['id']}:painted", 'part_keys': keys,
@@ -4086,7 +4389,7 @@ def _slice_painted_plates(job, job_path, src, manifest, decisions, view, plates,
     if not artifacts:
         raise RuntimeError('painted source produced no plates')
     latest = json.loads(Path(job_path).read_text())
-    if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest):
+    if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest, _recorded_printer_id(job)):
         raise RuntimeError('source, decisions or slice recipe changed during slicing; artifact not made ready')
     job['derived_plates'] = artifacts
     job['plate_merge'] = {'mode': 'split', 'painted': True, 'plates_in': len(plates), 'plates_out': len(artifacts),
@@ -4193,14 +4496,7 @@ def _slice_merged(job, job_path, src, manifest, decisions, view, verdict, st, br
             from .color_geometry import _world_points as _points_of
             from .orca_adapter import _rotate as _rotate_point
             object_of_key = {p['key']: str(p['object_id']) for p in manifest['parts']}
-            placed_by_object = {}
-            for row in geometry.get('parts', []):
-                oid = object_of_key[row['part_key']]
-                box = row['bounds_mm']
-                if oid in placed_by_object:
-                    prev = placed_by_object[oid]
-                    box = [(min(prev[a][0], box[a][0]), max(prev[a][1], box[a][1])) for a in range(3)]
-                placed_by_object[oid] = box
+            placed_by_object = _placed_bounds_by_object(geometry, object_of_key)
             shifts = {str(k): v for k, v in verdict['shifts'].items()}
             with zipfile.ZipFile(src) as archive:
                 turned_points = {oid: _points_of(archive, {oid}) for oid in fit_by_object}
@@ -4226,9 +4522,9 @@ def _slice_merged(job, job_path, src, manifest, decisions, view, verdict, st, br
     labelled = _gcode_object_count(text)
     if labelled and labelled != len(manifest['parts']):
         raise RuntimeError(f'merged G-code prints {labelled} objects but the source has {len(manifest["parts"])}')
-    check = verify_gcode_offline(out, st)
+    check = verify_gcode_offline(out, st, _job_adapter(job))
     latest = json.loads(Path(job_path).read_text())
-    if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest):
+    if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest, _recorded_printer_id(job)):
         raise RuntimeError('source, decisions or slice recipe changed during slicing; artifact not made ready')
     summary = {'mode': 'merge', 'reason': None, 'plates_in': verdict['plates_in'], 'objects_in': len(verdict['objects_in']),
                'objects_out': len(placed_ids), 'parts_in': len(manifest['parts']), 'bed_mm': verdict['bed_mm'],
@@ -4300,14 +4596,7 @@ def _slice_merged_multi_tool(job, job_path, src, manifest, decisions, view, verd
         from .color_geometry import _world_points as _points_of
         from .orca_adapter import _rotate as _rotate_point
         object_of_key = {p['key']: str(p['object_id']) for p in manifest['parts']}
-        placed_by_object = {}
-        for row in geometry.get('parts', []):
-            oid = object_of_key[row['part_key']]
-            box = row['bounds_mm']
-            if oid in placed_by_object:
-                prev = placed_by_object[oid]
-                box = [(min(prev[a][0], box[a][0]), max(prev[a][1], box[a][1])) for a in range(3)]
-            placed_by_object[oid] = box
+        placed_by_object = _placed_bounds_by_object(geometry, object_of_key)
         shifts = {str(k): v for k, v in verdict['shifts'].items()}
         with zipfile.ZipFile(src) as archive:
             turned_points = {oid: _points_of(archive, {oid}) for oid in fit_by_object}
@@ -4332,9 +4621,9 @@ def _slice_merged_multi_tool(job, job_path, src, manifest, decisions, view, verd
     labelled = _gcode_object_count(text)
     if labelled and labelled != len(manifest['parts']):
         raise RuntimeError(f'merged G-code prints {labelled} objects but the source has {len(manifest["parts"])}')
-    check = verify_gcode_offline(out, st)
+    check = verify_gcode_offline(out, st, _job_adapter(job))
     latest = json.loads(Path(job_path).read_text())
-    if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest):
+    if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest, _recorded_printer_id(job)):
         raise RuntimeError('source, decisions or slice recipe changed during slicing; artifact not made ready')
     summary = {'mode': 'merge', 'reason': None, 'plates_in': verdict['plates_in'], 'objects_in': len(verdict['objects_in']),
                'objects_out': len(placed_ids), 'parts_in': len(manifest['parts']), 'bed_mm': verdict['bed_mm'],
@@ -4387,7 +4676,7 @@ def _slice_per_plate(job, job_path, src, manifest, decisions, view, plates, st, 
             slice_dir = work / 'sliced' / 'orca' / uuid.uuid4().hex
             out, provenance, configs = slice_model(plate, slice_dir, st, brim_override, preserve_layout=True, filament_slot=slot, **({'supports': supports} if supports is not None else {}))
             finalize_multicolor(out, None, st, {'0': slot})
-            check = verify_gcode_offline(out, st)
+            check = verify_gcode_offline(out, st, _job_adapter(job))
         except RuntimeError as exc:
             # One plate failing a safety guard (e.g. an off-bed move) must not discard the
             # other plates that sliced and verified cleanly. The failed plate is recorded,
@@ -4406,7 +4695,7 @@ def _slice_per_plate(job, job_path, src, manifest, decisions, view, plates, st, 
     if covered != sorted(p['key'] for p in manifest['parts']):
         raise RuntimeError('per-plate output does not account for every source part')
     latest = json.loads(Path(job_path).read_text())
-    if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest):
+    if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest, _recorded_printer_id(job)):
         raise RuntimeError('source, decisions or slice recipe changed during slicing; artifacts not made ready')
     job['derived_plates'] = artifacts
     if refused:
@@ -4771,7 +5060,7 @@ def _slice_full_size_split(job, job_path, src, manifest, decisions, st):
                                                **({'supports': supports}
                                                   if supports is not None else {}))
         finalize_multicolor(out, None, st, {'0': slot})
-        check = verify_gcode_offline(out, st)
+        check = verify_gcode_offline(out, st, _job_adapter(job))
         artifacts.append({'slot': slot, 'plate_id': index, 'binding_key': f'{index}:{slot}',
                           'part_keys': keys, 'plate': str(plate), 'gcode': str(out),
                           **({'yaw_deg': yaw_deg} if yaw_deg is not None else {}),
@@ -4785,7 +5074,7 @@ def _slice_full_size_split(job, job_path, src, manifest, decisions, st):
                           'offline_check': check, 'plate_report': report, 'provenance': provenance,
                           'slice_config': [str(path) for path in configs]})
     latest = json.loads(Path(job_path).read_text())
-    if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest):
+    if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest, _recorded_printer_id(job)):
         raise RuntimeError('source, decisions or slice recipe changed during full-size split slicing')
     job['derived_plates'] = artifacts
     job['plate_merge'] = {'mode': 'split', 'reason': f"operator chose full-size split into {len(artifacts)} plates",
@@ -4802,7 +5091,12 @@ def _slice_full_size_split(job, job_path, src, manifest, decisions, st):
 def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha256=None):
     # Disk only. Launch still runs printer_state.check inside print_now and
     # verify_gcode. A file that never leaves disk does not need Moonraker or Spoolman.
-    job = json.loads(Path(job_path).read_text()); st = printer_state.load()
+    job = json.loads(Path(job_path).read_text())
+    # The job's own printer record (#334): slicing a secondary printer's job
+    # against the default record would validate its filament selection
+    # against the wrong printer's slots and slice for the wrong hardware
+    # (SAFE-4 / P1-78). A job with no recorded printer keeps the legacy load.
+    st = printer_state.load(job["printer_id"]) if job.get("printer_id") else printer_state.load()
     adapter = _job_adapter(job)
     # "generic" = not sliced through the record-bound IFS machinery (per-slot
     # selections validated against the record map, per-part plates exported by
@@ -4907,11 +5201,33 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         return result
     if decisions and decisions['mode'] == 'single_color':
         selection = decisions['selection']
+        job['filament_selection'] = selection
+        if multi_tool and src.suffix.lower() == '.3mf':
+            # A toolhead pick is a one-tool identity job: route it through
+            # the merged multi-tool slice (#346 machinery) so the geometry
+            # and filament profiles land on the picked toolhead instead of
+            # T0. The generic tail below has no tool channel to honor it,
+            # and it recorded the pick while silently slicing toolhead 1.
+            # The merged path slices the authored geometry once, so a job
+            # asking for copies, a resize or a rotation refuses here with
+            # the reason stated instead of silently dropping the transform.
+            scale_now = scale if scale is not None else job.get('scale')
+            if (copies and int(copies) > 1) or (job.get('orientation') or {}).get('rotation') \
+                    or (scale_now is not None and float(scale_now) != 1.0):
+                raise RuntimeError(
+                    f"{adapter.label} slices a single-color toolhead job as one merged plate at "
+                    "authored size; copies, resizing and rotation are not supported on that path. "
+                    "Slice one copy at 100% to print on the picked toolhead. Nothing sliced")
+            try:
+                return slice_multi_plate(job, job_path, src, manifest, decisions, st, brim_override)
+            except ImplicitPlateSplit as exc:
+                raise RuntimeError(
+                    f"{adapter.label} prints a single-color toolhead job as one merged plate; this source "
+                    f"does not merge onto one bed ({exc.verdict.get('reason')}). No slicing attempted") from exc
         if not multi_tool:
             # The IFS slot verification is slot-shaped; a toolhead pick was
             # already resolved against the recorded toolheads (#346).
             _validate_slot_selection(st, selection)
-        job['filament_selection'] = selection
     elif decisions and decisions['mode'] == 'per_part':
         if adapter.multi_tool:
             # Independent toolheads (#346): one merged G-code through the
@@ -4969,12 +5285,12 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
                 raise RuntimeError(f"derived plate physical IFS slot {group['slot']} has no verified material")
             finalize_multicolor(out, None, st, {'0': group['slot']})
             # Verify the exact final bytes (after map, color and MD5 rewrite).
-            check = verify_gcode_offline(out, st)
+            check = verify_gcode_offline(out, st, _job_adapter(job))
             artifacts.append({'slot': group['slot'], 'part_keys': group['part_keys'], 'plate': str(plate),
                               'gcode': str(out), 'offline_check': check, 'plate_report': report,
                               'provenance': provenance, 'slice_config': [str(path) for path in configs]})
         latest = json.loads(Path(job_path).read_text())
-        if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest):
+        if file_sha256(src) != source_sha or decisions_digest(latest.get('color_decisions')) != decision_sha or _recipe_changed(job, latest, _recorded_printer_id(job)):
             raise RuntimeError('source, decisions or slice recipe changed during slicing; artifacts not made ready')
         job['derived_plates'] = artifacts
         job.pop('refused_plates', None)
@@ -5085,6 +5401,14 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         preserved = (layout_report.get("preserved_3mf_package") or {}).get("preserved_3mf")
         slice_src = rearrange_dir / (preserved or layout_report["exported_3mf_geometry_only"])
         job["layout_report"] = str(rearrange_dir / "validation.json")
+    slice_decisions = decisions
+    if decisions is not None and slice_src != src:
+        # The decisions were validated against the original source above, but
+        # the slicer validates them against the file it is handed — the
+        # arranged derivative, whose bytes (and SHA) differ. Bind the copy
+        # passed to the slicer to the derivative; JOB.json and decision_sha
+        # keep the original decisions (P1-50).
+        slice_decisions = {**decisions, 'source_sha256': file_sha256(slice_src)}
     # A single-slot printer slices as `generic`, which leaves `decisions` as None, but the Discord
     # intake has still written color_decisions into JOB.json. The post-slice check below hashes
     # the file's decisions, so hash the same thing here or every such slice is refused (#268).
@@ -5100,18 +5424,18 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         # Single-color jobs are bound to their named IFS slot exactly like
         # derived per-slot plates, so launch uses the mapped native route.
         out, provenance, configs = slice_model(slice_src, slice_dir, st, brim_override,
-                                              color_decisions=decisions, filament_slot=selected_slot,
+                                              color_decisions=slice_decisions, filament_slot=selected_slot,
                                               copies=copies, **scale_kw)
         finalize_multicolor(out, None, st, {"0": selected_slot})
     else:
         out, provenance, configs = slice_model(slice_src, slice_dir, st, brim_override,
-                                              color_decisions=decisions, copies=copies, **scale_kw)
+                                              color_decisions=slice_decisions, copies=copies, **scale_kw)
     _timing(job_path, 'orca_finalize_done')
     if adapter.key == printers.current().key:
-        verify_gcode(out)
+        _verify_routed(out, adapter, st, _recorded_printer_id(job), job=job)
     latest = json.loads(Path(job_path).read_text())
     _timing(job_path, 'verify_done')
-    if file_sha256(src) != source_sha or decisions_digest(latest.get("color_decisions")) != decision_sha or _recipe_changed(job, latest):
+    if file_sha256(src) != source_sha or decisions_digest(latest.get("color_decisions")) != decision_sha or _recipe_changed(job, latest, _recorded_printer_id(job)):
         raise RuntimeError("source, decisions or slice recipe changed during slicing; artifact not made ready")
     job["artifact_binding"] = {**_recipe_binding(job), "source_sha256": source_sha, "decisions_sha256": decision_sha,
                                "gcode_sha256": file_sha256(out)}
@@ -5876,11 +6200,12 @@ def _native_file_matches(reported, remote):
 
 
 def _moonraker_started_files(st):
-    """Moonraker's recent job history as (filename, start_epoch) pairs, for settling an uncertain
-    earlier start (launch_state.reached_printer). Unreadable history settles nothing."""
+    """Moonraker's recent job history as (job_id, filename, start_epoch) triples, for settling
+    an uncertain earlier start (launch_state.reached_printer) and for the pre-submission
+    history baseline (launch_state.acquire). Unreadable history settles nothing."""
     try:
         jobs = _mr(st, '/server/history/list?limit=20&order=desc', timeout=10)['result']['jobs']
-        return [(j.get('filename'), j.get('start_time')) for j in jobs
+        return [(j.get('job_id'), j.get('filename'), j.get('start_time')) for j in jobs
                 if isinstance(j, dict) and j.get('filename') and isinstance(j.get('start_time'), (int, float))]
     except Exception:
         return []
@@ -6302,6 +6627,20 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
         slots_used = sorted(set(mapped.values()))
         if len(slots_used) > 1:
             print('WARNING: MULTI-SLOT JOB: automatic Spoolman usage deduction disabled; aggregate usage cannot be safely apportioned to selected spools.', flush=True)
+            cleared = _clear_active_spool(st)
+            if cleared.get('spoolman_pending') and job_path is not None:
+                # The clear could not be written: Moonraker may keep charging
+                # the stale spool during this print. Record which spool that
+                # is in the job record for later reconciliation; recording
+                # must never block the launch (#387).
+                job['spoolman_usage_pending'] = {
+                    'spool_id': None, 'stale_spool_id': cleared.get('previous'), 'slots': slots_used,
+                    'reason': 'Moonraker active spool could not be cleared before a multi-slot print; the stale spool may be charged',
+                    'recorded_at': time.time()}
+                try:
+                    write_job(Path(job_path).parent, job)
+                except Exception as exc:
+                    logger.warning('could not record pending Spoolman usage: %s', exc)
         else:
             sync = _sync_active_spool(st, slots_used[0])
             if sync.get('spoolman_pending') and job_path is not None:
@@ -6499,6 +6838,33 @@ def remap_slot(target, new_slot, tool="0", state=None):
                 job = json.loads(job_path.read_text())
                 break
 
+    # A job bound to another roster printer remaps against that printer's
+    # record and native contract, not the default's (SAFE-4 / P1-75). An
+    # explicit state argument from the caller still wins for the record.
+    routed_id = _recorded_printer_id(job)
+    if routed_id and state is None:
+        st = printer_state.load(routed_id)
+    routed_adapter = _job_adapter(job) if routed_id else printers.current()
+
+    # A split job's artifact binding hashes each derived plate apart (a dict
+    # keyed like require_current_artifact builds it). The remap below must
+    # update only the remapped plate's entry — and a file no derived plate
+    # names has no entry to update, so it is refused here, before finalize
+    # rewrites anything (P2-29).
+    binding_key = None
+    if job is not None and isinstance(job.get("artifact_binding"), dict):
+        recorded = job["artifact_binding"].get("gcode_sha256")
+        if isinstance(recorded, dict):
+            for row in job.get("derived_plates") or []:
+                if isinstance(row, dict) and row.get("gcode") \
+                        and Path(row["gcode"]).expanduser().resolve() == gcode_path:
+                    binding_key = str(row.get("binding_key") or row.get("slot"))
+                    break
+            if binding_key is None or binding_key not in recorded:
+                raise RuntimeError(
+                    f"split job artifact binding has no binding entry for {gcode_path}; "
+                    "refusing to remap a plate the binding does not name")
+
     slot_int = int(new_slot)
     if slot_int not in range(1, FILAMENT_SLOTS + 1):
         raise ValueError(f"physical IFS slot must be an integer from 1 through {FILAMENT_SLOTS}")
@@ -6518,28 +6884,34 @@ def remap_slot(target, new_slot, tool="0", state=None):
                 break
     mapping = dict(raw_tools) if raw_tools else {}
     mapping[str(tool)] = slot_int
-    normalize_mapping = printers.current().native.normalize_mapping
+    normalize_mapping = routed_adapter.native.normalize_mapping
     mapping = normalize_mapping(mapping, st)
 
     new_sha = None
     if gcode_path.is_file():
-        finalize = printers.current().native.finalize
+        finalize = routed_adapter.native.finalize
         new_sha = finalize(gcode_path, None, st, mapping)
         try:
-            verify_gcode(gcode_path)
+            _verify_routed(gcode_path, routed_adapter, st, routed_id, job=job)
         except Exception:
             offline_st = dict(st)
             offline_st.setdefault("temps_c", {"bed": 60, "nozzle": 210})
-            verify_gcode_offline(gcode_path, offline_st)
+            verify_gcode_offline(gcode_path, offline_st, routed_adapter if routed_id else None)
 
     if job is not None and job_path is not None:
         job["filament_selection"] = selection
         if new_sha:
-            job["gcode_sha256"] = new_sha
             job["gcode_verified"] = True
-            if "artifact_binding" in job and isinstance(job["artifact_binding"], dict):
-                job["artifact_binding"]["gcode_sha256"] = new_sha
+            if binding_key is not None:
+                # Split job: the one plate's new hash, in its own entry only;
+                # the job-level single hash does not exist for a split job.
+                job["artifact_binding"]["gcode_sha256"][binding_key] = new_sha
                 job["artifact_binding"]["decisions_sha256"] = decisions_digest(job.get("color_decisions"))
+            else:
+                job["gcode_sha256"] = new_sha
+                if "artifact_binding" in job and isinstance(job["artifact_binding"], dict):
+                    job["artifact_binding"]["gcode_sha256"] = new_sha
+                    job["artifact_binding"]["decisions_sha256"] = decisions_digest(job.get("color_decisions"))
         write_job(job_path.parent, job)
 
     return {
@@ -6561,7 +6933,7 @@ def _print_octoprint(adapter, state, gcode, job, job_path, wait_s, reprint):
         status = client.status()
         client.require_ready(status)
         observed = adapter.normalize_status(status).get('filename')
-        verify_gcode(gcode)
+        _verify_routed(gcode, adapter, state, _recorded_printer_id(job), job=job)
         _refuse_multicolor(gcode.read_text())
     except RuntimeError as exc:
         raise SystemExit(f'REFUSED: {exc}. Nothing uploaded or started.') from exc
@@ -6611,7 +6983,7 @@ def _print_octoprint(adapter, state, gcode, job, job_path, wait_s, reprint):
         # never fails the print.
         try:
             from print_handy.hermes import octo_watch
-            octo_watch.start_monitor(adapter, remote)
+            _start_family_monitor(octo_watch, adapter, remote, job)
         except Exception as exc:
             print(f"WARNING: timelapse monitor did not start: {exc}")
     _announce_polled_outcome(out)
@@ -6706,7 +7078,7 @@ def _print_bambu(adapter, state, gcode, job, job_path, wait_s, reprint):
 
     try:
         _snapshot, observed_norm = ready_snapshot()
-        verify_gcode(gcode)
+        _verify_routed(gcode, adapter, state, _recorded_printer_id(job), job=job)
         packages = _delivery.bambu_handoff(job if isinstance(job, dict) else {"printer_model": adapter.key},
                                             [gcode], settings.current())
         if len(packages) != 1:
@@ -6780,7 +7152,7 @@ def _print_bambu(adapter, state, gcode, job, job_path, wait_s, reprint):
         # monitor that cannot start never fails the print.
         try:
             from print_handy.hermes import bambu_watch
-            bambu_watch.start_monitor(adapter, remote)
+            _start_family_monitor(bambu_watch, adapter, remote, job)
         except Exception as exc:
             print(f"WARNING: camera monitor did not start: {exc}")
     _announce_polled_outcome(out)
@@ -6818,7 +7190,7 @@ def _print_elegoo_sdcp(adapter, state, gcode, job, job_path, wait_s, reprint):
 
     try:
         _raw, observed_norm = ready_status()
-        verify_gcode(gcode)
+        _verify_routed(gcode, adapter, state, _recorded_printer_id(job), job=job)
         _refuse_multicolor(gcode.read_text(errors="ignore"))
     except RuntimeError as exc:
         raise refuse(exc) from exc
@@ -6865,7 +7237,7 @@ def _print_elegoo_sdcp(adapter, state, gcode, job, job_path, wait_s, reprint):
         # that cannot start never fails the print.
         try:
             from print_handy.hermes import elegoo_watch
-            elegoo_watch.start_monitor(adapter, remote)
+            _start_family_monitor(elegoo_watch, adapter, remote, job)
         except Exception as exc:
             print(f"WARNING: timelapse monitor did not start: {exc}")
     _announce_polled_outcome(out)
@@ -6903,7 +7275,7 @@ def _print_prusa(adapter, state, gcode, job, job_path, wait_s, reprint):
 
     try:
         _snapshot, observed_norm = ready_snapshot()
-        verify_gcode(gcode)
+        _verify_routed(gcode, adapter, state, _recorded_printer_id(job), job=job)
         _refuse_multicolor(gcode.read_text(errors="ignore"))
     except RuntimeError as exc:
         raise refuse(exc) from exc
@@ -6948,7 +7320,7 @@ def _print_prusa(adapter, state, gcode, job, job_path, wait_s, reprint):
         # that cannot start never fails the print.
         try:
             from print_handy.hermes import prusa_watch
-            prusa_watch.start_monitor(adapter, remote)
+            _start_family_monitor(prusa_watch, adapter, remote, job)
         except Exception as exc:
             print(f"WARNING: timelapse monitor did not start: {exc}")
     _announce_polled_outcome(out)
@@ -7007,7 +7379,7 @@ def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprin
         if problems:
             raise RuntimeError(problems[0])
         observed = ready_snapshot()
-        verify_gcode(gcode)
+        _verify_routed(gcode, adapter, state, _recorded_printer_id(job), job=job)
         adapter.normalize_tool_mapping({str(t): t + 1 for t in sorted(_gcode_tools(text) | {0})}, state)
     except RuntimeError as exc:
         raise refuse(exc) from exc
@@ -7054,7 +7426,7 @@ def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprin
         # monitor that cannot start never fails the print.
         try:
             from print_handy.hermes import stock_watch
-            stock_watch.start_monitor(adapter, remote)
+            _start_family_monitor(stock_watch, adapter, remote, job)
         except Exception as exc:
             print(f"WARNING: timelapse monitor did not start: {exc}")
     _announce_polled_outcome(out)
@@ -7099,35 +7471,113 @@ def _confirm_generic_start(st, remote, wait_s, lease):
             "file": remote, "method": "print/start", "message": "submitted, awaiting confirmation"}, readback, state
 
 
+def _owning_job(g):
+    """The (job, job_path) that owns a resolved print target, else (None, None).
+
+    A JOB.json target names its job directly. A G-code target belongs to
+    the nearest ancestor JOB.json: slices live at
+    <job>/sliced/orca/<uuid>/plate_1.gcode (four levels), so search every
+    nearby ancestor and an older slice is always bound to its JOB. The
+    climb stops at the temp root too: this profile sets TMPDIR inside
+    itself, so a fixture such as <scratch>/tmpXXX/x.gcode must not climb
+    into a real profile JOB.json.
+    """
+    if g.name == "JOB.json":
+        return json.loads(g.read_text()), g
+    temp_root = Path(os.environ.get("TMPDIR") or "/tmp").resolve()
+    for parent in list(g.parents)[:5]:
+        if parent in (Path("/"), temp_root) or temp_root in parent.parents:
+            break
+        if (parent / "JOB.json").is_file():
+            job_path = parent / "JOB.json"
+            return json.loads(job_path.read_text()), job_path
+    return None, None
+
+
+def _print_now_control_lock(target):
+    """The shared interprocess control lock for this print's printer (P1-33).
+
+    Keyed by the owning job's recorded printer_id, resolved the same way
+    _print_now_locked resolves the job it launches — from a JOB.json
+    target, or from the ancestor JOB.json of a G-code target (the chat
+    flow's print_next.start passes the G-code path, not JOB.json) — else
+    the default printer: the same identity _printer_key leases by.
+    Resolution is read-only and defensive: any failure falls back to the
+    default printer and the print body raises its own error.
+    """
+    from . import control_lock as _cl
+    key = None
+    try:
+        g = Path(resolve_print_target(target)).expanduser().resolve()
+        job, _job_path = _owning_job(g)
+        if isinstance(job, dict):
+            key = job.get("printer_id")
+    except Exception:
+        key = None
+    return _cl.control_lock(key)
+
+
+def partial_job_refusal(job):
+    """Why launching this job would silently print an incomplete model, or None.
+
+    A per-plate slice records every plate a guard refused in refused_plates
+    and returns only the survivors. Those survivors are not the model the
+    operator asked for, so launch stays blocked until the operator
+    explicitly accepts the partial job (the chat intake discloses the
+    refused plates and records partial_job_accepted when the operator
+    confirms the start) (P1-20).
+    """
+    refused = (job or {}).get('refused_plates') or []
+    if not refused or (job or {}).get('partial_job_accepted'):
+        return None
+    named = '; '.join(f"plate {row.get('plate_id')} (slot {row.get('slot')}): {row.get('reason')}"
+                      for row in refused)
+    return (f"this job is incomplete: {len(refused)} plate(s) were refused during slicing and "
+            f"will not print: {named}. Reslice after fixing the refusal, or accept the partial "
+            "job explicitly (the chat intake records acceptance when you confirm the start "
+            "after it shows you this list)")
+
+
 def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None):
-    """Bed is confirmed clear: verify, upload, start, confirm, record. One command."""
+    """Bed is confirmed clear: verify, upload, start, confirm, record. One command.
+
+    The whole start holds the printer's interprocess control lock (P1-33):
+    a purge, slot load or nozzle change from any other process — a
+    standalone CLI, the listener, another bot — refuses instead of
+    overlapping the start, and the start refuses while one is in flight.
+    """
+    lock = _print_now_control_lock(target)
+    if not lock.acquire(blocking=False):
+        raise SystemExit("REFUSED: another printer control action (purge, slot load or nozzle change) "
+                         "is in flight for this printer. Nothing uploaded or started.")
+    try:
+        return _print_now_locked(target, wait_s=wait_s,
+                                 accept_default_z_offset=accept_default_z_offset,
+                                 reprint=reprint, remap_slot_num=remap_slot_num)
+    finally:
+        lock.release()
+
+
+def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None):
+    """print_now's body, run under the printer's interprocess control lock."""
     if remap_slot_num is not None:
         remap_res = remap_slot(target, remap_slot_num, tool="0")
         print(f"SLOT REMAPPED: T0 -> slot {remap_res['slot']} ({remap_res['selection']['color']} {remap_res['selection']['material']})", flush=True)
     g=Path(resolve_print_target(target)).expanduser().resolve()
-    job=None; job_path=None
+    job, job_path = _owning_job(g)
     if g.name=="JOB.json":
-        job_path=g; job=json.loads(g.read_text())
         if not job.get("gcode"):
             raise RuntimeError("stale color artifact: reslice current JOB before launch")
         g=Path(job["gcode"]).expanduser().resolve()
-    else:
-        # Slices live at <job>/sliced/orca/<uuid>/plate_1.gcode (four levels). Search every
-        # nearby ancestor so an older slice is always bound to its JOB and the stale guard runs.
-        # Stop at the temp root too. This profile sets TMPDIR inside itself, so a fixture
-        # such as <scratch>/tmpXXX/x.gcode otherwise climbs into the real profile JOB.json.
-        temp_root = Path(os.environ.get("TMPDIR") or "/tmp").resolve()
-        for parent in list(g.parents)[:5]:
-            if parent in (Path("/"), temp_root) or temp_root in parent.parents:
-                break
-            if (parent/"JOB.json").is_file():
-                job_path=parent/"JOB.json"; job=json.loads(job_path.read_text()); break
     cur = Path(job["gcode"]).expanduser().resolve() if isinstance(job, dict) and job.get("gcode") else None
     if (cur and cur.parent != g.parent and cur.is_file() and isinstance(job, dict)
             and not job.get("derived_plates")):
         # A file from an earlier slice of this job (2026-10-10: the bot reran the pre-reslice name).
         raise SystemExit(f"REFUSED: {g.name} is an older slice of this job. The current slice is {cur}; "
                          f"run print-now {job_path} instead. Nothing uploaded or started.")
+    partial = partial_job_refusal(job)
+    if partial:
+        raise SystemExit(f"REFUSED: {partial}. Nothing uploaded or started.")
     require_current_artifact(job, g)
     if not g.is_file(): raise SystemExit(f"REFUSED: no G-code at {g}")
     # The job's printer (#334): a recorded printer_id resolves the roster entry, its adapter
@@ -7164,7 +7614,7 @@ def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, r
         if 'printer' in _delivery.methods():
             return _print_prusa(adapter, st, g, job, job_path, wait_s, reprint)
         try:
-            verify_gcode(g)
+            _verify_routed(g, adapter, st, printer_id, job=job)
         except RuntimeError as exc:
             raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
         raise SystemExit(f"REFUSED: {adapter.label} print delivery is not enabled in Print Handy (add "
@@ -7176,7 +7626,7 @@ def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, r
         if 'printer' in _delivery.methods():
             return _print_elegoo_sdcp(adapter, st, g, job, job_path, wait_s, reprint)
         try:
-            verify_gcode(g)
+            _verify_routed(g, adapter, st, printer_id, job=job)
         except RuntimeError as exc:
             raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
         raise SystemExit(f"REFUSED: {adapter.label} print delivery is not enabled in Print Handy (add "
@@ -7190,7 +7640,7 @@ def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, r
         # Print delivery is not enabled for this printer: verify the file for manual handoff;
         # the bed-clear approval is left unused, exactly as for the offline path below.
         try:
-            verify_gcode(g)
+            _verify_routed(g, adapter, st, printer_id, job=job)
         except RuntimeError as exc:
             raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
         raise SystemExit(f"REFUSED: {adapter.label} print delivery is not enabled in Print Handy (add "
@@ -7200,7 +7650,7 @@ def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, r
     if adapter.connection == 'offline':
         # No connection exists. Verify the file for manual handoff; the bed-clear approval is left unused.
         try:
-            verify_gcode(g)
+            _verify_routed(g, adapter, st, printer_id, job=job)
         except RuntimeError as exc:
             raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
         raise SystemExit(f"REFUSED: {adapter.label} has no live connection in Print Handy (no upload, start or "
@@ -7213,7 +7663,7 @@ def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, r
     try:
         # Pre-upload checks. Report them as one REFUSED line so print_next releases the plate's
         # claim and the operator can retry after fixing the cause (a traceback kept it held).
-        verify_gcode(g)
+        _verify_routed(g, adapter, st, printer_id, job=job)
         selection = job.get("filament_selection") if isinstance(job, dict) else None
         _timing(job_path, 'preflight_verify_done')
         if adapter.multi_slot:

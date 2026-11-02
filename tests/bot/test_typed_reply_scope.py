@@ -187,3 +187,69 @@ def test_bot_routes_a_typed_quantity_only_to_the_operator_who_was_asked(cfg):
 
     with mock.patch("urllib.request.urlopen", side_effect=AssertionError("network")):
         assert run(flow()) == 3
+
+
+async def _ask_secret(adapter, source, parser, intake):
+    """Open a connect-style typed prompt (its parser saves a pasted secret)."""
+    before = len(adapter.asked)
+    task = asyncio.create_task(link_intake.ask(
+        adapter, source, "model-link:" + intake, "Paste the access code", ["Save", "Cancel"], 5,
+        parser=parser, live_key=runtime.session_key(source)))
+    for _ in range(200):
+        if len(adapter.asked) > before:
+            return task, adapter.asked[-1]["clarify_id"]
+        await asyncio.sleep(0.005)
+    raise AssertionError("the prompt was never sent")
+
+
+def test_a_closed_connect_prompt_never_runs_its_credential_parser():
+    """P2-253: the prompt closed (a button answered it) but the intake has not
+    resumed yet, so the typed-prompt entry still exists. The parser — which
+    for a connect prompt writes the pasted credential to config — must not
+    run at all; the text falls through as an ordinary message."""
+    async def flow():
+        adapter = Adapter()
+        asker = runtime.make_source(A, CHAT)
+        calls = []
+
+        def secret_parser(text):
+            calls.append(text)
+            link_intake.note_secret_reply()
+            return "saved"
+
+        task, cid = await _ask_secret(adapter, asker, secret_parser, "closed")
+        try:
+            assert prompts.resolve_gateway_clarify(cid, "Cancel")  # a button closes it first
+            assert link_intake.typed_reply(asker, "the-pasted-token") is None
+            assert calls == []
+            assert link_intake.take_secret_reply() is False
+        finally:
+            await settle(task)
+
+    run(flow())
+
+
+def test_a_secret_saved_as_its_prompt_closes_is_still_consumed():
+    """P2-253: the prompt was open when the reply arrived, the parser saved
+    the secret, and a button won the race before the resolution landed. The
+    message is still consumed (and flagged for deletion), never handed on
+    to ordinary chat handling with a live credential in it."""
+    async def flow():
+        adapter = Adapter()
+        asker = runtime.make_source(A, CHAT)
+        holder = {}
+
+        def racing_parser(text):
+            link_intake.note_secret_reply()
+            prompts.resolve_gateway_clarify(holder["cid"], "Save")  # the button wins mid-parse
+            return "saved"
+
+        task, cid = await _ask_secret(adapter, asker, racing_parser, "raced")
+        holder["cid"] = cid
+        try:
+            assert link_intake.typed_reply(asker, "the-pasted-token") == ""
+            assert link_intake.take_secret_reply() is True
+        finally:
+            await settle(task)
+
+    run(flow())

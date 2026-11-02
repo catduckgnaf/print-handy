@@ -563,6 +563,74 @@ def test_send_reports_a_still_available_update_as_failed_not_success():
     assert "failed" in message and not message.startswith("Updated")
 
 
+def _status_with(component, entry):
+    return {"result": {"version_info": {component: entry}}}
+
+
+def test_send_does_not_verify_when_the_remote_version_turns_unknown():
+    # Prepared fluidd 1.0 -> 2.0; after the upgrade the printer still runs
+    # 1.0 and reports "?" for the latest version. "?" normalizes to no
+    # remote, which reads as "no update available" — that alone must not
+    # verify an update whose confirmed target was never installed (P2-229).
+    transport = ApplyTransport(
+        post_status=_status_with("fluidd", {"version": "1.0", "remote_version": "?"}))
+    prepared = fw.PreparedUpdate(component=fw.Component("fluidd", "1.0", "2.0"))
+    message = fw.send_update(transport, prepared, verify_attempts=2,
+                             verify_delay_s=0, sleep=_no_sleep)
+    assert not message.startswith("Updated")
+    assert "verified by re-reading" not in message
+    assert "cannot verify" in message
+    assert "1.0" in message
+
+
+def test_send_verifies_when_the_installed_version_reaches_the_target():
+    transport = ApplyTransport(
+        post_status=_status_with("fluidd", {"version": "2.0", "remote_version": "2.0"}))
+    prepared = fw.PreparedUpdate(component=fw.Component("fluidd", "1.0", "2.0"))
+    message = fw.send_update(transport, prepared, verify_attempts=2,
+                             verify_delay_s=0, sleep=_no_sleep)
+    assert message.startswith("Updated **fluidd** to 2.0")
+    assert "verified by re-reading" in message
+
+
+def test_send_verifies_on_the_target_even_when_the_remote_turns_unknown():
+    # The target is installed; that the printer can no longer name a latest
+    # version does not undo the proof.
+    transport = ApplyTransport(
+        post_status=_status_with("fluidd", {"version": "2.0", "remote_version": "?"}))
+    prepared = fw.PreparedUpdate(component=fw.Component("fluidd", "1.0", "2.0"))
+    message = fw.send_update(transport, prepared, verify_attempts=2,
+                             verify_delay_s=0, sleep=_no_sleep)
+    assert message.startswith("Updated **fluidd** to 2.0")
+    assert "verified by re-reading" in message
+
+
+def test_send_does_not_verify_a_version_that_is_not_the_confirmed_target():
+    # No update shows as available, but the installed version is neither
+    # the old one nor the confirmed target — not a verified success.
+    transport = ApplyTransport(
+        post_status=_status_with("fluidd", {"version": "1.5", "remote_version": "1.5"}))
+    prepared = fw.PreparedUpdate(component=fw.Component("fluidd", "1.0", "2.0"))
+    message = fw.send_update(transport, prepared, verify_attempts=2,
+                             verify_delay_s=0, sleep=_no_sleep)
+    assert not message.startswith("Updated")
+    assert "verified by re-reading" not in message
+    assert "2.0" in message and "1.5" in message
+
+
+def test_send_still_verifies_a_system_package_update_by_its_count():
+    # The system component reports packages, not versions: its proof stays
+    # the package count clearing.
+    transport = ApplyTransport(
+        post_status=_status_with("system", {"package_count": 0, "package_list": []}))
+    prepared = fw.PreparedUpdate(
+        component=fw.Component("system", None, None, package_count=3))
+    message = fw.send_update(transport, prepared, verify_attempts=2,
+                             verify_delay_s=0, sleep=_no_sleep)
+    assert message.startswith("Updated **system**")
+    assert "verified by re-reading" in message
+
+
 def test_send_reports_a_printer_that_never_comes_back_as_unverified():
     transport = ApplyTransport(drop_after_upgrade=True)
     prepared = fw.PreparedUpdate(component=fw.Component("klipper", "v0.12.0-289", "v0.12.0-310"))
@@ -573,11 +641,92 @@ def test_send_reports_a_printer_that_never_comes_back_as_unverified():
 
 
 def test_send_reports_a_failed_post_as_uncertain():
+    # P2-224: a transport failure on the upgrade POST is uncertain — the
+    # request may have landed — so send_update verifies by re-reading
+    # instead of raising at once, and never resends the POST. Here the
+    # re-read shows the update was not applied.
     transport = ApplyTransport(upgrade_error=OSError("connection reset"))
     prepared = fw.PreparedUpdate(component=fw.Component("klipper", "v0.12.0-289", "v0.12.0-310"))
-    with pytest.raises(fw.FirmwareError) as excinfo:
+    message = fw.send_update(transport, prepared, verify_attempts=2,
+                             verify_delay_s=0, sleep=_no_sleep)
+    assert len(transport.posts) == 1
+    assert not message.startswith("Updated")
+    assert "still shows v0.12.0-310 as available" in message
+    assert "not known whether the printer started updating" in message
+
+
+class _TimeoutAfterLandingTransport(FakeTransport):
+    """The upgrade POST times out client-side after Moonraker applied it
+    (Moonraker awaits the update before answering, P2-224)."""
+
+    def __init__(self, post_status):
+        super().__init__()
+        self._post_status = post_status
+
+    def __call__(self, method, path, body=None):
+        if path == fw.UPDATE_UPGRADE_PATH:
+            self.calls.append((method, path, body))
+            self.posts.append((path, body))
+            self.status = self._post_status
+            raise TimeoutError("timed out")
+        return super().__call__(method, path, body)
+
+
+def test_send_verifies_an_update_whose_post_timed_out():
+    transport = _TimeoutAfterLandingTransport(STATUS_AFTER)
+    prepared = fw.PreparedUpdate(component=fw.Component("klipper", "v0.12.0-289", "v0.12.0-310"))
+    message = fw.send_update(transport, prepared, verify_attempts=2,
+                             verify_delay_s=0, sleep=_no_sleep)
+    assert len(transport.posts) == 1  # verified by re-reading, never resent
+    assert message.startswith("Updated **klipper** to v0.12.0-310")
+    assert "verified by re-reading" in message
+
+
+def test_send_still_raises_for_a_post_the_printer_refused():
+    # An HTTP error means the printer answered and rejected the request:
+    # a definite failure, not an uncertain outcome — no verification reads.
+    import urllib.error
+    transport = ApplyTransport(upgrade_error=urllib.error.HTTPError(
+        "http://printer.test", 400, "Bad Request", {}, None))
+    prepared = fw.PreparedUpdate(component=fw.Component("klipper", "v0.12.0-289", "v0.12.0-310"))
+    with pytest.raises(fw.FirmwareError):
         fw.send_update(transport, prepared, verify_delay_s=0, sleep=_no_sleep)
-    assert "not known whether the printer started updating" in str(excinfo.value)
+    assert len(transport.posts) == 1
+    assert ("GET", fw.UPDATE_STATUS_PATH, None) not in transport.calls
+
+
+class _TimeoutRecordingTransport(ApplyTransport):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.timeouts = []
+
+    def __call__(self, method, path, body=None, timeout=None):
+        self.timeouts.append((path, timeout))
+        return super().__call__(method, path, body)
+
+
+def test_send_gives_the_upgrade_post_an_upgrade_sized_timeout():
+    # P2-224: Moonraker awaits the whole update before answering the POST,
+    # so the read-sized 15s client timeout must not bound it.
+    transport = _TimeoutRecordingTransport(post_status=STATUS_AFTER)
+    prepared = fw.PreparedUpdate(component=fw.Component("klipper", "v0.12.0-289", "v0.12.0-310"))
+    message = fw.send_update(transport, prepared, verify_delay_s=0, sleep=_no_sleep)
+    assert message.startswith("Updated **klipper**")
+    post_timeouts = [t for path, t in transport.timeouts if path == fw.UPDATE_UPGRADE_PATH]
+    assert post_timeouts == [fw.UPGRADE_TIMEOUT_S]
+    assert fw.UPGRADE_TIMEOUT_S > 15
+
+
+def test_send_does_not_verify_an_entry_with_no_version_evidence():
+    # P2-225: an incomplete post-update entry (no versions at all) is not
+    # positive evidence the confirmed target was reached.
+    transport = ApplyTransport(post_status=_status_with("klipper", {}))
+    prepared = fw.PreparedUpdate(component=fw.Component("klipper", "v0.12.0-289", "v0.12.0-310"))
+    message = fw.send_update(transport, prepared, verify_attempts=2,
+                             verify_delay_s=0, sleep=_no_sleep)
+    assert not message.startswith("Updated")
+    assert "verified by re-reading" not in message
+    assert "cannot verify" in message
 
 
 # ------------------------------------------------------------- dispatch: update
@@ -784,6 +933,16 @@ def test_unreadable_zmod_component_is_filled_from_the_os_info():
     transport = FakeTransport(status=STATUS_LIVE_ZMOD_UNREADABLE, system_info=SYSTEM_INFO_LIVE_ZMOD)
     zmod = fw.fetch_status(transport).component("zmod")
     assert (zmod.current, zmod.source) == ("1.7.5-2", "system_info")
+
+
+def test_refresh_response_also_gets_the_zmod_os_info_fallback():
+    # P1-113: the /print-firmware handler always reads with refresh=True;
+    # a successful refresh must get the same OS-info enrichment as the
+    # plain read, or the ZMod version stays "unknown" on the live path.
+    transport = FakeTransport(status=STATUS_LIVE_ZMOD_UNREADABLE, system_info=SYSTEM_INFO_LIVE_ZMOD)
+    zmod = fw.fetch_status(transport, refresh=True).component("zmod")
+    assert (zmod.current, zmod.source) == ("1.7.5-2", "system_info")
+    assert transport.calls[0] == ("POST", fw.UPDATE_REFRESH_PATH, None)
 
 
 def test_os_info_is_only_read_when_the_zmod_version_is_unreadable():

@@ -119,10 +119,37 @@ Not shipped here. Install them yourself if you want them: `openviking` (memory),
 
 ## Migration notes: the default mode is now standalone (#524)
 
-The `bot.mode` default flipped from `hermes` to `standalone`. Almost nothing changes by itself:
-existing configs state `mode: hermes` **explicitly** (the templates always shipped the line), so an
-explicit config keeps resolving to Hermes exactly as before — the flip only bites fresh installs and
-configs that omit the line. If you move an install to standalone deliberately, do these in order
+The `bot.mode` default flipped from `hermes` to `standalone`. Whether an update changes your
+install depends on where your mode is stated:
+
+- If your own `config/local.yaml` (or `config/local.toml`) states `mode: hermes`, nothing
+  changes: the local file is merged over the shipped template, so an explicit local mode keeps
+  resolving to Hermes exactly as before.
+- If it does not — the common case for installs that followed this page and keep only
+  machine-specific overrides in the local file — the mode comes from the shipped home template
+  (`config/home.yaml`), and an update replaces that line with `mode: standalone`. The install
+  would come up standalone after the update, and the updater's standalone doctor checks may
+  fail. Neither the installer nor the updater carries the old mode over for you.
+
+**Staying on Hermes: pin the mode before updating.** Add the mode to your local overrides
+first — in `config/local.yaml`:
+
+```yaml
+bot:
+  mode: hermes
+```
+
+or in `config/local.toml`:
+
+```toml
+[bot]
+mode = "hermes"
+```
+
+Then update as usual (section 6). With the mode pinned in the local file, no template change
+can move the install again.
+
+If you move an install to standalone deliberately, do these in order
 (the full checklist is [docs/STANDALONE.md](STANDALONE.md#moving-from-hermes)):
 
 1. **One token, one connection:** stop the Hermes gateway's Discord platform (or remove the print

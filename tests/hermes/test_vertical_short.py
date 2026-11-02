@@ -81,12 +81,16 @@ def test_invalid_mode_and_dimensions_raise():
 
 def test_drawtext_escaping():
     assert vs.escape_drawtext("a:b") == "a\\:b"
-    assert vs.escape_drawtext("it's") == "it\\'s"
+    # P2-111: a quote cannot be escaped inside ffmpeg's single quotes at
+    # either parsing layer; the apostrophe is written close-quote +
+    # \\\' (escaped for both layers, unquoted) + reopen-quote. Verified
+    # against real ffmpeg: the graph parses and renders the exact title.
+    assert vs.escape_drawtext("it's") == "it'\\\\\\''s"
     assert vs.escape_drawtext("100%") == "100%%"
     assert vs.escape_drawtext("a\\b") == "a\\\\b"
     assert vs.escape_drawtext("line1\nline2") == "line1 line2"
     graph = vs.filter_graph(1920, 1080, "crop", lines=["Benchy: 100% 'done'"])
-    assert "text='Benchy\\: 100%% \\'done\\''" in graph
+    assert "text='Benchy\\: 100%% '\\\\\\''done'\\\\\\'''" in graph
 
 
 def test_overlay_lines_composition():
@@ -254,3 +258,48 @@ def test_oversize_short_is_dropped_not_the_timelapse(monkeypatch, tmp_path):
     mel._timelapse_post("stand", "Print complete: Stand")
     media = [line for line in posted[0].splitlines() if line.startswith("MEDIA:")]
     assert len(media) == 1
+
+
+# --- _short_meta sources (P2-112) -------------------------------------------
+
+def test_short_meta_reads_the_nested_spool_material_and_record_duration(monkeypatch, tmp_path):
+    """P2-112: a normal record_start context carries material under
+    active_spool.material (never as flat context fields), and the elapsed
+    time lives in the completed record's print_duration_seconds — the
+    overlay must read both from where they actually are."""
+    import json as _json
+
+    from print_handy.hermes import print_records
+
+    context = {"title": "Bench", "active_spool": {"id": 7, "material": "PETG", "color": "Red"}}
+    monkeypatch.setattr(print_records, "load_context", lambda key: dict(context))
+    prints = tmp_path / "Prints"
+    prints.mkdir()
+    (prints / "print-0007.json").write_text(_json.dumps(
+        {"job_key": "benchy.gcode", "status": "complete", "completed_at": "2026-11-01T10:00:00Z",
+         "print_duration_seconds": 3725}))
+    monkeypatch.setattr(print_records, "PRINTS_DIR", prints)
+    meta = mel._short_meta("benchy.gcode")
+    assert meta["material"] == "PETG"
+    assert meta["elapsed_s"] == 3725
+
+
+def test_short_meta_prefers_the_newest_completed_record(monkeypatch, tmp_path):
+    import json as _json
+
+    from print_handy.hermes import print_records
+
+    monkeypatch.setattr(print_records, "load_context", lambda key: {"title": "Bench"})
+    prints = tmp_path / "Prints"
+    prints.mkdir()
+    (prints / "a.json").write_text(_json.dumps(
+        {"job_key": "benchy.gcode", "status": "complete", "completed_at": "2026-10-01T10:00:00Z",
+         "print_duration_seconds": 100}))
+    (prints / "b.json").write_text(_json.dumps(
+        {"job_key": "benchy.gcode", "status": "complete", "completed_at": "2026-11-01T10:00:00Z",
+         "print_duration_seconds": 200}))
+    (prints / "c.json").write_text(_json.dumps(
+        {"job_key": "benchy.gcode", "status": "printing", "completed_at": "2026-12-01T10:00:00Z",
+         "print_duration_seconds": 999}))
+    monkeypatch.setattr(print_records, "PRINTS_DIR", prints)
+    assert mel._short_meta("benchy.gcode")["elapsed_s"] == 200

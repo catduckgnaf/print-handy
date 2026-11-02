@@ -190,6 +190,25 @@ def _claimed_listener(monkeypatch, tmp_path, job, *, message_id="777", edit_ok=T
     return edits
 
 
+def test_claimed_start_edits_the_originating_channel(job, tmp_path, monkeypatch):
+    """P2-11: an intake that started in another channel/thread gets its warmup
+    edit there, not in the configured announcement channel."""
+    from print_handy.hermes import print_alert_buttons as pab, print_next
+    monkeypatch.setattr(print_next, "START_MESSAGES", tmp_path / "start_messages.json")
+    print_next.record_start_message(job.hashed, "888", chat_id="chan-other", thread_id="thread-1")
+    monkeypatch.setattr(mel, "start_claim_time", lambda name, now=None: 1000)
+    monkeypatch.setattr(mel, "NOTIFICATION_STATE", tmp_path / "notifications.json")
+    monkeypatch.setattr(mel, "_profile_env_value", lambda name: "bot-token")
+    monkeypatch.setattr(mel.announcer, "DISCORD_CHAT_ID", "chan1")
+    edits = []
+    monkeypatch.setattr(pab, "edit_message",
+                        lambda token, chan, mid, text: edits.append((chan, mid, text)) or True)
+    posted = _drive_listener(monkeypatch, job.hashed, ["standby", "printing"], claimed=True)
+    assert posted == []
+    assert len(edits) == 1
+    assert edits[0][0] == "thread-1" and edits[0][1] == "888"
+
+
 def test_claimed_start_edits_existing_message_and_posts_no_second_start(job, tmp_path, monkeypatch):
     edits = _claimed_listener(monkeypatch, tmp_path, job)
     posted = _drive_listener(monkeypatch, job.hashed, ["standby", "printing"], claimed=True)
@@ -198,6 +217,25 @@ def test_claimed_start_edits_existing_message_and_posts_no_second_start(job, tmp
     text = edits[0][1]
     assert TITLE in text and "Approx. finish:" in text and "Warmup complete, now printing." in text
     assert not HEX.search(text)
+
+
+def test_claimed_start_edit_names_the_printing_objects(job, tmp_path, monkeypatch):
+    """P2-244: the unclaimed start post names the job's objects (the
+    exclude-object line); the claimed start's warmup edit built its text
+    from the summary alone and silently dropped them."""
+    gcode = tmp_path / "plate_with_objects.gcode"
+    gcode.write_text("EXCLUDE_OBJECT_DEFINE NAME=hinge_left\n"
+                     "EXCLUDE_OBJECT_DEFINE NAME=hinge_right\nG1 X1\n")
+    plate = dict(job.rows[0], gcode=str(gcode))
+    monkeypatch.setattr(summary, "find_job",
+                        lambda filename, archive=None, context_path=None: (job.data, plate))
+    monkeypatch.setattr(mel, "post_exclude_objects", lambda filename: False)
+    edits = _claimed_listener(monkeypatch, tmp_path, job)
+    posted = _drive_listener(monkeypatch, job.hashed, ["standby", "printing"], claimed=True)
+    assert posted == []
+    assert len(edits) == 1
+    assert "Objects still printing: hinge_left, hinge_right" in edits[0][1]
+    assert "Warmup complete, now printing." in edits[0][1]
 
 
 def test_claimed_start_warmup_edit_includes_exactly_one_roast(job, tmp_path, monkeypatch):

@@ -400,3 +400,47 @@ def test_start_targets_text_reads_the_uploaded_gcode():
     assert print_control.start_targets_text(gcode) == "Nozzle 220 °C · Bed 60 °C"
     assert print_control.start_targets_text("M140 S65\nM104 S235\nG28\nG1 X1\n") == "Nozzle 235 °C · Bed 65 °C"
     assert print_control.start_targets_text("G28\nG1 X1\n") == ""
+
+
+def test_reprint_queues_are_isolated_per_printer(tmp_path, monkeypatch):
+    """Printer B's /print-again must never disturb printer A's pending
+    copies: the queue is stored per printer, not in one global file (P2-135)."""
+    import hashlib
+    from pathlib import Path
+
+    monkeypatch.setattr(print_control, "REPRINT_QUEUE", tmp_path / "reprint_queue.json")
+    monkeypatch.setattr(print_control, "ARCHIVE", tmp_path)
+    monkeypatch.setattr(print_control._config, "state_dir", lambda: tmp_path)
+    monkeypatch.setattr(print_control._config, "cfg",
+                        lambda: {"printers": [{"id": "printer-a"}, {"id": "printer-b"}]})
+
+    def make_target(name):
+        folder = tmp_path / name
+        folder.mkdir()
+        gcode = folder / "job.gcode"
+        gcode.write_text("G1 X1\n")
+        job = folder / "JOB.json"
+        job.write_text("{}")
+        return {"title": name, "gcode": str(gcode), "job_json": str(job),
+                "gcode_sha256": hashlib.sha256(gcode.read_bytes()).hexdigest(), "copies": 3}
+
+    target_a, target_b = make_target("Alpha"), make_target("Beta")
+    print_control.queue_copies(target_a, printer_id="printer-a")
+    # A one-copy print on B deletes only B's (empty) queue, not A's.
+    print_control.queue_copies({**target_b, "copies": 1}, printer_id="printer-b")
+    pending_a = print_control.pending_copy(printer_id="printer-a")
+    assert pending_a is not None and pending_a["title"] == "Alpha"
+    assert print_control.pending_copy(printer_id="printer-b") is None
+    # B queues its own multi-copy run; A's queue is untouched, and vice versa.
+    print_control.queue_copies(target_b, printer_id="printer-b")
+    assert print_control.pending_copy(printer_id="printer-a")["title"] == "Alpha"
+    assert print_control.pending_copy(printer_id="printer-b")["title"] == "Beta"
+    nxt = print_control.next_copy_target(printer_id="printer-a")
+    assert nxt["title"] == "Alpha" and nxt["copy_number"] == 2
+    print_control.mark_copy_started(printer_id="printer-b")
+    assert print_control.pending_copy(printer_id="printer-b")["started"] == 2
+    assert print_control.pending_copy(printer_id="printer-a")["started"] == 1
+    # Cancelling B's copies leaves A's alone.
+    assert print_control.cancel_copies(printer_id="printer-b") is True
+    assert print_control.pending_copy(printer_id="printer-b") is None
+    assert print_control.pending_copy(printer_id="printer-a") is not None

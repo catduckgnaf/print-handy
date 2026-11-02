@@ -6,6 +6,7 @@ from .adapter import OctoPrintAdapter
 MODEL = PrinterModel(
     key='octoprint.marlin', label='Marlin via OctoPrint', adapter=OctoPrintAdapter,
     templates='octoprint_marlin',
+    baseline='protected-settings-baseline.octoprint.marlin.json',
     vendor=VENDOR,
     # Printer-specific defaults; firmware, margins, prime tower and cold pull come from VENDOR.
     settings={'printer': {

@@ -173,6 +173,8 @@ def test_start_monitor_wires_the_adapter(monkeypatch):
                     "job": {"job": {"file": {"path": REMOTE}}, "progress": {"completion": 50.0}}}
         def timelapse_movies(self):
             return []
+        def timelapse_unrendered(self):
+            return []
     class Adapter:
         def client(self):
             return Client()
@@ -209,6 +211,84 @@ def test_media_post_failure_falls_back_to_the_text_completion():
     assert "MEDIA:" in posts[0]
     assert "Print complete" in posts[1] and "MEDIA:" not in posts[1]
     assert any("post with timelapse failed" in line for line in Harness.logs)
+
+
+def test_start_monitor_tolerates_a_client_without_the_render_queue(monkeypatch):
+    """P2-147 wiring: an adapter client with no timelapse_unrendered
+    (older doubles, partial clients) must still start the monitor —
+    pending_fn degrades to None (single lookup), never to no monitor."""
+    class Client:
+        def status(self):
+            return {}
+        def timelapse_movies(self):
+            return []
+    class Adapter:
+        def client(self):
+            return Client()
+        def normalize_status(self, raw):
+            return _status("printing", 0.5)
+    started = {}
+    def factory(target):
+        class T:
+            def start(self):
+                started["target"] = target
+        return T()
+    thread = octo_watch.start_monitor(Adapter(), REMOTE, post=lambda m: None,
+                                      thread_factory=factory)
+    assert thread is not None
+    assert "target" in started
+
+
+def test_a_pending_render_is_waited_for_and_then_attached():
+    """P2-147: OctoPrint renders in a background queue after the print
+    ends, so the movie legitimately appears after the terminal poll.
+    While the queue says this job is still rendering, the monitor keeps
+    polling the listing instead of posting without the video."""
+    h = Harness(COMPLETE_SEQ)
+    m = h.monitor()
+    calls = {"n": 0}
+
+    def movies():
+        calls["n"] += 1
+        return [] if calls["n"] < 3 else [{"name": MOVIE, "url": "/x"}]
+
+    m._movies_fn = movies
+    m._pending_fn = lambda: [{"name": MOVIE}]
+    assert m.run() == "complete"
+    assert calls["n"] == 3
+    assert len(h.posts) == 1 and "MEDIA:" in h.posts[0]
+
+
+def test_a_render_that_never_lands_gives_up_bounded():
+    h = Harness(COMPLETE_SEQ, movies=[])
+    m = h.monitor()
+    calls = {"n": 0}
+
+    def movies():
+        calls["n"] += 1
+        return []
+
+    m._movies_fn = movies
+    m._pending_fn = lambda: [{"name": MOVIE}]
+    assert m.run() == "complete"
+    assert len(h.posts) == 1 and "MEDIA:" not in h.posts[0]
+    assert 1 < calls["n"] <= 12  # it waited, but the wait is bounded
+
+
+def test_no_pending_render_for_this_job_means_no_wait():
+    h = Harness(COMPLETE_SEQ, movies=[])
+    m = h.monitor()
+    calls = {"n": 0}
+
+    def movies():
+        calls["n"] += 1
+        return []
+
+    m._movies_fn = movies
+    m._pending_fn = lambda: [{"name": "Other_job_20261026171200.mp4"}]
+    assert m.run() == "complete"
+    assert calls["n"] == 1
+    assert any("no rendered timelapse listed" in line for line in Harness.logs)
 
 
 def test_movie_for_job_edge_shapes():

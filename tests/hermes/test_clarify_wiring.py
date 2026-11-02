@@ -52,6 +52,10 @@ def test_register_with_switch_on_activates_the_own_registry_and_swaps_the_hook(m
     plugin = load_plugin()
     activated = []
     monkeypatch.setattr(prompts, "activate", lambda on=True: activated.append(on))
+    # The registry activates only when the renderer can be installed,
+    # which takes a resolvable token (P2-208); the no-token stand-down is
+    # pinned in test_clarify_retire.py.
+    monkeypatch.setattr(_config, "discord_token", lambda: "tok")
     previous = copy.deepcopy(_config.cfg())  # the session override (tests/conftest) must survive
     data = copy.deepcopy(previous)
     data.setdefault("discord", {})["clarify_ui"] = True
@@ -267,7 +271,7 @@ def test_confirm_renders_through_the_ui_and_resolves_by_click(monkeypatch):
         cid = custom_id.split(":")[1]
         interaction = S(channel_id="chan1", user=S(display_name="op", name="op"),
                         message=S(id="m1", content="Proceed?"),
-                        response=S(defer_update=lambda: asyncio.sleep(0),
+                        response=S(defer=lambda: asyncio.sleep(0),
                                    send_message=lambda *a, **k: asyncio.sleep(0)))
         await ui.handle_click(interaction, cid, 0)
         return await task

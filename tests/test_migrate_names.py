@@ -92,6 +92,20 @@ class MigrateNamesTests(unittest.TestCase):
         self.assertEqual("PRINT_HANDY_ORCA_CMD=/opt/orca\nOTHER=1\n", (self.home / ".env").read_text())
         self.assertEqual("PB_ORCA_CMD=/opt/orca\nOTHER=1\n", (self.home / ".env.pre-rename").read_text())
 
+    def test_pb_orca_cmd_is_migrated_after_an_earlier_rename_pass(self):
+        # P2-194: a file the earlier pass already migrated carries an
+        # existing .pre-rename backup; that used to skip the file before
+        # the PB_ORCA_CMD substitution ran, leaving a variable the current
+        # code no longer reads.
+        (self.home / ".env").write_text("PRINT_HANDY_ARCHIVE=/x\nPB_ORCA_CMD=/opt/orca\n")
+        (self.home / ".env.pre-rename").write_text("PRINT_BUDDY_ARCHIVE=/x\nPB_ORCA_CMD=/opt/orca\n")
+        self.run_script()
+        self.assertEqual("PRINT_HANDY_ARCHIVE=/x\nPRINT_HANDY_ORCA_CMD=/opt/orca\n",
+                         (self.home / ".env").read_text())
+        # The existing backup still holds the true original, untouched.
+        self.assertEqual("PRINT_BUDDY_ARCHIVE=/x\nPB_ORCA_CMD=/opt/orca\n",
+                         (self.home / ".env.pre-rename").read_text())
+
     def test_second_run_is_a_no_op(self):
         self.run_script()
         after_first = self.snapshot()

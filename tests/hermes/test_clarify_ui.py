@@ -68,7 +68,7 @@ class FakeInteraction:
             async def send_message(self, content, ephemeral=False, **kw):
                 interaction.out.append(("send", content, ephemeral))
 
-            async def defer_update(self):
+            async def defer(self):
                 interaction.out.append(("defer",))
 
         self.response = Response()

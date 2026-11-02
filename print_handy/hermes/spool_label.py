@@ -124,6 +124,16 @@ def _temp(value: Any, low: float, high: float) -> float | None:
     return temp if low <= temp <= high else None
 
 
+def _recorded_temp(value: Any) -> float | None:
+    """One label temperature kept only when the downstream contract would
+    honour it: a temperature recorded on a Spoolman filament is used only
+    when 0 < t <= 300 °C (printer_state.resolve_material_temperatures
+    raises for anything else), so a label value outside that contract is
+    dropped here instead of being persisted to fail there (P2-199)."""
+    temp = _temp(value, 0, 300)
+    return temp if temp else None
+
+
 def validate_label_answer(answer: Any) -> dict[str, Any]:
     """Validate one extraction route's answer into a spec dict.
 
@@ -151,8 +161,8 @@ def validate_label_answer(answer: Any) -> dict[str, Any]:
         raise SpoolLabelError("missing_fields", missing)
     brand = _clean_text(answer.get("brand")) or None
     return {"brand": brand, "material": material, "color": color, "grams": grams,
-            "nozzle_temp": _temp(answer.get("nozzle_temp"), 80, 350),
-            "bed_temp": _temp(answer.get("bed_temp"), 0, 150)}
+            "nozzle_temp": _recorded_temp(answer.get("nozzle_temp")),
+            "bed_temp": _recorded_temp(answer.get("bed_temp"))}
 
 
 def extract_spool_spec(image: bytes, vision_call: Callable[[bytes, str], Any]) -> dict[str, Any]:
@@ -218,14 +228,22 @@ def _phrase_span(phrase: str, low: str, *, squashed: bool = True) -> tuple[int, 
 
 
 def _match_vocabulary(vocabulary: tuple[str, ...], low: str) -> str | None:
-    """The longest vocabulary phrase present in the text, canonical spelling."""
-    best = None
-    for phrase in vocabulary:
-        if _phrase_span(phrase, low) is not None and (best is None or len(phrase) > len(best)):
-            best = phrase
-    if best is None:
-        return None
-    return _MATERIAL_ALIASES.get(best.casefold(), best)
+    """The longest vocabulary phrase present in the text, canonical spelling.
+
+    Complete-token matches are considered first: the squashed fallback
+    tolerates OCR spacing, but a phrase found only inside a longer word
+    ('pla' in 'plate') must never outrank a real token printed on the
+    label (P2-202). The squashed pass runs only when no token matched.
+    """
+    for squashed in (False, True):
+        best = None
+        for phrase in vocabulary:
+            if _phrase_span(phrase, low, squashed=squashed) is not None \
+                    and (best is None or len(phrase) > len(best)):
+                best = phrase
+        if best is not None:
+            return _MATERIAL_ALIASES.get(best.casefold(), best)
+    return None
 
 
 def _match_color(low: str, original: str, known_colors: list[str]) -> str | None:
@@ -292,21 +310,38 @@ def spec_from_label_text(text: Any, known_types: list[dict[str, Any]] | None = N
         raise SpoolLabelError("unreadable")
     low = original.casefold()
     known = [t for t in (known_types or []) if isinstance(t, dict)]
+    # The brand printed on the label is matched first (P2-203): when
+    # several known types share a material and colour, the wholesale pick
+    # below must prefer the type whose brand the label actually names,
+    # and must never lend a conflicting brand to a type the label did
+    # not print — the created spool reuses that type's filament record.
+    known_brands = [str(t.get("brand") or "").strip() for t in known if t.get("brand")]
+    label_brand = _match_vocabulary(tuple(dict.fromkeys([*known_brands, *TEXT_BRANDS])), low)
+
+    def _brand_rank(entry):
+        entry_brand = str(entry.get("brand") or "").strip()
+        return 0 if entry_brand and label_brand and entry_brand.casefold() == label_brand.casefold() else 1
+
     brand = material = color = None
-    for entry in known:
-        entry_material = str(entry.get("material") or "").strip()
-        entry_color = str(entry.get("color") or "").strip()
-        if (entry_material and entry_color
-                and _phrase_span(entry_material, low) is not None
-                and _phrase_span(entry_color, low) is not None):
-            brand = str(entry.get("brand") or "").strip() or None
-            material, color = entry_material, entry_color
+    for squashed in (False, True):
+        for entry in sorted(known, key=_brand_rank):
+            entry_brand = str(entry.get("brand") or "").strip()
+            if entry_brand and label_brand and entry_brand.casefold() != label_brand.casefold():
+                continue  # the label names a different maker: not this type
+            entry_material = str(entry.get("material") or "").strip()
+            entry_color = str(entry.get("color") or "").strip()
+            if (entry_material and entry_color
+                    and _phrase_span(entry_material, low, squashed=squashed) is not None
+                    and _phrase_span(entry_color, low, squashed=squashed) is not None):
+                brand = entry_brand or None
+                material, color = entry_material, entry_color
+                break
+        if material is not None:
             break
     if material is None:
         material = _match_vocabulary(TEXT_MATERIALS, low)
     if brand is None:
-        brands = [str(t.get("brand") or "").strip() for t in known if t.get("brand")]
-        brand = _match_vocabulary(tuple(dict.fromkeys([*brands, *TEXT_BRANDS])), low)
+        brand = label_brand
     if color is None:
         known_colors = [str(t.get("color") or "").strip() for t in known
                         if t.get("color") and (not material
@@ -322,8 +357,8 @@ def spec_from_label_text(text: Any, known_types: list[dict[str, Any]] | None = N
     nozzle = _text_temp(low, r"(?:nozzle|extruder|hotend|print(?:ing)?\s*temp(?:erature)?)")
     bed = _text_temp(low, r"(?:heated\s*bed|bed|platform|build\s*plate)")
     return {"brand": brand, "material": material, "color": color, "grams": grams,
-            "nozzle_temp": _temp(nozzle, 80, 350) if nozzle is not None else None,
-            "bed_temp": _temp(bed, 0, 150) if bed is not None else None}
+            "nozzle_temp": _recorded_temp(nozzle) if nozzle is not None else None,
+            "bed_temp": _recorded_temp(bed) if bed is not None else None}
 
 
 # ---------------------------------------------------------------------------

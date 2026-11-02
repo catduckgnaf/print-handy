@@ -159,6 +159,17 @@ def test_import_refusals(tmp_path, mutate, message):
     assert not (operator_dir() / "upstream" / "PETG.json").exists()
 
 
+def test_import_accepts_the_unset_retraction_sentinel(tmp_path):
+    # P2-130: Orca writes a filament preset that leaves retraction at the
+    # printer default as ["nil"] — the unset sentinel, not a malformed
+    # number. The import must accept it (there is no operator-supplied
+    # retraction value to bound-check) instead of refusing the whole preset.
+    entry = import_petg(tmp_path, {**PETG_PRESET, "filament_retraction_length": ["nil"]})
+    assert entry["material"] == "PETG"
+    flat = json.loads((operator_dir() / "upstream" / "PETG.json").read_text())
+    assert flat["filament_retraction_length"] == ["nil"]  # preserved, not rewritten
+
+
 def test_import_with_a_material_that_does_not_match_the_parent(tmp_path):
     with pytest.raises(profiles.ProfileError, match=re.escape(
             "--material PLA does not match the parent profile 'Generic PETG @BBL A1', which is a PETG profile")):
@@ -272,6 +283,17 @@ def test_cli_import_refusal_exits_1_and_writes_nothing(tmp_path, monkeypatch, ca
     assert run_cli(monkeypatch, "--resources", str(RESOURCES), "--import-filament", str(bad)) == 1
     err = capsys.readouterr().err
     assert "REFUSED:" in err and "outside 0..300 C" in err
+    assert profiles.operator_presets(adapter_for(A1)) == {}
+
+
+def test_cli_check_with_import_is_refused_and_writes_nothing(tmp_path, monkeypatch, capsys):
+    """P2-131: --check promises "writes nothing", but combined with
+    --import-filament the import branch ran first and registered the
+    preset before the check was ever reached."""
+    assert run_cli(monkeypatch, "--resources", str(RESOURCES), "--check",
+                   "--import-filament", str(preset_file(tmp_path))) == 1
+    err = capsys.readouterr().err
+    assert "REFUSED:" in err and "--check" in err and "--import-filament" in err
     assert profiles.operator_presets(adapter_for(A1)) == {}
 
 

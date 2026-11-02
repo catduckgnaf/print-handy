@@ -66,7 +66,7 @@ def test_tower_reserve_is_only_a_fast_path():
     body = inspect.getsource(plate_merge.plan)
     assert 'pack(extents, bed, spacing, edge=edge, reserve_y=reserve)' in body
     fallback = body.index('loose = pack(extents, bed, spacing, edge=edge)')
-    assert 'color_geometry.prime_tower_xy(loose_bounds, bed=bed)' in body[fallback:]
+    assert 'color_geometry.prime_tower_xy(loose_bounds, bed=bed, tower=tower_mm)' in body[fallback:]
 
 
 def test_postit_merges_on_one_plate_with_tower():

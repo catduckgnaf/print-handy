@@ -275,3 +275,58 @@ def test_bare_explicit_legacy_temperatures_still_hold():
     state["spool"] = {**state["spool"], "spoolman_id": 17}
     state["temps_c"] = {"nozzle": 225, "bed": 55}
     assert printer_state.slice_temperatures(state)[0] == {"nozzle": 225, "bed": 55}
+
+
+def _legacy_resolution_state(material="PLA", family="PLA", temps=(225, 65), spoolman_id=7):
+    """A hardware record as written before #697: the temperature_resolution names
+    only the material family and the per-key sources — never material or spoolman_id —
+    while temps_c holds the temperatures recorded for the spool (here the Spoolman
+    filament's explicit 225/65, not the 210/60 family default)."""
+    return {"spool": {"spoolman_id": spoolman_id, "material": material, "name": "Operator PLA"},
+            "temps_c": {"nozzle": temps[0], "bed": temps[1]},
+            "temperature_resolution": {"material_family": family,
+                                       "sources": {"nozzle": "Spoolman filament", "bed": "Spoolman filament"},
+                                       "source": "Spoolman filament"}}
+
+
+def test_legacy_family_only_resolution_preserves_recorded_temperatures():
+    """P2-276: upgrading an old record must not discard its recorded temperatures.
+    With Spoolman unavailable the record used to fall back to the 210/60 defaults,
+    silently changing slices and making verification reject previously valid files."""
+    from print_handy.core import printer_state
+    temps, resolution = printer_state.slice_temperatures(
+        _legacy_resolution_state(), fetch_filament=lambda spool_id: None)
+    assert temps == {"nozzle": 225, "bed": 65}
+    # The record migrates to the current shape, attested for this spool.
+    assert resolution["material"] == "PLA"
+    assert resolution["spoolman_id"] == 7
+
+
+def test_legacy_resolution_for_another_family_does_not_hold():
+    from print_handy.core import printer_state
+    state = _legacy_resolution_state(material="PLA", family="PETG", temps=(240, 85))
+    temps, _resolution = printer_state.slice_temperatures(state, fetch_filament=lambda spool_id: None)
+    assert temps == {"nozzle": 210, "bed": 60}  # resolved for the PLA spool, not the PETG record
+
+
+def test_legacy_seeded_family_default_still_resolves_for_a_variant_spool():
+    """A legacy record holding exactly the unadjusted family default for a variant
+    material is a seeded value, not a choice (the #705 guard, extended): Silk PLA
+    resolves to its adjusted 220, not the seeded 210."""
+    from print_handy.core import printer_state
+    state = _legacy_resolution_state(material="Silk PLA", family="PLA", temps=(210, 60), spoolman_id=17)
+    state["temperature_resolution"]["sources"] = {"nozzle": "material default", "bed": "material default"}
+    state["temperature_resolution"]["source"] = "material default"
+    temps, _resolution = printer_state.slice_temperatures(state)
+    assert temps == {"nozzle": 220, "bed": 60}
+
+
+def test_spool_change_marker_resolution_still_resolves_afresh():
+    """The spool-sync paths mark a changed spool with a resolution that names no
+    family: those stored temperatures belonged to the previous spool and must
+    still be resolved again, never treated as a legacy record."""
+    from print_handy.core import printer_state
+    state = _legacy_resolution_state()
+    state["temperature_resolution"] = {"source": "spool changed by launch sync; resolved per slice"}
+    temps, _resolution = printer_state.slice_temperatures(state, fetch_filament=lambda spool_id: None)
+    assert temps == {"nozzle": 210, "bed": 60}

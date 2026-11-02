@@ -89,7 +89,13 @@ def test_restart_still_redrives_a_pending_video_leg(monkeypatch, tmp_path):
     announcer.save_state({"job_key": "stand", "pending_completion_message": "Print complete: Stand",
                           "pending_timelapse_job_key": "stand"})
     started = []
-    monkeypatch.setattr(listener, "_timelapse_post", lambda key, message: started.append(key))
+
+    def leg(key, message):
+        started.append(key)
+        listener._post_completion(message, message)  # the real leg delivers, then acknowledges
+
+    monkeypatch.setattr(listener, "_timelapse_post", leg)
+    monkeypatch.setattr(listener, "post", lambda text: True)
     listener.run_announcer("restart")
     for thread in __import__("threading").enumerate():
         if thread.name == "timelapse-postprocess-retry":
@@ -97,3 +103,105 @@ def test_restart_still_redrives_a_pending_video_leg(monkeypatch, tmp_path):
     assert started == ["stand"]
     assert not announcer.pending_timelapse_job_key(announcer.load_state())
     assert not listener._POSTPROCESS_ACTIVE
+
+
+def _join_postprocess_threads():
+    import threading
+    for thread in threading.enumerate():
+        if thread.name.startswith("timelapse-postprocess"):
+            thread.join(5)
+
+
+def test_restart_retry_keeps_the_persisted_key_until_delivery(monkeypatch, tmp_path):
+    """P2-145: a retry that dies before delivering must not lose the video
+    leg — the persisted key survives until _post_completion acknowledges
+    delivery, and a later pass re-drives it."""
+    announcer = listener.announcer
+    monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "announcement.json")
+    monkeypatch.setattr(announcer, "main", lambda: None)
+    monkeypatch.setattr(listener, "log", lambda text: None)
+    announcer.save_state({"job_key": "stand", "pending_completion_message": "Print complete: Stand",
+                          "pending_timelapse_job_key": "stand"})
+    legs = []
+    monkeypatch.setattr(listener, "_timelapse_post", lambda key, message: legs.append(key))
+    listener.run_announcer("restart")
+    _join_postprocess_threads()
+    assert legs == ["stand"]
+    # The leg ended without delivering: the key (and the pending text) survive.
+    assert announcer.pending_timelapse_job_key(announcer.load_state()) == "stand"
+    assert announcer.pending_completion_message(announcer.load_state()) == "Print complete: Stand"
+    assert not listener._POSTPROCESS_ACTIVE
+    # A later pass can therefore re-drive the same leg.
+    listener.run_announcer("retry")
+    _join_postprocess_threads()
+    assert legs == ["stand", "stand"]
+    assert announcer.pending_timelapse_job_key(announcer.load_state()) == "stand"
+
+
+def test_restart_retry_restores_the_multipart_routing(monkeypatch, tmp_path):
+    """P2-146: the retry replays the persisted plan routing and picker,
+    not the bare single-plate post."""
+    announcer = listener.announcer
+    monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "announcement.json")
+    monkeypatch.setattr(announcer, "main", lambda: None)
+    monkeypatch.setattr(listener, "log", lambda text: None)
+    state = {"job_key": "stand", "pending_completion_message": "Print complete: Stand",
+             "pending_timelapse_job_key": "stand"}
+    announcer.set_pending_timelapse_routing(state, "plan9", ("plan9", "more", 1))
+    announcer.save_state(state)
+    plan_posts = []
+    pickers = []
+    monkeypatch.setattr(listener, "_plan_timelapse_post",
+                        lambda key, message, tl_plan: plan_posts.append((key, message, tl_plan)))
+    monkeypatch.setattr(listener, "post_plate_picker", lambda plan_id: pickers.append(plan_id))
+    listener.run_announcer("restart")
+    _join_postprocess_threads()
+    assert plan_posts == [("stand", "Print complete: Stand", ("plan9", "more", 1))]
+    assert pickers == ["plan9"]
+
+
+def test_completion_pass_persists_the_routing_beside_the_key(monkeypatch, tmp_path):
+    """P2-146: a fresh completion's parsed routing is stored with its key."""
+    announcer = listener.announcer
+    monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "announcement.json")
+    monkeypatch.setattr(announcer, "main", lambda: print(
+        "TIMELAPSE_POSTPROCESS:stand.gcode\n"
+        "Print complete: Stand\n"
+        "TIMELAPSE_PLAN:plan9:more:1\n"
+        "PLATE_PICKER:plan9"))
+    monkeypatch.setattr(listener, "log", lambda text: None)
+    announcer.save_state({"job_key": "stand.gcode"})
+    monkeypatch.setattr(listener, "_plan_timelapse_post", lambda key, message, tl_plan: None)
+    monkeypatch.setattr(listener, "post_plate_picker", lambda plan_id: None)
+    listener.run_announcer("completion")
+    _join_postprocess_threads()
+    state = announcer.load_state()
+    assert announcer.pending_timelapse_routing(state) == ("plan9", ("plan9", "more", 1))
+
+
+def test_pending_pass_processes_a_new_completions_markers(monkeypatch, tmp_path):
+    """P2-38: while an old completion sits undelivered, a reprint of the
+    same file completes and the announcer pass consumes its one-shot
+    markers. The markers must be processed (the new print's video leg
+    starts) even though the pass's text post is suppressed as a duplicate
+    of the pending delivery."""
+    announcer = listener.announcer
+    monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "announcement.json")
+    monkeypatch.setattr(announcer, "main", lambda: print(
+        "TIMELAPSE_POSTPROCESS:stand.gcode\n"
+        "Print complete: Stand again"))
+    monkeypatch.setattr(listener, "log", lambda text: None)
+    announcer.save_state({"job_key": "stand.gcode",
+                          "pending_completion_message": "Print complete: Stand",
+                          "pending_timelapse_job_key": "stand"})
+    legs = []
+    monkeypatch.setattr(listener, "_timelapse_post", lambda key, message: legs.append((key, message)))
+    posts = []
+    monkeypatch.setattr(listener, "post", lambda text: posts.append(text) or True)
+    listener.run_announcer("tick")
+    _join_postprocess_threads()
+    # The restart retry for the old key AND the new completion's own leg both ran.
+    assert ("stand", "Print complete: Stand") in legs
+    assert ("stand.gcode", "Print complete: Stand again") in legs
+    # No bare text post of the announcer's message happened in this pass.
+    assert posts == []

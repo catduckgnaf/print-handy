@@ -88,6 +88,14 @@ def _scope(source):
             str(getattr(source, 'user_id', '') or ''))
 
 
+def _round_trips(parser, value):
+    """True when str(value) re-parses to value with the prompt's own parser."""
+    try:
+        return parser(str(value)) == value
+    except Exception:
+        return False
+
+
 def typed_reply(source, text):
     """Route typed text to the sender's newest open typed prompt in this chat. Returns None when they
     have none open (another operator's prompt never takes it), '' when the reply resolved it, or a
@@ -120,20 +128,54 @@ def typed_reply(source, text):
     if len(printers) > 1:
         return None
     cid, parser = _typed_prompts[keys[-1]]
+    is_open = getattr(cm, 'is_open', None)
+    if is_open is not None and not is_open(cid):
+        # The prompt already closed — a button answered it, it expired, it
+        # was cancelled — but this entry outlives it until the intake's own
+        # cleanup runs. Never run the parser for a closed prompt (P2-253):
+        # a connect prompt's parser writes the pasted credential to config,
+        # so a token arriving after Cancel or Save would still be saved,
+        # and the message would then fall through to ordinary chat handling.
+        # (A gateway build without is_open keeps the resolve-time check
+        # below instead of breaking every typed reply.)
+        return None
+    global _resolved_prompt_id
     if str(text or '').strip().casefold() in CANCEL_WORDS:
-        return '' if cm.resolve_gateway_clarify(cid, 'cancel') else None
+        if cm.resolve_gateway_clarify(cid, 'cancel'):
+            _resolved_prompt_id = cid
+            return ''
+        return None
     global _secret_taken
     _secret_taken = False
+    _resolved_prompt_id = None
     try:
         value = parser(text)
     except ValueError as exc:
         _secret_taken = False
         return str(exc)
+    # The gateway answer is a string ask() re-parses with this same parser, so
+    # it must round-trip — str(value) does not always (a file selection parses
+    # to a list of indices, whose str form "[1, 2]" the parser rejects, so the
+    # question reopened forever). When str(value) does not re-parse to value,
+    # resolve with the operator's own text, which parses to value by
+    # construction. A reply that carried a secret is the exception: the secret
+    # itself never travels through the prompt registry, so that path keeps
+    # str(value) — the parser's public result (P2-252).
+    wire = str(value)
+    if not _secret_taken and not _round_trips(parser, value):
+        wire = str(text)
     # A prompt a button already answered is closed: let the text fall through instead of swallowing it.
-    resolved = cm.resolve_gateway_clarify(cid, str(value))
-    if not resolved:
-        _secret_taken = False
-    return '' if resolved else None
+    resolved = cm.resolve_gateway_clarify(cid, wire)
+    if resolved:
+        _resolved_prompt_id = cid
+        return ''
+    if _secret_taken:
+        # The parser saved a secret but the prompt closed underneath it (a
+        # button won the race mid-parse): the reply is still consumed and
+        # the dispatcher still deletes the message — a saved credential
+        # must never fall through to ordinary chat handling (P2-253).
+        return ''
+    return None
 
 
 # A parser that took a secret (a pasted login token) calls note_secret_reply()
@@ -153,6 +195,21 @@ def take_secret_reply():
     """True once after a typed_reply that accepted a secret: delete that message."""
     global _secret_taken
     taken, _secret_taken = _secret_taken, False
+    return taken
+
+
+# The prompt a typed_reply just resolved (P2-209): the registry resolution
+# alone leaves the prompt's rendered message standing, so the dispatcher
+# takes the id here — once, right after the resolving reply — and retires
+# the message through the clarify UI's close_prompt, the same end state a
+# button click or an own-registry typed answer produces.
+_resolved_prompt_id = None
+
+
+def take_resolved_prompt_id():
+    """The clarify id the last typed_reply resolved, once; None otherwise."""
+    global _resolved_prompt_id
+    taken, _resolved_prompt_id = _resolved_prompt_id, None
     return taken
 
 
@@ -199,10 +256,15 @@ CANCEL_LABEL = "Cancel"
 
 
 async def ask(adapter, source, session_key, question, choices, timeout=None, allow_other=False, parser=None,
-              live_key=None):
+              live_key=None, approval=False):
     """Ask a button question. With ``parser``, a typed reply in the same chat is also accepted;
     ``live_key`` registers under the live chat session so a busy gateway routes the text here
-    instead of queueing it as a new agent turn."""
+    instead of queueing it as a new agent turn. ``approval`` marks a print
+    approval (P1-93): the prompt is registered wherever the gateway keeps it,
+    but the mark always lands in this package's own registry, whose
+    ``is_approval`` the standalone adapters consult before resolving — so
+    only the approval user can answer it when one is configured."""
+    from . import prompts as _prompt_marks
     from .prompts import gateway as _prompts
     cm = _prompts()
     registration_key = live_key or session_key
@@ -218,6 +280,8 @@ async def ask(adapter, source, session_key, question, choices, timeout=None, all
             # and re-registering afterwards would discard that answer.
             cid = uuid.uuid4().hex
             cm.register(cid, registration_key, question, shown)
+            if approval:
+                _prompt_marks.mark_approval(cid)
             _open_prompts.pop(typed_key, None)  # re-added last, like _typed_prompts below
             _open_prompts[typed_key] = cid
             if parser is not None:
@@ -266,6 +330,8 @@ async def ask(adapter, source, session_key, question, choices, timeout=None, all
             _open_prompts.pop(typed_key, None)
         if parser is not None and _typed_prompts.get(typed_key, (None,))[0] == cid:
             _typed_prompts.pop(typed_key, None)
+        if approval and cid is not None:
+            _prompt_marks.forget_approval(cid)
         cm.resolve_gateway_clarify(cid, cm.CANCELLED)
         cm.wait_for_response(cid, 0.001)
 

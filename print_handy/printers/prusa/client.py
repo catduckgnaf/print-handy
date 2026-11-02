@@ -128,7 +128,16 @@ class PrusaLinkClient:
 
     def get(self, path):
         resp = self.request("GET", path)
-        return resp.json() if resp.status != 204 else {}
+        if resp.status == 204:
+            return {}
+        try:
+            return resp.json()
+        except ValueError as exc:
+            # Whatever answered is not speaking PrusaLink JSON (a captive
+            # portal, a different service on the host); keep it inside the
+            # client's own error type so callers see one failure shape.
+            raise PrusaLinkError(f"PrusaLink GET {path.split('?')[0]} answered "
+                                 "malformed JSON") from exc
 
     # -- status ------------------------------------------------------------
     def info(self):

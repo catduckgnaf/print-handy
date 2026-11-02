@@ -285,8 +285,13 @@ def post_pause_alert(filename: str, connection: str, printer_id: str | None = No
     return mel.post(text)
 
 
-def retire_pause_alerts(filename: str | None, headline: str = "Print ended.") -> int:
-    """Strip the buttons from this job's live pause alerts and say why (#370's rule)."""
+def retire_pause_alerts(filename: str | None, headline: str = "Print ended.",
+                        printer_id: str | None = None) -> int:
+    """Strip the buttons from this job's live pause alerts and say why (#370's rule).
+
+    ``printer_id`` scopes the retirement to the owning printer's alerts
+    (P2-176); None retires every match for the filename, as before.
+    """
     mel = _mel()
     if mel._buttonless_standalone():
         return 0
@@ -295,7 +300,7 @@ def retire_pause_alerts(filename: str | None, headline: str = "Print ended.") ->
         return pab.retire_alerts(
             mel._bot_token(), filename,
             "This paused prompt is closed; its buttons no longer act on a live job.",
-            ("paused",), headline=headline)
+            ("paused",), headline=headline, printer_id=printer_id)
     except Exception as exc:
         log(f"retire family paused prompt failed file={filename!r}: {exc!r}")
         return 0
@@ -328,7 +333,12 @@ class PauseAlerts:
         self.connection = connection
         self.printer_id = printer_id
         self._poster = poster or post_pause_alert
-        self._retirer = retirer or retire_pause_alerts
+        if retirer is None:
+            # The default retirer is scoped to this tracker's printer
+            # (P2-176); an injected retirer keeps the two-argument
+            # (filename, headline) contract.
+            retirer = lambda fn, headline: retire_pause_alerts(fn, headline, printer_id)
+        self._retirer = retirer
         self._prev: str | None = None
 
     def note(self, state, status=None):
@@ -653,7 +663,11 @@ class BambuEventSink:
         self._start_poster = start_poster or post_family_event
         self._pause_poster = pause_poster or post_pause_alert
         self._terminal_poster = terminal_poster or post_family_event
-        self._retirer = retirer or retire_pause_alerts
+        if retirer is None:
+            # Scoped to this sink's printer, like PauseAlerts (P2-176);
+            # an injected retirer keeps the two-argument contract.
+            retirer = lambda fn, headline: retire_pause_alerts(fn, headline, printer_id)
+        self._retirer = retirer
         self._printer_id = printer_id
         self._light = light
         self._saw_inactive = False

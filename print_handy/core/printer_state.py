@@ -367,9 +367,15 @@ def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True
     It is used when its temperature_resolution names this exact spool and material, or
     when the record has no resolution at all (explicit legacy temperatures, kept as
     _material_temperature_contract always has; the spool-sync paths mark the record
-    stale instead of leaving it bare). A resolution for another spool, or an older one
-    that names only a family, is resolved again from the material defaults, the
-    variant adjustment (#512) and the spool's Spoolman temperatures. ``filament`` is
+    stale instead of leaving it bare), an exact-match resolution is honored whether
+    or not the caller prefetched the spool's filament (P2-273), or when the resolution is a legacy one that
+    names only this spool's material family: records written before resolutions
+    carried material/spoolman_id hold temperatures recorded for the spool (often its
+    Spoolman filament's explicit values), so they are preserved and the resolution is
+    migrated to the current shape (P2-276) instead of silently re-slicing at family
+    defaults. A resolution for another spool or another family is resolved again from
+    the material defaults, the variant adjustment (#512) and the spool's Spoolman
+    temperatures. ``filament`` is
     the spool's Spoolman filament when the caller already has it; ``fetch_filament`` is
     called for it only when needed (Spoolman is advisory: None means defaults).
     ``stored_ok=False`` always resolves (a slot spool other than the active one).
@@ -382,12 +388,42 @@ def slice_temperatures(state, filament=None, fetch_filament=None, stored_ok=True
         if stored:
             return dict(stored), resolution  # _material_temperature_contract reports the missing material
         raise RuntimeError("selected spool has no material; cannot determine safe temperatures")
-    if filament is None and stored_ok and stored and not resolution and _is_seeded_default(material, stored):
-        # A bare record holding exactly the family default (what seeding writes: 210/60 for
-        # every PLA) is not an operator choice; Silk PLA sliced at 210 °C on 2026-10-31 (#64).
+    # A legacy resolution (written before #697) names the material family and the
+    # per-key sources, never the material or spool: it attests the stored temps for
+    # any spool of that family, the compatibility _material_temperature_contract
+    # has always granted it. The spool-change markers name no family at all, so
+    # they are never legacy and still resolve afresh.
+    legacy = False
+    if isinstance(resolution, dict) and resolution.get("material_family") \
+            and "material" not in resolution and "spoolman_id" not in resolution:
+        try:
+            legacy = resolution.get("material_family") == material_family(material)
+        except Exception:
+            legacy = False
+    if stored_ok and stored and isinstance(resolution, dict) \
+            and resolution.get("material") == material \
+            and resolution.get("spoolman_id") == spool.get("spoolman_id"):
+        # The stored temperatures are attested for this exact spool and
+        # material (an operator `set --nozzle-temp`, or a `set --spool`
+        # resolution): they win whether or not the caller already fetched
+        # the spool's filament (P2-273). Verification resolves with
+        # filament=None and honors them; slicing used to bypass them
+        # whenever orca_adapter prefetched the filament, and verification
+        # then refused the G-code slicing had produced.
+        return dict(stored), resolution
+    if filament is None and stored_ok and stored and (not resolution or legacy) \
+            and _is_seeded_default(material, stored):
+        # A bare or legacy record holding exactly the family default (what seeding writes:
+        # 210/60 for every PLA) is not an operator choice; Silk PLA sliced at 210 °C on
+        # 2026-10-31 (#64).
         stored_ok = False
-    if filament is None and stored_ok and stored and (not resolution or (
+    if filament is None and stored_ok and stored and (not resolution or legacy or (
             resolution.get("material") == material and resolution.get("spoolman_id") == spool.get("spoolman_id"))):
+        if legacy:
+            # Migrate in the returned resolution: the stored temperatures are now
+            # attested for this exact spool, so later reads take the exact-match path.
+            return dict(stored), {**resolution, "material": material,
+                                  "spoolman_id": spool.get("spoolman_id")}
         return dict(stored), resolution
     if filament is None and fetch_filament is not None and spool.get("spoolman_id") is not None:
         try:
@@ -510,19 +546,57 @@ def gcode_tool_temperatures(state, materials, text, fetch_filament=None):
                                       None, fetch_filament,
                                       stored_ok=_is_active_spool(state, {"spoolman_id": sid, "material": label}))[0]
                    for sid in ids]
-        if not any(abs(float(o["nozzle"]) - (shown - offset)) <= 1e-3 for o in options):
+        matching = [o for o in options if abs(float(o["nozzle"]) - (shown - offset)) <= 1e-3]
+        if not matching:
             raise RuntimeError(f"G-code tool T{tool} ({label}) is set to {shown:g} C but its spool resolves to "
                                + " or ".join(f"{float(o['nozzle']) + offset:g} C" for o in options))
-        resolved[tool] = {"nozzle": shown - offset, "bed": options[0]["bed"]}
+        # The bed is the matching spool's, not the first candidate's (P2-277):
+        # options are sorted by spool id, and the spool whose nozzle target
+        # the header carries need not be the lowest-numbered holder.
+        resolved[tool] = {"nozzle": shown - offset, "bed": matching[0]["bed"]}
     nozzle = resolved[start]["nozzle"]
     # One plate heats the whole job: its target is the lowest-numbered tool's, the one orca_adapter sliced the bed at.
     return {"nozzle": int(nozzle) if float(nozzle).is_integer() else nozzle, "bed": resolved[min(resolved)]["bed"]}
 
 
+def _job_map_spool_ids(state, text):
+    """The spool ids an artifact's `hermes_tool_slots` map names, in tool order.
+
+    The map is the artifact's own record of what it was sliced for: dict
+    values carry the spool id directly; the older plain form names physical
+    slots, whose bound spool the slot record supplies. Unparseable or
+    absent maps name nothing.
+    """
+    match = re.search(r"^;\s*hermes_tool_slots\s*=\s*(.+)$", text or "", re.M)
+    if not match:
+        return []
+    try:
+        parsed = json.loads(match.group(1).strip())
+    except ValueError:
+        return []
+    if not isinstance(parsed, dict):
+        return []
+    slots = state.get("filament_slots") or {}
+    ids = []
+    for value in parsed.values():
+        sid = None
+        if isinstance(value, dict):
+            sid = value.get("spoolman_id")
+            if sid is None and value.get("physical_slot") is not None:
+                sid = (slots.get(str(value["physical_slot"])) or {}).get("spoolman_id")
+        elif isinstance(value, int) and not isinstance(value, bool):
+            sid = (slots.get(str(value)) or {}).get("spoolman_id")
+        if sid is not None and sid not in ids:
+            ids.append(sid)
+    return ids
+
+
 def gcode_temperatures(state, materials, fetch_filament=None, text=None):
     """The temperatures a G-code sliced for ``materials`` (its filament_type list) must carry,
-    resolved for the same spool slice_temperatures used: the active spool when its material is
-    the G-code's, else the one slot spool holding that material, else the material defaults.
+    resolved for the same spool slice_temperatures used: the spool the artifact's
+    hermes_tool_slots map names when it names exactly one, else the active spool when its
+    material is the G-code's, else the one slot spool holding that material, else the
+    material defaults.
     A multi-filament G-code (``text`` given) is checked per tool against its own header instead
     (gcode_tool_temperatures). Two slot spools with that material and different targets are
     ambiguous and refuse.
@@ -536,6 +610,16 @@ def gcode_temperatures(state, materials, fetch_filament=None, text=None):
     if len(labels) != 1:
         return slice_temperatures(state, None, fetch_filament)[0]
     label = labels.pop()
+    mapped = _job_map_spool_ids(state, text)
+    if len(mapped) == 1:
+        # The artifact names the one spool it was sliced for (P2-272):
+        # resolve that spool, not whichever spool is active now — launch
+        # synchronizes the active spool only after verification, so the
+        # active spool merely holding the same material proves nothing.
+        sid = mapped[0]
+        return slice_temperatures({**state, "spool": {**spool, "spoolman_id": sid, "material": label}},
+                                  None, fetch_filament,
+                                  stored_ok=sid == spool.get("spoolman_id"))[0]
     ids = sorted({rec.get("spoolman_id") for rec in (state.get("filament_slots") or {}).values()
                   if isinstance(rec, dict) and " ".join(str(rec.get("material") or "").split()).casefold()
                   == label.casefold()}, key=str)
@@ -666,9 +750,15 @@ def seed_hardware_record(printer_id, view=None):
     if state_path(printer_id).exists():
         return False
     view = view if view is not None else settings.view_for(printer_id)
+    save(_seed_record(view, printer_id), printer_id)
+    return True
+
+
+def _seed_record(view, printer_id):
+    """The minimal truthful first record for one printer, from its settings view alone."""
     printer = view["printer"]
     pla = (view.get("material_temps") or {}).get("PLA") or DEFAULT_MATERIAL_TEMPS["PLA"]
-    record = {
+    return {
         "printer": printer.get("name") or printer_id,
         "moonraker_url": (view.get("services") or {}).get("moonraker_url") or "",
         "bed_mm": [float(v) for v in printer["bed_mm"]],
@@ -679,7 +769,25 @@ def seed_hardware_record(printer_id, view=None):
         "spool": {},
         "filament_slots": {},
     }
-    save(record, printer_id)
+
+
+def provision_default_record(view=None):
+    """Create the default printer's first hardware record on a fresh install (P1-7).
+
+    A clean install has no record at all, and every pipeline command —
+    including ``printer_state set``, which loads before it saves — failed on
+    the missing file, so the mandatory state could only appear by
+    hand-writing JSON. The seed is the same minimal record guided onboarding
+    writes for a newly added printer (#537), placed at the legacy singleton
+    path the default printer's per-printer reads adopt. An existing record,
+    legacy or per-printer, is never overwritten. Returns True when a record
+    was created.
+    """
+    default_id = settings.default_printer_id()
+    if state_path().exists() or state_path(default_id).exists():
+        return False
+    view = view if view is not None else settings.view_for(default_id)
+    save(_seed_record(view, default_id))
     return True
 
 
@@ -932,7 +1040,7 @@ def _check_spoolman(st, warnings, facts):
                         "printing can continue (#235)")
 
 
-def check(st=None, printer_id=None, adapter=None):
+def check(st=None, printer_id=None, adapter=None, *, live=True):
     """Return (ok, problems, facts). Never raises on network errors; reports them.
 
     Spoolman outcomes never affect `ok`: they are collected in
@@ -944,6 +1052,12 @@ def check(st=None, printer_id=None, adapter=None):
     entry's — the adapter is built on the entry's settings view — and the
     result's facts name the printer ("printer_id", "printer_name"). Without
     one, this is the configured default printer, exactly as before.
+
+    `live=False` is for offline slice verification (P2-73): the LAN families
+    then run their record-only readiness checks without fetching a live
+    snapshot, so a busy printer or Developer Mode being off cannot fail a
+    slice-time verify — the print paths re-check live readiness before any
+    write. The default keeps every other caller on the live behavior.
     """
     st = st or load(printer_id)
     probs, facts = [], {}
@@ -979,7 +1093,7 @@ def check(st=None, printer_id=None, adapter=None):
         # the original offline behaviour, not an error.
         facts["connection"] = "bambulab_lan"
         facts["lan_configured"] = adapter.lan_configured()
-        if adapter.lan_configured():
+        if live and adapter.lan_configured():
             try:
                 snapshot = adapter.client().snapshot()
                 facts["bambu"] = adapter.normalize_status(snapshot)
@@ -997,7 +1111,7 @@ def check(st=None, printer_id=None, adapter=None):
         # offline behaviour, not an error.
         facts["connection"] = "prusalink"
         facts["link_configured"] = adapter.link_configured()
-        if adapter.link_configured():
+        if live and adapter.link_configured():
             try:
                 snapshot = adapter.client().snapshot()
                 facts["prusa"] = adapter.normalize_status(snapshot)
@@ -1014,7 +1128,7 @@ def check(st=None, printer_id=None, adapter=None):
         # the offline behaviour, not an error.
         facts["connection"] = "elegoo_sdcp"
         facts["sdcp_configured"] = adapter.sdcp_configured()
-        if adapter.sdcp_configured():
+        if live and adapter.sdcp_configured():
             try:
                 snapshot = adapter.client().status()
                 facts["elegoo_sdcp"] = adapter.normalize_status(snapshot)
@@ -1029,12 +1143,16 @@ def check(st=None, printer_id=None, adapter=None):
         # Stock Flashforge: the hardware record and Spoolman, plus read-only /detail over the
         # stock LAN API. Never Moonraker: stock firmware does not speak it (#211).
         facts["connection"] = "flashforge_stock"
-        try:
-            detail = adapter.client().detail()
-            facts["flashforge_stock"] = adapter.normalize_status(detail)
-            probs.extend(adapter.readiness_problems(st, detail))
-        except RuntimeError as exc:
-            probs.append(str(exc))
+        if live:
+            # Stock Flashforge readiness has no record-only checks: its
+            # verdict is entirely the live /detail state, so an offline
+            # verify skips it rather than judging an empty payload (P2-73).
+            try:
+                detail = adapter.client().detail()
+                facts["flashforge_stock"] = adapter.normalize_status(detail)
+                probs.extend(adapter.readiness_problems(st, detail))
+            except RuntimeError as exc:
+                probs.append(str(exc))
         _check_spoolman(st, warnings, facts)
         return (not probs), probs, facts
     if adapter.connection == 'offline':
@@ -1084,12 +1202,17 @@ def check(st=None, printer_id=None, adapter=None):
 
 def summary(st, calibration_owner="unknown", calibration_valid=None):
     resolution = st.get("temperature_resolution") or {}
-    material = (st.get("spool") or {}).get("material", "unknown")
+    spool = st.get("spool") or {}
+    material = spool.get("material", "unknown")
     source = resolution.get("source", "explicit/legacy state")
     temp_summary = f"{material} nozzle {st['temps_c']['nozzle']}°C, bed {st['temps_c']['bed']}°C ({source})"
+    # A freshly provisioned record names no spool yet (P1-7): the summary
+    # says so instead of crashing on the absent spool fields.
+    spool_summary = (f"Spoolman #{spool['spoolman_id']} {spool['name']} ({material})"
+                     if spool.get("spoolman_id") is not None else "no spool recorded")
     if not printers.current().has_native_screen:
         return (f"{st['nozzle']['diameter_mm']} mm {st['nozzle']['type']} nozzle, "
-                f"Spoolman #{st['spool']['spoolman_id']} {st['spool']['name']} ({material}), "
+                f"{spool_summary}, "
                 f"{temp_summary}")
     if calibration_owner == "native":
         offset = (st.get("calibration_baseline") or {}).get("native_zProbeOffset", "unknown")
@@ -1107,7 +1230,7 @@ def summary(st, calibration_owner="unknown", calibration_valid=None):
     return (f"{st['nozzle']['diameter_mm']} mm {st['nozzle']['type']} nozzle, "
             f"probe z_offset {((st.get('calibration_baseline') or {}).get('probe_z_offset', st.get('z_offset_mm')))}, "
             f"{calibration}, "
-            f"Spoolman #{st['spool']['spoolman_id']} {st['spool']['name']} ({st['spool']['material']}), "
+            f"{spool_summary}, "
             f"{st['temps_c']['nozzle']}/{st['temps_c']['bed']} C")
 
 
@@ -1135,6 +1258,8 @@ def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("check"); sub.add_parser("show")
+    sub.add_parser("provision", help="create the default printer's first hardware record "
+                                     "on a fresh install; never overwrites an existing one")
     s = sub.add_parser("set")
     s.add_argument("--spool", type=int); s.add_argument("--nozzle", type=_nozzle_arg, help="diameter in mm: 0.4, 0,4 or 0.40mm")
     s.add_argument("--nozzle-type"); s.add_argument("--nozzle-temp", type=int); s.add_argument("--bed-temp", type=int)
@@ -1143,7 +1268,23 @@ def main():
     s.add_argument("--pressure-advance", type=float, help="record the pressure advance tuned for the installed nozzle; does not write Klipper")
     s.add_argument("--no-sync-klipper", action="store_true", help="skip syncing nozzle to Klipper printer.cfg")
     a = ap.parse_args()
-    st = load()
+    if a.cmd == "provision":
+        created = provision_default_record()
+        print(f"{'Created' if created else 'Already present:'} {state_path()}")
+        return
+    try:
+        st = load()
+    except FileNotFoundError:
+        if a.cmd != "set":
+            print(f"No hardware record yet at {state_path()}: this install has not been provisioned. "
+                  "Run `python3 -m print_handy.core.printer_state provision` to create the default "
+                  "printer's record from the configured settings, then record the real hardware "
+                  "with `printer_state set`.", file=sys.stderr)
+            sys.exit(2)
+        # A fresh install: `set` is how the record is filled in, so it
+        # provisions the seed first instead of failing on the load (P1-7).
+        provision_default_record()
+        st = load()
     if a.cmd == "show":
         print(json.dumps(st, indent=2)); return
     if a.cmd == "check":

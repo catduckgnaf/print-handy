@@ -37,6 +37,11 @@ REDACTED = "***"
 
 _HANDLER_MARK = "_print_handy_handler"
 _context: contextvars.ContextVar[dict] = contextvars.ContextVar("print_handy_log_context", default={})
+# Process-wide fallback context (P2-161): a plain threading.Thread does
+# not inherit the ContextVar, so a binding made for the process's whole
+# lifetime (a listener's printer_id) is kept here too, where worker
+# threads see it. Task-level bind() fields override it per field.
+_process_context: dict = {}
 
 _SECRET_ENV_SUFFIXES = ("_TOKEN", "_KEY", "_SECRET", "_PASSWORD")
 _PATTERNS = (
@@ -78,9 +83,20 @@ def unbind(token: contextvars.Token) -> None:
     _context.reset(token)
 
 
+def bind_process(**fields) -> None:
+    """Bind fields for the whole process, visible in every thread.
+
+    For bindings that are process-lifetime by design — a listener's
+    printer_id — where the ContextVar alone never reaches the worker
+    threads the listener spawns (P2-161). A task-level ``bind`` still
+    wins per field.
+    """
+    _process_context.update({k: v for k, v in fields.items() if v is not None})
+
+
 def bound_context() -> dict:
     """A copy of the fields currently bound to every log line."""
-    return dict(_context.get())
+    return {**_process_context, **_context.get()}
 
 
 def clear_context() -> None:
@@ -88,6 +104,7 @@ def clear_context() -> None:
     (and for tests): a listener launched in its own process never needs it,
     because its ``printer_id`` binding is process-lifetime by design."""
     _context.set({})
+    _process_context.clear()
 
 
 def _pairs(fields: dict) -> str:
@@ -104,7 +121,7 @@ class _Base(logging.Formatter):
         return datetime.fromtimestamp(record.created).astimezone().isoformat(timespec="milliseconds")
 
     def fields(self, record) -> dict:
-        return {**_context.get(), **(getattr(record, "ctx", None) or {})}
+        return {**_process_context, **_context.get(), **(getattr(record, "ctx", None) or {})}
 
     def exception_text(self, record) -> str:
         if record.exc_info and not record.exc_text:
@@ -128,6 +145,26 @@ class TextFormatter(_Base):
         return redact(line)
 
 
+def _redact_value(value):
+    """Redact credentials inside one payload value, before serialization.
+
+    Redacting the already-serialized JSON cannot work: escaping rewrites the
+    quotes the credential patterns anchor on, so a secret inside a quoted
+    value survives, and a replacement can eat an escape character and leave
+    the line invalid JSON. Redact each string value while it is still a
+    plain string, then serialize.
+    """
+    if isinstance(value, str):
+        return redact(value)
+    if isinstance(value, dict):
+        return {key: _redact_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_redact_value(item) for item in value]
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return redact(str(value))
+
+
 class JsonFormatter(_Base):
     """One JSON object per line, for log shippers: ts, level, logger, message, any bound fields, exception."""
 
@@ -138,7 +175,7 @@ class JsonFormatter(_Base):
         trace = self.exception_text(record)
         if trace:
             payload["exception"] = trace
-        return redact(json.dumps(payload, default=str, ensure_ascii=False))
+        return json.dumps(_redact_value(payload), default=str, ensure_ascii=False)
 
 
 def _formatter(kind: str) -> logging.Formatter:

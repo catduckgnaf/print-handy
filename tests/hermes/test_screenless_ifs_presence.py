@@ -220,6 +220,51 @@ class IdleInsertionBaselineTests(unittest.TestCase):
                 self.assertEqual(json.loads((root / 'edges.json').read_text()),
                                  {str(i): False for i in range(1, 5)})
 
+    def test_a_reading_change_mid_settle_restarts_the_settle_window(self):
+        """P2-271: the settle window measures how long the CURRENT reading
+        has held. A disagreement that changes shape mid-window must not be
+        adopted on the first reading's clock — adopting {T,F} at t=121 on
+        a two-second-old reading later produced a false insertion prompt
+        for slot 2 when the readings settled back to {T,T}."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'edges.json').write_text(json.dumps({"1": True, "2": True}))
+            with mock.patch.object(mel.time, 'monotonic') as clock:
+                monitor = self.monitor(root)
+                clock.return_value = 0.0
+                self.assertEqual(monitor.observe({1: False, 2: False}, idle=True), [])
+                clock.return_value = 119.0
+                self.assertEqual(monitor.observe({1: True, 2: False}, idle=True), [])
+                clock.return_value = 121.0
+                self.assertEqual(monitor.observe({1: True, 2: False}, idle=True), [])
+                self.assertEqual(json.loads((root / 'edges.json').read_text()),
+                                 {"1": True, "2": True})
+                clock.return_value = 122.0
+                self.assertEqual(monitor.observe({1: True, 2: True}, idle=True), [])
+                clock.return_value = 123.0
+                self.assertEqual(monitor.observe({1: True, 2: True}, idle=True), [])
+                self.assertEqual(json.loads((root / 'edges.json').read_text()),
+                                 {"1": True, "2": True})
+
+    def test_a_changed_reading_that_then_holds_is_adopted_after_its_own_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'edges.json').write_text(json.dumps({"1": True, "2": True}))
+            with mock.patch.object(mel.time, 'monotonic') as clock:
+                monitor = self.monitor(root)
+                clock.return_value = 0.0
+                monitor.observe({1: False, 2: False}, idle=True)
+                clock.return_value = 119.0
+                monitor.observe({1: True, 2: False}, idle=True)
+                clock.return_value = 238.0
+                monitor.observe({1: True, 2: False}, idle=True)
+                self.assertEqual(json.loads((root / 'edges.json').read_text()),
+                                 {"1": True, "2": True})
+                clock.return_value = 239.0
+                monitor.observe({1: True, 2: False}, idle=True)
+                self.assertEqual(json.loads((root / 'edges.json').read_text()),
+                                 {"1": True, "2": False})
+
     def test_unknown_or_partial_readings_do_not_arm_or_emit_prompts(self):
         with tempfile.TemporaryDirectory() as tmp:
             monitor = self.monitor(Path(tmp))

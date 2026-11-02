@@ -226,6 +226,53 @@ def test_download_with_wrong_checksum_is_refused(monkeypatch, tmp_path):
     assert not target.exists() and not target.with_name("detector.onnx.part").exists()
 
 
+def test_model_download_waits_for_another_process_and_rechecks(monkeypatch, tmp_path):
+    """P2-221: supervise.sh runs one listener process per printer, all
+    sharing the model directory. The download must serialize across
+    processes (flock, not just the in-process threading lock), and a
+    process that waited must recheck for the finished file instead of
+    downloading over it — the old shared-.part race ended in a failed
+    os.replace that the loser then remembered as a permanent failure."""
+    import threading
+
+    target = tmp_path / "models" / "detector.onnx"
+    target.parent.mkdir(parents=True)
+    cfg = cfg_with(local_model_path=str(target))
+    downloads = []
+    monkeypatch.setattr(lv, "_download_model", lambda path: downloads.append(path))
+
+    holder = lv._model_lock(target)  # a separate lock instance: a peer process
+    holder.acquire()
+    worker = threading.Thread(target=lv._ensure_model_file, args=(target, cfg), daemon=True)
+    try:
+        worker.start()
+        worker.join(timeout=0.5)
+        assert worker.is_alive() and downloads == []  # still waiting on the peer
+        target.write_bytes(b"model")  # the peer finished and published the file
+    finally:
+        holder.release()
+    worker.join(timeout=10)
+    assert not worker.is_alive()
+    assert downloads == []  # the recheck saw the file: no second download
+    assert lv._remembered_failure(f"file:{target}") is None
+
+
+def test_download_uses_a_process_unique_part_file(monkeypatch, tmp_path):
+    """P2-221: the in-flight download never shares one .part path across
+    processes; a foreign .part (a peer's, under the old shared name) is
+    left untouched and nothing of ours is left behind."""
+    target = tmp_path / "detector.onnx"
+    shared = target.with_name("detector.onnx.part")
+    shared.write_bytes(b"a peer is mid-download here")
+    monkeypatch.setattr(lv, "MODEL_SHA256", FIXTURE_SHA256)
+    monkeypatch.setattr("urllib.request.urlopen",
+                        lambda request, timeout=None: _FakeResponse(FIXTURE.read_bytes()))
+    lv._download_model(target)
+    assert target.read_bytes() == FIXTURE.read_bytes()
+    assert shared.read_bytes() == b"a peer is mid-download here"
+    assert [p.name for p in tmp_path.glob("*.part")] == ["detector.onnx.part"]
+
+
 def test_failed_download_is_not_retried_every_check(monkeypatch, tmp_path):
     target = tmp_path / "detector.onnx"
     calls = []

@@ -35,6 +35,7 @@ def without_added(data):
         data.get("vision", {}).pop(key, None)
     for key in ("vertical_short", "vertical_short_mode", "vertical_short_overlay"):  # added by #317, after capture
         data.get("timelapse", {}).pop(key, None)
+    data.get("timelapse", {}).pop("mode_explicit", None)  # added by the P2-261 fix (Codex backlog burn-down), after capture
     data.pop("webui", None)  # added by #286 stage 1, after the golden files were captured
     data.pop("live_stream", None)  # added by #311 stage 3, after the golden files were captured
     data.pop("design", None)  # added by #388 stage 1, after the golden files were captured

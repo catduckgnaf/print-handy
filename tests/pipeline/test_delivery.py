@@ -426,6 +426,54 @@ def test_multi_plate_partial_delivery_reports_each_plate(tmp_path, monkeypatch):
     assert [f["ok"] for f in entry["files"]] == [True, False] and entry["detail"] == "1 of 2 sent"
 
 
+def test_effective_upload_limit_takes_the_lower_of_config_and_adapter(tmp_path, monkeypatch):
+    """The sending adapter's own cap lowers the planning limit (P2-92): the
+    Matrix adapter's cap is the homeserver's discovered media limit, which
+    lives nowhere in settings. A higher adapter cap never raises the
+    configured limit, and an adapter reporting none changes nothing."""
+    cfg = config_for("sovol.sv06", ["discord"], upload_max_bytes=50_000_000)
+    use_config(monkeypatch, cfg)
+    assert delivery.effective_upload_limit(S(upload_max_bytes=10_000_000)) == 10_000_000
+    assert delivery.effective_upload_limit(S(upload_max_bytes=99_000_000)) == 50_000_000
+    assert delivery.effective_upload_limit(S(upload_max_bytes=None)) == 50_000_000
+    assert delivery.effective_upload_limit(S()) == 50_000_000
+    assert delivery.effective_upload_limit(None) == 50_000_000
+
+
+def test_deliver_plans_against_the_adapters_discovered_cap(tmp_path, monkeypatch):
+    """A 20 MB file on a server that reported a 10 MB cap must be planned
+    against 10 MB (P2-92), not the configured 50 MB: planning hands the
+    adapter's cap to discord_plan, so the file is zipped or reported too
+    big instead of being uploaded whole and rejected by the server."""
+    import asyncio
+    job, gcodes, recorded = _job_with(tmp_path, "G1 X1\n")
+    jp = tmp_path / "JOB.json"
+    jp.write_text(json.dumps(job))
+    use_config(monkeypatch, config_for("sovol.sv06", ["printer", "discord"],
+                                       upload_max_bytes=50_000_000))
+    seen_limits = []
+
+    def plan(files, limit, workdir):
+        seen_limits.append(limit)
+        return [delivery.Attachment(files[0], files[0], 6, 6, "attach")]
+
+    monkeypatch.setattr(delivery, "discord_plan", plan)
+    sent = []
+
+    class Adapter:
+        upload_max_bytes = 10_000_000  # the discovered homeserver cap
+
+        async def send(self, chat_id, content, reply_to=None, metadata=None):
+            sent.append(content)
+            return S(success=True)
+
+    receipt = {"gcode_sha256": recorded}
+    source = S(chat_id="c1", thread_id=None)
+    asyncio.run(prepared_intake._deliver(Adapter(), source, None, "discord", receipt, jp,
+                                         [str(g) for g in gcodes], ["discord"]))
+    assert seen_limits == [10_000_000]
+
+
 def test_bambu_package_carries_the_plate_previews_the_a1_and_the_apps_read(tmp_path, bambu_model):
     """#275: Metadata/plate_<n>.png (512) and plate_<n>_small.png (128), rendered offline from the sliced geometry."""
     import io

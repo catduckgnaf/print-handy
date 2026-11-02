@@ -293,7 +293,7 @@ def feed_server():
     upstream.join(timeout=5)
 
 
-def _ws_handshake(server, path, cookie=None):
+def _ws_handshake(server, path, cookie=None, extra_headers=()):
     """Returns (connection, head, rest): `rest` is whatever arrived with the
     headers (a fast upstream's first frame can share the segment, so a
     test must not expect it from a later recv)."""
@@ -303,6 +303,7 @@ def _ws_handshake(server, path, cookie=None):
              "Sec-WebSocket-Version: 13"]
     if cookie:
         lines.append(f"Cookie: {cookie}")
+    lines.extend(extra_headers)
     connection.sendall(("\r\n".join(lines) + "\r\n\r\n").encode())
     head = b""
     while b"\r\n\r\n" not in head:
@@ -389,6 +390,137 @@ def test_transcoded_stream_name_drives_the_page_default_and_the_proxy():
         upstream.join(timeout=5)
 
 
+def test_feed_proxy_rewrites_the_browser_origin_for_the_loopback_hop(feed_server):
+    # P1-88: through the tunnel the browser's Origin is the public
+    # origin, while the proxy rebuilds Host as the loopback upstream.
+    # go2rtc (api.origin unset) refuses an Origin whose host differs
+    # from Host, so forwarding the browser Origin verbatim earns an
+    # upstream 403; the proxy must rewrite it to the loopback origin.
+    instance, upstream = feed_server
+    cookie = _session_cookie(instance)
+    connection, head, rest = _ws_handshake(
+        instance, "/api/ws?src=camera", cookie=cookie,
+        extra_headers=("Origin: https://tunnel.example.invalid",))
+    try:
+        assert b"101" in head.split(b"\r\n", 1)[0]
+        assert (rest or connection.recv(4096)) == b"\x82\x03fmp"
+    finally:
+        connection.close()
+    assert b"tunnel.example.invalid" not in upstream.request_head
+    assert (f"Origin: http://127.0.0.1:{upstream.port}".encode()
+            in upstream.request_head)
+
+
+def _session_feed_server(session_active):
+    upstream = FakeGo2rtc()
+    upstream.start()
+    instance = la.make_server("127.0.0.1", 0, transport=FakeTransport(),
+                              allowlist=ALLOWLIST, secret=SECRET,
+                              feed_upstream=("127.0.0.1", upstream.port),
+                              session_active=session_active)
+    thread = threading.Thread(target=instance.serve_forever, daemon=True)
+    thread.start()
+    return instance, upstream
+
+
+def test_feed_proxy_refuses_a_new_connection_when_the_session_is_not_live():
+    # P1-89: a valid cookie alone must not open the feed while the
+    # shared viewing session is idle (never started, stopped, expired
+    # or ended with the print). The refusal happens before the upstream
+    # is contacted, and a session check that fails is a refusal too
+    # (fail closed: the privacy gate never fails open).
+    for session_active in (lambda: False,
+                           lambda: (_ for _ in ()).throw(RuntimeError("record gone"))):
+        instance, upstream = _session_feed_server(session_active)
+        try:
+            cookie = _session_cookie(instance)
+            connection, head, _ = _ws_handshake(instance, "/api/ws?src=camera",
+                                                cookie=cookie)
+            assert b"403" in head.split(b"\r\n", 1)[0]
+            connection.close()
+            assert upstream.request_head == b""
+        finally:
+            instance.shutdown()
+            instance.server_close()
+            upstream.join(timeout=5)
+
+
+class StreamingGo2rtc(threading.Thread):
+    """A fake go2rtc that keeps the feed open, sending a frame every
+    0.1 s until the socket dies — the shape a real relay has while a
+    viewer is watching."""
+
+    def __init__(self):
+        super().__init__(daemon=True)
+        self.listener = _socket.socket()
+        self.listener.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+        self.listener.bind(("127.0.0.1", 0))
+        self.listener.listen(1)
+        self.port = self.listener.getsockname()[1]
+        self.request_head = b""
+
+    def run(self):
+        connection, _ = self.listener.accept()
+        with connection:
+            head = b""
+            while b"\r\n\r\n" not in head:
+                chunk = connection.recv(4096)
+                if not chunk:
+                    return
+                head += chunk
+            self.request_head = head
+            connection.sendall(b"HTTP/1.1 101 Switching Protocols\r\n"
+                               b"Upgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+            try:
+                while True:
+                    connection.sendall(b"\x82\x03fmp")
+                    time.sleep(0.1)
+            except OSError:
+                return
+
+
+def test_feed_proxy_closes_an_open_relay_when_the_session_ends():
+    # P1-89: ending the viewing session (stop, expiry, print end) must
+    # end the frames too — an already-open relay is closed by the proxy
+    # once the session is no longer live, not left running until the
+    # viewer happens to disconnect.
+    live = {"on": True}
+    upstream = StreamingGo2rtc()
+    upstream.start()
+    instance = la.make_server("127.0.0.1", 0, transport=FakeTransport(),
+                              allowlist=ALLOWLIST, secret=SECRET,
+                              feed_upstream=("127.0.0.1", upstream.port),
+                              session_active=lambda: live["on"])
+    thread = threading.Thread(target=instance.serve_forever, daemon=True)
+    thread.start()
+    try:
+        cookie = _session_cookie(instance)
+        connection, head, rest = _ws_handshake(instance, "/api/ws?src=camera",
+                                               cookie=cookie)
+        try:
+            assert b"101" in head.split(b"\r\n", 1)[0]
+            assert (rest or connection.recv(4096)) == b"\x82\x03fmp"
+            live["on"] = False
+            connection.settimeout(5)
+            closed = False
+            try:
+                while True:
+                    if not connection.recv(4096):
+                        closed = True
+                        break
+            except ConnectionResetError:
+                closed = True
+            except _socket.timeout:
+                closed = False
+            assert closed, "the relay kept running after the session ended"
+        finally:
+            connection.close()
+    finally:
+        instance.shutdown()
+        instance.server_close()
+        upstream.join(timeout=5)
+
+
 def test_feed_proxy_reports_a_dead_upstream_as_502():
     instance = la.make_server("127.0.0.1", 0, transport=FakeTransport(),
                               allowlist=ALLOWLIST, secret=SECRET,
@@ -403,3 +535,111 @@ def test_feed_proxy_reports_a_dead_upstream_as_502():
     finally:
         instance.shutdown()
         instance.server_close()
+
+
+# --------------------------------------------------------------------- P2-122: the handshake waits for both
+
+def test_page_sends_the_mse_handshake_only_once_both_sides_are_open():
+    # P2-122: sourceopen can fire while the WebSocket is still
+    # CONNECTING, and ws.send then throws InvalidStateError — with no
+    # retry the feed never starts. The handshake must be gated on both
+    # the socket's open event and the MediaSource's sourceopen.
+    import re
+
+    page = la.ACTIVITY_PAGE
+    sourceopen = re.search(r'addEventListener\("sourceopen".*?\}\);', page, re.S)
+    assert sourceopen, "the page lost its sourceopen handler"
+    assert "ws.send" not in sourceopen.group(0), \
+        "the sourceopen handler still sends on the socket unconditionally"
+    assert "ws.onopen" in page or 'addEventListener("open"' in page, \
+        "the page never listens for the WebSocket open event"
+    assert page.count('ws.send(JSON.stringify({type: "mse"') == 1
+
+
+# --------------------------------------------------------------------- P2-142: one-way relay survival
+
+def test_pump_preserves_the_relay_when_only_the_camera_sends(monkeypatch):
+    # P2-142: during MSE playback the page sends its offer once and
+    # then only receives. A client direction silent for the whole
+    # stream must not tear the relay down while frames keep flowing.
+    import select as select_module
+    import socket
+
+    real_select = select_module.select
+
+    def capped(rlist, wlist, xlist, timeout=None):
+        # Compress the pump's idle waits so the pre-fix 60 s client
+        # silence cutoff fires inside the test's time budget.
+        return real_select(rlist, wlist, xlist,
+                           0.05 if timeout is None else min(timeout, 0.05))
+
+    monkeypatch.setattr(select_module, "select", capped)
+    browser, client = socket.socketpair()
+    go2rtc, upstream = socket.socketpair()
+    pump = threading.Thread(target=la._pump, args=(client, upstream), daemon=True)
+    pump.start()
+    try:
+        for index in range(10):
+            go2rtc.sendall(b"frame-%d;" % index)
+            time.sleep(0.1)
+        assert pump.is_alive(), \
+            "the relay died while the camera was still sending frames"
+        browser.settimeout(2)
+        received = b""
+        while received.count(b"frame-") < 10:
+            chunk = browser.recv(65536)
+            assert chunk, "the relay closed the browser side mid-stream"
+            received += chunk
+    finally:
+        go2rtc.close()
+        pump.join(timeout=5)
+        browser.close()
+    assert not pump.is_alive(), "the relay did not end when the camera side closed"
+
+
+def test_pump_ends_once_both_directions_have_been_idle_past_the_cutoff(monkeypatch):
+    import socket
+
+    monkeypatch.setattr(la, "_PUMP_IDLE_CUTOFF_S", 0.4)
+    monkeypatch.setattr(la, "_PUMP_POLL_S", 0.05)
+    browser, client = socket.socketpair()
+    go2rtc, upstream = socket.socketpair()
+    pump = threading.Thread(target=la._pump, args=(client, upstream), daemon=True)
+    pump.start()
+    pump.join(timeout=5)
+    try:
+        assert not pump.is_alive(), \
+            "the relay lingered after both directions stayed idle"
+    finally:
+        browser.close()
+        go2rtc.close()
+
+
+# --------------------------------------------------------------------- P2-143: presence takes the shared lock
+
+def test_presence_updates_wait_for_the_shared_session_lock(tmp_path):
+    # P2-143: a presence write is a read-modify-write transaction over
+    # a record other processes own too (the bot's /print-live, the
+    # listener's print-end hook). While another writer holds the
+    # cross-process lock, the presence update must wait — not read a
+    # stale record and overwrite the other writer's transition.
+    from print_handy import live_stream
+
+    path = tmp_path / "live_session.json"
+    live_stream.write_session_file(
+        live_stream.LiveStreamSession().start("42", now=1000.0), path)
+    presence = la.SessionPresence(path, {})
+    done = threading.Event()
+
+    def note():
+        presence.note_viewer("42", now=1001.0)
+        done.set()
+
+    with live_stream.session_file_lock(path):
+        worker = threading.Thread(target=note, daemon=True)
+        worker.start()
+        assert not done.wait(0.5), \
+            "the presence update ran while another writer held the session lock"
+    worker.join(timeout=5)
+    assert done.is_set()
+    assert live_stream.read_session_file(path).viewers == 1

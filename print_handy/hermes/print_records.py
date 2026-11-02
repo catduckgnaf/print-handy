@@ -88,6 +88,13 @@ def _first(mapping: Mapping[str, Any], *keys: str) -> Any:
     return None
 
 
+def _iso_from_epoch(value: Any) -> str | None:
+    """ISO-Z string for a Moonraker epoch timestamp, or None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        return None
+    return datetime.fromtimestamp(value, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def load_context(job_key: str, path: Path | None = None) -> dict[str, Any]:
     """Load the optional Print Handy confirmation context without guessing.
 
@@ -108,6 +115,32 @@ def load_context(job_key: str, path: Path | None = None) -> dict[str, Any]:
     if payload.get("job_key") in (None, job_key):
         return payload
     return {}
+
+
+def latest_completed_record(job_key: str) -> dict[str, Any]:
+    """The newest finished record for a job key, or {} when none is written.
+
+    Completion facts (duration above all) live in the completed record,
+    not the start context; readers that need them after the fact — the
+    vertical short's overlay (P2-112) — look here. In-progress records
+    never answer: their duration is not the print's yet.
+    """
+    best: dict[str, Any] = {}
+    best_at = ""
+    try:
+        paths = list(PRINTS_DIR.glob("*.json"))
+    except OSError:
+        return {}
+    for path in paths:
+        record = _read_json_record(path)
+        if not record or record.get("job_key") != job_key:
+            continue
+        if record.get("status") in (None, "printing"):
+            continue
+        at = str(record.get("completed_at") or "")
+        if not best or at >= best_at:
+            best, best_at = record, at
+    return best
 
 
 def _valid_print_number(value: Any) -> int | None:
@@ -175,6 +208,18 @@ def build_record_data(
     metadata = metadata or {}
     context = dict(context or {})
     spool = active_spool or context.get("active_spool") or {}
+    # P2-155: a launch-time accounting failure rides the context from the job
+    # record (record_start copies JOB.json's marker). It marks the record
+    # pending even when Spoolman answers at completion — that answer names
+    # the spool Moonraker kept charging, not the spool the job launched for.
+    launch_pending = context.get("spoolman_usage_pending")
+    launch_pending = launch_pending if isinstance(launch_pending, dict) and launch_pending else None
+    usage_pending = bool(spool.get("spoolman_unavailable")) or launch_pending is not None
+    intended_id = launch_pending.get("spool_id") if launch_pending else None
+    if isinstance(intended_id, int) and not isinstance(intended_id, bool) and intended_id > 0:
+        recorded = context.get("active_spool")
+        if isinstance(recorded, dict) and recorded:
+            spool = recorded  # attribute the print to its intended spool
     spool_fields = _spool_fields(spool)
     slicer_settings = _first(metadata, "slicer_settings", "slicer_settings_json") or context.get("slicer_settings")
     if not isinstance(slicer_settings, (dict, list, str, int, float, bool)):
@@ -188,12 +233,19 @@ def build_record_data(
     native = str(_first(stats, "state") or "complete").lower()
     status, success = TERMINAL_STATUS.get(native, (native, None))
     used_mm = _first(stats, "filament_used") or _first(metadata, "filament_used")
+    # P2-150: the record's identity (record_id, filename) hangs on
+    # started_at. When the context does not carry one, Moonraker's
+    # history start time — an epoch riding stats — names the same
+    # physical print on every call; the per-call completion clock must
+    # not mint a second record for a retried completion.
+    started_at = context.get("started_at") or _iso_from_epoch(
+        _first(stats, "start_time", "print_start_time"))
     return {
         "print_number": _valid_print_number(context.get("print_number")) or _registry_print_number(context),
         "status": status,
         "success": success,
         "title": context.get("title") or _resolved_title(filename),
-        "started_at": context.get("started_at"),
+        "started_at": started_at,
         "completed_at": None if status == "printing" else (completed_at or utc_now()),
         "hardware": context.get("hardware"),
         "estimated_time": context.get("estimated_time"),
@@ -214,7 +266,9 @@ def build_record_data(
         # #387: Spoolman did not answer at completion, so this job's usage
         # could not be confirmed against Spoolman. Recorded as pending for
         # later reconciliation; the completion itself never waits on it.
-        "spoolman_usage_pending": True if spool.get("spoolman_unavailable") else None,
+        # P2-155: a launch-time accounting failure is pending the same way,
+        # even when the completion-time lookup succeeds.
+        "spoolman_usage_pending": True if usage_pending else None,
         "filament_used_mm": used_mm,
         "print_duration_seconds": _first(stats, "print_duration", "total_duration") or _first(metadata, "print_duration"),
         "slicer_settings": slicer_settings,

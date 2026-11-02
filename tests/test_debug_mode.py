@@ -142,6 +142,47 @@ class DebugModeTests(unittest.TestCase):
         _name, text, _report = debug_mode.build_export(self.data, state={}, now=T0)
         self.assertIn("no debug session capture found", text)
 
+    def test_export_sanitizes_every_platforms_ids(self):
+        # Telegram/Matrix/approval IDs named in the config must reach the
+        # sanitizer too, and a list-valued allowed_user_ids must not be
+        # mangled by string splitting (P1-102).
+        self.data["telegram"] = {"allowed_user_ids": [555444333222111],
+                                 "chat_id": "-1001234567890",
+                                 "approval_user_id": "999888777666555"}
+        self.data["matrix"] = {"allowed_user_ids": "@ops.lead:matrix.example.org",
+                               "room_id": "!Ab3dEf6hI:matrix.example.org",
+                               "approval_user_id": "@approver:matrix.example.org"}
+        debug_mode.start(self.data, now=T0)
+        logging.getLogger("print_handy.testprobe").info(
+            "ids 555444333222111 -1001234567890 999888777666555 "
+            "@ops.lead:matrix.example.org @approver:matrix.example.org")
+        for handler in logging.getLogger().handlers:
+            handler.flush()
+        target, _report, _ended = debug_mode.off_and_export(self.data, now=T0 + 60)
+        text = target.read_text()
+        for leaked in ("555444333222111", "1001234567890", "999888777666555",
+                       "ops.lead", "approver", "Ab3dEf6hI"):
+            self.assertNotIn(leaked, text)
+        self.assertEqual(sanitize_logs.find_residuals(text), {})
+
+    def test_cli_off_after_auto_expiry_still_exports(self):
+        # The state file is already gone after an auto-off; `off` must
+        # still produce the export instead of saying "already off" (P2-188).
+        debug_mode.start(self.data, minutes=30, now=T0)
+        logging.getLogger("print_handy.testprobe").info("expired session line")
+        for handler in logging.getLogger().handlers:
+            handler.flush()
+        # A status check (the bot's, or a listener poll) lands the auto-off
+        # and removes the state file before the operator runs `off`.
+        self.assertIsNone(debug_mode.status(self.data, now=T0 + 31 * 60))
+        self.assertFalse(debug_mode.state_path(self.data).exists())
+        out = []
+        with mock.patch.object(debug_mode.settings, "current", lambda: self.data), \
+                mock.patch("builtins.print",
+                           lambda *a: out.append(" ".join(map(str, a)))):
+            self.assertEqual(debug_mode.main(["off"]), 0)
+        self.assertIn("Sanitized export:", out[-1])
+
     def test_cli_status_and_on_off(self):
         out = []
         with mock.patch.object(debug_mode.settings, "current", lambda: self.data), \

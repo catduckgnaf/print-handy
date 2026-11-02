@@ -296,6 +296,10 @@ def model_capacity(real_multi_plate, source_triangles, plate_count):
         across = int((bed[0] - 6.0 + spacing_mm) // (extent[0] + spacing_mm))
         down = int((bed[1] - 6.0 + spacing_mm) // (extent[1] + spacing_mm))
         return max(1, min(int(copy_limit), across * down))
+    # The fit-check timing keys on the step's __name__ (FIT_CHECK_STEPS, matched
+    # in thread_heavy): the stand-in must carry the production name or the
+    # probes it replaces are never timed in mock mode (P2-281).
+    capacity.__name__ = "orca_plate_capacity"
     return capacity
 
 
@@ -377,9 +381,12 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, in_gateway_env=
                 events.append(("fit_check_end", func.__name__))
         return await asyncio.to_thread(func, *args, **kwargs)
 
-    def offline_verify(out):
+    def offline_verify(out, adapter=None, state=None, printer_id=None):
         # verify_gcode asks Moonraker for the display mode. The offline check is the same minus that.
-        return model_job.verify_gcode_offline(out, printer_state.load())
+        # The stub takes verify_gcode's current arguments (adapter/state/printer_id)
+        # and verifies against the state the caller resolved for the job's printer.
+        return model_job.verify_gcode_offline(
+            out, state if state is not None else printer_state.load(), adapter=adapter)
 
     def find_job(filename, *args):
         path = sorted(Path(model_job.ARCHIVE).rglob("JOB.json"))[-1]
@@ -406,6 +413,9 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, in_gateway_env=
         # Multicolor summaries probe live ZMod purge settings. This offline corpus models
         # an unavailable reading explicitly, rather than attempting (and swallowing) I/O.
         patch(printer_state, "read_purge_mode", lambda st: None)
+        # The first confirmation card's spool-remap note reads the ZMod version
+        # the same fail-soft way (P2-242); model it unavailable too.
+        patch(model_job, "_zmod_version", lambda st: None)
         patch(print_next, "start", start)
         patch(prepared_intake.print_summary, "find_job", find_job)
         patch(prepared_intake._external.load("moonraker_event_listener"), "generate_roast", lambda *a, **kw: "")
@@ -542,6 +552,32 @@ def gcode_checks(run):
 def model_job_verify(path, state):
     from print_handy.core import model_job
     return model_job.verify_gcode_offline(path, state)
+
+
+def check_refusal(case, run):
+    """Assert a pinned intake refusal (P2-177): the FAILED receipt, for the
+    expected reason, with the harness's adapter checks, and proof that
+    slicing and starting never happened.
+
+    check_expectations cannot serve a refused case (it asserts a print
+    started), so until now the runners accepted any FAILED receipt —
+    including one from an unrelated intake regression that never exercised
+    the pinned limit. `error_contains` in the case's [expect] table names
+    the refusal text the case pins.
+    """
+    want = case.expect
+    assert not getattr(run.adapter, "unanswered", None), "\n".join(run.adapter.unanswered)
+    assert not getattr(run.adapter, "errors", None), run.adapter.errors
+    assert run.receipt.get("status") == "FAILED", (
+        f"expected an intake refusal, got receipt {run.receipt.get('status')!r}: "
+        f"{run.receipt.get('error')}\n{_transcript(run)}")
+    needle = want.get("error_contains")
+    if needle:
+        assert needle in str(run.receipt.get("error") or ""), (
+            f"refusal reason {run.receipt.get('error')!r} does not name the pinned "
+            f"refusal {needle!r}\n{_transcript(run)}")
+    assert not run.slice_starts, "a refused case must never reach slicing"
+    assert not run.starts, "a refused case must never start a print"
 
 
 def check_expectations(case, run):

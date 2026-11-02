@@ -64,7 +64,7 @@ TIMELAPSE_PLAN_MARKER = plan_timelapse.PLAN_MARKER
 BASE = _config.moonraker_url()
 SPOOLMAN_BASE = _config.service_url("spoolman_url")
 API_KEY = os.environ.get("MOONRAKER_API_KEY", "")
-STATE_PATH = _config.state_file("MOONRAKER_ANNOUNCEMENT_STATE", "moonraker_discord_announcements.json")
+STATE_PATH = _config.state_file("MOONRAKER_ANNOUNCEMENT_STATE", "moonraker_discord_announcements.json", per_instance=True)
 MEDIA_DIR = _config.cache_dir() / "moonraker-announcements"
 # Remote timelapse archive over ssh. An empty host turns the archive (and the posted video) off.
 # The ssh login comes from ~/.ssh/config for that host. Some NAS hosts drop scp, so transfers stream over ssh.
@@ -624,6 +624,38 @@ def clear_pending_timelapse_job_key(state, job_key=None):
     _pending_clear(state, "pending_timelapse_job_keys", "pending_timelapse_job_key", job_key)
 
 
+def pending_timelapse_routing(state):
+    """This printer's pending completion video routing: (plan_id, tl_plan).
+
+    The multipart routing the listener parsed from the completion's
+    one-shot markers, persisted beside the pending timelapse job key so a
+    restart retry replays the original flow (P2-146). (None, None) when
+    nothing was recorded — a plain single-plate completion.
+    """
+    raw = _pending_get(state, "pending_timelapse_routings", "pending_timelapse_routing")
+    if not isinstance(raw, dict):
+        return None, None
+    plan_id = raw.get("plan_id") or None
+    tl_plan = None
+    tl = raw.get("tl_plan")
+    if isinstance(tl, (list, tuple)) and len(tl) == 3:
+        try:
+            tl_plan = (str(tl[0]), str(tl[1]), int(tl[2]))
+        except (TypeError, ValueError):
+            tl_plan = None
+    return plan_id, tl_plan
+
+
+def set_pending_timelapse_routing(state, plan_id, tl_plan):
+    value = {"plan_id": plan_id or None,
+             "tl_plan": [tl_plan[0], tl_plan[1], tl_plan[2]] if tl_plan else None}
+    _pending_set(state, "pending_timelapse_routings", "pending_timelapse_routing", value)
+
+
+def clear_pending_timelapse_routing(state):
+    _pending_clear(state, "pending_timelapse_routings", "pending_timelapse_routing")
+
+
 HISTORY_STATE = {"completed": "complete", "cancelled": "cancelled"}
 
 
@@ -639,7 +671,7 @@ def finalize_from_history(job_key):
         return None
     job = jobs[0]
     stats = {"state": HISTORY_STATE.get(job["status"], "error"), "print_duration": job.get("print_duration"),
-             "filament_used": job.get("filament_used")}
+             "filament_used": job.get("filament_used"), "start_time": job.get("start_time")}
     ended = job.get("end_time")
     completed_at = datetime.fromtimestamp(ended, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if ended else None
     result = record_completion(job_key, job_key, stats, completed_at=completed_at)
@@ -647,10 +679,37 @@ def finalize_from_history(job_key):
     return result
 
 
+def _finished_history_job(filename):
+    """Moonraker's newest finished history entry for filename, or None.
+
+    History is the stable identity source for a physical print (P2-150):
+    its start_time names the same print on every completion retry,
+    unlike the wall clock. An unavailable or unmatched read changes
+    nothing — the record falls back to today's behaviour.
+    """
+    try:
+        jobs = (get_json("/server/history/list?limit=50&order=desc").get("result") or {}).get("jobs") or []
+    except Exception:
+        return None
+    for job in jobs:
+        if isinstance(job, dict) and job.get("filename") == filename \
+                and job.get("status") not in (None, "in_progress") and job.get("start_time"):
+            return job
+    return None
+
+
 def record_completion(job_key, filename, stats, completed_at=None):
     """Persist confirmed completion data; unavailable optional reads stay absent."""
     context = load_context(job_key)
     context["job_key"] = job_key
+    stats = dict(stats or {})
+    if not context.get("started_at") and not (stats.get("start_time") or stats.get("print_start_time")):
+        history_job = _finished_history_job(filename)
+        if history_job is not None:
+            stats["start_time"] = history_job["start_time"]
+            if completed_at is None and history_job.get("end_time"):
+                completed_at = datetime.fromtimestamp(
+                    history_job["end_time"], timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
         metadata = get_file_metadata(filename)
     except Exception as exc:
@@ -722,7 +781,8 @@ def main():
             "record_written": False,
             "print_started_at": time.time() if state in ACTIVE_STATES else None,
         }
-        for pending_key in ("pending_completion_messages", "pending_timelapse_job_keys"):
+        for pending_key in ("pending_completion_messages", "pending_timelapse_job_keys",
+                            "pending_timelapse_routings"):
             if isinstance(previous.get(pending_key), dict) and previous[pending_key]:
                 fresh[pending_key] = previous[pending_key]
         previous = fresh
@@ -746,6 +806,10 @@ def main():
             # the retrieval instead of posting the pending text bare and
             # losing the video (#373).
             set_pending_timelapse_job_key(previous, job_key)
+            # A new completion supersedes any earlier routing: the listener
+            # records THIS completion's routing from the markers below
+            # before the pass ends (P2-146).
+            clear_pending_timelapse_routing(previous)
         # No roast here (#374): the one roast per print belongs to the start
         # announcement, added when printing begins. Completion never invokes
         # the roast generator.

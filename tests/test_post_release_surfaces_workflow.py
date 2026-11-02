@@ -83,6 +83,22 @@ class PostReleaseSurfacesWorkflowContract(unittest.TestCase):
         self.assertLess(run.index("issue list"), run.index("issue create"))
         self.assertIn("issue comment", run)
 
+    def test_checklist_lookups_search_all_states_by_title(self):
+        # P2-153 / P2-263: every lookup in this workflow must search by the
+        # exact title across ALL issue states. --state open misses a closed
+        # checklist (the natural end state), and an unfiltered --limit 100
+        # list misses the checklist whenever more than 100 newer issues
+        # exist — either way a re-run opened a duplicate.
+        text = WORKFLOW_PATH.read_text()
+        lookups = [line for line in text.splitlines() if "gh issue list" in line]
+        self.assertGreaterEqual(len(lookups), 4)
+        for line in lookups:
+            with self.subTest(lookup=line.strip()):
+                self.assertIn("--state all", line)
+                self.assertNotIn("--state open", line)
+        for title_var in ('\\"$issue_title\\"', '\\"$pre_title\\"', '\\"Release checklist: $tag\\"'):
+            self.assertIn(f'--search "in:title {title_var}"', text)
+
     def test_pr_list_comes_from_the_tag_compare(self):
         run = run_block()
         self.assertIn('compare/$prev...$tag', run)

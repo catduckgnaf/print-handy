@@ -90,11 +90,17 @@ requests, so the two can never drift apart.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
+
+try:
+    import fcntl
+except ImportError:  # non-POSIX platform: no cross-process lock available
+    fcntl = None  # type: ignore[assignment]
 
 __all__ = [
     "CAMERA_KINDS",
@@ -122,9 +128,11 @@ __all__ = [
     "redact_url",
     "resolve_moonraker_camera_source",
     "resolve_octoprint_camera_source",
+    "session_file_lock",
     "session_file_path",
     "session_text",
     "start_problem",
+    "transact_session_file",
     "write_session_file",
 ]
 
@@ -181,6 +189,13 @@ def redact_url(url) -> str:
     except ValueError:
         return "***"
     if not parts.netloc and not parts.query:
+        # A wrapper scheme such as go2rtc's ffmpeg: carries a nested URL in
+        # its path (ffmpeg:rtsp://user:pass@host/...), which has no authority
+        # of its own at this level: redact the nested URL too, or the wrapper
+        # passes the camera credentials through verbatim.
+        if "://" in parts.path:
+            nested = redact_url(parts.path)
+            return f"{parts.scheme}:{nested}" if parts.scheme else nested
         # A relative path carries no userinfo; still scrub a query if present.
         return url.strip()
     host = parts.hostname or ""
@@ -215,6 +230,24 @@ def _is_sensitive_key(key: str) -> bool:
 
 # --------------------------------------------------------------------- helpers
 
+def _split_url(url, *, context="camera URL"):
+    """`urlsplit` that never lets a parse failure carry credentials out.
+
+    urlsplit's ValueError message embeds the whole authority — userinfo
+    included — so a malformed credential-bearing URL would otherwise leak
+    its password through the exception text, and through the traceback
+    chain if the ValueError rode along as context. Raise a sanitized
+    LiveStreamError instead, with the chain suppressed.
+    """
+    try:
+        return urlsplit(url)
+    except ValueError:
+        pass  # fall through: raise only once the except block has exited,
+        # so the ValueError is neither the cause nor the context of the
+        # LiveStreamError and no traceback of it can disclose the authority.
+    raise LiveStreamError(f"{context}: unparseable URL {redact_url(url)!r}")
+
+
 def _clean(value):
     if isinstance(value, str):
         value = value.strip()
@@ -227,7 +260,7 @@ def _resolve_url(base_url, raw_url, *, context: str):
     url = _clean(raw_url)
     if url is None:
         return None
-    parts = urlsplit(url)
+    parts = _split_url(url, context=context)
     if parts.scheme:
         if parts.scheme not in ("http", "https", "rtsp", "rtsps", "webrtc"):
             raise LiveStreamError(
@@ -237,7 +270,7 @@ def _resolve_url(base_url, raw_url, *, context: str):
     if not base:
         raise LiveStreamError(
             f"{context}: relative camera URL {redact_url(url)!r} has no base URL to resolve against")
-    if urlsplit(base).scheme not in ("http", "https"):
+    if _split_url(base, context=context).scheme not in ("http", "https"):
         raise LiveStreamError(f"{context}: base URL {redact_url(base)!r} is not an http(s) URL")
     return urljoin(base.rstrip("/") + "/", url)
 
@@ -246,7 +279,7 @@ def _infer_kind(stream_url, snapshot_url, service=None) -> str:
     if stream_url:
         service_text = (service or "").casefold()
         stream_text = stream_url.casefold()
-        if urlsplit(stream_url).scheme in ("rtsp", "rtsps"):
+        if _split_url(stream_url).scheme in ("rtsp", "rtsps"):
             return "rtsp"
         if "webrtc" in service_text or "webrtc" in stream_text:
             return "webrtc"
@@ -320,15 +353,15 @@ def derive_from_snapshot_url(snapshot_url, *, name="", service=None) -> CameraSo
     snapshot = _clean(snapshot_url)
     if not snapshot:
         raise LiveStreamError("no snapshot URL was provided to derive a camera source from")
-    if urlsplit(snapshot).scheme not in ("http", "https", "rtsp", "rtsps"):
+    parts = _split_url(snapshot, context="snapshot URL")
+    if parts.scheme not in ("http", "https", "rtsp", "rtsps"):
         raise LiveStreamError(
             f"snapshot URL {redact_url(snapshot)!r} is not an http(s) or rtsp URL")
-    pairs = parse_qsl(urlsplit(snapshot).query, keep_blank_values=True)
+    pairs = parse_qsl(parts.query, keep_blank_values=True)
     action_values = [value for key, value in pairs if key == "action"]
     if "snapshot" in action_values:
         new_pairs = [(key, "stream" if (key == "action" and value == "snapshot") else value)
                      for key, value in pairs]
-        parts = urlsplit(snapshot)
         stream_url = urlunsplit((parts.scheme, parts.netloc, parts.path,
                                  urlencode(new_pairs), ""))
         return CameraSource(stream_url=stream_url, snapshot_url=snapshot,
@@ -625,7 +658,7 @@ def _positive_int(value, name):
 
 
 def build_ffmpeg_args(candidate, *, input_url, target_codec=None, max_height=720,
-                      fps=15, bitrate_kbps=2500, output="-") -> list:
+                      fps=15, bitrate_kbps=2500, output="-", executable="ffmpeg") -> list:
     """Pure ffmpeg argv for one chosen encoder candidate.
 
     Scales to `max_height` keeping aspect (width ``-2``, so it stays even),
@@ -635,6 +668,13 @@ def build_ffmpeg_args(candidate, *, input_url, target_codec=None, max_height=720
     ``format=nv12,hwupload`` tail on the scale filter (the analogous form
     for ``vp8_vaapi``); CPU H.264 uses ``libx264 -preset ultrafast`` and
     CPU VP8 uses ``libvpx -deadline realtime``.
+
+    The argv starts with `executable`: the caller passes the configured
+    ``paths.ffmpeg`` so the binary launched is the one that was selected
+    and probed (P2-262) — a bare ``"ffmpeg"`` could resolve to a
+    different binary, or to none when ffmpeg exists only at the
+    configured path. The default keeps the bare name for callers with
+    no configured path.
 
     Output decision: the argv ends with exactly the caller-supplied
     `output` argument and adds no muxer, RTP or transport flags — the
@@ -649,11 +689,13 @@ def build_ffmpeg_args(candidate, *, input_url, target_codec=None, max_height=720
         raise LiveStreamError("an input URL is required to build ffmpeg arguments")
     if not isinstance(output, str) or not output.strip():
         raise LiveStreamError("an output target is required to build ffmpeg arguments")
+    if not isinstance(executable, str) or not executable.strip():
+        raise LiveStreamError("an ffmpeg executable is required to build ffmpeg arguments")
     max_height = _positive_int(max_height, "max_height")
     fps = _positive_int(fps, "fps")
     bitrate_kbps = _positive_int(bitrate_kbps, "bitrate_kbps")
 
-    argv = ["ffmpeg", "-hide_banner", "-nostdin"]
+    argv = [executable, "-hide_banner", "-nostdin"]
     if chosen.vendor == "vaapi":
         argv += ["-vaapi_device", VAAPI_DEVICE]
     argv += ["-i", input_url, "-an"]
@@ -974,3 +1016,61 @@ def read_session_file(path):
             return LiveStreamSession()
         session.viewers = viewers if viewers > 0 else 0
     return session
+
+
+@contextlib.contextmanager
+def session_file_lock(path):
+    """Serialize session read-modify-write transactions across processes (P2-143).
+
+    The record at `path` is shared by three processes — the bot
+    (``/print-live``), the printer listener (auto-start / print-end
+    hooks) and the Activity server (viewer presence) — and every writer
+    runs a read-modify-write transaction over it. Atomic replacement
+    alone cannot protect that transaction: a presence tick that read
+    the live record just before a stop landed could write its stale
+    snapshot back over the stop, resurrecting a session its owner had
+    ended. This lock — an ``flock`` on the sibling ``<path>.lock``
+    file — is the one guard every writer takes, so transactions run
+    one at a time and each reads the record the previous writer left.
+
+    ``flock`` is released by the kernel when a holder dies, so a
+    crashed writer can never wedge the record. Where the lock file
+    cannot be opened (a state directory too broken to hold the record
+    either) or ``fcntl`` is unavailable, the transaction proceeds
+    unguarded rather than breaking the caller: session bookkeeping
+    stays fail-soft, exactly like the reads and writes it protects.
+    """
+    if fcntl is None:
+        yield
+        return
+    path = Path(path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path.with_name(path.name + ".lock"), os.O_CREAT | os.O_RDWR, 0o644)
+    except OSError:
+        yield
+        return
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+
+def transact_session_file(path, update):
+    """Run one serialized read-modify-write transaction over the record at `path`.
+
+    Under :func:`session_file_lock`: read the current session, hand it
+    to `update(session)`, and persist it only when `update` returns
+    True. Returns the session as read (and possibly mutated), so a
+    caller can report the state it acted on. Every session writer goes
+    through here (or holds the lock itself) — see P2-143.
+    """
+    with session_file_lock(path):
+        session = read_session_file(path)
+        if update(session):
+            write_session_file(session, path)
+        return session

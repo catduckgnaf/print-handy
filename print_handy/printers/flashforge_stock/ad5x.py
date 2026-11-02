@@ -12,7 +12,11 @@ MODEL = PrinterModel(
     key="flashforge_stock.ad5x",
     label="Flashforge Adventurer 5X (stock)",
     adapter=StockFlashforgeAdapter,
-    templates="flashforge_ad5x",
+    # Its own template folder, not the ZMod AD5X's: the stock guard forbids the
+    # START_PRINT/END_PRINT/SET_PRINT_STATS_INFO macros in flashforge_ad5x, so the
+    # stock template carries plain slicer-owned start/end/layer-change sequences.
+    templates="flashforge_ad5x_stock",
+    baseline="protected-settings-baseline.flashforge_stock.ad5x.json",
     vendor=VENDOR,
     color_system="multi_slot",
     supported_nozzle_sizes=(0.25, 0.4, 0.6, 0.8),

@@ -218,6 +218,52 @@ def test_heavy_worker_killed_garbage_and_empty_stderr_fail_readably(monkeypatch)
     assert 'child diagnostic' in garbage
 
 
+def test_heavy_worker_log_lines_are_forwarded_and_context_is_sent(monkeypatch, caplog):
+    # P2-55: the worker's stderr used to be dropped whenever its JSON reply
+    # parsed. Its formatted log lines are now re-emitted through intake's
+    # logger at their own levels, and the payload carries the bound log
+    # context so the worker's lines name the same intake.
+    import logging
+    captured = {}
+
+    async def fake(argv, payload, **kwargs):
+        captured['payload'] = json.loads(payload)
+        reply = {'ok': True, 'path': False, 'result': {'plates': 1}}
+        err = (b'2026-11-02T00:00:00.000-05:00 WARNING print_handy.core.orca_adapter: tower is close to the part\n'
+               b'Traceback (most recent call last):\n'
+               b'2026-11-02T00:00:01.000-05:00 INFO print_handy.core.orca_adapter: fit check done\n')
+        return ('\n' + json.dumps(reply)).encode(), err
+    monkeypatch.setattr(prepared_intake.owned_worker, 'run', fake)
+    token = prepared_intake.logs.bind(intake='t-55')
+    try:
+        with caplog.at_level(logging.DEBUG, logger='print_handy.core.prepared_intake'):
+            result = asyncio.run(prepared_intake._heavy(model_job.audit, Path('/does/not/exist.stl')))
+    finally:
+        prepared_intake.logs.unbind(token)
+    assert result == {'plates': 1}
+    assert captured['payload']['log_context'] == {'intake': 't-55'}
+    forwarded = [(r.levelname, r.getMessage()) for r in caplog.records
+                 if r.name == 'print_handy.core.prepared_intake']
+    assert ('WARNING', 'tower is close to the part') in [(lvl, msg.split(': ', 1)[-1]) for lvl, msg in forwarded]
+    assert any(lvl == 'WARNING' and 'Traceback' in msg for lvl, msg in forwarded)  # continuation keeps the level
+    assert any(lvl == 'INFO' and 'fit check done' in msg for lvl, msg in forwarded)
+
+
+def test_heavy_worker_log_lines_are_forwarded_on_an_error_reply(monkeypatch, caplog):
+    import logging
+    from print_handy.core import worker_errors
+
+    async def fake(argv, payload, **kwargs):
+        reply = worker_errors.encode(RuntimeError('slice exploded'))
+        return ('\n' + json.dumps(reply)).encode(), \
+            b'2026-11-02T00:00:00.000-05:00 ERROR print_handy.core.orca_adapter: orca exited -50\n'
+    monkeypatch.setattr(prepared_intake.owned_worker, 'run', fake)
+    with caplog.at_level(logging.DEBUG, logger='print_handy.core.prepared_intake'):
+        with pytest.raises(RuntimeError, match='slice exploded'):
+            asyncio.run(prepared_intake._heavy(model_job.audit, Path('/does/not/exist.stl')))
+    assert any(r.levelname == 'ERROR' and 'orca exited -50' in r.getMessage() for r in caplog.records)
+
+
 def test_owned_worker_timeout_and_output_limit_are_reported(monkeypatch):
     async def exercise():
         monkeypatch.setattr(owned_worker, 'DEADLINE_S', 0.1)

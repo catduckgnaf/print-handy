@@ -129,6 +129,61 @@ def test_conversion_keeps_a_nondefault_derived_url(tmp_path):
     assert first["moonraker_ws_url"] == "ws://192.0.2.10:9999/websocket"
 
 
+def test_conversion_keeps_an_explicit_camera_url_without_moonraker(tmp_path):
+    # An explicit camera URL with no Moonraker URL to derive one from must
+    # survive conversion: it was only copied inside the Moonraker branch,
+    # and _strip_legacy then removed the original (P2-216).
+    text = """
+discord:
+  chat_id: "111"
+printer:
+  model: flashforge.ad5x
+  name: Garage AD5X
+services:
+  camera_snapshot_url: http://192.0.2.20/snap.jpg
+"""
+    path = _write(tmp_path, text)
+    _add(path, {"id": "bench-ender", "model": "creality.ender3v3ke", "name": "Bench Ender",
+                "moonraker_url": "http://192.0.2.11:7125"})
+    first = yaml.safe_load(path.read_text())["printers"][0]
+    assert first["camera_snapshot_url"] == "http://192.0.2.20/snap.jpg"
+    data = _load(path)
+    assert data["printers"][0]["camera_snapshot_url"] == "http://192.0.2.20/snap.jpg"
+
+
+def _home_with_roster(tmp_path):
+    """The shipped home layer plus a two-printer roster: an install whose
+    roster lives in the home layer (the mixed-shape refusal checks only
+    the local layer and the environment, never the defaults tree)."""
+    raw = yaml.safe_load(Path(HOME).read_text())
+    raw["printers"] = [
+        {"id": "garage-a1", "name": "Garage A1", "model": "bambulab.a1",
+         "lan_host": "192.0.2.60", "lan_serial": "00M00A000000000"},
+        {"id": "workshop-ad5x", "name": "Workshop AD5X", "model": "flashforge.ad5x",
+         "chat_id": "222", "moonraker_url": "http://192.0.2.10:7125"},
+    ]
+    path = tmp_path / "home.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    return path
+
+
+def test_add_with_roster_inherited_from_home_keeps_every_printer(tmp_path):
+    # The target file declares no roster of its own; the resolved roster
+    # comes from the home layer. Converting only the first entry would
+    # shadow the inherited roster and silently drop the rest (P2-217).
+    home = _home_with_roster(tmp_path)
+    path = _write(tmp_path, 'discord:\n  chat_id: "111"\n')
+    result = _add(path, NEW_BAMBU, home=home)
+    assert result["printer_ids"] == ["garage-a1", "workshop-ad5x", "bench-p1"]
+    parsed = yaml.safe_load(path.read_text())
+    assert [e["id"] for e in parsed["printers"]] == ["garage-a1", "workshop-ad5x", "bench-p1"]
+    ad5x = parsed["printers"][1]
+    assert ad5x["moonraker_url"] == "http://192.0.2.10:7125"
+    assert ad5x["chat_id"] == "222"
+    data = settings.load(home=home, local=path, environ={})
+    assert [e["id"] for e in data["printers"]] == ["garage-a1", "workshop-ad5x", "bench-p1"]
+
+
 # ---------------------------------------------------------------------- refusals
 
 def test_duplicate_id_and_name_refused_without_writing(tmp_path):

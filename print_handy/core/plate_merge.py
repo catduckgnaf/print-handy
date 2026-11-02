@@ -480,7 +480,7 @@ def _solo_yaw(hull, usable):
     return None
 
 
-def _yawed_merge_attempt(source, object_ids, extents, bed, spacing, reserve, edge=None):
+def _yawed_merge_attempt(source, object_ids, extents, bed, spacing, reserve, edge=None, tower_mm=None):
     """Proved one-bed packing with solo-needing objects turned, or None.
 
     Returns (corners, tower_xy, yaw_by_object, trial_hulls): corners in
@@ -529,7 +529,7 @@ def _yawed_merge_attempt(source, object_ids, extents, bed, spacing, reserve, edg
                     extent = extents[oid]
                 loose_bounds.append(((px, px + extent[0]), (py, py + extent[1]), (0.0, 0.0)))
             try:
-                tower_xy = color_geometry.prime_tower_xy(loose_bounds, bed=bed)
+                tower_xy = color_geometry.prime_tower_xy(loose_bounds, bed=bed, tower=tower_mm)
             except RuntimeError:
                 tower_xy = None
             else:
@@ -606,7 +606,7 @@ def pack_turned(footprints, width, depth, spacing=None, edge=None,
     return {key: (x, y, turned) for key, x, y, _w, _d, turned in placed}
 
 
-def _turned_attempt(hulls, bed, spacing, reserve, edge=None):
+def _turned_attempt(hulls, bed, spacing, reserve, edge=None, tower_mm=None):
     """One-bed placement where any object may turn 90 degrees, or None.
 
     Returns (corners, tower_xy, yaw_by_object, trial_hulls) in the
@@ -625,7 +625,7 @@ def _turned_attempt(hulls, bed, spacing, reserve, edge=None):
     # the tower edge margin, plus one 5 mm step of the tower search grid.
     edge = EDGE_MARGIN_MM if edge is None else edge
     grow = max(0.0, TOWER_CLEARANCE_MM - spacing, float(color_geometry.TOWER_EDGE_MM) - edge)
-    tower_side = TOWER_MM + 2 * grow + 5.0
+    tower_side = (TOWER_MM if tower_mm is None else tower_mm) + 2 * grow + 5.0
     # Reserved strip first (the planner's usual fast path), then the tower as
     # a packed item, then the whole bed with a tower spot searched afterwards.
     attempts = (((bed - reserve, False, False), (bed, True, True), (bed, True, False)) if reserve
@@ -643,7 +643,7 @@ def _turned_attempt(hulls, bed, spacing, reserve, edge=None):
                 w, d = footprints[oid][::-1] if turned else footprints[oid]
                 bounds.append(((x, x + w), (y, y + d), (0.0, 0.0)))
             try:
-                tower_xy = color_geometry.prime_tower_xy(bounds, bed=bed)
+                tower_xy = color_geometry.prime_tower_xy(bounds, bed=bed, tower=tower_mm)
             except RuntimeError:
                 continue
         yaw_by_object = {oid: 90.0 for oid, (_x, _y, turned) in placed.items() if turned}
@@ -697,14 +697,23 @@ def arrange_group(source, object_ids, bed, spacing=None, edge=None):
     return {'shifts': shifts, 'yaw_by_object': yaw_by_object, 'placed_bounds_mm': bounds}
 
 
-def full_size_split_possible(source, manifest, bed=None, edge=None):
+def full_size_split_possible(source, manifest, bed=None, edge=None, brim_policy=None, state=None):
     """Whether source-assigned plate groups fit individually at authored size.
 
     This is an offline geometry check for the explicit full-size split option.
     It does not imply Orca acceptance; every derived plate is still sliced and
     validated by the normal offline G-code gates.
+
+    ``brim_policy``/``state`` carry the job's brim the way split_fit's check
+    takes them (P2-79): when a policy applies, the feature edge budget (the
+    brim width plus the resolved travel sweep) is added to the edge margin,
+    so a split approved here is one whose brims stay on the bed — the plain
+    edge-only verdict offered splits the brim-aware check had refused.
     """
     edge = EDGE_MARGIN_MM if edge is None else edge
+    if brim_policy is not None or (state and state.get('brim_policy')):
+        from .orca_adapter import required_feature_edge
+        edge = float(edge) + float(required_feature_edge(state or {}, brim_policy))
     from . import color_geometry
     bed = min(_S['printer']['bed_mm']) if bed is None else bed
     try:
@@ -732,7 +741,8 @@ def full_size_split_possible(source, manifest, bed=None, edge=None):
     return True
 
 
-def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=None, edge=None):
+def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=None, edge=None,
+         capacity=None, multi_tool=False):
     """Return a merge plan or a split decision with a human reason.
 
     manifest: source_colors.inventory(source); plates: model_job.plate_manifest(source)['plates'];
@@ -740,10 +750,22 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
     a merge proved only with turned objects also carries yaw_by_object (#221 R2b).
     ``edge`` is the bed-edge margin parts keep (default the merge edge
     margin); callers add the job's brim so a brim never crosses the edge.
+    ``capacity`` is the number of distinct filament positions the JOB's
+    printer offers, as its adapter counts them; the module-level
+    FILAMENT_SLOTS is only the configured printer's count, so a caller
+    slicing for a multi_tool model (whose filament_slots stays 1 by design)
+    must pass the job printer's count or every multi-toolhead merge is
+    refused in a process configured for that model. With ``multi_tool``
+    the positions are toolheads: each carries its own filament and heater,
+    so mixed materials across positions are allowed and a capacity refusal
+    names toolheads instead of IFS slots.
     """
     spacing = SPACING_MM if spacing is None else spacing
     edge = EDGE_MARGIN_MM if edge is None else edge
     from . import color_geometry
+    # Reserve and check room for the tower the slice will actually emit:
+    # the configured size raised to the fitted nozzle's tuned width (P2-34).
+    tower_mm = color_geometry.effective_tower_mm((state.get('nozzle') or {}).get('diameter_mm'))
     bed = int(bed or state['bed_mm'][0])
     out = {'mode': 'split', 'reason': None, 'plates_in': len(plates),
            'objects_in': sorted({p['object_id'] for p in manifest['parts']}, key=str),
@@ -753,8 +775,10 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
         out['reason'] = f'author notes ask for separate printing ("{hint}")'
         return out
     used = sorted(set(slots.values()))
-    if len(used) > FILAMENT_SLOTS:
-        out['reason'] = f'needs {len(used)} filament slots; one IFS job has {FILAMENT_SLOTS}'
+    limit = FILAMENT_SLOTS if capacity is None else int(capacity)
+    if len(used) > limit:
+        out['reason'] = (f'needs {len(used)} toolheads; this printer has {limit}' if multi_tool
+                         else f'needs {len(used)} filament slots; one IFS job has {limit}')
         return out
     # Spools share one IFS job by material family, not by raw label (#784): PLA+ is PLA
     # for this decision, so white PLA and black PLA+ merge, exactly as the slicing rule
@@ -763,7 +787,7 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
     from . import printer_state
     materials = {(state.get('filament_slots') or {}).get(str(s), {}).get('material') for s in used}
     families = {printer_state.material_family(m) for m in materials}
-    if len(used) > 1 and len(families) > 1:
+    if not multi_tool and len(used) > 1 and len(families) > 1:
         named = ', '.join(sorted(str(m) for m in materials if m)) or 'unknown materials'
         out['reason'] = f'mixed materials across slots cannot share one IFS job ({named})'
         return out
@@ -783,7 +807,7 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
     if tall:
         out['reason'] = f'object(s) {",".join(tall)} exceed the printer height'
         return out
-    reserve = (TOWER_MM + TOWER_CLEARANCE_MM + TOWER_SLACK_MM + edge) if len(used) > 1 else 0.0
+    reserve = (tower_mm + TOWER_CLEARANCE_MM + TOWER_SLACK_MM + edge) if len(used) > 1 else 0.0
     placed = pack(extents, bed, spacing, edge=edge, reserve_y=reserve)
     tower_xy = None
     packing = 'rectangle'
@@ -795,7 +819,7 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
             loose_bounds = [((px, px + extents[oid][0]), (py, py + extents[oid][1]), (0.0, 0.0))
                             for oid, (px, py) in loose.items()]
             try:
-                tower_xy = color_geometry.prime_tower_xy(loose_bounds, bed=bed)
+                tower_xy = color_geometry.prime_tower_xy(loose_bounds, bed=bed, tower=tower_mm)
             except RuntimeError:
                 tower_xy = None
             else:
@@ -808,7 +832,7 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
         # spacing, edge and tower rules; the turns flow into the same
         # yaw_by_object + shifts channel as R2b, so slicing re-proves them.
         hulls_all = _object_hulls_all(source, object_ids)
-        attempt = _turned_attempt(hulls_all, float(bed), spacing, reserve, edge=edge) if hulls_all else None
+        attempt = _turned_attempt(hulls_all, float(bed), spacing, reserve, edge=edge, tower_mm=tower_mm) if hulls_all else None
         if attempt is not None:
             placed, tower_xy, yaw_by_object, yaw_hulls = attempt
             packing = 'turned'
@@ -831,7 +855,7 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
                     loose_bounds = [((px, px + extents[oid][0]), (py, py + extents[oid][1]), (0.0, 0.0))
                                     for oid, (px, py) in loose.items()]
                     try:
-                        tower_xy = color_geometry.prime_tower_xy(loose_bounds, bed=bed)
+                        tower_xy = color_geometry.prime_tower_xy(loose_bounds, bed=bed, tower=tower_mm)
                     except RuntimeError:
                         tower_xy = None
                     else:
@@ -842,7 +866,7 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
         # object rotated to its recorded yaw (see _yawed_merge_attempt);
         # the proved corners flow into the same realizable shifts, with a
         # turned object's shift measured from its rotated bounds.
-        attempt = _yawed_merge_attempt(source, object_ids, extents, bed, spacing, reserve, edge=edge)
+        attempt = _yawed_merge_attempt(source, object_ids, extents, bed, spacing, reserve, edge=edge, tower_mm=tower_mm)
         if attempt is not None:
             placed, tower_xy, yaw_by_object, yaw_hulls = attempt
             packing = 'polygon'

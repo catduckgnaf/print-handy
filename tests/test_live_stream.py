@@ -240,6 +240,45 @@ def test_redaction_secret_appears_nowhere_in_repr_or_errors():
         assert SECRET not in message
 
 
+def test_redact_url_redacts_nested_ffmpeg_camera_source():
+    # P1-71: an ffmpeg: source wraps a nested URL; its credentials must not
+    # survive redaction just because the outer scheme has no authority.
+    redacted = ls.redact_url("ffmpeg:rtsp://user:hunter2@cam.example/live#video=h264")
+    assert "hunter2" not in redacted
+    assert "user" not in redacted.split("@")[0]
+    assert redacted.startswith("ffmpeg:rtsp://")
+    assert "cam.example" in redacted and "/live" in redacted
+    # A credential-free ffmpeg source keeps its shape.
+    assert ls.redact_url("ffmpeg:rtsp://cam.example/live") == \
+        "ffmpeg:rtsp://cam.example/live"
+
+
+# A fullwidth solidus in the authority makes urlsplit raise a ValueError
+# whose message embeds the whole authority, password included (P2-103).
+BAD_AUTHORITY_URL = "http://user:secretpw@cam\uff0f.local/stream"
+
+
+def test_urlsplit_failure_is_sanitized_at_every_entry_point():
+    attempts = [
+        lambda: ls.derive_from_snapshot_url(BAD_AUTHORITY_URL),
+        lambda: ls.camera_source_from_moonraker(
+            {"webcams": [{"name": "c", "stream_url": BAD_AUTHORITY_URL}]}),
+        lambda: ls.camera_source_from_octoprint(
+            {"webcam": {"streamUrl": BAD_AUTHORITY_URL}}),
+        lambda: ls.camera_source_from_moonraker(
+            {"webcams": [{"name": "c", "stream_url": "/feed"}]},
+            base_url=BAD_AUTHORITY_URL),
+    ]
+    for attempt in attempts:
+        with pytest.raises(ls.LiveStreamError) as caught:
+            attempt()
+        assert "secretpw" not in str(caught.value)
+        # The original ValueError must not ride along as the chain: traceback
+        # logging of the chain would print the credential-bearing message.
+        assert caught.value.__context__ is None
+        assert caught.value.__cause__ is None
+
+
 def test_redact_url_keeps_host_path_and_non_secret_query():
     redacted = ls.redact_url(f"http://user:{SECRET}@cam.local:8080/webcam/?action=stream&token={SECRET}")
     assert redacted == "http://***@cam.local:8080/webcam/?action=stream&token=%2A%2A%2A" or \
@@ -448,6 +487,18 @@ def test_plan_then_build_round_trip_for_each_codec():
             assert argv[argv.index("-c:v") + 1] == candidate.encoder
 
 
+def test_ffmpeg_args_start_with_the_given_executable():
+    # P2-262: the binary that gets launched must be the one that was
+    # configured in paths.ffmpeg and probed — not a bare "ffmpeg" that
+    # may resolve to a different binary, or to none at all.
+    argv = ls.build_ffmpeg_args("libx264", input_url=INPUT, output=OUT,
+                                executable="/opt/custom/ffmpeg")
+    assert argv[0] == "/opt/custom/ffmpeg"
+    assert argv[1:] == ls.build_ffmpeg_args("libx264", input_url=INPUT, output=OUT)[1:]
+    with pytest.raises(ls.LiveStreamError):
+        ls.build_ffmpeg_args("libx264", input_url=INPUT, output=OUT, executable="")
+
+
 # --------------------------------------------------------------------- stage 3: the viewing session
 
 ENABLED_SECTION = {"enabled": True, "voice_channel_id": "123456789012345678",
@@ -577,3 +628,86 @@ def test_expire_empty_ends_only_a_timed_out_empty_session():
     watched.note_viewers(1, now=1100.0)
     assert ls.expire_empty(watched, AUTO_SECTION, now=1000.0 + 10000) is False
     assert watched.is_live
+
+
+# ------------------------------------------------- stage 4: shared-record locking
+
+def _live_record(tmp_path):
+    path = tmp_path / "live_session.json"
+    ls.write_session_file(ls.LiveStreamSession().start("42", now=1000.0), path)
+    return path
+
+
+def test_transact_session_file_serializes_concurrent_writers(tmp_path):
+    # P2-143: two writers' read-modify-write transactions must never
+    # overlap — each one reads the record the previous one wrote.
+    import threading
+    import time as time_module
+
+    path = _live_record(tmp_path)
+    intervals = []
+
+    def make_update(tag):
+        def update(session):
+            began = time_module.monotonic()
+            time_module.sleep(0.25)
+            intervals.append((tag, began, time_module.monotonic()))
+            session.note_viewers(1, now=1001.0)
+            return True
+        return update
+
+    threads = [threading.Thread(target=ls.transact_session_file,
+                                 args=(path, make_update(tag)), daemon=True)
+               for tag in ("a", "b")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+    assert len(intervals) == 2
+    (first, second) = sorted(intervals, key=lambda row: row[1])
+    assert first[2] <= second[1], "session transactions overlapped"
+
+
+def test_transact_session_file_a_stop_cannot_be_overwritten_by_a_stale_update(tmp_path):
+    # P2-143's resurrection interleaving: a slow presence-style update
+    # holds its transaction while a stop arrives. The stop waits for
+    # the lock, then lands last — the record ends idle, not with the
+    # stale live snapshot written over the stop.
+    import threading
+    import time as time_module
+
+    path = _live_record(tmp_path)
+    entered = threading.Event()
+    release = threading.Event()
+
+    def slow_presence(session):
+        entered.set()
+        release.wait(timeout=10)
+        session.note_viewers(3, now=1001.0)
+        return True
+
+    def stop(session):
+        session.stop(now=1002.0)
+        return True
+
+    first = threading.Thread(target=ls.transact_session_file,
+                             args=(path, slow_presence), daemon=True)
+    first.start()
+    assert entered.wait(timeout=5)
+    second = threading.Thread(target=ls.transact_session_file,
+                              args=(path, stop), daemon=True)
+    second.start()
+    time_module.sleep(0.3)
+    assert second.is_alive(), "the stop did not wait for the in-flight transaction"
+    release.set()
+    first.join(timeout=10)
+    second.join(timeout=10)
+    assert not ls.read_session_file(path).is_live
+
+
+def test_transact_session_file_persists_only_when_the_update_asks(tmp_path):
+    path = _live_record(tmp_path)
+    before = path.read_text()
+    session = ls.transact_session_file(path, lambda seen: False)
+    assert session.is_live
+    assert path.read_text() == before

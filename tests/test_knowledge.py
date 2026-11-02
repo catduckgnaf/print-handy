@@ -616,9 +616,12 @@ def test_troubleshoot_dispatch_lists_flows_without_an_argument():
 # Typo corpus (stage 1): realistic misspellings of registry language, pinned
 # to the item a person means and the measured score band. Bands are the
 # Stage 0 report's: 85–99 high-confidence near-match, 65–84 suggestion
-# material. A fuzzy hit never scores 100 — that stays exact-only.
+# material. A fuzzy hit never scores 100 — that stays exact-only. Since
+# P2-220 a fuzzy-only hit is also capped at 84 (below the deterministic
+# substring tier), so a pure typo with no deterministic component reports
+# in the suggestion band even when it is the lookup's only candidate.
 TYPO_CORPUS = [
-    ("adheison", "flow", "first-layer", 85, 99),
+    ("adheison", "flow", "first-layer", 65, 84),
     ("nozzel clog", "flow", "clog", 85, 99),
     ("bed adheison", "flow", "first-layer", 65, 99),
     ("nozzel", "flow", "clog", 65, 99),
@@ -679,3 +682,31 @@ def test_print_source_is_registered_read_only_and_answers_without_a_site(tmp_pat
     assert adapter.sent[-1].startswith("**Model sources**")
     assert "Printables" in adapter.sent[-1] and "GrabCAD" in adapter.sent[-1]
     assert asyncio.run(plugin.source_dispatch(_event("/print-sourcex"), _gateway(FakeAdapter()))) is None
+
+
+def test_lookup_printer_filter_scopes_wildcards_to_the_printers_firmware(registry):
+    """A "*" entry means every printer ON THAT FIRMWARE, not every registered
+    printer (P2-77): a Marlin printer must not be offered Klipper wildcard
+    commands, and a printer whose family is "none" gets no wildcard commands
+    at all — while a wildcard still resolves for a printer on its own
+    firmware."""
+    def firmware_ids(query, **kwargs):
+        return [h.item.id for h in registry.lookup(query, **kwargs) if h.kind == "firmware"]
+
+    assert "klipper.probe-calibrate" not in firmware_ids("probe calibrate", printer="octoprint.marlin")
+    assert "klipper.bed-mesh-calibrate" not in firmware_ids("bed mesh calibrate",
+                                                            printer="flashforge_stock.ad5x")
+    assert "marlin.heat-commands" not in firmware_ids("heat nozzle", printer="creality.ender3v3")
+    # Same-firmware wildcards still resolve.
+    assert "klipper.probe-calibrate" in firmware_ids("probe calibrate", printer="creality.ender3v3")
+    assert "marlin.heat-commands" in firmware_ids("heat nozzle", printer="octoprint.marlin")
+
+
+def test_lookup_fuzzy_hit_cannot_outrank_a_substring_match(registry):
+    """Typo tolerance is the last resort (P2-220): a fuzzy-only candidate
+    stays below the deterministic substring tier, so a correctly spelled
+    partial command name keeps the winner it had before the fuzzy tier."""
+    hits = [h for h in registry.lookup("print stats") if h.kind == "firmware"]
+    assert hits[0].item.id == "klipper.set-print-stats-info"
+    by_id = {h.item.id: h.score for h in hits}
+    assert by_id["klipper.print-start"] < by_id["klipper.set-print-stats-info"]

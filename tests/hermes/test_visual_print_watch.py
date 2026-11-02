@@ -157,6 +157,61 @@ def test_visual_check_alerts_on_air_uncertain_and_endpoint_error(monkeypatch):
     assert all("endpoint down" not in item and "OSError" not in item for item in alerts)  # raw detail demoted (#467)
 
 
+def test_visual_check_alerts_text_only_when_the_snapshot_itself_fails(monkeypatch, tmp_path):
+    # The camera is down: _camera_snapshot_bytes raises, so there is no
+    # image to attach — but the operator must still be told the watchdog
+    # is blind, not just see a log line (P2-8).
+    import asyncio
+    from unittest.mock import patch
+    from print_handy.hermes import print_alert_buttons as pab
+
+    alerts, texts = [], []
+
+    def boom():
+        raise ConnectionError("camera unreachable")
+
+    monkeypatch.setattr(mel, "_camera_snapshot_bytes", boom)
+    monkeypatch.setattr(mel, "_visual_alert",
+                        lambda filename, image, reason, identity=None: alerts.append(reason))
+    monkeypatch.setattr(mel, "_visual_alert_text",
+                        lambda filename, reason, identity=None: texts.append(reason), raising=False)
+
+    async def run():
+        listener = mel.Listener()
+        listener.filename = "blind.gcode"
+        with patch.object(pab, "STATE", tmp_path / "alerts.json"):
+            await listener.visual_check("layer2", 2)
+
+    asyncio.run(run())
+    assert alerts == []  # no image exists to attach
+    assert len(texts) == 1 and "camera" in texts[0]
+
+
+def test_visual_check_snapshot_failure_respects_a_muted_print(monkeypatch, tmp_path):
+    import asyncio
+    from unittest.mock import patch
+    from print_handy.hermes import print_alert_buttons as pab
+
+    texts = []
+
+    def boom():
+        raise ConnectionError("camera unreachable")
+
+    monkeypatch.setattr(mel, "_camera_snapshot_bytes", boom)
+    monkeypatch.setattr(mel, "_visual_alert_text",
+                        lambda filename, reason, identity=None: texts.append(reason), raising=False)
+
+    async def run():
+        listener = mel.Listener()
+        listener.filename = "blind.gcode"
+        with patch.object(pab, "STATE", tmp_path / "alerts.json"):
+            pab.mute_visual("blind.gcode", listener._visual_identity())
+            await listener.visual_check("layer2", 2)
+
+    asyncio.run(run())
+    assert texts == []
+
+
 def test_visual_check_promotes_unchanged_layers_and_ignores_motion(monkeypatch):
     import asyncio
 

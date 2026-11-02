@@ -62,8 +62,9 @@ def _default_udp(host, timeout):
     sock.settimeout(timeout)
     try:
         sock.sendto(b"M99999", (host, DISCOVERY_PORT))
-        data, _addr = sock.recvfrom(65535)
-        return data
+        # The sender address is part of the answer: discovery must be able to
+        # tell the configured printer's reply from any other printer's (P2-91).
+        return sock.recvfrom(65535)
     finally:
         sock.close()
 
@@ -83,21 +84,60 @@ class SdcpClient:
         self._ws = None
 
     # -- discovery --------------------------------------------------------
+    def _is_configured_sender(self, addr):
+        """True when a discovery answer came from the configured host itself.
+
+        The broadcast reaches every SDCP printer on the LAN; an answer from a
+        different printer must never supply the MainboardID used for requests
+        sent to ``self.host`` (P2-91). Fails closed: an unidentifiable or
+        unresolvable sender is not the configured printer.
+        """
+        try:
+            sender = str(addr[0])
+        except (TypeError, IndexError, KeyError):
+            return False
+        if sender == self.host:
+            return True
+        try:
+            return socket.gethostbyname(self.host) == sender
+        except OSError:
+            return False
+
     def discover(self):
-        """Broadcast M99999 and return the answering printer's MainboardID (and remember it)."""
-        try:
-            raw = self.udp("255.255.255.255", 5.0)
-        except OSError as exc:
-            raise SdcpError(f"SDCP discovery got no answer from {self.host}: {exc}") from exc
-        try:
-            payload = json.loads(raw.decode("utf-8", "replace"))
-            mainboard_id = str(payload["Data"]["MainboardID"]).strip()
-        except (ValueError, KeyError, TypeError, AttributeError) as exc:
-            raise SdcpError("the SDCP discovery answer was not the expected JSON") from exc
-        if not mainboard_id:
-            raise SdcpError("the SDCP discovery answer carried no MainboardID")
-        self.mainboard_id = mainboard_id
-        return mainboard_id
+        """Broadcast M99999 and return the configured printer's MainboardID (and remember it).
+
+        Answers from other printers on the LAN are ignored: only a reply sent
+        by ``self.host`` may set the MainboardID (P2-91). Injected ``udp``
+        doubles that return bare payload bytes carry no sender to check and
+        are taken at face value; the real transport always reports one.
+        """
+        deadline = time.monotonic() + 5.0
+        heard_other = False
+        for _attempt in range(8):  # bounded: re-broadcasting forever helps no one
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                result = self.udp("255.255.255.255", remaining)
+            except OSError as exc:
+                raise SdcpError(f"SDCP discovery got no answer from {self.host}: {exc}") from exc
+            raw, addr = result if isinstance(result, tuple) else (result, None)
+            if addr is not None and not self._is_configured_sender(addr):
+                heard_other = True
+                continue  # some other printer answered first; keep listening for ours
+            try:
+                payload = json.loads(raw.decode("utf-8", "replace"))
+                mainboard_id = str(payload["Data"]["MainboardID"]).strip()
+            except (ValueError, KeyError, TypeError, AttributeError) as exc:
+                raise SdcpError("the SDCP discovery answer was not the expected JSON") from exc
+            if not mainboard_id:
+                raise SdcpError("the SDCP discovery answer carried no MainboardID")
+            self.mainboard_id = mainboard_id
+            return mainboard_id
+        if heard_other:
+            raise SdcpError(f"SDCP discovery heard answers only from other printers, "
+                            f"none from {self.host}")
+        raise SdcpError(f"SDCP discovery got no answer from {self.host}")
 
     def _mid(self):
         return self.mainboard_id or self.discover()
@@ -133,9 +173,18 @@ class SdcpClient:
             self.close()
             raise SdcpError(f"sending SDCP command {cmd} to {self.host} failed: {exc}") from exc
         deadline = time.monotonic() + (timeout or self.request_timeout)
-        while time.monotonic() < deadline:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
             try:
-                raw = ws.recv()
+                # Each receive is bounded by what is left of the deadline: a
+                # printer that holds the socket open but stops answering must
+                # not block the request past request_timeout (P2-89).
+                raw = ws.recv(timeout=remaining)
+            except TimeoutError as exc:
+                self.close()
+                raise SdcpError(f"the printer did not answer SDCP command {cmd} in time") from exc
             except Exception as exc:
                 self.close()
                 raise SdcpError(f"the SDCP connection to {self.host} dropped during command {cmd}: {exc}") from exc
@@ -210,7 +259,17 @@ class SdcpClient:
         except SdcpError as exc:
             raise SdcpError(f"the uploaded file {remote} could not be verified on the printer: {exc}") from exc
         size = info.get("FileSize", info.get("Size")) if isinstance(info, dict) else None
-        if size is not None and int(size) != len(data):
+        try:
+            reported = int(size) if size is not None else None
+        except (TypeError, ValueError):
+            reported = None
+        if reported is None:
+            # A missing or unreadable size is a failed verification, not a
+            # skipped one: nothing may start a copy that was never verified
+            # against what was uploaded (P2-90).
+            raise SdcpError(f"the uploaded file {remote} could not be verified on the printer "
+                            f"(it reported no usable file size)")
+        if reported != len(data):
             raise SdcpError(f"the uploaded file {remote} could not be verified on the printer "
                             f"(printer reports {size} bytes, uploaded {len(data)})")
         return remote

@@ -280,3 +280,30 @@ def test_stock_adapter_translates_resume_to_continue_via_jobctl():
             adapter.control("explode")
     assert calls == [("jobCtl_cmd", {"jobID": "", "action": "continue"}),
                      ("jobCtl_cmd", {"jobID": "", "action": "cancel"})]
+
+
+def test_pause_alerts_default_retirer_is_scoped_to_the_owning_printer(monkeypatch):
+    """P2-176: with no retirer injected, the tracker retires through
+    retire_pause_alerts carrying its own printer_id."""
+    seen = []
+    monkeypatch.setattr(
+        fc, "retire_pause_alerts",
+        lambda fn, headline, printer_id=None: seen.append((fn, headline, printer_id)) or 1)
+    alerts = fc.PauseAlerts(REMOTE, "prusalink", "printer-a",
+                            poster=lambda *a: True)
+    alerts.note("printing", st("printing"))
+    alerts.note("complete", st("complete"))
+    assert seen == [(REMOTE, "Print complete.", "printer-a")]
+
+
+def test_bambu_sink_default_retirer_is_scoped_to_the_owning_printer(monkeypatch):
+    """P2-176: the Bambu sink's end-of-print retirement is scoped the
+    same way when no retirer is injected."""
+    seen = []
+    monkeypatch.setattr(
+        fc, "retire_pause_alerts",
+        lambda fn, headline, printer_id=None: seen.append((fn, headline, printer_id)) or 1)
+    sink = fc.BambuEventSink(claim_fn=lambda _f: True, printer_id="printer-b")
+    sink("completion", {"status": {"state": "complete", "filename": REMOTE},
+                        "transition": None})
+    assert seen == [(REMOTE, "Print complete.", "printer-b")]

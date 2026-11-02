@@ -253,8 +253,10 @@ def test_hook_button_starts_exact_plate_once(tmp_path):
     assert result['action'] == 'skip'
     assert adapter.questions[0]['choices'] == [print_next.START_LABEL, print_next.CANCEL_LABEL]
     assert started == [rows[1]['gcode']]
-    assert adapter.sent[-1]['content'].startswith('Preparing to start Tail')
-    assert not any(message['content'].startswith('Print started:') for message in adapter.sent)
+    assert any(message['content'].startswith('Preparing to start Tail') for message in adapter.sent)
+    # The handler posts the one start announcement itself: the start claim
+    # suppresses the listener's fallback post (P2-56).
+    assert sum(message['content'].startswith('Print started') for message in adapter.sent) == 1
 
 
 def test_hook_cancel_starts_nothing(tmp_path):
@@ -584,7 +586,10 @@ def test_picker_spool_change_offers_one_single_use_loaded_spool_button(tmp_path,
     asyncio.run(on_interaction(second))
     assert calls == [('plate2', False), ('plate2', True)]
     assert 'already used' in second.out[0][1]
-    assert not any(row[0] == 'followup' for row in first.out)  # accepted: the listener posts "Print started"
+    # accepted: the handler posts the one "Print started" announcement itself,
+    # because the start claim suppresses the listener's fallback post (P2-56).
+    followups = [row for row in first.out if row[0] == 'followup']
+    assert len(followups) == 1 and followups[0][1].startswith('Print started')
 
 
 def test_picker_spool_button_refusal_does_not_offer_another(tmp_path, monkeypatch):
@@ -674,3 +679,89 @@ def test_live_idle_check_still_queries_moonraker_for_moonraker_printers(monkeypa
     monkeypatch.setattr(model_job, '_printer_phase', lambda st: ('printing', 'a.gcode', 'Printing'))
     with pytest.raises(RuntimeError, match='not idle'):
         print_next.live_idle_check()
+
+
+def test_hook_successful_start_posts_start_announcement(tmp_path):
+    """A print-now start claims the announcement in model_job, which
+    suppresses the listener's fallback post; the handler must therefore
+    post the canonical start announcement itself. Before the fix a
+    successful /print-next start was never announced (P2-56)."""
+    result, adapter, started, rows = run_hook(tmp_path, '/print-next ghost', pick=0,
+                                              plugin_patch={'_listener_roast': lambda job: ''})
+    assert started == [rows[1]['gcode']]
+    starts = [m['content'] for m in adapter.sent if m['content'].startswith('Print started')]
+    assert len(starts) == 1
+
+
+def test_hook_warming_start_registers_message_for_listener_edit(tmp_path):
+    """A still-preparing command start registers its announcement's id so
+    the listener edits that post on the warmup transition instead of the
+    start going unannounced (P2-56)."""
+    folder, rows = make_job(tmp_path)
+    plans = make_plan(tmp_path, folder, rows)
+    mod = load_plugin()
+    mod._listener_roast = lambda job: ''
+
+    class IdTransport(Transport):
+        async def send(self, chat_id, content, reply_to=None, metadata=None):
+            self.sent.append({'chat_id': chat_id, 'content': content,
+                              'reply_to': reply_to, 'metadata': metadata})
+            return S(success=True, message_id='msg-42')
+
+    adapter = IdTransport(0)
+    src = S(platform=S(value='discord'), profile='3dprinting', user_id='42', chat_id='c', thread_id=None)
+    gateway = S(_is_user_authorized_for_source=lambda s: True, _delivery_adapter_for=lambda s: adapter,
+                _session_key_for_source=lambda s: 'session-key')
+    detail = 'START SUBMITTED; AWAITING CONFIRMATION\n{"file": "plate_2.gcode"}'
+
+    async def fake_start(target):
+        return True, detail
+
+    recorded = []
+    real_resolve, real_load = print_next.resolve_next, print_next.load_plan
+    with mock.patch.object(print_next, 'load_plan', lambda pid: real_load(pid, plans)), \
+            mock.patch.object(print_next, 'start', fake_start), \
+            mock.patch.object(print_next, 'record_start_message',
+                              lambda filename, mid: recorded.append((filename, mid))), \
+            mock.patch.object(print_next, 'resolve_next',
+                              lambda plan: real_resolve(plan, tmp_path / 'archive')):
+        result = asyncio.run(mod.print_next_dispatch(
+            S(source=src, text='/print-next ghost', internal=False), gateway))
+    assert result['action'] == 'skip'
+    assert recorded == [('plate_2.gcode', 'msg-42')]
+    assert any(m['content'].startswith('Print started') for m in adapter.sent)
+def _routed_adapter_with(monkeypatch, connection, phase):
+    """Route live_idle_check(printer_id) through a fake roster adapter.
+
+    printer_state.check passes (hardware/spool readiness is fine); the
+    execution state comes from the fake _printer_phase.
+    """
+    from print_handy import printers, settings
+    from print_handy.core import model_job, printer_state
+    adapter = S(transport=None, connection=connection)
+    monkeypatch.setattr(settings, 'by_id', lambda pid: {'model': 'klipper.generic'})
+    monkeypatch.setattr(settings, 'view_for', lambda pid: {})
+    monkeypatch.setattr(printers, 'get', lambda model, view: adapter)
+    monkeypatch.setattr(printer_state, 'load', lambda pid=None: {'printer': 'routed'})
+    monkeypatch.setattr(printer_state, 'check', lambda st, printer_id=None, adapter=None: (True, [], {}))
+    monkeypatch.setattr(model_job, '_printer_phase', phase)
+
+
+def test_live_idle_check_routed_moonraker_refuses_a_paused_printer(monkeypatch):
+    # P1-80: printer_state.check never queries print_stats for Moonraker, so a
+    # routed check must still ask for the execution state; a paused printer
+    # is not idle even though its hardware readiness passes.
+    _routed_adapter_with(monkeypatch, 'moonraker', lambda st: ('paused', 'a.gcode', 'Moonraker reports active execution'))
+    with pytest.raises(RuntimeError, match='not idle'):
+        print_next.live_idle_check('bench')
+
+
+def test_live_idle_check_routed_moonraker_accepts_standby(monkeypatch):
+    _routed_adapter_with(monkeypatch, 'moonraker', lambda st: ('standby', '', 'Ready'))
+    print_next.live_idle_check('bench')
+
+
+def test_live_idle_check_routed_bambu_does_not_query_moonraker(monkeypatch):
+    _routed_adapter_with(monkeypatch, 'bambulab_lan',
+                         lambda st: pytest.fail('Moonraker queried for a Bambu printer'))
+    print_next.live_idle_check('bench')

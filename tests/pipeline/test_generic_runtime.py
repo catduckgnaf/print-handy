@@ -87,7 +87,7 @@ def rig(monkeypatch, tmp_path):
     fake = FakeMoonraker()
     monkeypatch.setattr(model_job, "request_json", fake)
     monkeypatch.setattr(printer_state, "load", lambda: dict(STATE))
-    monkeypatch.setattr(printer_state, "check", lambda st=None: (True, [], {}))
+    monkeypatch.setattr(printer_state, "check", lambda st=None, **_kw: (True, [], {}))
     monkeypatch.setattr(model_job.subprocess, "run", upload_run)
     monkeypatch.setattr(model_job, "record_start", lambda *a, **k: str(tmp_path / "note.md"))
     monkeypatch.setattr(model_job.time, "sleep", lambda s: None)
@@ -375,3 +375,33 @@ def test_printer_state_check_skips_calibration_authority_for_generic(monkeypatch
         ok, problems, _ = printer_state.check(dict(STATE, spoolman_url="http://spoolman.test", spool=dict(STATE["spool"])))
     assert ok, problems
     assert not [u for u in urls if "save_variables" in u or "Adventurer5M" in u]
+
+
+def use_generic_with_end_macro(monkeypatch, macro):
+    data = settings.load(local=False, environ={
+        "PRINT_HANDY__PRINTER__MODEL": "klipper.generic",
+        "PRINT_HANDY__PRINTER__END_MACRO": macro})
+    adapter = printers.get("klipper.generic", data)
+    monkeypatch.setattr(printers, "current", lambda config=None: adapter)
+    return adapter
+
+
+def test_generic_verify_gcode_requires_the_configured_end_macro(monkeypatch, rig):
+    # P2-13: with a customized [printer] end_macro, a file ending in the stock
+    # PRINT_END no longer passes; only the configured macro is a safe end.
+    use_generic_with_end_macro(monkeypatch, "END_MY_PRINT")
+    fake, gcode = rig
+    with pytest.raises(RuntimeError, match="missing END_MY_PRINT"):
+        model_job.verify_gcode(gcode)
+    gcode.write_text(GCODE.replace("PRINT_END", "END_MY_PRINT"))
+    assert model_job.verify_gcode(gcode) is True
+
+
+def test_generic_verify_gcode_default_end_macro_keeps_standard_ends(monkeypatch, rig):
+    # No customization: the standard PRINT_END/END_PRINT acceptance is unchanged
+    # (foreign-sliced files such as the Sovol Zero pack end in END_PRINT).
+    use_model(monkeypatch, "klipper.generic")
+    fake, gcode = rig
+    assert model_job.verify_gcode(gcode) is True
+    gcode.write_text(GCODE.replace("PRINT_END", "END_PRINT"))
+    assert model_job.verify_gcode(gcode) is True

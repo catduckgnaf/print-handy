@@ -518,13 +518,15 @@ class FakeSession:
         self.failures = failures
         self.dark_frames = dark_frames
         self.ticks = 0
+        self.tick_layers = []
         self.stopped = None
         self.filename = REMOTE
         self.frames_dir = _Path("/unused/frames")
         self.directory = _Path("/unused")
 
-    def tick(self):
+    def tick(self, layer=None):
         self.ticks += 1
+        self.tick_layers.append(layer)
         return True
 
     def stop(self, state="complete"):
@@ -585,6 +587,18 @@ def test_timelapse_attaches_alongside_the_final_snapshot(capture_logs):
     assert rig.posts[0].startswith("Print complete")
     assert rig.posts[0].count("MEDIA:") == 2  # the snapshot and the video
     assert "MEDIA:/tmp/timelapse.mp4" in rig.posts[0]
+
+
+def test_capture_ticks_carry_the_reported_layer(capture_logs):
+    # capture_trigger=layer can only fire when the session sees the layer
+    # change: every tick — the status-poll tick and the ticks inside the
+    # between-polls sleep — must carry the last layer the printer
+    # reported (Bambu's normalized status supplies it as st["layer"]).
+    rig = CaptureRig([st("printing", layer=3), st("printing", layer=4), st("complete", layer=4)])
+    assert rig.monitor.run() == "complete"
+    assert rig.session.ticks > 0
+    assert all(layer is not None for layer in rig.session.tick_layers)
+    assert 3 in rig.session.tick_layers and 4 in rig.session.tick_layers
 
 
 def test_timelapse_on_a_cancelled_print_stops_as_cancelled(capture_logs):
@@ -786,3 +800,38 @@ def test_full_lifecycle_produces_a_valid_h264_mp4_under_the_limit(tmp_path, monk
     frames = list((session_dir / "frames").glob("frame-*.jpg"))
     assert len(frames) >= 2
     assert frames[0].read_bytes().startswith(b"\xff\xd8")
+
+
+def test_a_refused_video_post_falls_back_to_the_snapshot_post(capture_logs):
+    """P2-173: the production sender returns False on a refusal instead of
+    raising. A refused video post must not end delivery — the monitor
+    continues to the snapshot post without the video."""
+    rig = CaptureRig([st("printing"), st("complete")])
+    attempts = []
+
+    def post(message):
+        attempts.append(message)
+        return "timelapse.mp4" not in message
+
+    rig.monitor._post = post
+    assert rig.monitor.run() == "complete"
+    assert len(attempts) == 2
+    assert "MEDIA:/tmp/timelapse.mp4" in attempts[0]
+    assert "timelapse.mp4" not in attempts[1] and "MEDIA:" in attempts[1]
+
+
+def test_a_refused_snapshot_post_falls_back_to_the_text_completion(capture_logs):
+    """P2-173: the same False contract on the snapshot fallback post —
+    a refusal there still owes the chat the plain completion text."""
+    monitor, _posts = _monitor([st("printing"), st("complete")])
+    attempts = []
+
+    def post(message):
+        attempts.append(message)
+        return "MEDIA:" not in message
+
+    monitor._post = post
+    assert monitor.run() == "complete"
+    assert len(attempts) == 2
+    assert "MEDIA:" in attempts[0]
+    assert "MEDIA:" not in attempts[1]

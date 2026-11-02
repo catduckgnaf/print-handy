@@ -167,7 +167,7 @@ def test_no_frames_returns_none(tmp_path):
 # --------------------------------------------------------------- lookup
 
 def write_capture(root, slug, *, job_key, filename, frames=3, state="complete",
-                  finished_at=100.0, dark_frames=0):
+                  finished_at=100.0, dark_frames=0, source=None):
     directory = Path(root) / slug
     (directory / "frames").mkdir(parents=True)
     for i in range(1, frames + 1):
@@ -175,6 +175,8 @@ def write_capture(root, slug, *, job_key, filename, frames=3, state="complete",
     manifest = {"job_key": job_key, "filename": filename, "state": state,
                 "frames": frames, "finished_at": finished_at,
                 "dark_frames": dark_frames}
+    if source is not None:
+        manifest["source"] = source
     (directory / "capture.json").write_text(json.dumps(manifest), encoding="utf-8")
     return directory
 
@@ -201,6 +203,81 @@ def test_find_capture_skips_empty_and_missing(tmp_path):
     assert timelapse_encode.find_capture("benchy.gcode", root=tmp_path / "nope") is None
 
 
+def test_find_capture_never_reaches_back_to_an_earlier_print(tmp_path):
+    # The current print's own capture finished empty; the previous print
+    # of the same file left a usable one. Attaching the old footage (and
+    # suppressing the printer-rendered fallback) is the P2-141 bug: the
+    # newest finished capture shadows every older one.
+    write_capture(tmp_path, "job-3", job_key="job:3", filename="benchy.gcode",
+                  frames=3, finished_at=50.0)
+    write_capture(tmp_path, "job-9", job_key="job:9", filename="benchy.gcode",
+                  frames=0, finished_at=90.0)
+    assert timelapse_encode.find_capture("prints/benchy.gcode", root=tmp_path) is None
+
+
+def test_find_capture_prefers_the_full_path_over_the_basename(tmp_path):
+    # Two folders hold a benchy.gcode; the newer capture belongs to the
+    # other folder's print. The exact-path match wins over the newer
+    # basename-only match.
+    write_capture(tmp_path, "job-3", job_key="job:3", filename="a/benchy.gcode",
+                  frames=3, finished_at=50.0)
+    write_capture(tmp_path, "job-9", job_key="job:9", filename="b/benchy.gcode",
+                  frames=3, finished_at=90.0)
+    found = timelapse_encode.find_capture("a/benchy.gcode", root=tmp_path)
+    assert found is not None and found.name == "job-3"
+
+
+def test_find_capture_prefers_this_printers_camera_source(tmp_path, monkeypatch):
+    # The capture root is shared across printers: another printer's
+    # newer capture of the same-named file must not win over this
+    # printer's own, identified by the recorded camera source.
+    monkeypatch.setattr(timelapse_capture, "frame_url", lambda data=None, environ=None: "http://cam-a/snap")
+    write_capture(tmp_path, "job-3", job_key="job:3", filename="benchy.gcode",
+                  frames=3, finished_at=50.0, source="http://cam-a/snap")
+    write_capture(tmp_path, "job-9", job_key="job:9", filename="benchy.gcode",
+                  frames=3, finished_at=90.0, source="http://cam-b/snap")
+    found = timelapse_encode.find_capture("benchy.gcode", root=tmp_path, data={})
+    assert found is not None and found.name == "job-3"
+
+
+def test_find_capture_source_mismatch_falls_back_to_newest(tmp_path, monkeypatch):
+    # The source filter is a preference, never a gate: when no candidate
+    # recorded the resolved source (it changed since the capture), the
+    # newest finished capture still matches.
+    monkeypatch.setattr(timelapse_capture, "frame_url", lambda data=None, environ=None: "http://cam-a/snap")
+    write_capture(tmp_path, "job-3", job_key="job:3", filename="benchy.gcode",
+                  frames=3, finished_at=50.0, source="http://old-cam/snap")
+    newest = write_capture(tmp_path, "job-9", job_key="job:9", filename="benchy.gcode",
+                           frames=3, finished_at=90.0, source="http://old-cam/snap")
+    assert timelapse_encode.find_capture("benchy.gcode", root=tmp_path, data={}) == newest
+def test_find_capture_an_all_dark_reprint_decides_over_the_older_usable(tmp_path):
+    """P2-185: the newest finished capture for the file decides the outcome.
+    A reprint whose capture kept no frames (all dark) must report the
+    camera problem — never attach the previous print's footage."""
+    write_capture(tmp_path, "job-3", job_key="job:3", filename="benchy.gcode", finished_at=50.0)
+    write_capture(tmp_path, "job-9", job_key="job:9", filename="benchy.gcode",
+                  frames=0, dark_frames=4, finished_at=90.0)
+    assert timelapse_encode.find_capture("prints/benchy.gcode", root=tmp_path) is None
+    found = timelapse_encode.dark_capture("prints/benchy.gcode", root=tmp_path)
+    assert found is not None and found["job_key"] == "job:9"
+
+
+def test_find_capture_a_frameless_direct_session_decides_over_an_older_scan_hit(tmp_path):
+    write_capture(tmp_path, "job-3", job_key="job:3", filename="benchy.gcode", finished_at=50.0)
+    slug = timelapse_capture.job_dir(tmp_path, "prints/benchy.gcode").name
+    write_capture(tmp_path, slug, job_key="prints/benchy.gcode", filename="benchy.gcode",
+                  frames=0, dark_frames=1, finished_at=90.0)
+    assert timelapse_encode.find_capture("prints/benchy.gcode", root=tmp_path) is None
+
+
+def test_find_capture_still_uses_the_newest_usable(tmp_path):
+    write_capture(tmp_path, "job-3", job_key="job:3", filename="benchy.gcode",
+                  frames=0, dark_frames=4, finished_at=50.0)
+    newest = write_capture(tmp_path, "job-9", job_key="job:9", filename="benchy.gcode",
+                           finished_at=90.0)
+    assert timelapse_encode.find_capture("prints/benchy.gcode", root=tmp_path) == newest
+
+
 # --------------------------------------------------------------- dark outcome (#476)
 
 def test_dark_capture_finds_the_all_dark_manifest(tmp_path):
@@ -217,6 +294,17 @@ def test_dark_capture_matches_by_filename(tmp_path):
                   frames=0, dark_frames=2, finished_at=90.0)
     found = timelapse_encode.dark_capture("prints/benchy.gcode", root=tmp_path)
     assert found is not None and found["job_key"] == "job:9"
+
+
+def test_dark_capture_never_reaches_back_to_an_earlier_print(tmp_path):
+    # An earlier print of the same file was all-dark; the current print's
+    # capture kept frames. The dark outcome belongs to the earlier print:
+    # the newest finished capture shadows it (P2-141).
+    write_capture(tmp_path, "job-3", job_key="job:3", filename="benchy.gcode",
+                  frames=0, dark_frames=5, finished_at=50.0)
+    write_capture(tmp_path, "job-9", job_key="job:9", filename="benchy.gcode",
+                  frames=3, finished_at=90.0)
+    assert timelapse_encode.dark_capture("prints/benchy.gcode", root=tmp_path) is None
 
 
 def test_dark_capture_ignores_mixed_plain_empty_and_live(tmp_path):

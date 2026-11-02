@@ -406,6 +406,100 @@ def test_did_you_mean_no_sends_the_unmatched_reply_and_dispatches_nothing(cfg):
     assert discord.sent[-1] == runtime.unmatched_text(cfg["discord"]["bot_name"])
 
 
+def test_live_command_filtered_from_unsupported_platform_surfaces(cfg):
+    """print-live is Discord-only (P2-123): the shared command table keeps it
+    for Discord registration and help, and filters it out of both surfaces
+    for platforms whose adapter reports no live-stream support."""
+    assert "print-live" in dict(commands.registrations())
+    assert "print-live" not in dict(commands.registrations(supports_live_stream=False))
+    assert "/print-live" in commands.help_text()
+    assert "/print-live" not in commands.help_text(supports_live_stream=False)
+    assert "/print-live" in commands.help_text("Print Handy")  # Hermes/Discord default unchanged
+    _discord, core = make(cfg)
+    assert "/print-live" in core.help  # the Discord core keeps advertising it
+
+
+def _event_router(seen, prefix):
+    """A stub plugin recording every event whose text starts with ``prefix``."""
+    class _Plugin:
+        def register(self, router):
+            async def record(event, gateway):
+                if event.text.startswith(prefix):
+                    seen.append(event)
+                    return {"action": "skip", "reason": "recorded"}
+                return None
+            router.register_hook("pre_gateway_dispatch", record)
+    return Router(plugin=_Plugin())
+
+
+def test_did_you_mean_keeps_the_attachment_on_the_corrected_dispatch(cfg):
+    """Accepting a correction behaves like typing the correct command with
+    the same attachment (P2-222): the dropped .scad rides the original
+    event's media into the corrected dispatch, so design edits the upload
+    instead of treating the instruction as a request for a new model."""
+    seen = []
+    discord, core = make(cfg, router=_event_router(seen, "/print-design"))
+    source = runtime.make_source(discord.operator.id, discord.channel.id)
+
+    async def flow():
+        event = runtime.make_event(source, "/desing make it taller", "m1",
+                                   media_urls=["/tmp/uploads/model.scad"])
+        task = asyncio.create_task(core.process(event))
+        await press(discord, runtime.SUGGEST_YES_LABEL)
+        return await task
+
+    out = run(flow())
+    assert out == {"action": "skip", "reason": "recorded"}
+    assert [e.text for e in seen] == ["/print-design make it taller"]
+    assert seen[0].media_urls == ["/tmp/uploads/model.scad"]
+
+
+def test_did_you_mean_pick_list_keeps_the_attachment(cfg):
+    """The pick-list dispatch preserves the original media the same way (P2-222)."""
+    seen = []
+    discord, core = make(cfg, router=_event_router(seen, "/print-"))
+    source = runtime.make_source(discord.operator.id, discord.channel.id)
+
+    async def flow():
+        event = runtime.make_event(source, "/prnt", "m1", media_urls=["/tmp/uploads/part.stl"])
+        task = asyncio.create_task(core.process(event))
+        await press(discord, "/print-stop")
+        return await task
+
+    out = run(flow())
+    assert out == {"action": "skip", "reason": "recorded"}
+    assert [e.text for e in seen] == ["/print-stop"]
+    assert seen[0].media_urls == ["/tmp/uploads/part.stl"]
+
+
+def test_print_handy_slash_carries_debug_arguments():
+    """The /print-handy slash command must reach 'debug on [minutes]' (P2-186):
+    a free-form second option carries the words after the action, so the
+    advertised debug on/off flow works through the slash command, not only
+    as a typed message."""
+    assert commands.as_text("print-handy", {"action": "debug", "args": "on 5"}) == "/print-handy debug on 5"
+    assert commands.as_text("print-handy", {"action": "debug", "args": "off"}) == "/print-handy debug off"
+    assert commands.as_text("print-handy", {"action": "setup"}) == "/print-handy setup"
+    command = commands.by_name("print-handy")
+    assert [o.name for o in command.options] == ["action", "args"]
+    assert not command.options[1].choices  # free-form, not another fixed choice list
+
+
+# ---------------------------------------------------------------------- upload names
+
+def test_safe_name_truncation_keeps_the_extension():
+    """A valid model file whose name exceeds the cap keeps its suffix (P2-39):
+    truncating through the extension made save_attachments skip the upload
+    silently, because the saved name no longer ended in a model suffix."""
+    name = runtime.safe_name("a" * 130 + ".stl")
+    assert name.endswith(".stl") and len(name) == 120
+    name = runtime.safe_name("a" * 130 + ".3mf")
+    assert name.endswith(".3mf") and len(name) == 120
+    assert runtime.safe_name("b" * 200) == "b" * 120  # no extension: plain truncation
+    assert runtime.safe_name("benchy.3mf") == "benchy.3mf"  # short names untouched
+    assert runtime.safe_name("my model!.stl") == "my_model_.stl"  # sanitizing untouched
+
+
 def test_did_you_mean_accepts_a_typed_yes(cfg):
     seen = []
     discord, core = make(cfg, router=_recording_router(seen))

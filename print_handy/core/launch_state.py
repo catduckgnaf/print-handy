@@ -40,6 +40,9 @@ SCHEMA = (
     "CREATE TABLE IF NOT EXISTS leases (printer TEXT PRIMARY KEY, token TEXT NOT NULL, phase TEXT NOT NULL, "
     "job_json TEXT, gcode_sha256 TEXT, remote TEXT, pid INTEGER, host TEXT, leased_at TEXT, updated_at TEXT, "
     "detail TEXT)",
+    # The history job keys that already existed when a lease was taken (P1-121):
+    # a run that predates a submission can never confirm that submission.
+    "CREATE TABLE IF NOT EXISTS lease_baselines (printer TEXT PRIMARY KEY, baseline TEXT NOT NULL)",
 )
 
 
@@ -68,6 +71,40 @@ def _adopt_legacy_db(target, printer_id):
         sidecar = Path(str(tmp) + suffix)
         if sidecar.is_file():
             os.replace(sidecar, Path(str(target) + suffix))
+    _rekey_adopted_db(target, printer_id)
+
+
+def _rekey_adopted_db(target, printer_id):
+    """Rekey an adopted legacy database's rows to the roster printer id (P1-74).
+
+    The legacy database keyed its lease (and any history baseline) by the old
+    Moonraker URL / model key, while every lookup in the per-printer layout
+    uses the roster id: copied verbatim, a held submitting/uncertain lease
+    would never be found and a second launch could start over it. ``printer``
+    is each table's PRIMARY KEY, so several distinct legacy keys cannot all
+    survive the rekey: the newest lease row (by ``updated_at``) wins, exactly
+    the one row a singleton database can hold.
+    """
+    con = sqlite3.connect(target)
+    try:
+        tables = {row[0] for row in con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        with con:
+            if "leases" in tables:
+                stale = con.execute(
+                    "SELECT rowid FROM leases ORDER BY updated_at DESC").fetchall()
+                for (rowid,) in stale[1:]:
+                    con.execute("DELETE FROM leases WHERE rowid=?", (rowid,))
+                con.execute("UPDATE leases SET printer=? WHERE printer!=?",
+                            (printer_id, printer_id))
+            if "lease_baselines" in tables:
+                stale = con.execute("SELECT rowid FROM lease_baselines").fetchall()
+                for (rowid,) in stale[1:]:
+                    con.execute("DELETE FROM lease_baselines WHERE rowid=?", (rowid,))
+                con.execute("UPDATE lease_baselines SET printer=? WHERE printer!=?",
+                            (printer_id, printer_id))
+    finally:
+        con.close()
 
 
 def db_path(printer_id=None):
@@ -178,12 +215,25 @@ def same_remote(reported, remote):
 HISTORY_SLACK_S = 120
 
 
-def reached_printer(row, observed_file=None, started_files=()):
+def history_key(entry):
+    """One history entry's identity: its job id when the printer reports one, else the
+    (filename, start) pair, which a real job's history record never changes."""
+    if len(entry) >= 3 and entry[0]:
+        return f"id:{entry[0]}"
+    return f"pair:{entry[-2]}@{entry[-1]}"
+
+
+def reached_printer(row, observed_file=None, started_files=(), baseline=()):
     """Whether a submitting/uncertain lease's exact file reached the printer: it is the current
     file, or the printer's job history shows it starting after the lease was taken.
 
-    started_files is (filename, start_epoch) pairs, or a callable returning them, read only
-    when the current file does not already settle it.
+    started_files is (filename, start_epoch) pairs or (job_id, filename, start_epoch)
+    triples, or a callable returning them, read only when the current file does not
+    already settle it. baseline holds history_key() values captured before this
+    lease's submission (see acquire): those runs predate the submission, so they
+    can never confirm it — not even a same-name run inside the clock slack, which
+    is exactly the cancelled-then-retried case (P1-121). The slack still applies
+    to runs that are not in the baseline, including the submission's own.
     """
     remote = row["remote"]
     if not remote:
@@ -195,13 +245,41 @@ def reached_printer(row, observed_file=None, started_files=()):
     except (TypeError, ValueError):
         return False
     try:
+        known = set(baseline or ())
         history = started_files() if callable(started_files) else started_files
-        for filename, started in history or ():
+        for entry in history or ():
+            if known and history_key(entry) in known:
+                continue  # already in history before this submission: not its confirmation
+            filename, started = entry[-2], entry[-1]
             if same_remote(filename, remote) and float(started) >= since:
                 return True
     except Exception:
         return False  # unreadable history settles nothing; the lease stays uncertain
     return False
+
+
+def _stored_baseline(con, printer):
+    """The history baseline captured when the printer's held lease was taken, if any."""
+    row = con.execute("SELECT baseline FROM lease_baselines WHERE printer=?", (printer,)).fetchone()
+    if row is None:
+        return ()
+    try:
+        return tuple(json.loads(row["baseline"]))
+    except Exception:
+        return ()
+
+
+def _capture_baseline(started_files):
+    """history_key() for every job already in history, read before submission.
+
+    An unreadable history captures an empty baseline: reconciliation then falls
+    back to the clock-slack rule alone, never worse than before baselines existed.
+    """
+    try:
+        history = started_files() if callable(started_files) else started_files
+        return sorted({history_key(entry) for entry in history or () if entry})
+    except Exception:
+        return []
 
 
 def _describe(row):
@@ -211,8 +289,9 @@ def _describe(row):
 class Lease:
     """The one launch allowed on a printer right now. Every update is scoped to this lease's token."""
 
-    def __init__(self, printer, token):
+    def __init__(self, printer, token, history_source=None):
         self.printer, self.token = printer, token
+        self._history_source = history_source
 
     def _set(self, phase, detail=None, required=False):
         with transaction(self.printer) as con:
@@ -226,6 +305,16 @@ class Lease:
         global _SUBMITTED
         self._set("submitting", required=True)  # a stolen lease must stop the launch before the request
         _SUBMITTED = True
+        if self._history_source is not None:
+            # The pre-submission history baseline (P1-121), captured at the last
+            # moment before the start request: every job in history now predates
+            # this submission, so none of them can later confirm it. Capturing
+            # here (not at acquire) keeps pre-submission refusal paths free of
+            # history reads they never needed.
+            with transaction(self.printer) as con:
+                con.execute("INSERT INTO lease_baselines VALUES (?,?) "
+                            "ON CONFLICT(printer) DO UPDATE SET baseline=excluded.baseline",
+                            (self.printer, json.dumps(_capture_baseline(self._history_source))))
 
 
     def uncertain(self, detail):
@@ -234,6 +323,7 @@ class Lease:
     def release(self):
         with transaction(self.printer) as con:
             con.execute("DELETE FROM leases WHERE printer=? AND token=?", (self.printer, self.token))
+            con.execute("DELETE FROM lease_baselines WHERE printer=?", (self.printer,))
 
 
 # Whether this process has reached any lease's submitting() (print-now runs one launch per
@@ -252,8 +342,11 @@ def reset_submitted():
 
 def acquire(printer, *, job_json=None, gcode_sha256=None, remote=None, observed_file=None, started_files=()):
     """Take the printer's lease or refuse. observed_file is the file the printer reports right now;
-    started_files is its job history as (filename, start_epoch) pairs, or a callable read only when
-    an earlier submission is held (see reached_printer).
+    started_files is its job history as (job_id, filename, start_epoch) triples, or a callable
+    read when an earlier submission is held (see reached_printer). The new lease keeps it as
+    its history source: at submitting() it captures the pre-submission baseline — the jobs
+    already in history at that moment predate anything this lease submits, so they can never
+    confirm it later (P1-121).
 
     `printer` is the roster printer id (#334): the lease lives in that
     printer's own database and its row is keyed by the id.
@@ -263,7 +356,8 @@ def acquire(printer, *, job_json=None, gcode_sha256=None, remote=None, observed_
         if row is not None:
             if row["phase"] == "leased" and _leased_abandoned(row):
                 print(f"LAUNCH LEASE RELEASED: an earlier launch stopped before submission ({_describe(row)}).", flush=True)
-            elif row["phase"] != "leased" and reached_printer(row, observed_file, started_files):
+            elif row["phase"] != "leased" and reached_printer(row, observed_file, started_files,
+                                                              baseline=_stored_baseline(con, printer)):
                 print(f"LAUNCH RECONCILED: the printer reports {row['remote']}, so the earlier {row['phase']} "
                       "submission reached it. Not resubmitted.", flush=True)
             elif row["phase"] == "leased" or (row["phase"] == "submitting" and _owner_alive(row)):
@@ -280,7 +374,11 @@ def acquire(printer, *, job_json=None, gcode_sha256=None, remote=None, observed_
         con.execute("INSERT INTO leases VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (printer, token, "leased", str(job_json) if job_json else None, gcode_sha256, remote,
                      os.getpid(), socket.gethostname(), now, now, None))
-    return Lease(printer, token)
+        # The previous lease's baseline was consumed judging its row above; the
+        # new lease captures its own at submitting() (Lease._history_source).
+        con.execute("DELETE FROM lease_baselines WHERE printer=?", (printer,))
+    history_source = started_files if (callable(started_files) or started_files) else None
+    return Lease(printer, token, history_source=history_source)
 
 
 def pending(printer=None):
@@ -311,6 +409,7 @@ def resolve(printer, outcome):
         if row["phase"] == "leased" and not _leased_abandoned(row, unknown=False):  # the operator vouches for other hosts
             raise SystemExit(f"REFUSED: that launch is still running ({_describe(row)}); nothing changed.")
         con.execute("DELETE FROM leases WHERE printer=?", (printer,))
+        con.execute("DELETE FROM lease_baselines WHERE printer=?", (printer,))
     out = dict(row, reconciled=outcome, reconciled_at=_now())
     print("LAUNCH RECONCILED " + json.dumps(out), flush=True)
     return out

@@ -77,6 +77,24 @@ Variables reason: The new option was checked on every surface: defaults tree, en
     def test_missing_verification_rejected(self):
         self.assertTrue(self.policy.check_pr(self.body().replace("Ran the focused offline tests: 4 passed.", ""), ["docs/README.md"]))
 
+    def test_untouched_verification_prompts_are_not_evidence(self):
+        """P2-43: the template's bare prompts ('- Checks run:' / '- Checks not
+        run and why:') exceed the length threshold on their own, so an
+        untouched verification section passed as if it were evidence."""
+        body = self.body().replace("Ran the focused offline tests: 4 passed.",
+                                   "- Checks run:\n- Checks not run and why:")
+        errors = self.policy.check_pr(body, ["docs/README.md"])
+        self.assertTrue(any("Verification" in error for error in errors), errors)
+
+    def test_answered_verification_prompts_pass(self):
+        body = self.body().replace("Ran the focused offline tests: 4 passed.",
+                                   "- Checks run: pytest tests/test_x.py -q, 4 passed\n"
+                                   "- Checks not run and why: live printer checks need the bench printer")
+        self.assertEqual([], self.policy.check_pr(body, ["docs/README.md"]))
+        body = self.body().replace("Ran the focused offline tests: 4 passed.",
+                                   "- Checks not run and why: docs-only change; the offline suite covers it")
+        self.assertEqual([], self.policy.check_pr(body, ["docs/README.md"]))
+
     def test_deferred_wiki_needs_issue_link(self):
         body = self.body().replace("Wiki: not applicable", "Wiki: deferred")
         self.assertTrue(self.policy.check_pr(body, ["docs/README.md"]))

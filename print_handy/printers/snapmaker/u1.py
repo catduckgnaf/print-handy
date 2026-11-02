@@ -14,6 +14,7 @@ MODEL = PrinterModel(
     label="Snapmaker U1",
     adapter=SnapmakerAdapter,
     templates="snapmaker_u1",
+    baseline="protected-settings-baseline.snapmaker.u1.json",
     vendor=VENDOR,
     color_system="multi_tool",
     supported_nozzle_sizes=(0.4,),

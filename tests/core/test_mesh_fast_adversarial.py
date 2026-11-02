@@ -97,10 +97,14 @@ CASES = [
     ('inf_coordinate', model().replace(b'x="2"', b'x="-inf"'), True),
     ('overflow_coordinate', model().replace(b'x="2"', b'x="1e999"'), True),
     ('negative_zero', model().replace(b'x="2"', b'x="-0"'), True),
-    ('hex_coordinate', model().replace(b'x="2"', b'x="0x10"'), True),
-    ('empty_coordinate', model().replace(b'x="2"', b'x=""'), True),
+    # A coordinate float() cannot convert declines the fast path (P2-72): the
+    # fallback reader converts only referenced meshes, so a bad number in an
+    # unused resource no longer blocks the archive; in a referenced mesh the
+    # fallback raises the same ValueError the equivalence assert pins above.
+    ('hex_coordinate', model().replace(b'x="2"', b'x="0x10"'), False),
+    ('empty_coordinate', model().replace(b'x="2"', b'x=""'), False),
     ('underscore_coordinate', model().replace(b'x="2"', b'x="1_0"'), True),
-    ('garbage_coordinate', model().replace(b'x="2"', b'x="two"'), True),
+    ('garbage_coordinate', model().replace(b'x="2"', b'x="two"'), False),
     ('duplicate_object_ids_last_wins',
      model('<resources><object id="1">' + MESH.replace('x="2"', 'x="7"') + '</object><object id="1">' + MESH
            + '</object></resources>'), False),
@@ -133,8 +137,8 @@ def test_fast_path_matches_reference_or_declines(tmp_path, monkeypatch, name, da
     assert outcome(lambda: orca_adapter._parse_3mf_triangles(path)) == expected, name
     if fast_allowed is not None:
         taken = outcome(lambda: mesh_fast.mesh_tables(data))
-        # Declined means exactly "returned None". Accepting the grammar and then raising on a bad number
-        # (float('0x10')) is still the fast path; the equivalence assert above pins the exception type.
+        # Declined means exactly "returned None". A bad number (float('0x10'))
+        # declines since P2-72; the equivalence assert above pins the outcome.
         accepted = taken != ('ok', 'None')
         assert accepted == fast_allowed, f'{name}: fast path {"accepted" if accepted else "declined"}'
 

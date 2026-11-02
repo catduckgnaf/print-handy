@@ -219,6 +219,27 @@ def _pkw(pid):
     return {'printer_id': pid} if pid else {}
 
 
+def _channel_printer_id(source, gateway=None):
+    """The actual roster id of the printer this event's channel serves (P1-77).
+
+    ``_routed_printer_id`` normalizes the default printer to None so its
+    control paths stay legacy — but ownership checks must compare a job
+    against the channel's real printer, default included, or the default
+    channel silently skips them. A shared channel (#536) decides no
+    printer: None here too, and the caller resolves from the job instead.
+    """
+    pid = _routed_printer_id(source, gateway)
+    if pid:
+        return pid
+    if _shared_printer_ids(source, gateway):
+        return None  # undecided shared channel: never the default by fall-through
+    try:
+        from print_handy import settings
+        return str(settings.default_printer_id(_config.cfg()))
+    except Exception:
+        return None
+
+
 def _printer_label(pid):
     """A routed printer's display name for user-facing text (the default printer is named, design §6.1)."""
     try:
@@ -786,7 +807,49 @@ def _design_command_args(text):
     return None
 
 
+_DESIGN_BUSY: set = set()
+
+
 async def design_dispatch(event, gateway, **kwargs):
+    """Serialize design turns per owner around _design_dispatch_turns (P2-151).
+
+    A turn awaits the model (and then its Slice/Change/Cancel prompt) with
+    the session's files as shared state. A second owner message arriving
+    in that window used to load the same session and run a concurrent
+    turn: both turns wrote the same SCAD/STL/preview files, and the first
+    turn's still-open approval buttons could hand off the second turn's
+    geometry. Hold a per-owner claim for the whole dispatch and refuse a
+    concurrent one with a busy note; other commands and unrelated chat
+    still fall through untouched.
+    """
+    if not _is_print_discord_event(event):
+        return None
+    source = event.source
+    owner = f"{source.chat_id}:{source.thread_id or ''}:{source.user_id}"
+    if owner in _DESIGN_BUSY:
+        text = str(getattr(event, 'text', '') or '').strip()
+        if _design_command_args(text) is None and text.startswith('/'):
+            return None  # another command: not design's to refuse
+        from print_handy.core import design as _design
+        if _design_command_args(text) is None and not _design.find_session_for_owner(
+                _design_root(_config.cfg()), owner):
+            return None  # no live design session: not a design message
+        adapter = _adapter_for(gateway, source)
+        if adapter is None:
+            return {'action': 'skip', 'reason': 'design turn already running'}
+        metadata = {'thread_id': source.thread_id} if source.thread_id else None
+        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                           content='A design turn is already running — let it finish, '
+                                   'then send your change again. Nothing was changed.')
+        return {'action': 'skip', 'reason': 'design turn already running'}
+    _DESIGN_BUSY.add(owner)
+    try:
+        return await _design_dispatch_turns(event, gateway, **kwargs)
+    finally:
+        _DESIGN_BUSY.discard(owner)
+
+
+async def _design_dispatch_turns(event, gateway, **kwargs):
     """/print-design (alias /design) and natural design requests (#388).
 
     Create loop (Stage 1): /print-design <what to make>, Slice it / Change
@@ -932,6 +995,13 @@ async def design_dispatch(event, gateway, **kwargs):
             else:  # edit
                 if link_url:
                     instruction = instruction.replace(link_url, '').strip(" \t—–-:,.")
+                if file_path and link_url:
+                    # An attached model wins over a link in the same message
+                    # (P2-156): the operator supplied the exact source to
+                    # edit, while fetching the link would silently edit the
+                    # downloaded version instead (e.g. an edited .scad
+                    # attached alongside its original model link).
+                    link_url = None
                 if session:
                     engine.cancel(session)  # a fresh design supersedes the old session
                 description = instruction or f"Edit {(file_path.name if file_path else 'the linked model')}"
@@ -1456,6 +1526,8 @@ async def _offer_spool_change(adapter, source, metadata, print_next, target, det
     # never be answered on buttonless platforms. send_clarify keeps
     # the flow key for delivery.
     cm.register(cid, live_key or session_key, question, choices)
+    from print_handy.core import prompts as _prompt_marks
+    _prompt_marks.mark_approval(cid)  # a yes starts the print: a print approval (P1-93)
     try:
         sent = await adapter.send_clarify(chat_id=str(source.chat_id), question=question, choices=choices,
                                           clarify_id=cid, session_key=session_key, metadata=metadata)
@@ -1464,9 +1536,52 @@ async def _offer_spool_change(adapter, source, metadata, print_next, target, det
         answer = await asyncio.to_thread(cm.wait_for_response, cid, (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800))
     finally:
         cm.resolve_gateway_clarify(cid, cm.CANCELLED)
+        _prompt_marks.forget_approval(cid)
     if answer != USE_LOADED_SPOOL:
         return False, 'Cancelled. Nothing uploaded or started.'
     return await print_next.start({**target, 'accept_spool_change': True})
+
+
+def _listener_roast(job):
+    """Best-effort model roast for a start post, via the listener's generator."""
+    try:
+        from print_handy.hermes import moonraker_event_listener as _mel
+        return _mel.generate_roast((job or {}).get('title') or '', (job or {}).get('summary') or '')
+    except Exception:
+        return ''
+
+
+async def _announce_command_start(send, target, detail, job=None, plate=None):
+    """Post and register the one start announcement for a command start.
+
+    /print-next, /print-again and the plate buttons start through
+    print_next.start, whose model_job run claims the start announcement —
+    and that claim suppresses the listener's fallback post. The intake
+    flow posts its own start message for the listener to edit, but these
+    handlers posted none, so their starts were never announced (P2-56).
+    Post the canonical message here, mirroring the intake: a
+    still-preparing start registers its message id so the listener edits
+    this post after warmup (adding the roast then); an already-printing
+    start carries its roast in this post.
+    """
+    from print_handy.hermes import discord_print_summary as print_summary
+    from print_handy.hermes import print_next
+    if job is None:
+        with contextlib.suppress(Exception):
+            job, plate = print_summary.find_job(target['gcode'])
+    message = print_summary.format_started(job, plate)
+    remote = print_next.started_file(detail) if print_next.still_preparing(detail) else None
+    if remote is None:
+        with contextlib.suppress(Exception):
+            roast = await asyncio.wait_for(asyncio.to_thread(_listener_roast, job), 8)
+            if roast:
+                message += f'\n\n{roast}'
+    sent = await send(message)
+    message_id = getattr(sent, 'message_id', None) or getattr(sent, 'id', None)
+    if remote and message_id:
+        with contextlib.suppress(OSError):
+            print_next.record_start_message(remote, str(message_id))
+    return sent
 
 
 async def print_next_dispatch(event, gateway, **kwargs):
@@ -1503,16 +1618,20 @@ async def print_next_dispatch(event, gateway, **kwargs):
             raise print_next.NextPlateError('usage: /print-next <plan_id> [part_id]')
         plan = print_next.load_plan(plan_id)
         target = print_next.resolve_next(plan) if part_id is None else print_next.resolve_next(plan, part_id=part_id)
-        if pid:
+        channel_pid = _channel_printer_id(source, gateway)
+        if channel_pid is not None:
             # The channel is the target (#335): a plan whose job belongs to
             # another printer is refused here, before any prompt is shown.
+            # The comparison uses the channel's actual printer (P1-77): the
+            # routed form normalizes the default printer to None, which used
+            # to skip this check in the default printer's own channel.
             from print_handy.core import model_job as _mj
             _job = json.loads(Path(target['job_json']).read_text())
             _job_pid = _mj._job_printer_id(_job)
-            if _job_pid != pid:
+            if _job_pid != channel_pid:
                 raise print_next.NextPlateError(
                     f"that plan belongs to {_printer_label(_job_pid)}, not this channel's printer "
-                    f"({_printer_label(pid)})")
+                    f"({_printer_label(channel_pid)})")
         live_key = gateway._session_key_for_source(source)
         if not pid:
             candidates = _undecided_printer_ids(source, gateway)
@@ -1544,6 +1663,8 @@ async def print_next_dispatch(event, gateway, **kwargs):
         # never be answered on buttonless platforms. send_clarify keeps
         # the flow key for delivery.
         cm.register(cid, live_key or session_key, question, choices)
+        from print_handy.core import prompts as _prompt_marks
+        _prompt_marks.mark_approval(cid)  # the bed-clear button starts a print (P1-93)
         try:
             sent = await adapter.send_clarify(chat_id=str(source.chat_id), question=question,
                                               choices=choices, clarify_id=cid,
@@ -1553,6 +1674,7 @@ async def print_next_dispatch(event, gateway, **kwargs):
             answer = await asyncio.to_thread(cm.wait_for_response, cid, (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800))
         finally:
             cm.resolve_gateway_clarify(cid, cm.CANCELLED)
+            _prompt_marks.forget_approval(cid)
         if answer != print_next.START_LABEL:
             message = 'Cancelled or expired. Nothing uploaded or started.'
         else:
@@ -1562,6 +1684,10 @@ async def print_next_dispatch(event, gateway, **kwargs):
             if not ok and SPOOL_CHANGED in str(detail):
                 ok, detail = await _offer_spool_change(adapter, source, metadata, print_next, target, detail,
                                                         live_key=live_key)
+            if ok:
+                await _announce_command_start(
+                    lambda content: adapter.send(chat_id=source.chat_id, content=content, metadata=metadata),
+                    target, detail, job=job, plate=plate)
             message = (None if ok
                        else f"Did not start {target['label']}. Not retrying.\n"
                             + intake_plain_start_failure(detail))
@@ -1745,7 +1871,8 @@ async def _nozzle_change_workflow(adapter, source, metadata, *, printer_id=None,
     Heating goes only through nozzle_change's Moonraker path after its own
     explicit confirmation; any other connection gets manual-heat
     instructions and the same step confirmations. Cancelling after heat
-    turns the heater off and records nothing.
+    turns the heater off and records nothing; a UI failure after heat
+    attempts the same heater-off before the failure surfaces.
     """
     from print_handy.hermes import nozzle_change as nc
     from print_handy.hermes import print_control as pc
@@ -1753,26 +1880,52 @@ async def _nozzle_change_workflow(adapter, source, metadata, *, printer_id=None,
     question_timeout = (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800)
     safety_timeout = (globals().get('_config').safety_confirm_timeout_s() if globals().get('_config') else 600)
 
-    dia_answer = await _confirm(adapter, source, metadata, 'nozzle-diameter',
-        'Which diameter is the replacement nozzle?',
-        [f'{d:g} mm' for d in nc.GUIDED_DIAMETERS_MM] + ['Cancel'], question_timeout, live_key=live_key)
-    dia = next((d for d in nc.GUIDED_DIAMETERS_MM if str(dia_answer).strip().casefold() == f'{d:g} mm'), None)
-    if dia is None:
-        return 'Cancelled or expired. Nothing sent and nothing changed.'
-    type_answer = await _confirm(adapter, source, metadata, 'nozzle-type',
-        'Which material is the replacement nozzle?',
-        [_NOZZLE_TYPE_LABELS[t] for t in nc.GUIDED_TYPES] + ['Cancel'], question_timeout, live_key=live_key)
-    nozzle_type = next((t for t in nc.GUIDED_TYPES
-                        if str(type_answer).strip().casefold() in (_NOZZLE_TYPE_LABELS[t].casefold(), t)), None)
-    if nozzle_type is None:
-        return 'Cancelled or expired. Nothing sent and nothing changed.'
-
+    # Capabilities first (P2-195): the prompts offer only what this printer
+    # supports, and the selection is validated against the same sets before
+    # any heating or manual-change instruction — finish_change used to be
+    # the first check, after the physical swap and cooldown.
     try:
         connection = pc._adapter_for(printer_id).connection
         supported_sizes = pc._adapter_for(printer_id).supported_nozzle_sizes
         supported_types = pc._adapter_for(printer_id).supported_nozzle_types
     except Exception:
         connection, supported_sizes, supported_types = None, None, None
+    diameters = [d for d in nc.GUIDED_DIAMETERS_MM
+                 if supported_sizes is None
+                 or any(abs(float(s) - d) < 0.01 for s in supported_sizes)]
+    types = [t for t in nc.GUIDED_TYPES if supported_types is None or t in supported_types]
+    if not diameters or not types:
+        return ('This printer reports nozzle capabilities the guided walk cannot offer '
+                '(supported diameters: '
+                f"{', '.join(f'{s:g}' for s in supported_sizes or ()) or 'unknown'}; "
+                'supported types: '
+                f"{', '.join(supported_types or ()) or 'unknown'}). "
+                'Nothing sent and nothing changed.')
+
+    dia_answer = await _confirm(adapter, source, metadata, 'nozzle-diameter',
+        'Which diameter is the replacement nozzle?',
+        [f'{d:g} mm' for d in diameters] + ['Cancel'], question_timeout, live_key=live_key)
+    dia = next((d for d in nc.GUIDED_DIAMETERS_MM if str(dia_answer).strip().casefold() == f'{d:g} mm'), None)
+    if dia is None:
+        return 'Cancelled or expired. Nothing sent and nothing changed.'
+    type_answer = await _confirm(adapter, source, metadata, 'nozzle-type',
+        'Which material is the replacement nozzle?',
+        [_NOZZLE_TYPE_LABELS[t] for t in types] + ['Cancel'], question_timeout, live_key=live_key)
+    nozzle_type = next((t for t in nc.GUIDED_TYPES
+                        if str(type_answer).strip().casefold() in (_NOZZLE_TYPE_LABELS[t].casefold(), t)), None)
+    if nozzle_type is None:
+        return 'Cancelled or expired. Nothing sent and nothing changed.'
+
+    try:
+        # A typed answer can still name a guided option the filtered
+        # buttons did not offer; refuse it with the record path's own rule.
+        from print_handy.core import nozzle as _nozzle
+        _nozzle.validate_nozzle_setting(dia, nozzle_type,
+                                        supported_sizes=supported_sizes,
+                                        supported_types=supported_types)
+    except Exception as exc:
+        return (f'That replacement cannot be used on this printer: {exc} '
+                'Nothing was sent and nothing changed — the physical change was not started.')
     live = nc.supports_live_heat(connection)
     kw = {'printer_id': printer_id} if printer_id else {}
 
@@ -1790,23 +1943,35 @@ async def _nozzle_change_workflow(adapter, source, metadata, *, printer_id=None,
         ok, detail = await asyncio.to_thread(nc.heat_for_loosen, confirmed_at=_time.time(), **kw)
         if not ok:
             return detail
-        await adapter.send(chat_id=source.chat_id, metadata=metadata, content=detail)
-        removed = await _confirm(adapter, source, metadata, 'nozzle-removed',
-            'Remove the old nozzle hot, thread the new nozzle in by hand, then confirm.',
-            [nc.REMOVED_LABEL, 'Cancel'], question_timeout, live_key=live_key)
-        if removed != nc.REMOVED_LABEL:
-            _off, off_detail = await asyncio.to_thread(nc.heater_off, **kw)
-            return f'Cancelled. {off_detail}'
-        torqued = await _confirm(adapter, source, metadata, 'nozzle-torque',
-            f'Torque the new nozzle hot ({nc.TORQUE_HINT}), while the hotend stays at {nc.LOOSEN_TEMP_C} °C.',
-            [nc.TORQUED_LABEL, 'Cancel'], question_timeout, live_key=live_key)
-        if torqued != nc.TORQUED_LABEL:
-            _off, off_detail = await asyncio.to_thread(nc.heater_off, **kw)
-            return f'Cancelled. {off_detail}'
-        ok, detail = await asyncio.to_thread(nc.cooldown, **kw)
-        if not ok:
-            return detail
-        await adapter.send(chat_id=source.chat_id, metadata=metadata, content=detail)
+        # The hotend is now at the loosen temperature. Any failure in the UI
+        # steps below (a chat send raising, a _confirm whose button delivery
+        # fails) must not leave it heating: attempt heater-off in cleanup
+        # that does not itself depend on chat delivery, then let the
+        # original failure surface (P1-105).
+        try:
+            await adapter.send(chat_id=source.chat_id, metadata=metadata, content=detail)
+            removed = await _confirm(adapter, source, metadata, 'nozzle-removed',
+                'Remove the old nozzle hot, thread the new nozzle in by hand, then confirm.',
+                [nc.REMOVED_LABEL, 'Cancel'], question_timeout, live_key=live_key)
+            if removed != nc.REMOVED_LABEL:
+                _off, off_detail = await asyncio.to_thread(nc.heater_off, **kw)
+                return f'Cancelled. {off_detail}'
+            torqued = await _confirm(adapter, source, metadata, 'nozzle-torque',
+                f'Torque the new nozzle hot ({nc.TORQUE_HINT}), while the hotend stays at {nc.LOOSEN_TEMP_C} °C.',
+                [nc.TORQUED_LABEL, 'Cancel'], question_timeout, live_key=live_key)
+            if torqued != nc.TORQUED_LABEL:
+                _off, off_detail = await asyncio.to_thread(nc.heater_off, **kw)
+                return f'Cancelled. {off_detail}'
+            ok, detail = await asyncio.to_thread(nc.cooldown, **kw)
+            if not ok:
+                return detail
+            await adapter.send(chat_id=source.chat_id, metadata=metadata, content=detail)
+        except BaseException:
+            try:
+                await asyncio.shield(asyncio.to_thread(nc.heater_off, **kw))
+            except Exception:
+                logger.exception('/nozzle change heater-off cleanup failed')
+            raise
     else:
         await adapter.send(chat_id=source.chat_id, metadata=metadata,
                            content=nc.manual_heat_instructions())
@@ -1967,9 +2132,19 @@ async def maintenance_dispatch(event, gateway, **kwargs):
                         session['cold_pull_record_persisted'] = True
             session['completed'] = True
             session['hours_total'] = await (asyncio.to_thread(_maintenance_hours_now, pid) if pid else asyncio.to_thread(_maintenance_hours_now))
-            final_record = session.pop('cold_pull_record', None) or session
-            if not session.pop('cold_pull_record_persisted', False):
-                maintenance.append_run(final_record, **_pkw(pid))
+            cold_pull_record = session.pop('cold_pull_record', None)
+            if cold_pull_record is not None and not session.pop('cold_pull_record_persisted', False):
+                # Defensive: the shared cold-pull workflow persists its own
+                # record before returning it, so this only fires if that
+                # ever changes; never let the pull go unrecorded.
+                maintenance.append_run(cold_pull_record, **_pkw(pid))
+            else:
+                session.pop('cold_pull_record_persisted', None)
+            # The completed session is a run of its own kind and must be
+            # saved even when a cold pull ran: status and reminder lookups
+            # search for kind == mode, and skipping this append made a full
+            # maintenance with a cold pull look like it never happened.
+            maintenance.append_run(session, **_pkw(pid))
             # Reload before clearing the pending session: `state` was loaded
             # before the appends above, so saving it as-is would overwrite
             # the file with its stale runs list and erase them again.
@@ -1994,6 +2169,33 @@ async def maintenance_dispatch(event, gateway, **kwargs):
     return {'action': 'skip', 'reason': 'maintenance handled'}
 
 
+def _require_clicked_question_current(spool_sync, context, current):
+    """Refuse a spool-question action whose clicked question is not the pending one.
+
+    Button clicks carry the context of the question they were posted for,
+    and a question answered in text leaves its buttons behind (the alert
+    record is retained for hours). If a newer question has opened since,
+    substituting the current record would silently apply the stale click
+    to the newer print — a stale Cancel would cancel a print the operator
+    never confirmed. Compare the question identity (recorded_at, then
+    filename) with the loaded record and refuse a mismatch before any
+    printer or inventory action. A caller that passes the record it just
+    loaded itself (the text-answer path) always matches.
+    """
+    clicked = context or {}
+    clicked_at = clicked.get('recorded_at')
+    if isinstance(clicked_at, (int, float)) and clicked_at != current.get('recorded_at'):
+        raise spool_sync.SpoolError(
+            'that spool question is out of date — a newer spool question is open now, '
+            'so nothing was changed. Answer the current question instead.')
+    clicked_name = str(clicked.get('filename') or '')
+    current_name = str(current.get('filename') or '')
+    if clicked_name and current_name and clicked_name != current_name:
+        raise spool_sync.SpoolError(
+            'that spool question is for a different print than the one paused now, '
+            'so nothing was changed. Answer the current question instead.')
+
+
 def _cancel_spool_question_print(listener, spool_sync, context):
     """Cancel the paused print behind a pending spool question, then close the question.
 
@@ -2014,6 +2216,7 @@ def _cancel_spool_question_print(listener, spool_sync, context):
     current = listener.load_runout_pause()
     if current is None:
         raise spool_sync.SpoolError('that spool question was already answered; nothing changed')
+    _require_clicked_question_current(spool_sync, context, current)
     context = current
     filename = context.get('filename') or ''
     label = filename or 'the paused print'
@@ -2094,6 +2297,7 @@ def _answer_spool_question(listener, spool_sync, context, choice):
     current = listener.load_runout_pause()
     if current is None:
         raise spool_sync.SpoolError('that spool question was already answered; nothing changed')
+    _require_clicked_question_current(spool_sync, context, current)
     context = current
     slot = context.get('slot')
     prior = context.get('prior_spool_id')
@@ -2113,13 +2317,25 @@ def _answer_spool_question(listener, spool_sync, context, choice):
         # The color code: a picked swatch, else the color name read against
         # the named-color table, else (only then) the slot's previous swatch.
         from print_handy.core import filament_color
-        existing_hex = (spool_sync.screen_hex(choice.get('hex'))
-                        or filament_color.derive_hex(choice.get('color'), choice.get('material'))
+        picked_hex = spool_sync.screen_hex(choice.get('hex'))
+        derived_hex = None if picked_hex else filament_color.derive_hex(
+            choice.get('color'), choice.get('material'))
+        existing_hex = (picked_hex or derived_hex
                         or spool_sync.screen_hex(previous_slot.get('hex')))
-        made = spool_sync.create_spool({'brand': choice.get('brand'), 'material': choice['material'],
-                                        'color': choice['color'], 'grams': choice['grams'], 'hex': existing_hex,
-                                        'nozzle_temp': choice.get('nozzle_temp'),
-                                        'bed_temp': choice.get('bed_temp')})
+        spec = {'brand': choice.get('brand'), 'material': choice['material'],
+                'color': choice['color'], 'grams': choice['grams'],
+                'nozzle_temp': choice.get('nozzle_temp'),
+                'bed_temp': choice.get('bed_temp')}
+        # A name-derived swatch is NOT passed as an explicit hex (P2-234):
+        # spec_color returns an empty palette whenever a hex is given, so a
+        # multi-color name ("rose red blue green") would lose its
+        # multi_color_hexes. With no hex key, create_spool derives the same
+        # representative swatch AND the palette from the name itself. A
+        # picked swatch or the previous slot's inherited swatch stays
+        # explicit — neither has a palette to preserve.
+        if derived_hex is None and existing_hex:
+            spec['hex'] = existing_hex
+        made = spool_sync.create_spool(spec)
         spool_id = int(made['spool_id'])
         created = f'Created spool #{spool_id}. '
     else:
@@ -2127,14 +2343,18 @@ def _answer_spool_question(listener, spool_sync, context, choice):
     runout = context.get('cause') == 'runout'
     if runout and prior and int(prior) == spool_id:
         raise spool_sync.SpoolError(f'spool #{spool_id} is the one that just ran out; pick another')
-    if runout and prior:
-        spool_sync.spoolman('PATCH', f'/api/v1/spool/{int(prior)}',
-                            {'archived': True, 'remaining_weight': 0, 'location': 'depleted'})
-    result = spool_sync.bind_slot(slot, spool_id, prior_disposition='keep' if runout else 'shelf',
+    # The old spool is depleted by the bind itself, never before it:
+    # bind_slot validates the replacement first (live, not archived, not
+    # mapped to another slot or printer) and only then runs its 'depleted'
+    # disposition on the spool it replaced. Patching the old spool depleted
+    # ahead of the bind destroyed it whenever the bind then refused the
+    # replacement, while the failed answer reported nothing changed (P1-8).
+    result = spool_sync.bind_slot(slot, spool_id, prior_disposition='depleted' if runout else 'shelf',
                                   note=f"Bound from Discord after mid-print {context.get('cause')}")
     spool_sync.resume_usage(spool_id)
     listener.clear_runout_pause()
-    gone = f' Spool #{prior} marked used up.' if runout and prior else ''
+    bound_prior = result.get('prior_spool_id') if isinstance(result, dict) else None
+    gone = f' Spool #{bound_prior} marked used up.' if runout and bound_prior else ''
     return f'{created}{spool_sync.bind_text(result)}{gone} Usage tracking is back on, charged to #{spool_id}.'
 
 
@@ -2393,7 +2613,12 @@ async def _spool_guided_new(adapter, source, metadata, gateway, spool_sync, pid,
                  'Which filament is the new spool? Pick a type already in the database, '
                  'or choose New filament type.']
         lines += [f"{i}. {_spool_type_label(t)}" for i, t in enumerate(listed, 1)]
-        choices = [_spool_type_label(t) for t in listed[:3]] + ['New filament type']
+        lines.append(f"{len(listed) + 1}. New filament type")
+        # The registered choices must be the numbered list itself, in order
+        # (P2-182): buttonless adapters translate a typed number through
+        # this list, so registering only the first three types made the
+        # displayed fourth type open new-type entry instead.
+        choices = [_spool_type_label(t) for t in listed] + ['New filament type']
         answer = await _spool_ask(adapter, source, metadata, gateway, '\n'.join(lines), choices)
         if _spool_is_cancel(answer):
             return None, _SPOOL_CANCELLED
@@ -2477,7 +2702,14 @@ async def _spool_guided_change(adapter, source, metadata, gateway, spool_sync, p
             lines.append(f"{i}. #{entry['spool_id']} {filament_label(entry['name'], entry['material'])}{grams}".rstrip())
     else:
         lines.append('(nothing on the shelf)')
-    choices = [f"#{entry['spool_id']} {entry['name']}"[:80] for entry in listed[:3]] + ['Add a new spool']
+    if listed:
+        lines.append(f"{len(listed) + 1}. Add a new spool")
+    # Register every listed spool with its FULL label (P2-182, P2-183):
+    # adapters truncate only the displayed button text and resolve a click
+    # back to the registered value, so a [:80] truncation here — or offering
+    # only the first three — made clicks and typed numbers land on the
+    # wrong entry or on no entry at all.
+    choices = [f"#{entry['spool_id']} {entry['name']}" for entry in listed] + ['Add a new spool']
     if not listed:
         choices = ['Add a new spool', 'Cancel']
     answer = await _spool_ask(adapter, source, metadata, gateway, '\n'.join(lines), choices)
@@ -2802,7 +3034,7 @@ async def spool_dispatch(event, gateway, **kwargs):
                 message = 'No printer chosen, so nothing was changed.'
         elif verb == 'sync':
             if await _spool_printer():
-                message = 'Printer screen from Spoolman:\n' + '\n'.join(await asyncio.to_thread(spool_sync.sync_all_screens, **mr_kw))
+                message = 'Printer sync from Spoolman:\n' + '\n'.join(await asyncio.to_thread(spool_sync.sync_all_screens, **mr_kw))
             else:
                 message = 'No printer chosen, so nothing was changed.'
         elif verb == '':
@@ -3579,51 +3811,59 @@ async def live_dispatch(event, gateway, **kwargs):
         shared_path = live_stream.session_file_path(_config.cfg())
     except Exception:
         shared_path = None
-    shared_existed = shared_path is not None and shared_path.exists()
-    if shared_existed:
-        session = live_stream.read_session_file(shared_path)
-        globals()['_LIVE_SESSION'] = session
-    else:
-        session = _live_session()
-    now = time.time()
-    before = (session.state, session.started_by, session.started_at,
-              session.viewers, session.empty_since)
-    live_stream.expire_empty(session, section, now=now)
-    if verb == 'start':
-        problem = live_stream.start_problem(section)
-        if problem is not None:
-            message, reason = problem, 'print live not configured'
-        elif session.is_live:
+    # P2-143: the read-modify-write below is one transaction over a
+    # record the listener and the Activity server also write; it runs
+    # under the shared cross-process session lock so a presence tick
+    # cannot interleave and resurrect a session this command stops
+    # (or overwrite this command's start with a stale snapshot).
+    _session_guard = (live_stream.session_file_lock(shared_path)
+                      if shared_path is not None else contextlib.nullcontext())
+    with _session_guard:
+        shared_existed = shared_path is not None and shared_path.exists()
+        if shared_existed:
+            session = live_stream.read_session_file(shared_path)
+            globals()['_LIVE_SESSION'] = session
+        else:
+            session = _live_session()
+        now = time.time()
+        before = (session.state, session.started_by, session.started_at,
+                  session.viewers, session.empty_since)
+        live_stream.expire_empty(session, section, now=now)
+        if verb == 'start':
+            problem = live_stream.start_problem(section)
+            if problem is not None:
+                message, reason = problem, 'print live not configured'
+            elif session.is_live:
+                message = live_stream.session_text(session, section, now=now)
+                reason = 'print live already live'
+            else:
+                session.start(str(source.user_id), now=now)
+                message = live_stream.pointer_text(session, section)
+                reason = 'print live started'
+        elif verb == 'stop':
+            if not session.is_live:
+                message = 'The live camera view is not running. `/print-live start` starts it.'
+                reason = 'print live not running'
+            else:
+                session.stop(now=now)
+                message = ('Live camera view stopped. The feed is off and nothing was recorded. '
+                           '`/print-live start` starts it again.')
+                reason = 'print live stopped'
+        elif verb == 'status':
             message = live_stream.session_text(session, section, now=now)
-            reason = 'print live already live'
+            reason = 'print live status shown'
         else:
-            session.start(str(source.user_id), now=now)
-            message = live_stream.pointer_text(session, section)
-            reason = 'print live started'
-    elif verb == 'stop':
-        if not session.is_live:
-            message = 'The live camera view is not running. `/print-live start` starts it.'
-            reason = 'print live not running'
-        else:
-            session.stop(now=now)
-            message = ('Live camera view stopped. The feed is off and nothing was recorded. '
-                       '`/print-live start` starts it again.')
-            reason = 'print live stopped'
-    elif verb == 'status':
-        message = live_stream.session_text(session, section, now=now)
-        reason = 'print live status shown'
-    else:
-        message = ('Use `/print-live start`, `/print-live stop` or `/print-live status`. '
-                   'Nothing changed.')
-        reason = 'print live usage shown'
-    if shared_path is not None:
-        after = (session.state, session.started_by, session.started_at,
-                 session.viewers, session.empty_since)
-        if shared_existed or after != before:
-            try:
-                live_stream.write_session_file(session, shared_path)
-            except Exception:
-                pass  # the record is bookkeeping; the reply still stands
+            message = ('Use `/print-live start`, `/print-live stop` or `/print-live status`. '
+                       'Nothing changed.')
+            reason = 'print live usage shown'
+        if shared_path is not None:
+            after = (session.state, session.started_by, session.started_at,
+                     session.viewers, session.empty_since)
+            if shared_existed or after != before:
+                try:
+                    live_stream.write_session_file(session, shared_path)
+                except Exception:
+                    pass  # the record is bookkeeping; the reply still stands
     await adapter.send(chat_id=source.chat_id, metadata=metadata, content=message)
     return {'action': 'skip', 'reason': reason}
 
@@ -3916,8 +4156,10 @@ def _control_gate(event, gateway):
     return source, _adapter_for(gateway, source)
 
 
-async def _confirm(adapter, source, metadata, prefix, question, choices, timeout, live_key=None):
+async def _confirm(adapter, source, metadata, prefix, question, choices, timeout, live_key=None,
+                   approval=False):
     import uuid
+    from print_handy.core import prompts as _prompt_marks
     from print_handy.core.prompts import gateway as _prompts
     cm = _prompts()
     cid = uuid.uuid4().hex
@@ -3930,6 +4172,11 @@ async def _confirm(adapter, source, metadata, prefix, question, choices, timeout
     # a flow-key registration there can never be answered and the prompt
     # times out. send_clarify keeps the flow key for delivery.
     cm.register(cid, live_key or session_key, question, choices)
+    if approval:
+        # A print approval (P1-93): the mark lives in this package's own
+        # registry, whose is_approval the standalone adapters consult,
+        # whichever registry the prompt itself was registered with.
+        _prompt_marks.mark_approval(cid)
     try:
         sent = await adapter.send_clarify(chat_id=str(source.chat_id), question=question, choices=choices,
                                           clarify_id=cid, session_key=session_key, metadata=metadata)
@@ -3938,6 +4185,7 @@ async def _confirm(adapter, source, metadata, prefix, question, choices, timeout
         return await asyncio.to_thread(cm.wait_for_response, cid, timeout)
     finally:
         cm.resolve_gateway_clarify(cid, cm.CANCELLED)
+        _prompt_marks.forget_approval(cid)
 
 
 async def print_resume_dispatch(event, gateway, **kwargs):
@@ -4042,23 +4290,30 @@ async def print_again_dispatch(event, gateway, **kwargs):
     from print_handy.hermes import print_next
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
     pid = _routed_printer_id(source, gateway)
+    # Ownership compares against the channel's actual printer (P1-77): the
+    # routed form's None for the default printer must not skip these checks
+    # in the default printer's own channel.
+    channel_pid = _channel_printer_id(source, gateway)
     query = str(plain_number) if plain_number is not None else text[len('/print-again'):].strip()
     if query.casefold() in ('list', 'ls', 'history'):
         rows = await asyncio.to_thread(pc.printed_jobs)
-        if pid:
+        if channel_pid is not None:
             # A routed channel lists only its own printer's prints (#335).
-            rows = [row for row in rows if _job_owner_pid(row['job_json']) == pid]
+            rows = [row for row in rows if _job_owner_pid(row['job_json']) == channel_pid]
         await adapter.send(chat_id=source.chat_id, metadata=metadata, content=pc.printed_list_text(rows))
         return {'action': 'skip', 'reason': 'print again list handled'}
     if query.casefold() in ('stop', 'cancel', 'clear'):
-        if pid:
-            pending = await asyncio.to_thread(pc.pending_copy)
-            if pending and _job_owner_pid(pending['job_json']) != pid:
+        if channel_pid is not None:
+            # Queues are per printer (P2-135): this channel reads and drops
+            # only its own printer's queue.
+            pending = await asyncio.to_thread(pc.pending_copy, printer_id=channel_pid)
+            pending_owner = _job_owner_pid(pending['job_json']) if pending else None
+            if pending_owner is not None and pending_owner != channel_pid:
                 await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                    content=f"The queued copies belong to {_printer_label(_job_owner_pid(pending['job_json']))}, "
                                            "not this channel's printer. Nothing dropped.")
                 return {'action': 'skip', 'reason': 'print again queue belongs to another printer'}
-        had = await asyncio.to_thread(pc.cancel_copies)
+        had = await asyncio.to_thread(pc.cancel_copies, printer_id=channel_pid)
         await adapter.send(chat_id=source.chat_id, metadata=metadata,
                            content='Remaining copies dropped. The current print is untouched.' if had
                            else 'No copies were queued.')
@@ -4071,19 +4326,23 @@ async def print_again_dispatch(event, gateway, **kwargs):
     try:
         is_next = query.casefold() in ('next', 'continue')
         if is_next:
-            target = await asyncio.to_thread(pc.next_copy_target)
+            target = await asyncio.to_thread(pc.next_copy_target, printer_id=channel_pid)
             question = pc.next_copy_question(target)
         else:
             query, copies = pc.split_count(query)
             target = await asyncio.to_thread(pc.resolve_print, query)
             target['copies'] = copies
             question = pc.again_question(target)
-        if pid and _job_owner_pid(target['job_json']) != pid:
+        target_owner = _job_owner_pid(target['job_json'])
+        if channel_pid is not None and target_owner is not None and target_owner != channel_pid:
             # The channel is the target (#335): never offer another printer's
-            # job for a bed-clear confirmation in this channel.
+            # job for a bed-clear confirmation in this channel. An owner that
+            # cannot be read from the record proves no mismatch; resolve_print
+            # built the target from that same archive, and the start path
+            # re-reads and validates the record before anything moves.
             raise print_next.NextPlateError(
-                f"that print belongs to {_printer_label(_job_owner_pid(target['job_json']))}, "
-                f"not this channel's printer ({_printer_label(pid)})")
+                f"that print belongs to {_printer_label(target_owner)}, "
+                f"not this channel's printer ({_printer_label(channel_pid)})")
         live_key = gateway._session_key_for_source(source)
         if not pid:
             candidates = _undecided_printer_ids(source, gateway)
@@ -4094,7 +4353,7 @@ async def print_again_dispatch(event, gateway, **kwargs):
                 live_key = _live_key_for(source, gateway, _owner)
         answer = await _confirm(adapter, source, metadata, 'print-again', question,
                                 [pc.AGAIN_LABEL, pc.AGAIN_CANCEL_LABEL], (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800),
-                                live_key=live_key)
+                                live_key=live_key, approval=True)
         if answer != pc.AGAIN_LABEL:
             message = 'Cancelled or expired. Nothing uploaded or started.'
         else:
@@ -4107,11 +4366,19 @@ async def print_again_dispatch(event, gateway, **kwargs):
                                content=f"Preparing to start {target['title']}. {number_line}{estimate}.")
             ok, detail = await print_next.start(target)
             if ok:
-                await asyncio.to_thread(pc.mark_copy_started if is_next else pc.queue_copies,
-                                        *(() if is_next else (target,)))
-            # The Moonraker listener owns the sole canonical start announcement,
-            # including the model roast. A successful print-now request may still
-            # be preparing, so do not race it with a second, incomplete receipt.
+                # Queue bookkeeping lands in the job owner's own queue file,
+                # never another printer's (P2-135).
+                queue_owner = target_owner if target_owner is not None else channel_pid
+                if is_next:
+                    await asyncio.to_thread(pc.mark_copy_started, printer_id=queue_owner)
+                else:
+                    await asyncio.to_thread(pc.queue_copies, target, printer_id=queue_owner)
+                # The start claimed its announcement in model_job, so the
+                # listener will not post one; post and register it here
+                # (the listener edits this post after warmup) (P2-56).
+                await _announce_command_start(
+                    lambda content: adapter.send(chat_id=source.chat_id, content=content, metadata=metadata),
+                    target, detail)
             message = (None if ok
                        else f"Did not start {target['title']}. Not retrying.\n"
                             + intake_plain_start_failure(detail))
@@ -4340,6 +4607,17 @@ async def typed_answer_dispatch(event, gateway, **kwargs):
     from print_handy.core.link_intake import take_secret_reply
     if error == '' and take_secret_reply():  # a pasted login token: remove that message
         await _delete_secret_message(event, source, _adapter_for(gateway, source))
+    if error == '':
+        # A parser prompt resolved in the registry: retire its rendered
+        # question too (P2-209) — otherwise the message keeps offering
+        # buttons for a prompt that no longer exists. The own-registry
+        # branch above (answer_typed) already closes its prompt.
+        from print_handy.core.link_intake import take_resolved_prompt_id
+        resolved_id = take_resolved_prompt_id()
+        ui = _CLARIFY_UI
+        if resolved_id is not None and ui is not None:
+            from print_handy.bot.platform import answered_note
+            await ui.close_prompt(resolved_id, answered_note(getattr(event, 'text', '')))
     if error:
         adapter = _adapter_for(gateway, source)
         if adapter is not None:
@@ -4810,6 +5088,14 @@ def alert_button_handlers(bot, adapter):
                         await modal_interaction.response.send_message('That answer was empty. Nothing changed — start again from the prompt.', ephemeral=True)
                         return
                     new_state[pending['field']] = value
+                    if pending['field'] == 'color':
+                        # A typed color supersedes any swatch picked
+                        # earlier (P2-233): create_spool records the hex
+                        # over the name, so a stale swatch would silently
+                        # become the new color's code. Clearing it lets the
+                        # name derive its own — the select path's color
+                        # branch already does exactly this.
+                        new_state['hex'] = None
                 # A modal submission answers with a fresh message carrying the next step.
                 new_state = {**new_state, 'step': pab.intake_next_step(new_state)}
                 aid = await asyncio.to_thread(pab.record, 'intake', '', **new_state)
@@ -4821,6 +5107,11 @@ def alert_button_handlers(bot, adapter):
 
     async def intake_finish(interaction, state):
         """The walkthrough's confirmation: create + bind, once, inventory-only."""
+        # Acknowledge before the bind (P2-191): the Spoolman/Moonraker calls
+        # inside can outlast Discord's 3 s initial-response window, after
+        # which edit_message would fail and leave the consumed prompt's
+        # buttons standing over a completed bind.
+        await interaction.response.defer()
         try:
             from print_handy.hermes import spool_sync
             values = {'brand': state.get('brand') or '', 'material': state.get('material') or '',
@@ -4839,11 +5130,16 @@ def alert_button_handlers(bot, adapter):
                 result = await asyncio.to_thread(pab.create_and_bind_insertion, state['slot'], values,
                                                  spool_sync, state.get('disposition') or 'shelf',
                                                  expected_prior_spool_id=state.get('old_spool_id'))
-        except Exception:
+        except Exception as exc:
             logger.exception('new spool walkthrough create failed')
-            await interaction.response.edit_message(content='Nothing was changed. Check what you entered and try again.', view=None)
+            # A SpoolError is written for the operator and states what
+            # actually happened — including a spool that WAS created before
+            # a bind refusal (P2-204); the blanket line would deny it.
+            detail = str(exc) if isinstance(exc, spool_sync.SpoolError) else None
+            await interaction.edit_original_response(
+                content=detail or 'Nothing was changed. Check what you entered and try again.', view=None)
             return
-        await interaction.response.edit_message(content=result, view=None)
+        await interaction.edit_original_response(content=result, view=None)
 
     async def handle_intake(interaction, action, aid):
         alert = await asyncio.to_thread(pab.peek, aid)
@@ -4885,7 +5181,14 @@ def alert_button_handlers(bot, adapter):
             task.add_done_callback(_photo_tasks.discard)
             return
         if action == 'edit':
-            await intake_advance(interaction, {**state, 'step': 'start'})
+            # Switching to manual entry discards the photo-extracted
+            # temperatures (P2-198): the walkthrough has no step that can
+            # edit them, so keeping them would save a possibly misread
+            # label's values on the new filament, overriding the defaults
+            # of the material the operator is about to pick. (The photo
+            # refusal path already restarts with them cleared.)
+            await intake_advance(interaction, {**state, 'step': 'start',
+                                               'nozzle_temp': None, 'bed_temp': None})
             return
         material = pab.intake_material_for_action(action)
         if material is not None:
@@ -4973,6 +5276,13 @@ def alert_button_handlers(bot, adapter):
         except Exception:
             logger.debug('could not strip spool-question buttons', exc_info=True)
         if action == 'cancel':
+            # Acknowledge before waiting on the printer (P2-164):
+            # print_stop.cancel can poll for ~20 s, far past Discord's 3 s
+            # initial-response window, so the outcome goes by follow-up —
+            # the same shape as the generic alert handler.
+            await interaction.response.send_message(
+                f"{getattr(interaction.user, 'display_name', 'Someone')} tapped Cancel print. "
+                'Checking the printer first.')
             try:
                 from print_handy.hermes import moonraker_event_listener as listener
                 from print_handy.hermes import spool_sync
@@ -4980,12 +5290,12 @@ def alert_button_handlers(bot, adapter):
                                                  alert.get('context') or {})
             except Exception as exc:
                 logger.exception('spool-question cancel failed')
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     'The print was not cancelled. The spool question is still open — answer it '
                     'in text (a spool number, `same`, or `cancel the print`); the next reminder '
                     're-posts its buttons.', ephemeral=True)
                 return
-            await interaction.response.send_message(result)
+            await interaction.followup.send(result)
             return
         if action == 'existing':
             await spool_question_select(interaction, alert)
@@ -4993,6 +5303,11 @@ def alert_button_handlers(bot, adapter):
         if action == 'new':
             await spool_question_modal(interaction, alert)
             return
+        # Same ack-first shape as cancel: the Spoolman answer can outlast
+        # the 3 s window too (the #594 phase 2 gap recorded for both).
+        await interaction.response.send_message(
+            f"{getattr(interaction.user, 'display_name', 'Someone')} tapped Same spool. "
+            'Checking the printer first.')
         try:
             from print_handy.hermes import moonraker_event_listener as listener
             from print_handy.hermes import spool_sync
@@ -5000,9 +5315,9 @@ def alert_button_handlers(bot, adapter):
                                              alert.get('context') or {}, {'status': 'same'})
         except Exception as exc:
             logger.exception('same spool-question answer failed')
-            await interaction.response.send_message('Nothing was changed. Check what you entered and try again.', ephemeral=True)
+            await interaction.followup.send('Nothing was changed. Check what you entered and try again.', ephemeral=True)
             return
-        await interaction.response.send_message(result)
+        await interaction.followup.send(result)
 
     async def handle_spool_question_select(interaction, aid):
         pending = await asyncio.to_thread(pab.take, aid)
@@ -5128,6 +5443,8 @@ def alert_button_handlers(bot, adapter):
             return
         # spoolman-new-confirm + confirm: the one bind, through the same
         # spool_sync.bind_slot the guided /spool change flow ends in.
+        # Acknowledge before the bind (P2-191), as in intake_finish.
+        await interaction.response.defer()
         try:
             from print_handy.hermes import spool_sync
             result = await asyncio.to_thread(spool_sync.bind_slot, int(alert['slot']), int(spool_id),
@@ -5138,9 +5455,9 @@ def alert_button_handlers(bot, adapter):
             message = spool_sync.bind_text(result)
         except Exception as exc:
             logger.exception('new spool load failed')
-            await interaction.response.send_message('Nothing was changed. Check the slot and spool number and try again.', ephemeral=True)
+            await interaction.followup.send('Nothing was changed. Check the slot and spool number and try again.', ephemeral=True)
             return
-        await interaction.response.edit_message(content=message, view=None)
+        await interaction.edit_original_response(content=message, view=None)
 
     async def handle_new_spool_select(interaction, aid):
         pending = await asyncio.to_thread(pab.take, aid)
@@ -5188,7 +5505,8 @@ def alert_button_handlers(bot, adapter):
             await interaction.response.send_message('That plate picker is old or was already used. Nothing started.', ephemeral=True)
             return
         try:
-            part_id = str((getattr(interaction, 'data', {}) or {}).get('values', [None])[0])
+            selected = str((getattr(interaction, 'data', {}) or {}).get('values', [None])[0])
+            part_id = pab.plate_part_id(alert, selected)
             target = print_next.resolve_next(print_next.load_plan(alert['plan_id']), part_id=part_id)
         except Exception as exc:
             await interaction.response.send_message(f'Cannot start that plate: {exc}. Nothing started.', ephemeral=True)
@@ -5233,6 +5551,7 @@ def alert_button_handlers(bot, adapter):
         import discord
         from print_handy.hermes import print_next
         view = None
+        ok, detail = False, ''
         try:
             ok, detail = await print_next.start({**target, 'accept_spool_change': True} if accept_spool_change else target)
             message = None if ok else (f"Did not start {target['label']}. Not retrying. "
@@ -5248,7 +5567,11 @@ def alert_button_handlers(bot, adapter):
         except Exception as exc:
             logger.exception('plate picker start failed')
             message = _failure_post('Next plate', exc, 'Check the printer screen before retrying.', subsystem='printer')
-        if message:  # None: start accepted, printer preparing; the listener posts "Print started".
+        if ok:  # start accepted: the claim suppresses the listener's own post,
+            # so announce and register the start here (P2-56).
+            await _announce_command_start(lambda content: interaction.followup.send(content),
+                                          target, detail)
+        if message:
             await (interaction.followup.send(message, view=view) if view else interaction.followup.send(message))
 
     async def handle_plate_spool(interaction, aid):
@@ -5556,6 +5879,18 @@ def register(ctx):
     global _HOST_HERMES
     _HOST_HERMES = hasattr(ctx, 'register_auxiliary_task') or getattr(ctx, 'llm', None) is not None
     clarify_on = _clarify_ui_on()
+    if clarify_on and not _config.discord_token():
+        # The own registry is only usable when its renderer can be
+        # installed: alert_button_handlers builds the clarify adapter only
+        # with a resolvable bot token (P2-208). Activating the registry
+        # without it leaves handler questions registered in a registry
+        # nothing renders — unanswered until timeout — so the whole
+        # own-renderer path (registry activation, locale patch, the
+        # typed-answer hook swap below) stands down together and Hermes
+        # renders the questions as it does with the switch off.
+        logger.warning('clarify_ui is on but no Discord bot token resolves; '
+                       'the own prompt registry stays off and Hermes renders questions')
+        clarify_on = False
     if clarify_on:
         # The own-renderer switch (Stage 2 design §3.1): handler questions
         # register into Print Handy's own prompt registry from here on. This

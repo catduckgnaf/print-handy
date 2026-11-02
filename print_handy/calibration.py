@@ -259,12 +259,21 @@ def _is_restart_disconnect(exc) -> bool:
 
     SAVE_CONFIG restarts Klipper while Moonraker still holds the request:
     Moonraker answers 503 "Klippy Disconnected", or the connection is cut.
+    A failure from BEFORE the request went out is not that signature: a
+    refused connection means nothing ever reached Moonraker, and a
+    timeout urllib wrapped in URLError is a connect timeout (a bare
+    TimeoutError is the post-send read timeout — see _send_script), so
+    neither may confirm a save that never happened.
     """
     if getattr(exc, "code", None) == 503:
         return True
     reason = getattr(exc, "reason", None)
-    return isinstance(exc, (ConnectionError, TimeoutError)) or isinstance(
-        reason, (ConnectionError, TimeoutError))
+    failure = reason if isinstance(reason, BaseException) else exc
+    if isinstance(failure, ConnectionRefusedError):
+        return False
+    if failure is not exc and isinstance(failure, TimeoutError):
+        return False  # wrapped by urllib: a connect timeout, pre-send
+    return isinstance(failure, (ConnectionError, TimeoutError))
 
 
 def _save_config(transport, *, attempts=45, interval_s=2.0, sleep=time.sleep):
@@ -601,7 +610,11 @@ def _pid_before(settings, heater):
     section = settings.get(heater) if isinstance(settings, dict) else None
     if not isinstance(section, dict):
         return None
-    values = [_num(section.get(key)) for key in ("pid_Kp", "pid_Ki", "pid_Kd")]
+    # Klipper's configfile status lowercases every option name, so the
+    # terms arrive as pid_kp / pid_ki / pid_kd whatever casing the
+    # printer.cfg file itself uses; look them up case-insensitively.
+    lowered = {str(key).lower(): value for key, value in section.items()}
+    values = [_num(lowered.get(key)) for key in ("pid_kp", "pid_ki", "pid_kd")]
     if any(value is None for value in values):
         return None
     return PidValues(*values)

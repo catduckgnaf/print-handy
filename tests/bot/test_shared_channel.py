@@ -331,7 +331,7 @@ def test_print_again_in_a_shared_channel_uses_the_jobs_printer(plugin_cfg, monke
     monkeypatch.setattr(pc, "resolve_print", lambda query: dict(target))
     monkeypatch.setattr(pc, "split_count", lambda query: (query, 1))
     monkeypatch.setattr(pc, "again_question", lambda target: "Print it again?")
-    monkeypatch.setattr(pc, "queue_copies", lambda target: None)
+    monkeypatch.setattr(pc, "queue_copies", lambda target, **kw: None)
     monkeypatch.setattr(print_next, "start", lambda target: started.append(target) or (True, ""))
     monkeypatch.setattr("print_handy.hermes.discord_print_summary.gcode_metadata",
                         lambda gcode: (60, 10))

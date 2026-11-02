@@ -119,3 +119,27 @@ def test_empty_profile_config_is_unreadable(profile):
 def test_comment_only_profile_config_is_unreadable(profile):
     _write(profile, "# rendered by the installer\n")
     assert _config.profile_platform_state("discord")[0] == "unreadable"
+
+
+# --- P2-149: PyYAML absent (ruamel-only Hermes host) ---
+
+
+def test_platform_state_reads_without_pyyaml(profile, monkeypatch):
+    """The Hermes plugin runtime ships ruamel.yaml instead of PyYAML
+    (#170); the profile read must fall back the way settings does
+    instead of raising ImportError out of the check."""
+    monkeypatch.setitem(__import__("sys").modules, "yaml", None)
+    _write(profile, "platforms:\n  discord:\n    enabled: false\n")
+    assert _config.profile_platform_state("discord")[0] == "disabled"
+
+
+def test_platform_state_unreadable_when_no_yaml_library_at_all(profile, monkeypatch):
+    """With neither YAML library reachable the switch cannot be
+    verified: the state is 'unreadable', never an exception escaping
+    into the doctor / bot check."""
+    from print_handy import settings
+
+    monkeypatch.setitem(__import__("sys").modules, "yaml", None)
+    monkeypatch.setattr(settings, "_yaml_load", None)
+    _write(profile, "platforms:\n  discord:\n    enabled: false\n")
+    assert _config.profile_platform_state("discord")[0] == "unreadable"

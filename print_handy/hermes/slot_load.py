@@ -25,6 +25,13 @@ def load_slot(
     Refuses unless printer is idle (standby, complete, cancelled, error) and
     Klipper is ready. Holds pc._CONTROL_LOCK.
 
+    Refuses when the display mode is unknown: only an explicit integer
+    ``display_off`` of 0 or 1 is known. A missing or unrecognized value
+    fails closed before any macro is sent, matching how the rest of the
+    readiness code treats unknown modes, because the two modes use
+    different macro sequences and an assumed mode would move filament
+    the wrong way.
+
     Under screenless mode (display_off=1), executes:
         IFS_F11
         IFS_F10
@@ -66,7 +73,17 @@ def load_slot(
         job_state = str((st.get("print_stats") or {}).get("state") or "unknown").casefold()
         klippy = str((st.get("webhooks") or {}).get("state") or "unknown").casefold()
         variables = (st.get("save_variables") or {}).get("variables") or {}
-        display_off = variables.get("display_off", 0)
+        display_off = variables.get("display_off")
+
+        if type(display_off) is not int or display_off not in (0, 1):
+            return {
+                "ok": False,
+                "error": (
+                    f"Refused: printer display mode is unknown "
+                    f"(display_off={display_off!r}); slot loading needs an explicit "
+                    f"native-screen (0) or screenless (1) mode. Nothing sent."
+                ),
+            }
 
         if job_state in {"printing", "paused"}:
             return {

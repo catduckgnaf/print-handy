@@ -259,6 +259,65 @@ printers:
                     load_local(text)
 
 
+class EntryModelDefaultsTests(unittest.TestCase):
+    """A non-default entry is validated against a scratch view seeded with
+    its model's defaults, so the model's nozzle_type / tool_count reach the
+    resolved entry exactly as they do for the default entry (P2-125)."""
+
+    def test_non_default_entries_keep_their_model_defaults(self):
+        data = load_local("""
+printers:
+  - id: bench-ad5x
+    model: flashforge.ad5x
+    moonraker_url: http://192.168.1.61:7125
+  - id: workshop-creator5
+    model: flashforge.creator5
+    moonraker_url: http://192.168.1.62:7125
+  - id: spare-a1
+    model: bambulab.a1
+    lan_host: 192.168.1.63
+    lan_serial: "00M00A000000001"
+""")
+        entries = {entry["id"]: entry for entry in data["printers"]}
+        self.assertEqual(entries["workshop-creator5"].get("tool_count"), 4)
+        self.assertEqual(entries["spare-a1"].get("nozzle_type"), "stainless_steel")
+
+    def test_explicit_entry_values_still_win_over_model_defaults(self):
+        data = load_local("""
+printers:
+  - id: bench-ad5x
+    model: flashforge.ad5x
+    moonraker_url: http://192.168.1.61:7125
+  - id: workshop-creator5
+    model: flashforge.creator5
+    moonraker_url: http://192.168.1.62:7125
+    tool_count: 2
+""")
+        entries = {entry["id"]: entry for entry in data["printers"]}
+        self.assertEqual(entries["workshop-creator5"].get("tool_count"), 2)
+
+
+class EntryScalarTypeTests(unittest.TestCase):
+    """Roster scalar values are type-checked when the entry is copied, so a
+    wrong-shaped value refuses with the entry named instead of crashing a
+    consumer later (P2-126)."""
+
+    def test_wrong_scalar_types_refuse_with_the_entry_named(self):
+        for text, message in (
+            ('printers:\n  - id: ad5x\n    model: flashforge.ad5x\n'
+             '    camera_snapshot_url: 123\n', "camera_snapshot_url should be a string"),
+            ('printers:\n  - id: ad5x\n    model: flashforge.ad5x\n'
+             '    name: [a, b]\n', "name should be a string"),
+            ('printers:\n  - id: ad5x\n    model: flashforge.ad5x\n'
+             '    tool_count: "4"\n', "tool_count should be a whole number"),
+            ('printers:\n  - id: ad5x\n    model: flashforge.ad5x\n'
+             '    start_confirm_s: true\n', "start_confirm_s should be a whole number"),
+        ):
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(settings.SettingsError, message):
+                    load_local(text)
+
+
 class ClaimRefusalTests(unittest.TestCase):
     def test_duplicate_id_refuses(self):
         with self.assertRaisesRegex(settings.SettingsError, "duplicate printer id 'ad5x'"):
@@ -372,6 +431,69 @@ class EnvOverrideTests(unittest.TestCase):
             with self.subTest(name=name):
                 with self.assertRaises(settings.SettingsError):
                     load_local(TWO_PRINTERS, environ={name: "x"})
+
+
+GENERIC_GEOMETRY = """
+printers:
+  - id: workshop-ad5x
+    model: flashforge.ad5x
+    moonraker_url: http://192.168.1.61:7125
+  - id: bench-klipper
+    name: Bench Klipper
+    model: klipper.generic
+    moonraker_url: http://192.168.1.62:7125
+    bed_mm: [100, 120]
+    max_print_height_mm: 130
+"""
+
+
+class EntryGeometryTests(unittest.TestCase):
+    """Custom build volumes on roster entries (P1-83): an Other/generic
+    printer's measured geometry must survive into its settings view
+    instead of being replaced by the model's defaults."""
+
+    def test_entry_geometry_reaches_the_printer_view(self):
+        data = load_local(GENERIC_GEOMETRY)
+        entry = settings.by_id("bench-klipper", data)
+        self.assertEqual(entry["bed_mm"], [100.0, 120.0])
+        self.assertEqual(entry["max_print_height_mm"], 130.0)
+        view = settings.view_for("bench-klipper", data)
+        self.assertEqual(view["printer"]["bed_mm"], [100.0, 120.0])
+        self.assertEqual(view["printer"]["max_print_height_mm"], 130.0)
+
+    def test_entry_without_geometry_keeps_the_model_defaults(self):
+        data = load_local(GENERIC_GEOMETRY)
+        view = settings.view_for("workshop-ad5x", data)
+        self.assertEqual(view["printer"]["bed_mm"], [220.0, 220.0])
+
+    def test_default_entry_geometry_projects_into_the_legacy_view(self):
+        data = load_local("""
+printers:
+  - id: bench-klipper
+    model: klipper.generic
+    moonraker_url: http://192.168.1.62:7125
+    bed_mm: [100, 120]
+    max_print_height_mm: 130
+""")
+        self.assertEqual(data["printer"]["bed_mm"], [100.0, 120.0])
+        self.assertEqual(data["printer"]["max_print_height_mm"], 130.0)
+        self.assertEqual(data["printers"][0]["bed_mm"], [100.0, 120.0])
+
+    def test_bad_entry_geometry_is_refused(self):
+        for bad in ("bed_mm: [220]", "bed_mm: [220, -1]", "bed_mm: 220",
+                    "max_print_height_mm: -5", "max_print_height_mm: tall"):
+            with self.subTest(bad=bad):
+                with self.assertRaisesRegex(settings.SettingsError, "bed_mm|max_print_height_mm"):
+                    load_local(f"""
+printers:
+  - id: workshop-ad5x
+    model: flashforge.ad5x
+    moonraker_url: http://192.168.1.61:7125
+  - id: bench-klipper
+    model: klipper.generic
+    moonraker_url: http://192.168.1.62:7125
+    {bad}
+""")
 
 
 if __name__ == "__main__":

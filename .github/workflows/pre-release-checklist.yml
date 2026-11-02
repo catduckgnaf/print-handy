@@ -122,7 +122,11 @@ jobs:
           cat body.md >> "$GITHUB_STEP_SUMMARY"
 
           # One checklist issue per version: update it, never duplicate it.
-          existing="$(gh issue list --repo "$repo" --state open --limit 100 \
+          # Search by title across all states first (P2-153/P2-263): an
+          # open-only, unfiltered list misses a closed checklist and any
+          # checklist older than the newest 100 issues.
+          existing="$(gh issue list --repo "$repo" --state all --limit 100 \
+            --search "in:title \"$issue_title\"" \
             --json number,title \
             | jq -r --arg t "$issue_title" \
               '[.[] | select(.title == $t) | .number] | first // empty')"

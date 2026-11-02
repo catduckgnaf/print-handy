@@ -109,9 +109,9 @@ def test_is_allowed_filament_id_allowlist():
     own = {"Flashforge Generic PLA"}
     assert slice_guard.is_allowed_filament_id("Flashforge Generic PLA", own)
     assert slice_guard.is_allowed_filament_id('"Flashforge Generic PLA"', own)
-    assert slice_guard.is_allowed_filament_id("Hermes slot 1 PLA", own)
-    assert slice_guard.is_allowed_filament_id('"Hermes slot 2 PETG"', own)
-    assert slice_guard.is_allowed_filament_id("Hermes slot 4 TPU-95A", own)
+    assert slice_guard.is_allowed_filament_id("Hermes slot 1 PLA", own, slot_count=4)
+    assert slice_guard.is_allowed_filament_id('"Hermes slot 2 PETG"', own, slot_count=4)
+    assert slice_guard.is_allowed_filament_id("Hermes slot 4 TPU-95A", own, slot_count=4)
 
     # Foreign or arbitrary IDs are rejected
     assert not slice_guard.is_allowed_filament_id("Bambu Generic PLA", own)
@@ -119,6 +119,33 @@ def test_is_allowed_filament_id_allowlist():
     assert not slice_guard.is_allowed_filament_id("Custom Profile", own)
     assert not slice_guard.is_allowed_filament_id("", own)
     assert not slice_guard.is_allowed_filament_id(None, own)
+
+
+def test_is_allowed_filament_id_rejects_spoofed_hermes_ids():
+    """P2-27: the Hermes pattern alone must never accept an ID. A Hermes slot ID is
+    accepted only as an exact generated profile ID, or for a slot inside the
+    configured slot count the caller supplies."""
+    own = {"Flashforge Generic PLA"}
+    # The audit's spoof: a foreign project naming itself a Hermes slot.
+    assert not slice_guard.is_allowed_filament_id("Hermes slot 999 Totally Foreign", own, slot_count=4)
+    assert not slice_guard.is_allowed_filament_id("Hermes slot 999 Totally Foreign", own)
+    # No slot bound supplied: the pattern by itself proves nothing.
+    assert not slice_guard.is_allowed_filament_id("Hermes slot 1 PLA", own)
+    assert not slice_guard.is_allowed_filament_id("Hermes slot 1 PLA")
+    # Outside the configured slots, even with a plausible material.
+    assert not slice_guard.is_allowed_filament_id("Hermes slot 5 PLA", own, slot_count=4)
+    assert not slice_guard.is_allowed_filament_id("Hermes slot 0 PLA", own, slot_count=4)
+    # A generated ID carried in the active profile IDs passes by exact membership,
+    # whatever slot bound the caller has.
+    assert slice_guard.is_allowed_filament_id("Hermes slot 2 PETG", {"Hermes slot 2 PETG"})
+
+
+def test_slice_guard_blocks_a_spoofed_hermes_filament_id():
+    """P2-27 at the post-slice gate: a spoofed Hermes ID in the G-code is foreign."""
+    gcode = GOOD_GCODE + '; filament_settings_id = "Hermes slot 999 Totally Foreign"\n'
+    result = slice_guard.post_slice(gcode, tool_slots={0: 1})
+    assert result.status == "blocked"
+    assert any("Hermes slot 999" in problem for problem in result.blocked)
 
 
 def test_slice_guard_accepts_hermes_slot_filament_id():

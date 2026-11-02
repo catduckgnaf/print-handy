@@ -69,8 +69,11 @@ def spoolman(method: str, path: str, body: Any = None) -> Any:
         raise SpoolError(str(exc)) from exc
 
 
-def moonraker(method: str, path: str, body: Any = None) -> Any:
-    return _http(MOONRAKER, method, path, body, timeout=15)
+def moonraker(method: str, path: str, body: Any = None, timeout: float | None = None) -> Any:
+    # The default stays read-sized (15s); a caller whose request Moonraker
+    # answers only after long work (the firmware upgrade POST) passes an
+    # upgrade-sized timeout instead.
+    return _http(MOONRAKER, method, path, body, timeout=15 if timeout is None else timeout)
 
 
 def moonraker_for(printer_id: str | None) -> Client:
@@ -80,8 +83,8 @@ def moonraker_for(printer_id: str | None) -> Client:
     from print_handy import settings
     base = str(settings.view_for(printer_id)["services"]["moonraker_url"])
 
-    def call(method: str, path: str, body: Any = None) -> Any:
-        return _http(base, method, path, body, timeout=15)
+    def call(method: str, path: str, body: Any = None, timeout: float | None = None) -> Any:
+        return _http(base, method, path, body, timeout=15 if timeout is None else timeout)
 
     return call
 
@@ -168,11 +171,24 @@ def spool_loaded_elsewhere(spool_id: int, *, state_path: Path | None = None,
     printers_dir = root / "printers"
     if printers_dir.is_dir():
         candidates += sorted(printers_dir.glob("*/printer_hardware.json"))
+    try:
+        default_id = _config.cfg()["printers"][0]["id"]
+    except Exception:
+        default_id = None
     if target == root / "printer_hardware.json":
         # The legacy root record IS the default printer's record (pre-adoption
         # spelling of it): its per-printer copy is the same printer, not another.
         try:
-            candidates.remove(root / "printers" / _config.cfg()["printers"][0]["id"] / "printer_hardware.json")
+            candidates.remove(root / "printers" / default_id / "printer_hardware.json")
+        except Exception:
+            pass
+    elif default_id is not None and target == root / "printers" / default_id / "printer_hardware.json":
+        # The reverse direction (P2-127): binding the default printer's
+        # per-printer record, the root record is that same printer's legacy
+        # spelling (retained as the rollback copy after adoption), not
+        # another printer — a spool it loads is this printer's own.
+        try:
+            candidates.remove(root / "printer_hardware.json")
         except Exception:
             pass
     for candidate in candidates:
@@ -182,8 +198,12 @@ def spool_loaded_elsewhere(spool_id: int, *, state_path: Path | None = None,
             other = json.loads(candidate.read_text())
         except (OSError, ValueError):
             continue
-        if isinstance(other, dict) and int(spool_id) in _loaded_spool_ids(other):
-            return candidate.parent.name if candidate.parent != root else "the default printer"
+        if isinstance(other, dict):
+            # Another printer's record may predate the #672 rename: adopt its
+            # legacy slot-map key or only its active spool is seen (P2-267).
+            filament_color.adopt_renamed_slots_key(other)
+            if int(spool_id) in _loaded_spool_ids(other):
+                return candidate.parent.name if candidate.parent != root else "the default printer"
     return None
 
 
@@ -484,6 +504,10 @@ def backfill_slot_colors(*, client: Client = spoolman, mr: Client = moonraker,
     except (OSError, ValueError):
         return []
     state = json.loads(json.dumps(raw))
+    # A record written before the #672 rename carries only ifs_slots;
+    # adopt it like both state loaders do, or legacy slots never
+    # backfill (P2-268). The save below then writes the current name.
+    filament_color.adopt_renamed_slots_key(state)
     slots = state.get("filament_slots") or {}
     pending = {str(key): rec for key, rec in slots.items() if isinstance(rec, dict) and rec.get("spoolman_id")
                and (not filament_color.normalize_hex(rec.get("hex"))
@@ -557,6 +581,42 @@ def bind_text(result: dict[str, Any]) -> str:
     return f"Slot {result['slot']} → spool #{result['spool_id']} ({r['name']}{grams}).{moved} {screen}{usage}"
 
 
+def repair_usage_spool(*, mr: Client = moonraker, state_path: Path | None = None,
+                       printer_id: str | None = None) -> str:
+    """Re-point Moonraker's active spool at the recorded spool when the pointer is stale.
+
+    The recovery bind_slot's failure message sends the user to (/spool sync,
+    P2-179): the new slot mapping was saved but re-pointing usage failed, so
+    Moonraker still charges a spool that is loaded nowhere. A pointer naming
+    a spool no record loads is stale; the recorded active spool replaces it,
+    with resume_usage's verified readback. A pointer that names a loaded
+    spool is consistent and is left alone, an empty pointer charges no one
+    and is left alone (a deliberate suspension is not sync's to undo), and
+    nothing is touched while the printer is busy — re-pointing mid-print
+    would corrupt the running print's accounting.
+    """
+    if printer_state(mr) in ("printing", "unknown"):
+        return "Filament charging: left alone while the printer is busy"
+    try:
+        active = active_usage_spool(mr)
+    except Exception:
+        return "Filament charging: could not be checked — try again"
+    if active is None:
+        return "Filament charging: no spool is being charged"
+    state = load_state(state_path, printer_id=printer_id)
+    if active in _loaded_spool_ids(state):
+        return f"Filament charging: spool #{active} — matches the record"
+    target = (state.get("spool") or {}).get("spoolman_id")
+    if not isinstance(target, int) or isinstance(target, bool):
+        return (f"Filament charging: spool #{active} is no longer loaded and no replacement "
+                "is recorded — load the new spool with `/spool change`")
+    try:
+        resume_usage(target, mr)
+    except Exception:
+        return f"Filament charging: could not be re-pointed to spool #{target} — try again"
+    return f"Filament charging: was pointing at spool #{active} (no longer loaded); re-pointed to #{target}"
+
+
 def sync_all_screens(*, mr: Client = moonraker, state_path: Path | None = None,
                      pending_path: Path | None = None, printer_id: str | None = None) -> list[str]:
     state = load_state(state_path, printer_id=printer_id)
@@ -576,6 +636,9 @@ def sync_all_screens(*, mr: Client = moonraker, state_path: Path | None = None,
             out.append(f"Slot {slot}: {pushed}")
         except Exception as exc:
             out.append(f"Slot {slot}: the screen could not be updated — try again")
+    # /spool sync is also the recovery bind_slot names when re-pointing usage
+    # failed (P2-179): it must repair the charging, not just the screens.
+    out.append(repair_usage_spool(mr=mr, state_path=state_path, printer_id=printer_id))
     return out
 
 

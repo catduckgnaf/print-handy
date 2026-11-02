@@ -20,7 +20,7 @@
     "<out>/clones.stl"
   ],
   "baseline_is_shared_file": [
-    true
+    false
   ],
   "filament": {
     "additional_cooling_fan_speed": [
@@ -444,6 +444,9 @@
     "min_resonance_avoidance_speed": "70",
     "name": "Flashforge Creator 5 0.4 nozzle",
     "nozzle_diameter": [
+      "0.4",
+      "0.4",
+      "0.4",
       "0.4"
     ],
     "nozzle_height": "4",

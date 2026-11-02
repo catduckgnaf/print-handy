@@ -19,6 +19,70 @@ def test_load_state_adopts_the_pre_rename_slots_key(tmp_path):
     assert "ifs_slots" not in state
 
 
+def _elsewhere_layout(tmp_path, monkeypatch, default_id="ad5x"):
+    """A state root holding the default printer's legacy root record (its
+    pre-adoption spelling, retained as the rollback copy) plus per-printer
+    records. Returns the default printer's per-printer record path."""
+    monkeypatch.setattr(spool_sync._config, "cfg", lambda: {"printers": [{"id": default_id}]})
+    root_record = {"spool": {"spoolman_id": 7, "material": "PLA"},
+                   "filament_slots": {"1": {"spoolman_id": 7, "material": "PLA"}}}
+    (tmp_path / "printer_hardware.json").write_text(json.dumps(root_record))
+    mine = tmp_path / "printers" / default_id
+    mine.mkdir(parents=True)
+    (mine / "printer_hardware.json").write_text(json.dumps({"spool": {}, "filament_slots": {}}))
+    return mine / "printer_hardware.json"
+
+
+def test_loaded_elsewhere_ignores_the_root_record_for_the_default_printer(tmp_path, monkeypatch):
+    # P2-127: binding to the default printer's per-printer record must not
+    # treat that same printer's root-level record as another printer — a
+    # spool already loaded on the default printer can be rebound to it.
+    target = _elsewhere_layout(tmp_path, monkeypatch)
+    assert spool_sync.spool_loaded_elsewhere(7, state_path=target, printer_id="ad5x") is None
+
+
+def test_loaded_elsewhere_still_reports_a_real_other_printer(tmp_path, monkeypatch):
+    # P2-127 guard: the root-record exclusion is only the default printer's
+    # own alias; a different printer loading the spool is still reported.
+    target = _elsewhere_layout(tmp_path, monkeypatch)
+    other = tmp_path / "printers" / "other"
+    other.mkdir(parents=True)
+    (other / "printer_hardware.json").write_text(json.dumps(
+        {"spool": {}, "filament_slots": {"2": {"spoolman_id": 7, "material": "PLA"}}}))
+    assert spool_sync.spool_loaded_elsewhere(7, state_path=target, printer_id="ad5x") == "other"
+
+
+def test_loaded_elsewhere_root_target_ignores_the_default_printers_copy(tmp_path, monkeypatch):
+    # The pre-existing direction of the alias exclusion stays: binding the
+    # root record does not see the default printer's per-printer copy.
+    _elsewhere_layout(tmp_path, monkeypatch)
+    per_printer = tmp_path / "printers" / "ad5x" / "printer_hardware.json"
+    per_printer.write_text(json.dumps(
+        {"spool": {}, "filament_slots": {"3": {"spoolman_id": 8, "material": "PLA"}}}))
+    assert spool_sync.spool_loaded_elsewhere(
+        8, state_path=tmp_path / "printer_hardware.json") is None
+
+
+def test_loaded_elsewhere_adopts_legacy_ifs_slots_of_other_printers(tmp_path, monkeypatch):
+    # P2-267: another printer's pre-#672 record names its slot map ifs_slots;
+    # the cross-printer scan must adopt that key or spools in its non-active
+    # slots are invisible and the same spool can be bound twice.
+    monkeypatch.setattr(spool_sync._config, "cfg", lambda: {"printers": [{"id": "ad5x"}]})
+    other = tmp_path / "printers" / "other"
+    other.mkdir(parents=True)
+    (other / "printer_hardware.json").write_text(json.dumps(
+        {"spool": {"spoolman_id": 3, "material": "PLA"},
+         "ifs_slots": {"2": {"spoolman_id": 9, "material": "PLA"}}}))
+    mine = tmp_path / "printers" / "ad5x"
+    mine.mkdir(parents=True)
+    (mine / "printer_hardware.json").write_text(json.dumps({"spool": {}, "filament_slots": {}}))
+    assert spool_sync.spool_loaded_elsewhere(
+        9, state_path=mine / "printer_hardware.json", printer_id="ad5x") == "other"
+    # The other printer's active spool was always visible; it still is.
+    assert spool_sync.spool_loaded_elsewhere(
+        3, state_path=mine / "printer_hardware.json", printer_id="ad5x") == "other"
+
+
 def test_slot_record_strips_repeated_trailing_material_case_insensitively():
     spool = {"id": 14, "filament": {"name": "Pink PLA", "material": "PLA", "color_hex": "F95D73"}}
     record = spool_sync._slot_record(2, spool, None, "test")
@@ -67,6 +131,90 @@ def test_suspend_and_resume_usage():
     client2.side_effect = [{}, {"result": {"spool_id": 99}}]
     spool_sync.resume_usage(99, mr=client2)
     client2.assert_any_call("POST", "/server/spoolman/spool_id", {"spool_id": 99})
+
+
+def _sync_state_file(tmp_path, *, with_spool=True):
+    state = {"filament_slots": {
+        "1": {"spoolman_id": 11, "material": "PLA", "hex": "F95D73", "name": "New PLA"},
+        "2": {"spoolman_id": 12, "material": "PLA", "hex": "067749", "name": "Other PLA"}}}
+    if with_spool:
+        state["spool"] = {"spoolman_id": 11, "name": "New PLA", "material": "PLA",
+                          "density": 1.24, "diameter_mm": 1.75}
+    path = tmp_path / "printer_hardware.json"
+    path.write_text(json.dumps(state))
+    return path
+
+
+def _sync_mr(active, *, printer="standby", stuck=False):
+    """Moonraker fake for /spool sync: print state, the spool pointer, screen posts."""
+    calls = []
+
+    def mr(method, path, body=None):
+        calls.append((method, path, body))
+        if path.startswith("/printer/objects/query"):
+            return {"result": {"status": {"print_stats": {"state": printer}}}}
+        if path == "/server/spoolman/spool_id":
+            if method == "POST":
+                if not stuck:
+                    active[0] = (body or {}).get("spool_id")
+                return {}
+            return {"result": {"spool_id": active[0]}}
+        return {"result": "ok"}
+
+    return mr, calls
+
+
+def _run_sync(tmp_path, mr, state_path):
+    with mock.patch.object(spool_sync, "push_screen", return_value="pushed"):
+        return spool_sync.sync_all_screens(mr=mr, state_path=state_path,
+                                           pending_path=tmp_path / "pending.json")
+
+
+def test_spool_sync_repairs_a_stale_usage_pointer(tmp_path):
+    # P2-179: bind_slot saved the new mapping but re-pointing Moonraker's
+    # active spool failed, and its message told the user to run /spool sync.
+    # The pointer still names spool #10, which is loaded nowhere; sync must
+    # actually repair the charging, not just refresh the screens.
+    active = [10]
+    mr, _calls = _sync_mr(active)
+    lines = _run_sync(tmp_path, mr, _sync_state_file(tmp_path))
+    assert active[0] == 11
+    assert any("charging" in line and "#11" in line for line in lines)
+
+
+def test_spool_sync_leaves_a_matching_usage_pointer_alone(tmp_path):
+    active = [11]
+    mr, calls = _sync_mr(active)
+    lines = _run_sync(tmp_path, mr, _sync_state_file(tmp_path))
+    assert active[0] == 11
+    assert not any(method == "POST" and path == "/server/spoolman/spool_id" for method, path, _ in calls)
+    assert any("charging" in line and "#11" in line for line in lines)
+
+
+def test_spool_sync_reports_a_stale_pointer_with_no_recorded_replacement(tmp_path):
+    active = [10]
+    mr, calls = _sync_mr(active)
+    lines = _run_sync(tmp_path, mr, _sync_state_file(tmp_path, with_spool=False))
+    assert active[0] == 10
+    assert not any(method == "POST" and path == "/server/spoolman/spool_id" for method, path, _ in calls)
+    assert any("charging" in line and "#10" in line for line in lines)
+
+
+def test_spool_sync_never_repairs_charging_while_printing(tmp_path):
+    active = [10]
+    mr, calls = _sync_mr(active, printer="printing")
+    lines = _run_sync(tmp_path, mr, _sync_state_file(tmp_path))
+    assert active[0] == 10
+    assert not any(method == "POST" and path == "/server/spoolman/spool_id" for method, path, _ in calls)
+    assert any("charging" in line for line in lines)
+
+
+def test_spool_sync_reports_a_failed_repair_without_raising(tmp_path):
+    active = [10]
+    mr, _calls = _sync_mr(active, stuck=True)  # POST accepted, pointer never moves
+    lines = _run_sync(tmp_path, mr, _sync_state_file(tmp_path))
+    assert active[0] == 10
+    assert any("charging" in line and "could not" in line for line in lines)
 
 
 def test_mid_print_slot_tracker():

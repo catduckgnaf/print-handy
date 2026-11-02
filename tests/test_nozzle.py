@@ -53,6 +53,20 @@ def test_is_abrasive_material():
     assert is_abrasive_material(None) is False
 
 
+def test_is_abrasive_material_fused_full_length_reinforcement():
+    # One fused token: the label never splits, so neither the token set nor the
+    # short cf/gf suffix sees the reinforcement — but material_family() accepts
+    # these spellings (PLA-CARBONFIBER), so the brass guard must too (P1-124).
+    assert is_abrasive_material("PLACarbonFiber") is True
+    assert is_abrasive_material("PETGGlassFiber") is True
+    assert is_abrasive_material("PA6CarbonFiber") is True
+    assert is_abrasive_material("PETGCarbonFibre") is True
+    with pytest.raises(AbrasiveNozzleError):
+        check_nozzle_material_safety("brass", "PLACarbonFiber")
+    with pytest.raises(AbrasiveNozzleError):
+        check_nozzle_material_safety("brass", "PETGGlassFiber")
+
+
 def test_check_nozzle_material_safety_abrasive_on_brass_raises():
     with pytest.raises(AbrasiveNozzleError, match="Refusing to slice abrasive material 'PLA-CF' on a brass nozzle"):
         check_nozzle_material_safety("brass", "PLA-CF")

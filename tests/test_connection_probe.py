@@ -177,6 +177,13 @@ def test_prusa_probe_ok():
     assert result.ok and "Garage MK4" in result.summary and "CZPX1234" in result.summary
 
 
+def test_prusa_probe_malformed_json_is_protocol():
+    result = probe("prusalink", {"link_host": "mk4.local"}, {"api_key": "k"},
+                   prusa_factory=_prusa_factory(
+                       PrusaLinkError("PrusaLink GET /api/v1/info answered malformed JSON")))
+    assert not result.ok and result.category == "protocol"
+
+
 def test_prusa_probe_categories():
     missing = probe("prusalink", {"link_host": "mk4.local"}, {}, prusa_factory=_prusa_factory({}))
     assert missing.category == "missing_secret"

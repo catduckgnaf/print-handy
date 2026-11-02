@@ -319,6 +319,119 @@ def test_stop_choice_discards_the_early_slice_and_never_starts(env):
     assert not any(env.root.parent.glob('archive/*/sliced/*.gcode'))
 
 
+def test_expired_slice_confirmation_discards_the_background_slice(env):
+    """P2-23: the background slice starts while the slice confirmation is on
+    screen; when that question expires the intake has failed, and the slice
+    must be discarded with it — not left on disk for a later flow to find."""
+    class ExpiringAdapter(Adapter):
+        async def send_clarify(self, **kw):
+            if kw['question'].startswith('Ready to slice'):
+                return S(success=True)  # never resolved: the question expires
+            return await super().send_clarify(**kw)
+
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='m1',
+              text='https://www.printables.com/model/1-ghost')
+    adapter = ExpiringAdapter([1, 0, 1])  # color answers, then Cancel on the Resume prompt
+    result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
+    assert result['action'] == 'skip'
+    assert env.starts == [] and env.sliced == []
+    assert not any(env.root.parent.glob('archive/*/sliced/*.gcode'))
+
+
+def test_failed_intake_discards_the_background_slice(env, monkeypatch):
+    """P2-23: a generic intake failure after the background slice ran (here:
+    the start machinery raises after slicing) discards the slice too, exactly
+    as the operator-cancelled path already did."""
+    async def broken_start(target):
+        raise RuntimeError('synthetic start failure')
+
+    monkeypatch.setattr(print_next, 'start', broken_start)
+    adapter, result, receipt = run_flow(env, [1, 0, 0])
+    assert result == {'action': 'skip', 'reason': 'source-first intake failed closed'}
+    assert receipt['status'] == 'FAILED'
+    assert env.starts == [] and env.sliced == []
+    assert not any(env.root.parent.glob('archive/*/sliced/*.gcode'))
+
+
+def test_stop_during_the_background_slice_wait_cancels_the_intake(env, monkeypatch):
+    """P2-58: while the intake waits for a still-running background slice,
+    the wait carries the Stop flow — pressing Stop cancels the intake
+    instead of being swallowed by take()'s absorbed cancellation."""
+    import time as _time
+
+    def slow_slice(job_path, recipe_sha256=None):
+        _time.sleep(1.0)
+        gcode = Path(job_path).parent / 'sliced' / 'plate_1.gcode'
+        gcode.parent.mkdir(parents=True, exist_ok=True)
+        gcode.write_text('G1 X1\n')
+        return [gcode]
+
+    monkeypatch.setattr(model_job, 'slice_job', slow_slice)
+
+    class StopAdapter:
+        """No picks/clicks attributes: _with_stop must run its real flow."""
+
+        def __init__(self, picks):
+            self._picks = iter(picks)
+            self.questions = []
+            self.sent = []
+
+        async def send_clarify(self, **kw):
+            self.questions.append(kw)
+            import tools.clarify_gateway as cm
+            if list(kw.get('choices') or []) == [prepared_intake.STOP_LABEL]:
+                cm.resolve_gateway_clarify(kw['clarify_id'], prepared_intake.STOP_LABEL)
+            else:
+                cm.resolve_gateway_clarify(kw['clarify_id'], kw['choices'][next(self._picks)])
+            return S(success=True)
+
+        async def send(self, chat_id, content, reply_to=None, metadata=None):
+            self.sent.append(content)
+            return S(success=True)
+
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+              message_id='m-stop58', text='https://www.printables.com/model/1-ghost')
+    adapter = StopAdapter([1, 0, 0])
+    result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=5))
+    receipt = json.loads(next(env.root.glob('*.json')).read_text())
+    assert any(q['question'].startswith('Waiting for the background slice') for q in adapter.questions)
+    assert result == {'action': 'skip', 'reason': 'cancelled by operator'}
+    assert receipt['status'] == 'CANCELLED'
+    assert env.starts == []
+
+
+def test_remap_warning_is_on_the_slice_and_print_confirmation(env, monkeypatch):
+    """P2-242: the Spoolman remap warning was appended only to the slice-only
+    flow's second confirmation; the 'Slice and print now' confirmation — the
+    one that actually starts the print — never showed it."""
+    from print_handy.core import spool_remap
+    monkeypatch.setattr(spool_remap, 'confirm_note', lambda adapter, job=None, state=None: 'REMAP WARNING')
+    adapter, result, receipt = run_flow(env, [1, 0, 0])  # choice 0: Slice and print now
+    confirm = next(q for q in adapter.questions if q['question'].startswith('Ready to slice'))
+    assert 'REMAP WARNING' in confirm['question']
+    assert receipt['status'] == 'STARTED'
+
+
+def test_direct_link_failure_posts_the_known_cause(env, monkeypatch):
+    """P2-270: a direct-link failure the diagnostics allowlist recognises
+    (here HTTP 404) must post the known-cause wording (#683), not the older
+    branch that shadowed it and repeated the raw error text only."""
+    def refused(url):
+        raise model_job.DirectLinkError(
+            'The host for that link answered with HTTP 404, so the file was '
+            'not downloaded. Check the link is public and the file is still '
+            'there, then send it again.')
+
+    monkeypatch.setattr(model_job, 'inventory_for_url', refused)
+    adapter, result, receipt = run_flow(env, [])
+    assert result == {'action': 'skip', 'reason': 'source-first intake failed closed'}
+    assert receipt['status'] == 'FAILED'
+    post = adapter.sent[-1]
+    assert 'answered with HTTP 404' in post
+    assert 'Nothing was downloaded or sliced.' in post  # the known-cause post's framing
+    assert 'PH_' in post  # the classified marker only known_post/plain_post posts carry
+
+
 def test_expired_question_offers_one_resume_and_keeps_the_saved_intake(env):
     # Expire the first question, then continue: mode, two part colors, stop.
     adapter = Adapter([0, 0, 0, 0, 2])
@@ -564,6 +677,42 @@ def test_start_already_printing_posts_exactly_one_roast_and_records_nothing(env,
         return S(success=True, message_id=f'm{len(self.sent)}')
     monkeypatch.setattr(Adapter, 'send', send)
     adapter, result, receipt = run_flow(env, [1, 0, 0])
+    assert receipt['status'] == 'STARTED' and len(env.starts) == 1
+    starts = [m for m in adapter.sent if m.startswith('Print started')]
+    assert len(starts) == 1 and starts[0].count('One roast for the Ghost Stand') == 1
+    assert len(roast_calls) == 1
+    assert print_next.take_start_message('ghost_plate_1_abc.gcode') is None
+
+
+def test_warming_start_on_telegram_posts_its_roast_right_away(env, monkeypatch, tmp_path):
+    """P2-144: the deferred roast is added by editing the start post, and the
+    only edit path for it is Discord (the listener edits via Discord REST).
+    A warming start on Telegram can never be edited, so the roast rides the
+    original post and no message id is recorded for the impossible edit."""
+    monkeypatch.setattr(print_next, 'START_MESSAGES', tmp_path / 'start_messages.json')
+    mel = external('moonraker_event_listener')
+    roast_calls = []
+
+    def fake_roast(title, summary=''):
+        roast_calls.append((title, summary))
+        return 'One roast for the Ghost Stand'
+    monkeypatch.setattr(mel, 'generate_roast', fake_roast)
+
+    async def preparing(target):
+        env.starts.append(target)
+        return True, REAL_AWAITING
+    monkeypatch.setattr(print_next, 'start', preparing)
+
+    async def send(self, chat_id, content, reply_to=None, metadata=None):
+        self.sent.append(content)
+        return S(success=True, message_id=f'm{len(self.sent)}')
+    monkeypatch.setattr(Adapter, 'send', send)
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u',
+                       platform=S(value='telegram')),
+              message_id='m1', text='https://www.printables.com/model/1-ghost')
+    adapter = Adapter([1, 0, 0])
+    result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
+    receipt = json.loads(next(env.root.glob('*.json')).read_text())
     assert receipt['status'] == 'STARTED' and len(env.starts) == 1
     starts = [m for m in adapter.sent if m.startswith('Print started')]
     assert len(starts) == 1 and starts[0].count('One roast for the Ghost Stand') == 1

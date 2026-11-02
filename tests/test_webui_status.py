@@ -151,6 +151,41 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(bundled["spoolman"]["url"], "http://127.0.0.1:8000")
         self.assertTrue(bundled["spoolman"]["ok"])
 
+    def test_hermes_mode_bot_heartbeat_is_not_applicable(self):
+        # P2-100: the Hermes gateway writes no standalone heartbeat, so in
+        # hermes mode the bot check is not applicable and cannot fail the
+        # overall snapshot.
+        with tempfile.TemporaryDirectory() as tmp:
+            data = load_settings(tmp, "bot:\n  mode: hermes\n"
+                                 "services:\n  spoolman_url: http://spoolman.local:7912\n")
+            healthcheck.beat(data=data)
+            snap = status.snapshot(data, environ={}, heartbeat=None,
+                                   probe=ok_probe, checks=OK_CHECKS)
+        self.assertEqual(snap["bot"]["mode"], "hermes")
+        self.assertIsNone(snap["bot"]["ok"])
+        self.assertIn("not applicable", snap["bot"]["reason"])
+        self.assertTrue(snap["ok"])
+
+    def test_unconfigured_spoolman_is_not_a_failure(self):
+        # P2-101: Spoolman is optional and the setup wizard offers skipping
+        # it; an unconfigured Spoolman is not-applicable, not a failure.
+        # A configured one that is down still fails the snapshot.
+        with tempfile.TemporaryDirectory() as tmp:
+            data = load_settings(tmp)
+            healthcheck.beat(data=data)
+            snap = status.snapshot(data, environ={}, heartbeat=fresh_heartbeat(),
+                                   probe=ok_probe, checks=OK_CHECKS)
+        self.assertIsNone(snap["spoolman"]["ok"])
+        self.assertEqual(snap["spoolman"]["detail"], "not configured")
+        self.assertTrue(snap["ok"])
+        with tempfile.TemporaryDirectory() as tmp:
+            data = load_settings(tmp, "services:\n  spoolman_url: http://spoolman.local:7912\n")
+            healthcheck.beat(data=data)
+            down = status.snapshot(data, environ={}, heartbeat=fresh_heartbeat(),
+                                   probe=down_probe, checks=OK_CHECKS)
+        self.assertFalse(down["spoolman"]["ok"])
+        self.assertFalse(down["ok"])
+
     def test_doctor_failure_is_rendered_as_data(self):
         with tempfile.TemporaryDirectory() as tmp:
             data = load_settings(tmp)

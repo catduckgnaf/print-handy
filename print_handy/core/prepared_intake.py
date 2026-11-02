@@ -254,6 +254,22 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
     return result
 
 
+async def _await_background_slice(runner, binding):
+    """Await the background slice without losing a cancellation (P2-58).
+
+    BackgroundSlice.take() absorbs CancelledError — it waits out its own
+    slice task — so a Stop delivered as a cancellation during the wait
+    would be swallowed and the intake would carry on as if the slice had
+    simply found nothing. Re-raise it, so _with_stop's race turns the
+    press back into the operator's Stop.
+    """
+    result = await runner.take(binding)
+    task = asyncio.current_task()
+    if task is not None and task.cancelling():
+        raise asyncio.CancelledError
+    return result
+
+
 # Fit-check progress: one status line, refreshed while a check runs. When the
 # chat adapter can edit messages (Discord, Matrix, Telegram) the same message is
 # updated; otherwise a new line is posted only when the phase changes or, for a
@@ -444,6 +460,39 @@ def large_model_notice(path):
             f'{minutes} minute{"s" if minutes != 1 else ""}, so it is not stuck.')
 
 
+_WORKER_LOG_LINE = re.compile(r'^\S+\s+(DEBUG|INFO|WARNING|ERROR|CRITICAL)\s')
+_LOG_LEVELS = ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')
+
+
+def _forward_worker_log_lines(err):
+    """Re-emit a heavy worker's stderr through this process's logging (P2-55).
+
+    The worker configures the shared logging, so its lines are already
+    formatted, timestamped and redacted; forwarding keeps them in the
+    operator's log instead of dropping them whenever the JSON reply parses.
+    A line that does not start a formatted record (a traceback continuation)
+    follows the previous line's level, as does unformatted noise.
+    """
+    if not err:
+        return
+    level = logging.INFO
+    for raw in err.decode(errors='replace').splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        match = _WORKER_LOG_LINE.match(line)
+        if match:
+            level = getattr(logging, match.group(1))
+        elif line.startswith('{'):
+            try:
+                record = json.loads(line)
+            except ValueError:
+                record = None
+            if isinstance(record, dict) and str(record.get('level', '')).upper() in _LOG_LEVELS:
+                level = getattr(logging, str(record['level']).upper())
+        logger.log(level, '%s', line)
+
+
 async def _heavy(func, *args, **kwargs):
     """Run CPU-heavy intake work in a child process (own GIL) so Discord buttons answer in time.
 
@@ -460,13 +509,15 @@ async def _heavy(func, *args, **kwargs):
     def plain(v):
         return str(v) if isinstance(v, Path) else v
     payload = json.dumps({'module': short, 'func': name, 'args': [plain(a) for a in args],
-                          'kwargs': {k: plain(v) for k, v in kwargs.items()}}).encode()
+                          'kwargs': {k: plain(v) for k, v in kwargs.items()},
+                          'log_context': logs.bound_context()}).encode()
     slicer = (short, name) in _SLICER_STEPS
     # A slice worker leaves a record in its intake folder, so a restart mid-slice can be explained.
     record = Path(args[0]).parent / owned_worker.RECORD if (short, name) == ('model_job', 'slice_job') else None
     out, err = await owned_worker.run(
         [sys.executable, '-m', 'print_handy.core.heavy_worker'], payload, label=_STEP_LABELS.get(name, name),
         lane=owned_worker.SLICER if slicer else owned_worker.GENERAL, cwd=str(settings.ROOT), record=record)
+    _forward_worker_log_lines(err)
     try:
         reply = json.loads(out.decode().rstrip().rsplit('\n', 1)[-1])
     except (ValueError, IndexError):
@@ -1351,8 +1402,13 @@ def _restart_helps(tail):
         'stale', 'retained job', 'not idle', 'state is error'))
 
 
-async def _offer_force_restart(adapter, source, key, message, timeout=None):
-    """Offer the existing safe REBOOT flow; never start the print afterwards."""
+async def _offer_force_restart(adapter, source, key, message, timeout=None, printer_id=None):
+    """Offer the existing safe REBOOT flow; never start the print afterwards.
+
+    The reboot targets the intake's routed printer (printer_id): without it
+    force_reboot would reboot the default printer, not the one whose start
+    was refused (SAFE-4 / P1-79).
+    """
     pc = _external.load('print_control')
     question = (message + '\n\nThe printer looks stuck from a previous job. Force restart clears it '
                 '(and wipes any Resume on the screen). The print will not start by itself afterwards.')
@@ -1365,7 +1421,7 @@ async def _offer_force_restart(adapter, source, key, message, timeout=None):
     with contextlib.suppress(Exception):
         await adapter.send(chat_id=source.chat_id, content='Force restarting the printer now, about two minutes.',
                            metadata=getattr(source, 'metadata', None))
-    ok, result = await asyncio.to_thread(pc.force_reboot)
+    ok, result = await asyncio.to_thread(pc.force_reboot, printer_id=printer_id)
     return result + (' Send the link or press Print again to retry.' if ok else '')
 
 
@@ -1393,7 +1449,7 @@ async def _delivery_menu(adapter, source, key, metadata, timeout, question, enab
         if delivery.DISCORD in pending:
             # Size what the send would attach before offering it (#272): a file over [discord]
             # upload_max_bytes gets its size, the limit and its host path here, not a button that fails.
-            limit = delivery.upload_limit()
+            limit = delivery.effective_upload_limit(adapter)
             fit = await asyncio.to_thread(delivery.discord_candidates, gcodes, limit, cache=sizes)
             note = delivery.oversize_message(fit, limit)
             if not any(item.fits for item in fit):
@@ -1405,7 +1461,8 @@ async def _delivery_menu(adapter, source, key, metadata, timeout, question, enab
         shown = True
         choices = (([print_next.START_LABEL] if can_print else []) + [delivery.LABELS[m] for m in buttons]
                    + [delivery.DONE_LABEL])
-        picked = await _ask(adapter, source, key, question + ('\n' + note if note else ''), choices, timeout)
+        picked = await _ask(adapter, source, key, question + ('\n' + note if note else ''), choices, timeout,
+                            approval=True)
         label = choices[picked]
         if label == print_next.START_LABEL:
             return 0
@@ -1432,7 +1489,7 @@ async def _deliver(adapter, source, metadata, method, receipt, jp, gcodes, pendi
             where = ' On the Print Handy host: ' + ', '.join(str(p) for p in packages) + '.'
             if delivery.DISCORD in pending:
                 # The package now exists, so its size is exact: offer the download only when it fits (#272).
-                limit = delivery.upload_limit()
+                limit = delivery.effective_upload_limit(adapter)
                 fit = delivery.discord_candidates(artifacts, limit)
                 fitting = sum(1 for f in fit if f.fits)
                 offer = ('' if not fitting else " Use 'Send the files here' to download it." if fitting == len(fit)
@@ -1443,7 +1500,7 @@ async def _deliver(adapter, source, metadata, method, receipt, jp, gcodes, pendi
                       + delivery.handoff_note(delivery.current_model()))
             return
         files = await asyncio.to_thread(delivery.files_for_discord, job, artifacts)
-        limit = delivery.upload_limit()
+        limit = delivery.effective_upload_limit(adapter)
         already = delivery.delivered(receipt, method)
         todo = [f for f in files if str(f) not in already]
         plan = await asyncio.to_thread(delivery.discord_plan, todo, limit, Path(jp).parent / 'delivery')
@@ -1525,6 +1582,15 @@ async def _send_source_thumbnail(adapter, source, path, target):
 FILE_LIST_SITES = ('printables', 'thingiverse', 'myminifactory', 'cults3d', 'crealitycloud',
                    'thangs', 'nexprint', 'makeronline', 'direct')
 CHOOSE_FILES = 'Choose files'
+
+
+def _unresolved_direct(job, row):
+    """A direct-link source whose filename only arrives with the download
+    response (a Dropbox share link with no filename in its path inventories
+    as the suffix-less "shared-file") has no suffix to filter on yet;
+    direct_download validates the name the response or final URL supplies
+    (P2-241)."""
+    return job.get('site') == 'direct' and not Path(row.get('name', '')).suffix
 
 
 def _and(words):
@@ -1729,7 +1795,8 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                       lambda: asyncio.to_thread(mj.inventory_for_url, url))
         rows = job.get('sources', [])
         if job['site'] in FILE_LIST_SITES:
-            rows = [r for r in rows if Path(r.get('name', '')).suffix.lower() in {'.3mf', '.stl'}]
+            rows = [r for r in rows if Path(r.get('name', '')).suffix.lower() in {'.3mf', '.stl'}
+                    or _unresolved_direct(job, r)]
         if not rows and job.get('site') in NO_DOWNLOAD_SITES:
             raise _unsupported_for(job['site'])  # the plain refusal, same as without a key (#712)
         if not rows:
@@ -1893,43 +1960,47 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             mode = await _ask(adapter, source, key, prompt, options, timeout)
         else:
             mode = 1
-        decisions = {'source_sha256': manifest['source_sha256'], 'schema': 'part_slots_v1',
-                     'mode': 'single_color' if mode == 1 else 'per_part'}
-        if mode != 1:
-            if job_adapter.multi_tool:
-                # One colour per toolhead (#346): more distinct source colours
-                # than toolheads can never be assigned; refuse before asking.
-                from .source_colors import distinct_source_colours
-                colours = distinct_source_colours(manifest)
-                if len(colours) > job_adapter.tool_count:
-                    raise printers.MultiColorUnsupported(
-                        f"{job_adapter.label} has {job_adapter.tool_count} toolheads and prints one color "
-                        f"per toolhead; this source uses {len(colours)} colors. Reduce the source to at "
-                        f"most {job_adapter.tool_count} colors or use a printer with more toolheads")
-            # Numbered siblings (Stencil 1/2/3) get one question unless the operator chose per part.
-            rows = grouped if mode == 0 else [{**row, 'keys': [row['key']]} for row in questions]
-            choices = {}
-            taken = {}  # toolhead -> source colour already assigned to it (multi_tool only)
-            for row in rows:
+        if not saved_decisions:
+            # A resumed intake reuses the decisions already saved on the job:
+            # they carry their mode, choices and selection, so nothing is
+            # rebuilt and no color question is asked again (P1-38).
+            decisions = {'source_sha256': manifest['source_sha256'], 'schema': 'part_slots_v1',
+                         'mode': 'single_color' if mode == 1 else 'per_part'}
+            if mode != 1:
                 if job_adapter.multi_tool:
-                    from .source_colors import prompt_source_colour
-                    colour = prompt_source_colour(manifest, row)
-                    offered = [(label, sel) for label, sel in zip(labels, selections)
-                               if taken.get(sel['slot'], colour) == colour]
-                    picked = offered[await _ask(adapter, source, key, row['question'],
-                                                [label for label, _ in offered], timeout)][1]
-                    taken[picked['slot']] = colour
-                else:
-                    picked = selections[await _ask(adapter, source, key, row['question'], labels, timeout)]
-                for decision_key in row['keys']:
-                    choices[decision_key] = picked
-            decisions['choices'] = choices
-        else:
-            # Core face colors print as one color, and the operator is told (#714).
-            from .source_colors import FACE_COLORS_NOTE
-            note = f' {FACE_COLORS_NOTE}' if manifest.get('face_colors_ignored') else ''
-            decisions['selection'] = selections[await _ask(adapter, source, key, f'Choose the color for {names}.{note}'
-                                                           if note else f'Choose the color for {names}', labels, timeout)]
+                    # One colour per toolhead (#346): more distinct source colours
+                    # than toolheads can never be assigned; refuse before asking.
+                    from .source_colors import distinct_source_colours
+                    colours = distinct_source_colours(manifest)
+                    if len(colours) > job_adapter.tool_count:
+                        raise printers.MultiColorUnsupported(
+                            f"{job_adapter.label} has {job_adapter.tool_count} toolheads and prints one color "
+                            f"per toolhead; this source uses {len(colours)} colors. Reduce the source to at "
+                            f"most {job_adapter.tool_count} colors or use a printer with more toolheads")
+                # Numbered siblings (Stencil 1/2/3) get one question unless the operator chose per part.
+                rows = grouped if mode == 0 else [{**row, 'keys': [row['key']]} for row in questions]
+                choices = {}
+                taken = {}  # toolhead -> source colour already assigned to it (multi_tool only)
+                for row in rows:
+                    if job_adapter.multi_tool:
+                        from .source_colors import prompt_source_colour
+                        colour = prompt_source_colour(manifest, row)
+                        offered = [(label, sel) for label, sel in zip(labels, selections)
+                                   if taken.get(sel['slot'], colour) == colour]
+                        picked = offered[await _ask(adapter, source, key, row['question'],
+                                                    [label for label, _ in offered], timeout)][1]
+                        taken[picked['slot']] = colour
+                    else:
+                        picked = selections[await _ask(adapter, source, key, row['question'], labels, timeout)]
+                    for decision_key in row['keys']:
+                        choices[decision_key] = picked
+                decisions['choices'] = choices
+            else:
+                # Core face colors print as one color, and the operator is told (#714).
+                from .source_colors import FACE_COLORS_NOTE
+                note = f' {FACE_COLORS_NOTE}' if manifest.get('face_colors_ignored') else ''
+                decisions['selection'] = selections[await _ask(adapter, source, key, f'Choose the color for {names}.{note}'
+                                                               if note else f'Choose the color for {names}', labels, timeout)]
         latest = json.loads(jp.read_text())
         if saved_decisions:
             if (latest.get('intake_id') != iid
@@ -2006,9 +2077,9 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                    metadata=metadata)
                 return {'action': 'skip', 'reason': 'cancelled oversized model'}
             latest['plate_mode'] = 'separate'
-            if options.get('brim_policy'):
-                latest['fit_brim_policy'] = options['brim_policy']
-                receipt['fit_brim_policy'] = options['brim_policy']
+            # No fit-options dict exists on the painted path (``options`` here
+            # is still the color-mode label list); painted_fit carries no brim
+            # policy, so there is nothing to record (P1-27).
             latest['scale'] = row['scale']
             receipt['scale'] = row['scale']
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
@@ -2024,9 +2095,13 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             # parts, do it and say so instead of asking. The check uses the
             # planner the slice path uses, so the plan is one it honors.
             try:
+                job_adapter = mj._job_adapter(latest)
                 one_plate = await fit_status.run('trying the parts rearranged on one plate at 100%',
                                                  _heavy(mj.full_size_one_plate, path, state,
-                                                        latest.get('color_decisions')))
+                                                        latest.get('color_decisions'),
+                                                        capacity=mj.position_limit(job_adapter),
+                                                        multi_tool=job_adapter.multi_tool,
+                                                        job=latest))
                 rearrange_checked = True
             except Exception:
                 logger.exception('one-plate rearrangement check failed; falling back to the full fit search')
@@ -2124,7 +2199,9 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                     raise LookupError('a split plan or a 100% one-plate fit already answers this')
                 full_size_split = await fit_status.run('trying a split onto separate plates at 100%',
                                                        _heavy(plate_merge.full_size_split_possible, path, manifest,
-                                                              int((state.get('bed_mm') or BED)[0])))
+                                                              int((state.get('bed_mm') or BED)[0]),
+                                                              brim_policy=options.get('brim_policy'),
+                                                              state=state))
             except Exception:
                 full_size_split = False
             if split_plan:
@@ -2292,6 +2369,13 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                             _heavy(orca_adapter.orca_plate_capacity, path, state,
                                                    scale=selected_scale,
                                                    **({'rotation': rotation, 'supports': bool(row.get('supports')),
+                                                       # The search verified this turn with the
+                                                       # exact-single probe (copy_limit=1: one
+                                                       # centered copy, no arranging); confirming
+                                                       # with the default multi-copy probe arranges
+                                                       # instead and refuses turns that only fit
+                                                       # as one centered copy (P1-115).
+                                                       'copy_limit': 1,
                                                        **({'brim_policy': {'type': 'outer_only',
                                                                            'width_mm': orca_adapter.ORIENTATION_BRIM_MM}}
                                                           if row.get('brim') else {})}
@@ -2379,11 +2463,17 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         enabled = delivery.methods()
         can_print = delivery.PRINTER in enabled
         first_labels = [print_label, 'Slice only', 'Stop with colors saved', cancel_label][0 if can_print else 1:]
+        # The Spoolman remap warning belongs on THIS confirmation too (P2-242):
+        # 'Slice and print now' is the choice that starts the print, and it
+        # never saw the note only the slice-only flow's second question got.
+        from .spool_remap import confirm_note
+        remap_note = confirm_note(mj._job_adapter(latest), latest, state)
         choice = await _ask(adapter, source, key,
             ' · '.join(x for x in ('Ready to slice', names, estimate_text) if x)
-            + ('\n' + spool_text if spool_text else '') + caveat,
+            + ('\n' + spool_text if spool_text else '') + caveat
+            + ('\n' + remap_note if remap_note else ''),
             first_labels, timeout,
-            on_shown=early.release.set)
+            on_shown=early.release.set, approval=True)
         choice = choice if can_print else choice + 1
         if choice in (2, 3):
             await early.discard()  # the early slice was for a job that will not print
@@ -2408,7 +2498,17 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         mj._timing(jp, 'intake_slice_requested')
         prep_sent = False  # one combined Preparing + Uploading message after slicing, with the real estimate
         try:
-            out = await early.take(binding)  # finished while the question was up, or still running
+            if early.running():
+                # Still slicing: the wait goes through the same progress/Stop
+                # flow as a foreground slice (P2-58). A bare take() here gave
+                # the potentially longest wait of the intake no progress and
+                # a Stop button that did nothing.
+                out = await _with_stop(adapter, source, key, metadata,
+                                       "Waiting for the background slice to finish. Press Stop to cancel.",
+                                       _await_background_slice(early, binding),
+                                       allow_stop=True)
+            else:
+                out = await early.take(binding)  # finished while the question was up
             if out is None and early.error is not None:
                 raise early.error
             if out is None:
@@ -2528,6 +2628,18 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                content='Heads up on the source profile:\n'
                                        + '\n'.join(f'- {w}' for w in profile_warnings))
+        # P1-20: a plate a guard refused during slicing is never dropped
+        # silently. Name every refused plate before the start question; the
+        # operator's confirmed start below records the acceptance print-now
+        # requires for a partial job.
+        refused_plates = sliced.get('refused_plates') or []
+        if refused_plates:
+            named = '\n'.join(f"- Plate {row.get('plate_id')} (slot {row.get('slot')}): {row.get('reason')}"
+                              for row in refused_plates)
+            await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                               content='Heads up: part of this model will NOT print. These plates were '
+                                       f'refused during slicing:\n{named}\n'
+                                       'Starting prints only the plates that sliced cleanly.')
         has_dur_q = has_duration_question(getattr(event, 'text', ''))
         breakdown = print_summary.format_estimate_breakdown(sliced)
         # #720: the thermal facts recorded for the printer this job was sliced for ride with
@@ -2616,7 +2728,8 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             if remap:
                 question += '\n' + remap
             if delivery.only_printer(enabled):
-                go = await _ask(adapter, source, key, question, [print_next.START_LABEL, print_next.CANCEL_LABEL], timeout)
+                go = await _ask(adapter, source, key, question, [print_next.START_LABEL, print_next.CANCEL_LABEL], timeout,
+                                approval=True)
             else:
                 if not can_print:
                     question = breakdown + '\nSliced and validated. What should I do with the files?'
@@ -2628,6 +2741,13 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                 tail = f' Plates stay ready: `/print-next {plan_id}`.' if split and can_print else ''
                 await adapter.send(chat_id=source.chat_id, content='Sliced. Nothing uploaded or started.' + tail, metadata=metadata)
                 return {'action': 'skip', 'reason': 'operator did not start the sliced plate'}
+        if refused_plates:
+            # The start the operator just confirmed followed the refused-plate
+            # disclosure above: that confirmation is the explicit acceptance
+            # of the partial job print-now requires (P1-20).
+            accepted = json.loads(jp.read_text())
+            accepted['partial_job_accepted'] = True
+            mj.write_job(folder, accepted)
         # One click recorded: bed clear, bound to the exact JOB.json and G-code. print-now still runs every gate
         # (verify-gcode, live readiness, single-use approval, duplicate-start claim).
         receipt['bed_clear_approval'] = {'job_json': str(jp), 'gcode': str(first), 'gcode_sha256': target['gcode_sha256'],
@@ -2669,6 +2789,16 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         # warming start with a known file can be edited by the listener later, so
         # only that start defers its roast (#374).
         remote = print_next.started_file(tail) if warming else None
+        if remote is not None:
+            # The deferred roast is added by EDITING this post, and the only
+            # edit path for it is Discord (the listener edits via Discord
+            # REST). On a transport that cannot be edited that way the roast
+            # would never arrive, so it rides this post now instead (P2-144).
+            platform = getattr(source, 'platform', None)
+            platform_name = str(getattr(platform, 'value', None)
+                                or getattr(adapter, 'name', None) or 'discord')
+            if platform_name.casefold() != 'discord':
+                remote = None
         if unknown:
             message = START_PENDING_MESSAGE
         elif ok or pending:
@@ -2688,14 +2818,17 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         else:
             message = print_summary.scrub(_refusal_text(tail))
             if _restart_helps(tail):
-                message = await _offer_force_restart(adapter, source, key, message, timeout)
+                message = await _offer_force_restart(adapter, source, key, message, timeout,
+                                                     printer_id=printer_id)
             elif start_context.get('prompt_handled'):
                 return {'action': 'skip', 'reason': 'start refused; prompt shows the reason and Retry'}
         sent = await adapter.send(chat_id=source.chat_id, content=message, metadata=metadata)
         message_id = getattr(sent, 'message_id', None)
         if remote and message_id:
             try:
-                print_next.record_start_message(remote, message_id)
+                print_next.record_start_message(
+                    remote, message_id, chat_id=str(source.chat_id),
+                    thread_id=str(source.thread_id) if getattr(source, 'thread_id', None) else None)
             except OSError:
                 pass  # no recorded id: the listener leaves the start post as is
         return {'action': 'skip', 'reason': 'sliced and start handled by button flow'}
@@ -2724,6 +2857,12 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         return {'action': 'skip', 'reason': reason}
     except IntakeExpired:
         logger.warning('intake question expired')
+        if jp is not None:
+            # A failed intake discards its background slice (P2-23), as the
+            # cancelled path above already does: the slice's output must not
+            # outlive the intake that produced it. Resume re-slices.
+            with contextlib.suppress(Exception):
+                await runner_for(jp).discard()
         # The receipt and JOB.json written before this question stay on disk. Resume
         # re-reads them instead of asking for the link again.
         receipt.update(status='EXPIRED', sliced=False, uploaded=False, started=False)
@@ -2769,6 +2908,12 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         return {'action': 'skip', 'reason': 'expired before a choice'}
     except Exception as exc:
         logger.exception('intake failed')
+        if jp is not None:
+            # A failed intake discards its background slice (P2-23), as the
+            # cancelled path above already does: the slice's output must not
+            # outlive the intake that produced it.
+            with contextlib.suppress(Exception):
+                await runner_for(jp).discard()
         from .site_accounts import chat_safe, short_cause
         from . import model_job as _mj
         if isinstance(exc, SiteLoginNeeded):
@@ -2796,9 +2941,15 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         elif isinstance(exc, mj.DirectLinkError):
             # Also curated and user-phrased (#607): a direct file link that
             # returned a web page, pointed at a non-public address, or could
-            # not be reached. The text names the cause and the remedy, so
-            # keep it — the generic wording would hide both.
-            content = (f'That file could not be fetched. {exc}')
+            # not be reached. Every curated case is on the diagnostics
+            # allowlist (#683), so a recognised failure posts the known-cause
+            # wording (P2-270); the branch's older text remains only for a
+            # direct-link error the allowlist does not recognise.
+            content = (diagnostics.known_post(
+                'That file could not be fetched.',
+                not_happened='Nothing was downloaded or sliced.',
+                subsystem='intake', exc=exc)
+                or f'That file could not be fetched. {exc}')
         elif isinstance(exc, ValueError) and str(exc).startswith('requires one to four distinct configured'):
             # Also curated and user-phrased: a multi-slot/toolhead printer
             # with nothing configured. The text names the exact setup gap,

@@ -78,11 +78,16 @@ def request(method: str, path: str, body: Any = None, *,
         logger.warning("Spoolman %s %s skipped: services.spoolman_url is not configured",
                        method, path)
         raise SpoolmanUnavailable("Spoolman is not configured (services.spoolman_url)")
-    data = None if body is None else json.dumps(body).encode()
-    req = urllib.request.Request(base + path, data=data, method=method,
-                                 headers={"Content-Type": "application/json",
-                                          "Accept": "application/json"})
     try:
+        # Construction is inside the protected block on purpose (P2-154): a
+        # configured URL with a malformed authority (http://[::1) passes the
+        # prefix-only settings validation, and urllib raises ValueError while
+        # *building* the request — that is an unavailability outcome, not a
+        # caller error, or a bad bookkeeping endpoint would abort slicing.
+        data = None if body is None else json.dumps(body).encode()
+        req = urllib.request.Request(base + path, data=data, method=method,
+                                     headers={"Content-Type": "application/json",
+                                              "Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=TIMEOUT if timeout is None else timeout) as resp:
             raw = resp.read().decode("utf-8") or "{}"
         return json.loads(raw)

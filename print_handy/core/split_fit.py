@@ -47,7 +47,10 @@ a part counts as fitting only if a placement of that envelope exists inside
 the usable area that avoids the exclusion; the plan records that placement
 as ``placement_by_object`` and the part gets a plate of its own, because the
 split exporter applies one recorded placement to a whole derived plate (see
-``yaw_by_object``). Slicing applies exactly the recorded placement to that
+``yaw_by_object``). When the avoiding placement was proved only at a turn,
+the plan records that turn in ``yaw_by_object`` too, even when the authored
+footprint fits the usable bed (P2-78), and the exporter composes the two for
+the solo plate. Slicing applies exactly the recorded placement to that
 plate alone and refuses a placement recorded for a shared plate, an unknown
 object or an out-of-range position instead of slicing the plate centered
 into the exclusion.
@@ -230,13 +233,53 @@ def best_yaw(width, depth, usable_x, usable_y):
     return best[1], best[2]
 
 
+def _exclusion_rectangles(polygon):
+    """Rectangles (x0, y0, x1, y1) covering exactly the area an exclusion polygon covers.
+
+    A model's ``bed_exclude_area`` is one polygon chain, but a chain can trace
+    several disjoint zones: the Qidi chains walk two separate strips in one
+    list, joined by zero-area runs along the bed edges. Collapsing such a
+    chain to its bounding rectangle would exclude the whole bed (the X-Plus 4
+    chain spans (0, 0) to (305, 305)), so the polygon is decomposed instead:
+    the elementary grid cells between consecutive vertex coordinates lie
+    wholly inside or wholly outside an axis-aligned polygon, tested at each
+    cell's center, and the inside cells — merged along each row band — are
+    the zones. A polygon with a diagonal edge cannot be decomposed this way
+    and keeps the conservative bounding rectangle.
+    """
+    from . import slice_guard
+    points = [(float(point[0]), float(point[1])) for point in polygon]
+    if len(points) < 3:
+        return []
+    edges = list(zip(points, points[1:] + points[:1]))
+    if any(x0 != x1 and y0 != y1 for (x0, y0), (x1, y1) in edges):
+        xs = [point[0] for point in points]
+        ys = [point[1] for point in points]
+        return [(min(xs), min(ys), max(xs), max(ys))]
+    xs = sorted({point[0] for point in points})
+    ys = sorted({point[1] for point in points})
+    rects = []
+    for y0, y1 in zip(ys, ys[1:]):
+        run_start = None
+        for x0, x1 in zip(xs, xs[1:]):
+            inside = slice_guard._point_in_polygon((x0 + x1) / 2, (y0 + y1) / 2, points)
+            if inside and run_start is None:
+                run_start = x0
+            elif not inside and run_start is not None:
+                rects.append((run_start, y0, x0, y1))
+                run_start = None
+        if run_start is not None:
+            rects.append((run_start, y0, xs[-1], y1))
+    return rects
+
+
 def _declared_exclusions():
     """Bed exclusion rectangles (x0, y0, x1, y1) declared by the current printer model.
 
     Read from the model adapter's sourced facts (``bed_exclude_area``, a
-    polygon in bed coordinates); the rectangle used is the polygon's bounding
-    rectangle, which is conservative. Models that declare none — and any
-    lookup problem — mean no exclusions.
+    polygon in bed coordinates) and decomposed into the disjoint zones the
+    polygon actually covers (see :func:`_exclusion_rectangles`). Models that
+    declare none — and any lookup problem — mean no exclusions.
     """
     try:
         from .. import printers
@@ -246,9 +289,7 @@ def _declared_exclusions():
         polygon = list(getattr(facts.get('bed_exclude_area'), 'value', None) or ())
         if not polygon:
             return []
-        xs = [float(point[0]) for point in polygon]
-        ys = [float(point[1]) for point in polygon]
-        return [(min(xs), min(ys), max(xs), max(ys))]
+        return _exclusion_rectangles(polygon)
     except Exception:
         return []
 
@@ -680,7 +721,10 @@ def split_plan_100(source, bed=None, height=None, exclusions=None, brim_policy=N
     and the solo reoriented plate remains the fallback. An object appears in
     at most one of the plan's transform records (``yaw_by_object``,
     ``placement_by_object``, ``reorientation_by_object`` or a
-    ``shifts_by_plate`` entry). Geometry checks and packing use the
+    ``shifts_by_plate`` entry) — with one exception: a part whose avoiding
+    placement was proved only at a turn appears in both ``yaw_by_object``
+    and ``placement_by_object``, the two records the exporter composes for
+    its solo plate (P2-78). Geometry checks and packing use the
     printer's edge and spacing margins (see the module docstring) and do
     not slice or contact the printer.
     """
@@ -689,19 +733,29 @@ def split_plan_100(source, bed=None, height=None, exclusions=None, brim_policy=N
     from . import plate_merge
     from .source_colors import inventory
 
-    bed_x, bed_y, _ = _bed_xy_height(bed, height)
+    bed_x, bed_y, height_limit = _bed_xy_height(bed, height)
     bed = min(bed_x, bed_y)
     manifest = inventory(source)
     if not manifest.get('parts'):
         return None
-    report = per_part_fit(source, bed=(bed_x, bed_y), height=height, exclusions=exclusions,
+    # Pass the normalized limit, not the raw argument: with a 3-element bed
+    # and no explicit height, the raw argument is None and per_part_fit would
+    # fall back to the configured printer height, discarding the caller's
+    # lower Z limit (P2-69).
+    report = per_part_fit(source, bed=(bed_x, bed_y), height=height_limit, exclusions=exclusions,
                           brim_policy=brim_policy, state=state)
     feature = _feature_edge_mm(brim_policy, state)
     if any(not row['fits_full_size'] for row in report):
         return None
+    # A part whose authored footprint fits the usable bed but whose avoiding
+    # placement was proved only at a turn carries that turn as well (P2-78):
+    # without it the exporter would realize the placement with the unturned
+    # footprint, outside the area the placement was proved against. For its
+    # solo plate the exporter composes the recorded turn with the recorded
+    # placement; a proved shared placement supersedes both with its shifts.
     yaw_by_object = {row['object_id']: row['best_yaw_deg'] for row in report
-                     if not row['fits_authored'] and row['best_yaw_deg'] > 0
-                     and not row.get('reorientation')}
+                     if row['best_yaw_deg'] > 0 and not row.get('reorientation')
+                     and (not row['fits_authored'] or row.get('placement_mm'))}
     # A reoriented part carries its full rotation in its own record (the
     # matrix already contains its bed turn), never a yaw entry (#221 R1).
     reorientation_by_object = {row['object_id']: row['reorientation'] for row in report
@@ -1034,7 +1088,17 @@ def split_plan_100(source, bed=None, height=None, exclusions=None, brim_policy=N
                 else:
                     shifts_by_plate.append(None)
     if len(result) <= 1:
-        return None
+        # A one-plate result is still a usable plan when it carries a
+        # polygon placement (shifts) or a turn (yaw) the authored layout
+        # does not have (P2-81, P2-83, P2-84): discarding it would drop the
+        # only full-size offer for exactly the sources those proofs exist
+        # for. A bare one-plate grouping adds nothing over the authored
+        # layout, and a one-plate result whose fit rests on a reorientation
+        # keeps the not-a-split rule the brim tests pin, so both stay
+        # no-plan.
+        carries_transform = (bool(yaw_by_object) or any(shifts_by_plate)) and not reorientation_by_object
+        if len(result) == 0 or not carries_transform:
+            return None
     plan = {'plates': result}
     if yaw_by_object:
         plan['yaw_by_object'] = yaw_by_object

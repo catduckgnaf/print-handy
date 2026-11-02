@@ -49,6 +49,19 @@ def test_unset_path_keeps_the_existing_orca_choice():
     assert adapter.slicer_choice(printer) == "orca"
 
 
+def test_configured_path_is_supported_for_stock_flashforge(tmp_path):
+    # P2-76: the stock Flashforge adapter lists flash_studio among its
+    # verified slicers, so executable selection must accept the
+    # flashforge_stock vendor as well as the ZMod flashforge vendor.
+    executable, _calls = fake_flash_studio(tmp_path)
+    config = copy.deepcopy(settings.load(local=False, environ={}))
+    config["printer"]["model"] = "flashforge_stock.ad5x"
+    config.setdefault("slicer", {})["flash_studio_path"] = str(executable)
+    printer = printers.get("flashforge_stock.ad5x", config)
+
+    assert adapter._flash_studio_command(printer) == [str(executable.resolve())]
+
+
 def test_configured_path_is_supported_only_for_flashforge(tmp_path):
     executable, _calls = fake_flash_studio(tmp_path)
     config = copy.deepcopy(settings.load(local=False, environ={}))

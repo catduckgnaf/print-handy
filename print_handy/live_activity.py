@@ -49,9 +49,16 @@ offline:
   session cookie is required (a leaked Activity URL without one
   serves nothing), only the one published stream name is proxied,
   and the WebSocket upgrade is relayed byte-for-byte to go2rtc on
-  loopback after the handshake. That keeps exactly one public origin
-  (this server, behind the tunnel) and one Developer Portal URL
-  mapping, on every deployment shape.
+  loopback after the handshake. The feed is also gated on the shared
+  live-session record: a connection is relayed only while a viewing
+  session is live, and an open relay is closed when that session
+  ends, so /print-live stop, empty-timeout expiry and print end all
+  end the frames, not just the bookkeeping; and the browser's Origin
+  is rewritten to the loopback upstream's own origin on the hop to
+  go2rtc, whose origin check would otherwise refuse the public
+  tunnel origin (its api.origin is unset). That keeps exactly one
+  public origin (this server, behind the tunnel) and one Developer
+  Portal URL mapping, on every deployment shape.
 
 Stage 4 — the supervised server. ``python3 -m print_handy.live_activity``
 is the production entrypoint docker/supervise.sh starts when
@@ -339,11 +346,12 @@ ACTIVITY_PAGE = """<!DOCTYPE html>
     return;
   }
   // go2rtc MSE over WebSocket, on the same origin this page was served
-  // from: ws(s)://<host>/api/ws?src=<stream>. On MediaSource open the
-  // client offers its codecs as {"type": "mse", "value": [<codecs>]};
-  // go2rtc answers with the mime type to build the SourceBuffer with,
-  // then sends binary fMP4 frames. Any failure lands on the plain
-  // fallback message below; the watchdog snapshots in chat keep working.
+  // from: ws(s)://<host>/api/ws?src=<stream>. Once both the socket and
+  // the MediaSource are open the client offers its codecs as
+  // {"type": "mse", "value": [<codecs>]}; go2rtc answers with the mime
+  // type to build the SourceBuffer with, then sends binary fMP4
+  // frames. Any failure lands on the plain fallback message below;
+  // the watchdog snapshots in chat keep working.
   var scheme = location.protocol === "https:" ? "wss:" : "ws:";
   var url = scheme + "//" + location.host + "/api/ws?src=" + encodeURIComponent(stream);
   var codecs = ['video/mp4; codecs="avc1.64001f,mp4a.40.2"',
@@ -359,8 +367,26 @@ ACTIVITY_PAGE = """<!DOCTYPE html>
     if (buffer.updating || queue.length) { queue.push(chunk); }
     else { buffer.appendBuffer(chunk); }
   }
-  mediaSource.addEventListener("sourceopen", function () {
+  // The handshake goes out only once BOTH the WebSocket and the
+  // MediaSource are open (P2-122): sourceopen can fire while the
+  // socket is still CONNECTING, and ws.send in that state throws
+  // InvalidStateError — with the send attempted only there, the feed
+  // would never start even after the socket connected.
+  var wsOpen = false;
+  var msOpen = false;
+  var handshakeSent = false;
+  function sendHandshake() {
+    if (handshakeSent || !wsOpen || !msOpen) { return; }
+    handshakeSent = true;
     ws.send(JSON.stringify({type: "mse", value: codecs}));
+  }
+  ws.addEventListener("open", function () {
+    wsOpen = true;
+    sendHandshake();
+  });
+  mediaSource.addEventListener("sourceopen", function () {
+    msOpen = true;
+    sendHandshake();
   });
   ws.onmessage = function (event) {
     if (typeof event.data === "string") {
@@ -402,7 +428,14 @@ ACTIVITY_PAGE = """<!DOCTYPE html>
 
 # --------------------------------------------------------------------- the HTTP surface
 
-def _pump(client, upstream):
+#: How often an idle relay direction re-checks its end conditions, and
+#: how long BOTH directions may stay silent before the relay is ended
+#: as idle (P2-142). Module-level so tests can shrink them.
+_PUMP_POLL_S = 1
+_PUMP_IDLE_CUTOFF_S = 60
+
+
+def _pump(client, upstream, should_close=None):
     """Relay bytes between the client and go2rtc until either side closes.
 
     One direction runs on a helper thread, the other on the caller's;
@@ -410,17 +443,46 @@ def _pump(client, upstream):
     direction cannot linger. Frame contents are never inspected —
     this is a byte pipe behind the session check, exactly as narrow as
     the audit specified.
+
+    When `should_close` is given it is consulted on every pass (and at
+    least once a second while idle): as soon as it reports True both
+    sockets are shut down, so a relay cannot outlive the condition
+    that allowed it — for the feed proxy, the live viewing session
+    (P1-89). A `should_close` that raises counts as closed: the pump
+    fails shut.
+
+    The idle cutoff measures inactivity across BOTH directions
+    (P2-142): during normal MSE playback the page sends its offer once
+    and then only receives, so one direction staying silent is the
+    healthy state, not a dead relay — the old per-direction cutoff cut
+    exactly those streams after 60 seconds and go2rtc sends no pings
+    to prevent it. The relay now ends when either side actually
+    closes, when `should_close` fires, or when both directions have
+    been quiet for the whole cutoff.
     """
+
+    def ended():
+        if should_close is None:
+            return False
+        try:
+            return bool(should_close())
+        except Exception:
+            return True
+
+    activity = {"last": time.monotonic()}
 
     def forward(source, target):
         try:
-            while True:
-                readable, _, _ = select.select([source], [], [], 60)
+            while not ended():
+                readable, _, _ = select.select([source], [], [], _PUMP_POLL_S)
                 if not readable:
-                    break
+                    if time.monotonic() - activity["last"] >= _PUMP_IDLE_CUTOFF_S:
+                        break
+                    continue
                 chunk = source.recv(65536)
                 if not chunk:
                     break
+                activity["last"] = time.monotonic()
                 target.sendall(chunk)
         except OSError:
             pass
@@ -439,7 +501,7 @@ def _pump(client, upstream):
 
 def make_handler(*, transport, allowlist, secret, page=ACTIVITY_PAGE, clock=time.time,
                  on_viewer=None, on_leave=None, feed_upstream=FEED_UPSTREAM,
-                 stream_name=DEFAULT_STREAM_NAME):
+                 stream_name=DEFAULT_STREAM_NAME, session_active=None):
     """A BaseHTTPRequestHandler class bound to the given auth pieces.
 
     Routes: ``GET /health`` (open; reveals nothing), ``POST /api/token``
@@ -465,8 +527,26 @@ def make_handler(*, transport, allowlist, secret, page=ACTIVITY_PAGE, clock=time
     (print_handy.live_stream.feed_stream_name, wired in 2.2.2). The
     served page's default stream is rewritten to it, so page and proxy
     can never disagree about the name.
+
+    ``session_active`` is the live viewing session's state as a
+    zero-argument callable (P1-89): when given, the feed proxy refuses
+    a new connection while it reports False and closes an open relay
+    as soon as it flips to False, so /print-live stop, empty-timeout
+    expiry and print-end shutdown end the frames, not just the JSON
+    bookkeeping. A check that raises reads as not live — the gate
+    fails closed. When omitted, no session gate applies (the offline
+    core's tests exercise the relay without a session record; the
+    supervised entrypoint always wires it).
     """
     served_page = page.replace('|| "camera"', f'|| "{stream_name}"')
+
+    def _session_live():
+        if session_active is None:
+            return True
+        try:
+            return bool(session_active())
+        except Exception:
+            return False
 
     def _notify(callback, user_id):
         if callback is None or not user_id:
@@ -516,13 +596,17 @@ def make_handler(*, transport, allowlist, secret, page=ACTIVITY_PAGE, clock=time
 
             Auth first (a valid session cookie), then the stream name:
             only the one published stream is proxied, under its one
-            name. The client's upgrade request is rebuilt for the
+            name. Then the viewing-session lifecycle (P1-89): while the
+            shared live session is not live, the feed is refused even
+            with a valid cookie, and an open relay is pumped with a
+            close check on that same state so the session ending ends
+            the frames. The client's upgrade request is rebuilt for the
             upstream (its Host, no Cookie — go2rtc needs neither our
-            session nor our origin), the upstream's answer goes back
-            verbatim, and on a 101 the two sockets are pumped in both
-            directions until either side closes. Any failure before the
-            handshake completes is a plain HTTP refusal; nothing about
-            the upstream is revealed beyond "unavailable".
+            session nor our credentials), the upstream's answer goes
+            back verbatim, and on a 101 the two sockets are pumped in
+            both directions until either side closes. Any failure
+            before the handshake completes is a plain HTTP refusal;
+            nothing about the upstream is revealed beyond "unavailable".
             """
             if self._session_user() is None:
                 self._json(403, {"ok": False, "error": "not authorised"})
@@ -530,6 +614,9 @@ def make_handler(*, transport, allowlist, secret, page=ACTIVITY_PAGE, clock=time
             query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             if (query.get("src") or [""])[0] != stream_name:
                 self._json(404, {"ok": False, "error": "not found"})
+                return
+            if not _session_live():
+                self._json(403, {"ok": False, "error": "the live view is not running"})
                 return
             try:
                 upstream = socket.create_connection(feed_upstream, timeout=10)
@@ -542,10 +629,22 @@ def make_handler(*, transport, allowlist, secret, page=ACTIVITY_PAGE, clock=time
                          "Upgrade: websocket", "Connection: Upgrade"]
                 for name in ("Sec-WebSocket-Key", "Sec-WebSocket-Version",
                              "Sec-WebSocket-Protocol", "Sec-WebSocket-Extensions",
-                             "Origin", "User-Agent"):
+                             "User-Agent"):
                     value = self.headers.get(name)
                     if value:
                         lines.append(f"{name}: {value}")
+                if self.headers.get("Origin"):
+                    # P1-88: the browser's Origin is the public tunnel
+                    # origin, but Host here is the loopback upstream —
+                    # and go2rtc, whose generated config leaves
+                    # api.origin unset, refuses an Origin whose host
+                    # differs from Host, so forwarding the browser
+                    # Origin verbatim earns an upstream 403. On this
+                    # authenticated loopback hop the Origin is
+                    # rewritten to the upstream's own origin, which
+                    # always matches the Host go2rtc sees.
+                    lines.append(
+                        f"Origin: http://{feed_upstream[0]}:{feed_upstream[1]}")
                 upstream.sendall(("\r\n".join(lines) + "\r\n\r\n").encode())
                 head = b""
                 while b"\r\n\r\n" not in head and len(head) <= 65536:
@@ -564,7 +663,9 @@ def make_handler(*, transport, allowlist, secret, page=ACTIVITY_PAGE, clock=time
                 if rest:
                     self.connection.sendall(rest)
                 self.close_connection = True
-                _pump(self.connection, upstream)
+                _pump(self.connection, upstream,
+                      should_close=None if session_active is None
+                      else (lambda: not _session_live()))
             except (OSError, ValueError, IndexError):
                 return
             finally:
@@ -683,15 +784,35 @@ class SessionPresence:
     def _apply(self, now):
         from . import live_stream
 
-        session = live_stream.read_session_file(self._path)
-        if not session.is_live:
+        # The read-modify-write runs as one cross-process transaction
+        # (P2-143): the bot's /print-live and the listener's hooks own
+        # the same record, and an unlocked presence write could land
+        # its stale live snapshot over their stop.
+        def update(session):
+            if not session.is_live:
+                with self._lock:
+                    self._viewers.clear()
+                return False
             with self._lock:
-                self._viewers.clear()
-            return session
-        session.note_viewers(len(self._viewers), now=now)
-        live_stream.expire_empty(session, self._section, now=now)
-        live_stream.write_session_file(session, self._path)
-        return session
+                viewers = len(self._viewers)
+            session.note_viewers(viewers, now=now)
+            live_stream.expire_empty(session, self._section, now=now)
+            return True
+
+        return live_stream.transact_session_file(self._path, update)
+
+    def is_live(self):
+        """Whether the shared record currently says the session is live.
+
+        A fresh read on every call — another process owns starting and
+        stopping the session — and a missing or broken record reads as
+        not live (print_handy.live_stream.read_session_file fails soft
+        to an idle session), so the feed proxy's lifecycle gate (P1-89)
+        fails closed, never open.
+        """
+        from . import live_stream
+
+        return live_stream.read_session_file(self._path).is_live
 
     def note_viewer(self, user_id, *, now=None):
         with self._lock:
@@ -771,6 +892,7 @@ def main(argv=None) -> int:
         transport=UrllibOAuthTransport(config.client_id, client_secret()),
         allowlist=allowlist, secret=session_secret(),
         on_viewer=presence.note_viewer, on_leave=presence.note_leave,
+        session_active=presence.is_live,
         stream_name=stream_name)
     print(f"live activity: serving on 127.0.0.1:{config.port} "
           f"for {config.activity_origin} (stream {stream_name})")

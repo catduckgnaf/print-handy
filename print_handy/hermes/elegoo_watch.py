@@ -241,7 +241,13 @@ class ElegooPrintMonitor:
                 if self._session is not None and state == "printing":
                     # A pause holds the session open but takes no frames,
                     # exactly as the Moonraker listener's capture hook does.
-                    self._session.tick()
+                    # The tick carries the reported layer (the SDCP
+                    # adapter supplies it): without it a layer-triggered
+                    # capture can never fire (P2-172).
+                    layer = st.get("layer")
+                    if not (isinstance(layer, int) and not isinstance(layer, bool)):
+                        layer = None
+                    self._session.tick(layer)
                 self._sleep(self._capture_poll_s if self._session is not None else self._poll_s)
             elif state in _TERMINAL:
                 if seen_active or not self.filename or fname == self.filename:
@@ -265,8 +271,12 @@ def _default_post(message):
     return mel.post(message)
 
 
-def start_monitor(adapter, filename, *, post=None, thread_factory=None):
+def start_monitor(adapter, filename, *, post=None, thread_factory=None, printer_id=None):
     """Start an ElegooPrintMonitor for a just-launched SDCP print on a daemon thread.
+    printer_id is the launched job's roster printer: the monitor's pause
+    alerts carry it, so their Resume/Cancel buttons act on that printer
+    rather than the default one (SAFE-4 / P1-101).
+
 
     Returns the thread (or None when monitoring could not start — a
     failed monitor must never fail the print that launched it). With no
@@ -294,7 +304,7 @@ def start_monitor(adapter, filename, *, post=None, thread_factory=None):
             status_fn=lambda: adapter.normalize_status(client.status()),
             camera_source_fn=camera_source,
             post=post or _default_post,
-            pause_alerts=family_control.pause_alerts_for(adapter, filename),
+            pause_alerts=family_control.pause_alerts_for(adapter, filename, printer_id),
             capture_poll_s=interval)
         factory = thread_factory or (lambda target: threading.Thread(target=target, daemon=True,
                                                                      name=f"elegoo-watch-{filename}"))

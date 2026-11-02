@@ -177,8 +177,13 @@ PRINTER_ENTRY_STR_KEYS = ("name", "moonraker_url", "moonraker_ws_url", "octoprin
                           "camera_snapshot_url", "lan_host", "lan_serial", "lan_access_code_env",
                           "link_host", "api_key_env", "host", "nozzle_type")
 PRINTER_ENTRY_INT_KEYS = ("start_confirm_s", "tool_count")
+# Geometry overrides (P1-83): an Other/generic printer's measured build
+# volume, spelled exactly as [printer]'s keys. File-only: a list is not
+# expressible in the indexed environment spelling.
+PRINTER_ENTRY_GEOMETRY_KEYS = ("bed_mm", "max_print_height_mm")
 PRINTER_ENTRY_KEYS = frozenset({"id", "model", "chat_id",
-                                *PRINTER_ENTRY_STR_KEYS, *PRINTER_ENTRY_INT_KEYS})
+                                *PRINTER_ENTRY_STR_KEYS, *PRINTER_ENTRY_INT_KEYS,
+                                *PRINTER_ENTRY_GEOMETRY_KEYS})
 PRINTER_ENTRY_ENV_TYPES = {key: str for key in ("chat_id", *PRINTER_ENTRY_STR_KEYS)}
 PRINTER_ENTRY_ENV_TYPES.update({key: int for key in PRINTER_ENTRY_INT_KEYS})
 PRINTER_ID = re.compile(r"[a-z0-9][a-z0-9_-]*")
@@ -361,10 +366,21 @@ def _from_env(home, environ, declared=None):
             if (section, key) in OPTIONAL_KEYS:
                 expected_type = OPTIONAL_KEYS[(section, key)]
                 expected = expected_type() if expected_type in (bool, int, float) else ""
-                out.setdefault(section, {})[key] = _coerce(expected, raw, name)
-                continue
-            raise _unknown(f"${name}", section, key)
-        out.setdefault(section, {})[key] = _coerce(home[section][key], raw, name)
+            else:
+                raise _unknown(f"${name}", section, key)
+        else:
+            expected = home[section][key]
+        # A blank value is "not supplied", not an override (P1-64): Compose
+        # injects an empty string for every feature variable the operator
+        # left unset, and because the environment layer merges last it would
+        # erase the mounted config file's value — an existing vision endpoint
+        # became empty, disabling camera checks. String settings follow the
+        # same rule the list settings above already follow ("an empty value
+        # keeps the file value", docs/SETTINGS.md). Non-string settings keep
+        # their strict parsing, so a blank number or boolean still errors.
+        if isinstance(expected, str) and not raw.strip():
+            continue
+        out.setdefault(section, {})[key] = _coerce(expected, raw, name)
     return out
 
 
@@ -647,6 +663,28 @@ def _check_roster(raw):
                 if isinstance(value, bool) or not isinstance(value, (str, int)):
                     raise SettingsError(f"[printers] entry {pid!r}: chat_id must be a channel ID, got {value!r}")
                 stub[key] = str(value)
+            elif key == "bed_mm":
+                if (not isinstance(value, (list, tuple)) or len(value) != 2
+                        or not all(isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0
+                                   for v in value)):
+                    raise SettingsError(f"[printers] entry {pid!r}: bed_mm must be two positive "
+                                        f"numbers, got {value!r}")
+                stub[key] = [float(v) for v in value]
+            elif key == "max_print_height_mm":
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not value > 0:
+                    raise SettingsError(f"[printers] entry {pid!r}: max_print_height_mm must be a "
+                                        f"positive number, got {value!r}")
+                stub[key] = float(value)
+            elif key in PRINTER_ENTRY_STR_KEYS:
+                if not isinstance(value, str):
+                    raise SettingsError(f"[printers] entry {pid!r}: {key} should be a string, "
+                                        f"got {value!r}")
+                stub[key] = value
+            elif key in PRINTER_ENTRY_INT_KEYS:
+                if isinstance(value, bool) or not isinstance(value, int):
+                    raise SettingsError(f"[printers] entry {pid!r}: {key} should be a whole "
+                                        f"number, got {value!r}")
+                stub[key] = value
             else:
                 stub[key] = value
         stubs.append(stub)
@@ -671,6 +709,11 @@ def _project_entry(data, stub):
     # defaults base is built from this entry's model (see load()), so a value already there is
     # that model's own default — the same value a legacy config for the model resolves to.
     for key in ("nozzle_type", "tool_count"):
+        if key in stub:
+            printer[key] = stub[key]
+    # Geometry overrides likewise: the entry's measured build volume replaces
+    # the model default in this printer's view only (P1-83).
+    for key in PRINTER_ENTRY_GEOMETRY_KEYS:
         if key in stub:
             printer[key] = stub[key]
     services = data.setdefault("services", {})
@@ -737,6 +780,9 @@ def _capture_entry(data, stub):
     for key in ("nozzle_type", "tool_count"):
         if key in printer:
             entry[key] = printer[key]
+    for key in PRINTER_ENTRY_GEOMETRY_KEYS:
+        if key in printer:
+            entry[key] = printer[key]
     return entry
 
 
@@ -791,7 +837,18 @@ def _validate_entry(stub):
             scratch["bambu"][key] = stub[key]
     if "api_key_env" in stub:
         scratch["prusa"]["api_key_env"] = stub["api_key_env"]
+    # Seed the scratch printer from the model's own defaults before the
+    # stub's explicit values: the default entry gets nozzle_type /
+    # tool_count from the defaults merge in load(), and a non-default
+    # entry must resolve the same way or its consumers see a thinner
+    # printer than the model describes.
+    model_printer = model.defaults().get("printer") or {}
     for key in ("nozzle_type", "tool_count"):
+        if key in model_printer:
+            scratch["printer"][key] = model_printer[key]
+        if key in stub:
+            scratch["printer"][key] = stub[key]
+    for key in PRINTER_ENTRY_GEOMETRY_KEYS:
         if key in stub:
             scratch["printer"][key] = stub[key]
     try:
@@ -1065,6 +1122,10 @@ def _validate_timelapse(data):
     timelapse.setdefault("capture_enabled", False)
     raw = timelapse.setdefault("mode", "")
     mode = str(raw or "").strip().lower()
+    # Whether the operator named a mode: a derived mode is a property of
+    # the default entry's services, so view_for re-derives it per printer;
+    # an explicit mode is the operator's choice for every printer.
+    timelapse["mode_explicit"] = bool(mode)
     if not mode:
         if data["services"].get("moonraker_url"):
             mode = "rendered"
@@ -1593,7 +1654,8 @@ def validate(data):
         raise SettingsError("[visual_watch] enabled must be true or false")
     data["visual_watch"]["enabled"] = enabled
     level = data["visual_watch"]["sensitivity"]
-    if isinstance(level, bool) or not isinstance(level, (int, float)) or level != int(level) or not 1 <= level <= 5:
+    if isinstance(level, bool) or not isinstance(level, (int, float)) or not math.isfinite(level) \
+            or level != int(level) or not 1 <= level <= 5:
         raise SettingsError(f"[visual_watch] sensitivity must be a whole number from 1 to 5, got {level!r}")
     data["visual_watch"]["sensitivity"] = int(level)
     for key in ("question_timeout_s", "safety_confirm_timeout_s", "upload_wait_s", "cold_pull_outcome_s"):
@@ -1825,6 +1887,16 @@ def view_for(printer_id, data=None):
             view[section] = copy.deepcopy(defaults[section])
     _project_entry(view, dict(entry))
     _derive_service_urls(view["services"])
+    if not view["timelapse"].get("mode_explicit"):
+        # The resolved mode was derived from the DEFAULT entry's services;
+        # derive this view's mode from its own, the same rule
+        # _validate_timelapse applies (an explicit mode is left alone).
+        if view["services"].get("moonraker_url"):
+            view["timelapse"]["mode"] = "rendered"
+        elif view["timelapse"].get("capture_enabled"):
+            view["timelapse"]["mode"] = "container"
+        else:
+            view["timelapse"]["mode"] = "off"
     templates = defaults.get("orca", {}).get("templates", "")
     if model.generated_templates:
         view["orca"]["templates"] = generated_templates_dir(model, view)

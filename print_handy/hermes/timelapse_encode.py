@@ -264,6 +264,66 @@ def _assemble(frames_dir, target, partial, frames, kbps, max_bytes, preference, 
     return None
 
 
+def _expected_source(data) -> str:
+    """The camera source this settings view would capture from, redacted
+    the way manifests record it — or "" when no source resolves."""
+    try:
+        url = timelapse_capture.frame_url(data)
+    except Exception:
+        return ""
+    return live_stream.redact_url(url or "") if url else ""
+
+
+def _scan_match(root, key, data):
+    """The one finished capture a filename lookup may use for a job.
+
+    Returns (directory, manifest) or None. The scan matches by evidence,
+    strongest first, because a basename alone does not identify a print:
+
+    - Filename tier: a manifest whose recorded filename equals the job
+      key's full filename outranks one matching only by basename — two
+      folders can hold files with the same basename.
+    - Printer tier: the capture root is shared (paths.cache is shared by
+      every printer's settings view), so when this view resolves a
+      camera source and a candidate recorded that same source, only
+      those candidates stay — another printer's capture of a same-named
+      file is not this printer's footage. When no candidate matches the
+      source (it changed, or none was recorded), all candidates stay:
+      the filter is a preference, never a gate.
+    - Newest only: within what remains, the newest finished capture is
+      the current print's. Callers reject it when it is not usable for
+      them rather than reaching back to an earlier print's capture —
+      a previous print's footage must never attach to this print.
+    """
+    wanted = Path(key).name
+    tiers = ([], [])
+    for directory in sorted(root.iterdir()):
+        if not directory.is_dir():
+            continue
+        manifest = timelapse_capture.read_manifest(directory)
+        if not manifest or manifest.get("state") in (None, "new", "capturing"):
+            continue
+        recorded = str(manifest.get("filename") or "")
+        if recorded == key:
+            tiers[0].append((directory, manifest))
+        elif Path(recorded).name == wanted:
+            tiers[1].append((directory, manifest))
+    candidates = tiers[0] or tiers[1]
+    if not candidates:
+        return None
+    expected = _expected_source(data)
+    if expected:
+        same_source = [c for c in candidates if str(c[1].get("source") or "") == expected]
+        if same_source:
+            candidates = same_source
+    best, best_stamp = None, None
+    for directory, manifest in candidates:
+        stamp = manifest.get("finished_at") or 0
+        if best is None or stamp >= (best_stamp or 0):
+            best, best_stamp = (directory, manifest), stamp
+    return best
+
+
 def find_capture(job_key, *, data=None, root=None) -> Path | None:
     """The finished capture directory for a job, or None.
 
@@ -271,10 +331,10 @@ def find_capture(job_key, *, data=None, root=None) -> Path | None:
     while the completion postprocess knows the announcer's job key (the
     print's file path), so the directory is found by evidence, not by
     assuming the keys match: first the manifest in the directory the
-    job key slugs to (its recorded job_key must equal the key), then a
-    scan for the newest finished manifest whose recorded filename names
-    the same file. Live ("capturing") sessions and empty captures never
-    match — their job is still printing or produced nothing to encode.
+    job key slugs to (its recorded job_key must equal the key), then
+    the _scan_match evidence scan. Live ("capturing") sessions and
+    empty captures never match — their job is still printing or
+    produced nothing to encode.
     """
     data = _config.cfg() if data is None else data
     root = timelapse_capture.capture_root(data) if root is None else Path(root)
@@ -297,20 +357,11 @@ def find_capture(job_key, *, data=None, root=None) -> Path | None:
     manifest = usable(direct)
     if manifest and manifest.get("job_key") == key:
         return direct
-    wanted = Path(key).name
-    best, best_stamp = None, None
-    for directory in sorted(root.iterdir()):
-        if not directory.is_dir() or directory == direct:
-            continue
-        manifest = usable(directory)
-        if not manifest:
-            continue
-        if Path(str(manifest.get("filename") or "")).name != wanted:
-            continue
-        stamp = manifest.get("finished_at") or 0
-        if best is None or stamp >= (best_stamp or 0):
-            best, best_stamp = directory, stamp
-    return best
+    match = _scan_match(root, key, data)
+    if match is None:
+        return None
+    directory, _manifest = match
+    return directory if usable(directory) else None
 
 
 def dark_capture(job_key, *, data=None, root=None) -> dict | None:
@@ -318,11 +369,11 @@ def dark_capture(job_key, *, data=None, root=None) -> dict | None:
     frame was completely dark (#476), or None.
 
     The named camera-dark outcome beside find_capture: matches a job the
-    same way (direct directory, then the newest finished manifest naming
-    the same file), but a dark capture is exactly what find_capture must
-    never hand to the encoder — zero kept frames and at least one frame
-    skipped as dark. The delivery path uses the returned manifest (its
-    dark_frames count) to name the outcome in the completion post.
+    same way (direct directory, then the _scan_match evidence scan), but
+    a dark capture is exactly what find_capture must never hand to the
+    encoder — zero kept frames and at least one frame skipped as dark.
+    The delivery path uses the returned manifest (its dark_frames count)
+    to name the outcome in the completion post.
     """
     data = _config.cfg() if data is None else data
     root = timelapse_capture.capture_root(data) if root is None else Path(root)
@@ -344,20 +395,11 @@ def dark_capture(job_key, *, data=None, root=None) -> dict | None:
     manifest = dark_manifest(direct)
     if manifest and manifest.get("job_key") == key:
         return manifest
-    wanted = Path(key).name
-    best, best_stamp = None, None
-    for directory in sorted(root.iterdir()):
-        if not directory.is_dir() or directory == direct:
-            continue
-        manifest = dark_manifest(directory)
-        if not manifest:
-            continue
-        if Path(str(manifest.get("filename") or "")).name != wanted:
-            continue
-        stamp = manifest.get("finished_at") or 0
-        if best is None or stamp >= (best_stamp or 0):
-            best, best_stamp = manifest, stamp
-    return best
+    match = _scan_match(root, key, data)
+    if match is None:
+        return None
+    _directory, manifest = match
+    return manifest if dark_manifest(_directory) else None
 
 
 def captured_video(job_key, *, data=None, max_bytes, log=None, probe=None,

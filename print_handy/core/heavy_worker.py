@@ -38,6 +38,16 @@ def main():
     from print_handy.core import resources
     resources.apply_to_environment()  # before numpy loads: BLAS/OpenMP pools follow the CPU quota
     request = json.loads(sys.stdin.read())
+    # The worker is a Print Handy process too: configure the shared logging
+    # (stderr only — stdout stays the JSON reply channel) and bind the
+    # intake context the parent forwarded, so slicer and geometry log lines
+    # carry the same identity and settings as every other process (P2-55).
+    # The parent re-emits whatever lands on stderr into its own log.
+    from print_handy import logs
+    logs.configure()
+    context = request.get('log_context')
+    if isinstance(context, dict):
+        logs.bind(**{str(key): value for key, value in context.items()})
     key = (request['module'], request['func'])
     if key not in ALLOWED:
         raise SystemExit(f'not an offloadable step: {key}')

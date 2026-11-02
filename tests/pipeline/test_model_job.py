@@ -251,6 +251,42 @@ PRINT_END
     def test_verify_accepts_complete_safe_gcode(self):
         self.assertTrue(self.verify(self.valid_gcode()))
 
+    def layered_gcode(self, body):
+        # First layer ends at 0.45 mm width; the body block decides the verdict.
+        return f"""PRINT_START BED=60 HOTEND=210
+G90
+G1 X10 Y10 Z0.2
+;LAYER_CHANGE
+;Z:0.2
+;HEIGHT:0.2
+;TYPE:Outer wall
+;WIDTH:0.45
+G1 X20 Y10 E1
+;LAYER_CHANGE
+{body}
+PRINT_END
+; nozzle_diameter = 0.4
+; filament_type = PLA
+; first_layer_height = 0.2
+"""
+
+    def test_verify_rejects_body_width_replaced_right_after_the_type_marker(self):
+        # P2-66: the body's own ;WIDTH:0.30 governs; the first layer's 0.45 was
+        # never extruded in this feature and must not lift the median past the
+        # 90%-of-nozzle floor (0.36 on the 0.4 nozzle).
+        with self.assertRaisesRegex(RuntimeError, "layers 2-5 line width 0.30 mm < 0.36 mm"):
+            self.verify(self.layered_gcode(";TYPE:Outer wall\n;WIDTH:0.30\nG1 X20 Y10 E1\n"))
+
+    def test_verify_accepts_an_inherited_width_that_actually_extrudes(self):
+        # No new ;WIDTH in the body: the carried 0.45 really is the body's width.
+        self.assertTrue(self.verify(self.layered_gcode(";TYPE:Outer wall\nG1 X20 Y10 E1\n")))
+
+    def test_verify_counts_the_inherited_width_when_extrusion_precedes_the_replacement(self):
+        # The 0.45 was laid down before ;WIDTH:0.30 arrived, so both are real
+        # body samples and the upper median (0.45) clears the floor.
+        self.assertTrue(self.verify(self.layered_gcode(
+            ";TYPE:Outer wall\nG1 X20 Y10 E1\n;WIDTH:0.30\nG1 X25 Y10 E1\n")))
+
 
 class SliceVerificationTests(unittest.TestCase):
     def test_slice_job_runs_full_verifier_before_recording(self):
@@ -887,13 +923,14 @@ class EnglishAndPrintNowTests(unittest.TestCase):
             self.assertEqual(out["phase"], "awaiting_confirmation")  # never "failed" without this file saying so
         # One start POST, then the #84 status readback. Not a second start.
         # (_zmod_version pinned unknown: this choreography is the plain .gcode path's.)
-        # A read-only heater baseline before the start (evidence for a lost response), exactly one start POST, then the readback.
+        # A read-only heater baseline before the start (evidence for a lost response), the read-only P1-121 history baseline at submitting(), exactly one start POST, then the readback.
         paths = [c.args[1] for c in mr.call_args_list]
         self.assertEqual(paths.count("/printer/print/start"), 1)
-        self.assertEqual(len(paths), 3)
+        self.assertEqual(len(paths), 4)
         self.assertIn("extruder=target", paths[0])
-        self.assertEqual(paths[1], "/printer/print/start")
-        self.assertIn("/printer/objects/query", paths[2])
+        self.assertIn("/server/history/list", paths[1])  # P1-121 pre-submission baseline, read-only
+        self.assertEqual(paths[2], "/printer/print/start")
+        self.assertIn("/printer/objects/query", paths[3])
 
     def test_printer_phase_accepts_print_start_preparation_signals(self):
         payload = {'result': {'status': {
@@ -925,13 +962,14 @@ class EnglishAndPrintNowTests(unittest.TestCase):
                 self.assertEqual(out['phase'], 'awaiting_confirmation')
                 self.assertEqual(out['message'], 'submitted, awaiting confirmation')
                 # One start POST, then the #84 status readback. Not a second start.
-                # A read-only heater baseline before the start (evidence for a lost response), exactly one start POST, then the readback.
+                # A read-only heater baseline before the start (evidence for a lost response), the read-only P1-121 history baseline at submitting(), exactly one start POST, then the readback.
                 paths = [c.args[1] for c in mr.call_args_list]
                 self.assertEqual(paths.count("/printer/print/start"), 1)
-                self.assertEqual(len(paths), 3)
+                self.assertEqual(len(paths), 4)
                 self.assertIn("extruder=target", paths[0])
-                self.assertEqual(paths[1], "/printer/print/start")
-                self.assertIn("/printer/objects/query", paths[2])
+                self.assertIn("/server/history/list", paths[1])  # P1-121 pre-submission baseline, read-only
+                self.assertEqual(paths[2], "/printer/print/start")
+                self.assertIn("/printer/objects/query", paths[3])
 
     def test_z_offset_notice_only_when_start_print_lacks_z_offset(self):
         plain = "START_PRINT EXTRUDER_TEMP=220 BED_TEMP=60\n"
@@ -1402,13 +1440,14 @@ class EnglishAndPrintNowTests(unittest.TestCase):
             self.assertEqual(out["phase"], "awaiting_confirmation")
         # One start POST, then the #84 status readback. Not a second start.
         # (_zmod_version pinned unknown: this choreography is the plain .gcode path's.)
-        # A read-only heater baseline before the start (evidence for a lost response), exactly one start POST, then the readback.
+        # A read-only heater baseline before the start (evidence for a lost response), the read-only P1-121 history baseline at submitting(), exactly one start POST, then the readback.
         paths = [c.args[1] for c in mr.call_args_list]
         self.assertEqual(paths.count("/printer/print/start"), 1)
-        self.assertEqual(len(paths), 3)
+        self.assertEqual(len(paths), 4)
         self.assertIn("extruder=target", paths[0])
-        self.assertEqual(paths[1], "/printer/print/start")
-        self.assertIn("/printer/objects/query", paths[2])
+        self.assertIn("/server/history/list", paths[1])  # P1-121 pre-submission baseline, read-only
+        self.assertEqual(paths[2], "/printer/print/start")
+        self.assertIn("/printer/objects/query", paths[3])
 
     def test_fetch_print_now_without_filament_selection_fails_closed_naming_command(self):
         source_job = {"slug": "offline-test", "site": "makerworld", "model_id": "123", "title": "Offline Test", "sources": [{"filename": "test.3mf", "title": "Test source", "site_nozzle_mm": 0.4, "plates": [], "materials": ["PLA"]}]}

@@ -384,6 +384,77 @@ def test_media_post_failure_falls_back_to_the_text_completion(capture_logs):
     assert any("post with timelapse failed" in line for line in capture_logs)
 
 
+# ------------------------------------------------- capture gate ordering (P2-139)
+
+def _monitor_with_begin(begin_fn):
+    streams, posts = [], []
+    clock = FakeClock()
+    monitor = stock_watch.StockPrintMonitor(
+        REMOTE,
+        status_fn=scripted([st("printing"), st("complete")]),
+        camera_url_fn=scripted([STREAM_URL]),
+        stream_fn=streams.append,
+        post=posts.append,
+        begin_fn=begin_fn,
+        encode_fn=lambda session: None,
+        clock=clock, sleep=clock.sleep, poll_s=30.0, capture_poll_s=0.5)
+    return monitor, streams
+
+
+def test_a_refused_capture_never_opens_the_camera_stream():
+    """P2-139: begin() is the capture gate (capture_enabled / no session);
+    the stream must not be opened — or later closed — when it refuses."""
+    monitor, streams = _monitor_with_begin(lambda url: None)
+    monitor.run()
+    assert streams == []
+    assert monitor._stream_open is False
+
+
+def test_a_failed_capture_begin_never_opens_the_camera_stream():
+    def begin(url):
+        raise RuntimeError("capture refused")
+
+    monitor, streams = _monitor_with_begin(begin)
+    monitor.run()
+    assert streams == []
+    assert monitor._stream_open is False
+
+
+# --------------------------------------------- layer trigger fallback (P2-140)
+
+def test_a_layer_trigger_falls_back_to_interval_on_stock(monkeypatch):
+    """P2-140: stock status carries no layer, so a layer-triggered session
+    could never fire. The watch substitutes the configured interval."""
+    import types
+
+    from print_handy.hermes import timelapse_capture as tc
+
+    session = types.SimpleNamespace(trigger=tc.LayerTrigger())
+    monkeypatch.setattr(tc, "begin", lambda *a, **k: session)
+    monkeypatch.setattr(tc, "capture_settings",
+                        lambda data=None: {"capture_interval_s": 45})
+    monitor, _streams = _monitor_with_begin(None)
+    out = monitor._begin_default(STREAM_URL)
+    assert out is session
+    assert isinstance(session.trigger, tc.IntervalTrigger)
+    assert session.trigger.interval_s == 45
+
+
+def test_an_interval_trigger_is_left_alone_on_stock(monkeypatch):
+    import types
+
+    from print_handy.hermes import timelapse_capture as tc
+
+    trigger = tc.IntervalTrigger(30)
+    session = types.SimpleNamespace(trigger=trigger)
+    monkeypatch.setattr(tc, "begin", lambda *a, **k: session)
+    monkeypatch.setattr(tc, "capture_settings",
+                        lambda data=None: {"capture_interval_s": 45})
+    monitor, _streams = _monitor_with_begin(None)
+    assert monitor._begin_default(STREAM_URL) is session
+    assert session.trigger is trigger
+
+
 def test_a_refused_media_post_falls_back_to_the_text_completion(capture_logs):
     """The production sender returns False on a refusal instead of raising
     (the P2-169/P2-173 contract): a refused MEDIA post still owes the

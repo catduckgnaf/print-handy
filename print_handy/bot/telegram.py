@@ -103,6 +103,7 @@ class StandaloneAdapter(BasePlatformAdapter):
     max_buttons = MAX_BUTTONS
     uses_llm = False
     supports_live_stream = False
+    polls_serially = True  # getUpdates loop awaits each update (P1-109)
 
     def __init__(self, client, allowed, *, denied=(), approver=None, registry=prompts,
                  upload_max_bytes=None, token=None, opener=None):
@@ -163,6 +164,17 @@ class StandaloneAdapter(BasePlatformAdapter):
             logger.info("Telegram delete failed: %r", exc)
             return False
 
+    async def edit_message(self, chat_id, message_id, content, metadata=None):
+        """Replace a posted message's text in place (progress updates, P2-236)."""
+        try:
+            await asyncio.to_thread(self._call, "editMessageText",
+                                    {"chat_id": str(chat_id), "message_id": int(message_id),
+                                     "text": str(content)[:self.message_limit]})
+        except Exception as exc:
+            logger.info("Telegram edit failed: %r", exc)
+            return SendResult(False, error=str(exc))
+        return SendResult(True, message_id=str(message_id))
+
     async def send_clarify(self, chat_id, question, choices, clarify_id, session_key, metadata=None):
         """One message with an inline keyboard, one button per choice."""
         labels = [str(c) for c in choices][:MAX_BUTTONS]
@@ -218,6 +230,11 @@ class StandaloneAdapter(BasePlatformAdapter):
         async def answer(text):
             await self._answer_callback(query_id, text)
         if not self._is_allowed_user(user_id, S(bot=bool(sender.get("is_bot")))):
+            await answer("Not allowed. Nothing changed.")
+            return True
+        if prompts.is_approval(cid) and not self.may_approve_id(user_id):
+            # Print approvals stay separate from channel access (P1-93), as
+            # on Discord: only the approval user resolves a start prompt.
             await answer("Not allowed. Nothing changed.")
             return True
         # A prompt is answered in the chat it was asked in (#335): the chat
@@ -371,8 +388,12 @@ class TelegramClient:
             logger.info("health check on :%d/healthz", port)
 
     def _register_commands(self):
+        # The menu is filtered by this platform's capabilities (P2-123):
+        # Telegram registers no /print_live, which only Discord can run.
+        live = bool(self.core is not None
+                    and getattr(self.core.adapter, "supports_live_stream", False))
         payload = {"commands": [{"command": name.replace("-", "_"), "description": c.description[:256]}
-                                for name, c in commands.registrations()]}
+                                for name, c in commands.registrations(supports_live_stream=live)]}
         tg.call(self.token, "setMyCommands", payload, opener=self.opener)
 
     async def _heartbeat(self):

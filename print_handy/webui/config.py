@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import copy
 import os
+import re
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -183,6 +184,48 @@ def _validate_candidate(candidate, target, *, home, environ):
     return text
 
 
+def _check_discord_chat_id(value):
+    """The content rule guided setup applies (``guided._validate_chat_id``):
+    exactly one numeric channel ID. The settings loader checks only the
+    type, so without this a value like ``not-a-channel`` is saved and the
+    bot can then never match incoming channels."""
+    text = str(value or "").strip()
+    if not text:
+        return
+    from ..setup_wizard import _ids
+    error = _ids(text)
+    if error:
+        raise WebUIConfigError(f"discord.chat_id: {error}")
+    if len([part for part in re.split(r"[,\s]+", text) if part]) != 1:
+        raise WebUIConfigError("discord.chat_id: exactly one numeric channel ID")
+
+
+def _check_discord_timezone(value):
+    """The timezone must name a real IANA zone: ``_config.tz()`` builds a
+    ``ZoneInfo`` from it at import time in the print-summary and
+    print-record modules, so an unknown name saved here breaks them."""
+    text = str(value or "").strip()
+    if not text:
+        return
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    try:
+        ZoneInfo(text)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise WebUIConfigError(
+            f"discord.timezone: {text!r} is not an IANA timezone name") from None
+
+
+# Catalog fields whose *contents* the settings loader does not validate
+# (it checks types only). write_changes runs these for every changed
+# field before the candidate is written; every other catalog field's
+# content rule already lives in the loader (telegram/matrix IDs, URLs,
+# user ID lists, choices, ranges).
+_CONTENT_CHECKS = {
+    "discord.chat_id": _check_discord_chat_id,
+    "discord.timezone": _check_discord_timezone,
+}
+
+
 def _backup(target, stamp):
     """A timestamped copy of the current file next to it; its path, or None."""
     if not target.is_file():
@@ -244,6 +287,10 @@ def write_changes(changes, *, config_path=None, home=None, environ=None, timesta
         section[field.key] = value
     if not changed:
         return []
+    for field, value in items:
+        check = _CONTENT_CHECKS.get(field.id)
+        if check is not None:
+            check(value)
     target.parent.mkdir(parents=True, exist_ok=True)
     text = _validate_candidate(candidate, target, home=home, environ=environ)
     stamp = timestamp or datetime.now().strftime("%Y%m%d-%H%M%S")

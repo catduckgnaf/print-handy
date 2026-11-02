@@ -210,6 +210,25 @@ def test_source_85_percent_instance_scale_is_warned_and_preserved(tmp_path):
     assert any('authored source transform scaling/shear' in w for w in inspected['warnings'])
 
 
+def test_unit_override_skips_preserved_3mf_package(tmp_path):
+    """An input-unit override that differs from the archive's declared unit
+    converts the packed geometry, but the preserved package rewrites build
+    transforms in the archive's own unit space — preserving would report a
+    package with different physical dimensions, so it is skipped (P2-46)."""
+    spec = [{'id': '1', 'name': 'inch_box', 'triangles': _box_triangles(2.0, 3.0, 1.0)}]
+    src = _write_test_3mf(tmp_path / 'inch_numbers.3mf', spec)
+    with pytest.raises(RuntimeError, match='input unit'):
+        geometry_layout.preserve_3mf_package_layout(
+            src, [], tmp_path / 'direct_preserved.3mf', input_unit='inch')
+    out = geometry_layout.arrange_and_export(src, tmp_path / 'out', input_unit='inch')
+    assert 'preserved_3mf_package' not in out
+    assert any('input unit' in w for w in out['warnings'])
+    assert not (tmp_path / 'out' / 'inch_numbers_100pct_arranged_preserved.3mf').exists()
+    # Control: no override — the same archive still preserves.
+    out2 = geometry_layout.arrange_and_export(src, tmp_path / 'out2')
+    assert 'preserved_3mf_package' in out2
+
+
 def test_unit_conversion_and_invalid_unit_refusal(tmp_path):
     """Explicit inch/cm units convert accurately to mm; unknown units raise ValueError."""
     stl = geometry_layout.write_binary_stl(_box_triangles(2.0, 3.0, 1.0), tmp_path / 'inch_part.stl')

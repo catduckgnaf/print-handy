@@ -13,6 +13,7 @@ from unittest import mock
 
 import pytest
 
+from print_handy import settings
 from print_handy.core import launch_state, model_job
 from print_handy.printers import flashforge
 from print_handy.printers.flashforge.zmod import screen as zmod_screen
@@ -176,7 +177,10 @@ def test_second_job_is_refused_while_the_first_launch_is_in_flight(printer):
     def upload_a_then_race_b(cmd, *args, **kwargs):
         if cmd[1] == "upload" and "b" not in seen:
             seen["b"] = "raced"
-            with pytest.raises(SystemExit, match="REFUSED: another launch .*in progress"):
+            # Since SAFE-6 (P1-33) the printer-control lock is the outer gate, so the
+            # refusal may come from it instead of the launch lease; either in-flight
+            # guard refusing is the property this test pins.
+            with pytest.raises(SystemExit, match="REFUSED: another (launch .*in progress|printer control action .*is in flight)"):
                 model_job.print_now(b)  # B also saw an idle printer before A submitted
         return upload_ok(cmd, *args, **kwargs)
 
@@ -331,7 +335,7 @@ def octoprint(tmp_path):
     st = {"temps_c": {"bed": 60, "nozzle": 210}, "nozzle": {"type": "hardened_steel"}}
     with mock.patch.object(model_job.printers, "current", return_value=fake), \
          mock.patch.object(model_job.printer_state, "load", return_value=st), \
-         mock.patch.object(model_job, "_with_gcode_temperatures", side_effect=lambda state, text: state), \
+         mock.patch.object(model_job, "_with_gcode_temperatures", side_effect=lambda state, text, *a: state), \
          mock.patch.object(model_job, "verify_gcode"), \
          mock.patch.object(model_job, "record_start", return_value="/vault/x.md"):
         fake.root = tmp_path
@@ -699,6 +703,45 @@ def test_history_is_read_only_when_the_current_file_does_not_settle_it():
     assert not launch_state.reached_printer(held_row(), "", broken)
 
 
+def test_history_baseline_excludes_a_prior_run_inside_the_slack():
+    # P1-121: a run cancelled 60 s before the retry's lease sits inside the 120 s
+    # clock slack, so the time rule alone accepts it as the retry's confirmation.
+    prior = ("job-old", "3mf_print/Bag-Clip_plate_1_bf4e.gcode", epoch("2026-10-30T19:20:32-0400"))
+    assert launch_state.reached_printer(held_row(), "", [prior])
+    # A pre-submission baseline naming that job excludes it: it predates the
+    # submission, so it says nothing about whether the submission arrived.
+    baseline = [launch_state.history_key(prior)]
+    assert not launch_state.reached_printer(held_row(), "", [prior], baseline=baseline)
+    # The submission's own run — started after the lease, absent from the
+    # baseline — still settles it, clock tolerance intact.
+    own = ("job-new", "3mf_print/Bag-Clip_plate_1_bf4e.gcode", epoch("2026-10-30T19:24:41-0400"))
+    assert launch_state.reached_printer(held_row(), "", [prior, own], baseline=baseline)
+
+
+def test_a_prior_run_cannot_settle_a_new_submissions_uncertain_lease():
+    # P1-121 end to end: the retry's lease captures the history baseline before
+    # submission; when the retry then goes uncertain, the prior same-name run
+    # inside the slack must not release the lease for another launch.
+    import time
+    key = "printer-p1-121"
+    remote = "Retry_plate_1.gcode"
+    history = [("job-old", remote, time.time() - 60)]  # the cancelled earlier run
+    lease = launch_state.acquire(key, job_json="/archive/retry/JOB.json", gcode_sha256="f" * 64,
+                                 remote=remote, started_files=lambda: list(history))
+    lease.submitting()
+    lease.uncertain("start request did not complete")
+    simulate_restart()
+    with pytest.raises(SystemExit, match="REFUSED: an earlier start on this printer is uncertain"):
+        launch_state.acquire(key, job_json="/archive/next/JOB.json", gcode_sha256="a" * 64,
+                             remote=remote, started_files=lambda: list(history))
+    # Once the retry's own run appears in history, the lease reconciles and the
+    # next launch proceeds.
+    history.append(("job-new", remote, time.time()))
+    lease2 = launch_state.acquire(key, job_json="/archive/next/JOB.json", gcode_sha256="a" * 64,
+                                  remote=remote, started_files=lambda: list(history))
+    lease2.release()
+
+
 def hold_uncertain(key, remote):
     lease = launch_state.acquire(key, job_json="/archive/earlier/JOB.json", gcode_sha256="e" * 64, remote=remote)
     lease.uncertain("start request did not complete: TimeoutError('timed out')")
@@ -787,3 +830,38 @@ def test_mapped_launch_warns_instead_of_refusing_over_a_hex_the_system_guessed(m
     out = capsys.readouterr().out
     assert len(uploads(mapped.run)) == 1 and len(mapped.scripts) == 1
     assert "WARNING" in out and "#067749" in out and "#0C6283" in out and "worked out from the spool name" in out
+
+
+def test_adopted_legacy_lease_is_rekeyed_to_the_roster_id(tmp_path, monkeypatch):
+    """P1-74: the legacy launch database keyed its lease by the old Moonraker
+    URL / model key. Adoption copies the file into the default printer's
+    folder, whose lookups use the roster id — an unrekeyed held lease would
+    never be found, so a second launch could start while the adopted
+    submitting/uncertain lease is still unresolved."""
+    monkeypatch.delenv("PRINT_HANDY_LAUNCH_DB", raising=False)
+    state = tmp_path / "state"
+    state.mkdir()
+    monkeypatch.setattr(settings, "state_dir", lambda data=None: state)
+    printer_id = settings.default_printer_id()
+    legacy = state / "print_handy_launches.sqlite3"
+    con = sqlite3.connect(legacy)
+    for statement in launch_state.SCHEMA:
+        con.execute(statement)
+    con.execute(
+        "INSERT INTO leases (printer, token, phase, job_json, gcode_sha256, remote, pid, host,"
+        " leased_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        ("http://printer.test:7125", "tok-legacy", "uncertain", "/jobs/JOB.json", "sha",
+         "x.gcode", 4242, "oldhost", "2026-01-01T00:00:00+0000", "2026-01-01T00:00:00+0000"))
+    con.execute("INSERT INTO lease_baselines (printer, baseline) VALUES (?,?)",
+                ("http://printer.test:7125", "[]"))
+    con.commit()
+    con.close()
+    rows = launch_state.pending(printer_id)
+    assert [r["printer"] for r in rows] == [printer_id]
+    assert rows[0]["phase"] == "uncertain" and rows[0]["token"] == "tok-legacy"
+    with pytest.raises(SystemExit, match="REFUSED"):
+        launch_state.acquire(printer_id, job_json="/jobs/JOB2.json",
+                             gcode_sha256="sha2", remote="y.gcode")
+    with launch_state.transaction(printer_id) as adopted:
+        baselines = [dict(r) for r in adopted.execute("SELECT * FROM lease_baselines")]
+    assert [r["printer"] for r in baselines] == [printer_id]

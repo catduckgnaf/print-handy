@@ -65,7 +65,10 @@ def _summarise(value, key: str = ""):
     if isinstance(value, (list, tuple)):
         return [_summarise(v) for v in value]
     if isinstance(value, str) and len(value) > 80:
-        return value[:77] + "..."
+        # Redact BEFORE truncating: a URL credential whose @ sits past the
+        # cut would otherwise survive as a bare password fragment, because
+        # the redaction pass in config_summary can no longer see the @.
+        return logs.redact(value)[:77] + "..."
     return value
 
 
@@ -103,7 +106,11 @@ def log_tail(data, lines: int = DEFAULT_LOG_LINES) -> str:
         text = target.read_text(errors="replace")
     except OSError as exc:
         return f"(log file {target} could not be read: {exc})"
-    tail = text.splitlines()[-max(0, min(lines, MAX_LOG_LINES)):]
+    count = max(0, min(lines, MAX_LOG_LINES))
+    if count == 0:
+        # [-0:] is the whole file, so a zero request needs its own answer.
+        return "(no log lines included: the requested line count is 0)"
+    tail = text.splitlines()[-count:]
     return "\n".join(logs.redact(line) for line in tail) or "(log file is empty)"
 
 
@@ -127,26 +134,58 @@ def _known_ids(data):
             users.extend(str(v) for v in raw_users)
         elif raw_users:
             users.extend(str(raw_users).replace(",", " ").split())
+        for key in ("approval_user_id", "bot_user_id"):
+            if cfg.get(key):
+                users.append(str(cfg[key]))
         for key in ("chat_id", "room_id"):
             if cfg.get(key):
                 channels.append(str(cfg[key]))
     return users, channels
 
 
+def _load_settings():
+    """(data, error): the current settings, or ({}, the failure) when they do not load.
+
+    A bundle exists to report a broken setup, so a settings failure is
+    bundle content, not a reason to produce no bundle at all.
+    """
+    try:
+        return settings.current(), None
+    except Exception as exc:
+        return {}, exc
+
+
 def build_bundle(data=None, *, log_lines: int = DEFAULT_LOG_LINES,
                  include_doctor: bool = True) -> str:
     """The whole bundle as one Markdown string. Never raises on a section."""
-    data = settings.current() if data is None else data
+    load_error = None
+    if data is None:
+        data, load_error = _load_settings()
+    return _assemble(data, log_lines=log_lines, include_doctor=include_doctor,
+                     load_error=load_error)
+
+
+def _assemble(data, *, log_lines: int, include_doctor: bool, load_error) -> str:
     digest = next((os.environ[name] for name in _DIGEST_ENVS if os.environ.get(name)),
                   "not recorded in this environment (standalone install or unset)")
-    from . import debug_mode
-    window = debug_mode.session_window(data)
-    if window is not None:
-        log_title = "Debug session log (sanitized; see docs/DIAGNOSTICS.md)"
-        log_text = window
+    if load_error is not None:
+        failure = f"{type(load_error).__name__}: {load_error}"
+        config_text = f"(configuration could not be loaded: {failure})"
+        roster_text = "- (unavailable: the configuration did not load)"
+        log_title = "Recent log tail"
+        log_text = f"(no log tail is available: the configuration did not load: {failure})"
     else:
-        log_title = f"Recent log tail (last {min(log_lines, MAX_LOG_LINES)} lines, sanitized)"
-        log_text = log_tail(data, log_lines)
+        config_text = config_summary(data)
+        roster_text = roster_summary(data)
+        from . import debug_mode
+        window = debug_mode.session_window(data)
+        if window is not None:
+            log_title = "Debug session log (sanitized; see docs/DIAGNOSTICS.md)"
+            log_text = window
+        else:
+            shown = max(0, min(log_lines, MAX_LOG_LINES))
+            log_title = f"Recent log tail (last {shown} lines, sanitized)"
+            log_text = log_tail(data, log_lines)
     parts = [
         "# Print Handy diagnostics bundle",
         "",
@@ -161,11 +200,11 @@ def build_bundle(data=None, *, log_lines: int = DEFAULT_LOG_LINES,
         "",
         "## Configuration summary (redacted)",
         "",
-        config_summary(data),
+        config_text,
         "",
         "## Printers",
         "",
-        roster_summary(data),
+        roster_text,
         "",
         "## Doctor",
         "",
@@ -188,10 +227,21 @@ def build_bundle(data=None, *, log_lines: int = DEFAULT_LOG_LINES,
 
 def write_bundle(path=None, data=None, *, log_lines: int = DEFAULT_LOG_LINES) -> Path:
     """Write the bundle (default: ``<state>/diagnostics-bundle.md``); returns the path."""
-    data = settings.current() if data is None else data
-    target = Path(path) if path else settings.state_dir(data) / BUNDLE_NAME
+    load_error = None
+    if data is None:
+        data, load_error = _load_settings()
+    if path:
+        target = Path(path)
+    else:
+        try:
+            target = settings.state_dir(data) / BUNDLE_NAME
+        except Exception:
+            # The state folder comes from the settings that just failed to
+            # load; the bundle still has to land somewhere writable.
+            target = Path(BUNDLE_NAME)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(build_bundle(data, log_lines=log_lines))
+    target.write_text(_assemble(data, log_lines=log_lines, include_doctor=True,
+                                load_error=load_error))
     return target
 
 

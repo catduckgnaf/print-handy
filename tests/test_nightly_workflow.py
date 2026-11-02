@@ -37,7 +37,11 @@ class NightlyWorkflowContract(unittest.TestCase):
         self.assertEqual(promote["permissions"], {"actions": "read", "contents": "write"})
         run = promote["steps"][0]["run"]
         # The promotion source is a successful CI run on main, nothing else.
-        self.assertIn("actions/workflows/ci.yml/runs?branch=main&status=success", run)
+        # event=push is load-bearing (P1-67): ci.yml also runs on
+        # pull_request, and the branch filter alone would accept a green PR
+        # run from a fork branch that happens to be named main — unmerged
+        # code must never become the nightly pointer.
+        self.assertIn("actions/workflows/ci.yml/runs?branch=main&event=push&status=success", run)
         # The branch is only ever fast-forwarded: ancestry is proven first and
         # the ref update is never forced.
         self.assertIn("compare/$nightly_sha...$green", run)
@@ -45,6 +49,28 @@ class NightlyWorkflowContract(unittest.TestCase):
         self.assertIn("git/refs/heads/nightly", run)
         self.assertIn("-F force=false", run)
         self.assertNotIn("force=true", text)
+
+    def test_unpublished_commits_stay_eligible_for_publication(self):
+        # P2-97: the gate is successful publication of the target commit,
+        # not movement of the nightly branch. A failed build/publication —
+        # or a promote-only (publish=false) run — used to strand the commit:
+        # nightly already pointed at it, so the next scheduled run reported
+        # changed=false and skipped the build forever.
+        workflow = load_workflow()
+        run = workflow["jobs"]["promote"]["steps"][0]["run"]
+        self.assertIn("git/ref/heads/nightly-published", run)
+        self.assertIn('[[ "$target" != "$published_sha" ]]', run)
+        # The manifest job records the commit only after its manifest push
+        # succeeds, and needs contents: write to move that ref.
+        manifest = workflow["jobs"]["manifest"]
+        self.assertEqual(manifest["permissions"].get("contents"), "write")
+        steps = manifest["steps"]
+        create = next(i for i, s in enumerate(steps)
+                      if "imagetools create" in s.get("run", ""))
+        record = next(i for i, s in enumerate(steps)
+                      if "git/refs/heads/nightly-published" in s.get("run", ""))
+        self.assertGreater(record, create)
+        self.assertIn("$NIGHTLY_SHA", steps[record]["run"])
 
     def test_build_checks_out_the_promoted_commit(self):
         workflow = load_workflow()

@@ -58,6 +58,50 @@ def test_roles_colors_and_layer_range():
     assert "print_control" not in source
 
 
+BAMBU_PLATE = """G90
+M83
+G0 X10 Y10 Z0.2
+; FEATURE: Outer wall
+G1 X20 Y10 E0.02
+G1 X20 Y20 E0.02
+; CHANGE_LAYER
+; FEATURE: Sparse infill
+G1 X12 Y12 E0.02
+; FEATURE: Support
+G1 X30 Y10 E0.02
+"""
+
+
+def test_bambu_dialect_markers_split_layers_and_roles():
+    # P2-259: Bambu profiles emit "; CHANGE_LAYER" and "; FEATURE:" rather
+    # than the Prusa-dialect markers; both dialects must parse.
+    parsed = layers.parse_gcode(BAMBU_PLATE)
+    assert parsed["ok"]
+    assert len(parsed["layers"]) == 2
+    assert {move["role"] for move in parsed["layers"][0]["moves"]} == {"perimeter"}
+    assert {move["role"] for move in parsed["layers"][1]["moves"]} == {"infill", "support"}
+
+
+def test_intake_generated_job_ids_are_accepted(tmp_path):
+    # P2-257: intake_folder() names a chat job slug[:70] + "--" + 64 hex
+    # (up to 136 chars); the layers catalog must accept the full length
+    # while still refusing traversal-shaped ids.
+    job_id = "a-fairly-long-model-slug-from-a-chat-link--" + "a" * 64
+    job = tmp_path / job_id
+    job.mkdir()
+    (job / "plate_1.gcode").write_text(PLATE, encoding="utf-8")
+    (job / "JOB.json").write_text(json.dumps({
+        "title": "Long slug job", "gcode": "plate_1.gcode",
+    }), encoding="utf-8")
+    rows = layers.list_plates(tmp_path)
+    assert [row["job_id"] for row in rows] == [job_id]
+    assert layers.resolve_plate(tmp_path, job_id, "0") == (job / "plate_1.gcode").resolve()
+    code, _ctype, _page = layers.respond(tmp_path, f"{job_id}/0", "0")
+    assert code == 200
+    assert layers.resolve_plate(tmp_path, "..", "0") is None
+    assert layers.resolve_plate(tmp_path, "a/b", "0") is None
+
+
 def test_unreadable_file_is_an_error_with_no_drawing():
     parsed = layers.parse_gcode(NOTE)
     assert parsed == {"ok": False, "error": "this G-code has no extrusion to draw"}

@@ -255,7 +255,8 @@ class PrinterModel:
     # Printer-specific defaults for [printer], [layout], [prime_tower] and [cold_pull], merged over the
     # vendor's settings. Config files and the environment override both.
     settings: dict
-    # Protected-settings baseline file under config/; None uses the shared protected-settings-baseline.json.
+    # Protected-settings baseline file under config/; None uses the shared protected-settings-baseline.json,
+    # which is the AD5X's own approval — only flashforge.ad5x leaves this unset (SAFE-10).
     baseline: str | None = None
     # Supported nozzle diameters in mm (e.g. 0.25, 0.4, 0.6, 0.8)
     supported_nozzle_sizes: tuple[float, ...] = (0.2, 0.25, 0.4, 0.6, 0.8)

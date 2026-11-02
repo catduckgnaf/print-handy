@@ -132,6 +132,31 @@ def test_resolver_job_mapping_is_trusted_verbatim_and_all_unmapped_recomputes():
         ams_mapping.resolve_for_print(text, snap(), job_mapping=[0, 999])
 
 
+def test_resolver_partial_job_mapping_resolves_the_unmapped_slots_and_keeps_manual_choices():
+    # P1-68: [0, -1] must not be returned verbatim. The manual tray 0 stands;
+    # the unmapped slot is resolved from the snapshot's reported trays.
+    text = "; filament_type = PLA;PETG\n"
+    assert ams_mapping.resolve_for_print(text, snap([unit(0, ["PLA", "PETG"])]),
+                                         job_mapping=[0, -1]) == ([0, 1], "job")
+    # The manual choice wins even when the snapshot would resolve differently:
+    # slot 1 is pinned to tray 3, slot 2 resolves to the only PETG tray left.
+    assert ams_mapping.resolve_for_print(text, snap([unit(0, ["PETG", "PLA", "PLA", "PLA"])]),
+                                         job_mapping=[3, -1]) == ([3, 0], "job")
+    # An unmapped first slot resolves too, and a resolved tray is never reused.
+    assert ams_mapping.resolve_for_print(text, snap([unit(0, ["PLA", "PETG"])]),
+                                         job_mapping=[-1, 1]) == ([0, 1], "job")
+
+
+def test_resolver_partial_job_mapping_that_cannot_be_completed_refuses():
+    # P1-68: no tray can serve the unmapped slot, so the job must not start
+    # with an unresolved slot (the complete-mapping gate).
+    text = "; filament_type = PLA;PETG\n"
+    with pytest.raises(ams_mapping.MappingError, match="filament slot 2"):
+        ams_mapping.resolve_for_print(text, snap([unit(0, ["PLA"])]), job_mapping=[0, -1])
+    with pytest.raises(ams_mapping.MappingError, match="filament slot 2"):
+        ams_mapping.resolve_for_print(text, snap(), job_mapping=[0, -1])
+
+
 def test_resolver_job_mapping_cannot_assign_one_tray_to_two_slots():
     # Bonus (found during SAFE-11): resolve() enforces "a tray serves one slot",
     # but a supplied mapping was shape-checked only per entry, so [0, 0] passed
@@ -167,6 +192,22 @@ def test_resolver_fts_skips_the_extruder_filter():
     assert ams_mapping.resolve(reqs, trays, dual=True, fts=True) == [0, 1]
     with pytest.raises(ams_mapping.MappingError):
         ams_mapping.resolve(reqs, trays, dual=True, fts=False)
+
+
+def test_trays_from_snapshot_external_spool_keeps_the_units_extruder():
+    # P2-113: an external spool reported inside a unit's tray list inherits
+    # that unit's reported extruder, so the dual-nozzle strict filter can
+    # route an extruder-bound slot to it like any AMS tray.
+    snapshot = snap([
+        {"id": "0", "extruder": 1, "tray": [{"id": "0", "tray_type": "PLA"}]},
+        {"id": "1", "extruder": 0, "tray": [{"id": "254", "tray_type": "PETG"}]},
+    ])
+    trays = ams_mapping.trays_from_snapshot(snapshot)
+    external = next(t for t in trays if t["external"])
+    assert external["tray"] == 254 and external["extruder"] == 0
+    text = "; filament_type = PLA;PETG\n; filament_extruder_id = 2,1\n"
+    reqs = ams_mapping.requirements_from_gcode(text)
+    assert ams_mapping.resolve(reqs, trays, dual=True) == [0, 254]
 
 
 def test_trays_from_snapshot_shapes():

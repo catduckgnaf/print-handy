@@ -78,17 +78,40 @@ class OctoPrintClient:
 
         OctoPrint renders a print's timelapse itself (when its timelapse
         feature is enabled) and lists the finished movies at
-        GET /api/timelapse; each entry carries at least name and url.
+        GET /api/timelapse under the ``files`` key (the API has no
+        ``movies`` key); each entry carries at least name and url.
         """
         result = self.request('GET', '/api/timelapse')
-        movies = result.get('movies') if isinstance(result, dict) else None
+        movies = result.get('files') if isinstance(result, dict) else None
         return movies if isinstance(movies, list) else []
 
+    def timelapse_unrendered(self):
+        """The timelapse renders still in OctoPrint's background queue.
+
+        The same GET /api/timelapse listing carries them under
+        "unrendered": a just-finished job's movie legitimately appears
+        there first and only moves to "movies" when its render lands,
+        so a completion lookup that finds no movie yet checks here
+        before concluding there is no video (P2-147).
+        """
+        result = self.request('GET', '/api/timelapse')
+        pending = result.get('unrendered') if isinstance(result, dict) else None
+        return pending if isinstance(pending, list) else []
+
     def download(self, path):
-        """Raw bytes of a server-relative path (e.g. a movie's url)."""
+        """Raw bytes of a server-relative path (e.g. a movie's url).
+
+        The path is one the server itself returned, so it already carries
+        any URL prefix the instance is hosted under (P2-148): resolve it
+        against the configured URL's origin, not the API base — appending
+        it to the base would double the prefix. API requests in request()
+        are Print Handy-constructed and keep using the full base.
+        """
         if not isinstance(path, str) or not path.startswith('/') or path.startswith('//'):
             raise OctoPrintError('OctoPrint download path must be server-relative')
-        req = Request(self.url + path, method='GET', headers={'X-Api-Key': self.api_key})
+        parts = urlsplit(self.url)
+        req = Request(f'{parts.scheme}://{parts.netloc}' + path, method='GET',
+                      headers={'X-Api-Key': self.api_key})
         try:
             with self.opener(req, timeout=120) as response:
                 return response.read()

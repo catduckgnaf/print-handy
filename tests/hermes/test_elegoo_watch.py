@@ -66,13 +66,15 @@ class FakeSession:
         self.frames = frames
         self.failures = failures
         self.ticks = 0
+        self.tick_layers = []
         self.stopped = None
         self.filename = REMOTE
         self.frames_dir = Path("/unused/frames")
         self.directory = Path("/unused")
 
-    def tick(self):
+    def tick(self, layer=None):
         self.ticks += 1
+        self.tick_layers.append(layer)
         return True
 
     def stop(self, state="complete"):
@@ -131,6 +133,20 @@ def test_completion_posts_the_timelapse_through_the_media_marker(capture_logs):
     assert len(rig.encodes) == 1
     assert len(rig.posts) == 1
     assert "MEDIA:/tmp/timelapse.mp4" in rig.posts[0]
+
+
+def test_capture_ticks_carry_the_reported_layer(capture_logs):
+    # The SDCP adapter's normalized status supplies the current layer;
+    # capture_trigger=layer can only fire when the session's ticks carry
+    # it (the same defect as the Bambu monitor's, P2-172).
+    def stl(state, layer):
+        return {"state": state, "filename": REMOTE, "progress": 0.5, "layer": layer}
+
+    rig = Rig([stl("printing", 3), stl("printing", 4), stl("complete", 4)])
+    assert rig.monitor.run() == "complete"
+    assert rig.session.ticks > 0
+    assert all(layer is not None for layer in rig.session.tick_layers)
+    assert 3 in rig.session.tick_layers and 4 in rig.session.tick_layers
 
 
 def test_standby_after_printing_is_a_completion(capture_logs):

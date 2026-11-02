@@ -82,6 +82,38 @@ def test_sandbox_scan_allows_ordinary_design_words():
     design.scan_scad("// a plate, imported dimensions noted in comments\ncube([1, 1, 1]);\n")
 
 
+@pytest.mark.parametrize("source", [
+    # OpenSCAD treats comments as token separators, so a comment between a
+    # file-access keyword and its delimiter is still the forbidden statement
+    # (P1-92, P1-94).
+    'import/**/("/tmp/p.stl");',
+    'import/* gap */("/tmp/p.stl");',
+    'import // c\n("/tmp/p.stl");',
+    'cube([1, 1, 1]); import/**/("/tmp/private.stl");',
+    'surface/* g */(file="/tmp/h.dat");',
+    'surface /* comment */ (file="/tmp/private.dat");',
+    'use /*x*/ <lib.scad>;',
+    'include /*x*/ <lib.scad>;',
+    'include// c\n<lib.scad>;',
+])
+def test_sandbox_scan_refuses_comment_separated_file_access(source):
+    with pytest.raises(design.DesignError, match="may not use"):
+        design.scan_scad(source)
+
+
+def test_sandbox_scan_ignores_forbidden_words_in_comments_and_strings():
+    # Forbidden words that never reach the token stream are not statements.
+    design.scan_scad('// import("/tmp/p.stl");\ncube([1, 1, 1]);')
+    design.scan_scad('/* surface(file="/tmp/h.dat"); */\ncube([1, 1, 1]);')
+    design.scan_scad('echo("import(x) is not a real call");\ncube([1, 1, 1]);')
+
+
+def test_external_refs_sees_comment_separated_statements():
+    assert design.external_refs('import/**/("x.stl");') == ["import"]
+    assert design.external_refs('surface/*c*/(file="h.dat");') == ["surface"]
+    assert design.external_refs('// import("x.stl");\ncube([1, 1, 1]);') == []
+
+
 def test_sandbox_scan_refuses_oversize_source():
     with pytest.raises(design.DesignError, match="limit"):
         design.scan_scad("cube([1,1,1]);\n" + "// pad\n" * (design.MAX_SCAD_BYTES // 6))
@@ -481,3 +513,24 @@ def test_link_edit_session_uses_the_injected_fetcher(tmp_path):
         eng.start_edit_session("o", "c", "edit")
     with pytest.raises(design.DesignError, match="can edit"):
         eng.start_edit_session("o", "c", "edit", tmp_path / "notes.txt")
+
+
+# ------------------------------------------------- configured render timeout
+
+
+def test_render_timeout_comes_from_design_config(tmp_path):
+    # P2-152/P2-157: [design] timeout_s bounds rendering, not only the model call.
+    cfg = {"design": {"timeout_s": 42, "repair_attempts": 3}}
+    eng = design.DesignEngine(tmp_path / "cache", scripted([]), cfg=cfg)
+    assert eng.render_timeout_s == 42
+
+
+def test_render_timeout_defaults_without_config(tmp_path):
+    eng = design.DesignEngine(tmp_path / "cache", scripted([]), cfg={"design": {}})
+    assert eng.render_timeout_s == design.RENDER_TIMEOUT_S
+
+
+def test_render_timeout_explicit_override_wins_over_config(tmp_path):
+    cfg = {"design": {"timeout_s": 42, "repair_attempts": 3}}
+    eng = design.DesignEngine(tmp_path / "cache", scripted([]), cfg=cfg, render_timeout_s=7)
+    assert eng.render_timeout_s == 7

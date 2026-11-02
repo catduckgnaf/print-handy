@@ -170,6 +170,10 @@ def _probe_prusa(fields, secrets, timeout_s, client_factory):
         if " 401" in text or " 403" in text:
             return _fail("auth", f"PrusaLink at {host} refused the API key (it answered "
                                  "401/403); re-check the key stored in the environment variable")
+        if "malformed JSON" in text:
+            return _fail("protocol", f"the answer from PrusaLink at {host} on /api/v1/info "
+                                     "was not PrusaLink JSON — check the host really is "
+                                     "the printer's PrusaLink address")
         return _fail("unreachable", f"PrusaLink at {host} did not answer /api/v1/info — check "
                                     "the printer is on and the host is right")
     if not isinstance(info, dict):

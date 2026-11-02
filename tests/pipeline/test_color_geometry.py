@@ -445,3 +445,129 @@ def test_per_part_fit_options_drops_choices_a_slot_plate_cannot_honor(tmp_path):
     kept = model_job.per_part_fit_options(source, decisions, options, bed=220)
     assert kept['scales'] == [0.9, 0.5]
     assert kept['rotations'] == [upright]
+
+
+def test_select_build_items_treats_a_missing_transform_as_identity():
+    # P2-282: direct-mesh core build items may carry no transform attribute
+    # at all (the checked-in core-colorgroup-items case). Parking an
+    # unselected one crashed on the missing attribute, and shifting a
+    # selected one raised 'selected build item has no transform'; a missing
+    # transform is the identity, so both edits write one in.
+    from print_handy.core.color_geometry import _select_build_items
+    model = b'<model><build><item objectid="2"/><item objectid="3"/></build></model>'
+    out, kept = _select_build_items(model, {'3'}, {'3': [5.0, 0.0, 0.0]}, park={'2': 300.0})
+    assert kept == ['3']
+    items = {m.group(1).decode(): m.group(0) for m in re.finditer(br'<item\b[^>]*objectid="(\d+)"[^>]*>', out)}
+    parked = [float(v) for v in re.search(br'transform="([^"]+)"', items['2']).group(1).split()]
+    assert parked[:9] == [1, 0, 0, 0, 1, 0, 0, 0, 1] and parked[9:] == [300.0, 0, 0]
+    assert b'printable="0"' in items['2']
+    shifted = [float(v) for v in re.search(br'transform="([^"]+)"', items['3']).group(1).split()]
+    assert shifted[:9] == [1, 0, 0, 0, 1, 0, 0, 0, 1] and shifted[9:] == [5.0, 0, 0]
+    assert b'printable="1"' in items['3']
+
+
+def test_single_color_export_of_a_direct_mesh_core_part_parks_the_rest(tmp_path):
+    # P2-282 end to end: exporting one part of the checked-in direct-mesh
+    # core file parks the other two; none of its build items has a
+    # transform attribute.
+    from print_handy.core.color_geometry import export_single_color_plate
+    source = Path(__file__).parents[1] / 'corpus/cases/core-colorgroup-items/model.3mf'
+    manifest = source_colors.inventory(source)
+    state = json.loads(STATE.read_text())
+    selection = model_job.resolve_filament_selection(state, dict(state['filament_slots']['1'], slot=1))
+    decisions = {'schema': 'part_slots_v1', 'mode': 'per_part', 'source_sha256': manifest['source_sha256'],
+                 'choices': {row['key']: selection for row in source_colors.canonical_prompts(manifest)}}
+    keys = [part['key'] for part in manifest['parts']]
+    report = export_single_color_plate(source, tmp_path / 'one.3mf', decisions, [keys[1]])
+    assert report['part_keys'] == [keys[1]]
+    with zipfile.ZipFile(tmp_path / 'one.3mf') as archive:
+        root = ET.fromstring(archive.read('3D/3dmodel.model'))
+        items = [node for node in root.iter() if node.tag.split('}')[-1] == 'item']
+        assert [item.get('printable') for item in items] == ['0', '1', '0']
+        # The parked items gained an identity-based transform carrying the
+        # park move (they had none); the selected item needed no shift, so
+        # it keeps its authored (absent) transform.
+        for item in (items[0], items[2]):
+            values = [float(v) for v in item.get('transform').split()]
+            assert len(values) == 12
+        parked = [float(v) for v in items[0].get('transform').split()]
+        # Left's mesh starts at x=40, so its parked bounds start at 270:
+        # past the 220 bed plus the same 50 mm clearance as any other export.
+        assert parked[9] + 40 >= 220 + 50
+# ---------------------------------------------------------------------- P2-85
+
+def _box(dx, dy, dz, offset=(0.0, 0.0, 0.0)):
+    ox, oy, oz = offset
+    v = [(ox, oy, oz), (ox + dx, oy, oz), (ox + dx, oy + dy, oz), (ox, oy + dy, oz),
+         (ox, oy, oz + dz), (ox + dx, oy, oz + dz), (ox + dx, oy + dy, oz + dz), (ox, oy + dy, oz + dz)]
+    faces = [(0, 2, 1), (0, 3, 2), (4, 5, 6), (4, 6, 7), (0, 1, 5), (0, 5, 4),
+             (2, 3, 7), (2, 7, 6), (1, 2, 6), (1, 6, 5), (3, 0, 4), (3, 4, 7)]
+    return [[v[a], v[b], v[c]] for a, b, c in faces]
+
+
+def _mesh_xml(triangles):
+    verts, index, tris = [], {}, []
+    for tri in triangles:
+        row = []
+        for pt in tri:
+            key = tuple(round(float(c), 6) for c in pt)
+            if key not in index:
+                index[key] = len(verts)
+                verts.append(key)
+            row.append(index[key])
+        tris.append(row)
+    vxml = ''.join(f'<vertex x="{x}" y="{y}" z="{z}"/>' for x, y, z in verts)
+    txml = ''.join(f'<triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in tris)
+    return f'<mesh><vertices>{vxml}</vertices><triangles>{txml}</triangles></mesh>'
+
+
+def _cutter_source(path):
+    """One object: a 40x40x10 body plus a negative-volume cutter poking 2 mm above it."""
+    settings_xml = ('<?xml version="1.0" encoding="UTF-8"?><config><object id="1">'
+                    '<part id="2" subtype="normal_part"/><part id="3" subtype="negative_volume"/>'
+                    '</object></config>')
+    model = ('<?xml version="1.0" encoding="UTF-8"?>'
+             '<model unit="millimeter" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><resources>'
+             f'<object id="2" name="main" type="model">{_mesh_xml(_box(40, 40, 10))}</object>'
+             f'<object id="3" name="cutter" type="model">{_mesh_xml(_box(10, 10, 12, (5, 5, 0)))}</object>'
+             '<object id="1" name="assembly" type="model"><components>'
+             '<component objectid="2" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>'
+             '<component objectid="3" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>'
+             '</components></object>'
+             '</resources><build><item objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0" printable="1"/></build></model>')
+    with zipfile.ZipFile(path, 'w') as z:
+        z.writestr('[Content_Types].xml', '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>')
+        z.writestr('_rels/.rels', '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>')
+        z.writestr('3D/3dmodel.model', model)
+        z.writestr('Metadata/model_settings.config', settings_xml)
+    return path
+
+
+def test_placed_bounds_without_cutters_are_the_part_rows():
+    geometry = {'parts': [{'part_key': 'a', 'bounds_mm': [[0, 10], [0, 10], [0, 5]]}]}
+    assert model_job._placed_bounds_by_object(geometry, {'a': '1'}) == {'1': [[0, 10], [0, 10], [0, 5]]}
+
+
+def test_export_records_cutter_bounds_so_the_proof_compares_matching_volumes(tmp_path):
+    """The merged-placement proof compares the exporter's landed bounds
+    against bounds computed from ALL authored volumes. The report's part
+    rows exclude cutters, so a cutter reaching past its body (z 12 over a
+    10 mm body) read as a misplaced export and refused a sound slice."""
+    from print_handy.core.color_geometry import _world_points
+    from .test_plate_merge import _two_slot_decisions
+
+    src = _cutter_source(tmp_path / 'cutter.3mf')
+    manifest = source_colors.inventory(src)
+    assert manifest['cutters'], 'the fixture must really carry a cutter'
+    _mapping, report = export_color_geometry(src, tmp_path / 'out.3mf', _two_slot_decisions(manifest))
+    [cutter_box] = report['cutter_bounds_by_object'].values()
+    assert cutter_box[2][1] > 10  # the cutter reaches past the 10 mm body
+    object_of_key = {p['key']: str(p['object_id']) for p in manifest['parts']}
+    placed = model_job._placed_bounds_by_object(report, object_of_key)
+    oid = str(manifest['parts'][0]['object_id'])
+    with zipfile.ZipFile(src) as archive:
+        points = _world_points(archive, {oid})
+    delta = report['translation_mm']
+    for a in range(3):
+        assert placed[oid][a][0] == pytest.approx(min(p[a] for p in points) + delta[a])
+        assert placed[oid][a][1] == pytest.approx(max(p[a] for p in points) + delta[a])

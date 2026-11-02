@@ -20,3 +20,9 @@ hermes
 config/local.yaml
 config/local.toml
 config/after-update.sh
+# Generated CI evidence (the publish workflows' pins, identity, slicer logs
+# and acceptance records): the workflows write it into the checkout between
+# the accepted build and the push build, and the Dockerfile copies the whole
+# context — left unignored it would be packaged into the published image,
+# so what ships would not be the image acceptance ran against (P2-87).
+evidence
