@@ -37,6 +37,7 @@ Printer operations and print authorization are deliberately out of scope for the
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -49,6 +50,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .. import __version__, printers, settings
+
+logger = logging.getLogger(__name__)
 
 STORE_NAME = "guided-setup.json"
 # A saved checklist survives this long. After it, a plain reply is not consumed as an answer;
@@ -1576,6 +1579,13 @@ def handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
             try:
                 detail = apply_config(session["answers"])
             except Exception as exc:  # a failed write must not lose the checklist
+                # The reply below names the log as where the detail lives
+                # (P2-180): put it there, redacted, before returning —
+                # actionable refusals (an existing config that must be
+                # edited or moved aside) were discarded silently before
+                # this module logged anything.
+                logger.warning("guided setup apply failed; the checklist was kept: %s",
+                               redact(str(exc)))
                 return ("The settings could not be saved, so nothing was changed. "
                         "This looks like a problem on the Print Handy side, not with your answers — "
                         "the detail is in the log, and `/print-handy bundle` gathers it for a report.\n"
