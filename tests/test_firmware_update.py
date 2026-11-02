@@ -563,6 +563,74 @@ def test_send_reports_a_still_available_update_as_failed_not_success():
     assert "failed" in message and not message.startswith("Updated")
 
 
+def _status_with(component, entry):
+    return {"result": {"version_info": {component: entry}}}
+
+
+def test_send_does_not_verify_when_the_remote_version_turns_unknown():
+    # Prepared fluidd 1.0 -> 2.0; after the upgrade the printer still runs
+    # 1.0 and reports "?" for the latest version. "?" normalizes to no
+    # remote, which reads as "no update available" — that alone must not
+    # verify an update whose confirmed target was never installed (P2-229).
+    transport = ApplyTransport(
+        post_status=_status_with("fluidd", {"version": "1.0", "remote_version": "?"}))
+    prepared = fw.PreparedUpdate(component=fw.Component("fluidd", "1.0", "2.0"))
+    message = fw.send_update(transport, prepared, verify_attempts=2,
+                             verify_delay_s=0, sleep=_no_sleep)
+    assert not message.startswith("Updated")
+    assert "verified by re-reading" not in message
+    assert "cannot verify" in message
+    assert "1.0" in message
+
+
+def test_send_verifies_when_the_installed_version_reaches_the_target():
+    transport = ApplyTransport(
+        post_status=_status_with("fluidd", {"version": "2.0", "remote_version": "2.0"}))
+    prepared = fw.PreparedUpdate(component=fw.Component("fluidd", "1.0", "2.0"))
+    message = fw.send_update(transport, prepared, verify_attempts=2,
+                             verify_delay_s=0, sleep=_no_sleep)
+    assert message.startswith("Updated **fluidd** to 2.0")
+    assert "verified by re-reading" in message
+
+
+def test_send_verifies_on_the_target_even_when_the_remote_turns_unknown():
+    # The target is installed; that the printer can no longer name a latest
+    # version does not undo the proof.
+    transport = ApplyTransport(
+        post_status=_status_with("fluidd", {"version": "2.0", "remote_version": "?"}))
+    prepared = fw.PreparedUpdate(component=fw.Component("fluidd", "1.0", "2.0"))
+    message = fw.send_update(transport, prepared, verify_attempts=2,
+                             verify_delay_s=0, sleep=_no_sleep)
+    assert message.startswith("Updated **fluidd** to 2.0")
+    assert "verified by re-reading" in message
+
+
+def test_send_does_not_verify_a_version_that_is_not_the_confirmed_target():
+    # No update shows as available, but the installed version is neither
+    # the old one nor the confirmed target — not a verified success.
+    transport = ApplyTransport(
+        post_status=_status_with("fluidd", {"version": "1.5", "remote_version": "1.5"}))
+    prepared = fw.PreparedUpdate(component=fw.Component("fluidd", "1.0", "2.0"))
+    message = fw.send_update(transport, prepared, verify_attempts=2,
+                             verify_delay_s=0, sleep=_no_sleep)
+    assert not message.startswith("Updated")
+    assert "verified by re-reading" not in message
+    assert "2.0" in message and "1.5" in message
+
+
+def test_send_still_verifies_a_system_package_update_by_its_count():
+    # The system component reports packages, not versions: its proof stays
+    # the package count clearing.
+    transport = ApplyTransport(
+        post_status=_status_with("system", {"package_count": 0, "package_list": []}))
+    prepared = fw.PreparedUpdate(
+        component=fw.Component("system", None, None, package_count=3))
+    message = fw.send_update(transport, prepared, verify_attempts=2,
+                             verify_delay_s=0, sleep=_no_sleep)
+    assert message.startswith("Updated **system**")
+    assert "verified by re-reading" in message
+
+
 def test_send_reports_a_printer_that_never_comes_back_as_unverified():
     transport = ApplyTransport(drop_after_upgrade=True)
     prepared = fw.PreparedUpdate(component=fw.Component("klipper", "v0.12.0-289", "v0.12.0-310"))
