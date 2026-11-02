@@ -362,6 +362,18 @@ class PreReleaseWorkflowContract(unittest.TestCase):
         self.assertIn("issue comment", run)
         self.assertIn('select(.title == $t)', run)
 
+    def test_checklist_lookup_searches_all_states_by_title(self):
+        # P2-153 / P2-263: the lookup must search by title across ALL issue
+        # states before the --limit applies. --state open misses the
+        # checklist once it is closed; an unfiltered list misses it once
+        # more than 100 newer issues exist — either way a re-run duplicates.
+        text = WORKFLOW_PATH.read_text()
+        lookups = [line for line in text.splitlines() if "gh issue list" in line]
+        self.assertEqual(len(lookups), 1)
+        self.assertIn("--state all", lookups[0])
+        self.assertNotIn("--state open", lookups[0])
+        self.assertIn('--search "in:title \\"$issue_title\\""', text)
+
     def test_nightly_is_never_a_trigger(self):
         workflow = load_workflow()
         on = workflow["on"]
