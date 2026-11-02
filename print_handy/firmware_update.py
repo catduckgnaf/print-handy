@@ -616,6 +616,24 @@ def update_prompt_text(prepared: PreparedUpdate) -> str:
         "Only this one component updates — ZMod's own guidance is one module at a time."])
 
 
+def _update_verified(prepared: Component, component: Component) -> bool:
+    """Whether a post-update re-read proves the confirmed update landed.
+
+    Verification is against the exact change the operator confirmed. For
+    a versioned component the installed version must now equal the
+    prepared target: "no update shows as available" alone proves nothing,
+    because a remote version Moonraker can no longer read ("?") also
+    reads as no update while the installed version stays unchanged
+    (P2-229). The ``system`` component reports packages, not versions, so
+    its proof stays the offered package count clearing.
+    """
+    if prepared.remote is not None:
+        return component.current == prepared.remote
+    if prepared.package_count:
+        return not component.update_available
+    return not component.update_available and not component.remote_unknown
+
+
 def send_update(transport, prepared: PreparedUpdate, *, verify_attempts=3,
                 verify_delay_s=5.0, sleep=time.sleep) -> str:
     """Re-check idle, POST the one confirmed upgrade, then verify by re-reading.
@@ -624,9 +642,12 @@ def send_update(transport, prepared: PreparedUpdate, *, verify_attempts=3,
     idle check is repeated here; a busy or unreadable re-check sends
     nothing. After the POST, the status is re-read (a bounded number of
     attempts, waiting between them for a printer that may be restarting)
-    and the outcome reported from that re-read only: updated, still
-    showing the update (failed or unverified), or the printer never came
-    back. A failed POST is reported as failed/uncertain.
+    and the outcome reported from that re-read only: verified only when
+    the re-read shows the confirmed target version installed (see
+    :func:`_update_verified`); otherwise still showing the update, an
+    update state that can no longer be read, or the printer never came
+    back — none of which is reported as success. A failed POST is
+    reported as failed/uncertain.
     """
     try:
         state = print_state(transport)
@@ -651,17 +672,29 @@ def send_update(transport, prepared: PreparedUpdate, *, verify_attempts=3,
             last_status = None
             continue
         component = last_status.component(name)
-        if component is not None and not component.update_available:
+        if component is not None and _update_verified(prepared.component, component):
             return (f"Updated **{name}** to {component.current or 'its latest version'} — "
                     "verified by re-reading the printer's firmware state after the update.")
     if last_status is not None:
         component = last_status.component(name)
         if component is not None:
-            return (f"The update was requested, but **{name}** still shows "
-                    f"{component.remote} as available (current: "
-                    f"{component.current or 'version not reported'}). Treat the update as "
-                    "failed or not yet applied — check the printer's own update screen "
-                    "before trying again.")
+            if component.remote_unknown:
+                return (f"The update was requested, but the printer no longer reports "
+                        f"the latest version of **{name}**, so Print Handy cannot verify "
+                        f"the update landed (it reports "
+                        f"{component.current or 'no version'} installed). Check the "
+                        "printer's own update screen before trying again.")
+            if component.update_available:
+                return (f"The update was requested, but **{name}** still shows "
+                        f"{component.remote} as available (current: "
+                        f"{component.current or 'version not reported'}). Treat the update as "
+                        "failed or not yet applied — check the printer's own update screen "
+                        "before trying again.")
+            return (f"The update was requested, but **{name}** now reports "
+                    f"{component.current or 'version not reported'} installed, not the "
+                    f"confirmed target {prepared.component.remote}, and no update shows "
+                    "as available. Treat the update as unverified — check the printer's "
+                    "own update screen before trying again.")
     return ("The printer did not answer after the update request, so Print Handy cannot "
             f"verify what happened to **{name}**. It may still be restarting — give it a "
             "few minutes, then run `/print-firmware` to see the state it reports.")
