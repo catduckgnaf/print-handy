@@ -15,8 +15,10 @@ from pathlib import Path
 
 API = "https://discord.com/api/v10"
 LIMIT = 2000
-# A marker runs to the end of its line. Some callers join it with a literal backslash-n.
-MEDIA = re.compile(r"(?:\\n)?MEDIA:(\S+)")
+# A marker runs to the end of its line — the path itself may contain spaces
+# (P2-40), so the capture stops only at the line ending. Some callers join it
+# with a literal backslash-n.
+MEDIA = re.compile(r"(?:\\n)?MEDIA:([^\r\n]+)")
 
 
 def inert_media(text):
@@ -31,7 +33,7 @@ def split_media(text):
     files = []
 
     def take(match):
-        path = Path(match.group(1))
+        path = Path(match.group(1).strip())
         if path.is_file():
             files.append(path)
         return ""
