@@ -1686,8 +1686,10 @@ def zmod_md5_valid(path):
 
 
 def finalize_multicolor(*args, **kwargs):
-    """ZMod color/slot-map insertion and MD5, through the printer adapter."""
-    return printers.current().native.finalize(*args, **kwargs)
+    """ZMod color/slot-map insertion and MD5, through the printer adapter. A printer without the
+    ZMod contract (the stock AD5X, #658) gets nothing inserted: its launch binds the slot from the job."""
+    native = printers.current().native_or_none
+    return None if native is None else native.finalize(*args, **kwargs)
 
 
 def native_heater_lines_valid(text, bed, hotend):
