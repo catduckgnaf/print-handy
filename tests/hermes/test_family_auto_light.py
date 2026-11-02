@@ -195,6 +195,35 @@ def test_verdict_failure_is_swallowed_and_the_cadence_advances(monkeypatch):
     assert sends == [True]
 
 
+def test_a_failed_check_resets_the_empty_streak(monkeypatch):
+    """A check that raises (endpoint or camera down) is an uncertain
+    observation, not a skipped one — the same rule the Moonraker listener
+    follows (P2-201), mirrored here: the pre-outage streak cannot carry
+    the sustained-empty requirement."""
+    monkeypatch.setattr(visual_watch, "frame_dark", lambda image: False)
+    clock = Clock()
+    calls = {"n": 0}
+
+    def verdict(image, prompt):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("endpoint down")
+        return "empty_idle", ""
+
+    driver, sends = make_driver(clock, verdict=verdict)
+    driver.print_started()
+    driver.print_finished()
+    driver.idle_tick("complete")       # streak opens at T0
+    clock.now += 20 * MIN
+    driver.idle_tick("complete")       # raises: the streak must reset
+    assert driver._policy.empty_since is None
+    clock.now += 20 * MIN
+    driver.idle_tick("complete")       # a new streak opens here
+    clock.now += 29 * MIN
+    driver.idle_tick("complete")       # 29 minutes into the new streak
+    assert sends == [True]
+
+
 # ------------------------------------------------------- listener wiring
 
 class FakeLight:
