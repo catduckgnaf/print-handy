@@ -64,6 +64,18 @@ A bed-clear approval starts one print. Starting the same G-code again needs a ne
   recommended when the old spool has 0 g left). The brand question is skipped unless
   `spool.prompt_brand` is on. Anchored plain phrases ("add new filament", "swap the filament", …)
   start the same flow with no LLM involved; the complete typed forms stay one-shot.
+* `/print-spools` (#744) is the loaded-only, read-only view: per loaded location, spool number,
+  brand, material, color, grams left and percent left where the spool's starting weight is
+  recorded (percent named unknown, never estimated). Reached by `/print-spools`, `/spool loaded`,
+  a bare `/print-colors` (the `<JOB.json>` form is unchanged), and anchored plain asks ("what
+  colors are loaded", "current spools", "how much filament is left") with no LLM involved, on
+  every platform. The fuzzy extension scores near misses of those asks against rival spool
+  intents with the shared scorer: only a clear, uncontested match earns a did-you-mean prompt,
+  and the view shows only on a yes. The scorer's canonical fold also equates the color
+  spellings (colour/color, grey/gray), so a "Silk Grey" spool matches a "gray" ask everywhere <!-- us-spelling: allow colour -->
+  fuzzy matching runs. A slot with
+  filament recorded but no spool bound is named as unrecorded rather than dropped, and a
+  Spoolman outage costs only the amounts (named unavailable), per the #387 fail-soft posture.
 * The Discord insertion prompt (a spool changed on the printer's own screen) and the paused
   spool question answer "New spool" with the same conversational walkthrough (#512) instead of
   the old five-field text modal: material quick-select (PLA, Silk PLA, PLA+, PETG, TPU, ABS,

@@ -994,6 +994,18 @@ def check(st=None, printer_id=None, adapter=None):
             probs.extend(adapter.readiness_problems(st, {}))
         _check_spoolman(st, warnings, facts)
         return (not probs), probs, facts
+    if getattr(adapter, 'transport', None) == 'flashforge_stock':
+        # Stock Flashforge: the hardware record and Spoolman, plus read-only /detail over the
+        # stock LAN API. Never Moonraker: stock firmware does not speak it (#211).
+        facts["connection"] = "flashforge_stock"
+        try:
+            detail = adapter.client().detail()
+            facts["flashforge_stock"] = adapter.normalize_status(detail)
+            probs.extend(adapter.readiness_problems(st, detail))
+        except RuntimeError as exc:
+            probs.append(str(exc))
+        _check_spoolman(st, warnings, facts)
+        return (not probs), probs, facts
     if adapter.connection == 'offline':
         # No printer connection: the hardware record and Spoolman only, never Moonraker.
         facts["connection"] = "offline"

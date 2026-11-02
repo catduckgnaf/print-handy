@@ -1608,8 +1608,11 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         # Explicit T0 (one physical slot) and per-part maps share the mapped
         # finalizer: one slot record, one zmod_color_data line, one checksum.
         # mapped_profile stays the prime-tower flag; this branch does not
-        # build a tower or a second filament profile.
-        printer.native.finalize(output, None, state, mapping)
+        # build a tower or a second filament profile. A printer without the ZMod
+        # contract (the stock AD5X, #658) binds its slot from the job at launch.
+        native = printer.native_or_none
+        if native is not None:
+            native.finalize(output, None, state, mapping)
     elif printer.has_native_screen:
         finalize_zmod(output, filament['filament_colour'][0], state['spool']['material'], printer)
     result_path = folder / 'result.json'

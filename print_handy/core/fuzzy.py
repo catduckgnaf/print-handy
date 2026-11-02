@@ -42,7 +42,8 @@ Hardening + vocabulary pass (post-2.2.1 audit, toward 2.2.2):
   digits are the same number ("twenty one" == "21", "2nd" == "second"
   == "2"), a small set of domain abbreviations and compound forms are
   equated ("cfg" == "configuration", "temp" == "temperature",
-  "hot end" == "hotend", "power supply" == "psu", millimetre == "mm"),
+  "hot end" == "hotend", "power supply" == "psu", millimetre == "mm",
+  "colour" == "color", "grey" == "gray"),
   and simple plurals/verb forms fold together ("nozzles" == "nozzle",
   "leveling" == "level", "jammed" == "jam"). This lives only in the
   fuzzy scorer: exact tiers and the exact print-number path are
@@ -199,6 +200,14 @@ _TOKEN_FORMS = {
     "millimeters": "mm",
     "millimetre": "mm",
     "millimetres": "mm",
+    # Spelling variants of the same color word — a spool named "Silk
+    # Grey" and a user asking for "gray" (or "colour" for "color") mean
+    # one color, as millimetre/millimeter mean one unit. Both plural
+    # forms are listed because the lookup runs before stemming.
+    "colour": "color",
+    "colours": "color",
+    "grey": "gray",
+    "greys": "gray",
 }
 
 

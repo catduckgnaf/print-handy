@@ -47,7 +47,7 @@ def test_router_runs_the_plugin_handlers_in_plugin_order_without_the_agent_recei
                           "coldpull_dispatch", "lookup_dispatch", "source_dispatch", "troubleshoot_dispatch",
                           "macros_dispatch", "firmware_dispatch", "calibration_dispatch",
                           "typed_quantity_dispatch"]
-    assert "receive_ack" not in names and "stray_chat_dispatch" not in names and len(names) == 24
+    assert "receive_ack" not in names and "stray_chat_dispatch" not in names and len(names) == 25  # +loaded_spools_dispatch (#744)
     assert router.platform_handlers["discord"], "listener button handlers were not registered"
 
 
@@ -285,7 +285,7 @@ def test_dropped_scad_is_saved_for_design_but_intake_ignores_it(cfg, tmp_path):
 def test_status_reports_no_hermes_modules(cfg):
     discord, core = make(cfg)
     status = core.status(True)
-    assert status["mode"] == "standalone" and status["handlers"] == 24
+    assert status["mode"] == "standalone" and status["handlers"] == 25  # +loaded_spools_dispatch (#744)
     assert status["chat_id"] == cfg["discord"]["chat_id"] and status["allowed_users"] == 1
 
 

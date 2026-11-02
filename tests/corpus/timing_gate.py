@@ -1,18 +1,28 @@
 """Fail when the fake Discord flow got slower than its recorded baseline.
 
-    python3 -m tests.corpus.timing_gate RESULTS.json [--baseline tests/corpus/timing_baseline.json]
-    python3 -m tests.corpus.timing_gate RESULTS.json --record   # print a new baseline to review by hand
+    python3 -m tests.corpus.timing_gate RESULTS.json [RESULTS.json ...] [--baseline FILE]
+                                        [--summary FILE] [--warn-only]
+    python3 -m tests.corpus.timing_gate RESULTS.json ... --record   # print a new baseline to review by hand
 
-RESULTS.json comes from `python3 -m tests.corpus.time_corpus --json`. Each baseline entry is keyed
-"case/transport" and holds the seconds measured for the whole flow (wall_s) and for the first
-Discord question (first_prompt_s). A run fails the gate when a metric exceeds
+RESULTS.json comes from `python3 -m tests.corpus.time_corpus --json`. Several files are repeats of
+the same corpus; the gate compares their per-case medians, never one sample. Each baseline entry is
+keyed "case/transport" and holds the seconds measured for the whole flow (wall_s), for the first
+Discord question (first_prompt_s) and for the bed fit check (fit_check_s). A run fails the gate when
+a metric exceeds
 
     baseline * (1 + tolerance) + slack_s
 
-Tolerance absorbs runner noise on big models; slack_s absorbs it on tiny ones, where a 0.3 s flow
-can double from a cold import. A justified slowdown is not hidden by editing numbers silently:
-raise the entry and give it a "reason" (what got slower and why that is acceptable). An entry whose
-numbers rose without a reason is refused. Missing cases, new cases and failed flows are reported too.
+tolerance is the issue #734 "+10%" (0.10). slack_s is an absolute allowance for runner noise that a
+percentage cannot absorb on tiny flows, where a 0.07 s mock flow can read 0.12 s on a busy runner.
+tests/README.md (Slicing-speed gate) records the measurements behind both numbers and the release-time update step.
+
+A justified slowdown is not hidden by editing numbers silently: raise the entry and give it a
+"reason" (what got slower and why that is acceptable). An entry whose numbers rose without a reason
+is refused. Missing cases, new cases and failed flows are reported too.
+
+--summary appends a per-case markdown table (median, baseline, limit) to FILE, for example
+$GITHUB_STEP_SUMMARY. --warn-only prints problems as GitHub warning annotations and exits 0: the
+real-slicer leg uses it while its noise is being measured (start as a warning, promote later).
 """
 from __future__ import annotations
 
@@ -23,6 +33,9 @@ from pathlib import Path
 
 DEFAULT_BASELINE = Path(__file__).with_name("timing_baseline.json")
 METRICS = ("wall_s", "first_prompt_s", "fit_check_s")
+# Used when a baseline file does not set its own. See tests/README.md (Slicing-speed gate) for the measurements.
+DEFAULT_TOLERANCE = 0.10
+DEFAULT_SLACK_S = 0.5
 
 
 def key(row):
@@ -53,10 +66,14 @@ def median_rows(runs):
     return out
 
 
+def limits(baseline):
+    """(tolerance, slack_s) of a baseline file, with the module defaults for a file that omits them."""
+    return float(baseline.get("tolerance", DEFAULT_TOLERANCE)), float(baseline.get("slack_s", DEFAULT_SLACK_S))
+
+
 def check(rows, baseline):
     """Return a list of problems; empty means the gate passes."""
-    tol = float(baseline.get("tolerance", 0.25))
-    slack = float(baseline.get("slack_s", 1.0))
+    tol, slack = limits(baseline)
     cases = baseline.get("cases", {})
     seen, problems = set(), []
     for row in rows:
@@ -91,10 +108,16 @@ def check(rows, baseline):
     return problems
 
 
-def record(rows, old=None):
-    """A proposed baseline from a run. Entries that got slower keep raised_from and need a reason."""
+def record(rows, old=None, recorded_from=""):
+    """A proposed baseline from a run. Entries that got slower keep raised_from and need a reason.
+
+    recorded_from names the measurement (the CI run and commit whose artifact was recorded), so a
+    reviewer can open the run the numbers came from. It is never carried over from the old file."""
     old = old or {}
-    out = {"tolerance": old.get("tolerance", 0.25), "slack_s": old.get("slack_s", 1.0), "cases": {}}
+    tol, slack = limits(old)
+    out = {"tolerance": tol, "slack_s": slack, "cases": {}, "recorded_from": recorded_from}
+    if "description" in old:
+        out["description"] = old["description"]
     if "fit_check_budget_s" in old:
         out["fit_check_budget_s"] = old["fit_check_budget_s"]
     if "fit_check_required" in old:
@@ -105,11 +128,41 @@ def record(rows, old=None):
         k = key(row)
         entry = {m: round(row[m], 2) for m in METRICS if row.get(m) is not None}
         prev = old.get("cases", {}).get(k)
-        if prev and any(entry.get(m, 0) > prev.get(m, 0) for m in METRICS):
+        # A metric the old entry never had (a newly measured fit check) is not a raise.
+        if prev and any(m in prev and m in entry and entry[m] > prev[m] for m in METRICS):
             entry["raised_from"] = {m: prev.get(m) for m in METRICS if m in prev}
             entry["reason"] = prev.get("reason", "")
         out["cases"][k] = entry
     return out
+
+
+def summary(rows, baseline, problems, title="Timing gate"):
+    """Markdown: one line per case/transport with the median, its baseline and its limit."""
+    tol, slack = limits(baseline)
+    cases = baseline.get("cases", {})
+    lines = [f"### {title}", "",
+             f"Limit = baseline x (1 + {tol:.0%}) + {slack:g} s, compared on the median of "
+             f"{max((r.get('repeats', 1) for r in rows), default=0)} repeats. "
+             f"{len(problems)} problem(s).", "",
+             "| case/transport | result | metric | median s | baseline s | limit s | vs baseline |",
+             "|---|---|---|---|---|---|---|"]
+    for row in sorted(rows, key=key):
+        entry = cases.get(key(row), {})
+        for metric in METRICS:
+            got, base = row.get(metric), entry.get(metric)
+            if got is None:
+                continue
+            if base is None:
+                lines.append(f"| {key(row)} | {row.get('result')} | {metric} | {got:.2f} | - | - | no baseline |")
+                continue
+            limit = base * (1 + tol) + slack
+            change = f"{(got - base) / base:+.0%}" if base else "-"
+            flag = " OVER" if got > limit else ""
+            lines.append(f"| {key(row)} | {row.get('result')} | {metric} | {got:.2f} | {base:.2f} | {limit:.2f} | "
+                         f"{change}{flag} |")
+    if problems:
+        lines += ["", "Problems:", ""] + [f"- {p}" for p in problems]
+    return "\n".join(lines) + "\n"
 
 
 def main(argv=None):
@@ -117,18 +170,27 @@ def main(argv=None):
     ap.add_argument("results", nargs="+", help="one or more time_corpus JSON files; medians are compared")
     ap.add_argument("--baseline", default=str(DEFAULT_BASELINE))
     ap.add_argument("--record", action="store_true")
+    ap.add_argument("--recorded-from", default="",
+                    help="with --record: the CI run and commit the results came from (stored in the baseline)")
+    ap.add_argument("--summary", help="append a per-case markdown table to this file (e.g. $GITHUB_STEP_SUMMARY)")
+    ap.add_argument("--title", default="Timing gate", help="heading of the --summary table")
+    ap.add_argument("--warn-only", action="store_true",
+                    help="report problems as GitHub warning annotations and exit 0 (reporting-only leg)")
     args = ap.parse_args(argv)
     rows = median_rows([json.loads(Path(p).read_text())["rows"] for p in args.results])
     path = Path(args.baseline)
     baseline = json.loads(path.read_text()) if path.exists() else {}
     if args.record:
-        print(json.dumps(record(rows, baseline), indent=1, sort_keys=True))
+        print(json.dumps(record(rows, baseline, args.recorded_from), indent=1, sort_keys=True))
         return 0
     problems = check(rows, baseline)
     for p in problems:
-        print("TIMING GATE:", p)
-    print(f"timing gate: {len(rows)} runs, {len(problems)} problems")
-    return 1 if problems else 0
+        print(f"::warning title=Timing (reporting only)::{p}" if args.warn_only else f"TIMING GATE: {p}")
+    print(f"timing gate: {len(rows)} runs, {len(problems)} problems" + (" (warn-only)" if args.warn_only else ""))
+    if args.summary:
+        with open(args.summary, "a", encoding="utf-8") as fh:
+            fh.write(summary(rows, baseline, problems, args.title))
+    return 0 if args.warn_only or not problems else 1
 
 
 if __name__ == "__main__":

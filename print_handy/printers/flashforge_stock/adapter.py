@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 
 from ..base import MultiColorUnsupported, PrinterAdapter
+from ..job_checks import recorded_job_problems
 from .client import StockClient, StockLanError
 from .guard import stock_gcode_problems
 
@@ -24,6 +25,9 @@ class StockFlashforgeAdapter(PrinterAdapter):
     # like the ZMod AD5X: a stock print requires a record-bound selection.
     slots_bound_by_record = True
     verified_slicers = ("orca", "flash_studio")
+    # The slicer's own start/end G-code homes and purges off the bed. The AD5X axis travel is
+    # X -20..225, Y -20..232 (its printer.cfg position_min/position_max, read 2026-11-01).
+    motion_envelope_mm = (-20.0, -20.0, 225.0, 232.0)
 
     @property
     def slot_count(self):
@@ -71,7 +75,16 @@ class StockFlashforgeAdapter(PrinterAdapter):
         raise StockLanError("Moonraker objects are unsupported for stock Flashforge firmware")
 
     def gcode_problems(self, text, state=None):
-        return stock_gcode_problems(text)
+        """Foreign start code always. With the job's state (offline verification, #211), also the recorded
+        nozzle, material and heaters, and Orca's toolpath held to the bed inside the axis envelope."""
+        problems = stock_gcode_problems(text)
+        if state:
+            from ...core import slice_guard
+            printer = self.config["printer"]
+            problems += recorded_job_problems(text, self, state)
+            problems += slice_guard.toolpath_motion_problems(
+                text, printer["bed_mm"], self.motion_envelope_mm, printer.get("max_print_height_mm"))
+        return problems
 
     def normalize_tool_mapping(self, mapping, state):
         # One tool only. IFS bays are physical slots for that tool, not extra tools.

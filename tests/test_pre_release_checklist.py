@@ -125,6 +125,7 @@ class GeneratorBodyContract(unittest.TestCase):
             "## Docker and GHCR (fix-first)",
             "## Unraid templates (fix-first)",
             "## Owed live checks",
+            "## Slicing-speed baselines (fix-first)",
             "## Fix-first gate",
         ):
             self.assertIn(heading, self.body)
@@ -156,6 +157,15 @@ class GeneratorBodyContract(unittest.TestCase):
         section = self.body.split("## Unraid templates")[1].split("## ")[0]
         self.assertIn("docker/unraid/print-handy.xml", section)
         self.assertIn("catduck-unraid-templates", section)
+
+    def test_speed_baseline_section_is_the_734_release_step(self):
+        section = self.body.split("## Slicing-speed baselines")[1].split("\n## ")[0]
+        for needle in ("tests/README.md", "tests/corpus/timing_baseline.json",
+                       "tests/corpus/timing_baseline_real_slicer.json", "discord-timing",
+                       "slicer-timing-real", "`reason`", "--recorded-from", "2.2.2 release commit",
+                       "record the outcome on #734"):
+            self.assertIn(needle, section)
+        self.assertEqual(section.count("- [ ]"), 3)
 
     def test_docker_section_covers_candidate_run_and_ghcr(self):
         section = self.body.split("## Docker and GHCR")[1].split("## ")[0]
