@@ -62,6 +62,37 @@ def test_json_format_is_one_object_per_line_with_traceback():
     assert "Traceback" in record["exception"] and "ValueError: bad plate" in record["exception"]
 
 
+def test_json_format_redacts_quoted_credentials_before_serializing():
+    # P1-52: values are redacted before json.dumps, so escaped quotes in the
+    # serialized form cannot defeat the patterns or corrupt the JSON.
+    stream = io.StringIO()
+    logs.configure({"level": "INFO", "format": "json"}, stream=stream)
+    logging.getLogger("print_handy.demo").error(
+        'payload {"api_key": "hunter2xyz"} and password="hunter2xyz"')
+    (line,) = lines(stream)
+    record = json.loads(line)  # the line must stay valid JSON
+    assert "hunter2xyz" not in line
+    assert record["message"] == 'payload {"api_key": "***"} and password="***"'
+
+
+def test_json_format_redacts_bound_fields_and_tracebacks():
+    stream = io.StringIO()
+    logs.configure({"level": "INFO", "format": "json"}, stream=stream)
+    token = logs.bind(camera="http://user:hunter2xyz@cam.local/webcam/")
+    try:
+        try:
+            raise ValueError('token="hunter2xyz" refused')
+        except ValueError:
+            logging.getLogger("print_handy.demo").exception("camera failed")
+    finally:
+        logs.unbind(token)
+    (line,) = lines(stream)
+    record = json.loads(line)
+    assert "hunter2xyz" not in line
+    assert record["camera"] == "http://***@cam.local/webcam/"
+    assert 'token="***"' in record["exception"]
+
+
 def test_level_controls_verbosity_and_debug_shows_detail():
     stream = io.StringIO()
     logs.configure({"level": "INFO"}, stream=stream)
