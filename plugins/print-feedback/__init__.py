@@ -5294,8 +5294,10 @@ def alert_button_handlers(bot, adapter):
         try:
             ok, detail = await print_next.start(target)
         except Exception as exc:
+            # An exception out of the start is not a refusal: print-now may already have uploaded or
+            # started the plate, so it is uncertain, never a reinstalled Retry (Codex on #182).
             logger.exception('pre-upload retry failed')
-            detail = f'REFUSED: printer readiness could not be confirmed: {exc}. Nothing uploaded or started.'
+            detail = f'UNCERTAIN: the start ended with an unexpected error: {exc}. The plate may already have uploaded or started.'
             ok = False
         receipt.update(status='STARTED' if ok else 'START_REFUSED', started=bool(ok),
                        uploaded=bool(ok), start_refusal_detail='' if ok else str(detail))

@@ -94,6 +94,37 @@ def test_intake_retry_acknowledges_before_print_next_start(tmp_path, monkeypatch
     assert order[:2] == ["ack", "start"], (order, order.texts)
 
 
+def test_an_unexpected_retry_error_is_uncertain_and_offers_no_retry(tmp_path, monkeypatch):
+    # Codex on #182: an exception out of print_next.start may follow an upload or start, so it must not
+    # be dressed up as "REFUSED: ... Nothing uploaded or started" with a fresh Retry button.
+    from tests.hermes.test_stop_button_view import _install
+    from print_handy.hermes import print_alert_buttons as pab, print_next
+    monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
+    _sent, on_interaction, plugin = _install(monkeypatch)
+    monkeypatch.setattr(plugin, "_state_dir", lambda: tmp_path)
+    folder = tmp_path / "model-link-intakes"
+    folder.mkdir()
+    saved = "REFUSED: printer is busy. Nothing uploaded or started."
+    receipt = {"intake_id": RID, "status": "START_REFUSED", "start_prompt_message_id": "m1",
+               "start_refusal_detail": saved, "retry_target": {"gcode": "g.gcode", "gcode_sha256": "a" * 64}}
+    (folder / f"{RID}.json").write_text(json.dumps(receipt))
+
+    async def start(target):
+        raise ConnectionResetError("printer closed the connection mid-upload")
+    monkeypatch.setattr(print_next, "start", start)
+    edits = []
+    click = _order_interaction(Order(), pab.retry_custom_id(RID))
+
+    async def edit(**kwargs):
+        edits.append(kwargs)
+    click.message = S(id="m1", edit=edit)
+    asyncio.run(on_interaction(click))
+    after = json.loads((folder / f"{RID}.json").read_text())
+    assert after["status"] == "START_UNCERTAIN" and after["started"] is None
+    assert after["start_refusal_detail"].startswith("UNCERTAIN:")
+    assert edits and edits[-1]["view"] is None and "Do not retry" in edits[-1]["content"]
+
+
 def _spool_question_click(tmp_path, monkeypatch, action, slow_name, order):
     from tests.hermes.test_stop_button_view import _install
     from print_handy.hermes import print_alert_buttons as pab
