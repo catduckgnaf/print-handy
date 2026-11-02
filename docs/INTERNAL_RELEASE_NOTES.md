@@ -2,7 +2,7 @@
 
 # Unreleased
 
-Nothing yet.
+- The nightly workflow now verifies the pushed image is the accepted build before publishing its digest (#766).
 
 # Version 2.2.4
 
