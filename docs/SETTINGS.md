@@ -360,6 +360,7 @@ These configure the Compose deployment, not Print Handy itself. Set them in `.en
 | `DISCORD_CLIENT_ID` | empty | The Discord application's ID for the live view (#311): a plain identifier (it appears in invite URLs), not a secret. The Activity server refuses to start without it when live viewing is enabled |
 | `CLOUDFLARED_IMAGE` | none, required for the sidecar | Image the optional `cloudflared` sidecar runs (Compose profile `live-stream`): a locally tested tag or immutable digest of the Cloudflare Tunnel connector |
 | `TZ` | `America/New_York` | Container timezone (IANA name): the image's local time for log timestamps, scheduled and timed features and the bundled services' timestamps. Set any IANA name, for example `Europe/London`; an unknown name is logged at startup and the default is used. Chat display times follow `discord.timezone` instead |
+| `SPOOLMAN_CORS_ORIGIN` | empty | Exact browser origin(s) allowed to call the bundled Spoolman, comma-separated, with scheme and port (#798); see [Fluidd says Spoolman is blocking its origin](DOCKER.md#fluidd-says-spoolman-is-blocking-its-origin) |
 
 ## Runtime environment
 
@@ -369,7 +370,6 @@ These configure the Compose deployment, not Print Handy itself. Set them in `.en
 | `PRINT_HANDY_USER_CONFIG` | `$HOME/.config/print-handy/settings.yaml` | Your own settings file, layered over `PRINT_HANDY_CONFIG` and under environment variables. Optional (the default location may be absent), but a path set here must exist or startup stops; image updates never replace it. In Docker `HOME=/data`, so it is `/data/.config/print-handy/settings.yaml`, which the Unraid template maps to appdata `dot-config` |
 | `PRINT_HANDY_BUNDLED_SPOOLMAN` | `true` | `true` runs the bundled Spoolman API; `false` uses `services.spoolman_url` only |
 | `SPOOLMAN_HOST` | `127.0.0.1` | Bundled Spoolman bind address; widen it only together with an approved port mapping, see docs/DOCKER.md |
-| `SPOOLMAN_CORS_ORIGIN` | empty | Exact browser origin(s) allowed to call the bundled Spoolman, comma-separated (#798); see [Fluidd says Spoolman is blocking its origin](DOCKER.md#fluidd-says-spoolman-is-blocking-its-origin) |
 | `PRINT_VISION_URL` | empty | Custom vision endpoint for camera checks; takes precedence over `services.vision_chat_url` and needs no key. See [Custom vision endpoint](#custom-vision-endpoint-print_vision_url) |
 | `PRINT_FUZZY_URL` | empty | Opt-in semantic endpoint consulted only when a `/print-lookup` query matches nothing locally; stateless, no key sent. See [Semantic lookup endpoint](#semantic-lookup-endpoint-print_fuzzy_url) |
 

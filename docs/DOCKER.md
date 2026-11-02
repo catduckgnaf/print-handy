@@ -39,10 +39,10 @@ For an existing external instance set `PRINT_HANDY__SERVICES__SPOOLMAN_URL=http:
 
 ### Fluidd says Spoolman is blocking its origin
 
-Fluidd or Mainsail on the printer can show "Live updates from Spoolman aren't working. Spoolman is blocking Fluidd's browser origin." Spoolman only accepts browser requests from origins listed in `SPOOLMAN_CORS_ORIGIN`. The value is a comma-separated list of exact origins, each with its scheme and optional port, and it must match the address you open in the browser. A bare `host:port` never matches. For a printer at `192.168.45.50`, set:
+Fluidd or Mainsail on the printer can show "Live updates from Spoolman aren't working. Spoolman is blocking Fluidd's browser origin." Spoolman only accepts browser requests from origins listed in `SPOOLMAN_CORS_ORIGIN`. The value is a comma-separated list of exact origins, each with its scheme and optional port, and it must match the address you open in the browser. A bare `host:port` never matches. For a printer at `<printer-ip>`, set:
 
 ```
-SPOOLMAN_CORS_ORIGIN=http://192.168.45.50,http://192.168.45.50:80
+SPOOLMAN_CORS_ORIGIN=http://<printer-ip>,http://<printer-ip>:80
 ```
 
 Set it in `.env` for Compose, or as the advanced **Spoolman CORS origin** variable in the Unraid template. Leave it empty otherwise: the default keeps browsers from other origins from writing to or opening the websocket of the bundled Spoolman. Do not use `*`, which disables the check. Moonraker and other server-to-server callers do not need this variable. An external Spoolman container needs the same variable set on its own container.
