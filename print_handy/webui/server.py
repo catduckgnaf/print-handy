@@ -207,7 +207,8 @@ def render_status_html(snap, form_token=""):
          else ("ok" if listener["ok"] else "FAIL") + f" — {listener['reason']}"),
         ("Spoolman", ("bundled" if spoolman["bundled"] else "external")
          + f" {spoolman['url'] or '(not configured)'} — "
-         + ("ok" if spoolman["ok"] else "down") + f" ({spoolman['detail']})"),
+         + ("not configured" if spoolman["ok"] is None
+            else "ok" if spoolman["ok"] else "down") + f" ({spoolman['detail']})"),
     ]
     services = "".join(
         f"<tr><th>{esc(key)}</th><td>{esc(str(value))}</td></tr>"

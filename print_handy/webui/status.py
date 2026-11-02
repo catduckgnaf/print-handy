@@ -91,13 +91,26 @@ def probe_spoolman(url, timeout=_PROBE_TIMEOUT_S):
 
 def _bot_section(data, heartbeat):
     record = heartbeat
-    ok, reason = bot_health.evaluate(record, stale_s=data["bot"]["health_stale_s"])
     shown = None
     if isinstance(record, dict):
         shown = {key: record[key] for key in HEARTBEAT_KEYS if key in record}
+    mode = data["bot"]["mode"]
+    if mode != "standalone":
+        # The heartbeat is written by the standalone bot only; in Hermes
+        # mode the gateway writes none, so the check is not applicable
+        # (ok None, like a not-required listener) rather than a failure
+        # a Hermes install could never clear.
+        return {
+            "platform": data["bot"]["platform"],
+            "mode": mode,
+            "ok": None,
+            "reason": f"standalone heartbeat not applicable in {mode} mode",
+            "heartbeat": shown,
+        }
+    ok, reason = bot_health.evaluate(record, stale_s=data["bot"]["health_stale_s"])
     return {
         "platform": data["bot"]["platform"],
-        "mode": data["bot"]["mode"],
+        "mode": mode,
         "ok": ok,
         "reason": reason,
         "heartbeat": shown,
@@ -137,7 +150,11 @@ def _spoolman_section(data, environ, probe):
     else:
         url = configured
     if not url:
-        return {"bundled": bundled, "url": "", "ok": False, "detail": "not configured"}
+        # Spoolman is optional (setup offers skipping it): unconfigured is
+        # not applicable (ok None, like doctor.check_service skipping an
+        # unconfigured service), not a failure. A configured Spoolman that
+        # is down still reports ok False below.
+        return {"bundled": bundled, "url": "", "ok": None, "detail": "not configured"}
     ok, detail = probe(url)
     # Probed with the real URL; shown without its credentials (an open LAN Web UI, #708).
     return {"bundled": bundled, "url": _shown_url(url), "ok": ok, "detail": logs.redact(str(detail or ""))}
@@ -230,7 +247,8 @@ def snapshot(data=None, *, environ=None, heartbeat=READ_HEARTBEAT, probe=None, c
     model = printers.MODELS[model_key]
     services = {key: _shown_url(value) for key, value in sorted(data.get("services", {}).items())
                 if key.endswith("_url") and value}
-    ok = (bot["ok"] and listener["ok"] is not False and spoolman["ok"]
+    ok = (bot["ok"] is not False and listener["ok"] is not False
+          and spoolman["ok"] is not False
           and all(row["status"] != "fail" for row in rows))
     return {
         "version": __version__,
