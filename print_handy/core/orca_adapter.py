@@ -74,7 +74,9 @@ def _flash_studio_command(printer):
     if not configured:
         return None
     vendor = printer.model.vendor
-    if vendor is None or vendor.key != 'flashforge':
+    if vendor is None or vendor.key not in ('flashforge', 'flashforge_stock'):
+        # Both Flashforge routes list flash_studio as a verified slicer
+        # (the stock adapter included, P2-76).
         raise RuntimeError('[slicer] flash_studio_path is only supported for Flashforge printers')
     path = Path(configured).expanduser()
     if not path.is_file() or not os.access(path, os.X_OK):
