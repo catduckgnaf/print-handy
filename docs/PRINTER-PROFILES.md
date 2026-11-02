@@ -195,6 +195,48 @@ Two surfaces use the record, and neither changes any behavior:
   unknown shown as unknown, so the operator sees what was assumed before
   confirming.
 
+### Per-printer facts from the connected printer (#741)
+
+Some facts differ per install: an optional fan kit, a chamber reading the
+connected surface may or may not carry, a fan mapping the vendor never
+published. `/print-handy add-printer` settles those from the printer itself.
+After the live connection test passes, it runs a read-only thermal probe
+(`print_handy/core/thermal_probe.py`):
+
+- **Moonraker / Klipper:** lists the printer's objects and queries the
+  temperature, fan, heater and button objects. A chamber-named
+  `temperature_sensor`, `temperature_fan` or `heater_generic` (or an
+  exhaust-named `temperature_fan`, the Sovol Zero shape) proposes a chamber
+  sensor with a fresh reading. `fan_generic` / `temperature_fan` objects
+  named for a role (exhaust, filter, auxiliary, part) propose that fan as
+  present, mapped to the object name. A door- or lid-named `gcode_button`
+  or `filament_switch_sensor` proposes door state knowable. The object list
+  is complete, so a role with no object is proposed `absent` / `no`, except
+  that no fan role is proposed absent while a fan object with an unclear
+  name exists (the review lists those).
+- **Bambu Lab LAN:** one full status report. `print.chamber_temper` or
+  `device.ctc.info.temp` settles the chamber reading; `cooling_fan_speed`,
+  `big_fan1_speed` and `big_fan2_speed` settle part, auxiliary and exhaust
+  fans (`M106 P1` / `P2` / `P3`). Door state is not probed.
+- **Elegoo SDCP:** one status frame. `TempOfBox` and the `ModelFan`,
+  `AuxiliaryFan` and `BoxFan` channels propose sensor and fan presence.
+- **PrusaLink:** a schema check of `/api/v1/status` on the printer's
+  firmware. Today it has no chamber or door field, which confirms `no`; a
+  firmware that adds one is picked up by name.
+- **OctoPrint and other connections:** cannot be probed; the thermal
+  questions stay the route.
+
+The probe sends no fan, heater or G-code command and skips a printer that is
+printing. A failed probe proposes nothing. Only findings that differ from the
+model record are shown, each with its evidence and, where the model record
+already has a value, that value too. The operator replies `all`, `none`, or
+the numbers to keep. Confirmed facts are stored in that printer's hardware
+record (`thermal_install`, provenance `operator-confirmed`, source "probed
+from the connected printer on <date>"), only at `apply`. They replace the
+model value for that printer in the remaining thermal questions and in its
+slice summary, where the line names them. The registry is never written,
+and a declined or failed probe leaves the hardware record unchanged.
+
 No setting is added and no default changes: no fan, temperature, or
 chamber command is sent or enabled by recording or showing these facts.
 A note that says a model's geometry is the same as another model's means
