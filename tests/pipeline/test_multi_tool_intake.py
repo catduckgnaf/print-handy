@@ -476,6 +476,10 @@ def test_slice_single_colour_uses_the_picked_toolhead(model_key, tmp_path, monke
     assert len(argv[argv.index('--load-filaments') + 1].split(';')) == 4
     adapter = printers.get(model_key, creator_config(model_key))
     assert adapter.normalize_tool_mapping(provenance['tool_mapping'], tool_state()) == {'2': 3}
+# XL helpers and the #767 regression test, carried with the cherry-picked
+# fix (901a4f6): the helpers come from the same backlog lane, since the
+# test needs a five-toolhead XL state and capture the Creator helpers
+# cannot express.
 
 
 def xl_state():

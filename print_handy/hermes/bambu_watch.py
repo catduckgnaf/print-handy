@@ -306,6 +306,11 @@ class BambuPrintMonitor:
         self._last_frame = None
         self._last_layer = None
         self._last_periodic_at = None
+        # When the last camera-failure text alert went out. A failed
+        # capture never advances the watch's snapshot baseline, so due()
+        # keeps offering a probe on every poll while the camera is down;
+        # this stamp is what keeps that from becoming an alert per poll.
+        self._last_camera_failure_alert_at = None
         self.outcome = None
 
     # -- capture lifecycle (#295) --------------------------------------------
@@ -610,16 +615,41 @@ class BambuPrintMonitor:
                 # attach — but the operator still gets an alert: a dead
                 # camera must not silently leave the print unmonitored
                 # (the Moonraker watchdog's P2-8 rule, mirrored here).
+                # Throttled separately, though: the failed capture never
+                # updates the watch's snapshot baseline, so due() offers
+                # another probe on the next poll (~30 s) for as long as
+                # the camera stays down — without a throttle each probe
+                # would repost this alert instead of waiting out the
+                # profile's periodic interval like a normal alert cycle.
+                # Probes keep running; only the alert is throttled, so a
+                # camera that recovers is picked up on the next poll.
                 try:
                     if self._visual_muted():
                         log(f"bambu visual alert suppressed for muted print {self.filename!r}")
+                    elif self._camera_failure_alert_throttled():
+                        log(f"bambu visual camera-failure alert suppressed for {self.filename!r}: "
+                            "already alerted within the periodic interval")
                     else:
                         self._text_alert(self.filename,
                                          f"{reason} at layer {layer or 'unknown'}: the camera snapshot could not be captured, "
                                          "so this print is unmonitored until the camera answers again; check the camera",
                                          identity=self._identity)
+                        self._last_camera_failure_alert_at = self._wall()
                 except Exception as alert_exc:
                     log(f"bambu visual alert failed file={self.filename!r}: {alert_exc!r}")
+
+    def _camera_failure_alert_throttled(self):
+        """True when a camera-failure alert already went out inside the interval.
+
+        The interval is the watch profile's periodic_s — the same spacing
+        the watch's normal alert cycle uses (900 s at the default
+        sensitivity) — so a dead camera nags no more often than a healthy
+        one would be checked. With no watch wired there is no interval to
+        honor and nothing throttles.
+        """
+        if self._last_camera_failure_alert_at is None or self._watch is None:
+            return False
+        return self._wall() - self._last_camera_failure_alert_at < self._watch.profile["periodic_s"]
 
     def _visual_muted(self):
         """True when this print's watchdog posts were muted (#476). Never raises."""

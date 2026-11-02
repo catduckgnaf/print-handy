@@ -780,9 +780,16 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
         out['reason'] = (f'needs {len(used)} toolheads; this printer has {limit}' if multi_tool
                          else f'needs {len(used)} filament slots; one IFS job has {limit}')
         return out
+    # Spools share one IFS job by material family, not by raw label (#784): PLA+ is PLA
+    # for this decision, so white PLA and black PLA+ merge, exactly as the slicing rule
+    # in printer_state.multicolor_slot_temperatures already allows. Genuinely different
+    # families (PLA with PETG) still split, and the reason names the slot materials.
+    from . import printer_state
     materials = {(state.get('filament_slots') or {}).get(str(s), {}).get('material') for s in used}
-    if not multi_tool and len(used) > 1 and len(materials) > 1:
-        out['reason'] = 'mixed materials across slots cannot share one IFS job'
+    families = {printer_state.material_family(m) for m in materials}
+    if not multi_tool and len(used) > 1 and len(families) > 1:
+        named = ', '.join(sorted(str(m) for m in materials if m)) or 'unknown materials'
+        out['reason'] = f'mixed materials across slots cannot share one IFS job ({named})'
         return out
     object_ids = sorted({p['object_id'] for p in manifest['parts']}, key=int)
     try:

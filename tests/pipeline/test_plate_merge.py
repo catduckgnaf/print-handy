@@ -163,6 +163,41 @@ def test_full_size_split_possible_applies_the_brim_budget(tmp_path):
     assert not plate_merge.full_size_split_possible(source, manifest, bed=bed, brim_policy=policy)
     assert not plate_merge.full_size_split_possible(source, manifest, bed=bed,
                                                      state={'brim_policy': policy})
+def _plan_with_slot_materials(tmp_path, slot_materials):
+    """plate_merge.plan for a two-plate source whose parts use slots 1 and 2,
+    with the fixture slots' materials (and colors) replaced by slot_materials
+    {slot: (color, material)}."""
+    source = tmp_path / 's.3mf'
+    _source(source, {'1': (40, 40, 10), '2': (40, 40, 10)}, [['1'], ['2']])
+    state = json.loads(STATE.read_text())
+    for slot, (color, material) in slot_materials.items():
+        state['filament_slots'][str(slot)]['color'] = color
+        state['filament_slots'][str(slot)]['material'] = material
+    manifest = source_colors.inventory(source)
+    plates = model_job.plate_manifest(source)['plates']
+    slots = {p['key']: (1 if p['object_id'] == '1' else 2) for p in manifest['parts']}
+    return plate_merge.plan(source, manifest, plates, slots, state)
+
+
+def test_white_pla_and_black_pla_plus_share_one_ifs_job(tmp_path):
+    """#784: PLA+ is PLA for sharing one IFS job across different spools."""
+    verdict = _plan_with_slot_materials(tmp_path, {1: ('white', 'PLA'), 2: ('black', 'PLA+')})
+    assert verdict['mode'] == 'merge' and verdict['reason'] is None
+
+
+@pytest.mark.parametrize('second', ['Silk PLA', 'Matte PLA', 'PLA Pro'])
+def test_other_pla_family_finishes_share_one_ifs_job(tmp_path, second):
+    verdict = _plan_with_slot_materials(tmp_path, {1: ('white', 'PLA'), 2: ('black', second)})
+    assert verdict['mode'] == 'merge' and verdict['reason'] is None
+
+
+@pytest.mark.parametrize('first,second', [('PLA', 'PETG'), ('PLA', 'ABS'), ('PLA', 'PLA-CF'),
+                                          ('PETG', 'PETG-CF'), ('PLA+', 'PETG')])
+def test_different_material_families_still_split(tmp_path, first, second):
+    verdict = _plan_with_slot_materials(tmp_path, {1: ('white', first), 2: ('black', second)})
+    assert verdict['mode'] == 'split'
+    assert 'mixed materials across slots cannot share one IFS job' in verdict['reason']
+    assert first in verdict['reason'] and second in verdict['reason']
 
 
 def test_explicit_separate_mode_skips_merge(tmp_path, monkeypatch):

@@ -1175,6 +1175,12 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     from .filament_color import slot_hex
     from .printer_state import material_adjustments, multicolor_slot_temperatures
 
+    def material_tuning(material):
+        """This material family's [material_tuning] row (settings.DEFAULT_MATERIAL_TUNING unless the operator
+        set it)."""
+        from .printer_state import material_family
+        return (settings.current().get("material_tuning") or {}).get(material_family(material)) or {}
+
     def job_filament(material, density, temps_c, colour, bed_c=None):
         """(filament profile Orca receives for one spool, its effective nozzle target, family note).
 
@@ -1199,6 +1205,15 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                 data['filament_flow_ratio'] = [str(round(float(data['filament_flow_ratio'][0]) * adj['flow_multiplier'], 4))]
             except (ValueError, TypeError):
                 pass
+        # flow_ratio is the final ratio Orca receives (the tested number), so it replaces the nozzle
+        # type's flow multiplier instead of being scaled by it. A vendor profile (Bambu Lab) keeps its own.
+        tuning = {} if printer.vendor_material_profiles else material_tuning(material)
+        if tuning.get("flow_ratio") is not None:
+            data["filament_flow_ratio"] = [format(tuning["flow_ratio"], "g")]
+        if tuning.get("max_volumetric_speed") is not None:
+            data["filament_max_volumetric_speed"] = [format(tuning["max_volumetric_speed"], "g")]
+        if tuning.get("min_layer_time") is not None:
+            data["slow_down_layer_time"] = [format(tuning["min_layer_time"], "g")]
         variant = material_adjustments(material)
         layer_min = variant['slow_down_layer_time_min']
         if layer_min is not None:
@@ -1241,6 +1256,9 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     job_adjustments = [material_adjustments(m) for m in job_materials if m]
     factor = min(a['outer_wall_speed_factor'] for a in job_adjustments)
     caps = [a['outer_wall_speed_max'] for a in job_adjustments if a['outer_wall_speed_max'] is not None]
+    caps += [t['outer_wall_speed_max'] for t in (material_tuning(m) for m in job_materials if m)
+             if not printer.vendor_material_profiles
+             if t.get('outer_wall_speed_max') is not None]
     cap = min(caps) if caps else None
     if factor != 1.0 or cap is not None:
         try:

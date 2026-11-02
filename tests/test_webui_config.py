@@ -8,7 +8,7 @@ from print_handy import printers, settings
 from print_handy.bot import guided
 from print_handy.bot.platform import KNOWN_PLATFORMS
 from print_handy.webui import (CATALOG, ENVIRONMENT, HOME_CONFIG, MODEL_DEFAULT,
-                               SETTINGS_FILE, WebUIConfigError, choices_for,
+                               SETTINGS_FILE, USER_FILE, WebUIConfigError, choices_for,
                                config_page_visible, field_by_id, read_fields,
                                settings_file_path, write_changes)
 
@@ -488,6 +488,26 @@ class WriteAPITests(unittest.TestCase):
         self.assertEqual(changed, [("discord", "chat_id"), ("discord", "timezone")])
         data = settings.load(local=self.local, environ={})
         self.assertEqual(data["discord"]["timezone"], "America/New_York")
+    def test_user_file_field_shows_its_layer_and_write_is_refused(self):
+        # Codex on #783: the operator's own settings file layers over the settings file the Web UI
+        # writes, so a value saved underneath it would report success and change nothing.
+        before = self.write_file("webui:\n  port: 8088\n")
+        home = Path(self.tmp.name) / "home"
+        user = home / ".config" / "print-handy" / "settings.yaml"
+        user.parent.mkdir(parents=True)
+        user.write_text("webui:\n  port: 9000\n")
+        env = {"HOME": str(home)}
+        values = {value.field.id: value for value in read_fields(local=self.local, environ=env)}
+        self.assertEqual((values["webui.port"].value, values["webui.port"].provenance), (9000, USER_FILE))
+        self.assertTrue(values["webui.port"].overridden)
+        self.assertFalse(values["webui.port"].env_overridden)
+        with self.assertRaisesRegex(WebUIConfigError, "set in your own settings file"):
+            write_changes({"webui.port": 9100}, config_path=self.local, environ=env)
+        self.assertEqual(self.local.read_bytes(), before)
+        self.assertEqual(user.read_text(), "webui:\n  port: 9000\n")
+        # A field the user file does not set still writes to the settings file.
+        self.assertEqual(write_changes({"visual_watch.sensitivity": 2}, config_path=self.local, environ=env),
+                         [("visual_watch", "sensitivity")])
 
     def test_noop_change_writes_nothing_and_makes_no_backup(self):
         before = self.write_file("visual_watch:\n  sensitivity: 3\n")

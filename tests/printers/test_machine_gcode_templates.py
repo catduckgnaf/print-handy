@@ -8,6 +8,10 @@ machine_end_gcode the adapter passes through unchanged.
 Stock Flashforge AD5X (P1-59): the stock guard forbids Klipper/ZMod macros outright, so
 the stock model needs its own template whose start, end, layer-change and pause sequences
 are plain G/M/T code the guard accepts. The ZMod AD5X keeps the macro template.
+
+Marlin templates (#763): real Orca refuses every shipped marlin/marlin2 template
+whose layer_change_gcode omits G92 E0 while use_relative_e_distances is on, so
+every such template must carry the per-layer extruder reset.
 """
 import json
 

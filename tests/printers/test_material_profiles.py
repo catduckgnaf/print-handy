@@ -74,6 +74,14 @@ def test_abs_is_not_cooled_like_pla(slice_inputs, model):
     assert filament["support_material_interface_fan_speed"] == ["-1"]
 
 
+@pytest.fixture
+def no_material_tuning(monkeypatch):
+    """Turn [material_tuning] off so a test pins the material-variant layer (#512) on its own. The shipped
+    PLA row (#783) sends the same 8 s, 12 mm³/s and 60 mm/s that Silk does, which would hide the difference."""
+    config = {**settings.current(), "material_tuning": {}}
+    monkeypatch.setattr(settings, "current", lambda: config)
+
+
 @pytest.mark.parametrize("model", FAMILIES)
 @pytest.mark.parametrize("material", ["PLA", "Silk PLA", "PLA+"])
 def test_a_pla_job_keeps_the_printers_tuned_pla_template(slice_inputs, model, material):
@@ -82,10 +90,12 @@ def test_a_pla_job_keeps_the_printers_tuned_pla_template(slice_inputs, model, ma
     for key in KEYS:
         if key in template and key != "filament_max_volumetric_speed":
             assert filament[key] == template[key], key
-    expected = template["filament_max_volumetric_speed"]
-    if material == "Silk PLA" and float(expected[0]) > 12:  # Silk caps flow at 12 mm³/s; it never raises it
-        expected = ["12"]
-    assert filament["filament_max_volumetric_speed"] == expected
+    # The shipped PLA row of [material_tuning] (#783) sets 12 mm³/s for the whole PLA family; Silk's own
+    # cap is the same 12, so every PLA label lands there (every template authors 25, so it never raises it).
+    tuning = settings.DEFAULT_MATERIAL_TUNING["PLA"]
+    assert filament["filament_max_volumetric_speed"] == [format(tuning["max_volumetric_speed"], "g")]
+    assert filament["filament_flow_ratio"] == [format(tuning["flow_ratio"], "g")]
+    assert filament["slow_down_layer_time"] == [format(tuning["min_layer_time"], "g")]
 
 
 @pytest.mark.parametrize("model", ["flashforge.ad5x", "sovol.sv06"])
@@ -179,7 +189,7 @@ def test_silk_slows_the_authored_outer_wall(slice_inputs, capsys):
     assert "140 mm/s capped at 60 mm/s" in capsys.readouterr().out
 
 
-def test_silk_raises_the_minimum_layer_time(slice_inputs):
+def test_silk_raises_the_minimum_layer_time(slice_inputs, no_material_tuning):
     for material, expected in (("Silk PLA", "8"), ("PLA", None)):
         slice_inputs.slice("flashforge.ad5x", stale_state(material))
         filament = json.loads((slice_inputs.tmp / "flashforge_ad5x" / "filament.json").read_text())
@@ -187,7 +197,7 @@ def test_silk_raises_the_minimum_layer_time(slice_inputs):
         assert filament["slow_down_layer_time"] == ([expected] if expected else template["slow_down_layer_time"])
 
 
-def test_silk_lowers_the_max_volumetric_speed(slice_inputs):
+def test_silk_lowers_the_max_volumetric_speed(slice_inputs, no_material_tuning):
     template = json.loads((ROOT / "print_handy/templates/orca/flashforge_ad5x/filament.json").read_text())
     for material, expected in (("Silk PLA", ["12"]), ("PLA", template["filament_max_volumetric_speed"])):
         slice_inputs.slice("flashforge.ad5x", stale_state(material))
@@ -195,13 +205,21 @@ def test_silk_lowers_the_max_volumetric_speed(slice_inputs):
         assert filament["filament_max_volumetric_speed"] == expected
 
 
-def test_plain_pla_keeps_the_authored_outer_wall(slice_inputs):
+def test_plain_pla_keeps_the_authored_outer_wall(slice_inputs, no_material_tuning):
     slice_inputs.slice("flashforge.ad5x", stale_state("PLA"))
     process = json.loads((slice_inputs.tmp / "flashforge_ad5x" / "process.json").read_text())
     assert process["outer_wall_speed"] == "200"
 
 
-def test_silk_scales_orcas_default_when_the_template_sets_no_outer_wall_speed(slice_inputs, tmp_path, capsys):
+def test_shipped_pla_tuning_caps_the_outer_wall(slice_inputs):
+    # The shipped [material_tuning] PLA row (#783) caps the authored 200 mm/s at 60 mm/s.
+    slice_inputs.slice("flashforge.ad5x", stale_state("PLA"))
+    process = json.loads((slice_inputs.tmp / "flashforge_ad5x" / "process.json").read_text())
+    assert process["outer_wall_speed"] == "60.0"
+
+
+def test_silk_scales_orcas_default_when_the_template_sets_no_outer_wall_speed(slice_inputs, tmp_path, capsys,
+                                                                              no_material_tuning):
     src = ROOT / "print_handy/templates/orca/flashforge_ad5x"
     templates = tmp_path / "templates"
     templates.mkdir()
@@ -287,7 +305,7 @@ def multicolor(tmp_path, monkeypatch):
     return S(slice=slice_job, spools=spools)
 
 
-def test_ad5x_pla_and_silk_slots_each_get_their_own_type_and_temperature(multicolor):
+def test_ad5x_pla_and_silk_slots_each_get_their_own_type_and_temperature(multicolor, no_material_tuning):
     job = multicolor.slice(ad5x_state(["PLA", "Silk PLA"]))
     first, second = job.profiles
     assert (first["filament_type"], second["filament_type"]) == (["PLA"], ["Silk PLA"])
@@ -308,7 +326,7 @@ def test_ad5x_pla_and_pla_is_unchanged(multicolor):
                 "filament_max_volumetric_speed", "fan_max_speed"):
         assert first[key] == second[key], key
     assert first["filament_type"] == ["PLA"] and first["nozzle_temperature"] == [str(nozzle_effective(AD5X, 210))]
-    assert job.process["outer_wall_speed"] == "200"
+    assert job.process["outer_wall_speed"] == "60.0"  # the shipped [material_tuning] PLA cap (#783)
 
 
 def test_ad5x_slots_use_their_own_spoolman_temperatures(multicolor):

@@ -5,6 +5,11 @@ secondary). Each test drives one path bound to the secondary printer
 and proves the printer_id reaches the layer that used to fall back to
 the default printer: intake's recovery reboot (P1-79), the slice
 worker's hardware record (P1-78), and G-code verification (P1-75).
+
+The file also carries the #761 regression test (cherry-picked to main
+as PR #780 and merged back here): print_now's filament-readiness check
+must judge the sample with the job printer's own adapter, not the
+default printer's.
 """
 import asyncio
 import json

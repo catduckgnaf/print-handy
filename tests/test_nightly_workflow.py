@@ -112,6 +112,11 @@ class NightlyWorkflowContract(unittest.TestCase):
         self.assertIn('doc["config"]["digest"]', run)
         self.assertIn("evidence/identity-check.txt", run)
         self.assertLess(run.index("imagetools inspect --raw"), run.index("digest-out"))
+        # The proof above relies on the push build seeing exactly the
+        # context the accepted build saw: the evidence files written
+        # between the two builds must stay out of the build context.
+        ignored = (ROOT / ".dockerignore").read_text().splitlines()
+        self.assertIn("evidence", ignored)
 
     def test_manifest_publishes_only_the_nightly_tags(self):
         workflow = load_workflow()

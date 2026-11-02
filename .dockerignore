@@ -12,6 +12,7 @@
 .worktrees
 .slicer-work
 data
+evidence
 tests
 docs
 hermes
