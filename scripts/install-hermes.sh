@@ -243,4 +243,15 @@ if [ "$DRY" = 1 ]; then strays_flag="--dry-run --remove"; else strays_flag="--re
 PRINT_HANDY__PATHS__HERMES_HOME="$HERMES_HOME" PYTHONPATH="$REPO${PYTHONPATH:+:$PYTHONPATH}" \
     "$PYTHON" -m print_handy.state_files $strays_flag || say "warning: could not check for stray state files"
 
+# 6. Provision the default printer's hardware record when the profile has none (P1-7):
+# every pipeline command reads state/printer_hardware.json, and a fresh profile cannot
+# create it by hand — `printer_state set` loads before it saves. Never overwrites an
+# existing record; the operator records the real hardware afterwards with printer_state set.
+if [ "$DRY" = 1 ]; then
+    act "provision $HERMES_HOME/state/printer_hardware.json if missing"
+else
+    PRINT_HANDY__PATHS__HERMES_HOME="$HERMES_HOME" PYTHONPATH="$REPO${PYTHONPATH:+:$PYTHONPATH}" \
+        "$PYTHON" -m print_handy.core.printer_state provision || say "warning: could not provision the printer hardware record"
+fi
+
 say "done. Enable the listener with: systemctl --user enable --now hermes-3dprinting-moonraker-listener.service"

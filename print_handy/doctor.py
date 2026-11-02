@@ -65,7 +65,9 @@ def check_hardware(data):
     """The printer hardware record the pipeline reads with no fallback. A fresh install has none."""
     path = settings.state_dir(data) / "printer_hardware.json"
     if not path.is_file():
-        raise RuntimeError(f"{path} is missing; copy it from the working install or create it before slicing")
+        raise RuntimeError(f"{path} is missing; create it with "
+                           "`python3 -m print_handy.core.printer_state provision`, then record the "
+                           "real hardware with `printer_state set` before slicing")
     record = json.loads(path.read_text())
     missing = [key for key in ("spool", "temps_c", "nozzle") if not isinstance(record.get(key), dict)]
     if missing:
