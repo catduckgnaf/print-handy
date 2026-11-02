@@ -37,7 +37,26 @@ AGAIN_LABEL = "Print again · bed is clear"
 AGAIN_CANCEL_LABEL = "Cancel"
 REBOOT_LABEL = "Force restart printer now"
 CANCEL_REBOOT_LABEL = "Cancel restart"
-_CONTROL_LOCK = __import__('threading').Lock()
+
+
+def _lock_for(printer_id: str | None = None):
+    """The interprocess control lock for one printer (P1-33).
+
+    Shared with every other process acting on the same printer — the
+    standalone ph-purge / ph-load-slot CLIs, the nozzle-change flow and
+    model_job.print_now — through a flock file in the printer's state dir
+    (print_handy.core.control_lock). The state dir and the default
+    printer's identity resolve through _config, like every other path
+    here, so an override install and the live install agree on the file.
+    """
+    from .. import settings
+    from ..core import control_lock as _cl
+
+    key = printer_id or settings.default_printer_id(_config.cfg())
+    return _cl.control_lock(key, state_dir=_config.state_dir())
+
+
+_CONTROL_LOCK = _lock_for()
 # Profile name -> (hot C, cold C), from [cold_pull] in the home configuration.
 COLD_PULL_PROFILES = {name: (int(pair[0]), int(pair[1])) for name, pair in _config.cfg()["cold_pull"].items()}
 
@@ -85,7 +104,8 @@ def coldpull(temp: int, cold: int, *, confirmed_at: float, gcode_sender=None, re
         return False, 'Refused: unsupported cold-pull temperatures.'
     if time.time() - float(confirmed_at) > 300 or float(confirmed_at) > time.time() + 2:
         return False, 'Refused: confirmation expired. Nothing sent.'
-    if not _CONTROL_LOCK.acquire(blocking=False):
+    lock = _lock_for(printer_id)
+    if not lock.acquire(blocking=False):
         return False, 'Refused: another printer control action is in flight. Nothing sent.'
     try:
         if reader:
@@ -116,7 +136,7 @@ def coldpull(temp: int, cold: int, *, confirmed_at: float, gcode_sender=None, re
             return False, f'Cold pull command returned, but heater target readback is {target!r}, not 0. Check the printer; do not retry.'
         return True, 'Cold pull finished; heater target is 0.'
     finally:
-        _CONTROL_LOCK.release()
+        lock.release()
 
 
 INTERRUPTED_HINT = ("If the printer screen offers Resume, tap it there. Don't restart the printer first: "
