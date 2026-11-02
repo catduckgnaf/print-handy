@@ -625,8 +625,12 @@ def _default_verdict(adapter, streak=None):
 
 
 def start_monitor(adapter, filename, *, post=None, camera_fn=None, status_fn=None,
-                  camera_source_fn=None, thread_factory=None):
+                  camera_source_fn=None, thread_factory=None, printer_id=None):
     """Start a BambuPrintMonitor for a just-launched print on a daemon thread.
+    printer_id is the launched job's roster printer: the monitor's pause
+    alerts carry it, so their Resume/Cancel buttons act on that printer
+    rather than the default one (SAFE-4 / P1-101).
+
 
     Returns the thread (or None when monitoring could not start — a failed
     monitor must never fail the print that launched it).
@@ -659,7 +663,7 @@ def start_monitor(adapter, filename, *, post=None, camera_fn=None, status_fn=Non
             post=post or _default_post,
             watch=watch, verdict=verdict, alert=alert, dark_notice=dark_notice,
             camera_source_fn=camera_source_fn, capture_poll_s=interval,
-            pause_alerts=family_control.pause_alerts_for(adapter, filename))
+            pause_alerts=family_control.pause_alerts_for(adapter, filename, printer_id))
         factory = thread_factory or (lambda target: threading.Thread(target=target, daemon=True,
                                                                      name=f"bambu-watch-{filename}"))
         thread = factory(monitor.run)
