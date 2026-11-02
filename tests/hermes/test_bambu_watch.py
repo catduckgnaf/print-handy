@@ -312,6 +312,27 @@ def test_muted_bambu_print_posts_no_alert(monkeypatch, tmp_path):
     assert len(alerts) == 1  # only the unmuted print alerted
 
 
+def test_snapshot_failure_alerts_text_only_instead_of_staying_silent():
+    # Bonus (found in the DATA-5 lane): the Bambu mirror of the Moonraker
+    # watchdog had P2-8's defect — when the camera snapshot itself
+    # raises, image stays None and the failure was only logged, so the
+    # print silently lost its watchdog. A text-only alert must go out.
+    alerts, texts = [], []
+    clock = FakeClock()
+    monitor = bambu_watch.BambuPrintMonitor(
+        REMOTE, status_fn=scripted([st("complete")]),
+        camera_fn=lambda: (_ for _ in ()).throw(ConnectionError("camera unreachable")),
+        post=lambda text: None,
+        watch=vw.VisualPrintWatch(sensitivity=3),
+        verdict=lambda image, prompt: ("ok", ""),
+        alert=lambda filename, image, reason, identity=None: alerts.append(reason),
+        text_alert=lambda filename, reason, identity=None: texts.append(reason),
+        clock=clock, wall=clock, sleep=clock.sleep, poll_s=10)
+    monitor.visual_check("layer2", 2)
+    assert alerts == []  # no image exists to attach
+    assert len(texts) == 1 and "camera" in texts[0]
+
+
 def test_dark_notice_delivery_posts_only_the_mute_button(monkeypatch):
     from print_handy.hermes import print_alert_buttons as pab
     seen = {}

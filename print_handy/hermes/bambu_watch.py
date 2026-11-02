@@ -229,6 +229,35 @@ def deliver_dark_notice(filename, *, post=None, token=None, chat_id=None, button
     post(text)
 
 
+def deliver_visual_text_alert(filename, reason, *, post=None, token=None, chat_id=None, buttonless=None,
+                              identity=None):
+    """Post a watchdog alert with no snapshot: the camera capture itself failed.
+
+    The listener's _visual_alert_text shape: the visual alert's text and
+    buttons without an image upload, plain text on buttonless platforms
+    and as the fallback when the button post fails.
+    """
+    text = f"Print camera check: {print_summary.safe_label(filename, 'print')}\n{reason}"
+    if post is None or token is None or chat_id is None or buttonless is None:
+        from . import moonraker_discord_announcements as announcer
+        from . import moonraker_event_listener as mel
+        post = post or mel.post
+        token = token or mel._bot_token()
+        chat_id = chat_id if chat_id is not None else announcer.DISCORD_CHAT_ID
+        buttonless = mel._buttonless_standalone() if buttonless is None else buttonless
+    if buttonless:
+        post(text)
+        return
+    try:
+        from . import print_alert_buttons as pab
+        if pab.post_visual_text_alert(token, chat_id, text, filename, identity=identity):
+            return
+        log("bambu visual text button post failed; falling back to text")
+    except Exception as exc:
+        log(f"bambu visual text alert post error: {exc!r}")
+    post(text)
+
+
 class BambuPrintMonitor:
     """Poll one launched Bambu print to its end; post its completion, with the final image
     and, when a capture session ran, the print's timelapse alongside it (#295).
@@ -244,7 +273,7 @@ class BambuPrintMonitor:
 
     def __init__(self, filename, *, status_fn, camera_fn, post,
                  watch=None, verdict=None, alert=None, changed=None,
-                 dark_notice=None,
+                 dark_notice=None, text_alert=None,
                  camera_source_fn=None, begin_fn=None, encode_fn=None,
                  pause_alerts=None,
                  clock=time.monotonic, wall=time.time, sleep=time.sleep,
@@ -258,6 +287,7 @@ class BambuPrintMonitor:
         self._verdict = verdict
         self._alert = alert
         self._dark_notice = dark_notice
+        self._text_alert = text_alert
         # This print's watchdog-mute identity (#476): one monitor exists per
         # launched print, so filename + launch time identifies the print —
         # a later reprint of the same file is a different monitor and asks
@@ -566,6 +596,21 @@ class BambuPrintMonitor:
                                     identity=self._identity)
                 except Exception as alert_exc:
                     log(f"bambu visual alert failed file={self.filename!r}: {alert_exc!r}")
+            elif self._text_alert is not None:
+                # The snapshot itself failed, so there is no image to
+                # attach — but the operator still gets an alert: a dead
+                # camera must not silently leave the print unmonitored
+                # (the Moonraker watchdog's P2-8 rule, mirrored here).
+                try:
+                    if self._visual_muted():
+                        log(f"bambu visual alert suppressed for muted print {self.filename!r}")
+                    else:
+                        self._text_alert(self.filename,
+                                         f"{reason} at layer {layer or 'unknown'}: the camera snapshot could not be captured, "
+                                         "so this print is unmonitored until the camera answers again; check the camera",
+                                         identity=self._identity)
+                except Exception as alert_exc:
+                    log(f"bambu visual alert failed file={self.filename!r}: {alert_exc!r}")
 
     def _visual_muted(self):
         """True when this print's watchdog posts were muted (#476). Never raises."""
@@ -645,7 +690,7 @@ def start_monitor(adapter, filename, *, post=None, camera_fn=None, status_fn=Non
         log(f"bambu monitor not started for {filename!r}: no chat is configured to post to")
         return None
     try:
-        watch = verdict = alert = dark_notice = None
+        watch = verdict = alert = dark_notice = text_alert = None
         from . import moonraker_event_listener as mel
         if _config.cfg()["visual_watch"]["enabled"] and mel._vision_ready():
             watch = _vw.VisualPrintWatch()
@@ -655,6 +700,7 @@ def start_monitor(adapter, filename, *, post=None, camera_fn=None, status_fn=Non
             verdict = _default_verdict(adapter, streak=local_vision.FailureStreak())
             alert = deliver_visual_alert
             dark_notice = deliver_dark_notice
+            text_alert = deliver_visual_text_alert
         if camera_source_fn is None and hasattr(adapter, "camera_frame_source"):
             camera_source_fn = adapter.camera_frame_source
         try:
@@ -668,6 +714,7 @@ def start_monitor(adapter, filename, *, post=None, camera_fn=None, status_fn=Non
             camera_fn=camera_fn or adapter.camera_snapshot,
             post=post or _default_post,
             watch=watch, verdict=verdict, alert=alert, dark_notice=dark_notice,
+            text_alert=text_alert,
             camera_source_fn=camera_source_fn, capture_poll_s=interval,
             pause_alerts=family_control.pause_alerts_for(adapter, filename, printer_id))
         factory = thread_factory or (lambda target: threading.Thread(target=target, daemon=True,
