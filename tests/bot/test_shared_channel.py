@@ -345,6 +345,45 @@ def test_print_again_in_a_shared_channel_uses_the_jobs_printer(plugin_cfg, monke
     assert not any("Which printer" in q for q, _c in adapter.questions)
 
 
+def test_print_again_next_and_stop_in_a_shared_channel_read_the_owners_queue(plugin_cfg, monkeypatch):
+    # 2.2.5 review: copies are queued under the job owner's printer, but a
+    # shared channel decides no printer, so next/stop read the default file.
+    plugin = _plugin()
+    from print_handy.hermes import print_control as pc
+
+    queued = {WORKSHOP: {"job_json": "j", "gcode": "g"}}
+    seen = []
+    monkeypatch.setattr(pc, "pending_copy", lambda path=None, printer_id=None: queued.get(printer_id))
+    monkeypatch.setattr(pc, "cancel_copies",
+                        lambda path=None, printer_id=None: seen.append(("cancel", printer_id)) or bool(queued.get(printer_id)))
+    monkeypatch.setattr(pc, "next_copy_target",
+                        lambda path=None, archive=None, printer_id=None: seen.append(("next", printer_id)) or (_ for _ in ()).throw(
+                            print_next.NextPlateError("stop here")))
+    adapter = PickingAdapter(pick=lambda q, choices: pc.AGAIN_CANCEL_LABEL)
+    gateway = SharedGateway(adapter, shared={HOME: [GARAGE, WORKSHOP]})
+    run(plugin.print_again_dispatch(shared_event("/print-again stop"), gateway))
+    assert seen == [("cancel", WORKSHOP)]
+    assert "Remaining copies dropped" in adapter.sent[-1][1]
+    seen.clear()
+    run(plugin.print_again_dispatch(shared_event("/print-again next"), gateway))
+    assert seen == [("next", WORKSHOP)]
+
+
+def test_print_again_stop_in_a_shared_channel_refuses_ambiguous_queues(plugin_cfg, monkeypatch):
+    plugin = _plugin()
+    from print_handy.hermes import print_control as pc
+
+    monkeypatch.setattr(pc, "pending_copy", lambda path=None, printer_id=None: {"job_json": "j", "gcode": "g"})
+    cancelled = []
+    monkeypatch.setattr(pc, "cancel_copies", lambda path=None, printer_id=None: cancelled.append(printer_id) or True)
+    adapter = PickingAdapter(pick=lambda q, choices: None)
+    gateway = SharedGateway(adapter, shared={HOME: [GARAGE, WORKSHOP]})
+    out = run(plugin.print_again_dispatch(shared_event("/print-again stop"), gateway))
+    assert out["reason"] == "print again queue ambiguous across printers"
+    assert not cancelled
+    assert "Garage AD5X" in adapter.sent[-1][1] and "Workshop AD5X" in adapter.sent[-1][1]
+
+
 # ----------------------------------------------------------------------
 # spool slot binds ask; inventory stays global
 

@@ -273,6 +273,52 @@ def test_download_uses_a_process_unique_part_file(monkeypatch, tmp_path):
     assert [p.name for p in tmp_path.glob("*.part")] == ["detector.onnx.part"]
 
 
+def test_existing_model_needs_no_download_lock(monkeypatch, tmp_path):
+    """2.2.5 review: a present model is used without the download flock, so a
+    read-only model directory (no lock file can be created) works on every frame."""
+    target = tmp_path / "detector.onnx"
+    target.write_bytes(FIXTURE.read_bytes())
+
+    def read_only_lock(path):
+        raise PermissionError("read-only model directory")
+
+    monkeypatch.setattr(lv, "_model_lock", read_only_lock)
+    cfg = cfg_with(local_model_path=str(target))
+    for _ in range(2):
+        verdict, _ = lv.local_verdict(frame(235), cfg)
+        assert verdict == "spaghetti"
+
+
+def test_download_lock_failure_is_a_local_vision_error(monkeypatch, tmp_path):
+    """2.2.5 review: an OSError taking the download lock degrades like any other
+    unprepared model (LocalVisionError, remembered), never a raw OSError."""
+    target = tmp_path / "detector.onnx"
+
+    def read_only_lock(path):
+        raise PermissionError("read-only model directory")
+
+    monkeypatch.setattr(lv, "_model_lock", read_only_lock)
+    with pytest.raises(lv.LocalVisionError, match="could not be prepared"):
+        lv._ensure_model_file(target)
+    assert lv._remembered_failure(f"file:{target}")
+
+
+def test_failed_publish_leaves_no_part_file(monkeypatch, tmp_path):
+    """2.2.5 review: a failed os.replace removes this process's .part."""
+    target = tmp_path / "detector.onnx"
+    monkeypatch.setattr(lv, "MODEL_SHA256", FIXTURE_SHA256)
+    monkeypatch.setattr("urllib.request.urlopen",
+                        lambda request, timeout=None: _FakeResponse(FIXTURE.read_bytes()))
+
+    def failing_replace(src, dst):
+        raise OSError("cross-device")
+
+    monkeypatch.setattr(lv.os, "replace", failing_replace)
+    with pytest.raises(lv.LocalVisionError, match="publishing"):
+        lv._download_model(target)
+    assert list(tmp_path.glob("*.part")) == []
+
+
 def test_failed_download_is_not_retried_every_check(monkeypatch, tmp_path):
     target = tmp_path / "detector.onnx"
     calls = []

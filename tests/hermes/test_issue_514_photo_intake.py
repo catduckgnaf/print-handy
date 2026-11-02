@@ -518,6 +518,21 @@ def test_label_temps_follow_the_downstream_contract():
     assert spec["nozzle_temp"] is None and spec["bed_temp"] is None
 
 
+def test_label_temps_keep_a_plausible_nozzle_floor():
+    # 2.2.5 review: the 300 ceiling must not drop the nozzle floor; a misread
+    # 20 or 55 is not a nozzle temperature, while a low real bed is kept.
+    for nozzle in (20, 55):
+        spec = spool_label.validate_label_answer({
+            "material": "PLA", "color": "Black", "grams": 1000,
+            "nozzle_temp": nozzle, "bed_temp": 55})
+        assert spec["nozzle_temp"] is None and spec["bed_temp"] == 55.0
+    spec = spool_label.spec_from_label_text("PLA Black 1 kg Nozzle: 20C Bed: 55C")
+    assert spec["nozzle_temp"] is None and spec["bed_temp"] == 55.0
+    spec = spool_label.validate_label_answer({
+        "material": "PLA", "color": "Black", "grams": 1000, "nozzle_temp": 80, "bed_temp": 200})
+    assert spec["nozzle_temp"] == 80.0 and spec["bed_temp"] is None
+
+
 def test_text_material_matching_respects_token_boundaries():
     # P2-202: 'pla' inside 'plate' is not the material PLA; the complete
     # token PC printed on the label is the material.

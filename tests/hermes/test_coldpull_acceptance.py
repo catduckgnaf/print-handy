@@ -387,6 +387,11 @@ def test_full_maintenance_with_cold_pull_records_full_run(monkeypatch):
     kinds = [r.get("kind") for r in store["runs"]]
     assert kinds.count("coldpull") == 1, kinds
     assert kinds.count("full") == 1, kinds
+    # Each pull counts once: only the pull's own run carries the cold_pull
+    # record the dirty-pull counter reads (2.2.5 review).
+    assert [r for r in store["runs"] if r.get("cold_pull")] == [r for r in store["runs"] if r.get("kind") == "coldpull"]
+    full = next(r for r in store["runs"] if r.get("kind") == "full")
+    assert full["cold_pull_result"] == "clean"
 
 
 def test_maintenance_completion_run_survives_final_save(monkeypatch):

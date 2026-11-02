@@ -722,13 +722,14 @@ def test_hook_warming_start_registers_message_for_listener_edit(tmp_path):
     with mock.patch.object(print_next, 'load_plan', lambda pid: real_load(pid, plans)), \
             mock.patch.object(print_next, 'start', fake_start), \
             mock.patch.object(print_next, 'record_start_message',
-                              lambda filename, mid: recorded.append((filename, mid))), \
+                              lambda filename, mid, **kw: recorded.append((filename, mid, kw))), \
             mock.patch.object(print_next, 'resolve_next',
                               lambda plan: real_resolve(plan, tmp_path / 'archive')):
         result = asyncio.run(mod.print_next_dispatch(
             S(source=src, text='/print-next ghost', internal=False), gateway))
     assert result['action'] == 'skip'
-    assert recorded == [('plate_2.gcode', 'msg-42')]
+    # The originating channel rides along so the warmup edit lands there (2.2.5 review, P2-11).
+    assert recorded == [('plate_2.gcode', 'msg-42', {'chat_id': 'c', 'thread_id': None})]
     assert any(m['content'].startswith('Print started') for m in adapter.sent)
 def _routed_adapter_with(monkeypatch, connection, phase):
     """Route live_idle_check(printer_id) through a fake roster adapter.
