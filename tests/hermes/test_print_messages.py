@@ -190,6 +190,25 @@ def _claimed_listener(monkeypatch, tmp_path, job, *, message_id="777", edit_ok=T
     return edits
 
 
+def test_claimed_start_edits_the_originating_channel(job, tmp_path, monkeypatch):
+    """P2-11: an intake that started in another channel/thread gets its warmup
+    edit there, not in the configured announcement channel."""
+    from print_handy.hermes import print_alert_buttons as pab, print_next
+    monkeypatch.setattr(print_next, "START_MESSAGES", tmp_path / "start_messages.json")
+    print_next.record_start_message(job.hashed, "888", chat_id="chan-other", thread_id="thread-1")
+    monkeypatch.setattr(mel, "start_claim_time", lambda name, now=None: 1000)
+    monkeypatch.setattr(mel, "NOTIFICATION_STATE", tmp_path / "notifications.json")
+    monkeypatch.setattr(mel, "_profile_env_value", lambda name: "bot-token")
+    monkeypatch.setattr(mel.announcer, "DISCORD_CHAT_ID", "chan1")
+    edits = []
+    monkeypatch.setattr(pab, "edit_message",
+                        lambda token, chan, mid, text: edits.append((chan, mid, text)) or True)
+    posted = _drive_listener(monkeypatch, job.hashed, ["standby", "printing"], claimed=True)
+    assert posted == []
+    assert len(edits) == 1
+    assert edits[0][0] == "thread-1" and edits[0][1] == "888"
+
+
 def test_claimed_start_edits_existing_message_and_posts_no_second_start(job, tmp_path, monkeypatch):
     edits = _claimed_listener(monkeypatch, tmp_path, job)
     posted = _drive_listener(monkeypatch, job.hashed, ["standby", "printing"], claimed=True)

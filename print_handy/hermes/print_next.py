@@ -266,8 +266,15 @@ def _timestamp(value: Any) -> float | None:
         return None
 
 
-def record_start_message(filename: str, message_id: str, now: float | None = None) -> None:
-    """Remember the one Discord start message so the listener can edit it after warmup."""
+def record_start_message(filename: str, message_id: str, now: float | None = None,
+                         chat_id: str | None = None, thread_id: str | None = None) -> None:
+    """Remember the one Discord start message so the listener can edit it after warmup.
+
+    The destination it was posted to is recorded alongside the id (#P2-11):
+    an intake may originate in any authorized channel or a Discord thread,
+    and the warmup edit must go to that channel (a thread is its own
+    channel), not the single configured announcement channel.
+    """
     now = time.time() if now is None else now
     rows = {}
     for k, v in _read_start_messages().items():
@@ -276,15 +283,23 @@ def record_start_message(filename: str, message_id: str, now: float | None = Non
         ts = _timestamp(v.get("ts") or 0)
         if ts is not None and now - ts < START_MESSAGE_TTL_S:
             rows[k] = v
-    rows[Path(str(filename)).name] = {"message_id": str(message_id), "ts": now}
+    row = {"message_id": str(message_id), "ts": now}
+    channel_id = str(thread_id or chat_id or "") or None
+    if channel_id:
+        row["channel_id"] = channel_id
+    rows[Path(str(filename)).name] = row
     START_MESSAGES.parent.mkdir(parents=True, exist_ok=True)
     tmp = START_MESSAGES.with_suffix(".tmp")
     tmp.write_text(json.dumps(rows), encoding="utf-8")
     os.replace(tmp, START_MESSAGES)
 
 
-def take_start_message(filename: str, now: float | None = None) -> str | None:
-    """The recorded start message id for this file, consumed so a replay cannot edit it twice."""
+def take_start_message_target(filename: str, now: float | None = None) -> tuple[str | None, str | None]:
+    """The recorded start message id and its destination channel, consumed once.
+
+    The channel is None for rows recorded before destinations were kept;
+    callers fall back to the configured announcement channel then.
+    """
     now = time.time() if now is None else now
     rows = _read_start_messages()
     name = str(filename or "")
@@ -296,11 +311,19 @@ def take_start_message(filename: str, now: float | None = None) -> str | None:
     row = rows.pop(key, None)
     ts = _timestamp(row.get("ts") or 0) if isinstance(row, dict) else None
     if ts is None or not 0 <= now - ts < START_MESSAGE_TTL_S:
-        return None
+        return None, None
     tmp = START_MESSAGES.with_suffix(".tmp")
     tmp.write_text(json.dumps(rows), encoding="utf-8")
     os.replace(tmp, START_MESSAGES)
-    return str(row.get("message_id") or "") or None
+    message_id = str(row.get("message_id") or "") or None
+    channel_id = str(row.get("channel_id") or "") or None
+    return message_id, channel_id
+
+
+def take_start_message(filename: str, now: float | None = None) -> str | None:
+    """The recorded start message id for this file, consumed so a replay cannot edit it twice."""
+    message_id, _channel_id = take_start_message_target(filename, now=now)
+    return message_id
 
 
 def question_text(target: Mapping[str, Any]) -> str:

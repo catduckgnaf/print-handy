@@ -2736,7 +2736,9 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         message_id = getattr(sent, 'message_id', None)
         if remote and message_id:
             try:
-                print_next.record_start_message(remote, message_id)
+                print_next.record_start_message(
+                    remote, message_id, chat_id=str(source.chat_id),
+                    thread_id=str(source.thread_id) if getattr(source, 'thread_id', None) else None)
             except OSError:
                 pass  # no recorded id: the listener leaves the start post as is
         return {'action': 'skip', 'reason': 'sliced and start handled by button flow'}
