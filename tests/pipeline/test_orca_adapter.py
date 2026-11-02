@@ -242,6 +242,35 @@ def test_offline_placement_report_finds_diagonal_bar_without_orca(monkeypatch):
     assert diagonal['rank'] == 1
 
 
+def test_offline_placement_report_generates_inverse_yaw_candidates():
+    # P2-49: a bar authored at 30 degrees aligns with the bed axes at yaw
+    # -30; the positive-only edge candidates (0/30/45/90) all miss it.
+    import math
+    c, s = math.cos(math.radians(30)), math.sin(math.radians(30))
+    tris = [[(c * x - s * y, s * x + c * y, z) for x, y, z in tri]
+            for tri in _box_triangles(70, 10, 2)]
+    rows = adapter.placement_candidates(tris, bed_mm=(71, 11), max_z_mm=3)
+    fitted = next(row for row in rows if row['axis'] == 'identity' and row['yaw_deg'] == -30.0)
+    assert fitted['footprint_mm'] == [70.0, 10.0, 2.0]
+    assert fitted['fits_bed'] is True
+    # The quarter-turn counterpart aligns the same bar with the other axis,
+    # which is the fitting one on a tall rectangular bed.
+    rows = adapter.placement_candidates(tris, bed_mm=(11, 71), max_z_mm=3)
+    turned = next(row for row in rows if row['axis'] == 'identity' and row['yaw_deg'] == 60.0)
+    assert turned['footprint_mm'] == [10.0, 70.0, 2.0]
+    assert turned['fits_bed'] is True
+
+
+def test_offline_placement_report_euler_angles_match_the_matrix():
+    # P2-50: rx/ry/rz all describe the row's own rotation matrix; the bed
+    # yaw that produced it is reported separately, not as the Euler Z.
+    rows = adapter.placement_candidates(_box_triangles(20, 10, 5), bed_mm=(100, 100), max_z_mm=100)
+    for row in rows:
+        assert [row['rx_deg'], row['ry_deg'], row['rz_deg']] == adapter._euler_xyz(row['rotation'])
+    tilted = next(row for row in rows if row['axis'] == '+Y' and row['yaw_deg'] == 45.0)
+    assert tilted['rz_deg'] == 0.0
+
+
 def test_offline_placement_report_marks_all_rotations_oversized():
     rows = adapter.placement_candidates(_box_triangles(100, 100, 100), bed_mm=(60, 60), max_z_mm=80)
     assert rows

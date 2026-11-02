@@ -733,12 +733,16 @@ def split_plan_100(source, bed=None, height=None, exclusions=None, brim_policy=N
     from . import plate_merge
     from .source_colors import inventory
 
-    bed_x, bed_y, _ = _bed_xy_height(bed, height)
+    bed_x, bed_y, height_limit = _bed_xy_height(bed, height)
     bed = min(bed_x, bed_y)
     manifest = inventory(source)
     if not manifest.get('parts'):
         return None
-    report = per_part_fit(source, bed=(bed_x, bed_y), height=height, exclusions=exclusions,
+    # Pass the normalized limit, not the raw argument: with a 3-element bed
+    # and no explicit height, the raw argument is None and per_part_fit would
+    # fall back to the configured printer height, discarding the caller's
+    # lower Z limit (P2-69).
+    report = per_part_fit(source, bed=(bed_x, bed_y), height=height_limit, exclusions=exclusions,
                           brim_policy=brim_policy, state=state)
     feature = _feature_edge_mm(brim_policy, state)
     if any(not row['fits_full_size'] for row in report):
@@ -1084,7 +1088,17 @@ def split_plan_100(source, bed=None, height=None, exclusions=None, brim_policy=N
                 else:
                     shifts_by_plate.append(None)
     if len(result) <= 1:
-        return None
+        # A one-plate result is still a usable plan when it carries a
+        # polygon placement (shifts) or a turn (yaw) the authored layout
+        # does not have (P2-81, P2-83, P2-84): discarding it would drop the
+        # only full-size offer for exactly the sources those proofs exist
+        # for. A bare one-plate grouping adds nothing over the authored
+        # layout, and a one-plate result whose fit rests on a reorientation
+        # keeps the not-a-split rule the brim tests pin, so both stay
+        # no-plan.
+        carries_transform = (bool(yaw_by_object) or any(shifts_by_plate)) and not reorientation_by_object
+        if len(result) == 0 or not carries_transform:
+            return None
     plan = {'plates': result}
     if yaw_by_object:
         plan['yaw_by_object'] = yaw_by_object

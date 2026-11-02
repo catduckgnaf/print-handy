@@ -300,6 +300,29 @@ def _plan(source):
     return plate_merge.plan(source, manifest, plates, slots, state)
 
 
+def test_plan_reserves_the_fitted_nozzles_tower_width(tmp_path, monkeypatch):
+    # P2-34: the merge planner reserves room for the tower the slice will
+    # actually emit — a 0.6 mm nozzle's 60 mm tower, not the 45 mm default.
+    source = tmp_path / 'two.3mf'
+    _source(source, {'1': (60, 60, 10), '2': (60, 60, 10)}, [['1'], ['2']])
+    state = json.loads(STATE.read_text())
+    state['nozzle']['diameter_mm'] = 0.6
+    manifest = source_colors.inventory(source)
+    plates = model_job.plate_manifest(source)['plates']
+    slots = {p['key']: i + 1 for i, p in enumerate(manifest['parts'])}
+    seen = []
+    real_pack = plate_merge.pack
+
+    def spy_pack(extents, bed, spacing=None, edge=None, reserve_y=0.0):
+        seen.append(reserve_y)
+        return real_pack(extents, bed, spacing, edge=edge, reserve_y=reserve_y)
+    monkeypatch.setattr(plate_merge, 'pack', spy_pack)
+    plate_merge.plan(source, manifest, plates, slots, state)
+    expected = (60 + plate_merge.TOWER_CLEARANCE_MM + plate_merge.TOWER_SLACK_MM
+                + plate_merge.EDGE_MARGIN_MM)
+    assert max(seen) == pytest.approx(expected)
+
+
 def _placed_hulls(source, verdict):
     from print_handy.core import color_geometry
     placed = {}

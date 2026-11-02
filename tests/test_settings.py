@@ -49,6 +49,22 @@ class HomeSettingsTests(unittest.TestCase):
                 self.assertEqual(orca_adapter._orca_command(),
                                  ["flatpak", "run", "com.orcaslicer.OrcaSlicer"])
 
+    def test_legacy_flatpak_app_id_is_migrated(self):
+        # P1-4: io.github.softfever.OrcaSlicer is the legacy name of the same
+        # Flatpak app, and a previous release documented it as the [orca]
+        # command. A stale local override naming it must resolve to the
+        # current ID instead of becoming authoritative.
+        legacy = settings.load(local=False, environ={})
+        legacy["orca"]["command"] = ["flatpak", "run", "io.github.softfever.OrcaSlicer"]
+        with mock.patch.object(orca_adapter, "_S", legacy):
+            with mock.patch.dict(os.environ, {}, clear=True):
+                self.assertEqual(orca_adapter._orca_command(),
+                                 ["flatpak", "run", "com.orcaslicer.OrcaSlicer"])
+            with mock.patch.dict(os.environ,
+                                 {"ORCA_FLATPAK_APP_ID": "io.github.softfever.OrcaSlicer"}, clear=True):
+                self.assertEqual(orca_adapter._orca_command(),
+                                 ["flatpak", "run", "com.orcaslicer.OrcaSlicer"])
+
     def test_pinned_commit_keeps_stable_app_id(self):
         stable_settings = settings.load(local=False, environ={})
         with mock.patch.object(orca_adapter, "_S", stable_settings):

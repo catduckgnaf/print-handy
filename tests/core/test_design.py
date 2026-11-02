@@ -513,3 +513,24 @@ def test_link_edit_session_uses_the_injected_fetcher(tmp_path):
         eng.start_edit_session("o", "c", "edit")
     with pytest.raises(design.DesignError, match="can edit"):
         eng.start_edit_session("o", "c", "edit", tmp_path / "notes.txt")
+
+
+# ------------------------------------------------- configured render timeout
+
+
+def test_render_timeout_comes_from_design_config(tmp_path):
+    # P2-152/P2-157: [design] timeout_s bounds rendering, not only the model call.
+    cfg = {"design": {"timeout_s": 42, "repair_attempts": 3}}
+    eng = design.DesignEngine(tmp_path / "cache", scripted([]), cfg=cfg)
+    assert eng.render_timeout_s == 42
+
+
+def test_render_timeout_defaults_without_config(tmp_path):
+    eng = design.DesignEngine(tmp_path / "cache", scripted([]), cfg={"design": {}})
+    assert eng.render_timeout_s == design.RENDER_TIMEOUT_S
+
+
+def test_render_timeout_explicit_override_wins_over_config(tmp_path):
+    cfg = {"design": {"timeout_s": 42, "repair_attempts": 3}}
+    eng = design.DesignEngine(tmp_path / "cache", scripted([]), cfg=cfg, render_timeout_s=7)
+    assert eng.render_timeout_s == 7

@@ -31,6 +31,10 @@ FILAMENT_SLOTS = _S['printer']['filament_slots']
 NOZZLE_MM = _S['printer']['nozzle_diameter_mm']
 # PRINT_HANDY_ORCA_CMD selects a native OrcaSlicer binary without changing the home Flatpak default.
 # ORCA_FLATPAK_APP_ID selects a different installed Flatpak app while preserving that default.
+FLATPAK_APP_ID = 'com.orcaslicer.OrcaSlicer'
+LEGACY_FLATPAK_APP_ID = 'io.github.softfever.OrcaSlicer'  # the same app's pre-rename ID
+
+
 def _orca_command():
     """Return the effective command, honoring runtime overrides for test tracks."""
     override = os.environ.get('PRINT_HANDY_ORCA_CMD')
@@ -39,6 +43,15 @@ def _orca_command():
     command = list(_S['orca']['command'])
     app_id = os.environ.get('ORCA_FLATPAK_APP_ID')
     if command and Path(command[0]).name == 'flatpak' and len(command) > 2 and command[1] == 'run':
+        # A previous release documented the legacy app ID as the [orca]
+        # command, so an existing local config can still carry it; the local
+        # merge would preserve it over the corrected home default and every
+        # invocation would use a Flatpak ref that no longer exists (P1-4).
+        # Migrate the legacy ID to the current one wherever it is named.
+        if app_id == LEGACY_FLATPAK_APP_ID:
+            app_id = FLATPAK_APP_ID
+        if command[2] == LEGACY_FLATPAK_APP_ID:
+            command[2] = FLATPAK_APP_ID
         if app_id:
             if command[2].startswith('--'):
                 return [command[0], 'run', command[2], app_id, *command[3:]]
@@ -61,7 +74,9 @@ def _flash_studio_command(printer):
     if not configured:
         return None
     vendor = printer.model.vendor
-    if vendor is None or vendor.key != 'flashforge':
+    if vendor is None or vendor.key not in ('flashforge', 'flashforge_stock'):
+        # Both Flashforge routes list flash_studio as a verified slicer
+        # (the stock adapter included, P2-76).
         raise RuntimeError('[slicer] flash_studio_path is only supported for Flashforge printers')
     path = Path(configured).expanduser()
     if not path.is_file() or not os.access(path, os.X_OK):
@@ -947,6 +962,11 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     supported_sizes = getattr(printer.model, 'supported_nozzle_sizes', (NOZZLE_MM,))
     if nozzle_dia not in supported_sizes or tuned_profile is None:
         raise UntunedNozzleError(f'Orca templates are tuned for a {template_nozzle_dia:g} mm nozzle; no tuned profile exists for {nozzle_dia:g} mm on printer {printer.label!r}')
+    # One prime-tower width for geometry placement and the process profile
+    # below (P2-2, P2-34): the configured size, raised to the fitted
+    # nozzle's tuned width when that is larger.
+    from .color_geometry import effective_tower_mm
+    tower_mm = effective_tower_mm(nozzle_dia)
     author = {}
     geometry = {'policy': 'original STL unchanged', 'source_sha256': digest(source)}
     from .source_colors import inventory, validate_decisions
@@ -969,7 +989,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         input_path = folder / 'geometry.3mf'
         mapping, geometry = export_color_geometry(source, input_path, color_decisions, item_shifts=item_shifts,
                                                   object_ids=object_ids, scale=scale, fit_by_object=fit_by_object,
-                                                  identity_tools=multi_tool)
+                                                  identity_tools=multi_tool, tower_mm=tower_mm)
         with zipfile.ZipFile(source) as archive:
             if 'Metadata/project_settings.config' in archive.namelist():
                 author = json.loads(archive.read('Metadata/project_settings.config'))
@@ -984,7 +1004,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                                                   _per_part_view(inventory(source), color_decisions),
                                                   item_shifts=item_shifts, object_ids=object_ids,
                                                   scale=scale, fit_by_object=fit_by_object,
-                                                  identity_tools=True)
+                                                  identity_tools=True, tower_mm=tower_mm)
         with zipfile.ZipFile(source) as archive:
             if 'Metadata/project_settings.config' in archive.namelist():
                 author = json.loads(archive.read('Metadata/project_settings.config'))
@@ -1040,7 +1060,12 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     from .nozzle import normalize_nozzle_type
     nozzle_type = normalize_nozzle_type(raw_nozzle_type)
     machine['nozzle_type'] = nozzle_type
-    machine['nozzle_diameter'] = [str(nozzle_dia)]
+    # Orca pairs nozzle_diameter entries with extruders: repeat the job's
+    # diameter for every extruder the template declares (four on the Creator
+    # models) instead of collapsing the list to one entry (P2-104).
+    _template_nozzles = machine.get('nozzle_diameter')
+    _extruder_count = len(_template_nozzles) if isinstance(_template_nozzles, list) and _template_nozzles else 1
+    machine['nozzle_diameter'] = [str(nozzle_dia)] * _extruder_count
     if tuned_profile is not None:
         machine['printer_variant'] = str(tuned_profile.diameter_mm)
         machine['min_layer_height'] = [str(tuned_profile.min_layer_height)]
@@ -1280,7 +1305,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         purge_mode, purge_machine, purge_process = ifs_purge_settings(printer, state, len(mapping))
         machine.update({'single_extruder_multi_material': '1', 'change_filament_gcode': '', **purge_machine})
         tower_x, tower_y = geometry['prime_tower_xy_mm']
-        tower_width = str(tuned_profile.prime_tower_width if tuned_profile else 45)
+        tower_width = '%g' % tower_mm
         process.update({'enable_prime_tower': '1', 'prime_tower_width': tower_width,
                         'wipe_tower_x': str(tower_x), 'wipe_tower_y': str(tower_y), **purge_process})
         if purge_mode == 0:
@@ -2399,7 +2424,15 @@ def placement_candidates(path_or_triangles, printer_model=None, bed_mm=None, max
         yaw_set = {0.0, 45.0, 90.0}
         for i, a in enumerate(hull):
             b = hull[(i + 1) % len(hull)]
-            yaw_set.add(round(math.degrees(math.atan2(b[1]-a[1], b[0]-a[0])) % 90.0, 6))
+            edge = round(math.degrees(math.atan2(b[1]-a[1], b[0]-a[0])) % 90.0, 6)
+            yaw_set.add(edge)
+            # The inverse rotations align an already-rotated footprint with
+            # the bed axes (P2-49): -edge turns this edge back to 0 degrees,
+            # and its quarter turn (90 - edge) aligns it with the other axis
+            # instead — the fitting one on a rectangular bed. The positive
+            # angle alone rotates the edge farther from both axes.
+            yaw_set.add(round(-edge, 6))
+            yaw_set.add(round(90.0 - edge, 6))
         for yaw in sorted(yaw_set):
             rot = _matmul(_yaw(yaw), matrix)
             # Yaw is about Z, so XY extents come from the 2D hull alone and Z is unchanged.
@@ -2409,18 +2442,22 @@ def placement_candidates(path_or_triangles, printer_model=None, bed_mm=None, max
                     max(p[1] for p in moved) - min(p[1] for p in moved), z_extent]
             mx, my, mz = bed[0]-dims[0], bed[1]-dims[1], height_limit-dims[2]
             euler = _euler_xyz(rot)
-            rows.append({'label': name, 'axis': axis, 'rx_deg': euler[0], 'ry_deg': euler[1], 'rz_deg': round(yaw, 3),
+            rows.append({'label': name, 'axis': axis, 'rx_deg': euler[0], 'ry_deg': euler[1], 'rz_deg': euler[2],
+                         # All three reported angles describe the row's matrix
+                         # (P2-50); the bed yaw that produced it is its own
+                         # field, used for candidate lookup and ranking.
+                         'yaw_deg': round(yaw, 3),
                          'footprint_mm': [round(v, 3) for v in dims], 'margin_x_mm': round(mx, 3),
                          'margin_y_mm': round(my, 3), 'margin_z_mm': round(mz, 3),
                          'min_bed_margin_mm': round(min(mx, my, mz), 3),
                          'fits_bed': dims[0] <= bed[0] and dims[1] <= bed[1] and dims[2] <= height_limit,
                          'diagonal_gain_mm': 0.0, 'rotation': [round(v, 9) for v in rot]})
     for row in rows:
-        cardinal = next((r for r in rows if r['axis'] == row['axis'] and r['rz_deg'] == 0.0), row)
+        cardinal = next((r for r in rows if r['axis'] == row['axis'] and r['yaw_deg'] == 0.0), row)
         row['diagonal_gain_mm'] = round(max(0.0, cardinal['footprint_mm'][0]-row['footprint_mm'][0],
                                                cardinal['footprint_mm'][1]-row['footprint_mm'][1]), 3)
     rows.sort(key=lambda r: (not r['fits_bed'], 0 if r['axis']=='identity' and r['fits_bed'] else 1,
-                             -r['min_bed_margin_mm'], r['footprint_mm'][2], r['label'], r['axis'], r['rz_deg']))
+                             -r['min_bed_margin_mm'], r['footprint_mm'][2], r['label'], r['axis'], r['yaw_deg']))
     for rank, row in enumerate(rows, 1):
         row['rank'] = rank
         row['printer_model'] = printer_model
@@ -2573,7 +2610,14 @@ def fit_options(source: Path, state: dict, brim_override=None) -> dict:
     except (RuntimeError, ValueError, OSError) as exc:
         return {'scales': scales, 'rotations': [], 'rotation_error': str(exc)}
     result = {'scales': scales, 'rotations': rotations,
-              'brim_policy': policy if scales and scales[0] < 0.97 else None,
+              # The policy is the one the winning scale was verified under,
+              # however close to full size that scale is: intake stores it
+              # and the slice applies it, so dropping it for a near-full-size
+              # option would silently change the brim the job was offered
+              # with (P2-254). With no verified scale there is no policy to
+              # preserve — the loop variable is then only the unverified
+              # last-resort fallback.
+              'brim_policy': policy if scales else None,
               'fit_search_deferred': bool(source.suffix.lower() == '.3mf' and _source_plate_count(source) > 1)}
     try:
         if state.get('fit_rearrange_checked'):
@@ -2599,9 +2643,13 @@ def fit_options(source: Path, state: dict, brim_override=None) -> dict:
             try:
                 from . import split_fit
                 bed = tuple(state.get('bed_mm') or BED)
+                # Judge the parts under the same brim policy the scale
+                # search settled on: without it a part the chosen brim
+                # blocks is reported as fitting at full size (P2-80).
                 per_part = {row['object_id']: row for row in split_fit.per_part_fit(
                     source, bed=(float(bed[0]), float(bed[1])),
-                    height=float(state.get('max_print_height_mm', MAX_HEIGHT_MM)))}
+                    height=float(state.get('max_print_height_mm', MAX_HEIGHT_MM)),
+                    brim_policy=policy, state=state)}
             except Exception:
                 per_part = {}
             details = []

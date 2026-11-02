@@ -480,7 +480,7 @@ def _solo_yaw(hull, usable):
     return None
 
 
-def _yawed_merge_attempt(source, object_ids, extents, bed, spacing, reserve, edge=None):
+def _yawed_merge_attempt(source, object_ids, extents, bed, spacing, reserve, edge=None, tower_mm=None):
     """Proved one-bed packing with solo-needing objects turned, or None.
 
     Returns (corners, tower_xy, yaw_by_object, trial_hulls): corners in
@@ -529,7 +529,7 @@ def _yawed_merge_attempt(source, object_ids, extents, bed, spacing, reserve, edg
                     extent = extents[oid]
                 loose_bounds.append(((px, px + extent[0]), (py, py + extent[1]), (0.0, 0.0)))
             try:
-                tower_xy = color_geometry.prime_tower_xy(loose_bounds, bed=bed)
+                tower_xy = color_geometry.prime_tower_xy(loose_bounds, bed=bed, tower=tower_mm)
             except RuntimeError:
                 tower_xy = None
             else:
@@ -606,7 +606,7 @@ def pack_turned(footprints, width, depth, spacing=None, edge=None,
     return {key: (x, y, turned) for key, x, y, _w, _d, turned in placed}
 
 
-def _turned_attempt(hulls, bed, spacing, reserve, edge=None):
+def _turned_attempt(hulls, bed, spacing, reserve, edge=None, tower_mm=None):
     """One-bed placement where any object may turn 90 degrees, or None.
 
     Returns (corners, tower_xy, yaw_by_object, trial_hulls) in the
@@ -625,7 +625,7 @@ def _turned_attempt(hulls, bed, spacing, reserve, edge=None):
     # the tower edge margin, plus one 5 mm step of the tower search grid.
     edge = EDGE_MARGIN_MM if edge is None else edge
     grow = max(0.0, TOWER_CLEARANCE_MM - spacing, float(color_geometry.TOWER_EDGE_MM) - edge)
-    tower_side = TOWER_MM + 2 * grow + 5.0
+    tower_side = (TOWER_MM if tower_mm is None else tower_mm) + 2 * grow + 5.0
     # Reserved strip first (the planner's usual fast path), then the tower as
     # a packed item, then the whole bed with a tower spot searched afterwards.
     attempts = (((bed - reserve, False, False), (bed, True, True), (bed, True, False)) if reserve
@@ -643,7 +643,7 @@ def _turned_attempt(hulls, bed, spacing, reserve, edge=None):
                 w, d = footprints[oid][::-1] if turned else footprints[oid]
                 bounds.append(((x, x + w), (y, y + d), (0.0, 0.0)))
             try:
-                tower_xy = color_geometry.prime_tower_xy(bounds, bed=bed)
+                tower_xy = color_geometry.prime_tower_xy(bounds, bed=bed, tower=tower_mm)
             except RuntimeError:
                 continue
         yaw_by_object = {oid: 90.0 for oid, (_x, _y, turned) in placed.items() if turned}
@@ -754,6 +754,9 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
     spacing = SPACING_MM if spacing is None else spacing
     edge = EDGE_MARGIN_MM if edge is None else edge
     from . import color_geometry
+    # Reserve and check room for the tower the slice will actually emit:
+    # the configured size raised to the fitted nozzle's tuned width (P2-34).
+    tower_mm = color_geometry.effective_tower_mm((state.get('nozzle') or {}).get('diameter_mm'))
     bed = int(bed or state['bed_mm'][0])
     out = {'mode': 'split', 'reason': None, 'plates_in': len(plates),
            'objects_in': sorted({p['object_id'] for p in manifest['parts']}, key=str),
@@ -788,7 +791,7 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
     if tall:
         out['reason'] = f'object(s) {",".join(tall)} exceed the printer height'
         return out
-    reserve = (TOWER_MM + TOWER_CLEARANCE_MM + TOWER_SLACK_MM + edge) if len(used) > 1 else 0.0
+    reserve = (tower_mm + TOWER_CLEARANCE_MM + TOWER_SLACK_MM + edge) if len(used) > 1 else 0.0
     placed = pack(extents, bed, spacing, edge=edge, reserve_y=reserve)
     tower_xy = None
     packing = 'rectangle'
@@ -800,7 +803,7 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
             loose_bounds = [((px, px + extents[oid][0]), (py, py + extents[oid][1]), (0.0, 0.0))
                             for oid, (px, py) in loose.items()]
             try:
-                tower_xy = color_geometry.prime_tower_xy(loose_bounds, bed=bed)
+                tower_xy = color_geometry.prime_tower_xy(loose_bounds, bed=bed, tower=tower_mm)
             except RuntimeError:
                 tower_xy = None
             else:
@@ -813,7 +816,7 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
         # spacing, edge and tower rules; the turns flow into the same
         # yaw_by_object + shifts channel as R2b, so slicing re-proves them.
         hulls_all = _object_hulls_all(source, object_ids)
-        attempt = _turned_attempt(hulls_all, float(bed), spacing, reserve, edge=edge) if hulls_all else None
+        attempt = _turned_attempt(hulls_all, float(bed), spacing, reserve, edge=edge, tower_mm=tower_mm) if hulls_all else None
         if attempt is not None:
             placed, tower_xy, yaw_by_object, yaw_hulls = attempt
             packing = 'turned'
@@ -836,7 +839,7 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
                     loose_bounds = [((px, px + extents[oid][0]), (py, py + extents[oid][1]), (0.0, 0.0))
                                     for oid, (px, py) in loose.items()]
                     try:
-                        tower_xy = color_geometry.prime_tower_xy(loose_bounds, bed=bed)
+                        tower_xy = color_geometry.prime_tower_xy(loose_bounds, bed=bed, tower=tower_mm)
                     except RuntimeError:
                         tower_xy = None
                     else:
@@ -847,7 +850,7 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
         # object rotated to its recorded yaw (see _yawed_merge_attempt);
         # the proved corners flow into the same realizable shifts, with a
         # turned object's shift measured from its rotated bounds.
-        attempt = _yawed_merge_attempt(source, object_ids, extents, bed, spacing, reserve, edge=edge)
+        attempt = _yawed_merge_attempt(source, object_ids, extents, bed, spacing, reserve, edge=edge, tower_mm=tower_mm)
         if attempt is not None:
             placed, tower_xy, yaw_by_object, yaw_hulls = attempt
             packing = 'polygon'

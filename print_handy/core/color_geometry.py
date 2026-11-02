@@ -19,7 +19,7 @@ IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]
 
 
 def export_color_geometry(source, target, decisions, item_shifts=None, object_ids=None, scale=None, fit_by_object=None,
-                          identity_tools=False):
+                          identity_tools=False, tower_mm=None):
     """object_ids limits export to those build objects (one authored plate);
     scale shrinks the selection uniformly before bed centering.
 
@@ -196,7 +196,7 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
     bounds = [(min(p[a] for _, _, ps in leaves for p in ps), max(p[a] for _, _, ps in leaves for p in ps)) for a in range(3)]
     delta = [110 - sum(bounds[a]) / 2 for a in (0, 1)] + [-bounds[2][0]]
     if item_shifts is None:
-        delta = _tower_friendly_delta(bounds, delta)
+        delta = _tower_friendly_delta(bounds, delta, tower=tower_mm)
     if item_shifts is not None and {str(k) for k in item_shifts} != {str(p['object_id']) for p in manifest['parts']}:
         raise RuntimeError('item shifts must name exactly the source objects')
     tag = lambda name: '{' + CORE + '}' + name
@@ -336,7 +336,7 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
         out.writestr('_rels/.rels', '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>')
         out.writestr('3D/3dmodel.model', ET.tostring(model, encoding='utf-8', xml_declaration=True))
         out.writestr('Metadata/model_settings.config', ET.tostring(config, encoding='utf-8', xml_declaration=True))
-    towers = prime_tower_candidates(part_bounds)
+    towers = prime_tower_candidates(part_bounds, tower=tower_mm)
     tower = towers[0]
     return mapping, {'source_sha256': digest(source), 'converted_sha256': digest(target), 'parts': records,
                      'build_bounds_mm': bounds, 'translation_mm': delta if item_shifts is None else None, 'merged_placement': item_shifts is not None, 'prime_tower_xy_mm': list(tower),
@@ -552,6 +552,24 @@ BED_MM = min(_S['printer']['bed_mm'])
 TOWER_MM = _S['prime_tower']['size_mm']
 TOWER_MARGIN_MM = _S['prime_tower']['part_clearance_mm']
 TOWER_EDGE_MM = _S['prime_tower']['edge_mm']
+
+
+def effective_tower_mm(nozzle_dia=None):
+    """The one prime-tower width placement and the emitted Orca profile agree on.
+
+    The larger of the configured ``prime_tower.size_mm`` and the fitted
+    nozzle's tuned profile width: a bigger nozzle purges more and needs the
+    wider tower, and a configured size below that cannot shrink the tower
+    the slicer will actually build. Geometry that reserves the smaller
+    number approves space the emitted tower cannot occupy (P2-2, P2-34).
+    """
+    width = float(TOWER_MM)
+    if nozzle_dia is not None:
+        from .nozzle import get_tuned_nozzle_profile
+        profile = get_tuned_nozzle_profile(float(nozzle_dia))
+        if profile is not None:
+            width = max(width, float(profile.prime_tower_width))
+    return width
 
 
 def _compose(outer, inner):
@@ -1048,6 +1066,25 @@ def _select_build_items(model_bytes, selected, shift, park=None, fit=None, fit_b
     """
     kept = []
 
+    def with_transform(line, values):
+        """Write the 12 transform values into an item line, inserting the
+        attribute when the item carries none: a direct-mesh core build item
+        may omit it, and an omitted transform is the identity (P2-282)."""
+        rendered = b' '.join(repr(v).encode() for v in values)
+        transform = re.search(br'transform="([^"]+)"', line)
+        if transform is not None:
+            return line[:transform.start(1)] + rendered + line[transform.end(1):]
+        return re.sub(br'\s*/?>$', lambda end: b' transform="' + rendered + b'"' + end.group(0), line, count=1)
+
+    def current_values(line):
+        transform = re.search(br'transform="([^"]+)"', line)
+        if transform is None:
+            return [float(v) for v in IDENTITY]
+        values = list(map(float, transform.group(1).split()))
+        if len(values) != 12:
+            raise RuntimeError('invalid 3MF transform')
+        return values
+
     def edit(match):
         line = match.group(0)
         object_id = re.search(br'\bobjectid="(\d+)"', line).group(1).decode()
@@ -1059,10 +1096,9 @@ def _select_build_items(model_bytes, selected, shift, park=None, fit=None, fit_b
         if object_id not in selected:
             move = (park or {}).get(object_id)
             if move:
-                transform = re.search(br'transform="([^"]+)"', line)
-                values = list(map(float, transform.group(1).split()))
+                values = current_values(line)
                 values[9] += move
-                line = line[:transform.start(1)] + b' '.join(repr(v).encode() for v in values) + line[transform.end(1):]
+                line = with_transform(line, values)
             return line
         kept.append(object_id)
         item_shift = shift.get(object_id, [0.0, 0.0, 0.0]) if isinstance(shift, dict) else shift
@@ -1070,17 +1106,12 @@ def _select_build_items(model_bytes, selected, shift, park=None, fit=None, fit_b
         if fit_by_object and object_id in fit_by_object:
             item_fit = fit_by_object[object_id]
         if any(item_shift) or item_fit:
-            transform = re.search(br'transform="([^"]+)"', line)
-            if transform is None:
-                raise RuntimeError('selected build item has no transform')
-            values = list(map(float, transform.group(1).split()))
-            if len(values) != 12:
-                raise RuntimeError('invalid 3MF transform')
+            values = current_values(line)
             if item_fit:
                 values = _compose(item_fit, values)
             for axis in range(3):
                 values[9 + axis] += item_shift[axis]
-            line = line[:transform.start(1)] + b' '.join(repr(v).encode() for v in values) + line[transform.end(1):]
+            line = with_transform(line, values)
         return line
 
     out = re.sub(br'<item\b[^>]*>', edit, model_bytes)
@@ -1271,7 +1302,7 @@ def _drop_unused_relationships(rels_bytes, unused_models):
     return b'\n'.join(kept)
 
 
-def _tower_friendly_delta(bounds, centered, bed=BED_MM):
+def _tower_friendly_delta(bounds, centered, bed=BED_MM, tower=None):
     """Centered placement unless the prime tower cannot fit beside it; then
     slide the whole layout (rigidly) toward a bed edge to free a tower lane."""
     w, h = bounds[0][1] - bounds[0][0], bounds[1][1] - bounds[1][0]
@@ -1284,7 +1315,7 @@ def _tower_friendly_delta(bounds, centered, bed=BED_MM):
             continue
         box = [(x0, x0 + w), (y0, y0 + h), (0, 0)]
         try:
-            prime_tower_xy([box])
+            prime_tower_xy([box], tower=tower)
         except RuntimeError:
             continue
         return [x0 - bounds[0][0], y0 - bounds[1][0], centered[2]]

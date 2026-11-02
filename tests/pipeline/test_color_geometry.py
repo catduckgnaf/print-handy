@@ -445,3 +445,52 @@ def test_per_part_fit_options_drops_choices_a_slot_plate_cannot_honor(tmp_path):
     kept = model_job.per_part_fit_options(source, decisions, options, bed=220)
     assert kept['scales'] == [0.9, 0.5]
     assert kept['rotations'] == [upright]
+
+
+def test_select_build_items_treats_a_missing_transform_as_identity():
+    # P2-282: direct-mesh core build items may carry no transform attribute
+    # at all (the checked-in core-colorgroup-items case). Parking an
+    # unselected one crashed on the missing attribute, and shifting a
+    # selected one raised 'selected build item has no transform'; a missing
+    # transform is the identity, so both edits write one in.
+    from print_handy.core.color_geometry import _select_build_items
+    model = b'<model><build><item objectid="2"/><item objectid="3"/></build></model>'
+    out, kept = _select_build_items(model, {'3'}, {'3': [5.0, 0.0, 0.0]}, park={'2': 300.0})
+    assert kept == ['3']
+    items = {m.group(1).decode(): m.group(0) for m in re.finditer(br'<item\b[^>]*objectid="(\d+)"[^>]*>', out)}
+    parked = [float(v) for v in re.search(br'transform="([^"]+)"', items['2']).group(1).split()]
+    assert parked[:9] == [1, 0, 0, 0, 1, 0, 0, 0, 1] and parked[9:] == [300.0, 0, 0]
+    assert b'printable="0"' in items['2']
+    shifted = [float(v) for v in re.search(br'transform="([^"]+)"', items['3']).group(1).split()]
+    assert shifted[:9] == [1, 0, 0, 0, 1, 0, 0, 0, 1] and shifted[9:] == [5.0, 0, 0]
+    assert b'printable="1"' in items['3']
+
+
+def test_single_color_export_of_a_direct_mesh_core_part_parks_the_rest(tmp_path):
+    # P2-282 end to end: exporting one part of the checked-in direct-mesh
+    # core file parks the other two; none of its build items has a
+    # transform attribute.
+    from print_handy.core.color_geometry import export_single_color_plate
+    source = Path(__file__).parents[1] / 'corpus/cases/core-colorgroup-items/model.3mf'
+    manifest = source_colors.inventory(source)
+    state = json.loads(STATE.read_text())
+    selection = model_job.resolve_filament_selection(state, dict(state['filament_slots']['1'], slot=1))
+    decisions = {'schema': 'part_slots_v1', 'mode': 'per_part', 'source_sha256': manifest['source_sha256'],
+                 'choices': {row['key']: selection for row in source_colors.canonical_prompts(manifest)}}
+    keys = [part['key'] for part in manifest['parts']]
+    report = export_single_color_plate(source, tmp_path / 'one.3mf', decisions, [keys[1]])
+    assert report['part_keys'] == [keys[1]]
+    with zipfile.ZipFile(tmp_path / 'one.3mf') as archive:
+        root = ET.fromstring(archive.read('3D/3dmodel.model'))
+        items = [node for node in root.iter() if node.tag.split('}')[-1] == 'item']
+        assert [item.get('printable') for item in items] == ['0', '1', '0']
+        # The parked items gained an identity-based transform carrying the
+        # park move (they had none); the selected item needed no shift, so
+        # it keeps its authored (absent) transform.
+        for item in (items[0], items[2]):
+            values = [float(v) for v in item.get('transform').split()]
+            assert len(values) == 12
+        parked = [float(v) for v in items[0].get('transform').split()]
+        # Left's mesh starts at x=40, so its parked bounds start at 270:
+        # past the 220 bed plus the same 50 mm clearance as any other export.
+        assert parked[9] + 40 >= 220 + 50
