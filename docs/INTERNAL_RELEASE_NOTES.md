@@ -2,6 +2,7 @@
 
 # Unreleased
 
+- Telegram polling now dispatches updates as managed tasks, so a command waiting on a prompt answer no longer stalls message polling (#764).
 - The Bambu print-watch monitor now posts a text alert when a camera snapshot fails, instead of only logging it (#765).
 
 # Version 2.2.4
