@@ -962,6 +962,11 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     supported_sizes = getattr(printer.model, 'supported_nozzle_sizes', (NOZZLE_MM,))
     if nozzle_dia not in supported_sizes or tuned_profile is None:
         raise UntunedNozzleError(f'Orca templates are tuned for a {template_nozzle_dia:g} mm nozzle; no tuned profile exists for {nozzle_dia:g} mm on printer {printer.label!r}')
+    # One prime-tower width for geometry placement and the process profile
+    # below (P2-2, P2-34): the configured size, raised to the fitted
+    # nozzle's tuned width when that is larger.
+    from .color_geometry import effective_tower_mm
+    tower_mm = effective_tower_mm(nozzle_dia)
     author = {}
     geometry = {'policy': 'original STL unchanged', 'source_sha256': digest(source)}
     from .source_colors import inventory, validate_decisions
@@ -984,7 +989,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         input_path = folder / 'geometry.3mf'
         mapping, geometry = export_color_geometry(source, input_path, color_decisions, item_shifts=item_shifts,
                                                   object_ids=object_ids, scale=scale, fit_by_object=fit_by_object,
-                                                  identity_tools=multi_tool)
+                                                  identity_tools=multi_tool, tower_mm=tower_mm)
         with zipfile.ZipFile(source) as archive:
             if 'Metadata/project_settings.config' in archive.namelist():
                 author = json.loads(archive.read('Metadata/project_settings.config'))
@@ -999,7 +1004,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                                                   _per_part_view(inventory(source), color_decisions),
                                                   item_shifts=item_shifts, object_ids=object_ids,
                                                   scale=scale, fit_by_object=fit_by_object,
-                                                  identity_tools=True)
+                                                  identity_tools=True, tower_mm=tower_mm)
         with zipfile.ZipFile(source) as archive:
             if 'Metadata/project_settings.config' in archive.namelist():
                 author = json.loads(archive.read('Metadata/project_settings.config'))
@@ -1295,7 +1300,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         purge_mode, purge_machine, purge_process = ifs_purge_settings(printer, state, len(mapping))
         machine.update({'single_extruder_multi_material': '1', 'change_filament_gcode': '', **purge_machine})
         tower_x, tower_y = geometry['prime_tower_xy_mm']
-        tower_width = str(tuned_profile.prime_tower_width if tuned_profile else 45)
+        tower_width = '%g' % tower_mm
         process.update({'enable_prime_tower': '1', 'prime_tower_width': tower_width,
                         'wipe_tower_x': str(tower_x), 'wipe_tower_y': str(tower_y), **purge_process})
         if purge_mode == 0:

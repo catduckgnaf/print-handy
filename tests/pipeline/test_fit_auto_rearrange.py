@@ -349,7 +349,14 @@ def test_duplo_shaped_per_part_job_is_rearranged_without_asking_and_slices(env, 
               message_id='duplo-shaped', text='https://www.printables.com/model/1-ghost')
     # Every part individually, alternating White / Black, then Slice only and Cancel.
     adapter = Adapter([2, 0, 1, 0, 1, 0, 1, 1, 1, 1])
-    asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
+    intake_state = state()
+    # The mirrored live case ran the stock 0.4 mm nozzle (the fake G-code
+    # below says the same). The shared fixture's 0.6 mm nozzle emits a
+    # 60 mm prime tower, and the merge planner now reserves room for the
+    # tower the slice will actually emit (P2-34) — a tower this layout
+    # cannot hold, so the rearrangement would be an unrealizable offer.
+    intake_state['nozzle']['diameter_mm'] = 0.4
+    asyncio.run(prepared_intake.prepare_link(event, adapter, intake_state, env.root, timeout=1))
     assert not any('does not fit' in q['question'] for q in adapter.questions)
     assert sum('onto one plate at 100%' in text for text in adapter.sent) == 1
     job_path = next(env.root.parent.glob('archive/*/JOB.json'))
@@ -525,8 +532,8 @@ def test_merge_and_rearrange_packing_keep_the_brim_on_the_bed():
     import inspect
     body = inspect.getsource(plate_merge.plan)
     # Every packer the planner tries receives the edge.
-    for call in ('pack(extents, bed, spacing, edge=edge', '_turned_attempt(hulls_all, float(bed), spacing, reserve, edge=edge)',
-                 'pack_polygon(hulls, bed, spacing, edge=edge', '_yawed_merge_attempt(source, object_ids, extents, bed, spacing, reserve, edge=edge)'):
+    for call in ('pack(extents, bed, spacing, edge=edge', '_turned_attempt(hulls_all, float(bed), spacing, reserve, edge=edge, tower_mm=tower_mm)',
+                 'pack_polygon(hulls, bed, spacing, edge=edge', '_yawed_merge_attempt(source, object_ids, extents, bed, spacing, reserve, edge=edge, tower_mm=tower_mm)'):
         assert call in body, call
 
 
