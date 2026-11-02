@@ -210,6 +210,142 @@ def test_completion_record_carries_pending_usage():
     assert settled["spoolman_usage_pending"] is None
 
 
+# ------------------------------------------------------- multi-slot clear
+
+def _mr_clear_transport(active, *, fail_read=False, fail_write=False, stuck=False):
+    """Moonraker spool-pointer fake where a POST with {} clears the pointer."""
+    calls = []
+
+    def reply(st, path, data=None, **kwargs):
+        calls.append((path, data))
+        assert path == "/server/spoolman/spool_id"
+        if data is None:
+            if fail_read:
+                raise OSError("Moonraker unreachable")
+        else:
+            if fail_write:
+                raise OSError("Moonraker spoolman proxy unavailable")
+            if not stuck:
+                active[0] = data.get("spool_id")
+        return {"result": {"spool_id": active[0]}}
+
+    return reply, calls
+
+
+def test_multi_slot_clear_removes_stale_active_spool(monkeypatch):
+    # P1-24: a multi-slot job must not leave a previous spool as Moonraker's
+    # active spool, or Moonraker keeps deducting all extrusion from it.
+    active = [10]
+    reply, calls = _mr_clear_transport(active)
+    with mock.patch.object(model_job, "_mr", side_effect=reply):
+        result = model_job._clear_active_spool(_sync_state())
+    assert active[0] is None
+    assert ("/server/spoolman/spool_id", {}) in calls
+    assert result["changed"] is True
+    assert result["previous"] == 10
+    assert result["spool_id"] is None
+
+
+def test_multi_slot_clear_is_a_noop_when_nothing_is_active(monkeypatch):
+    active = [None]
+    reply, calls = _mr_clear_transport(active)
+    with mock.patch.object(model_job, "_mr", side_effect=reply):
+        result = model_job._clear_active_spool(_sync_state())
+    assert result["changed"] is False
+    assert all(data is None for _path, data in calls)  # reads only, no write
+
+
+def test_multi_slot_clear_write_failure_proceeds_as_pending(monkeypatch):
+    # #387 posture, mirrored from _sync_active_spool: the pointer write is
+    # Spoolman accounting routed through Moonraker; its failure is recorded
+    # as pending for reconciliation instead of refusing the launch.
+    active = [10]
+    reply, _calls = _mr_clear_transport(active, fail_write=True)
+    with mock.patch.object(model_job, "_mr", side_effect=reply):
+        result = model_job._clear_active_spool(_sync_state())  # must not raise
+    assert result["spoolman_pending"] is True
+    assert result["previous"] == 10
+
+
+def test_multi_slot_clear_readback_still_set_refuses(monkeypatch):
+    # A readback that still names a spool after the clear is a live
+    # contradiction (same posture as the sync readback): refuse the launch.
+    active = [10]
+    reply, _calls = _mr_clear_transport(active, stuck=True)
+    with mock.patch.object(model_job, "_mr", side_effect=reply):
+        with pytest.raises(RuntimeError):
+            model_job._clear_active_spool(_sync_state())
+
+
+def test_multi_slot_clear_read_failure_refuses(monkeypatch):
+    # Moonraker is a launch dependency: its active-spool read failing refuses.
+    active = [10]
+    reply, _calls = _mr_clear_transport(active, fail_read=True)
+    with mock.patch.object(model_job, "_mr", side_effect=reply):
+        with pytest.raises(RuntimeError):
+            model_job._clear_active_spool(_sync_state())
+
+
+# ------------------------------------------- launch pending -> completion
+
+LAUNCH_PENDING = {"spool_id": 11, "slot": 2,
+                  "reason": "Spoolman unavailable at print start; usage not yet reported",
+                  "recorded_at": 1700000000.0}
+
+
+def test_completion_record_carries_launch_pending_and_intended_spool():
+    # P2-155: the pointer write failed at launch while Spoolman stayed
+    # healthy, so at completion the live fetch succeeds — with the PREVIOUS
+    # spool. The record must still be marked pending and must name the
+    # spool the job was launched for, not silently attribute usage to the
+    # previous spool.
+    data = print_records.build_record_data(
+        "job.gcode",
+        stats={"state": "complete", "print_duration": 30, "filament_used": 1200},
+        context={"active_spool": {"id": 11, "material": "PLA", "color": "Pink PLA"},
+                 "spoolman_usage_pending": dict(LAUNCH_PENDING)},
+        active_spool={"id": 10, "filament": {"name": "Old PLA", "material": "PLA",
+                                             "vendor": {"name": "Generic"}}},
+    )
+    assert data["spoolman_usage_pending"] is True
+    assert data["spoolman_spool_id"] == 11
+    assert data["filament_color"] == "Pink PLA"
+
+
+def test_completion_record_without_launch_pending_uses_live_spool():
+    # Unchanged behavior when accounting succeeded at launch: the live
+    # active spool at completion owns the record, nothing is pending.
+    data = print_records.build_record_data(
+        "job.gcode",
+        stats={"state": "complete", "print_duration": 30, "filament_used": 1200},
+        context={"active_spool": {"id": 11, "material": "PLA", "color": "Pink PLA"}},
+        active_spool={"id": 10, "filament": {"name": "Old PLA", "material": "PLA"}},
+    )
+    assert data["spoolman_usage_pending"] is None
+    assert data["spoolman_spool_id"] == 10
+
+
+def test_record_start_propagates_launch_pending_into_context(monkeypatch, tmp_path):
+    # P2-155: record_start copies JOB.json's launch-time pending marker into
+    # the completion sidecar context (and the start record), so completion
+    # bookkeeping can see it.
+    gcode = tmp_path / "job.gcode"
+    gcode.write_text("G1 X1\n")
+    job = {"title": "Pending Job", "spoolman_usage_pending": dict(LAUNCH_PENDING)}
+    context_path = tmp_path / "print_handy_context.json"
+    monkeypatch.setattr(print_records, "PRINTS_DIR", tmp_path / "Prints")
+    with mock.patch.object(model_job, "_job_for_gcode", return_value=job), \
+         mock.patch.object(model_job.printer_state, "load", return_value=_sync_state()), \
+         mock.patch.object(model_job.printers, "current",
+                           return_value=mock.Mock(multi_slot=False, native_or_none=None)), \
+         mock.patch.object(model_job, "CONTEXT", context_path):
+        record_path = model_job.record_start(str(gcode), started_at="2026-11-02T00:00:00Z")
+    side = json.loads(context_path.read_text())
+    entry = side["jobs"]["job.gcode"]
+    assert entry["spoolman_usage_pending"]["spool_id"] == 11
+    assert '"spoolman_usage_pending": true' in Path(record_path).read_text()
+
+
 def test_record_completion_with_spoolman_down_writes_pending_record(monkeypatch, tmp_path):
     monkeypatch.setattr(print_records, "PRINTS_DIR", tmp_path / "Prints")
     monkeypatch.setattr(watcher, "SPOOLMAN_BASE", DEAD)

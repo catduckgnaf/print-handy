@@ -175,6 +175,18 @@ def build_record_data(
     metadata = metadata or {}
     context = dict(context or {})
     spool = active_spool or context.get("active_spool") or {}
+    # P2-155: a launch-time accounting failure rides the context from the job
+    # record (record_start copies JOB.json's marker). It marks the record
+    # pending even when Spoolman answers at completion — that answer names
+    # the spool Moonraker kept charging, not the spool the job launched for.
+    launch_pending = context.get("spoolman_usage_pending")
+    launch_pending = launch_pending if isinstance(launch_pending, dict) and launch_pending else None
+    usage_pending = bool(spool.get("spoolman_unavailable")) or launch_pending is not None
+    intended_id = launch_pending.get("spool_id") if launch_pending else None
+    if isinstance(intended_id, int) and not isinstance(intended_id, bool) and intended_id > 0:
+        recorded = context.get("active_spool")
+        if isinstance(recorded, dict) and recorded:
+            spool = recorded  # attribute the print to its intended spool
     spool_fields = _spool_fields(spool)
     slicer_settings = _first(metadata, "slicer_settings", "slicer_settings_json") or context.get("slicer_settings")
     if not isinstance(slicer_settings, (dict, list, str, int, float, bool)):
@@ -214,7 +226,9 @@ def build_record_data(
         # #387: Spoolman did not answer at completion, so this job's usage
         # could not be confirmed against Spoolman. Recorded as pending for
         # later reconciliation; the completion itself never waits on it.
-        "spoolman_usage_pending": True if spool.get("spoolman_unavailable") else None,
+        # P2-155: a launch-time accounting failure is pending the same way,
+        # even when the completion-time lookup succeeds.
+        "spoolman_usage_pending": True if usage_pending else None,
         "filament_used_mm": used_mm,
         "print_duration_seconds": _first(stats, "print_duration", "total_duration") or _first(metadata, "print_duration"),
         "slicer_settings": slicer_settings,
