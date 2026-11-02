@@ -7092,8 +7092,49 @@ def _confirm_generic_start(st, remote, wait_s, lease):
             "file": remote, "method": "print/start", "message": "submitted, awaiting confirmation"}, readback, state
 
 
+def _print_now_control_lock(target):
+    """The shared interprocess control lock for this print's printer (P1-33).
+
+    Keyed by the job's recorded printer_id when the target resolves to a
+    JOB.json, else the default printer — the same identity _printer_key
+    leases by. Resolution is read-only and defensive: any failure falls
+    back to the default printer and the print body raises its own error.
+    """
+    from . import control_lock as _cl
+    key = None
+    try:
+        g = Path(resolve_print_target(target)).expanduser()
+        if g.name == "JOB.json":
+            job = json.loads(g.read_text())
+            if isinstance(job, dict):
+                key = job.get("printer_id")
+    except Exception:
+        key = None
+    return _cl.control_lock(key)
+
+
 def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None):
-    """Bed is confirmed clear: verify, upload, start, confirm, record. One command."""
+    """Bed is confirmed clear: verify, upload, start, confirm, record. One command.
+
+    The whole start holds the printer's interprocess control lock (P1-33):
+    a purge, slot load or nozzle change from any other process — a
+    standalone CLI, the listener, another bot — refuses instead of
+    overlapping the start, and the start refuses while one is in flight.
+    """
+    lock = _print_now_control_lock(target)
+    if not lock.acquire(blocking=False):
+        raise SystemExit("REFUSED: another printer control action (purge, slot load or nozzle change) "
+                         "is in flight for this printer. Nothing uploaded or started.")
+    try:
+        return _print_now_locked(target, wait_s=wait_s,
+                                 accept_default_z_offset=accept_default_z_offset,
+                                 reprint=reprint, remap_slot_num=remap_slot_num)
+    finally:
+        lock.release()
+
+
+def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None):
+    """print_now's body, run under the printer's interprocess control lock."""
     if remap_slot_num is not None:
         remap_res = remap_slot(target, remap_slot_num, tool="0")
         print(f"SLOT REMAPPED: T0 -> slot {remap_res['slot']} ({remap_res['selection']['color']} {remap_res['selection']['material']})", flush=True)

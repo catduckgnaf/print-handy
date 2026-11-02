@@ -2,7 +2,7 @@
 
 # Unreleased
 
-Nothing yet.
+- Printer control actions now serialize across processes (P1-33): the purge, slot-load, cold-pull and nozzle-change guards and `print-now` share one interprocess file lock per printer (flock in the printer's state dir, released by the kernel if a holder dies), so a standalone CLI can no longer overlap a control action or a print start issued by the bot or listener.
 
 # Version 2.2.4
 

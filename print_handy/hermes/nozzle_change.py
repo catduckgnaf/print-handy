@@ -6,7 +6,7 @@ the cold pull's safety posture in :mod:`print_handy.hermes.print_control`:
 * Heating is a physical printer action. It happens only after an explicit,
   fresh operator confirmation (5-minute window, captured *after* the button
   press), only while Klipper reports an idle job state, and under the same
-  one-control-action-at-a-time lock discipline (its own lock here).
+  shared interprocess control lock as every other control action (P1-33).
 * The supported live-heat path is a Moonraker/Klipper printer, through the
   existing Moonraker client in ``print_control._send`` (``M104`` via
   ``/printer/gcode/script``) — no new raw transport is invented. Printers on
@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import datetime
 import re
-import threading
 import time
 from typing import Any, Callable
 
@@ -85,8 +84,16 @@ GUIDE_STEPS: tuple[dict[str, Any], ...] = (
               "mesh leveling, pressure advance / flow check."},
 )
 
-_CONTROL_LOCK = threading.Lock()
 _IDLE_STATES = {"standby", "complete", "cancelled", "error"}
+
+
+def _lock_for(printer_id: str | None = None):
+    """The shared interprocess control lock (P1-33): the same lock
+    print_control, the standalone control CLIs and print_now contend for —
+    not a private one, so a nozzle change can never overlap a purge, a
+    slot load or a print start issued from another process."""
+    from . import print_control as pc
+    return pc._lock_for(printer_id)
 
 
 def supports_live_heat(connection: str | None) -> bool:
@@ -229,8 +236,9 @@ def heat_for_loosen(*, confirmed_at: float, temp_c: int = LOOSEN_TEMP_C,
         return False, f"Refused: {temp_c} °C is not the guided loosening temperature. Nothing sent."
     if not _fresh_confirmation(confirmed_at):
         return False, "Refused: confirmation expired. Nothing sent."
-    if not _CONTROL_LOCK.acquire(blocking=False):
-        return False, "Refused: another nozzle-change action is in flight. Nothing sent."
+    lock = _lock_for(printer_id)
+    if not lock.acquire(blocking=False):
+        return False, "Refused: another printer control action is in flight. Nothing sent."
     try:
         names = _extruder_names(printer_id, offline=reader is not None or gcode_sender is not None)
         try:
@@ -272,7 +280,7 @@ def heat_for_loosen(*, confirmed_at: float, temp_c: int = LOOSEN_TEMP_C,
         return False, (f"Hotend did not reach {temp_c} °C within {wait_timeout_s:.0f}s "
                        f"(last readback {last!r}). Heater turned off. Check the printer screen.")
     finally:
-        _CONTROL_LOCK.release()
+        lock.release()
 
 
 def heater_off(*, gcode_sender: Callable[[str], Any] | None = None,
@@ -295,8 +303,9 @@ def cooldown(*, gcode_sender: Callable[[str], Any] | None = None,
     A timeout is a failure ("still hot"), never a silent success: the state
     record is only written after this returns True.
     """
-    if not _CONTROL_LOCK.acquire(blocking=False):
-        return False, "Refused: another nozzle-change action is in flight. Nothing sent."
+    lock = _lock_for(printer_id)
+    if not lock.acquire(blocking=False):
+        return False, "Refused: another printer control action is in flight. Nothing sent."
     try:
         names = _extruder_names(printer_id, offline=reader is not None or gcode_sender is not None)
         try:
@@ -346,7 +355,7 @@ def cooldown(*, gcode_sender: Callable[[str], Any] | None = None,
                                "Nothing was recorded. Check the printer and re-run /nozzle change to finish.")
             time.sleep(poll_s)
     finally:
-        _CONTROL_LOCK.release()
+        lock.release()
 
 
 def record_nozzle_change(state: dict[str, Any], diameter_mm: float,
@@ -442,8 +451,9 @@ def run_bed_mesh(*, confirmed_at: float,
     """Send BED_MESH_CALIBRATE once, after a fresh confirmation, while idle."""
     if not _fresh_confirmation(confirmed_at):
         return False, "Refused: confirmation expired. Nothing sent."
-    if not _CONTROL_LOCK.acquire(blocking=False):
-        return False, "Refused: another nozzle-change action is in flight. Nothing sent."
+    lock = _lock_for(printer_id)
+    if not lock.acquire(blocking=False):
+        return False, "Refused: another printer control action is in flight. Nothing sent."
     try:
         try:
             st = _state_view(reader, printer_id, ("extruder",))
@@ -460,7 +470,7 @@ def run_bed_mesh(*, confirmed_at: float,
             return False, f"Bed mesh command failed ({type(exc).__name__}). Check the printer screen."
         return True, "Bed mesh leveling sent once. It homes and probes; wait for it to finish on the printer screen."
     finally:
-        _CONTROL_LOCK.release()
+        lock.release()
 
 
 def finish_change(state: dict[str, Any], diameter_mm: float, nozzle_type: str,
