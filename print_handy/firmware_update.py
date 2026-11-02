@@ -241,8 +241,9 @@ def fetch_status(transport, *, refresh=False) -> UpdateStatus:
     With ``refresh=True`` (a user-invoked check) a refresh is requested
     first — the refresh response has the status shape, so it is parsed
     directly — and a failed refresh falls back to the plain status read
-    rather than failing the report. The plain path makes exactly one
-    GET. Any transport failure or malformed response raises
+    rather than failing the report. The plain path makes one GET,
+    plus a second to /machine/system_info when a `zmod` component has no
+    readable version (_with_zmod_from_system_info). Any transport failure or malformed response raises
     FirmwareError; nothing is ever sent on this path beyond the refresh
     request itself.
     """

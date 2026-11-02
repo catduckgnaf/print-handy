@@ -576,6 +576,16 @@ def test_slice_xl_five_toolheads_is_not_capped_at_four_slots(tmp_path, monkeypat
 # pick through the merged multi-tool slice (P1-73), and the merge planner no
 # longer refuses toolhead picks in a Creator-configured process (P1-72).
 
+# Explicit-parameter stubs: they carry model_job's real signatures, so a changed
+# signature fails these tests instead of vanishing into *args (2.2.5 review).
+def _verify_gcode_offline_ok(gcode_path, state, adapter=None, recorded_temps=None):
+    return {'ok': True}
+
+
+def _verify_gcode_none(gcode_path, adapter=None, state=None, printer_id=None, recorded_temps=None):
+    return None
+
+
 def _recording_slice_model(mapping):
     calls = []
 
@@ -607,8 +617,8 @@ def test_slice_job_single_colour_slices_on_the_picked_toolhead(creator, tmp_path
     monkeypatch.setattr(mj.printer_state, 'load', lambda *a, **k: state)
     fake = _recording_slice_model({'1': 2})
     monkeypatch.setattr(orca_adapter, 'slice_model', fake)
-    monkeypatch.setattr(mj, 'verify_gcode_offline', lambda p, st, *a: {'ok': True})
-    monkeypatch.setattr(mj, 'verify_gcode', lambda p, *a, **k: None)
+    monkeypatch.setattr(mj, 'verify_gcode_offline', _verify_gcode_offline_ok)
+    monkeypatch.setattr(mj, 'verify_gcode', _verify_gcode_none)
     out = mj.slice_job(jp)
     # The merged multi-tool route ran (placement shifts were planned and
     # passed), not the generic tail that used to drop the pick.
@@ -683,8 +693,8 @@ def test_merge_for_toolhead_picks_survives_a_creator_process(creator, tmp_path, 
     monkeypatch.setattr(mj.printer_state, 'load', lambda *a, **k: state)
     fake = _recording_slice_model({'1': 2, '3': 4})
     monkeypatch.setattr(orca_adapter, 'slice_model', fake)
-    monkeypatch.setattr(mj, 'verify_gcode_offline', lambda p, st, *a: {'ok': True})
-    monkeypatch.setattr(mj, 'verify_gcode', lambda p, *a, **k: None)
+    monkeypatch.setattr(mj, 'verify_gcode_offline', _verify_gcode_offline_ok)
+    monkeypatch.setattr(mj, 'verify_gcode', _verify_gcode_none)
     out = mj.slice_job(jp)
     assert Path(out).exists()
     saved = json.loads(jp.read_text())

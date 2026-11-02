@@ -368,10 +368,10 @@ class DockerReleaseContract(unittest.TestCase):
         run = publish["run"]
         self.assertIn("docker image inspect", run)
         self.assertIn('"$LOCAL_IMAGE"', run)
-        self.assertIn("imagetools inspect --raw", run)
-        self.assertIn('doc["config"]["digest"]', run)
+        self.assertIn("pushed_image_ids.py", run)
+        self.assertIn("pushed_image_ids.py", run)
         self.assertIn("evidence/identity-check.txt", run)
-        self.assertLess(run.index("imagetools inspect --raw"), run.index("digest-out"))
+        self.assertLess(run.index("pushed_image_ids.py"), run.index("digest-out"))
 
     def test_publish_matrix_is_native_both_arches_full_image_only(self):
         """#192/#353: linux/amd64 + linux/arm64, one full image, native runners, no QEMU, no arm/v7."""

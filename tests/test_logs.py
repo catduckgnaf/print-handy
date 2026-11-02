@@ -75,6 +75,21 @@ def test_json_format_redacts_quoted_credentials_before_serializing():
     assert record["message"] == 'payload {"api_key": "***"} and password="***"'
 
 
+def test_json_format_redacts_values_of_credential_named_fields():
+    # 2.2.5 review: the key-anchored patterns never see a dict key, so a field
+    # named api_key / password must be hidden by its name.
+    stream = io.StringIO()
+    logs.configure({"level": "INFO", "format": "json"}, stream=stream)
+    logging.getLogger("print_handy.demo").info(
+        "login", extra={"ctx": {"api_key": "abc123xyz", "password": "pw-plain", "nested": {"Authorization": "abc123xyz"},
+                                "max_tokens": 5, "printer": "voron"}})
+    (line,) = lines(stream)
+    record = json.loads(line)
+    assert "abc123xyz" not in line and "pw-plain" not in line
+    assert record["api_key"] == "***" and record["password"] == "***"
+    assert record["max_tokens"] == 5 and record["printer"] == "voron"
+
+
 def test_json_format_redacts_bound_fields_and_tracebacks():
     stream = io.StringIO()
     logs.configure({"level": "INFO", "format": "json"}, stream=stream)

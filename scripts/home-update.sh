@@ -39,6 +39,7 @@ fi
 
 echo "Updated $(git rev-parse --short "$previous") -> $(git rev-parse --short HEAD). Checking..."
 update_ok=1
+hook_failed=0
 if PRINT_HANDY_UPDATE_CHECK=1 "$python" -m pytest -q -p no:cacheprovider tests && "$python" -m print_handy.doctor; then
     # The post-update hook is part of the proof (P2-4): if it fails — a listener
     # restart, say — the update rolls back like a failed check, so a retry
@@ -47,6 +48,7 @@ if PRINT_HANDY_UPDATE_CHECK=1 "$python" -m pytest -q -p no:cacheprovider tests &
     if [ -x config/after-update.sh ] && ! config/after-update.sh; then
         echo "The post-update hook (config/after-update.sh) failed."
         update_ok=0
+        hook_failed=1
     fi
 else
     update_ok=0
@@ -57,5 +59,10 @@ if [ "$update_ok" = 1 ]; then
 else
     git reset --quiet --hard "$previous"
     echo "Checks failed. Rolled back to $(git rev-parse --short HEAD)."
+    # The failed hook may have restarted services onto the new code; run it again on the restored
+    # tree so they follow the rollback (2.2.5 review). Best effort: a second failure is only a warning.
+    if [ "$hook_failed" = 1 ] && [ -x config/after-update.sh ] && ! config/after-update.sh; then
+        echo "WARNING: config/after-update.sh also failed on the restored code. Services may still be running the new code; restart them by hand."
+    fi
     exit 1
 fi

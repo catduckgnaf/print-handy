@@ -152,6 +152,18 @@ class HomeUpdateTests(unittest.TestCase):
         self.assertEqual(git(self.home, "rev-parse", "HEAD"), head)
         self.assertTrue((self.home / "hook-ran").exists())
 
+    def test_rollback_after_a_failed_hook_reruns_it_on_the_restored_tree(self):
+        """2.2.5 review: the failed hook may have moved services to the new
+        code, so the rollback runs it again, and warns when that fails too."""
+        self.commit_upstream("NOTES.txt", "harmless\n")
+        hook = self.home / "config" / "after-update.sh"
+        hook.write_text("#!/bin/sh\necho run >> hook-log\nexit 1\n")
+        hook.chmod(0o755)
+        result = self.update()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual((self.home / "hook-log").read_text().split(), ["run", "run"])
+        self.assertIn("also failed on the restored code", result.stdout)
+
     def test_modern_settings_overrides_do_not_leak_into_the_update(self):
         """P2-14: PRINT_HANDY_CONFIG / PRINT_HANDY__SECTION__KEY in the
         caller's environment must not reach the update's subprocesses — the

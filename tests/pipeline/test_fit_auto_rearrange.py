@@ -407,6 +407,34 @@ def test_duplo_shaped_per_part_job_is_rearranged_without_asking_and_slices(env, 
         assert 0 <= x0 and x1 <= 220 and 0 <= y0 and y1 <= 220
 
 
+def test_duplo_shaped_job_with_a_06_nozzle_is_not_auto_rearranged_and_searches_fit_options(env, monkeypatch):
+    # 2.2.5 review: the 0.6 mm nozzle's 60 mm prime tower leaves no room for
+    # the rearrangement (P2-34), so full_size_one_plate proves nothing. Intake
+    # must not offer or apply it: no "onto one plate" notice, no saved
+    # rearrange plan, and the ordinary fit option search runs instead.
+    from print_handy.core import orca_adapter
+    source = env.tmp / 'turns.3mf'
+    _turn_needed_source(source)
+    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy_to(source, dest))
+    monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st, **kw: 0)
+    searched = []
+
+    def fit_options_stub(path, st):
+        searched.append(path)
+        raise RuntimeError('stop after the fit option search started')
+    monkeypatch.setattr(orca_adapter, 'fit_options', fit_options_stub)
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+              message_id='duplo-shaped-06', text='https://www.printables.com/model/1-ghost')
+    adapter = Adapter([2, 0, 1, 0, 1, 0, 1, 1, 1, 1])
+    intake_state = state()
+    assert intake_state['nozzle']['diameter_mm'] == 0.6  # the shared fixture's nozzle
+    asyncio.run(prepared_intake.prepare_link(event, adapter, intake_state, env.root, timeout=1))
+    assert len(searched) == 1
+    assert not any('onto one plate at 100%' in text for text in adapter.sent)
+    job = json.loads(next(env.root.parent.glob('archive/*/JOB.json')).read_text())
+    assert 'full_size_rearrange_plan' not in job
+
+
 _real_slice_job = model_job.slice_job
 
 
