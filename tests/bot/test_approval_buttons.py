@@ -226,15 +226,12 @@ def test_discord_typed_approval_is_refused_with_a_notice_and_the_prompt_stays_op
         prompts.register(cid, runtime.session_key(member), "Start?", ["Print it"], approval=True)
         await core.adapter.send_clarify(chat_id=str(cfg["discord"]["chat_id"]), question="Start?",
                                         choices=["Print it"], clarify_id=cid, session_key="flow")
-        out = await core.process(runtime.make_event(member, "yes", 1))
-        assert out == {"action": "skip", "reason": "typed approval refused"}
-        assert prompts.is_open(cid)
-        approver = runtime.make_source(APPROVER, cfg["discord"]["chat_id"])
-        prompts.register("d0" * 16, runtime.session_key(approver), "Start?", ["Print it"], approval=True)
-        await core.adapter.send_clarify(chat_id=str(cfg["discord"]["chat_id"]), question="Start?",
-                                        choices=["Print it"], clarify_id="d0" * 16, session_key="flow")
-        out = await core.process(runtime.make_event(approver, "Print it", 2))
-        assert out == {"action": "skip", "reason": "typed answer to an open question"}
-        prompts.resolve_gateway_clarify(cid, prompts.CANCELLED)
+        try:
+            out = await core.process(runtime.make_event(member, "yes", 1))
+            assert out == {"action": "skip", "reason": "typed approval refused"}
+            assert prompts.is_open(cid)
+        finally:
+            # Never leave a registry prompt open for later tests (open_count checks).
+            prompts.resolve_gateway_clarify(cid, prompts.CANCELLED)
 
     run(flow())

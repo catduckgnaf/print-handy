@@ -274,8 +274,10 @@ def test_remap_slot_keeps_a_bound_job_launchable_but_still_refuses_other_changes
     routed = SimpleNamespace(native=native)
     monkeypatch.setattr(mj, 'resolve_filament_selection', lambda st, request: selection)
     monkeypatch.setattr(mj, '_verify_routed', lambda *a, **k: None)
-    monkeypatch.setattr(mj, '_job_adapter', lambda job: routed)
     with monkeypatch.context() as scoped:
+        # Only the remap itself runs against the stub adapter; the launch-time
+        # recipe recompute below needs the job's real adapter.
+        scoped.setattr(mj, '_job_adapter', lambda job: routed)
         scoped.setattr(mj.printers, 'current', lambda: routed)
         mj.remap_slot(jp, 2, state=_st)
     after = json.loads(jp.read_text())

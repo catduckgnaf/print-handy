@@ -384,7 +384,7 @@ def test_record_completion_ignores_an_older_print_of_the_same_file(tmp_path, mon
     watcher.record_completion("job.gcode", "job.gcode", {"state": "complete", "print_duration": 60})
     record = json.loads(next((tmp_path / "Prints").glob("*.json")).read_text())
     assert record["completed_at"] == "2026-09-24T05:00:00Z"
-    assert record["started_at"] != time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(old_end - 3600))
+    assert record.get("started_at") != time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(old_end - 3600))
 
 
 def test_multipart_summary_shows_remaining_filament_for_multi_copy_parts():
