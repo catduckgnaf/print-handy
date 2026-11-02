@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 MAX_BUTTONS = 25
 LABEL_LIMIT = 64
 HEARTBEAT_S = 15
+HANDLER_DRAIN_S = 5
 POLL_TIMEOUT_S = 25
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
@@ -251,8 +252,9 @@ class TelegramClient:
     """Long-polling client shim with the surface BotCore and the health code need.
 
     ``user`` is the bot's own Telegram user (from getMe), ``core`` the
-    BotCore once started. Updates are routed one at a time: messages become
-    BotCore messages, callback queries go to the adapter.
+    BotCore once started. Updates are dispatched as managed tasks (see
+    poll_once): messages become BotCore messages, callback queries go to
+    the adapter.
     """
 
     def __init__(self, cfg, token, *, opener=None):
@@ -264,6 +266,7 @@ class TelegramClient:
         self.connected = False
         self._offset = 0
         self._background = []
+        self._handlers = set()
 
     # -------------------------------------------------------------- attachments
 
@@ -298,14 +301,50 @@ class TelegramClient:
             return None
         return await self.core.handle_message(self._bind(parsed, raw))
 
+    async def _run_update(self, update):
+        """One dispatched update's handling; failures are logged, never raised
+        into the poll loop that spawned the task."""
+        try:
+            await self.handle_update(update)
+        except Exception:
+            logger.exception("Telegram update handling failed")
+
+    async def drain_handlers(self, timeout=HANDLER_DRAIN_S):
+        """Wait (up to ``timeout`` seconds) for in-flight update handlers.
+
+        True when every handler on this loop finished. Handlers still
+        running after the timeout — typically a flow parked on a prompt
+        answer — are left running; close() cancels what remains.
+        """
+        loop = asyncio.get_running_loop()
+        tasks = [task for task in self._handlers if task.get_loop() is loop and not task.done()]
+        if not tasks:
+            return True
+        _, pending = await asyncio.wait(tasks, timeout=timeout)
+        return not pending
+
     async def poll_once(self):
+        """One getUpdates round; returns the number of updates received.
+
+        Updates are dispatched as managed tasks, NOT awaited inline (bonus,
+        found during DATA-7 — the P1-65 stall in the same shape): a handler
+        can park awaiting a prompt answer, and that answer only arrives as
+        an update in a later getUpdates round — awaiting the handler here
+        starved the loop, so the answer could never be received and the
+        flow stalled until its prompt timed out. The offset advances as
+        each update is received (handle_update advances it the same way),
+        so a later round never re-delivers an update whose handler is
+        still running. Tasks are tracked in ``_handlers`` and drained by
+        close(), so shutdown never drops one silently.
+        """
         updates = await asyncio.to_thread(tg.get_updates, self.token, self._offset,
                                           poll_timeout=POLL_TIMEOUT_S, opener=self.opener)
         for update in updates:
-            try:
-                await self.handle_update(update)
-            except Exception:
-                logger.exception("Telegram update handling failed")
+            if isinstance(update, dict) and isinstance(update.get("update_id"), int):
+                self._offset = max(self._offset, update["update_id"] + 1)
+            task = asyncio.create_task(self._run_update(update))
+            self._handlers.add(task)
+            task.add_done_callback(self._handlers.discard)
         return len(updates)
 
     # -------------------------------------------------------------- lifecycle
@@ -366,6 +405,21 @@ class TelegramClient:
             if not isinstance(item, asyncio.Task):
                 await item.wait_closed()
         self._background.clear()
+        if self._handlers:
+            # Update handlers dispatched by poll_once (bonus, found during
+            # DATA-7): a graceful shutdown gives in-flight ones a brief
+            # chance to finish, then cancels what is left — a flow parked
+            # on a prompt answer would otherwise hold shutdown open for its
+            # whole prompt timeout. Only this loop's tasks are awaited;
+            # foreign-loop tasks are cancelled and left to their own loop.
+            await self.drain_handlers()
+            loop = asyncio.get_running_loop()
+            for task in self._handlers:
+                task.cancel()
+            mine = [task for task in self._handlers if task.get_loop() is loop]
+            if mine:
+                await asyncio.gather(*mine, return_exceptions=True)
+            self._handlers.clear()
         try:
             from print_handy.core import owned_worker
             await owned_worker.shutdown()

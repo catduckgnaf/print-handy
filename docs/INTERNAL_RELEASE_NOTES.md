@@ -2,6 +2,7 @@
 
 # Unreleased
 
+- Telegram polling now dispatches updates as managed tasks, so a command waiting on a prompt answer no longer stalls message polling (#764).
 - Attachments are no longer lost when the chat LLM routes a message to a command such as /print-design (#768).
 
 # Version 2.2.4
