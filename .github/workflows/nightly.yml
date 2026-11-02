@@ -59,7 +59,11 @@ jobs:
           target="$nightly_sha"
           changed=false
           if [[ "$PROMOTE" == "true" ]]; then
-            green=$(gh api "repos/$repo/actions/workflows/ci.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // empty')
+            # event=push is load-bearing: ci.yml also runs on pull_request,
+            # and branch=main alone would also match a green PR run from a
+            # fork branch named main, whose head is not in this repository's
+            # main history. Only a push run proves the commit is on main.
+            green=$(gh api "repos/$repo/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // empty')
             [[ "$green" =~ ^[0-9a-f]{40}$ ]] || {
               echo "No successful CI run found on main" >&2
               exit 1

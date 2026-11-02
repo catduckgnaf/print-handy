@@ -37,7 +37,11 @@ class NightlyWorkflowContract(unittest.TestCase):
         self.assertEqual(promote["permissions"], {"actions": "read", "contents": "write"})
         run = promote["steps"][0]["run"]
         # The promotion source is a successful CI run on main, nothing else.
-        self.assertIn("actions/workflows/ci.yml/runs?branch=main&status=success", run)
+        # event=push is load-bearing (P1-67): ci.yml also runs on
+        # pull_request, and the branch filter alone would accept a green PR
+        # run from a fork branch that happens to be named main — unmerged
+        # code must never become the nightly pointer.
+        self.assertIn("actions/workflows/ci.yml/runs?branch=main&event=push&status=success", run)
         # The branch is only ever fast-forwarded: ancestry is proven first and
         # the ref update is never forced.
         self.assertIn("compare/$nightly_sha...$green", run)
