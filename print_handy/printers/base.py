@@ -490,6 +490,10 @@ class PrinterAdapter(ABC):
         """G-code that tells a native screen what is loaded, or None when the printer has no screen sync."""
         return None
 
+    def screen_fallback_note(self, material: str) -> str | None:
+        """A short phrase when the screen shows a stand-in type for this material (#798), else None."""
+        return None
+
     def stock_api_url(self, host: str) -> str | None:
         """Vendor status endpoint, or None when the printer only speaks Moonraker."""
         return None
