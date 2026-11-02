@@ -2475,6 +2475,8 @@ class Listener:
         self.display_off = None  # live ZMod display mode from the last presence poll; None until read
         self.presence_failure = None  # last presence poll failure, logged once until it changes
         self.capture_session = None  # #246 stage 2: active timelapse_capture session, if any
+        self._capture_task = None  # in-flight scheduled capture fetch (P2-133)
+        self.shutdown_alerted = None  # filename whose firmware-stop alert fired for THIS attempt (P2-57)
         self.print_identity = None  # this print's identity, fixed at its fresh start
         self._auto_light = None  # #516: AutoLightPolicy, built lazily from [vision]
         self.light_target = None  # #516: resolved Moonraker light object, cached
@@ -2796,6 +2798,10 @@ class Listener:
             # An unclaimed start gets its own so a mute outlives midnight.
             self.print_identity = identity or f"file:{self.filename}|seen:{time.time()}"
             identity = self.print_identity
+            # The firmware-stop alert dedups per print attempt, not per
+            # filename for the listener's lifetime: a reprint of the same
+            # file must alert again if it stops too (P2-57).
+            self.shutdown_alerted = None
         else:
             identity = self.print_identity or identity
         # A job that ends into standby (printer-side stop, job removed, Klipper
@@ -3173,6 +3179,22 @@ class Listener:
         except Exception as exc:
             log(f"timelapse capture tick failed file={self.filename!r}: {exc!r}")
 
+    def _schedule_capture(self, layer):
+        """Run one due capture as a task, off the websocket receive loop (P2-133).
+
+        Awaiting the fetch inline held the receive loop for up to the
+        fetch timeout per attempt, delaying pause/runout handling,
+        firmware-shutdown alerts and completion processing behind a slow
+        camera. Single-flight: a fetch still running when the next status
+        lands is the capture in progress — statuses never queue fetches
+        behind it, and the due check inside the task decides if a frame
+        is owed at all.
+        """
+        task = self._capture_task
+        if task is not None and not task.done():
+            return
+        self._capture_task = asyncio.create_task(self._capture_due(layer))
+
     async def session(self):
         self.ifs_monitor.reset_baseline()
         async with websockets.connect(WS_URL, ping_interval=20, ping_timeout=20, max_size=2**22) as ws:
@@ -3193,12 +3215,12 @@ class Listener:
                         else:
                             status = ((msg.get("result") or {}).get("status") or {}).get("print_stats") or {}
                             await self.on_status(status, "subscribe")
-                            await self._capture_due(_visual_layer(self.last_stats))
+                            self._schedule_capture(_visual_layer(self.last_stats))
                     elif method == "notify_status_update":
                         ps = (msg.get("params") or [{}])[0].get("print_stats")
                         if ps:
                             await self.on_status(ps, "event")
-                            await self._capture_due(_visual_layer(self.last_stats))
+                            self._schedule_capture(_visual_layer(self.last_stats))
                             if self.state == "printing" and _config.cfg()["visual_watch"]["enabled"]:
                                 layer = _visual_layer(self.last_stats)
                                 reason_due = self.visual_watch.due(layer, time.time())
