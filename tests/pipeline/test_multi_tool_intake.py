@@ -603,8 +603,8 @@ def test_slice_job_single_colour_slices_on_the_picked_toolhead(creator, tmp_path
     monkeypatch.setattr(mj.printer_state, 'load', lambda *a, **k: state)
     fake = _recording_slice_model({'1': 2})
     monkeypatch.setattr(orca_adapter, 'slice_model', fake)
-    monkeypatch.setattr(mj, 'verify_gcode_offline', lambda p, st: {'ok': True})
-    monkeypatch.setattr(mj, 'verify_gcode', lambda p: None)
+    monkeypatch.setattr(mj, 'verify_gcode_offline', lambda p, st, *a: {'ok': True})
+    monkeypatch.setattr(mj, 'verify_gcode', lambda p, *a, **k: None)
     out = mj.slice_job(jp)
     # The merged multi-tool route ran (placement shifts were planned and
     # passed), not the generic tail that used to drop the pick.
@@ -679,8 +679,8 @@ def test_merge_for_toolhead_picks_survives_a_creator_process(creator, tmp_path, 
     monkeypatch.setattr(mj.printer_state, 'load', lambda *a, **k: state)
     fake = _recording_slice_model({'1': 2, '3': 4})
     monkeypatch.setattr(orca_adapter, 'slice_model', fake)
-    monkeypatch.setattr(mj, 'verify_gcode_offline', lambda p, st: {'ok': True})
-    monkeypatch.setattr(mj, 'verify_gcode', lambda p: None)
+    monkeypatch.setattr(mj, 'verify_gcode_offline', lambda p, st, *a: {'ok': True})
+    monkeypatch.setattr(mj, 'verify_gcode', lambda p, *a, **k: None)
     out = mj.slice_job(jp)
     assert Path(out).exists()
     saved = json.loads(jp.read_text())

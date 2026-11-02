@@ -507,7 +507,10 @@ def test_item8_generic_lost_post_is_reconciled_like_the_mapped_path(printer, mon
 
 def test_item8_both_paths_share_one_reconcile():
     import inspect
-    source = inspect.getsource(model_job.print_now) + inspect.getsource(model_job.print_mapped_native)
+    # print_now is a thin wrapper since the SAFE-6 control lock (P1-33); its body
+    # is _print_now_locked. Both start paths must call the one reconcile helper.
+    source = (inspect.getsource(model_job.print_now) + inspect.getsource(model_job._print_now_locked)
+              + inspect.getsource(model_job.print_mapped_native))
     assert source.count("_settle_lost_start(") == 2
 
 

@@ -177,7 +177,10 @@ def test_second_job_is_refused_while_the_first_launch_is_in_flight(printer):
     def upload_a_then_race_b(cmd, *args, **kwargs):
         if cmd[1] == "upload" and "b" not in seen:
             seen["b"] = "raced"
-            with pytest.raises(SystemExit, match="REFUSED: another launch .*in progress"):
+            # Since SAFE-6 (P1-33) the printer-control lock is the outer gate, so the
+            # refusal may come from it instead of the launch lease; either in-flight
+            # guard refusing is the property this test pins.
+            with pytest.raises(SystemExit, match="REFUSED: another (launch .*in progress|printer control action .*is in flight)"):
                 model_job.print_now(b)  # B also saw an idle printer before A submitted
         return upload_ok(cmd, *args, **kwargs)
 
