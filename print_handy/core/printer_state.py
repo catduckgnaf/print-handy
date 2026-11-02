@@ -807,7 +807,7 @@ def _get(url, data=None, method=None, timeout=6):
 #   2 slicer-controlled poop: ZMod parks at the chute and the slicer's own
 #     change-filament G-code purges there (ZMod's Orca profiles only).
 PURGE_MODES = {0: "nopoop (slicer purges into the prime tower)",
-               1: "trash chute (ZMod purges on colour change)",
+               1: "trash chute (ZMod purges on color change)",
                2: "slicer-controlled poop (ZMod profile G-code purges)"}
 
 
@@ -970,8 +970,8 @@ def _ams_disagreements(st, facts):
     live_color = filament_color.first_hex(active.get("color"))
     recorded_color = filament_color.first_hex(spool.get("hex")) or filament_color.first_hex(spool.get("color"))
     if filament_color.same_color(live_color, recorded_color) is False:
-        warnings.append(f"the printer reports its active Bambu tray colour is #{live_color}, "
-                        f"but the recorded spool colour is #{recorded_color}; the record is kept")
+        warnings.append(f"the printer reports its active Bambu tray color is #{live_color}, "
+                        f"but the recorded spool color is #{recorded_color}; the record is kept")
 
 
 def _live_spool_view(st, facts, warnings):

@@ -418,6 +418,9 @@ def test_nl_new_phrases_enter_guided_new(text):
     "replace the spool",
     "change filament in slot 2",
     "we need to swap the filament",
+    "I need to change a filament roll",
+    "change a filament roll",
+    "swap roll",
 ])
 def test_nl_change_phrases_enter_guided_change(text):
     answers = ["Slot 2", "#7 Matte White", "Back on the shelf", "Change slot 2"]
@@ -431,6 +434,8 @@ def test_nl_change_phrases_enter_guided_change(text):
     ("We need to add new filament", "new"),
     ("add a new spool", "new"),
     ("swap the filament", "change"),
+    ("I need to change a filament roll", "change"),
+    ("change a filament roll", "change"),
     ("the filament is tangled", None),
     ("add new filament to my shopping list", None),
     ("what filament should I buy?", None),

@@ -167,8 +167,8 @@ def diff_violations(diff_text):
             else:
                 if target.startswith("b/"):
                     target = target[2:]
-                path = target if target.endswith(".md") else None
-            in_comment = False
+                    path = target if target.endswith(".md") else None
+                    in_comment = False
             continue
         hunk = _HUNK.match(raw)
         if hunk:

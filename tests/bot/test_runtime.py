@@ -369,6 +369,10 @@ def _recording_router(seen):
     ("spol list", None),                    # not command-shaped: chat never suggests
     ("hello there", None),                  # would score 67 on the "help" window ungated
     ("can you make my printer go brrr", None),
+    ("I need to change a filament roll", "/spool"),
+    ("change spool", "/spool"),
+    ("stop the print", "/print-stop"),
+    ("what filaments are loaded", "/print-spools"),
     ("", None),
 ])
 def test_command_suggestion_pins(text, expected):
