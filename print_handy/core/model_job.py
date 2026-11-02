@@ -2912,9 +2912,22 @@ def verify_gcode(gcode_path, adapter=None, state=None, printer_id=None):
     elif not (numeric_macro_match(r'^PRINT_START\s+([^;]*)', 'BED', 'HOTEND') or
               numeric_macro_match(r'^START_PRINT\s+([^;]*)', 'BED_TEMP', 'EXTRUDER_TEMP')):
         errors.append(f"missing START_PRINT/PRINT_START matching bed {bed} and effective hotend {hotend}")
-    if not octoprint and not (re.search(r'^PRINT_END(?:\s|$)',text,re.M) or re.search(r'^END_PRINT(?:\s|$)',text,re.M)
-            or (not native and re.search(rf'^{re.escape(adapter.end_macro)}(?:\s|$)',text,re.M))):
-        errors.append("missing END_PRINT/PRINT_END safe end sequence")
+    if not octoprint:
+        if native:
+            if not (re.search(r'^PRINT_END(?:\s|$)',text,re.M) or re.search(r'^END_PRINT(?:\s|$)',text,re.M)):
+                errors.append("missing END_PRINT/PRINT_END safe end sequence")
+        else:
+            end_macro = adapter.end_macro
+            default_end_macro = (adapter.model.defaults().get("printer") or {}).get("end_macro")
+            if end_macro != default_end_macro:
+                # A customized [printer] end_macro is the only safe end (P2-13): a file
+                # ending in a different macro would run a shutdown sequence this printer
+                # does not define, so PRINT_END/END_PRINT no longer substitute for it.
+                if not re.search(rf'^{re.escape(end_macro)}(?:\s|$)',text,re.M):
+                    errors.append(f"missing {end_macro} safe end sequence")
+            elif not (re.search(r'^PRINT_END(?:\s|$)',text,re.M) or re.search(r'^END_PRINT(?:\s|$)',text,re.M)
+                      or re.search(rf'^{re.escape(end_macro)}(?:\s|$)',text,re.M)):
+                errors.append("missing END_PRINT/PRINT_END safe end sequence")
     try:
         bounds=cached_motion_bounds(raw, text)
     except RuntimeError as exc:
