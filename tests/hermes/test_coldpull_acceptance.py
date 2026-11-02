@@ -305,3 +305,78 @@ def test_cold_pull_prompts_use_their_configured_timeouts(monkeypatch):
     assert by_key["actuate"] == _config.safety_confirm_timeout_s()
     assert by_key["tip"] == _config.cold_pull_outcome_s()
     assert by_key["actuate"] != _config.question_timeout_s()
+
+
+def test_maintenance_completion_run_survives_final_save(monkeypatch):
+    """The completed session's run must still be in the saved state after
+    the dispatch clears the pending session: the in-memory state predates
+    append_run, so saving it directly erases the appended run (bonus)."""
+    import asyncio
+
+    plugin = _load_coldpull_plugin()
+    store = {"runs": []}
+
+    from print_handy.hermes import maintenance as maint
+
+    def fake_load(*args, **kwargs):
+        data = {"runs": [dict(r) for r in store["runs"]]}
+        if "pending" in store:
+            data["pending"] = store["pending"]
+        return data
+
+    def fake_save(data, *args, **kwargs):
+        store["runs"] = [dict(r) for r in data.get("runs", [])]
+        if "pending" in data:
+            store["pending"] = data["pending"]
+        else:
+            store.pop("pending", None)
+
+    def fake_append(record, **kwargs):
+        store["runs"].append(dict(record))
+        return record
+
+    def fake_begin(kind, state, **kwargs):
+        session = {"kind": kind, "steps": [None] * 4, "problems": [], "cold_pull": None}
+        state["pending"] = session
+        return session
+
+    monkeypatch.setattr(maint, "load", fake_load)
+    monkeypatch.setattr(maint, "save", fake_save)
+    monkeypatch.setattr(maint, "append_run", fake_append)
+    monkeypatch.setattr(maint, "begin_session", fake_begin)
+    monkeypatch.setattr(maint, "save_session", lambda session, state, **kw: None)
+
+    from print_handy.hermes import print_control as pc
+    monkeypatch.setattr(pc, "status", lambda **kw: {"state": "standby"})
+    monkeypatch.setattr(plugin, "_maintenance_hours_now", lambda *a, **k: 3.0)
+    monkeypatch.setattr(plugin, "_routed_printer_id", lambda source, gateway=None: None)
+    monkeypatch.setattr(plugin, "_live_key_for", lambda source, gateway, chosen=None: None)
+
+    async def fake_decide(source, gateway, adapter, metadata, *, question=None):
+        return None, None
+
+    monkeypatch.setattr(plugin, "_decide_printer", fake_decide)
+
+    async def fake_confirm(adapter, source, metadata, key, prompt, choices, timeout, live_key=None):
+        if key == "maintenance-coldpull":
+            return "Skip cold pull"
+        return "Done"
+
+    monkeypatch.setattr(plugin, "_confirm", fake_confirm)
+
+    class Adapter:
+        async def send(self, **kwargs):
+            return None
+
+    source = MagicMock()
+    source.chat_id = "c"
+    source.thread_id = None
+    event = MagicMock()
+    event.text = "/print-maintenance full"
+    monkeypatch.setattr(plugin, "_control_preamble",
+                        lambda e, g, cmd, with_args=False: (source, Adapter()))
+
+    result = asyncio.run(plugin.maintenance_dispatch(event, MagicMock()))
+    assert result == {"action": "skip", "reason": "maintenance handled"}
+    assert [r.get("kind") for r in store["runs"]] == ["full"]
+    assert "pending" not in store
