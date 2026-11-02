@@ -76,6 +76,69 @@ class Stopped(BaseException):
         self.uncertain = uncertain
 
 
+def _new_stages(timing_path, offset):
+    """Stage names appended to a job's TIMING.jsonl after byte ``offset``; never raises."""
+    try:
+        with open(timing_path, 'rb') as handle:
+            handle.seek(offset)
+            tail = handle.read()
+    except OSError:
+        return set()
+    stages = set()
+    for line in tail.decode('utf-8', 'replace').splitlines():
+        with contextlib.suppress(ValueError, AttributeError):
+            stages.add(json.loads(line).get('stage'))
+    return stages
+
+
+async def _watch_start_progress(adapter, source, metadata, timing_path, offset, clock):
+    """Post each START_PROGRESS note once its stage has lasted its grace period.
+
+    A note whose later stage was already reached is stale and never posted; the watcher
+    ends after the last note (or is cancelled when the start returns).
+    """
+    seen, posted = {}, set()
+    last = START_PROGRESS[-1][0]
+    while last not in posted:
+        await asyncio.sleep(START_PROGRESS_POLL_S)
+        stages = _new_stages(timing_path, offset)
+        now = clock()
+        for stage, _grace, _text in START_PROGRESS:
+            if stage in stages:
+                seen.setdefault(stage, now)
+        for index, (stage, grace, text) in enumerate(START_PROGRESS):
+            later = any(name in seen for name, _g, _t in START_PROGRESS[index + 1:])
+            if stage in posted or stage not in seen or later or now - seen[stage] < grace:
+                continue
+            posted.add(stage)
+            # A note is progress only: delivery failure never touches the start itself.
+            with contextlib.suppress(Exception):
+                await adapter.send(chat_id=str(source.chat_id), content=text, metadata=metadata)
+
+
+async def _with_start_progress(adapter, source, metadata, job_path, work, clock=time.monotonic):
+    """Await the start ``work`` unchanged while relaying its TIMING.jsonl progress (#734).
+
+    ``work`` is awaited directly, so Stop, cancellation and its result behave exactly as
+    without this wrapper; the watcher only posts notes and is stopped when work ends.
+    """
+    adapter_state = getattr(adapter, '__dict__', {})
+    if 'picks' in adapter_state or 'clicks' in adapter_state or job_path is None:
+        return await work  # scripted test adapters record questions only, as _with_stop does
+    timing_path = Path(job_path).parent / 'TIMING.jsonl'
+    try:
+        offset = timing_path.stat().st_size
+    except OSError:
+        offset = 0
+    watcher = asyncio.ensure_future(_watch_start_progress(adapter, source, metadata, timing_path, offset, clock))
+    try:
+        return await work
+    finally:
+        watcher.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await watcher
+
+
 async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=False, refusal_context=None):
     """Run work with plain progress by default; opt in to Stop only when cancellation is safe."""
     adapter_state = getattr(adapter, "__dict__", {})
@@ -198,6 +261,19 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
 FIT_HEARTBEAT_S = 15.0
 FIT_FALLBACK_HEARTBEAT_S = 60.0
 
+# Start progress (#734): print-now runs as a child process and its result arrives only at
+# the end, while a real start spends 25-75 s between the tap and that result (the start
+# request itself, then the readback while the printer prepares). The child already logs its
+# stages to <job>/TIMING.jsonl as they happen; these short notes relay the two that matter,
+# each only when that stage has lasted its grace period, so a fast start posts nothing extra.
+START_PROGRESS_POLL_S = 1.0
+START_PROGRESS = (
+    ('upload_verified', 5.0, 'Uploaded to the printer. Sending the start now; '
+                             'some printers take up to a minute to answer.'),
+    ('start_submitted', 3.0, 'The printer accepted the start. It may load filament and heat for a '
+                             "few minutes before printing; I'll post when the start is confirmed."),
+)
+
 
 def _elapsed_text(seconds):
     seconds = max(0, int(round(seconds)))
@@ -259,9 +335,15 @@ class FitStatus:
             self.message_id = str(message_id)
 
     async def run(self, phase, work, first_text=None):
-        """Await ``work`` while the status names ``phase`` and the time spent so far."""
-        await self.show(first_text or f'Checking the fit: {phase} ({self.elapsed()}).')
+        """Await ``work`` while the status names ``phase`` and the time spent so far.
+
+        ``work`` may be a task started earlier (:func:`_prefetch`); when it has already
+        finished there is nothing to wait for, so no status line is posted at all.
+        """
         task = asyncio.ensure_future(work)
+        if task.done():
+            return task.result()
+        await self.show(first_text or f'Checking the fit: {phase} ({self.elapsed()}).')
         try:
             while True:
                 done, _ = await asyncio.wait({task}, timeout=FIT_HEARTBEAT_S)
@@ -278,6 +360,17 @@ class FitStatus:
         """Close the status line with the result and total time, only if one was shown."""
         if self.last_text is not None:
             await self.show(f'Fit check done in {self.elapsed()}: {outcome}')
+
+
+def _prefetch(work):
+    """Start ``work`` now and return its task, to be awaited (or abandoned) later.
+
+    An intake that ends before awaiting it (cancel, timeout, a refusal) must not log
+    "Task exception was never retrieved", so the outcome is always marked as read.
+    """
+    task = asyncio.ensure_future(work)
+    task.add_done_callback(lambda done: done.cancelled() or done.exception())
+    return task
 
 
 def _auto_rearrange_eligible(job, latest):
@@ -1719,6 +1812,11 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         mj.write_job(folder, job)
         receipt.update(job_json=str(jp), source_sha256=manifest['source_sha256'], status='AWAITING_COLOR')
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+        # The author-layout fit probe needs only the file and the printer state, never the unit or
+        # color answers, so start it now and let it run while the operator answers (#734). It is
+        # awaited at the fit check below, which then usually has nothing left to wait for.
+        from . import orca_adapter
+        fit_probe = _prefetch(_heavy(orca_adapter.orca_plate_capacity, path, state))
         unit_q = mj.unit_question(job)
         if unit_q is not None:
             # STL records no units and this part is small enough to be either
@@ -1844,11 +1942,9 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         mj.set_color_decisions(latest, validated)
         if decisions['mode'] == 'single_color':
             latest['filament_selection'] = validated['selection']
-        from . import orca_adapter
         fit_status = FitStatus(adapter, source, metadata)
         try:
-            capacity = await fit_status.run('checking the layout as the author laid it out',
-                                            _heavy(orca_adapter.orca_plate_capacity, path, state),
+            capacity = await fit_status.run('checking the layout as the author laid it out', fit_probe,
                                             first_text='Checking whether it fits the bed.')
         except Exception as exc:
             logger.exception('fit check failed; intake is resumable')
@@ -2425,8 +2521,24 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             await adapter.send(chat_id=source.chat_id,
                                content='Sliced with the backup slicer (Bambu Studio) because the main slicer could not slice this model.',
                                metadata=metadata)
+        # #722: source-profile compatibility warnings ride the slice provenance; they are
+        # shown before the operator confirms the start, and they never change a setting.
+        profile_warnings = provenance.get('source_profile_warnings') or []
+        if profile_warnings:
+            await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                               content='Heads up on the source profile:\n'
+                                       + '\n'.join(f'- {w}' for w in profile_warnings))
         has_dur_q = has_duration_question(getattr(event, 'text', ''))
         breakdown = print_summary.format_estimate_breakdown(sliced)
+        # #720: the thermal facts recorded for the printer this job was sliced for ride with
+        # the estimate everywhere it is shown (duration answer, split notice, start question).
+        try:
+            from ..knowledge.thermal import thermal_lines_for_model
+            thermal = thermal_lines_for_model(sliced.get('printer_model'))
+        except Exception:
+            thermal = []
+        if thermal:
+            breakdown = breakdown + '\n' + '\n'.join(thermal)
         if has_dur_q and gcodes:
             # Every plate counts: a split job is the sum of its plates, not plate 1.
             await adapter.send(chat_id=source.chat_id, metadata=metadata,
@@ -2538,8 +2650,9 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         ok, tail = await _with_stop(adapter, source, key, metadata,
                                     ((prep_msg + "\n") if not prep_sent else "")
                                     + "Uploading to the printer. Press Stop to request cancellation.",
-                                    print_next.start(target), allow_stop=True,
-                                    refusal_context=start_context)
+                                    _with_start_progress(adapter, source, metadata, jp,
+                                                         print_next.start(target)),
+                                    allow_stop=True, refusal_context=start_context)
         mj._timing(jp, 'intake_start_returned', ok=bool(ok))
         started_as = classify_start(ok, tail)
         unknown, pending = started_as.unknown, started_as.pending

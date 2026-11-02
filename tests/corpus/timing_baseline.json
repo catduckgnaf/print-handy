@@ -1,278 +1,297 @@
 {
  "cases": {
   "copies-multiple-plates/hermes": {
-   "first_prompt_s": 0.07,
-   "wall_s": 0.49
+   "first_prompt_s": 0.04,
+   "wall_s": 0.17
   },
   "copies-multiple-plates/standalone": {
-   "first_prompt_s": 0.31,
-   "wall_s": 0.41
+   "first_prompt_s": 0.15,
+   "wall_s": 0.18
   },
   "core-basematerials-parts/hermes": {
-   "first_prompt_s": 0.03,
+   "first_prompt_s": 0.02,
    "wall_s": 0.08
   },
   "core-basematerials-parts/standalone": {
-   "first_prompt_s": 0.03,
-   "wall_s": 0.07
+   "first_prompt_s": 0.02,
+   "raised_from": {
+    "first_prompt_s": 0.03,
+    "wall_s": 0.07
+   },
+   "reason": "#734 re-baseline from main CI run 41365651326: the old entry predates later pipeline changes that the old +25% +1 s limit absorbed silently; accepted as the current normal before tightening to +10% +0.5 s.",
+   "wall_s": 0.08
   },
   "core-colorgroup-items/hermes": {
-   "first_prompt_s": 0.02,
+   "first_prompt_s": 0.01,
    "wall_s": 0.05
   },
   "core-colorgroup-items/standalone": {
-   "first_prompt_s": 0.02,
+   "first_prompt_s": 0.01,
    "wall_s": 0.05
   },
   "core-multiproperties-texture/hermes": {
-   "first_prompt_s": 0.03,
-   "wall_s": 0.11
+   "first_prompt_s": 0.01,
+   "wall_s": 0.04
   },
   "core-multiproperties-texture/standalone": {
-   "first_prompt_s": 0.03,
-   "wall_s": 0.14
-  },
-  "prusa-mmu-project/hermes": {
-   "first_prompt_s": 0.02,
-   "wall_s": 0.13
-  },
-  "prusa-mmu-project/standalone": {
-   "first_prompt_s": 0.02,
-   "wall_s": 0.14
+   "first_prompt_s": 0.01,
+   "wall_s": 0.04
   },
   "core-one-color/hermes": {
-   "first_prompt_s": 0.03,
-   "wall_s": 0.08
+   "first_prompt_s": 0.02,
+   "wall_s": 0.06
   },
   "core-one-color/standalone": {
-   "first_prompt_s": 0.03,
+   "first_prompt_s": 0.04,
+   "raised_from": {
+    "first_prompt_s": 0.03,
+    "wall_s": 0.08
+   },
+   "reason": "#734 re-baseline from main CI run 41365651326: the old entry predates later pipeline changes that the old +25% +1 s limit absorbed silently; accepted as the current normal before tightening to +10% +0.5 s.",
    "wall_s": 0.08
   },
   "core-triangle-colors/hermes": {
    "first_prompt_s": 0.01,
-   "wall_s": 0.05
+   "wall_s": 0.04
   },
   "core-triangle-colors/standalone": {
    "first_prompt_s": 0.01,
-   "wall_s": 0.05
+   "wall_s": 0.04
   },
   "duplicate-part-names/hermes": {
-   "first_prompt_s": 0.06,
-   "wall_s": 0.14
+   "first_prompt_s": 0.01,
+   "wall_s": 0.04
   },
   "duplicate-part-names/standalone": {
-   "first_prompt_s": 0.06,
-   "wall_s": 0.19
+   "first_prompt_s": 0.01,
+   "wall_s": 0.04
   },
   "five-colors-over-slots/hermes": {
-   "first_prompt_s": 0.08,
-   "wall_s": 0.23
+   "first_prompt_s": 0.01,
+   "wall_s": 0.06
   },
   "five-colors-over-slots/standalone": {
-   "first_prompt_s": 0.08,
-   "wall_s": 0.23
+   "first_prompt_s": 0.01,
+   "wall_s": 0.06
   },
   "four-colors-one-plate/hermes": {
-   "first_prompt_s": 0.07,
-   "wall_s": 0.21
+   "first_prompt_s": 0.01,
+   "wall_s": 0.06
   },
   "four-colors-one-plate/standalone": {
-   "first_prompt_s": 0.09,
-   "wall_s": 0.23
+   "first_prompt_s": 0.01,
+   "wall_s": 0.06
   },
   "many-parts/hermes": {
-   "first_prompt_s": 0.1,
-   "wall_s": 0.4
+   "first_prompt_s": 0.01,
+   "wall_s": 0.05
   },
   "many-parts/standalone": {
-   "first_prompt_s": 0.1,
-   "wall_s": 0.22
+   "first_prompt_s": 0.01,
+   "wall_s": 0.05
   },
   "missing-plate-metadata/hermes": {
-   "first_prompt_s": 0.05,
-   "wall_s": 0.13
+   "first_prompt_s": 0.01,
+   "wall_s": 0.04
   },
   "missing-plate-metadata/standalone": {
-   "first_prompt_s": 0.05,
-   "wall_s": 0.12
+   "first_prompt_s": 0.01,
+   "wall_s": 0.04
   },
   "multiplate-select/hermes": {
-   "first_prompt_s": 0.06,
-   "wall_s": 0.28
+   "first_prompt_s": 0.01,
+   "wall_s": 0.06
   },
   "multiplate-select/standalone": {
-   "first_prompt_s": 0.06,
-   "wall_s": 0.29
+   "first_prompt_s": 0.01,
+   "wall_s": 0.06
   },
   "must-shrink/hermes": {
-   "first_prompt_s": 0.05,
-   "wall_s": 0.21
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.01,
+   "wall_s": 0.06
   },
   "must-shrink/standalone": {
-   "first_prompt_s": 0.05,
-   "wall_s": 0.14
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.01,
+   "wall_s": 0.05
   },
   "needs-supports/hermes": {
-   "first_prompt_s": 0.05,
-   "wall_s": 0.13
+   "first_prompt_s": 0.01,
+   "wall_s": 0.04
   },
   "needs-supports/standalone": {
-   "first_prompt_s": 0.05,
-   "wall_s": 0.13
+   "first_prompt_s": 0.01,
+   "wall_s": 0.04
   },
   "parts-one-plate/hermes": {
-   "first_prompt_s": 0.08,
-   "wall_s": 0.22
+   "first_prompt_s": 0.02,
+   "wall_s": 0.06
   },
   "parts-one-plate/standalone": {
-   "first_prompt_s": 0.08,
-   "wall_s": 0.23
+   "first_prompt_s": 0.02,
+   "wall_s": 0.06
   },
   "plates-multicolor/hermes": {
-   "first_prompt_s": 0.08,
-   "wall_s": 0.24
+   "first_prompt_s": 0.02,
+   "wall_s": 0.07
   },
   "plates-multicolor/standalone": {
-   "first_prompt_s": 0.09,
-   "wall_s": 0.32
+   "first_prompt_s": 0.02,
+   "wall_s": 0.07
+  },
+  "prusa-mmu-project/hermes": {
+   "first_prompt_s": 0.01,
+   "wall_s": 0.04
+  },
+  "prusa-mmu-project/standalone": {
+   "first_prompt_s": 0.01,
+   "wall_s": 0.04
   },
   "rotation-fit/hermes": {
-   "first_prompt_s": 0.05,
-   "wall_s": 0.24
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.01,
+   "wall_s": 0.05
   },
   "rotation-fit/standalone": {
-   "first_prompt_s": 0.05,
-   "wall_s": 0.14
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.01,
+   "wall_s": 0.05
   },
   "single-part/hermes": {
-   "first_prompt_s": 0.05,
-   "wall_s": 0.21
+   "first_prompt_s": 0.01,
+   "wall_s": 0.04
   },
   "single-part/standalone": {
-   "first_prompt_s": 0.05,
-   "wall_s": 0.13
+   "first_prompt_s": 0.01,
+   "wall_s": 0.04
   },
   "split-plan/hermes": {
-   "first_prompt_s": 0.06,
-   "wall_s": 0.27
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.01,
+   "wall_s": 0.07
   },
   "split-plan/standalone": {
-   "first_prompt_s": 0.06,
-   "wall_s": 0.41
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.01,
+   "wall_s": 0.08
   },
   "stl-ascii/hermes": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.1
+   "first_prompt_s": 0.01,
+   "wall_s": 0.03
   },
   "stl-ascii/standalone": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.11
+   "first_prompt_s": 0.01,
+   "wall_s": 0.03
   },
   "stl-degenerate-zero-volume/hermes": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.1
+   "wall_s": 0.01
   },
   "stl-degenerate-zero-volume/standalone": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.17
+   "wall_s": 0.01
   },
   "stl-inverted-normals/hermes": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.11
+   "first_prompt_s": 0.01,
+   "wall_s": 0.04
   },
   "stl-inverted-normals/standalone": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.11
+   "first_prompt_s": 0.01,
+   "wall_s": 0.03
   },
   "stl-must-shrink/hermes": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.13
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "wall_s": 0.04
   },
   "stl-must-shrink/standalone": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.12
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "wall_s": 0.04
   },
   "stl-needs-supports/hermes": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.11
+   "first_prompt_s": 0.01,
+   "wall_s": 0.03
   },
   "stl-needs-supports/standalone": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.11
+   "first_prompt_s": 0.01,
+   "wall_s": 0.03
   },
   "stl-open-thin-wall/hermes": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.1
+   "first_prompt_s": 0.01,
+   "wall_s": 0.03
   },
   "stl-open-thin-wall/standalone": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.11
+   "first_prompt_s": 0.01,
+   "wall_s": 0.04
   },
   "stl-single-part/hermes": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.16
+   "first_prompt_s": 0.01,
+   "wall_s": 0.03
   },
   "stl-single-part/standalone": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.11
+   "first_prompt_s": 0.01,
+   "wall_s": 0.03
   },
   "stl-tall/hermes": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.12
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "wall_s": 0.04
   },
   "stl-tall/standalone": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.15
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "wall_s": 0.04
   },
   "stl-text-solid-header/hermes": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.11
+   "first_prompt_s": 0.01,
+   "wall_s": 0.03
   },
   "stl-text-solid-header/standalone": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.11
+   "first_prompt_s": 0.01,
+   "wall_s": 0.03
   },
   "stl-thin-footprint/hermes": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.11
+   "first_prompt_s": 0.01,
+   "wall_s": 0.03
   },
   "stl-thin-footprint/standalone": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.11
+   "first_prompt_s": 0.01,
+   "wall_s": 0.03
   },
   "stl-tiny/hermes": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.1
+   "first_prompt_s": 0.01,
+   "wall_s": 0.04
   },
   "stl-tiny/standalone": {
-   "first_prompt_s": 0.07,
-   "wall_s": 0.18
+   "first_prompt_s": 0.01,
+   "wall_s": 0.03
   },
   "stl-very-thin-wall/hermes": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.12
+   "first_prompt_s": 0.01,
+   "wall_s": 0.03
   },
   "stl-very-thin-wall/standalone": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.11
+   "first_prompt_s": 0.01,
+   "wall_s": 0.03
   },
   "unicode-part-extra-plate/hermes": {
-   "first_prompt_s": 0.05,
-   "wall_s": 0.14
+   "first_prompt_s": 0.01,
+   "wall_s": 0.04
   },
   "unicode-part-extra-plate/standalone": {
-   "first_prompt_s": 0.05,
-   "wall_s": 0.13
+   "first_prompt_s": 0.01,
+   "wall_s": 0.05
   },
   "witch-ghost-cults3d/hermes": {
-   "first_prompt_s": 1.2,
-   "wall_s": 1.9
+   "first_prompt_s": 0.35,
+   "wall_s": 0.75
   },
   "witch-ghost-cults3d/standalone": {
-   "first_prompt_s": 1.2,
-   "wall_s": 1.9
+   "first_prompt_s": 0.33,
+   "wall_s": 0.75
   }
  },
+ "description": "Mock-slicer fake Discord flow (both transports), required gate in ci.yml discord-timing. Re-recorded every release from the release commit's CI artifact; see tests/README.md (Slicing-speed gate).",
  "fit_check_budget_s": 10.0,
  "fit_check_required": [
   "must-shrink/hermes",
@@ -286,6 +305,7 @@
   "stl-tall/hermes",
   "stl-tall/standalone"
  ],
- "slack_s": 1.0,
- "tolerance": 0.25
+ "recorded_from": "CI run 41365651326 (main 60341e2, 2026-11-02), artifact discord-timing, median of 3",
+ "slack_s": 0.5,
+ "tolerance": 0.1
 }

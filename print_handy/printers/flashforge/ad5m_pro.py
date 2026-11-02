@@ -1,7 +1,8 @@
 """Flashforge AD5M Pro on ZMod Klipper: single extruder, no IFS, 220 mm cube.
 
 Same print geometry and filament model as the AD5M; the Pro adds the enclosure, camera and air
-filtration, none of which change slicing. Quirks and templates as for the AD5M (see ad5m.py);
+filtration, none of which change slicing geometry; the thermal facts are
+recorded separately in the printer registry thermal record. Quirks and templates as for the AD5M (see ad5m.py);
 templates: templates/orca/flashforge_ad5m_pro, derived from OrcaSlicer's upstream Flashforge
 Adventurer 5M Pro profile.
 """

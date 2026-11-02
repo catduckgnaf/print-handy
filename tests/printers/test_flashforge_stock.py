@@ -304,3 +304,78 @@ def test_stock_print_starts_no_monitor_when_the_start_is_unconfirmed(monkeypatch
     out, _fake, _events = _stock_print(monkeypatch, tmp_path, [idle, idle], slot=1, after=after)
     assert out["started"] is False
     assert started == []
+
+
+def _stock_adapter():
+    from print_handy import printers, settings
+    model = "flashforge_stock.ad5x"
+    return printers.get(model, settings.load(local=False, environ={"PRINT_HANDY__PRINTER__MODEL": model}))
+
+
+def test_normalize_status_reports_detail_targets():
+    detail = {"status": "printing", "printProgress": 0.4, "rightTargetTemp": 220.0, "platTargetTemp": 60}
+    for raw in (detail, {"detail": detail}):
+        out = _stock_adapter().normalize_status(raw)
+        assert (out["hotend_target_c"], out["bed_target_c"]) == (220.0, 60)
+        assert (out["state"], out["hotend_c"], out["bed_c"]) == ("printing", None, None)
+
+
+@pytest.mark.parametrize("raw", [{}, {"status": "ready"}, {"rightTargetTemp": True, "platTargetTemp": "60"}])
+def test_normalize_status_targets_are_none_when_absent(raw):
+    out = _stock_adapter().normalize_status(raw)
+    assert out["hotend_target_c"] is None and out["bed_target_c"] is None
+
+
+# #211: stock artifacts are verified offline against the record, never through Moonraker.
+
+def _orca_like(toolpath_move):
+    return ("G28\nG90\nM83\nG1 X-10 Y-10 Z5 F3000\nG1 E5 F300\n"  # the slicer's start code purges off the bed
+            "; MACHINE_START_GCODE_END\n;LAYER_CHANGE\nG1 Z0.2\nG1 X10 Y10\n"
+            f"{toolpath_move}\n"
+            "; MACHINE_END_GCODE_START\nG1 X0 Y225 Z50\nM104 S0\nM140 S0\n")
+
+
+def test_stock_verification_holds_the_toolpath_to_the_bed_inside_the_axis_envelope(monkeypatch):
+    from print_handy.printers.flashforge_stock import adapter as stock_adapter
+    monkeypatch.setattr(stock_adapter, "recorded_job_problems", lambda text, adapter, state: [])
+    adapter = _stock_adapter()
+    assert adapter.gcode_problems(_orca_like("G1 X100 Y100 E1"), {"temps_c": {}}) == []
+    problems = adapter.gcode_problems(_orca_like("G1 X500 Y100 E1"), {"temps_c": {}})
+    assert problems and "X500" in problems[0]
+
+
+def test_stock_verification_runs_the_recorded_job_checks_with_state(monkeypatch):
+    from print_handy.printers.flashforge_stock import adapter as stock_adapter
+    seen = []
+    monkeypatch.setattr(stock_adapter, "recorded_job_problems",
+                        lambda text, adapter, state: seen.append(state) or ["nozzle 0.6 != recorded 0.4"])
+    problems = _stock_adapter().gcode_problems(_orca_like("G1 X100 Y100 E1"), {"temps_c": {}})
+    assert problems == ["nozzle 0.6 != recorded 0.4"] and seen == [{"temps_c": {}}]
+    # Without state (the cheap pre-check before /detail) only foreign start code is looked at.
+    assert _stock_adapter().gcode_problems("G1 X500 Y500\n") == []
+
+
+def test_stock_g_code_verification_never_reaches_moonraker(monkeypatch, tmp_path):
+    from print_handy import printers
+    from print_handy.core import model_job, printer_state
+    gcode = tmp_path / "plate.gcode"
+    gcode.write_text("G1 X1\n")
+    monkeypatch.setattr(printers, "current", _stock_adapter)
+    monkeypatch.setattr(printer_state, "load", lambda *a, **kw: {"temps_c": {}})
+    monkeypatch.setattr(printer_state, "check", lambda st, *a, **kw: (True, [], {}))
+    monkeypatch.setattr(model_job, "_mr", lambda *a, **kw: pytest.fail("Moonraker was queried"))
+    monkeypatch.setattr(model_job, "_verify_offline",
+                        lambda path, state: {"offline": True, "connection": "flashforge_stock"})
+    assert model_job.verify_gcode(gcode)["connection"] == "flashforge_stock"
+    assert model_job.verify_gcode_offline(gcode, {"temps_c": {}})["connection"] == "flashforge_stock"
+
+
+def test_the_printer_check_reads_stock_detail_not_moonraker(monkeypatch):
+    from print_handy.core import printer_state
+    monkeypatch.setattr(printer_state, "_check_spoolman", lambda *a, **kw: None)
+    adapter = _stock_adapter()
+    for detail, ok in (({"status": "ready"}, True), ({"status": "printing"}, False)):
+        monkeypatch.setattr(adapter, "client", lambda d=detail: _FakeStock([d]))
+        result, problems, facts = printer_state.check({"nozzle": {}}, adapter=adapter)  # no moonraker_url
+        assert result is ok and facts["connection"] == "flashforge_stock"
+        assert problems == ([] if ok else ["printer state is 'printing', not idle"])

@@ -165,6 +165,16 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
   `/spool sync`) still work in one shot. Plain requests work too, with no LLM configured: "add new
   filament", "add a new spool", "we need to add new filament" and "change / swap / replace the
   filament" start the same guided flow; ordinary discussion about filament does not.
+* `/print-spools` answers what is loaded, where, and how much is left (#744): a loaded-only,
+  read-only list — each loaded location with its spool number, brand, material, color, grams
+  left and percent left where the spool's starting weight is recorded. `/spool loaded`, a bare
+  `/print-colors` (no JOB.json; the archived-job form is unchanged), and plain asks ("what
+  colors are loaded", "current spools", "how much filament is left") answer the same way, with
+  no LLM configured. A clear typo of one of those asks ("currant spools", "what colours are <!-- us-spelling: allow colours -->
+  loded") gets a "Did you mean?" prompt first — the view is shown only on a yes, never on a
+  fuzzy match alone. The full inventory, shelf included, stays on `/spool list`. If Spoolman
+  does not answer, locations and spools are still reported from the record, with amounts
+  named unavailable.
 * Estimates account for copies. Copies cloned onto one plate carry their totals in the sliced G-code
   itself, and the slice summary, estimate breakdown and start post show those totals as-is. Sequential
   copies (`/print-again … x3`, and multi-copy parts in a multipart plan) are labelled per copy: the
@@ -173,7 +183,7 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
   quotes one copy's finish as the whole job's — sequential finishes depend on the bed-clear pauses
   between copies.
 * Slash commands: `/print-next`, `/print-stop`, `/print-resume`, `/print-again`, `/print-reboot`,
-  `/print-coldpull`, `/nozzle`, `/print-maintenance`, `/print-colors`, `/spool`, `/print-lookup`, `/print-troubleshoot`,
+  `/print-coldpull`, `/nozzle`, `/print-maintenance`, `/print-colors`, `/spool`, `/print-spools`, `/print-lookup`, `/print-troubleshoot`,
   `/print-macros` (Moonraker printers only; lists the macros the printer defines, and `run <name>` runs one behind a confirmation),
   `/print-firmware` (firmware version report on Moonraker printers; `update <component>` applies one component update behind a confirmation on ZMod and vanilla Klipper printers only; `guide zmod` / `guide stock` walk through the manual AD5X updates; other families get their manual update guidance),
   `/print-calibration` (printer calibrations with before/after values and an accept step before anything saves, on ZMod and vanilla Klipper printers; Z offset is report + guide; `records` lists past runs),
@@ -225,7 +235,7 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
   instead of pretending the message was not understood. The order is: explicit commands, deterministic phrases (like "print 57" above),
   links/files and typed answers to an open question run first and are never rerouted through the model; any
   other text goes to the model, which may answer directly or name one command from a fixed list (read-only or
-  button-gated: `/print-stop`, `/print-next`, `/spool list`, ...). A named command runs through the same
+  button-gated: `/print-stop`, `/print-next`, `/spool list`, `/print-spools`, ...). A named command runs through the same
   handler as a typed one and asks for its button the same way. Only if the model declines, names no usable
   command, errors or times out does that reply appear — once, and never together with a model reply for
   the same message. The model can never run `/spool change`, `/spool new`, `/spool sync`, `/print-colors` or

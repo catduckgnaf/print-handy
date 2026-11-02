@@ -56,10 +56,10 @@ class RealSlicerBambuWorkflowContract(unittest.TestCase):
         self.assertNotIn("tests/corpus", runs)
 
     def test_templates_come_from_the_pinned_orca_bundle(self):
+        # The bundle and runtime pins themselves live once in ci.yml's env (tests/test_orca_pins.py).
         runs = job_runs(bambu_job())
-        self.assertIn(ORCA_BUNDLE_SHA256, runs)
-        self.assertIn("OrcaSlicer-Linux-flatpak_V2.5.0-beta_x86_64.flatpak", runs)
-        self.assertIn("org.gnome.Platform//50", runs)
+        self.assertIn("sh scripts/install-orca-flatpak.sh", runs)
+        self.assertEqual(load_workflow()["env"]["ORCA_BUNDLE_SHA256"], ORCA_BUNDLE_SHA256)
 
     def test_leg_does_not_change_what_ships(self):
         # CI never builds the Docker image, and the source-build stage switch

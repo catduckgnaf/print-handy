@@ -88,3 +88,11 @@ def test_named_color_matches_the_witch_ghost_palette():
             '#FF00FF': 'pink', '#808080': 'gray', '#8B4513': 'brown', '#FFA500': 'orange',
             '#0000FF': 'blue', '#000000': 'black', '#FFFFFF': 'white'}
     assert {c: tr.named_color(c) for c in want} == want
+
+
+def test_translation_table_is_read_once_per_process():
+    tr._table.cache_clear()
+    first = tr._table()
+    tr.translate_name('Cuerpo')
+    assert tr._table() is first
+    assert tr._table.cache_info().misses == 1

@@ -10,6 +10,17 @@ defaults:
   run:
     shell: bash
 
+# The one place CI pins the real OrcaSlicer the slicer legs run (scripts/install-orca-flatpak.sh reads
+# these). ORCA_BUNDLE_VERSION is the build docker/orca-prebuilt.sh ships on the stable channel;
+# tests/test_orca_pins.py fails when the two disagree or a pin is copied into a job.
+env:
+  ORCA_BUNDLE_VERSION: 2.5.0-beta
+  ORCA_BUNDLE_SHA256: 2d2f6979a3379d5fe77c62bbdff0ea36ec415ef43c9557e118ed45b95d39de03
+  ORCA_RUNTIME_REF: runtime/org.gnome.Platform/x86_64/50
+  # Flathub ostree commit of that runtime (Build of the GNOME Runtime from 50.6-18-g0ed65ce92,
+  # 2026-10-28), recorded from `flatpak remote-info flathub runtime/org.gnome.Platform/x86_64/50`.
+  ORCA_RUNTIME_COMMIT: 4337a389125f814785bd83f4ace01da5b6baa80fdcf5a9c81e60dcd03896c067
+
 jobs:
   offline-tests:
     runs-on: ubuntu-24.04  # Debian 13 container; hosted runner supplies the VM only.
@@ -56,7 +67,8 @@ jobs:
 
   discord-timing:
     # Fake Discord flow timing on both transports, mock slicer, 3 repeats; medians must stay within
-    # tests/corpus/timing_baseline.json (+tolerance +slack). Raising a baseline needs a "reason".
+    # tests/corpus/timing_baseline.json (+10% +0.5 s, #734). Raising a baseline needs a "reason".
+    # The baseline is re-recorded from this job's artifact on every release (tests/README.md, Slicing-speed gate).
     runs-on: ubuntu-24.04  # pinned: ubuntu-latest moves to 26 on 2026-10-19
     timeout-minutes: 15
     steps:
@@ -72,15 +84,91 @@ jobs:
           mkdir -p timing
           for i in 1 2 3; do python -m tests.corpus.time_corpus --transport both --json timing/run-$i.json; done
       - name: Timing gate against the reviewed baseline
-        run: python -m tests.corpus.timing_gate timing/run-1.json timing/run-2.json timing/run-3.json
+        run: >-
+          python -m tests.corpus.timing_gate timing/run-1.json timing/run-2.json timing/run-3.json
+          --summary "$GITHUB_STEP_SUMMARY" --title "Discord flow timing (mock slicer, required)"
       - name: Proposed baseline from this runner (for review, never applied automatically)
         if: always()
-        run: python -m tests.corpus.timing_gate timing/run-*.json --record > timing/proposed-baseline.json || true
+        run: >-
+          python -m tests.corpus.timing_gate timing/run-*.json --record
+          --recorded-from "CI run ${{ github.run_id }} (${{ github.sha }}), artifact discord-timing, median of 3"
+          > timing/proposed-baseline.json || true
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: discord-timing
           path: timing/
+
+  slicer-timing-real:
+    name: Slicer timing (real Orca, reporting only)
+    # #734 real-slicer leg: a small fixed set of corpus cases goes end to end through the fake Discord
+    # flow with the pinned Orca (same install as Slicer test (stable)), 3 repeats, medians compared to
+    # tests/corpus/timing_baseline_real_slicer.json. REPORTING ONLY while its runner noise is measured:
+    # problems are warning annotations, the gate step exits 0, and the job is continue-on-error. It is
+    # not a required status check; promote it (drop --warn-only and continue-on-error) only after a few
+    # releases of data, as tests/README.md (Slicing-speed gate) describes. Cases are the ones that slice in seconds;
+    # must-shrink (minutes, a 347 MB G-code) is deliberately left out.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    continue-on-error: true
+    env:
+      ORCA_FLATPAK_APP_ID: com.orcaslicer.OrcaSlicer
+      PRINT_HANDY_REAL_SLICER: "1"
+      # Same pin tests/conftest.py applies to the real-slicer corpus tests these cases come from.
+      PRINT_HANDY__LAYOUT__SPACING: medium
+      TIMING_CASES: >-
+        --case single-part --case stl-single-part --case plates-multicolor
+        --case witch-ghost-cults3d --case rotation-fit
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-test.txt
+      - run: python -m pip install -r requirements-test.txt
+      - name: Install flatpak and xvfb
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q flatpak xvfb
+      - name: Cache the pinned OrcaSlicer bundle and runtime
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/orcaslicer-v${{ env.ORCA_BUNDLE_VERSION }}.flatpak
+            ~/.local/share/flatpak
+          key: orcaslicer-flatpak-v${{ env.ORCA_BUNDLE_VERSION }}-${{ env.ORCA_RUNTIME_COMMIT }}-${{ runner.os }}-x86_64
+      - name: Install the pinned OrcaSlicer bundle and GNOME runtime
+        run: sh scripts/install-orca-flatpak.sh
+      - name: Warm-up slice (not timed; first flatpak start pays one-off costs)
+        run: xvfb-run -a python -m tests.corpus.time_corpus --real-slicer --transport hermes --case single-part || true
+      - name: Time the real-slicer cases (3 repeats, hermes transport)
+        run: |
+          mkdir -p slicer-timing
+          # shellcheck disable=SC2086 # TIMING_CASES is a list of --case arguments
+          for i in 1 2 3; do
+            # A failed flow is reported by the comparison below; it must not stop the remaining repeats.
+            xvfb-run -a python -m tests.corpus.time_corpus --real-slicer --transport hermes $TIMING_CASES \
+              --json "slicer-timing/run-$i.json" \
+              || echo "::warning title=Timing (reporting only)::repeat $i had a failed or errored flow"
+          done
+      - name: Compare with the real-slicer baseline (warnings only)
+        run: >-
+          python -m tests.corpus.timing_gate slicer-timing/run-1.json slicer-timing/run-2.json slicer-timing/run-3.json
+          --baseline tests/corpus/timing_baseline_real_slicer.json --warn-only
+          --summary "$GITHUB_STEP_SUMMARY" --title "Slicer timing (real Orca, reporting only)"
+      - name: Proposed baseline from this runner (for review, never applied automatically)
+        if: always()
+        run: >-
+          python -m tests.corpus.timing_gate slicer-timing/run-*.json
+          --baseline tests/corpus/timing_baseline_real_slicer.json --record
+          --recorded-from "CI run ${{ github.run_id }} (${{ github.sha }}), artifact slicer-timing-real, median of 3"
+          > slicer-timing/proposed-baseline.json || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: slicer-timing-real
+          path: slicer-timing/
 
   dependency-audit:
     # Known-vulnerability check of the requirement files. It does not upgrade anything.
@@ -148,7 +236,7 @@ jobs:
 
   slicer-test-stable:
     name: Slicer test (stable)
-    # The production track: OrcaSlicer v2.5.0-beta is the shipped slicer (#356), so the full
+    # The production track: the stable build docker/orca-prebuilt.sh pins is the shipped slicer (#356), so the full
     # corpus and the slicer fixtures run against its upstream flatpak bundle. That bundle ships
     # packed vendor profiles only (BBL.opc), so this job is also the packed-tree proof:
     # template generation here goes through print_handy's preset-cache reader.
@@ -171,46 +259,23 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q flatpak xvfb
-      - name: Cache OrcaSlicer 2.5.0 beta bundle and runtime
+      - name: Cache the pinned OrcaSlicer bundle and runtime
         uses: actions/cache@v6
         with:
           path: |
-            ~/.cache/orcaslicer-v2.5.0-beta.flatpak
+            ~/.cache/orcaslicer-v${{ env.ORCA_BUNDLE_VERSION }}.flatpak
             ~/.local/share/flatpak
-          key: orcaslicer-flatpak-v2.5.0-beta-${{ runner.os }}-x86_64
-      - name: Download and verify upstream OrcaSlicer v2.5.0-beta bundle
-        run: |
-          set -euo pipefail
-          bundle="$HOME/.cache/orcaslicer-v2.5.0-beta.flatpak"
-          mkdir -p "$(dirname "$bundle")"
-          if [ -f "$bundle" ] && ! echo '2d2f6979a3379d5fe77c62bbdff0ea36ec415ef43c9557e118ed45b95d39de03  '"$bundle" | sha256sum --check --status; then
-            rm "$bundle"
-          fi
-          if [ ! -f "$bundle" ]; then
-            curl --fail --location --retry 3 --output "$bundle" \
-              https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v2.5.0-beta/OrcaSlicer-Linux-flatpak_V2.5.0-beta_x86_64.flatpak
-          fi
-          echo '2d2f6979a3379d5fe77c62bbdff0ea36ec415ef43c9557e118ed45b95d39de03  '"$bundle" | sha256sum --check
-          echo "ORCA_PREVIEW_BUNDLE=$bundle" >> "$GITHUB_ENV"
-      - name: Install OrcaSlicer app bundle and runtime
-        run: |
-          set -euo pipefail
-          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user -y --noninteractive flathub org.gnome.Platform//50
-          # The restored cache may already contain the app; do not reinstall its bundle.
-          if ! flatpak info --user --show-ref "$ORCA_FLATPAK_APP_ID" >/dev/null 2>&1; then
-            flatpak install --user --bundle -y --noninteractive "$ORCA_PREVIEW_BUNDLE"
-          fi
-          flatpak info --user --show-ref "$ORCA_FLATPAK_APP_ID"
-          flatpak info --user --show-commit "$ORCA_FLATPAK_APP_ID"
-      - name: Run slicer tests (2.5.0 beta)
+          key: orcaslicer-flatpak-v${{ env.ORCA_BUNDLE_VERSION }}-${{ env.ORCA_RUNTIME_COMMIT }}-${{ runner.os }}-x86_64
+      - name: Install the pinned OrcaSlicer bundle and GNOME runtime
+        run: sh scripts/install-orca-flatpak.sh
+      - name: Run slicer tests (pinned Orca)
         run: xvfb-run -a python -m pytest -v -s tests/slicer
       - name: Discord flow corpus with real Orca
         run: xvfb-run -a python -m pytest -v -s tests/corpus
 
   slicer-test-preview:
     name: Slicer test (preview)
-    # The preview channel pins the same v2.5.0-beta build as production (both
+    # The preview channel pins the same build as production (both
     # channels in docker/orca-prebuilt.sh pin it), so this job runs the same
     # bundle as Slicer test (stable) on a fast subset as a smoke track. When
     # upstream publishes a newer prerelease, point this job at it to restore
@@ -235,41 +300,18 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q flatpak xvfb
-      - name: Cache OrcaSlicer 2.5.0 beta bundle and runtime
+      - name: Cache the pinned OrcaSlicer bundle and runtime
         uses: actions/cache@v6
         with:
           path: |
-            ~/.cache/orcaslicer-v2.5.0-beta.flatpak
+            ~/.cache/orcaslicer-v${{ env.ORCA_BUNDLE_VERSION }}.flatpak
             ~/.local/share/flatpak
-          key: orcaslicer-flatpak-v2.5.0-beta-${{ runner.os }}-x86_64
-      - name: Download and verify upstream OrcaSlicer v2.5.0-beta bundle
-        run: |
-          set -euo pipefail
-          bundle="$HOME/.cache/orcaslicer-v2.5.0-beta.flatpak"
-          mkdir -p "$(dirname "$bundle")"
-          if [ -f "$bundle" ] && ! echo '2d2f6979a3379d5fe77c62bbdff0ea36ec415ef43c9557e118ed45b95d39de03  '"$bundle" | sha256sum --check --status; then
-            rm "$bundle"
-          fi
-          if [ ! -f "$bundle" ]; then
-            curl --fail --location --retry 3 --output "$bundle" \
-              https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v2.5.0-beta/OrcaSlicer-Linux-flatpak_V2.5.0-beta_x86_64.flatpak
-          fi
-          echo '2d2f6979a3379d5fe77c62bbdff0ea36ec415ef43c9557e118ed45b95d39de03  '"$bundle" | sha256sum --check
-          echo "ORCA_PREVIEW_BUNDLE=$bundle" >> "$GITHUB_ENV"
-      - name: Install OrcaSlicer app bundle and runtime
-        run: |
-          set -euo pipefail
-          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user -y --noninteractive flathub org.gnome.Platform//50
-          # The restored cache may already contain the app; do not reinstall its bundle.
-          if ! flatpak info --user --show-ref "$ORCA_FLATPAK_APP_ID" >/dev/null 2>&1; then
-            flatpak install --user --bundle -y --noninteractive "$ORCA_PREVIEW_BUNDLE"
-          fi
-          flatpak info --user --show-ref "$ORCA_FLATPAK_APP_ID"
-          flatpak info --user --show-commit "$ORCA_FLATPAK_APP_ID"
-      - name: Run slicer tests (2.5.0 beta)
+          key: orcaslicer-flatpak-v${{ env.ORCA_BUNDLE_VERSION }}-${{ env.ORCA_RUNTIME_COMMIT }}-${{ runner.os }}-x86_64
+      - name: Install the pinned OrcaSlicer bundle and GNOME runtime
+        run: sh scripts/install-orca-flatpak.sh
+      - name: Run slicer tests (pinned Orca)
         run: xvfb-run -a python -m pytest -v -s tests/slicer
-      - name: Run representative Discord fixtures (2.5.0 beta only)
+      - name: Run representative Discord fixtures (pinned Orca)
         run: >-
           xvfb-run -a python -m pytest -v -s
           tests/corpus/test_corpus.py::test_discord_flow[single-part]
@@ -313,34 +355,11 @@ jobs:
         uses: actions/cache@v6
         with:
           path: |
-            ~/.cache/orcaslicer-v2.5.0-beta.flatpak
+            ~/.cache/orcaslicer-v${{ env.ORCA_BUNDLE_VERSION }}.flatpak
             ~/.local/share/flatpak
-          key: slicer-test-bambu-flatpak-${{ env.BAMBU_FLATPAK_COMMIT }}-${{ runner.os }}-x86_64
-      - name: Download and verify upstream OrcaSlicer v2.5.0-beta bundle
-        run: |
-          set -euo pipefail
-          bundle="$HOME/.cache/orcaslicer-v2.5.0-beta.flatpak"
-          mkdir -p "$(dirname "$bundle")"
-          if [ -f "$bundle" ] && ! echo '2d2f6979a3379d5fe77c62bbdff0ea36ec415ef43c9557e118ed45b95d39de03  '"$bundle" | sha256sum --check --status; then
-            rm "$bundle"
-          fi
-          if [ ! -f "$bundle" ]; then
-            curl --fail --location --retry 3 --output "$bundle" \
-              https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v2.5.0-beta/OrcaSlicer-Linux-flatpak_V2.5.0-beta_x86_64.flatpak
-          fi
-          echo '2d2f6979a3379d5fe77c62bbdff0ea36ec415ef43c9557e118ed45b95d39de03  '"$bundle" | sha256sum --check
-          echo "ORCA_PREVIEW_BUNDLE=$bundle" >> "$GITHUB_ENV"
-      - name: Install OrcaSlicer app bundle and runtime
-        run: |
-          set -euo pipefail
-          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user -y --noninteractive flathub org.gnome.Platform//50
-          # The restored cache may already contain the app; do not reinstall its bundle.
-          if ! flatpak info --user --show-ref "$ORCA_FLATPAK_APP_ID" >/dev/null 2>&1; then
-            flatpak install --user --bundle -y --noninteractive "$ORCA_PREVIEW_BUNDLE"
-          fi
-          flatpak info --user --show-ref "$ORCA_FLATPAK_APP_ID"
-          flatpak info --user --show-commit "$ORCA_FLATPAK_APP_ID"
+          key: slicer-test-bambu-flatpak-${{ env.BAMBU_FLATPAK_COMMIT }}-v${{ env.ORCA_BUNDLE_VERSION }}-${{ env.ORCA_RUNTIME_COMMIT }}-${{ runner.os }}-x86_64
+      - name: Install the pinned OrcaSlicer bundle and GNOME runtime
+        run: sh scripts/install-orca-flatpak.sh
       - name: Install Bambu Studio from Flathub at the pinned commit
         run: |
           set -euo pipefail

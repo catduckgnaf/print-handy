@@ -78,6 +78,17 @@ TIME_HEADER=re.compile(r"(?im)^;\s*(?:estimated printing time(?:\s*\([^)]*\))?|e
 MOVE=re.compile(r"^\s*G[0-3]\b([^;]*)",re.I)
 WORD=re.compile(r"\b([XYZE])\s*(-?(?:\d+(?:\.\d*)?|\.\d+))",re.I)
 HERMES_SLOT_PATTERN = re.compile(r"^Hermes slot \d+(?:\s+\S.*)?$", re.I)
+# Per-line patterns, compiled once: a large plate runs to 10M+ lines.
+OPCODE = re.compile(r"^([GMT])0*(\d)")
+WORD_TOKEN = re.compile(r"([A-Z])(-?(?:\d+(?:\.\d*)?|\.\d+))")
+BRIM_TYPE = re.compile(r"^;\s*brim_type\s*=\s*(.*)$", re.I)
+Z_HOP_TYPES = re.compile(r"^;\s*(filament_z_hop_types|z_hop_types)\s*=\s*(.*)$", re.I)
+SETTINGS_ID = re.compile(r"^;\s*((?:filament|printer|print)_settings_id)\s*=\s*(.*)$", re.I)
+ARC_FITTING = re.compile(r"^;\s*enable_arc_fitting\s*=\s*(.*)$", re.I)
+EFFECTIVE_SETTING = re.compile(
+    r"^;\s*(filament_z_hop_types|z_hop_types|filament_wipe|"
+    r"filament_wipe_distance|filament_settings_id|printer_settings_id|"
+    r"print_settings_id|brim_type)\s*=\s*(.*)$", re.I)
 
 
 def is_allowed_filament_id(value, own_ids=None):
@@ -190,10 +201,10 @@ class Motion:
         if not code:
             return None, {}, None, None
         parts = code.split()
-        op = re.sub(r"^([GMT])0*(\d)", r"\1\2", parts[0])
+        op = OPCODE.sub(r"\1\2", parts[0])
         words = {}
         for part in parts[1:]:
-            m = re.fullmatch(r"([A-Z])(-?(?:\d+(?:\.\d*)?|\.\d+))", part)
+            m = WORD_TOKEN.fullmatch(part)
             if m:
                 words[m.group(1)] = float(m.group(2))
         if op in ("G90", "G91"):
@@ -294,7 +305,7 @@ def toolpath_motion_problems(text, bed, envelope, height=None, z_headroom=1.0):
             arc_start = None
             if part == "toolpath":
                 tokens = line.split(";", 1)[0].split()
-                if tokens and re.sub(r"^([GMT])0*(\d)", r"\1\2", tokens[0].upper()) in ("G2", "G3"):
+                if tokens and OPCODE.sub(r"\1\2", tokens[0].upper()) in ("G2", "G3"):
                     arc_start = dict(motion.pos)
             op, words, target, delta = motion.step(line)
             where = f"{part} line {number}: {line.split(';', 1)[0].strip()[:60]}"
@@ -370,15 +381,17 @@ def post_slice(gcode, *, filament_slots=None, tool_slots=None, bed=None, result_
         own_filament_ids.update(str(value).strip().strip('"') for value in (values if isinstance(values, list) else [values]))
     if re.search(r"(?m)^;\s*filament_settings_id\s*=", text, re.I) and not own_filament_ids:
         r.block("Cannot verify filament_settings_id slots: no active template filament IDs are available.")
-    for line in text.splitlines():
-        match_brim = re.match(r"^;\s*brim_type\s*=\s*(.*)$", line, re.I)
+    # Every setting pattern below is anchored at a leading ';', so only comment lines can match.
+    comments = [line for line in text.splitlines() if line.startswith(';')]
+    for line in comments:
+        match_brim = BRIM_TYPE.match(line)
         if match_brim:
             val = match_brim.group(1).strip().strip('"')
             allowed_brim = own_settings.get('brim_type')
             # Turning the brim off is Print Handy's own choice (fit policy, flex prints), never foreign.
             if allowed_brim is not None and val.lower() not in (str(allowed_brim).strip().lower(), 'no_brim'):
                 r.block(f"Foreign effective setting brim_type: {val!r}; expected {allowed_brim!r}.")
-        match = re.match(r"^;\s*(filament_z_hop_types|z_hop_types)\s*=\s*(.*)$", line, re.I)
+        match = Z_HOP_TYPES.match(line)
         if match:
             key, value = match.group(1), match.group(2)
             for slot, entry in enumerate(value.split(','), 1):
@@ -387,7 +400,7 @@ def post_slice(gcode, *, filament_slots=None, tool_slots=None, bed=None, result_
                     continue
                 if raw.lower() != 'normal lift':
                     r.block(f"Unsafe effective setting {key} slot {slot}: {raw!r}; only Normal Lift is permitted.")
-        match = re.match(r"^;\s*((?:filament|printer|print)_settings_id)\s*=\s*(.*)$", line, re.I)
+        match = SETTINGS_ID.match(line)
         if match:
             key = match.group(1).lower()
             entries = match.group(2).split(';') if key == 'filament_settings_id' else [match.group(2)]
@@ -398,7 +411,7 @@ def post_slice(gcode, *, filament_slots=None, tool_slots=None, bed=None, result_
                 is_allowed = is_allowed_filament_id(value, own_ids) if key == 'filament_settings_id' else (value in own_ids)
                 if not value or not is_allowed:
                     r.block(f"Foreign effective setting {match.group(1)} slot {slot}: {value!r}.")
-        match = re.match(r"^;\s*enable_arc_fitting\s*=\s*(.*)$", line, re.I)
+        match = ARC_FITTING.match(line)
         if match and match.group(1).strip() == '1':
             r.block("Unsafe effective setting enable_arc_fitting=1.")
     if "g-code conflicts detected" in low or "slicing result conflict" in low or "gcode path conflicts" in low:
@@ -428,11 +441,8 @@ def post_slice(gcode, *, filament_slots=None, tool_slots=None, bed=None, result_
             coords.append((x,y))
             if x<0 or y<0 or x>bed[0] or y>bed[1]: r.block(f"G-code move goes off the {bed[0]:g}x{bed[1]:g} mm bed at X{x:g} Y{y:g}."); break
     effective = {}
-    for line in text.splitlines():
-        match = re.match(
-            r"^;\s*(filament_z_hop_types|z_hop_types|filament_wipe|"
-            r"filament_wipe_distance|filament_settings_id|printer_settings_id|"
-            r"print_settings_id|brim_type)\s*=\s*(.*)$", line, re.I)
+    for line in comments:
+        match = EFFECTIVE_SETTING.match(line)
         if match:
             effective[match.group(1)] = match.group(2).strip()
     slot_details = []

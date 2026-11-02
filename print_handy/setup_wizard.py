@@ -324,6 +324,23 @@ def _ask_printer(w, prefix="", roster=False):
     printer = {"model": key, **printer}
     services, notes, actions = {}, [], []
 
+    # Thermal facts (issue #720): guided setup surfaces only the facts that
+    # are unknown for this model, the way it asks about filament and
+    # nozzles for known choices. The questions are shown as a note and kept
+    # on the record; no answer is recorded as a setting and nothing is
+    # inferred from "enclosed".
+    thermal_questions = []
+    try:
+        from .knowledge import thermal_entry_for_model, thermal_setup_questions
+        thermal_entry = thermal_entry_for_model(key)
+        if thermal_entry is not None:
+            thermal_questions = thermal_setup_questions(thermal_entry)
+    except Exception:
+        thermal_questions = []
+    if thermal_questions:
+        notes.append(f"Thermal facts still unknown for {display} (not assumed): "
+                     + "; ".join(q["question"] for q in thermal_questions))
+
     # Connection
     connection = vendor.connection
     bambu_lan, bambu_code = {}, ""
@@ -426,6 +443,7 @@ def _ask_printer(w, prefix="", roster=False):
         "prusa_key": prusa_key, "elegoo_sdcp_host": elegoo_sdcp_host,
         "octoprint_key": octoprint_key, "has_software": has_software,
         "material": material, "slicer": slicer, "flatpaks": flatpaks,
+        "thermal_questions": thermal_questions,
         "id": "", "chat_id": "",
     }
 

@@ -165,7 +165,7 @@ ENV PRINT_HANDY_CONFIG=/app/config/docker.yaml HOME=/data PRINT_HANDY__BOT__MODE
 # directly, and the entrypoint validates the name against this database.
 RUN ln -snf "/usr/share/zoneinfo/$TZ" /etc/localtime && printf '%s\n' "$TZ" > /etc/timezone
 VOLUME ["/data/hermes", "/data/archive", "/data/records", "/data/cache", "/data/spoolman"]
-EXPOSE 8000
+EXPOSE 8000 8088
 COPY docker/supervise.sh /usr/local/bin/print-handy-supervise
 COPY docker/healthcheck.py /usr/local/bin/print-handy-healthcheck
 RUN mkdir -p /data/hermes/state /data/archive /data/records /data/cache /data/spoolman/config /data/spoolman/logs /data/spoolman/backups && \

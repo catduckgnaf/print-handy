@@ -148,6 +148,71 @@ their filaments to extruders in the file itself, and print starts resolve AMS tr
 per filament slot. The Prusa XL's Stage 1 posture ended with #670: it is
 `multi_tool`, driven through the same adapter contract as the Creator pair.
 
+## Thermal capabilities
+
+Every registered model carries a structured thermal record in its
+`[printer.thermal]` table in `printers/registry/<vendor>.toml` (issue #720),
+loaded as `PrinterEntry.thermal` by `print_handy/knowledge/registry.py` and
+surfaced by `print_handy/knowledge/thermal.py`:
+
+- **Enclosure:** `enclosed`, `open`, or `unknown`, plus whether door or lid
+  state is knowable at all (`yes` / `no` / `unknown`).
+- **Chamber heater:** whether one is present (`present` / `absent` /
+  `unknown`) and whether active control is `supported`, `not_supported`, or
+  `unknown`. Control is recorded as `supported` only when
+  `chamber_heater_evidence` names a verified firmware command or macro.
+  For example, the Creator 5 Pro's control was recorded `unknown` in #720
+  because the Creator models' stock firmware support is undocumented; the
+  #740 evidence pass found the ZMod config for this record carries a
+  `[heater_generic chamber_heater]` with PID control, so control is now
+  `supported` for the ZMod record — still on named evidence, never
+  inferred from "enclosed". The AD5M Pro is enclosed and passive (no chamber heater).
+  The AD5X has no chamber heater, but its enclosure is a separate kit, so
+  its enclosure is recorded `unknown` and guided setup asks about it. An open-frame model such as the AD5M or the Ender-3
+  presets has no chamber heater.
+- **Chamber sensor:** whether one is present, and whether a connected
+  printer can report a fresh reading at slice time. The #740 evidence
+  pass filled these from named sources (firmware configs, vendor API
+  surfaces, upstream OrcaSlicer system profiles, vendor documentation);
+  both stay `unknown` for any model no source settles.
+- **Fan mapping:** part-cooling, auxiliary, exhaust, and filtration fans,
+  each `present` / `absent` / `unknown` with a mapping that is either a
+  verified index or macro name or `unknown`. Orca's documented convention
+  (M106 P0 part, P2 auxiliary, P3 exhaust) is not assumed to be a model's
+  actual wiring — a mapping is recorded only when a source names the
+  index, macro, or fan object for that model (issue #740). Print Handy's
+  own Orca templates are never evidence: they carry boilerplate accessory
+  values even on open-frame models.
+- **Provenance:** each fact group (enclosure, chamber, fans) names its
+  provenance: `vendor documentation`, `verified profile`,
+  `operator-confirmed`, or `unknown`. A fact is only recorded as known
+  when a named source supports it; since #740 those sources are the
+  per-family evidence tables on that issue (firmware/vendor configs and
+  API surfaces first, upstream OrcaSlicer system profiles second, vendor
+  manuals and specs for presence claims only). When in doubt, the value
+  is `unknown`, and a test pins that any known fan, sensor, or door fact
+  carries a non-`unknown` provenance.
+
+Two surfaces use the record, and neither changes any behavior:
+
+- **Guided setup** (`print_handy/setup_wizard.py`) lists, for the chosen
+  model, questions for only the thermal facts that are unknown for that
+  model — the questions come from `thermal_setup_questions`. Known facts
+  are not asked about again.
+- **Slice summary** (`format_slice_summary`) appends the thermal
+  assumption lines from `thermal_assumptions_lines` when a job names a
+  registered model: enclosure, chamber capability, and fan facts, with
+  unknown shown as unknown, so the operator sees what was assumed before
+  confirming.
+
+No setting is added and no default changes: no fan, temperature, or
+chamber command is sent or enabled by recording or showing these facts.
+A note that says a model's geometry is the same as another model's means
+geometry only; the thermal facts are recorded separately, as above.
+Surface verdict: no new variable — Defaults tree, environment loader,
+Web UI catalog, and Unraid templates are unchanged, and `docs/SETTINGS.md`
+needs no row because there is no new setting.
+
 ## Config
 
 Existing configs keep working unchanged:
@@ -228,6 +293,12 @@ Every file is one message with one `MEDIA:` attachment, labelled "Plate n of m".
 **Said before the button, not after (#272).** The post-slice menu sizes each file before it offers "Send the files here". A plain `.gcode` over the cap is deflated once, in memory, to learn what its zip would weigh; a `.gcode.3mf` package counts as is. A file that cannot fit in any form is named in the same message with its size, the cap and its path on the Print Handy host (for a Bambu package, `<archive>/<job>/sliced/.../bambu/plate_1.gcode.3mf`), and when nothing fits the button is left out, so the operator never picks a download that fails. Files under the cap are attached exactly as before. The per-file check at send time stays as a safety net for a borderline file. The cap is [`discord.upload_max_bytes`](SETTINGS.md) (`PRINT_HANDY__DISCORD__UPLOAD_MAX_BYTES`); raise it only when your server's boost level allows larger uploads. Large files stay on the host; Print Handy has no download server, so fetch them from the archive path it names.
 
 **Failures and retries.** A failed upload (the adapter reports `success=False`, or the send raises) is reported with the error, and the option stays in the menu. A retry sends only the files not yet delivered. Too-big files cannot be fixed by a retry, so they count as reported and the option closes. Every attempt is recorded under `deliveries` in the intake receipt. Expiry and cancellation behave as before.
+
+## Source-profile compatibility warnings (#722)
+
+A model's project settings can name the printer they were authored for (`printer_model_id` / `printer_settings_id` in `project_settings.config`). When that printer is demonstrably not the target printer (an exact name match after ignoring case, separators and a nozzle suffix, against the target label and the `printer_model` / `printer_settings_id` its own machine template declares; a variant such as "Kobra 2 Pro" is never treated as "Kobra 2"), Print Handy compares the authored motion and fan values against the target's verified facts — the axis speed and acceleration limits in its own machine template, and the 0–100% fan scale, checked for every filament in a multi-filament project — and shows a warning on the slice confirmation for each value outside them, naming the value, the source profile it came from, and the target fact it conflicts with. Values with no verified target range (wall count, brim width) are never warned about, and a source that names no printer produces no warnings.
+
+Warnings never change a setting. The existing precedence is unchanged and unaffected by warnings: template/vendor profile first, then the filament-family overlay, material-variant adjustments, and operator/spool values last (they win). Any future automatic translation of foreign values would be a separate issue with its own test matrix.
 
 ## Bambu Lab
 

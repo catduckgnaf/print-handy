@@ -1686,8 +1686,10 @@ def zmod_md5_valid(path):
 
 
 def finalize_multicolor(*args, **kwargs):
-    """ZMod color/slot-map insertion and MD5, through the printer adapter."""
-    return printers.current().native.finalize(*args, **kwargs)
+    """ZMod color/slot-map insertion and MD5, through the printer adapter. A printer without the
+    ZMod contract (the stock AD5X, #658) gets nothing inserted: its launch binds the slot from the job."""
+    native = printers.current().native_or_none
+    return None if native is None else native.finalize(*args, **kwargs)
 
 
 def native_heater_lines_valid(text, bed, hotend):
@@ -2229,10 +2231,13 @@ def _native():
     return printers.current().has_native_screen
 
 
+_TOOL_LINE_RE = re.compile(r"T(\d+)(?:\s*;.*)?")
+
+
 def _gcode_tools(text):
     """Tool indexes a G-code selects with a bare Tn line."""
     return {int(m.group(1)) for line in text.splitlines()
-            if (m := re.fullmatch(r"T(\d+)(?:\s*;.*)?", line.strip()))}
+            if (m := _TOOL_LINE_RE.fullmatch(line.strip()))}
 
 
 def _refuse_multicolor(text):
@@ -2612,7 +2617,7 @@ def verify_gcode_offline(gcode_path, state):
     artifact against the already loaded hardware record: MD5 when present,
     native heater prefix, nozzle, material, start and end, and motion bounds.
     """
-    if printers.current().connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp'):
+    if printers.current().connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp', 'flashforge_stock'):
         return _verify_offline(gcode_path, state)
     p = Path(gcode_path)
     raw = p.read_bytes()
@@ -2701,7 +2706,7 @@ def verify_gcode(gcode_path):
     the spool's recorded material/density and the recorded temperatures are
     the fallback when Spoolman is unreachable.
     """
-    if printers.current().connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp'):
+    if printers.current().connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp', 'flashforge_stock'):
         st = printer_state.load(); ok, probs, facts = printer_state.check(st)
         _print_check_warnings(facts)
         if not ok: raise RuntimeError("the printer check did not pass:\n  " + "\n  ".join(probs))
@@ -5749,7 +5754,8 @@ def _wait_printing(st, remote, wait_s, prep_check=None):
     t0=time.monotonic(); state=None
     while time.monotonic()-t0 < wait_s:
         state,fn,busy=_printer_phase(st)
-        if state=="printing" and fn==remote: return "printing"
+        # A ZMod .gcode.3mf prints as 3mf_print/X.gcode; an exact compare never matched and sat out wait_s.
+        if state=="printing" and launch_state.same_remote(fn, remote): return "printing"
         if state in ("error","cancelled"): return state
         if prep_check and time.monotonic()-t0 > 2:
             try:

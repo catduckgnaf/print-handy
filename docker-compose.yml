@@ -74,15 +74,15 @@ services:
       PRINT_HANDY__DESIGN__API_KEY_ENV: ${PRINT_HANDY__DESIGN__API_KEY_ENV:-}
       PRINT_HANDY__DESIGN__TIMEOUT_S: ${PRINT_HANDY__DESIGN__TIMEOUT_S:-180}
       PRINT_HANDY__DESIGN__REPAIR_ATTEMPTS: ${PRINT_HANDY__DESIGN__REPAIR_ATTEMPTS:-3}
-      # Optional Web UI (#286, docs/DOCKER.md "Web UI"): off by default. To serve
-      # it beyond the container, set ENABLED=true and PORT (for example 8088),
-      # set HOST=0.0.0.0, publish the port below, and set WEBUI_ACCESS_TOKEN in
-      # .env — a non-loopback bind without the token is refused. The token is a
-      # secret: it reaches the container through the .env env_file only, never
-      # an environment: entry here.
-      PRINT_HANDY__WEBUI__ENABLED: ${PRINT_HANDY__WEBUI__ENABLED:-false}
-      PRINT_HANDY__WEBUI__HOST: ${PRINT_HANDY__WEBUI__HOST:-127.0.0.1}
-      PRINT_HANDY__WEBUI__PORT: ${PRINT_HANDY__WEBUI__PORT:-0}
+      # Optional Web UI (#286, docs/DOCKER.md "Web UI"): served inside the
+      # container on 8088 by default (#708), but nothing reaches it until the
+      # port is published below. With no WEBUI_ACCESS_TOKEN in .env the first
+      # visit shows a setup page: set a password or confirm it stays open. The token is a secret: it
+      # reaches the container through the .env env_file only, never an
+      # environment: entry here. ENABLED=false turns it off entirely.
+      PRINT_HANDY__WEBUI__ENABLED: ${PRINT_HANDY__WEBUI__ENABLED:-true}
+      PRINT_HANDY__WEBUI__HOST: ${PRINT_HANDY__WEBUI__HOST:-0.0.0.0}
+      PRINT_HANDY__WEBUI__PORT: ${PRINT_HANDY__WEBUI__PORT:-8088}
       # Live camera in Discord (#311, docs/DOCKER.md "Live camera in Discord"):
       # off by default. ENABLED=true plus a voice channel, the tunnel's https
       # activity origin and a loopback PORT (for example 8091) starts the
@@ -116,9 +116,9 @@ services:
       - ${PRINT_HANDY_DATA:-./data}/records:/data/records
       - ${PRINT_HANDY_DATA:-./data}/cache:/data/cache
       - ${PRINT_HANDY_SPOOLMAN_DATA:-./data/spoolman}:/data/spoolman
-    # No port is published by default. To reach the optional Web UI from the
-    # host when it is enabled above, uncomment (host port 8088 to the Web UI
-    # port) — keep it on the LAN only, never forward it from a router:
+    # No port is published by default. To reach the Web UI from the host,
+    # uncomment (host port 8088 to the Web UI port) — keep it on the LAN only,
+    # never forward it from a router:
     # ports:
     #   - "8088:${PRINT_HANDY__WEBUI__PORT:-8088}"
     # Optional bundled Spoolman API on the LAN (#443): for Moonraker on

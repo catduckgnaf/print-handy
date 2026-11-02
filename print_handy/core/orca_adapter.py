@@ -1147,6 +1147,23 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                 data['filament_flow_ratio'] = [str(round(float(data['filament_flow_ratio'][0]) * adj['flow_multiplier'], 4))]
             except (ValueError, TypeError):
                 pass
+        variant = material_adjustments(material)
+        layer_min = variant['slow_down_layer_time_min']
+        if layer_min is not None:
+            try:
+                current = float((data.get('slow_down_layer_time') or ['0'])[0])
+            except (ValueError, TypeError):
+                current = 0.0
+            if current < layer_min:
+                data['slow_down_layer_time'] = [format(layer_min, 'g')]
+        flow_max = variant['max_volumetric_speed_max']
+        if flow_max is not None:
+            try:
+                current = float((data.get('filament_max_volumetric_speed') or ['0'])[0])
+            except (ValueError, TypeError):
+                current = 0.0
+            if current <= 0 or current > flow_max:
+                data['filament_max_volumetric_speed'] = [format(flow_max, 'g')]
         bed = str(temps_c['bed'] if bed_c is None else bed_c)
         for key in ('cool_plate_temp', 'eng_plate_temp', 'hot_plate_temp', 'textured_plate_temp'):
             data[key] = data[key + '_initial_layer'] = [bed]
@@ -1169,8 +1186,11 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     # Orca's built-in default instead, so the factor never silently does nothing.
     job_materials = [state['spool']['material']] + [
         (state.get('filament_slots') or {}).get(str(position), {}).get('material') for position in (mapping or {}).values()]
-    factor = min(material_adjustments(m)['outer_wall_speed_factor'] for m in job_materials if m)
-    if factor != 1.0:
+    job_adjustments = [material_adjustments(m) for m in job_materials if m]
+    factor = min(a['outer_wall_speed_factor'] for a in job_adjustments)
+    caps = [a['outer_wall_speed_max'] for a in job_adjustments if a['outer_wall_speed_max'] is not None]
+    cap = min(caps) if caps else None
+    if factor != 1.0 or cap is not None:
         try:
             authored = float(process['outer_wall_speed'])
         except (KeyError, ValueError, TypeError):
@@ -1179,7 +1199,12 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             authored = ORCA_DEFAULT_OUTER_WALL_SPEED
             print(f"OUTER WALL SPEED: the process template sets none; scaling Orca's default "
                   f"{authored:g} mm/s by {factor:g} for the slowest finish in this job", flush=True)
-        process['outer_wall_speed'] = str(round(authored * factor, 1))
+        speed = authored * factor
+        if cap is not None and speed > cap:
+            print(f"OUTER WALL SPEED: {speed:g} mm/s capped at {cap:g} mm/s for the slowest finish in this job",
+                  flush=True)
+            speed = float(cap)
+        process['outer_wall_speed'] = str(round(speed, 1))
     configs = []
     for name, data in zip(('machine', 'process', 'filament'), (machine, process, filament)):
         path = folder / f'{name}.json'
@@ -1583,8 +1608,11 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         # Explicit T0 (one physical slot) and per-part maps share the mapped
         # finalizer: one slot record, one zmod_color_data line, one checksum.
         # mapped_profile stays the prime-tower flag; this branch does not
-        # build a tower or a second filament profile.
-        printer.native.finalize(output, None, state, mapping)
+        # build a tower or a second filament profile. A printer without the ZMod
+        # contract (the stock AD5X, #658) binds its slot from the job at launch.
+        native = printer.native_or_none
+        if native is not None:
+            native.finalize(output, None, state, mapping)
     elif printer.has_native_screen:
         finalize_zmod(output, filament['filament_colour'][0], state['spool']['material'], printer)
     result_path = folder / 'result.json'
@@ -1611,6 +1639,14 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     if post_gate.status == 'blocked':
         raise SliceFailure('Post-slice guard blocked: ' + '; '.join(post_gate.blocked), kind='guard')
     warnings = gate.warnings + post_gate.warnings + baseline_gate.warnings
+    # #722: surface (never change) authored values that conflict with this printer's
+    # verified machine limits, when the source profile demonstrably names another printer.
+    from .source_profile_warnings import (machine_identity, machine_limits,
+                                           source_printer_label, source_profile_warnings)
+    profile_warnings = source_profile_warnings(
+        author, source_label=source_printer_label(author),
+        target_label=getattr(printer, 'label', ''), limits=machine_limits(templates),
+        aliases=machine_identity(templates))
     return output, {'tool_mapping': mapping, 'source_sha256': digest(source), 'gcode_sha256': digest(output),
                     'config_sha256': {str(p): digest(p) for p in configs}, 'geometry': geometry,
                     'slice_guard': {'status': 'warnings' if warnings else 'ok', 'warnings': warnings,
@@ -1618,6 +1654,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                     "slicer_command": command, "generator": generator, "slicer": slicer,
                     'fallback': fallback,
                     'author_process': {k: author[k] for k in PROCESS_KEYS if k in author},
+                    'source_profile_warnings': profile_warnings,
                     'sanitized_author_settings': sanitized,
                     'offline_geometry_and_slicer': True}, configs
 

@@ -8,6 +8,7 @@ import json
 import tempfile
 import threading
 import unittest
+import urllib.error
 from pathlib import Path
 
 from print_handy import settings
@@ -149,6 +150,54 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(code, 502)
         self.assertIn("reset by peer", body["reason"])
 
+    def test_printer_refusal_is_409_unless_already_in_target_state(self):
+        # Moonraker answers an invalid transition with HTTP 400. Re-read:
+        # already there (a race with the printer screen) is success, else 409.
+        cases = [("pause", "printing", "paused", 200), ("pause", "printing", "printing", 409),
+                 ("resume", "paused", "printing", 200), ("resume", "paused", "paused", 409),
+                 ("cancel", "printing", "cancelled", 200), ("cancel", "paused", "paused", 409),
+                 ("cancel", "printing", "unknown", 409)]
+        for action, before, after, expected in cases:
+            with self.subTest(action=action, after=after):
+                states = iter([before, after])
+                sent = []
+
+                def refuse(adapter, view, command):
+                    sent.append(command)
+                    raise urllib.error.HTTPError("http://moonraker/x", 400, "Bad Request", {}, None)
+                with tempfile.TemporaryDirectory() as tmp:
+                    code, body = controls.control(
+                        enabled(tmp), PRINTER, action, {"confirm": True},
+                        read=lambda adapter, view: {"state": next(states)}, send=refuse)
+                self.assertEqual(code, expected)
+                self.assertEqual(sent, [("control", action)])  # never resent
+                self.assertIn(after, body["detail"] if expected == 200 else body["reason"])
+
+    def test_refusal_with_unreadable_printer_is_409(self):
+        calls = iter([{"state": "printing"}])
+
+        def read(adapter, view):
+            try:
+                return next(calls)
+            except StopIteration:
+                raise OSError("gone") from None
+
+        def refuse(adapter, view, command):
+            raise urllib.error.HTTPError("http://moonraker/x", 400, "Bad Request", {}, None)
+        with tempfile.TemporaryDirectory() as tmp:
+            code, body = controls.control(enabled(tmp), PRINTER, "pause", read=read, send=refuse)
+        self.assertEqual(code, 409)
+        self.assertIn("unknown", body["reason"])
+
+    def test_printer_server_error_stays_502(self):
+        def broken(adapter, view, command):
+            raise urllib.error.HTTPError("http://moonraker/x", 500, "Server Error", {}, None)
+        with tempfile.TemporaryDirectory() as tmp:
+            code, body = controls.control(enabled(tmp), PRINTER, "pause",
+                                          read=reads("printing"), send=broken)
+        self.assertEqual(code, 502)
+        self.assertIn("500", body["reason"])
+
     def test_family_adapter_uses_family_control_vocabulary(self):
         adapter = FakeFamilyAdapter()
         with tempfile.TemporaryDirectory() as tmp:
@@ -235,6 +284,79 @@ class TemperatureTests(unittest.TestCase):
         self.assertEqual(send.sent, [])
 
 
+class TargetTests(unittest.TestCase):
+    """POST /target: the ha-print-handy 0.3.0 body, both heaters at once."""
+
+    def test_both_heaters_sent_in_order(self):
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            code, body = controls.set_targets(enabled(tmp), PRINTER,
+                                              {"hotend_c": 200.0, "bed_c": 60.0},
+                                              read=reads("idle"), send=send)
+        self.assertEqual(code, 200, body)
+        self.assertEqual(send.sent, [("temperature", "nozzle", 200.0),
+                                     ("temperature", "bed", 60.0)])
+        self.assertEqual(body["targets"], {"hotend_c": 200.0, "bed_c": 60.0})
+
+    def test_null_leaves_that_heater_alone(self):
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            code, _ = controls.set_targets(enabled(tmp), PRINTER,
+                                           {"hotend_c": 210.0, "bed_c": None},
+                                           read=reads("printing"), send=send)
+        self.assertEqual(code, 200)
+        self.assertEqual(send.sent, [("temperature", "nozzle", 210.0)])
+
+    def test_bad_or_empty_bodies_send_nothing(self):
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = enabled(tmp)
+            for bad in ({}, {"hotend_c": None, "bed_c": None}, {"bed_c": True},
+                        {"hotend_c": "hot"}, {"bed_c": -1}, {"bed_c": 500},
+                        {"hotend_c": 200, "bed_c": 500}, {"hotend_c": 600, "bed_c": 60}):
+                code, _ = controls.set_targets(data, PRINTER, bad,
+                                               read=reads("idle"), send=send)
+                self.assertEqual(code, 400, bad)
+        self.assertEqual(send.sent, [])
+
+    def test_off_unknown_and_unreachable_send_nothing(self):
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            code, _ = controls.set_targets(load_settings(tmp), PRINTER, {"bed_c": 60},
+                                           read=reads("idle"), send=send)
+            self.assertEqual(code, 403)
+            code, _ = controls.set_targets(enabled(tmp), "ghost", {"bed_c": 60},
+                                           read=reads("idle"), send=send)
+            self.assertEqual(code, 404)
+            code, _ = controls.set_targets(enabled(tmp), PRINTER, {"bed_c": 60},
+                                           read=unreachable, send=send)
+            self.assertEqual(code, 502)
+        self.assertEqual(send.sent, [])
+
+    def test_family_without_temperature_path_refuses(self):
+        adapter = FakeFamilyAdapter(temps=False)
+        with tempfile.TemporaryDirectory() as tmp:
+            code, body = controls.set_targets(enabled(tmp), PRINTER, {"bed_c": 60},
+                                              adapter=adapter, read=reads("idle"))
+        self.assertEqual(code, 501)
+        self.assertIn("not supported", body["reason"])
+
+    def test_second_send_failure_names_what_was_already_sent(self):
+        calls = []
+
+        def flaky(adapter, view, command):
+            calls.append(command)
+            if command[1] == "bed":
+                raise OSError("reset by peer")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            code, body = controls.set_targets(enabled(tmp), PRINTER,
+                                              {"hotend_c": 200, "bed_c": 60},
+                                              read=reads("idle"), send=flaky)
+        self.assertEqual(code, 502)
+        self.assertIn("already sent: hotend_c=200", body["reason"])
+        self.assertEqual(len(calls), 2)
+
 class RouteTests(unittest.TestCase):
     """The HTTP surface: token header, JSON only, 404 shape, real wiring."""
 
@@ -280,8 +402,11 @@ class RouteTests(unittest.TestCase):
             self.assertEqual(self.post(port, f"/api/printers/{PRINTER}/explode")[0], 404)
             self.assertEqual(self.post(port, "/api/printers/a/b/pause")[0], 404)
             code, _ = self.post(port, path, b'{"confirm": true}')
+            self.assertEqual(self.post(port, f"/api/printers/{PRINTER}/target",
+                                       b'{"hotend_c": null, "bed_c": 60}')[0], 200)
         self.assertEqual(code, 200)
-        self.assertEqual(seen, [(PRINTER, "cancel", {"confirm": True})])
+        self.assertEqual(seen, [(PRINTER, "cancel", {"confirm": True}),
+                                (PRINTER, "target", {"hotend_c": None, "bed_c": 60})])
 
     def test_real_wiring_off_by_default_and_404(self):
         with tempfile.TemporaryDirectory() as tmp:

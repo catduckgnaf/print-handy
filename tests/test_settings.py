@@ -811,3 +811,27 @@ class DefaultedModelWarningTests(unittest.TestCase):
     def test_another_default_model_is_quiet(self):
         data = self.load(PRINT_HANDY__PRINTER__MODEL="flashforge.ad5x")
         self.assertIsNone(settings.defaulted_model_warning(data))
+
+
+class YamlLoaderTests(unittest.TestCase):
+    """Settings parse YAML with libyaml when PyYAML has it; the data must not change."""
+
+    def test_libyaml_and_pure_python_loaders_build_the_same_config(self):
+        import yaml
+        for path in sorted((Path(settings.__file__).resolve().parents[1] / "config").glob("*.yaml")):
+            with self.subTest(config=path.name):
+                text = path.read_text(encoding="utf-8")
+                self.assertEqual(settings._yaml_load(text), yaml.safe_load(text))
+
+    def test_libyaml_is_used_when_available(self):
+        import yaml
+        expected = yaml.CSafeLoader if getattr(yaml, "__with_libyaml__", False) else yaml.SafeLoader
+        self.assertIs(settings._yaml_safe_loader, expected)
+
+    def test_malformed_yaml_is_still_a_settings_error_naming_the_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = Path(tmp) / "local.yaml"
+            bad.write_text("printer:\n  model: [unclosed\n", encoding="utf-8")
+            with self.assertRaises(settings.SettingsError) as caught:
+                settings._read(bad)
+            self.assertIn(str(bad), str(caught.exception))
