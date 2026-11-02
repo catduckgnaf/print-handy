@@ -397,6 +397,53 @@ def test_per_part_fit_fits_a_small_part_on_the_xplus4_bed(tmp_path):
     assert blocked['fits_full_size'] is False
 
 
+def test_split_plan_records_the_yaw_that_proved_an_exclusion_avoiding_placement(tmp_path):
+    # P2-78: a 200 x 190 mm part fits the 204 mm usable bed as authored, but
+    # every authored placement overlaps the (0, 0) to (18, 28) exclusion; only
+    # the 90-degree turn can be placed, at [18, 8]. The plan must record that
+    # turn alongside the placement — recording the placement alone would
+    # slice the unturned 200 mm width at x=18, past the proved usable area.
+    source = tmp_path / 'turn-to-avoid.3mf'
+    _mesh_source(source, {'1': _rect_points(200, 190, 10), '2': _rect_points(50, 50, 10)},
+                 [['1', '2']])
+    rows = {row['object_id']: row for row in
+            split_fit.per_part_fit(source, 220, exclusions=[(0, 0, 18, 28)])}
+    assert rows['1']['fits_authored'] is True
+    assert rows['1']['best_yaw_deg'] == 90.0
+    assert rows['1']['placement_mm'] == [18.0, 8.0]
+    plan = split_fit.split_plan_100(source, 220, exclusions=[(0, 0, 18, 28)])
+    assert plan is not None
+    assert plan['yaw_by_object'] == {'1': 90.0}
+    assert plan['placement_by_object']['1'] == [18.0, 8.0]
+
+
+def test_slicing_a_turned_exclusion_split_applies_the_turn_and_the_placement(tmp_path, monkeypatch):
+    # P2-78 end to end: the derived plate for the turned part is exported
+    # with the recorded 90-degree turn composed with the recorded placement,
+    # so its placed bounds are the proved 190 x 200 footprint at [18, 8],
+    # clear of the exclusion — not the authored 200 mm width at x=18.
+    import json
+
+    from print_handy.core import model_job, orca_adapter
+    from .test_plate_merge import _fake_slice
+    source = tmp_path / 'turn-to-avoid.3mf'
+    _mesh_source(source, {'1': _rect_points(200, 190, 10), '2': _rect_points(50, 50, 10)},
+                 [['1', '2']])
+    plan = split_fit.split_plan_100(source, 220, exclusions=[(0, 0, 18, 28)])
+    assert plan and plan['yaw_by_object'] == {'1': 90.0}
+    job_path = _split_job(tmp_path, source, plan)
+    fake = _fake_slice()
+    monkeypatch.setattr(orca_adapter, 'slice_model', fake)
+    paths = model_job.slice_job(job_path)
+    assert len(paths) == 2 and len(fake.calls) == 2
+    saved = json.loads(job_path.read_text())
+    turned = next(row for row in saved['derived_plates'] if row['part_keys'] == ['1:1'])
+    assert turned['yaw_deg'] == 90.0
+    assert turned['placement_mm'] == [18.0, 8.0]
+    placed = turned['plate_report']['placed_bounds_mm']
+    assert placed[0] == [18.0, 208.0] and placed[1] == [8.0, 208.0]
+
+
 def test_fit_choice_rows_carry_the_split_placement():
     from print_handy.core.prepared_intake import fit_choice_rows
     rows = fit_choice_rows({'scales': [], 'rotations': [],

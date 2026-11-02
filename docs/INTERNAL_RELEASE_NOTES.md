@@ -2,7 +2,7 @@
 
 # Unreleased
 
-Nothing yet.
+- Motion bounds and exclusion zones (Codex backlog SAFE-3): the Prusa G-code guard now runs the shared toolpath motion validator, so standalone G-code is held to the model's bed, envelope and height before it is accepted; the toolpath validator also refuses extrusion into a model's declared bed exclusion, and the Bambu guard passes its models' exclusion (e.g. the P1S front-left area) into that check; full-size fit checks decompose disjoint exclusion zones (Qidi X-Plus 4, Q1 Pro) instead of collapsing them to a bed-size bounding box that rejected every part, and a split plan now records the turn that proved an exclusion-avoiding placement, so the exporter realizes the footprint that was actually checked.
 
 # Version 2.2.4
 

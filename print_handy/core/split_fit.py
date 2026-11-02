@@ -47,7 +47,10 @@ a part counts as fitting only if a placement of that envelope exists inside
 the usable area that avoids the exclusion; the plan records that placement
 as ``placement_by_object`` and the part gets a plate of its own, because the
 split exporter applies one recorded placement to a whole derived plate (see
-``yaw_by_object``). Slicing applies exactly the recorded placement to that
+``yaw_by_object``). When the avoiding placement was proved only at a turn,
+the plan records that turn in ``yaw_by_object`` too, even when the authored
+footprint fits the usable bed (P2-78), and the exporter composes the two for
+the solo plate. Slicing applies exactly the recorded placement to that
 plate alone and refuses a placement recorded for a shared plate, an unknown
 object or an out-of-range position instead of slicing the plate centered
 into the exclusion.
@@ -718,7 +721,10 @@ def split_plan_100(source, bed=None, height=None, exclusions=None, brim_policy=N
     and the solo reoriented plate remains the fallback. An object appears in
     at most one of the plan's transform records (``yaw_by_object``,
     ``placement_by_object``, ``reorientation_by_object`` or a
-    ``shifts_by_plate`` entry). Geometry checks and packing use the
+    ``shifts_by_plate`` entry) — with one exception: a part whose avoiding
+    placement was proved only at a turn appears in both ``yaw_by_object``
+    and ``placement_by_object``, the two records the exporter composes for
+    its solo plate (P2-78). Geometry checks and packing use the
     printer's edge and spacing margins (see the module docstring) and do
     not slice or contact the printer.
     """
@@ -737,9 +743,15 @@ def split_plan_100(source, bed=None, height=None, exclusions=None, brim_policy=N
     feature = _feature_edge_mm(brim_policy, state)
     if any(not row['fits_full_size'] for row in report):
         return None
+    # A part whose authored footprint fits the usable bed but whose avoiding
+    # placement was proved only at a turn carries that turn as well (P2-78):
+    # without it the exporter would realize the placement with the unturned
+    # footprint, outside the area the placement was proved against. For its
+    # solo plate the exporter composes the recorded turn with the recorded
+    # placement; a proved shared placement supersedes both with its shifts.
     yaw_by_object = {row['object_id']: row['best_yaw_deg'] for row in report
-                     if not row['fits_authored'] and row['best_yaw_deg'] > 0
-                     and not row.get('reorientation')}
+                     if row['best_yaw_deg'] > 0 and not row.get('reorientation')
+                     and (not row['fits_authored'] or row.get('placement_mm'))}
     # A reoriented part carries its full rotation in its own record (the
     # matrix already contains its bed turn), never a yaw entry (#221 R1).
     reorientation_by_object = {row['object_id']: row['reorientation'] for row in report
