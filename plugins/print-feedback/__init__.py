@@ -5182,6 +5182,13 @@ def alert_button_handlers(bot, adapter):
         except Exception:
             logger.debug('could not strip spool-question buttons', exc_info=True)
         if action == 'cancel':
+            # Acknowledge before waiting on the printer (P2-164):
+            # print_stop.cancel can poll for ~20 s, far past Discord's 3 s
+            # initial-response window, so the outcome goes by follow-up —
+            # the same shape as the generic alert handler.
+            await interaction.response.send_message(
+                f"{getattr(interaction.user, 'display_name', 'Someone')} tapped Cancel print. "
+                'Checking the printer first.')
             try:
                 from print_handy.hermes import moonraker_event_listener as listener
                 from print_handy.hermes import spool_sync
@@ -5189,12 +5196,12 @@ def alert_button_handlers(bot, adapter):
                                                  alert.get('context') or {})
             except Exception as exc:
                 logger.exception('spool-question cancel failed')
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     'The print was not cancelled. The spool question is still open — answer it '
                     'in text (a spool number, `same`, or `cancel the print`); the next reminder '
                     're-posts its buttons.', ephemeral=True)
                 return
-            await interaction.response.send_message(result)
+            await interaction.followup.send(result)
             return
         if action == 'existing':
             await spool_question_select(interaction, alert)
@@ -5202,6 +5209,11 @@ def alert_button_handlers(bot, adapter):
         if action == 'new':
             await spool_question_modal(interaction, alert)
             return
+        # Same ack-first shape as cancel: the Spoolman answer can outlast
+        # the 3 s window too (the #594 phase 2 gap recorded for both).
+        await interaction.response.send_message(
+            f"{getattr(interaction.user, 'display_name', 'Someone')} tapped Same spool. "
+            'Checking the printer first.')
         try:
             from print_handy.hermes import moonraker_event_listener as listener
             from print_handy.hermes import spool_sync
@@ -5209,9 +5221,9 @@ def alert_button_handlers(bot, adapter):
                                              alert.get('context') or {}, {'status': 'same'})
         except Exception as exc:
             logger.exception('same spool-question answer failed')
-            await interaction.response.send_message('Nothing was changed. Check what you entered and try again.', ephemeral=True)
+            await interaction.followup.send('Nothing was changed. Check what you entered and try again.', ephemeral=True)
             return
-        await interaction.response.send_message(result)
+        await interaction.followup.send(result)
 
     async def handle_spool_question_select(interaction, aid):
         pending = await asyncio.to_thread(pab.take, aid)

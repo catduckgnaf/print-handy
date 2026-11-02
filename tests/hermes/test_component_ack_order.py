@@ -140,14 +140,12 @@ def _spool_question_click(tmp_path, monkeypatch, action, slow_name, order):
     return lambda: asyncio.run(on_interaction(click))
 
 
-GAP = ("handler awaits the printer/Spoolman call in a worker thread before any interaction response, "
-       "so a slow Moonraker or Spoolman read can pass Discord's 3 s window (#594 phase 2 finding)")
-
-
-@pytest.mark.xfail(strict=True, reason=GAP)
 @pytest.mark.parametrize("action,slow_name", [("same", "_answer_spool_question"),
                                               ("cancel", "_cancel_spool_question_print")])
 def test_spool_question_acknowledges_before_slow_work(tmp_path, monkeypatch, action, slow_name):
+    """Was a strict xfail for the #594 phase 2 gap (the handler awaited the
+    printer/Spoolman call before any interaction response, past Discord's
+    3 s window); the handlers now acknowledge first (P2-164)."""
     order = Order()
     _spool_question_click(tmp_path, monkeypatch, action, slow_name, order)()
     assert order[:2] == ["ack", "slow"], order
