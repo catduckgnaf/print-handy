@@ -2,7 +2,7 @@
 
 # Unreleased
 
-Nothing yet.
+- Telegram polling now dispatches updates as managed tasks, so a command waiting on a prompt answer no longer stalls message polling (#764).
 
 # Version 2.2.4
 
