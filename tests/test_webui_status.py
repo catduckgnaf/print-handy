@@ -175,6 +175,25 @@ class SnapshotTests(unittest.TestCase):
         for secret in (TOKEN, OTHER_SECRET, "test-moonraker-key"):
             self.assertNotIn(secret, blob)
 
+    def test_credentials_in_configured_urls_are_masked(self):
+        # Codex on #316: an open LAN Web UI (#708) must not show a password embedded in a
+        # service URL. The probe still gets the real URL; only the shown copies are masked.
+        seen = []
+
+        def probe(url):
+            seen.append(url)
+            return False, f"connection refused for {url}"
+        with tempfile.TemporaryDirectory() as tmp:
+            data = load_settings(tmp, "services:\n  spoolman_url: http://sp:hunter2@spoolman.local:7912\n"
+                                      "  camera_snapshot_url: http://cam:pw123@10.0.0.9/snap?token=abc\n")
+            snap = status.snapshot(data, environ={}, heartbeat=fresh_heartbeat(), probe=probe,
+                                   checks=OK_CHECKS)
+        blob = json.dumps(snap)
+        for secret in ("hunter2", "pw123", "token=abc"):
+            self.assertNotIn(secret, blob)
+        self.assertEqual(snap["spoolman"]["url"], "http://***@spoolman.local:7912")
+        self.assertEqual(seen, ["http://sp:hunter2@spoolman.local:7912"])
+
 
 class ServerStartTests(unittest.TestCase):
     def test_disabled_and_portless_configs_refuse(self):
