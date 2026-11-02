@@ -1435,12 +1435,12 @@ def _refuse_non_public(host):
         "internet can open. Nothing was downloaded.")
 
 
-def assert_public_url(url):
-    """Refuse a fetch URL whose destination is not a public address.
+def _validated_public_ips(url):
+    """The validated public addresses for a fetch URL, or raise DirectLinkError.
 
-    Runs before the first connection and again on every redirect target:
-    a redirect to localhost or a private address is the standard way to
-    smuggle one past a check on the original URL."""
+    Every address the host resolves to must be public; the caller connects
+    to one of these addresses itself (see _open_once) rather than letting
+    the transport resolve the name again."""
     parts = urllib.parse.urlsplit(str(url))
     if parts.scheme not in ("http", "https"):
         raise DirectLinkError(
@@ -1469,6 +1469,16 @@ def assert_public_url(url):
                 "send the link again.") from None
     if any(not ip.is_global for ip in ips):
         _refuse_non_public(host)
+    return ips
+
+
+def assert_public_url(url):
+    """Refuse a fetch URL whose destination is not a public address.
+
+    Runs before the first connection and again on every redirect target:
+    a redirect to localhost or a private address is the standard way to
+    smuggle one past a check on the original URL."""
+    _validated_public_ips(url)
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -1478,10 +1488,85 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
         return None
 
 
+class _PinnedConnection:
+    """Dial one pre-validated address instead of re-resolving the host name.
+
+    http.client takes the Host header — and, for HTTPS, the TLS server
+    name and certificate check — from the host name the connection was
+    built with. Only the socket target changes: _create_connection is
+    pointed at the validated IP, so DNS is never consulted again between
+    the public-address check and the connection."""
+
+    def __init__(self, *args, _pinned_ip, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._pinned_ip = str(_pinned_ip)
+        self._create_connection = self._dial_pinned
+
+    def _dial_pinned(self, address, timeout, source_address):
+        return socket.create_connection(
+            (self._pinned_ip, address[1]), timeout, source_address)
+
+
+class _PinnedHTTPConnection(_PinnedConnection, http.client.HTTPConnection):
+    pass
+
+
+class _PinnedHTTPSConnection(_PinnedConnection, http.client.HTTPSConnection):
+    pass
+
+
+class _PinnedHTTPHandler(urllib.request.HTTPHandler):
+    def __init__(self, pinned_ip):
+        super().__init__()
+        self._pinned_ip = pinned_ip
+
+    def http_open(self, req):
+        pinned = self._pinned_ip
+        return self.do_open(
+            lambda host, **kwargs: _PinnedHTTPConnection(
+                host, _pinned_ip=pinned, **kwargs),
+            req)
+
+
+class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, pinned_ip):
+        super().__init__()
+        self._pinned_ip = pinned_ip
+
+    def https_open(self, req):
+        pinned = self._pinned_ip
+        return self.do_open(
+            lambda host, **kwargs: _PinnedHTTPSConnection(
+                host, _pinned_ip=pinned, **kwargs),
+            req, context=self._context)
+
+
 def _open_once(url):
-    """One GET with no redirect following (module-level so tests can fake the transport)."""
+    """One GET with no redirect following (module-level so tests can fake the transport).
+
+    The connection is pinned to an address from the resolution that was
+    just validated (_validated_public_ips): the host name is never
+    re-resolved at connect time, so a DNS answer that changes between
+    the check and the connection (rebinding) cannot steer the fetch at
+    a private address — on this hop or any redirect hop, since every hop
+    goes through here. Environment proxies are disabled for the same
+    reason: a proxy would resolve the name itself, outside the validated
+    set. Each validated address is tried in turn before giving up."""
     req = urllib.request.Request(url, headers={"User-Agent": UA})
-    return urllib.request.build_opener(_NoRedirectHandler()).open(req, timeout=90)
+    last_error = None
+    for ip in _validated_public_ips(url):
+        opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}),
+            _NoRedirectHandler(),
+            _PinnedHTTPHandler(ip),
+            _PinnedHTTPSHandler(ip))
+        try:
+            return opener.open(req, timeout=90)
+        except urllib.error.HTTPError:
+            raise
+        except (urllib.error.URLError, OSError) as exc:
+            last_error = exc
+    raise last_error
 
 
 _REDIRECT_CODES = (301, 302, 303, 307, 308)

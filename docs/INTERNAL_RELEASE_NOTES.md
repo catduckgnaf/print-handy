@@ -2,7 +2,7 @@
 
 # Unreleased
 
-Nothing yet.
+- Security (SEC-3, P1-114): direct file link downloads now connect to the exact public address that passed the SSRF check instead of re-resolving the host name at connect time, so a DNS rebinding answer (public first, loopback/private second) can no longer steer a download at an internal service. The original host name is preserved as the Host header and TLS server name on every hop, redirects included, and environment proxies are bypassed on this path since a proxy would resolve the name outside the validated set.
 
 # Version 2.2.4
 
