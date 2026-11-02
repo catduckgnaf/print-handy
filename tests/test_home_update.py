@@ -125,3 +125,21 @@ class HomeUpdateTests(unittest.TestCase):
         result = self.update()
         self.assertEqual(result.returncode, 1)
         self.assertIn("local edits", result.stdout)
+
+
+class InstallDocModePinTests(unittest.TestCase):
+    """P2-210: the install guide's migration note must tell existing Hermes
+    installs whose local file holds only overrides to pin bot.mode in that
+    local file BEFORE updating — their mode otherwise comes from the shipped
+    home template, whose line the update replaces. The old blanket claim
+    that existing configs state the mode explicitly must not come back."""
+
+    def test_migration_note_carries_the_pin_first_step(self):
+        doc = (ROOT / "docs" / "INSTALL.md").read_text()
+        section = doc.split("## Migration notes", 1)[1]
+        self.assertIn("pin the mode before updating", section)
+        self.assertIn("config/local.yaml", section)
+        self.assertIn("config/local.toml", section)
+        self.assertIn("mode: hermes", section)
+        self.assertIn('mode = "hermes"', section)
+        self.assertNotIn("existing configs state `mode: hermes`", section)

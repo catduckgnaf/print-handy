@@ -37,7 +37,11 @@ class NightlyWorkflowContract(unittest.TestCase):
         self.assertEqual(promote["permissions"], {"actions": "read", "contents": "write"})
         run = promote["steps"][0]["run"]
         # The promotion source is a successful CI run on main, nothing else.
-        self.assertIn("actions/workflows/ci.yml/runs?branch=main&status=success", run)
+        # event=push is load-bearing (P1-67): ci.yml also runs on
+        # pull_request, and the branch filter alone would accept a green PR
+        # run from a fork branch that happens to be named main — unmerged
+        # code must never become the nightly pointer.
+        self.assertIn("actions/workflows/ci.yml/runs?branch=main&event=push&status=success", run)
         # The branch is only ever fast-forwarded: ancestry is proven first and
         # the ref update is never forced.
         self.assertIn("compare/$nightly_sha...$green", run)
@@ -72,6 +76,20 @@ class NightlyWorkflowContract(unittest.TestCase):
         self.assertIn("push-by-digest=true", steps[push]["run"])
         self.assertNotIn("docker push", steps[push]["run"])
         self.assertNotIn("docker tag", steps[push]["run"])
+
+    def test_publish_step_verifies_the_pushed_image_is_the_accepted_one(self):
+        # Bonus (found in this lane, same defect as P2-87 in
+        # docker-publish.yml): the nightly push step also re-runs the build
+        # after evidence/ was written; it carries the same accepted-image
+        # identity proof before the digest is handed to the manifest job.
+        steps = load_workflow()["jobs"]["build"]["steps"]
+        push = next(s for s in steps if s.get("id") == "publish")
+        run = push["run"]
+        self.assertIn("docker image inspect", run)
+        self.assertIn("imagetools inspect --raw", run)
+        self.assertIn('doc["config"]["digest"]', run)
+        self.assertIn("evidence/identity-check.txt", run)
+        self.assertLess(run.index("imagetools inspect --raw"), run.index("digest-out"))
 
     def test_manifest_publishes_only_the_nightly_tags(self):
         workflow = load_workflow()

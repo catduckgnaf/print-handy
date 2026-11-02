@@ -346,6 +346,33 @@ class DockerReleaseContract(unittest.TestCase):
                 if "uses" in step:
                     self.assertRegex(step["uses"], r"^[^@]+@[0-9a-f]{40}$")
 
+    def test_publish_context_excludes_generated_evidence(self):
+        """P2-87: the publish workflows write evidence/ into the checkout
+        (pins, identity, slicer logs, the acceptance tree) before the push
+        build runs, and the Dockerfile copies the whole context — so unless
+        evidence/ is dockerignored, the rebuild packages those records into
+        the image and what ships is not the image acceptance ran against."""
+        ignored = (ROOT / ".dockerignore").read_text().splitlines()
+        self.assertIn("evidence", [line.strip().rstrip("/") for line in ignored])
+
+    def test_publish_step_verifies_the_pushed_image_is_the_accepted_one(self):
+        """P2-87: pushing re-runs the build, so before the pushed digest may
+        be handed to the manifest job the step proves the pushed manifest's
+        config digest equals the accepted local image's ID, and records both
+        in the evidence. The proof must precede the digest hand-off: a
+        mismatch stops the leg instead of publishing an untested image."""
+        workflow = yaml.load((ROOT / ".github" / "workflows" / "docker-publish.yml").read_text(),
+                             Loader=yaml.BaseLoader)
+        steps = workflow["jobs"]["build"]["steps"]
+        publish = next(step for step in steps if step.get("id") == "publish")
+        run = publish["run"]
+        self.assertIn("docker image inspect", run)
+        self.assertIn('"$LOCAL_IMAGE"', run)
+        self.assertIn("imagetools inspect --raw", run)
+        self.assertIn('doc["config"]["digest"]', run)
+        self.assertIn("evidence/identity-check.txt", run)
+        self.assertLess(run.index("imagetools inspect --raw"), run.index("digest-out"))
+
     def test_publish_matrix_is_native_both_arches_full_image_only(self):
         """#192/#353: linux/amd64 + linux/arm64, one full image, native runners, no QEMU, no arm/v7."""
         workflow = yaml.load((ROOT / ".github" / "workflows" / "docker-publish.yml").read_text(),

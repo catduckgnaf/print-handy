@@ -112,6 +112,49 @@ class OverrideTests(unittest.TestCase):
         data = settings.load(local=path, environ={"PRINT_HANDY__VISUAL_WATCH__SENSITIVITY": "4"})
         self.assertEqual(data["visual_watch"]["sensitivity"], 4)
 
+    def test_blank_environment_value_preserves_file_configuration(self):
+        # P1-64: a variable that is present but blank — what Compose injects
+        # for every unset ${VAR:-} feature variable — is "not supplied", not
+        # an override: it must not erase a value the config file sets (the
+        # mounted-config deployment path). List-valued variables already
+        # follow this rule (docs/SETTINGS.md: "an empty value keeps the file
+        # value"); string settings now do too. A supplied value still wins.
+        path = self.toml(
+            "services:\n  vision_chat_url: http://vision.invalid/v1\n"
+            "discord:\n  approval_user_id: '4242'\n  timezone: Europe/London\n"
+            "llm:\n  chat_url: http://llm.invalid/v1\n  model: test-model\n", "local.yaml")
+        data = settings.load(local=path, environ={
+            "PRINT_HANDY__SERVICES__VISION_CHAT_URL": "",
+            "PRINT_HANDY__DISCORD__APPROVAL_USER_ID": "  ",
+            "PRINT_HANDY__DISCORD__TIMEZONE": "",
+            "PRINT_HANDY__LLM__CHAT_URL": ""})
+        self.assertEqual(data["services"]["vision_chat_url"], "http://vision.invalid/v1")
+        self.assertEqual(data["discord"]["approval_user_id"], "4242")
+        self.assertEqual(data["discord"]["timezone"], "Europe/London")
+        self.assertEqual(data["llm"]["chat_url"], "http://llm.invalid/v1")
+        supplied = settings.load(local=path, environ={
+            "PRINT_HANDY__SERVICES__VISION_CHAT_URL": "http://other.invalid/v1"})
+        self.assertEqual(supplied["services"]["vision_chat_url"], "http://other.invalid/v1")
+
+    def test_blank_environment_value_preserves_optional_file_value(self):
+        # Optional keys (not in the home template) follow the same rule.
+        path = self.toml("vision:\n  local_model_path: /models/custom.onnx\n", "local.yaml")
+        data = settings.load(local=path, environ={"PRINT_HANDY__VISION__LOCAL_MODEL_PATH": ""})
+        self.assertEqual(data["vision"]["local_model_path"], "/models/custom.onnx")
+
+    def test_blank_legacy_environment_value_preserves_file_configuration(self):
+        # Legacy variable names resolve to the same settings, so the same
+        # blank-is-unset rule applies to them.
+        path = self.toml("services:\n  vision_chat_url: http://vision.invalid/v1\n", "local.yaml")
+        data = settings.load(local=path, environ={"PRINT_VISION_CHAT_URL": ""})
+        self.assertEqual(data["services"]["vision_chat_url"], "http://vision.invalid/v1")
+
+    def test_blank_environment_value_for_a_number_still_errors(self):
+        # The blank-is-unset rule is for strings only: a blank number or
+        # boolean is a typo, not an unset variable, and still fails loudly.
+        with self.assertRaisesRegex(settings.SettingsError, "should be a number"):
+            settings.load(local=False, environ={"PRINT_HANDY__VISUAL_WATCH__SENSITIVITY": ""})
+
     def test_yaml_boolean_enabled_defaults_to_legacy_behavior(self):
         path = self.toml("visual_watch:\n  sensitivity: 3\n", "local.yaml")
         data = settings.load(local=path, environ={})

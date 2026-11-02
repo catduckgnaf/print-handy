@@ -59,7 +59,11 @@ jobs:
           target="$nightly_sha"
           changed=false
           if [[ "$PROMOTE" == "true" ]]; then
-            green=$(gh api "repos/$repo/actions/workflows/ci.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // empty')
+            # event=push is load-bearing: ci.yml also runs on pull_request,
+            # and branch=main alone would also match a green PR run from a
+            # fork branch named main, whose head is not in this repository's
+            # main history. Only a push run proves the commit is on main.
+            green=$(gh api "repos/$repo/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // empty')
             [[ "$green" =~ ^[0-9a-f]{40}$ ]] || {
               echo "No successful CI run found on main" >&2
               exit 1
@@ -233,6 +237,39 @@ jobs:
             echo "Could not read the pushed image digest" >&2
             exit 1
           }
+          # The push above re-ran the build, so prove the pushed image is
+          # the one acceptance ran against before its digest travels on:
+          # the config digest the pushed manifest points at must equal the
+          # accepted local image's ID. (The context can no longer drift
+          # between the two builds either: evidence/ is dockerignored, so
+          # this build saw exactly what the accepted build saw.)
+          accepted_id=$(docker image inspect --format '{{.Id}}' "$LOCAL_IMAGE")
+          pushed_config=$(docker buildx imagetools inspect --raw "$IMAGE@$digest" | python3 -c '
+          import json, subprocess, sys
+          def manifest(ref):
+              out = subprocess.run(["docker", "buildx", "imagetools", "inspect", "--raw", ref],
+                                   capture_output=True, text=True, check=True).stdout
+              return json.loads(out)
+          image, digest, platform = sys.argv[1:4]
+          doc = manifest(f"{image}@{digest}")
+          if "manifests" in doc:
+              os_name, arch = platform.split("/")
+              entry = next(m for m in doc["manifests"]
+                           if m.get("platform", {}).get("os") == os_name
+                           and m.get("platform", {}).get("architecture") == arch
+                           and m.get("annotations", {}).get("vnd.docker.reference.type") != "attestation-manifest")
+              entry_digest = entry["digest"]
+              doc = manifest(f"{image}@{entry_digest}")
+          print(doc["config"]["digest"])
+          ' "$IMAGE" "$digest" "$PLATFORM")
+          [[ "$pushed_config" == "$accepted_id" ]] || {
+            echo "The image at $digest (config $pushed_config) is not the accepted image $LOCAL_IMAGE ($accepted_id); refusing to hand its digest to the manifest job" >&2
+            exit 1
+          }
+          {
+            echo "accepted_image_id=$accepted_id"
+            echo "pushed_config_digest=$pushed_config"
+          } | tee evidence/identity-check.txt
           mkdir -p digest-out
           printf '%s\n' "$digest" | tee "digest-out/digest-$ARCH.txt" evidence/digest.txt
           {
