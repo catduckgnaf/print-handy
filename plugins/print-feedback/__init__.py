@@ -5840,6 +5840,18 @@ def register(ctx):
     global _HOST_HERMES
     _HOST_HERMES = hasattr(ctx, 'register_auxiliary_task') or getattr(ctx, 'llm', None) is not None
     clarify_on = _clarify_ui_on()
+    if clarify_on and not _config.discord_token():
+        # The own registry is only usable when its renderer can be
+        # installed: alert_button_handlers builds the clarify adapter only
+        # with a resolvable bot token (P2-208). Activating the registry
+        # without it leaves handler questions registered in a registry
+        # nothing renders — unanswered until timeout — so the whole
+        # own-renderer path (registry activation, locale patch, the
+        # typed-answer hook swap below) stands down together and Hermes
+        # renders the questions as it does with the switch off.
+        logger.warning('clarify_ui is on but no Discord bot token resolves; '
+                       'the own prompt registry stays off and Hermes renders questions')
+        clarify_on = False
     if clarify_on:
         # The own-renderer switch (Stage 2 design §3.1): handler questions
         # register into Print Handy's own prompt registry from here on. This
