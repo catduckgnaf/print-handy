@@ -169,9 +169,12 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
   read-only list — each loaded location with its spool number, brand, material, color, grams
   left and percent left where the spool's starting weight is recorded. `/spool loaded`, a bare
   `/print-colors` (no JOB.json; the archived-job form is unchanged), and plain asks ("what
-  colors are loaded", "current spools") answer the same way, with no LLM configured. The full
-  inventory, shelf included, stays on `/spool list`. If Spoolman does not answer, locations
-  and spools are still reported from the record, with amounts named unavailable.
+  colors are loaded", "current spools", "how much filament is left") answer the same way, with
+  no LLM configured. A clear typo of one of those asks ("currant spools", "what colours are <!-- us-spelling: allow colours -->
+  loded") gets a "Did you mean?" prompt first — the view is shown only on a yes, never on a
+  fuzzy match alone. The full inventory, shelf included, stays on `/spool list`. If Spoolman
+  does not answer, locations and spools are still reported from the record, with amounts
+  named unavailable.
 * Estimates account for copies. Copies cloned onto one plate carry their totals in the sliced G-code
   itself, and the slice summary, estimate breakdown and start post show those totals as-is. Sequential
   copies (`/print-again … x3`, and multi-copy parts in a multipart plan) are labelled per copy: the
