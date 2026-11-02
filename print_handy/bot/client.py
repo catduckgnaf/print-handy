@@ -35,6 +35,14 @@ _STARTUP_TRANSIENT_ERRNOS = frozenset({
 })
 _startup_sleep = time.sleep
 
+# aiohttp 3.10 added ClientConnectorDNSError; older releases — still
+# permitted, since requirements floors discord.py, not aiohttp — do not
+# define it, and an unguarded lookup inside the classifier raised
+# AttributeError over the real startup failure (P2-136). On those versions
+# a DNS failure arrives as a plain ClientConnectorError and classifies
+# through its OS error below.
+_DNS_ERROR = getattr(aiohttp, "ClientConnectorDNSError", None)
+
 
 def _is_transient_startup_error(exc):
     """Whether ``exc`` is a bounded-retry candidate during Discord startup (#364).
@@ -49,7 +57,7 @@ def _is_transient_startup_error(exc):
     if isinstance(exc, (discord.LoginFailure, discord.PrivilegedIntentsRequired,
                         aiohttp.ClientConnectorCertificateError)):
         return False
-    if isinstance(exc, aiohttp.ClientConnectorDNSError):
+    if _DNS_ERROR is not None and isinstance(exc, _DNS_ERROR):
         return True
     if isinstance(exc, aiohttp.ClientConnectorError):
         cause = exc.os_error
