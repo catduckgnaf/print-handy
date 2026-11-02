@@ -561,7 +561,11 @@ class FamilyAutoLight:
         except Exception as exc:
             log(f"auto light idle check failed ({self.connection}): {exc!r}")
             with contextlib.suppress(Exception):
-                policy.note_check(self._clock())
+                # An unobservable plate is an uncertain observation: it
+                # resets the empty streak (the Moonraker listener's
+                # P2-201 rule), instead of letting a pre-outage streak
+                # satisfy the sustained-empty requirement.
+                policy.note_verdict("uncertain", self._clock())
 
 
 def _thread_runner(fn):
