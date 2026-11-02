@@ -1990,6 +1990,33 @@ async def maintenance_dispatch(event, gateway, **kwargs):
     return {'action': 'skip', 'reason': 'maintenance handled'}
 
 
+def _require_clicked_question_current(spool_sync, context, current):
+    """Refuse a spool-question action whose clicked question is not the pending one.
+
+    Button clicks carry the context of the question they were posted for,
+    and a question answered in text leaves its buttons behind (the alert
+    record is retained for hours). If a newer question has opened since,
+    substituting the current record would silently apply the stale click
+    to the newer print — a stale Cancel would cancel a print the operator
+    never confirmed. Compare the question identity (recorded_at, then
+    filename) with the loaded record and refuse a mismatch before any
+    printer or inventory action. A caller that passes the record it just
+    loaded itself (the text-answer path) always matches.
+    """
+    clicked = context or {}
+    clicked_at = clicked.get('recorded_at')
+    if isinstance(clicked_at, (int, float)) and clicked_at != current.get('recorded_at'):
+        raise spool_sync.SpoolError(
+            'that spool question is out of date — a newer spool question is open now, '
+            'so nothing was changed. Answer the current question instead.')
+    clicked_name = str(clicked.get('filename') or '')
+    current_name = str(current.get('filename') or '')
+    if clicked_name and current_name and clicked_name != current_name:
+        raise spool_sync.SpoolError(
+            'that spool question is for a different print than the one paused now, '
+            'so nothing was changed. Answer the current question instead.')
+
+
 def _cancel_spool_question_print(listener, spool_sync, context):
     """Cancel the paused print behind a pending spool question, then close the question.
 
@@ -2010,6 +2037,7 @@ def _cancel_spool_question_print(listener, spool_sync, context):
     current = listener.load_runout_pause()
     if current is None:
         raise spool_sync.SpoolError('that spool question was already answered; nothing changed')
+    _require_clicked_question_current(spool_sync, context, current)
     context = current
     filename = context.get('filename') or ''
     label = filename or 'the paused print'
@@ -2090,6 +2118,7 @@ def _answer_spool_question(listener, spool_sync, context, choice):
     current = listener.load_runout_pause()
     if current is None:
         raise spool_sync.SpoolError('that spool question was already answered; nothing changed')
+    _require_clicked_question_current(spool_sync, context, current)
     context = current
     slot = context.get('slot')
     prior = context.get('prior_spool_id')
@@ -2123,14 +2152,18 @@ def _answer_spool_question(listener, spool_sync, context, choice):
     runout = context.get('cause') == 'runout'
     if runout and prior and int(prior) == spool_id:
         raise spool_sync.SpoolError(f'spool #{spool_id} is the one that just ran out; pick another')
-    if runout and prior:
-        spool_sync.spoolman('PATCH', f'/api/v1/spool/{int(prior)}',
-                            {'archived': True, 'remaining_weight': 0, 'location': 'depleted'})
-    result = spool_sync.bind_slot(slot, spool_id, prior_disposition='keep' if runout else 'shelf',
+    # The old spool is depleted by the bind itself, never before it:
+    # bind_slot validates the replacement first (live, not archived, not
+    # mapped to another slot or printer) and only then runs its 'depleted'
+    # disposition on the spool it replaced. Patching the old spool depleted
+    # ahead of the bind destroyed it whenever the bind then refused the
+    # replacement, while the failed answer reported nothing changed (P1-8).
+    result = spool_sync.bind_slot(slot, spool_id, prior_disposition='depleted' if runout else 'shelf',
                                   note=f"Bound from Discord after mid-print {context.get('cause')}")
     spool_sync.resume_usage(spool_id)
     listener.clear_runout_pause()
-    gone = f' Spool #{prior} marked used up.' if runout and prior else ''
+    bound_prior = result.get('prior_spool_id') if isinstance(result, dict) else None
+    gone = f' Spool #{bound_prior} marked used up.' if runout and bound_prior else ''
     return f'{created}{spool_sync.bind_text(result)}{gone} Usage tracking is back on, charged to #{spool_id}.'
 
 

@@ -2,7 +2,7 @@
 
 # Unreleased
 
-Nothing yet.
+- Spool-question safety (Codex backlog SAFE-5): a stale spool-question button (left behind after the question was answered in text) is now refused when its question identity does not match the pending runout record, so an old Cancel can never cancel a newer print; and answering a runout binds the replacement spool before the old spool is marked depleted, so a rejected replacement no longer destroys the old spool's inventory record.
 
 # Version 2.2.4
 
