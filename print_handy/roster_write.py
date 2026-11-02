@@ -96,6 +96,8 @@ def _converted_first_entry(resolved):
     defaults (the shared secret env names, start_confirm_s) left out so
     they keep deriving/defaulting exactly as they do today."""
     entry = {"id": resolved["id"], "model": resolved["model"], "name": resolved["name"]}
+    if resolved.get("chat_id"):
+        entry["chat_id"] = resolved["chat_id"]
     for key in ("moonraker_url", "octoprint_url", "lan_host", "lan_serial", "link_host", "host"):
         if resolved.get(key):
             entry[key] = resolved[key]
@@ -256,7 +258,13 @@ def add_printer(new_entry, *, config_path=None, home=None, environ=None, timesta
     if isinstance(candidate.get("printers"), list):
         candidate["printers"] = [*candidate["printers"], _file_entry(new_entry)]
     else:
-        candidate["printers"] = [_converted_first_entry(existing[0]), _file_entry(new_entry)]
+        # No roster in THIS file: a legacy single-printer config resolves
+        # to exactly one entry, but a roster inherited from the home layer
+        # resolves to several — convert every resolved entry, or writing
+        # only the first would shadow the inherited roster and drop the
+        # rest.
+        candidate["printers"] = [_converted_first_entry(entry) for entry in existing]
+        candidate["printers"].append(_file_entry(new_entry))
         _strip_legacy(candidate)
         converted = True
     try:
@@ -267,6 +275,10 @@ def add_printer(new_entry, *, config_path=None, home=None, environ=None, timesta
     if new_id not in ids:  # the loader resolved a different roster than was written
         raise RosterWriteError("the updated settings resolved without the new printer, "
                                "so nothing was written")
+    missing = [entry["id"] for entry in existing if entry["id"] not in ids]
+    if missing:  # no write may silently drop a printer that was already there
+        raise RosterWriteError(f"the updated settings resolved without existing "
+                               f"printer(s) {', '.join(missing)}, so nothing was written")
     stamp = timestamp or datetime.now().strftime("%Y%m%d-%H%M%S")
     try:
         backup = _backup(target, stamp)
