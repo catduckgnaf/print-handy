@@ -548,6 +548,32 @@ def model_job_verify(path, state):
     return model_job.verify_gcode_offline(path, state)
 
 
+def check_refusal(case, run):
+    """Assert a pinned intake refusal (P2-177): the FAILED receipt, for the
+    expected reason, with the harness's adapter checks, and proof that
+    slicing and starting never happened.
+
+    check_expectations cannot serve a refused case (it asserts a print
+    started), so until now the runners accepted any FAILED receipt —
+    including one from an unrelated intake regression that never exercised
+    the pinned limit. `error_contains` in the case's [expect] table names
+    the refusal text the case pins.
+    """
+    want = case.expect
+    assert not getattr(run.adapter, "unanswered", None), "\n".join(run.adapter.unanswered)
+    assert not getattr(run.adapter, "errors", None), run.adapter.errors
+    assert run.receipt.get("status") == "FAILED", (
+        f"expected an intake refusal, got receipt {run.receipt.get('status')!r}: "
+        f"{run.receipt.get('error')}\n{_transcript(run)}")
+    needle = want.get("error_contains")
+    if needle:
+        assert needle in str(run.receipt.get("error") or ""), (
+            f"refusal reason {run.receipt.get('error')!r} does not name the pinned "
+            f"refusal {needle!r}\n{_transcript(run)}")
+    assert not run.slice_starts, "a refused case must never reach slicing"
+    assert not run.starts, "a refused case must never start a print"
+
+
 def check_expectations(case, run):
     """Assert the case's [expect] table. Returns nothing; raises AssertionError with the difference."""
     want = case.expect
