@@ -275,7 +275,15 @@ def channel_scope(channel):
 
 def safe_name(name):
     name = Path(str(name or "model")).name
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", name)[:120] or "model"
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", name)
+    if len(cleaned) <= 120:
+        return cleaned or "model"
+    # Truncate the stem, never the extension (P2-39): save_attachments checks
+    # the suffix, so a name cut through its extension was silently skipped.
+    stem, dot, ext = cleaned.rpartition(".")
+    if dot and 0 < len(ext) < 119:
+        return f"{stem[:119 - len(ext)]}.{ext}"
+    return cleaned[:120] or "model"
 
 
 class Gateway:

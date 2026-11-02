@@ -406,6 +406,21 @@ def test_did_you_mean_no_sends_the_unmatched_reply_and_dispatches_nothing(cfg):
     assert discord.sent[-1] == runtime.unmatched_text(cfg["discord"]["bot_name"])
 
 
+# ---------------------------------------------------------------------- upload names
+
+def test_safe_name_truncation_keeps_the_extension():
+    """A valid model file whose name exceeds the cap keeps its suffix (P2-39):
+    truncating through the extension made save_attachments skip the upload
+    silently, because the saved name no longer ended in a model suffix."""
+    name = runtime.safe_name("a" * 130 + ".stl")
+    assert name.endswith(".stl") and len(name) == 120
+    name = runtime.safe_name("a" * 130 + ".3mf")
+    assert name.endswith(".3mf") and len(name) == 120
+    assert runtime.safe_name("b" * 200) == "b" * 120  # no extension: plain truncation
+    assert runtime.safe_name("benchy.3mf") == "benchy.3mf"  # short names untouched
+    assert runtime.safe_name("my model!.stl") == "my_model_.stl"  # sanitizing untouched
+
+
 def test_did_you_mean_accepts_a_typed_yes(cfg):
     seen = []
     discord, core = make(cfg, router=_recording_router(seen))
