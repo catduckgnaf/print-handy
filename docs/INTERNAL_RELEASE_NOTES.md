@@ -3,7 +3,7 @@
 # Unreleased
 
 - Telegram polling now dispatches updates as managed tasks, so a command waiting on a prompt answer no longer stalls message polling (#764).
-- Completing a maintenance session no longer discards other maintenance runs recorded while it was open (#769).
+- IFS multi-spool jobs (#784): spools now share one IFS job by material family, so a job using white PLA in one slot and black PLA+ in another is accepted as one job instead of being split as "mixed materials". PLA with Silk PLA, Matte PLA or PLA Pro also shares a job; genuinely different families (PLA with PETG) still split, and the split reason names the slot materials.
 
 # Version 2.2.4
 
