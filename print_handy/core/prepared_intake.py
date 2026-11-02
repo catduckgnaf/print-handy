@@ -2409,9 +2409,15 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         enabled = delivery.methods()
         can_print = delivery.PRINTER in enabled
         first_labels = [print_label, 'Slice only', 'Stop with colors saved', cancel_label][0 if can_print else 1:]
+        # The Spoolman remap warning belongs on THIS confirmation too (P2-242):
+        # 'Slice and print now' is the choice that starts the print, and it
+        # never saw the note only the slice-only flow's second question got.
+        from .spool_remap import confirm_note
+        remap_note = confirm_note(mj._job_adapter(latest), latest, state)
         choice = await _ask(adapter, source, key,
             ' · '.join(x for x in ('Ready to slice', names, estimate_text) if x)
-            + ('\n' + spool_text if spool_text else '') + caveat,
+            + ('\n' + spool_text if spool_text else '') + caveat
+            + ('\n' + remap_note if remap_note else ''),
             first_labels, timeout,
             on_shown=early.release.set, approval=True)
         choice = choice if can_print else choice + 1
