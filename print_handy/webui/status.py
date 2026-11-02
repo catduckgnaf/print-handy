@@ -42,7 +42,7 @@ import urllib.parse
 import urllib.request
 from urllib.parse import urlparse
 
-from .. import __version__, doctor, healthcheck, printers, settings
+from .. import __version__, doctor, healthcheck, logs, printers, settings
 from ..bot import health as bot_health
 
 # Heartbeat record keys that are safe and useful to show. The record is
@@ -139,7 +139,14 @@ def _spoolman_section(data, environ, probe):
     if not url:
         return {"bundled": bundled, "url": "", "ok": False, "detail": "not configured"}
     ok, detail = probe(url)
-    return {"bundled": bundled, "url": url, "ok": ok, "detail": detail}
+    # Probed with the real URL; shown without its credentials (an open LAN Web UI, #708).
+    return {"bundled": bundled, "url": _shown_url(url), "ok": ok, "detail": logs.redact(str(detail or ""))}
+
+
+def _shown_url(value):
+    """A configured URL as the status page shows it: userinfo and secret query values masked."""
+    from ..live_stream import redact_url
+    return redact_url(value) if isinstance(value, str) else value
 
 
 def doctor_checks(data):
@@ -221,7 +228,7 @@ def snapshot(data=None, *, environ=None, heartbeat=READ_HEARTBEAT, probe=None, c
     rows = doctor_checks(data) if checks is None else checks
     model_key = data["printer"]["model"]
     model = printers.MODELS[model_key]
-    services = {key: value for key, value in sorted(data.get("services", {}).items())
+    services = {key: _shown_url(value) for key, value in sorted(data.get("services", {}).items())
                 if key.endswith("_url") and value}
     ok = (bot["ok"] and listener["ok"] is not False and spoolman["ok"]
           and all(row["status"] != "fail" for row in rows))
@@ -274,7 +281,7 @@ def _roster_section(data):
         for key in ("moonraker_url", "octoprint_url", "camera_snapshot_url",
                     "lan_host", "link_host", "host"):
             if entry.get(key):
-                row[key] = entry[key]
+                row[key] = _shown_url(entry[key]) if key.endswith("_url") else entry[key]
         rows.append(row)
     return rows
 
