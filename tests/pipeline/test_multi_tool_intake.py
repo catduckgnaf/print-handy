@@ -532,6 +532,30 @@ def test_slice_single_colour_xl_uses_the_picked_toolhead(tmp_path, monkeypatch):
     assert adapter.normalize_tool_mapping(provenance['tool_mapping'], state) == {'3': 4}
 
 
+def test_slice_xl_five_toolheads_is_not_capped_at_four_slots(tmp_path, monkeypatch):
+    # Bonus (found in the DATA-3 lane): the geometry exporter's slot bound is
+    # the AD5X's four IFS slots; a per-part XL job using all five toolheads —
+    # an assignment intake approves — was refused as needing "one to four
+    # IFS slots". The identity mapping is bounded by the toolhead count.
+    state = xl_state()
+    src = CASES / 'five-colors-over-slots' / 'model.3mf'
+    manifest = source_colors.inventory(src)
+    choices = {}
+    for row in source_colors.canonical_prompts(manifest):
+        slot = row['source_extruder']
+        record = state['filament_slots'][str(slot)]
+        choices[row['key']] = {'slot': slot, 'color': record['color'], 'material': 'PLA',
+                               'spoolman_id': record['spoolman_id']}
+    decisions = {'source_sha256': manifest['source_sha256'], 'mode': 'per_part',
+                 'schema': 'part_slots_v1', 'choices': choices}
+    output, provenance, configs, calls, folder, adapter = xl_capture(src, decisions, state,
+                                                                     tmp_path, monkeypatch)
+    assert provenance['tool_mapping'] == {'0': 1, '1': 2, '2': 3, '3': 4, '4': 5}
+    assert adapter.normalize_tool_mapping(provenance['tool_mapping'], state) == provenance['tool_mapping']
+    filaments = [p for p in configs if p.name.startswith('filament_tool_')]
+    assert len(filaments) == 5
+
+
 # ---------------------------------------------------------------------------
 # DATA-3 at the model_job level: slice_job routes a single-colour toolhead
 # pick through the merged multi-tool slice (P1-73), and the merge planner no
