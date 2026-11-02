@@ -36,6 +36,7 @@ from .rest import chunks, split_media
 logger = logging.getLogger(__name__)
 
 HEARTBEAT_S = 15
+HANDLER_DRAIN_S = 5
 SYNC_TIMEOUT_MS = 30_000
 SINCE_FILE = "matrix-next-batch"
 _NUMBER = re.compile(r"(\d{1,3})\s*[.)]?")
@@ -183,8 +184,10 @@ class StandaloneAdapter(BasePlatformAdapter):
         lost the thread-pool race — the intermittent CI failure where a
         room saw "Started." and only then "> Answered by message: ...".
         Discord/Telegram close-outs are edits, so only Matrix reorders.
-        Answers here are handled one event at a time by the sync loop, and
-        the resolve stays first-wins: its result is what this call returns.
+        Answers are dispatched by the sync loop as their own event tasks
+        (P1-65), so an answer is processed while the flow it answers is
+        still running; the resolve stays first-wins (the registry decides):
+        its result is what this call returns.
         """
         text = str(text or "").strip()
         match = _NUMBER.fullmatch(text)
@@ -234,6 +237,7 @@ class MatrixClient:
         self.bot_user_id = str((cfg.get("matrix") or {}).get("bot_user_id") or "")
         self._since = None
         self._background = []
+        self._handlers = set()
         self._state_path = Path(state_path) if state_path else None
 
     # -------------------------------------------------------------- sync state
@@ -333,21 +337,56 @@ class MatrixClient:
             except Exception:
                 logger.warning("could not join the print room %s", room_id, exc_info=True)
 
+    async def _run_event(self, event, room_id):
+        """One dispatched event's handling; failures are logged, never raised
+        into the sync loop that spawned the task."""
+        try:
+            await self.handle_event(event, room_id)
+        except Exception:
+            logger.exception("Matrix event handling failed")
+
+    async def drain_handlers(self, timeout=HANDLER_DRAIN_S):
+        """Wait (up to ``timeout`` seconds) for in-flight event handlers.
+
+        True when every handler on this loop finished. Handlers still
+        running after the timeout — typically a flow parked on a prompt
+        answer — are left running; close() cancels what remains.
+        """
+        loop = asyncio.get_running_loop()
+        tasks = [task for task in self._handlers if task.get_loop() is loop and not task.done()]
+        if not tasks:
+            return True
+        _, pending = await asyncio.wait(tasks, timeout=timeout)
+        return not pending
+
     async def poll_once(self):
+        """One /sync round; returns the number of events dispatched.
+
+        Events are dispatched as managed tasks, NOT awaited inline (P1-65):
+        a handler can park awaiting a prompt answer, and that answer only
+        arrives as an event in a later /sync — awaiting the handler here
+        starved the loop, so the answer could never be received and the
+        flow stalled until its prompt timed out. Tasks are tracked in
+        ``_handlers`` and drained by close(), so shutdown never drops one
+        silently. Concurrent handling is the posture BotCore already runs
+        under on Discord, where the gateway dispatches every message as
+        its own task.
+        """
         data = await asyncio.to_thread(mx.sync, self.homeserver, self.token, self._since,
                                        timeout_ms=SYNC_TIMEOUT_MS, opener=self.opener)
         await self._maybe_join(data)
-        handled = 0
+        dispatched = 0
         for room_id, event in self._room_events(data):
-            try:
-                if await self.handle_event(event, room_id) is not None:
-                    handled += 1
-            except Exception:
-                logger.exception("Matrix event handling failed")
+            if self.parse(event, room_id) is None:
+                continue
+            task = asyncio.create_task(self._run_event(event, room_id))
+            self._handlers.add(task)
+            task.add_done_callback(self._handlers.discard)
+            dispatched += 1
         if (data or {}).get("next_batch"):
             self._since = str(data["next_batch"])
             self._save_since()
-        return handled
+        return dispatched
 
     # -------------------------------------------------------------- lifecycle
 
@@ -426,6 +465,21 @@ class MatrixClient:
                 except RuntimeError:
                     pass  # the health server belonged to a previous loop
         self._background.clear()
+        if self._handlers:
+            # Event handlers dispatched by poll_once (P1-65): a graceful
+            # shutdown gives in-flight ones a brief chance to finish, then
+            # cancels what is left — a flow parked on a prompt answer would
+            # otherwise hold shutdown open for its whole prompt timeout.
+            # Same loop-affinity rule as the background tasks above: only
+            # this loop's tasks are awaited; foreign-loop tasks are
+            # cancelled and left to their own loop.
+            await self.drain_handlers()
+            for task in self._handlers:
+                task.cancel()
+            mine = [task for task in self._handlers if task.get_loop() is loop]
+            if mine:
+                await asyncio.gather(*mine, return_exceptions=True)
+            self._handlers.clear()
         try:
             from print_handy.core import owned_worker
             await owned_worker.shutdown()
