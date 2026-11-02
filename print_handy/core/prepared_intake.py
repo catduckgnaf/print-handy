@@ -2065,7 +2065,8 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                                  _heavy(mj.full_size_one_plate, path, state,
                                                         latest.get('color_decisions'),
                                                         capacity=mj.position_limit(job_adapter),
-                                                        multi_tool=job_adapter.multi_tool))
+                                                        multi_tool=job_adapter.multi_tool,
+                                                        job=latest))
                 rearrange_checked = True
             except Exception:
                 logger.exception('one-plate rearrangement check failed; falling back to the full fit search')

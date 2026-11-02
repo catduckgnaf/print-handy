@@ -4018,7 +4018,7 @@ def _plates_for(source, manifest):
                  'object_ids': sorted({int(p['object_id']) for p in manifest['parts']})}]
 
 
-def full_size_one_plate(source, state, decisions=None, capacity=None, multi_tool=False):
+def full_size_one_plate(source, state, decisions=None, capacity=None, multi_tool=False, job=None):
     """A 100%-scale, one-plate rearrangement the slicer will honor exactly, or None.
 
     This is the cheap first fit check after the author's layout fails the bed:
@@ -4030,6 +4030,9 @@ def full_size_one_plate(source, state, decisions=None, capacity=None, multi_tool
       merge spacing, bed-edge margin and prime-tower room for multi-slot jobs;
       ``capacity``/``multi_tool`` carry the job printer's position count and
       kind into that planner, exactly as ``slice_multi_plate`` passes them;
+      ``job`` is the real job, carried into the planner under the flag: the
+      planner reads the author's own text from it (a listing summary asking
+      for separate printing), which a synthetic flag-only job hid (P2-235);
     * a single-color or generic single-plate source slices through
       ``geometry_layout.arrange_and_export``, so it is checked with
       ``probe_single_plate_rearrange`` at the same defaults.
@@ -4054,7 +4057,7 @@ def full_size_one_plate(source, state, decisions=None, capacity=None, multi_tool
             return None
         view = _per_part_view(manifest, decisions)
         slots = _part_slots(view, manifest)
-        flagged = {'full_size_rearrange_plan': {'rearrange_plate': True}}
+        flagged = {**(job or {}), 'full_size_rearrange_plan': {'rearrange_plate': True}}
         verdict = plate_merge.plan(source, manifest, _plates_for(source, manifest), slots, st,
                                    bed=int(bed[0]), job=flagged,
                                    edge=_merge_edge(st.get('brim_override')),
