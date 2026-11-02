@@ -305,3 +305,86 @@ def test_cold_pull_prompts_use_their_configured_timeouts(monkeypatch):
     assert by_key["actuate"] == _config.safety_confirm_timeout_s()
     assert by_key["tip"] == _config.cold_pull_outcome_s()
     assert by_key["actuate"] != _config.question_timeout_s()
+
+
+def test_full_maintenance_with_cold_pull_records_full_run(monkeypatch):
+    """A full maintenance that runs a cold pull must still save its own
+    kind=full run (status/reminders look that kind up), without duplicating
+    the cold-pull record the shared workflow already persisted (P2-7)."""
+    import asyncio
+
+    plugin = _load_coldpull_plugin()
+    store = {"runs": []}
+
+    from print_handy.hermes import maintenance as maint
+
+    def fake_load(*args, **kwargs):
+        return {"runs": list(store["runs"]), **({"pending": store["pending"]} if "pending" in store else {})}
+
+    def fake_save(data, *args, **kwargs):
+        store["runs"] = list(data.get("runs", store["runs"]))
+        if "pending" in data:
+            store["pending"] = data["pending"]
+        else:
+            store.pop("pending", None)
+
+    def fake_append(record, **kwargs):
+        entry = dict(record)
+        store["runs"].append(entry)
+        return entry
+
+    def fake_begin(kind, state, **kwargs):
+        session = {"kind": kind, "steps": [None] * 4, "problems": [], "cold_pull": None}
+        state["pending"] = session
+        return session
+
+    monkeypatch.setattr(maint, "load", fake_load)
+    monkeypatch.setattr(maint, "save", fake_save)
+    monkeypatch.setattr(maint, "append_run", fake_append)
+    monkeypatch.setattr(maint, "begin_session", fake_begin)
+    monkeypatch.setattr(maint, "save_session", lambda session, state, **kw: state.__setitem__("pending", session))
+
+    from print_handy.hermes import print_control as pc
+    monkeypatch.setattr(pc, "status", lambda **kw: {"state": "standby"})
+    monkeypatch.setattr(plugin, "_maintenance_hours_now", lambda *a, **k: 12.0)
+    monkeypatch.setattr(plugin, "_routed_printer_id", lambda source, gateway=None: None)
+    monkeypatch.setattr(plugin, "_live_key_for", lambda source, gateway, chosen=None: None)
+
+    async def fake_decide(source, gateway, adapter, metadata, *, question=None):
+        return None, None
+
+    monkeypatch.setattr(plugin, "_decide_printer", fake_decide)
+
+    async def fake_confirm(adapter, source, metadata, key, prompt, choices, timeout, live_key=None):
+        if key == "maintenance-coldpull":
+            return choices[0]  # run the PLA cold pull
+        return "Done"
+
+    monkeypatch.setattr(plugin, "_confirm", fake_confirm)
+
+    async def fake_workflow(adapter, source, metadata, **kwargs):
+        record = {"kind": "coldpull", "source": "maintenance",
+                  "cold_pull": {"result": "clean"}}
+        maint.append_run(record)  # the shared workflow persists its own record
+        return record, "Cold pull finished."
+
+    monkeypatch.setattr(plugin, "_coldpull_workflow", fake_workflow)
+
+    class Adapter:
+        async def send(self, **kwargs):
+            return None
+
+    source = MagicMock()
+    source.chat_id = "c"
+    source.thread_id = None
+    event = MagicMock()
+    event.text = "/print-maintenance full"
+    monkeypatch.setattr(plugin, "_control_preamble",
+                        lambda e, g, cmd, with_args=False: (source, Adapter()))
+
+    result = asyncio.run(plugin.maintenance_dispatch(event, MagicMock()))
+    assert result == {"action": "skip", "reason": "maintenance handled"}
+    kinds = [r.get("kind") for r in store["runs"]]
+    assert kinds.count("coldpull") == 1, kinds
+    assert kinds.count("full") == 1, kinds
+

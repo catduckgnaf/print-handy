@@ -2011,9 +2011,19 @@ async def maintenance_dispatch(event, gateway, **kwargs):
                         session['cold_pull_record_persisted'] = True
             session['completed'] = True
             session['hours_total'] = await (asyncio.to_thread(_maintenance_hours_now, pid) if pid else asyncio.to_thread(_maintenance_hours_now))
-            final_record = session.pop('cold_pull_record', None) or session
-            if not session.pop('cold_pull_record_persisted', False):
-                maintenance.append_run(final_record, **_pkw(pid))
+            cold_pull_record = session.pop('cold_pull_record', None)
+            if cold_pull_record is not None and not session.pop('cold_pull_record_persisted', False):
+                # Defensive: the shared cold-pull workflow persists its own
+                # record before returning it, so this only fires if that
+                # ever changes; never let the pull go unrecorded.
+                maintenance.append_run(cold_pull_record, **_pkw(pid))
+            else:
+                session.pop('cold_pull_record_persisted', None)
+            # The completed session is a run of its own kind and must be
+            # saved even when a cold pull ran: status and reminder lookups
+            # search for kind == mode, and skipping this append made a full
+            # maintenance with a cold pull look like it never happened.
+            maintenance.append_run(session, **_pkw(pid))
             state.pop('pending', None)
             maintenance.save(state, **_pkw(pid))
             message = f'{mode.title()} maintenance checklist saved. '
