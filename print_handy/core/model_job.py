@@ -3743,6 +3743,31 @@ def _recipe_binding(job):
     return {'recipe_version': job['slice_recipe']['version'], 'recipe_sha256': job['slice_recipe']['sha256']}
 
 
+def _placed_bounds_by_object(geometry, object_of_key):
+    """Per-object placed bounds from a multicolor exporter report (P2-85).
+
+    The union of the part rows' bounds and the cutter volumes' bounds. The
+    merged-placement proof compares these against bounds computed from ALL
+    of an object's authored volumes, so the landed side must include the
+    cutters too: a negative volume reaching past its body otherwise reads
+    as the export having landed somewhere else, and a sound slice is
+    refused.
+    """
+    placed = {}
+
+    def fold(oid, box):
+        if oid in placed:
+            prev = placed[oid]
+            box = [(min(prev[a][0], box[a][0]), max(prev[a][1], box[a][1])) for a in range(3)]
+        placed[oid] = box
+
+    for row in geometry.get('parts', []):
+        fold(object_of_key[row['part_key']], row['bounds_mm'])
+    for oid, box in (geometry.get('cutter_bounds_by_object') or {}).items():
+        fold(str(oid), box)
+    return placed
+
+
 def _recipe_changed(job, latest):
     """True when JOB.json, the hardware record, profiles or slicer now give another recipe than the one sliced."""
     from .slice_recipe import recipe_sha256, slice_recipe
@@ -4419,14 +4444,7 @@ def _slice_merged(job, job_path, src, manifest, decisions, view, verdict, st, br
             from .color_geometry import _world_points as _points_of
             from .orca_adapter import _rotate as _rotate_point
             object_of_key = {p['key']: str(p['object_id']) for p in manifest['parts']}
-            placed_by_object = {}
-            for row in geometry.get('parts', []):
-                oid = object_of_key[row['part_key']]
-                box = row['bounds_mm']
-                if oid in placed_by_object:
-                    prev = placed_by_object[oid]
-                    box = [(min(prev[a][0], box[a][0]), max(prev[a][1], box[a][1])) for a in range(3)]
-                placed_by_object[oid] = box
+            placed_by_object = _placed_bounds_by_object(geometry, object_of_key)
             shifts = {str(k): v for k, v in verdict['shifts'].items()}
             with zipfile.ZipFile(src) as archive:
                 turned_points = {oid: _points_of(archive, {oid}) for oid in fit_by_object}
@@ -4526,14 +4544,7 @@ def _slice_merged_multi_tool(job, job_path, src, manifest, decisions, view, verd
         from .color_geometry import _world_points as _points_of
         from .orca_adapter import _rotate as _rotate_point
         object_of_key = {p['key']: str(p['object_id']) for p in manifest['parts']}
-        placed_by_object = {}
-        for row in geometry.get('parts', []):
-            oid = object_of_key[row['part_key']]
-            box = row['bounds_mm']
-            if oid in placed_by_object:
-                prev = placed_by_object[oid]
-                box = [(min(prev[a][0], box[a][0]), max(prev[a][1], box[a][1])) for a in range(3)]
-            placed_by_object[oid] = box
+        placed_by_object = _placed_bounds_by_object(geometry, object_of_key)
         shifts = {str(k): v for k, v in verdict['shifts'].items()}
         with zipfile.ZipFile(src) as archive:
             turned_points = {oid: _points_of(archive, {oid}) for oid in fit_by_object}
