@@ -31,6 +31,10 @@ FILAMENT_SLOTS = _S['printer']['filament_slots']
 NOZZLE_MM = _S['printer']['nozzle_diameter_mm']
 # PRINT_HANDY_ORCA_CMD selects a native OrcaSlicer binary without changing the home Flatpak default.
 # ORCA_FLATPAK_APP_ID selects a different installed Flatpak app while preserving that default.
+FLATPAK_APP_ID = 'com.orcaslicer.OrcaSlicer'
+LEGACY_FLATPAK_APP_ID = 'io.github.softfever.OrcaSlicer'  # the same app's pre-rename ID
+
+
 def _orca_command():
     """Return the effective command, honoring runtime overrides for test tracks."""
     override = os.environ.get('PRINT_HANDY_ORCA_CMD')
@@ -39,6 +43,15 @@ def _orca_command():
     command = list(_S['orca']['command'])
     app_id = os.environ.get('ORCA_FLATPAK_APP_ID')
     if command and Path(command[0]).name == 'flatpak' and len(command) > 2 and command[1] == 'run':
+        # A previous release documented the legacy app ID as the [orca]
+        # command, so an existing local config can still carry it; the local
+        # merge would preserve it over the corrected home default and every
+        # invocation would use a Flatpak ref that no longer exists (P1-4).
+        # Migrate the legacy ID to the current one wherever it is named.
+        if app_id == LEGACY_FLATPAK_APP_ID:
+            app_id = FLATPAK_APP_ID
+        if command[2] == LEGACY_FLATPAK_APP_ID:
+            command[2] = FLATPAK_APP_ID
         if app_id:
             if command[2].startswith('--'):
                 return [command[0], 'run', command[2], app_id, *command[3:]]
