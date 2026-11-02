@@ -64,6 +64,7 @@ import threading
 import urllib.request
 from pathlib import Path
 
+from ..core.control_lock import PrinterControlLock
 from . import _config
 
 logger = logging.getLogger(__name__)
@@ -178,11 +179,24 @@ def _sha256_of(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _model_lock(path: Path) -> PrinterControlLock:
+    """The interprocess lock serializing model downloads for one path.
+
+    supervise.sh runs one listener process per printer, all sharing the
+    model directory, so the in-process threading lock cannot coordinate
+    them (P2-221); this flock (the control lock's machinery) can, and it
+    is released by the kernel if a holder dies mid-download.
+    """
+    return PrinterControlLock(lambda: path.with_name(path.name + ".download.lock"))
+
+
 def _download_model(path: Path) -> None:
     """Fetch the pinned weights into ``path``, SHA-256 verified. A
     mismatch or a network error leaves no file behind."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    part = path.with_name(path.name + ".part")
+    # A per-process temp name (P2-221): two processes must never write
+    # one shared .part file, and publication stays one atomic replace.
+    part = path.with_name(f"{path.name}.{os.getpid()}.part")
     digest = hashlib.sha256()
     try:
         request = urllib.request.Request(
@@ -210,9 +224,13 @@ def _ensure_model_file(path: Path, cfg=None) -> None:
     remembered = _remembered_failure(key)
     if remembered:
         raise LocalVisionError(remembered)
-    # Locked: two printers' first checks could otherwise download into
-    # the same .part file at once and corrupt each other's download.
-    with _lock:
+    # Locked twice over: the threading lock for this process's threads,
+    # the flock for the sibling listener processes sharing the model
+    # directory (P2-221). The existence check below runs inside both, so
+    # a process that waited on a peer's download rechecks and reuses the
+    # published file instead of downloading over it (or failing its
+    # replace and remembering that race as a permanent failure).
+    with _lock, _model_lock(path):
         remembered = _remembered_failure(key)
         if remembered:
             raise LocalVisionError(remembered)

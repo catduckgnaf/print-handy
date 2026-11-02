@@ -81,12 +81,16 @@ def test_invalid_mode_and_dimensions_raise():
 
 def test_drawtext_escaping():
     assert vs.escape_drawtext("a:b") == "a\\:b"
-    assert vs.escape_drawtext("it's") == "it\\'s"
+    # P2-111: a quote cannot be escaped inside ffmpeg's single quotes at
+    # either parsing layer; the apostrophe is written close-quote +
+    # \\\' (escaped for both layers, unquoted) + reopen-quote. Verified
+    # against real ffmpeg: the graph parses and renders the exact title.
+    assert vs.escape_drawtext("it's") == "it'\\\\\\''s"
     assert vs.escape_drawtext("100%") == "100%%"
     assert vs.escape_drawtext("a\\b") == "a\\\\b"
     assert vs.escape_drawtext("line1\nline2") == "line1 line2"
     graph = vs.filter_graph(1920, 1080, "crop", lines=["Benchy: 100% 'done'"])
-    assert "text='Benchy\\: 100%% \\'done\\''" in graph
+    assert "text='Benchy\\: 100%% '\\\\\\''done'\\\\\\'''" in graph
 
 
 def test_overlay_lines_composition():

@@ -177,8 +177,13 @@ PRINTER_ENTRY_STR_KEYS = ("name", "moonraker_url", "moonraker_ws_url", "octoprin
                           "camera_snapshot_url", "lan_host", "lan_serial", "lan_access_code_env",
                           "link_host", "api_key_env", "host", "nozzle_type")
 PRINTER_ENTRY_INT_KEYS = ("start_confirm_s", "tool_count")
+# Geometry overrides (P1-83): an Other/generic printer's measured build
+# volume, spelled exactly as [printer]'s keys. File-only: a list is not
+# expressible in the indexed environment spelling.
+PRINTER_ENTRY_GEOMETRY_KEYS = ("bed_mm", "max_print_height_mm")
 PRINTER_ENTRY_KEYS = frozenset({"id", "model", "chat_id",
-                                *PRINTER_ENTRY_STR_KEYS, *PRINTER_ENTRY_INT_KEYS})
+                                *PRINTER_ENTRY_STR_KEYS, *PRINTER_ENTRY_INT_KEYS,
+                                *PRINTER_ENTRY_GEOMETRY_KEYS})
 PRINTER_ENTRY_ENV_TYPES = {key: str for key in ("chat_id", *PRINTER_ENTRY_STR_KEYS)}
 PRINTER_ENTRY_ENV_TYPES.update({key: int for key in PRINTER_ENTRY_INT_KEYS})
 PRINTER_ID = re.compile(r"[a-z0-9][a-z0-9_-]*")
@@ -650,6 +655,18 @@ def _check_roster(raw):
                 if isinstance(value, bool) or not isinstance(value, (str, int)):
                     raise SettingsError(f"[printers] entry {pid!r}: chat_id must be a channel ID, got {value!r}")
                 stub[key] = str(value)
+            elif key == "bed_mm":
+                if (not isinstance(value, (list, tuple)) or len(value) != 2
+                        or not all(isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0
+                                   for v in value)):
+                    raise SettingsError(f"[printers] entry {pid!r}: bed_mm must be two positive "
+                                        f"numbers, got {value!r}")
+                stub[key] = [float(v) for v in value]
+            elif key == "max_print_height_mm":
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not value > 0:
+                    raise SettingsError(f"[printers] entry {pid!r}: max_print_height_mm must be a "
+                                        f"positive number, got {value!r}")
+                stub[key] = float(value)
             else:
                 stub[key] = value
         stubs.append(stub)
@@ -674,6 +691,11 @@ def _project_entry(data, stub):
     # defaults base is built from this entry's model (see load()), so a value already there is
     # that model's own default — the same value a legacy config for the model resolves to.
     for key in ("nozzle_type", "tool_count"):
+        if key in stub:
+            printer[key] = stub[key]
+    # Geometry overrides likewise: the entry's measured build volume replaces
+    # the model default in this printer's view only (P1-83).
+    for key in PRINTER_ENTRY_GEOMETRY_KEYS:
         if key in stub:
             printer[key] = stub[key]
     services = data.setdefault("services", {})
@@ -740,6 +762,9 @@ def _capture_entry(data, stub):
     for key in ("nozzle_type", "tool_count"):
         if key in printer:
             entry[key] = printer[key]
+    for key in PRINTER_ENTRY_GEOMETRY_KEYS:
+        if key in printer:
+            entry[key] = printer[key]
     return entry
 
 
@@ -795,6 +820,9 @@ def _validate_entry(stub):
     if "api_key_env" in stub:
         scratch["prusa"]["api_key_env"] = stub["api_key_env"]
     for key in ("nozzle_type", "tool_count"):
+        if key in stub:
+            scratch["printer"][key] = stub[key]
+    for key in PRINTER_ENTRY_GEOMETRY_KEYS:
         if key in stub:
             scratch["printer"][key] = stub[key]
     try:

@@ -88,6 +88,13 @@ def _first(mapping: Mapping[str, Any], *keys: str) -> Any:
     return None
 
 
+def _iso_from_epoch(value: Any) -> str | None:
+    """ISO-Z string for a Moonraker epoch timestamp, or None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        return None
+    return datetime.fromtimestamp(value, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def load_context(job_key: str, path: Path | None = None) -> dict[str, Any]:
     """Load the optional Print Handy confirmation context without guessing.
 
@@ -200,12 +207,19 @@ def build_record_data(
     native = str(_first(stats, "state") or "complete").lower()
     status, success = TERMINAL_STATUS.get(native, (native, None))
     used_mm = _first(stats, "filament_used") or _first(metadata, "filament_used")
+    # P2-150: the record's identity (record_id, filename) hangs on
+    # started_at. When the context does not carry one, Moonraker's
+    # history start time — an epoch riding stats — names the same
+    # physical print on every call; the per-call completion clock must
+    # not mint a second record for a retried completion.
+    started_at = context.get("started_at") or _iso_from_epoch(
+        _first(stats, "start_time", "print_start_time"))
     return {
         "print_number": _valid_print_number(context.get("print_number")) or _registry_print_number(context),
         "status": status,
         "success": success,
         "title": context.get("title") or _resolved_title(filename),
-        "started_at": context.get("started_at"),
+        "started_at": started_at,
         "completed_at": None if status == "printing" else (completed_at or utc_now()),
         "hardware": context.get("hardware"),
         "estimated_time": context.get("estimated_time"),

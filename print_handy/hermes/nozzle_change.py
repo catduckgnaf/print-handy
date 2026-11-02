@@ -456,7 +456,7 @@ def run_bed_mesh(*, confirmed_at: float,
         return False, "Refused: another printer control action is in flight. Nothing sent."
     try:
         try:
-            st = _state_view(reader, printer_id, ("extruder",))
+            st = _state_view(reader, printer_id, ("extruder", "toolhead"))
         except Exception as exc:
             return False, f"Refused: printer state could not be read ({type(exc).__name__}). Nothing sent."
         job_state = _job_state(st)
@@ -464,6 +464,16 @@ def run_bed_mesh(*, confirmed_at: float,
             return False, f"Refused: printer is {job_state}. Nothing sent."
         if job_state not in _IDLE_STATES:
             return False, f"Refused: printer state is {job_state}. Nothing sent."
+        # Klipper rejects BED_MESH_CALIBRATE on unhomed axes ("Must home axis
+        # first") and nothing earlier in this flow homes the printer, so home
+        # first whenever homing is not proven for all three axes. An
+        # unreadable homed_axes counts as unhomed; G28 is idempotent.
+        homed = str((st.get("toolhead") or {}).get("homed_axes") or "")
+        if not all(axis in homed for axis in "xyz"):
+            try:
+                _send_gcode("G28", printer_id, gcode_sender)
+            except Exception as exc:
+                return False, f"Homing failed ({type(exc).__name__}). Check the printer screen. Nothing else sent."
         try:
             _send_gcode("BED_MESH_CALIBRATE", printer_id, gcode_sender)
         except Exception as exc:
@@ -474,16 +484,62 @@ def run_bed_mesh(*, confirmed_at: float,
 
 
 def finish_change(state: dict[str, Any], diameter_mm: float, nozzle_type: str,
-                  *, printer_id: str | None = None, **kwargs) -> str:
+                  *, printer_id: str | None = None,
+                  klipper_sync: Callable[[str, float], bool] | None = None,
+                  **kwargs) -> str:
     """Record the change in printer_hardware.json and return the prompt text.
 
     Uses printer_state's own load/save so the per-printer file layout (#334)
     is honoured. ``state`` is accepted for callers/tests that already loaded
     it; when it is empty the record is loaded from disk instead.
+
+    On a Moonraker printer the recorded diameter is also reconciled with
+    Klipper's own ``extruder.nozzle_diameter`` (the ``printer_state set
+    --nozzle`` sync): readiness refuses the next print while the two
+    disagree, so presenting the change as complete without the sync would
+    leave the printer blocked. A failed sync is reported in the returned
+    text, never hidden.
     """
     from ..core import printer_state
 
     st = state if state else printer_state.load(printer_id)
     record_nozzle_change(st, diameter_mm, nozzle_type, **kwargs)
     printer_state.save(st, printer_id)
-    return calibration_text(st)
+    text = calibration_text(st)
+    note = _klipper_nozzle_sync_note(st, printer_id=printer_id, klipper_sync=klipper_sync)
+    return f"{text}\n{note}" if note else text
+
+
+def _klipper_nozzle_sync_note(st: dict[str, Any], *, printer_id: str | None,
+                              klipper_sync: Callable[[str, float], bool] | None) -> str:
+    """Sync the recorded diameter into Klipper's printer.cfg, Moonraker only.
+
+    Returns the operator-facing note ("" when there is nothing to report:
+    a non-Moonraker connection, no Moonraker URL on the record, or a
+    printer.cfg that already matches).
+    """
+    from ..core import printer_state
+
+    try:
+        from . import print_control as pc
+        connection = pc._adapter_for(printer_id).connection
+    except Exception:
+        return ""
+    if str(connection or "").casefold() != "moonraker":
+        return ""
+    url = st.get("moonraker_url")
+    if not url:
+        return ""
+    dia = float((st.get("nozzle") or {}).get("diameter_mm") or 0)
+    sync = klipper_sync or printer_state.sync_klipper_nozzle
+    try:
+        changed = sync(str(url), dia)
+    except Exception as exc:
+        return (f"Recorded, but Klipper's nozzle_diameter could not be updated ({type(exc).__name__}), "
+                "and printer readiness refuses prints while it disagrees with the record. "
+                f"Run `printer_state set --nozzle {dia:g}` to sync it, or set nozzle_diameter "
+                "in printer.cfg to match.")
+    if changed:
+        return (f"Klipper's printer.cfg was updated to {dia:g} mm and Klipper restarted, "
+                "so its nozzle_diameter matches the record.")
+    return ""

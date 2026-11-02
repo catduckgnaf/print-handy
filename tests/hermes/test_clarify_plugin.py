@@ -83,7 +83,7 @@ class Interaction:
             async def edit_message(self, content=None, view=None, **kw):
                 interaction.out.append(("edit", content, view))
 
-            async def defer_update(self):
+            async def defer(self):
                 interaction.out.append(("defer",))
 
         self.response = Response()
@@ -128,6 +128,10 @@ def test_pbq_click_resolves_through_the_plugin_listener(monkeypatch):
     on_interaction = wire(plugin, host_adapter())
     interaction = Interaction(f"pbq:{CID}:1")
     asyncio.run(on_interaction(interaction))
+    # P2-207: the click is acknowledged with discord.py's defer() — the
+    # fake response offers nothing else, so a defer_update() call would
+    # raise inside the suppress and this record would be missing.
+    assert ("defer",) in interaction.out
     assert prompts.wait_for_response(CID, 1) == "Blue"
     patches = opener.patches()
     assert len(patches) == 1 and patches[0][2]["content"] == f"{QUESTION}\n> op chose **Blue**"

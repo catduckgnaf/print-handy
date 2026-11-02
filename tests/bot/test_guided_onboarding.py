@@ -480,3 +480,14 @@ def test_session_file_never_contains_a_secret_value(tmp_path):
     assert "api_key_env" not in answers  # env names are derived at apply, not stored
     entry = guided._onboard_entry(answers)
     assert entry["api_key_env"] == "PRUSA_LINK_API_KEY_PRUSA_BENCH"
+
+
+def test_derived_id_skips_secret_name_collisions():
+    # P2-138: 'Garage A1' slugs to garage-a1, whose generated secret names
+    # collide with the existing garage_a1 — derivation must skip past it.
+    assert guided._derive_printer_id("Garage A1", {"garage_a1"}) == "garage-a1-2"
+    assert guided._derive_printer_id("Garage A1", {"other"}) == "garage-a1"
+    # The typed-id validators share the same rule via _printer_id_error.
+    import pytest
+    with pytest.raises(ValueError, match="secret names"):
+        guided._validate_new_id("garage_a1", {"printers": [{"id": "garage-a1"}]})

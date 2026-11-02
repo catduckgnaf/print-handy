@@ -225,7 +225,10 @@ class HermesClarifyAdapter:
         message_id = (row or {}).get("message_id") or str(getattr(message, "id", "") or "")
         self._prompts.pop(cid, None)
         with contextlib.suppress(Exception):
-            await interaction.response.defer_update()
+            # discord.py has no defer_update(); defer() is the supported
+            # acknowledgement and answers a component interaction with a
+            # deferred update, so the edited message stays the ack (P2-207).
+            await interaction.response.defer()
         if channel_id and message_id:
             await asyncio.to_thread(self._edit, channel_id, message_id,
                                     f"{question}\n> {who} chose **{labels[index]}**")

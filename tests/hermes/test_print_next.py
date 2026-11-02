@@ -730,3 +730,38 @@ def test_hook_warming_start_registers_message_for_listener_edit(tmp_path):
     assert result['action'] == 'skip'
     assert recorded == [('plate_2.gcode', 'msg-42')]
     assert any(m['content'].startswith('Print started') for m in adapter.sent)
+def _routed_adapter_with(monkeypatch, connection, phase):
+    """Route live_idle_check(printer_id) through a fake roster adapter.
+
+    printer_state.check passes (hardware/spool readiness is fine); the
+    execution state comes from the fake _printer_phase.
+    """
+    from print_handy import printers, settings
+    from print_handy.core import model_job, printer_state
+    adapter = S(transport=None, connection=connection)
+    monkeypatch.setattr(settings, 'by_id', lambda pid: {'model': 'klipper.generic'})
+    monkeypatch.setattr(settings, 'view_for', lambda pid: {})
+    monkeypatch.setattr(printers, 'get', lambda model, view: adapter)
+    monkeypatch.setattr(printer_state, 'load', lambda pid=None: {'printer': 'routed'})
+    monkeypatch.setattr(printer_state, 'check', lambda st, printer_id=None, adapter=None: (True, [], {}))
+    monkeypatch.setattr(model_job, '_printer_phase', phase)
+
+
+def test_live_idle_check_routed_moonraker_refuses_a_paused_printer(monkeypatch):
+    # P1-80: printer_state.check never queries print_stats for Moonraker, so a
+    # routed check must still ask for the execution state; a paused printer
+    # is not idle even though its hardware readiness passes.
+    _routed_adapter_with(monkeypatch, 'moonraker', lambda st: ('paused', 'a.gcode', 'Moonraker reports active execution'))
+    with pytest.raises(RuntimeError, match='not idle'):
+        print_next.live_idle_check('bench')
+
+
+def test_live_idle_check_routed_moonraker_accepts_standby(monkeypatch):
+    _routed_adapter_with(monkeypatch, 'moonraker', lambda st: ('standby', '', 'Ready'))
+    print_next.live_idle_check('bench')
+
+
+def test_live_idle_check_routed_bambu_does_not_query_moonraker(monkeypatch):
+    _routed_adapter_with(monkeypatch, 'bambulab_lan',
+                         lambda st: pytest.fail('Moonraker queried for a Bambu printer'))
+    print_next.live_idle_check('bench')

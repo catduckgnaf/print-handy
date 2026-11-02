@@ -88,6 +88,64 @@ def test_duplicate_printer_id_is_rejected_by_the_answers_gate():
         build_plan(_wizard(bad), hermes_found=False)
 
 
+GENERIC_SECOND = {
+    **ONE_PRINTER,
+    "add_printer_2": "yes",
+    "printer1_id": "workshop-ad5x", "printer1_chat_id": "",
+    "p2_brand": "other", "p2_firmware": "klipper", "p2_printer_name": "Bench Klipper",
+    "p2_bed_x": "100", "p2_bed_y": "120", "p2_bed_z": "130",
+    "p2_has_printer_software": "yes", "p2_moonraker_url": "http://192.168.1.62:7125",
+    "p2_nozzle_type": "brass",
+    "p2_id": "bench-klipper", "p2_chat_id": "100000000000000004", "p2_camera": "no",
+    "add_printer_3": "no",
+}
+
+
+def test_generic_second_printer_keeps_its_custom_build_volume(tmp_path):
+    # P1-83: the Other/generic questions collect a custom bed and height;
+    # the roster entry must carry them, or the settings view silently
+    # substitutes the generic model's 220x220x220 defaults.
+    plan = build_plan(_wizard(GENERIC_SECOND), hermes_found=False)
+    first, second = plan["config"]["printers"]
+    assert second["bed_mm"] == [100.0, 120.0]
+    assert second["max_print_height_mm"] == 130.0
+    assert "bed_mm" not in first  # a known model keeps its own defaults
+
+    local = tmp_path / "local.yaml"
+    assert merge_config(local, plan["config"], _wizard({}))
+    data = settings.load(local=local, environ={})
+    view = settings.view_for("bench-klipper", data)
+    assert view["printer"]["bed_mm"] == [100.0, 120.0]
+    assert view["printer"]["max_print_height_mm"] == 130.0
+
+
+def test_env_colliding_printer_ids_are_rejected_by_the_answers_gate():
+    # P2-138: garage-a1 and garage_a1 are distinct ids but generate the
+    # same per-printer secret names (BAMBU_LAN_PASSWORD_GARAGE_A1), so the
+    # later printer's secret would silently overwrite the earlier one's.
+    bad = {**TWO_PRINTERS, "printer1_id": "garage-a1", "p2_id": "garage_a1"}
+    with pytest.raises(SystemExit):
+        build_plan(_wizard(bad), hermes_found=False)
+
+
+def test_merge_refuses_to_add_a_roster_to_a_legacy_config(tmp_path):
+    # P1-84: merging a [[printers]] plan into an existing single-printer
+    # file would keep its legacy [printer] model, a shape the settings
+    # loader refuses at startup — the wizard must refuse first and leave
+    # the working file intact.
+    target = tmp_path / "local.yaml"
+    content = ("printer:\n  model: flashforge.ad5x\n"
+               "services:\n  moonraker_url: http://192.168.1.61:7125\n")
+    target.write_text(content)
+    roster = {"printers": [{"id": "workshop-ad5x", "model": "flashforge.ad5x",
+                            "moonraker_url": "http://192.168.1.61:7125"}]}
+    out = io.StringIO()
+    w = Wizard(answers={"merge_config": "yes"}, input_stream=io.StringIO(""), output=out)
+    assert merge_config(target, roster, w) is False
+    assert target.read_text() == content
+    assert "left unchanged" in out.getvalue()
+
+
 def test_two_printers_may_not_both_ride_the_main_channel():
     # The first printer falls back to the main channel, so the second one must
     # claim its own — two entries claiming one channel are refused at load.

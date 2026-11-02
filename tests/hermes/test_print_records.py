@@ -315,6 +315,53 @@ def test_cancel_to_standby_finalizes_record_from_history(tmp_path, monkeypatch):
     assert len(list((tmp_path / "Prints").glob("*.json"))) == 1
 
 
+def test_record_identity_uses_history_start_time_not_the_completion_clock():
+    """P2-150: with no started_at in the context, Moonraker's history
+    start time (epoch, riding stats) anchors the record — a completion
+    retry at a later wall-clock time is the same record, not a copy."""
+    from datetime import datetime, timezone
+    start = 1790220700
+    iso = datetime.fromtimestamp(start, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stats = {"state": "complete", "print_duration": 60, "start_time": start}
+    first = records.build_record_data("job.gcode", stats=stats, metadata={}, context={},
+                                      completed_at="2026-09-24T04:00:00Z")
+    retry = records.build_record_data("job.gcode", stats=stats, metadata={}, context={},
+                                      completed_at="2026-09-24T04:05:00Z")
+    assert first["started_at"] == iso
+    assert records._record_id(first) == records._record_id(retry)
+    assert records._record_path_for(first, "x") == records._record_path_for(retry, "x")
+
+
+def test_record_completion_retry_writes_one_record(tmp_path, monkeypatch):
+    """P2-150 end to end: record_completion consults Moonraker history
+    for the finished job, so a retry names the same file and the record
+    carries the history start/end instead of per-call clock values."""
+    from datetime import datetime, timezone
+    monkeypatch.setattr(records, "PRINTS_DIR", tmp_path / "Prints")
+    monkeypatch.setattr(records, "PLANS_DIR", tmp_path / "Plans")
+    start, end = 1790220700, 1790224300
+    fmt = "%Y-%m-%dT%H:%M:%SZ"
+    history = {"result": {"jobs": [{"filename": "job.gcode", "status": "completed",
+                                    "start_time": start, "end_time": end,
+                                    "print_duration": 3600, "filament_used": 100.0}]}}
+    monkeypatch.setattr(watcher, "get_json",
+                        lambda path: history if path.startswith("/server/history") else {})
+    monkeypatch.setattr(watcher, "get_file_metadata", lambda filename: {})
+    monkeypatch.setattr(watcher, "get_active_spool", lambda: {})
+    monkeypatch.setattr(watcher, "load_context", lambda job_key: {})
+    clocks = iter(("2026-09-24T05:00:00Z", "2026-09-24T05:07:00Z"))
+    monkeypatch.setattr(watcher, "utc_now", lambda: next(clocks))
+    stats = {"state": "complete", "print_duration": 3600}
+    one = watcher.record_completion("job.gcode", "job.gcode", stats)
+    two = watcher.record_completion("job.gcode", "job.gcode", stats)
+    assert one["record_path"] == two["record_path"]
+    files = list((tmp_path / "Prints").glob("*.json"))
+    assert len(files) == 1
+    record = json.loads(files[0].read_text())
+    assert record["started_at"] == datetime.fromtimestamp(start, timezone.utc).strftime(fmt)
+    assert record["completed_at"] == datetime.fromtimestamp(end, timezone.utc).strftime(fmt)
+
+
 def test_multipart_summary_shows_remaining_filament_for_multi_copy_parts():
     """#438: remaining filament scales by the copies still to go, like the remaining duration."""
     summary = records.format_multipart_summary({"parts": [

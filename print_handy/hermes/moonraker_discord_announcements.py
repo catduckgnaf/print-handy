@@ -639,7 +639,7 @@ def finalize_from_history(job_key):
         return None
     job = jobs[0]
     stats = {"state": HISTORY_STATE.get(job["status"], "error"), "print_duration": job.get("print_duration"),
-             "filament_used": job.get("filament_used")}
+             "filament_used": job.get("filament_used"), "start_time": job.get("start_time")}
     ended = job.get("end_time")
     completed_at = datetime.fromtimestamp(ended, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if ended else None
     result = record_completion(job_key, job_key, stats, completed_at=completed_at)
@@ -647,10 +647,37 @@ def finalize_from_history(job_key):
     return result
 
 
+def _finished_history_job(filename):
+    """Moonraker's newest finished history entry for filename, or None.
+
+    History is the stable identity source for a physical print (P2-150):
+    its start_time names the same print on every completion retry,
+    unlike the wall clock. An unavailable or unmatched read changes
+    nothing — the record falls back to today's behaviour.
+    """
+    try:
+        jobs = (get_json("/server/history/list?limit=50&order=desc").get("result") or {}).get("jobs") or []
+    except Exception:
+        return None
+    for job in jobs:
+        if isinstance(job, dict) and job.get("filename") == filename \
+                and job.get("status") not in (None, "in_progress") and job.get("start_time"):
+            return job
+    return None
+
+
 def record_completion(job_key, filename, stats, completed_at=None):
     """Persist confirmed completion data; unavailable optional reads stay absent."""
     context = load_context(job_key)
     context["job_key"] = job_key
+    stats = dict(stats or {})
+    if not context.get("started_at") and not (stats.get("start_time") or stats.get("print_start_time")):
+        history_job = _finished_history_job(filename)
+        if history_job is not None:
+            stats["start_time"] = history_job["start_time"]
+            if completed_at is None and history_job.get("end_time"):
+                completed_at = datetime.fromtimestamp(
+                    history_job["end_time"], timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
         metadata = get_file_metadata(filename)
     except Exception as exc:

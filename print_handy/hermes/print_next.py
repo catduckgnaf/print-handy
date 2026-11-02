@@ -343,12 +343,21 @@ def live_idle_check(printer_id: str | None = None) -> None:
         from print_handy import settings
         entry = settings.by_id(printer_id)
         adapter = printers.get(entry["model"], settings.view_for(printer_id))
-        ok, problems, facts = printer_state.check(printer_state.load(printer_id),
-                                                  printer_id=printer_id, adapter=adapter)
+        state = printer_state.load(printer_id)
+        ok, problems, facts = printer_state.check(state, printer_id=printer_id, adapter=adapter)
         if getattr(adapter, "transport", None) == "bambulab_lan" and not facts.get("lan_configured"):
             raise RuntimeError("Bambu LAN status is not configured ([bambu] lan_host and lan_serial plus the access code)")
         if not ok:
             raise RuntimeError("; ".join(problems) or "printer readiness problems")
+        if getattr(adapter, "connection", None) == "moonraker":
+            # printer_state.check proves hardware/spool readiness for a
+            # Moonraker printer but never queries print_stats, so a paused or
+            # errored printer would pass on readiness alone. Ask that
+            # printer's Moonraker for its execution state, as the unrouted
+            # path below does for the configured printer.
+            phase, filename, busy = _printer_phase(state)
+            if phase not in ("standby", "complete", "cancelled") or busy == "Printing":
+                raise RuntimeError(f"printer is not idle ({phase}, {filename}, {busy})")
         return
 
     transport = getattr(printers.current(), "transport", None)

@@ -342,6 +342,8 @@ Each printer's runtime state lives in its own folder, `state/printers/<id>/` und
 | `printers.host` | `PRINT_HANDY__PRINTERS__<ID>__HOST` | — | This entry's `elegoo_sdcp.host` or `flashforge_stock.host`, chosen by the entry's model; no other model takes a `host` |
 | `printers.nozzle_type` | `PRINT_HANDY__PRINTERS__<ID>__NOZZLE_TYPE` | — | This entry's `printer.nozzle_type` override, limited to the model's supported types |
 | `printers.tool_count` | `PRINT_HANDY__PRINTERS__<ID>__TOOL_COUNT` | — | This entry's `printer.tool_count` override, for multi-tool models |
+| `printers.bed_mm` | file only | — | This entry's `printer.bed_mm` override (two positive numbers): a custom build volume, e.g. for an Other/generic printer whose measured bed differs from the model default |
+| `printers.max_print_height_mm` | file only | — | This entry's `printer.max_print_height_mm` override (a positive number), the companion to `printers.bed_mm` |
 
 ## Compose variables
 

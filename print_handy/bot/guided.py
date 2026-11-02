@@ -406,10 +406,14 @@ def _prusa_env_name(printer_id):
 
 def _derive_printer_id(name, taken_ids):
     """The roster id for a chosen display name: the settings loader's slug
-    rule, uniquified with a numeric suffix (ids are append-stable keys)."""
+    rule, uniquified with a numeric suffix (ids are append-stable keys).
+    A candidate whose secret-name form collides with a taken id's
+    (garage-a1 vs garage_a1, P2-138) is skipped like an exact clash."""
+    from ..setup_wizard import secret_env_form
+    taken_forms = {secret_env_form(taken) for taken in taken_ids}
     base = settings._printer_id_slug(name)
     candidate, suffix = base, 2
-    while candidate in taken_ids:
+    while candidate in taken_ids or secret_env_form(candidate) in taken_forms:
         candidate = f"{base}-{suffix}"
         suffix += 1
     return candidate

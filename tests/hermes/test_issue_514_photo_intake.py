@@ -500,6 +500,46 @@ def test_text_known_type_is_a_wholesale_match():
     assert spec["brand"] == "Sunlu" and spec["color"] == "Rose Red Blue Green"
 
 
+def test_label_temps_follow_the_downstream_contract():
+    # P2-199: a temperature recorded on a filament is honoured downstream
+    # only when 0 < t <= 300 (printer_state.resolve_material_temperatures
+    # raises otherwise), so label validation must drop what the contract
+    # would reject instead of persisting it.
+    spec = spool_label.validate_label_answer({
+        "material": "PLA", "color": "Black", "grams": 1000,
+        "nozzle_temp": 320, "bed_temp": 0})
+    assert spec["nozzle_temp"] is None and spec["bed_temp"] is None
+    spec = spool_label.validate_label_answer({
+        "material": "PC", "color": "Black", "grams": 1000,
+        "nozzle_temp": 300, "bed_temp": 110})
+    assert spec["nozzle_temp"] == 300.0 and spec["bed_temp"] == 110.0
+    # The OCR/text route shares the contract.
+    spec = spool_label.spec_from_label_text("PLA Black 1 kg Nozzle: 320C Bed: 0C")
+    assert spec["nozzle_temp"] is None and spec["bed_temp"] is None
+
+
+def test_text_material_matching_respects_token_boundaries():
+    # P2-202: 'pla' inside 'plate' is not the material PLA; the complete
+    # token PC printed on the label is the material.
+    spec = spool_label.spec_from_label_text("PC Black 1 kg\nBuild plate: 100C")
+    assert spec["material"] == "PC"
+    assert spec["bed_temp"] == 100.0
+
+
+def test_text_known_type_match_checks_the_printed_brand():
+    # P2-203: with two known PLA Black types, the brand printed on the
+    # label decides — filament_types() order must not pick eSun for a
+    # Sunlu label (the created spool would reuse eSun's filament record).
+    types = [{"brand": "eSun", "material": "PLA", "color": "Black"},
+             {"brand": "Sunlu", "material": "PLA", "color": "Black"}]
+    spec = spool_label.spec_from_label_text("Sunlu PLA Black 1kg", types)
+    assert spec["brand"] == "Sunlu" and spec["material"] == "PLA"
+    # A label naming a brand no known type carries must not inherit a
+    # conflicting brand from a material+colour match alone.
+    spec = spool_label.spec_from_label_text("Polymaker PLA Black 1kg", types)
+    assert spec["brand"] == "Polymaker" and spec["material"] == "PLA"
+
+
 def test_text_partial_label_names_what_is_missing():
     with pytest.raises(spool_label.SpoolLabelError) as caught:
         spool_label.spec_from_label_text("PLA Black")
