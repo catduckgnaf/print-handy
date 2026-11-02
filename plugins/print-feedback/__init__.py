@@ -5137,7 +5137,14 @@ def alert_button_handlers(bot, adapter):
             task.add_done_callback(_photo_tasks.discard)
             return
         if action == 'edit':
-            await intake_advance(interaction, {**state, 'step': 'start'})
+            # Switching to manual entry discards the photo-extracted
+            # temperatures (P2-198): the walkthrough has no step that can
+            # edit them, so keeping them would save a possibly misread
+            # label's values on the new filament, overriding the defaults
+            # of the material the operator is about to pick. (The photo
+            # refusal path already restarts with them cleared.)
+            await intake_advance(interaction, {**state, 'step': 'start',
+                                               'nozzle_temp': None, 'bed_temp': None})
             return
         material = pab.intake_material_for_action(action)
         if material is not None:

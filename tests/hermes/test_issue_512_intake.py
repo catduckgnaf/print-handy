@@ -399,3 +399,24 @@ def test_walkthrough_confirm_that_loses_the_claim_race_creates_nothing(tmp_path,
     kind, content, view = sink[-1]
     assert kind == "send" and "already answered" in content
     assert created == [] and binds == []
+
+
+def test_edit_details_clears_photo_extracted_temperatures(tmp_path, monkeypatch):
+    """Edit details switches to manual entry, which has no temperature
+    step: the photo-extracted nozzle/bed temperatures must be dropped, not
+    silently saved onto the new filament over its material defaults (P2-198)."""
+    monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
+    monkeypatch.setattr(plugin, "_prompt_brand", lambda: False)
+    bot = S(listeners={}, add_listener=lambda fn, name: bot.listeners.__setitem__(name, fn))
+    plugin.alert_button_handlers(bot, S())
+    on_interaction = bot.listeners["on_interaction"]
+    aid = pab.record("intake", "", origin="insertion", slot=2, step="confirm",
+                     brand="Sunlu", material="Silk PLA", color="Rose Red", grams=500,
+                     from_photo=True, photo_route="vision", nozzle_temp=215, bed_temp=65,
+                     disposition="shelf", old_spool_id=None)
+    sink = []
+    asyncio.run(on_interaction(_interaction(sink, f"pbintake:edit:{aid}")))
+    rows = [r for r in pab._load().values() if isinstance(r, dict) and r.get("kind") == "intake"]
+    assert rows, "the re-entered walkthrough step was not recorded"
+    latest = max(rows, key=lambda r: r.get("at", 0))
+    assert latest["nozzle_temp"] is None and latest["bed_temp"] is None
