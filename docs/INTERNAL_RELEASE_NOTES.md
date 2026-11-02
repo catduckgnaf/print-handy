@@ -2,7 +2,7 @@
 
 # Unreleased
 
-Nothing yet.
+- Multicolor jobs for printers with more than four toolheads (for example a five-toolhead Prusa XL) are no longer refused by the geometry exporter (#767).
 
 # Version 2.2.4
 
