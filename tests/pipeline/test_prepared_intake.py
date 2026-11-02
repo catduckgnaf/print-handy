@@ -319,6 +319,60 @@ def test_stop_choice_discards_the_early_slice_and_never_starts(env):
     assert not any(env.root.parent.glob('archive/*/sliced/*.gcode'))
 
 
+def test_expired_slice_confirmation_discards_the_background_slice(env):
+    """P2-23: the background slice starts while the slice confirmation is on
+    screen; when that question expires the intake has failed, and the slice
+    must be discarded with it — not left on disk for a later flow to find."""
+    class ExpiringAdapter(Adapter):
+        async def send_clarify(self, **kw):
+            if kw['question'].startswith('Ready to slice'):
+                return S(success=True)  # never resolved: the question expires
+            return await super().send_clarify(**kw)
+
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='m1',
+              text='https://www.printables.com/model/1-ghost')
+    adapter = ExpiringAdapter([1, 0, 1])  # color answers, then Cancel on the Resume prompt
+    result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
+    assert result['action'] == 'skip'
+    assert env.starts == [] and env.sliced == []
+    assert not any(env.root.parent.glob('archive/*/sliced/*.gcode'))
+
+
+def test_failed_intake_discards_the_background_slice(env, monkeypatch):
+    """P2-23: a generic intake failure after the background slice ran (here:
+    the start machinery raises after slicing) discards the slice too, exactly
+    as the operator-cancelled path already did."""
+    async def broken_start(target):
+        raise RuntimeError('synthetic start failure')
+
+    monkeypatch.setattr(print_next, 'start', broken_start)
+    adapter, result, receipt = run_flow(env, [1, 0, 0])
+    assert result == {'action': 'skip', 'reason': 'source-first intake failed closed'}
+    assert receipt['status'] == 'FAILED'
+    assert env.starts == [] and env.sliced == []
+    assert not any(env.root.parent.glob('archive/*/sliced/*.gcode'))
+
+
+def test_direct_link_failure_posts_the_known_cause(env, monkeypatch):
+    """P2-270: a direct-link failure the diagnostics allowlist recognises
+    (here HTTP 404) must post the known-cause wording (#683), not the older
+    branch that shadowed it and repeated the raw error text only."""
+    def refused(url):
+        raise model_job.DirectLinkError(
+            'The host for that link answered with HTTP 404, so the file was '
+            'not downloaded. Check the link is public and the file is still '
+            'there, then send it again.')
+
+    monkeypatch.setattr(model_job, 'inventory_for_url', refused)
+    adapter, result, receipt = run_flow(env, [])
+    assert result == {'action': 'skip', 'reason': 'source-first intake failed closed'}
+    assert receipt['status'] == 'FAILED'
+    post = adapter.sent[-1]
+    assert 'answered with HTTP 404' in post
+    assert 'Nothing was downloaded or sliced.' in post  # the known-cause post's framing
+    assert 'PH_' in post  # the classified marker only known_post/plain_post posts carry
+
+
 def test_expired_question_offers_one_resume_and_keeps_the_saved_intake(env):
     # Expire the first question, then continue: mode, two part colors, stop.
     adapter = Adapter([0, 0, 0, 0, 2])

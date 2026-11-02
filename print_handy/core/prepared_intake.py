@@ -2768,6 +2768,12 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         return {'action': 'skip', 'reason': reason}
     except IntakeExpired:
         logger.warning('intake question expired')
+        if jp is not None:
+            # A failed intake discards its background slice (P2-23), as the
+            # cancelled path above already does: the slice's output must not
+            # outlive the intake that produced it. Resume re-slices.
+            with contextlib.suppress(Exception):
+                await runner_for(jp).discard()
         # The receipt and JOB.json written before this question stay on disk. Resume
         # re-reads them instead of asking for the link again.
         receipt.update(status='EXPIRED', sliced=False, uploaded=False, started=False)
@@ -2813,6 +2819,12 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         return {'action': 'skip', 'reason': 'expired before a choice'}
     except Exception as exc:
         logger.exception('intake failed')
+        if jp is not None:
+            # A failed intake discards its background slice (P2-23), as the
+            # cancelled path above already does: the slice's output must not
+            # outlive the intake that produced it.
+            with contextlib.suppress(Exception):
+                await runner_for(jp).discard()
         from .site_accounts import chat_safe, short_cause
         from . import model_job as _mj
         if isinstance(exc, SiteLoginNeeded):
@@ -2840,9 +2852,15 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         elif isinstance(exc, mj.DirectLinkError):
             # Also curated and user-phrased (#607): a direct file link that
             # returned a web page, pointed at a non-public address, or could
-            # not be reached. The text names the cause and the remedy, so
-            # keep it — the generic wording would hide both.
-            content = (f'That file could not be fetched. {exc}')
+            # not be reached. Every curated case is on the diagnostics
+            # allowlist (#683), so a recognised failure posts the known-cause
+            # wording (P2-270); the branch's older text remains only for a
+            # direct-link error the allowlist does not recognise.
+            content = (diagnostics.known_post(
+                'That file could not be fetched.',
+                not_happened='Nothing was downloaded or sliced.',
+                subsystem='intake', exc=exc)
+                or f'That file could not be fetched. {exc}')
         elif isinstance(exc, ValueError) and str(exc).startswith('requires one to four distinct configured'):
             # Also curated and user-phrased: a multi-slot/toolhead printer
             # with nothing configured. The text names the exact setup gap,
