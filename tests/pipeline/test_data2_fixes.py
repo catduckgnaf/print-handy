@@ -146,3 +146,60 @@ def test_single_color_rearranged_slice_binds_decisions_to_derivative(tmp_path, m
     saved = json.loads(job_path.read_text())
     assert saved['color_decisions']['source_sha256'] == manifest['source_sha256']
     assert saved['gcode_verified'] is True
+
+
+REFUSED = [{'slot': 2, 'plate_id': 2, 'binding_key': '2:2', 'part_keys': ['2:1'],
+            'reason': 'derived plate does not fit the bed'}]
+
+
+def test_partial_job_refusal_names_refused_plates():
+    """P1-20 (unit): the launch gate names every refused plate, and an
+    explicitly accepted partial job is not gated."""
+    assert model_job.partial_job_refusal({}) is None
+    assert model_job.partial_job_refusal({'refused_plates': []}) is None
+    assert model_job.partial_job_refusal(
+        {'refused_plates': REFUSED, 'partial_job_accepted': True}) is None
+    message = model_job.partial_job_refusal({'refused_plates': REFUSED})
+    assert 'plate 2' in message and 'does not fit the bed' in message
+    assert 'incomplete' in message
+
+
+def test_print_now_refuses_an_unaccepted_partial_job(tmp_path, monkeypatch):
+    """P1-20: print-now must not start a job whose slicing refused a plate
+    until the operator explicitly accepted the partial job."""
+    from .test_artifact_binding import setup_job
+    jp, _st, _gcode = setup_job(tmp_path, monkeypatch)
+    job = json.loads(jp.read_text())
+    job['refused_plates'] = REFUSED
+    jp.write_text(json.dumps(job))
+    with pytest.raises(SystemExit, match='incomplete'):
+        model_job.print_now(str(jp))
+    job['partial_job_accepted'] = True
+    jp.write_text(json.dumps(job))
+    with pytest.raises(Exception) as excinfo:
+        model_job.print_now(str(jp))  # proceeds past the partial gate; no live printer here
+    assert 'incomplete' not in str(excinfo.value)
+    assert 'were refused during slicing' not in str(excinfo.value)
+
+
+def test_intake_discloses_refused_plates_and_records_acceptance(env, monkeypatch):
+    """P1-20: the intake names refused plates before the start question, and
+    the operator's confirmed start records the partial-job acceptance."""
+    def fake_slice(job_path, recipe_sha256=None):
+        gcode = Path(job_path).parent / 'sliced' / 'plate_1.gcode'
+        gcode.parent.mkdir(parents=True, exist_ok=True)
+        gcode.write_text('; estimated printing time (normal mode) = 1h 0m 0s\nG1 X1\n')
+        data = json.loads(Path(job_path).read_text())
+        data['derived_plates'] = [{'gcode': str(gcode), 'plate_id': 1, 'slot': 1}]
+        data['refused_plates'] = REFUSED
+        model_job.write_job(Path(job_path).parent, data)
+        return [gcode]
+
+    monkeypatch.setattr(model_job, 'slice_job', fake_slice)
+    adapter, _result, receipt = run_flow(env, [1, 0, 0], mid='partial1')
+    assert receipt['status'] != 'FAILED', receipt
+    posts = [post for post in adapter.sent if 'will NOT print' in post]
+    assert posts and 'Plate 2' in posts[0] and 'does not fit the bed' in posts[0]
+    job = json.loads(Path(receipt['job_json']).read_text())
+    assert job['partial_job_accepted'] is True
+    assert len(env.starts) == 1  # the disclosed, accepted partial job started

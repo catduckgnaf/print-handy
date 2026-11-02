@@ -2532,6 +2532,18 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                content='Heads up on the source profile:\n'
                                        + '\n'.join(f'- {w}' for w in profile_warnings))
+        # P1-20: a plate a guard refused during slicing is never dropped
+        # silently. Name every refused plate before the start question; the
+        # operator's confirmed start below records the acceptance print-now
+        # requires for a partial job.
+        refused_plates = sliced.get('refused_plates') or []
+        if refused_plates:
+            named = '\n'.join(f"- Plate {row.get('plate_id')} (slot {row.get('slot')}): {row.get('reason')}"
+                              for row in refused_plates)
+            await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                               content='Heads up: part of this model will NOT print. These plates were '
+                                       f'refused during slicing:\n{named}\n'
+                                       'Starting prints only the plates that sliced cleanly.')
         has_dur_q = has_duration_question(getattr(event, 'text', ''))
         breakdown = print_summary.format_estimate_breakdown(sliced)
         # #720: the thermal facts recorded for the printer this job was sliced for ride with
@@ -2632,6 +2644,13 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                 tail = f' Plates stay ready: `/print-next {plan_id}`.' if split and can_print else ''
                 await adapter.send(chat_id=source.chat_id, content='Sliced. Nothing uploaded or started.' + tail, metadata=metadata)
                 return {'action': 'skip', 'reason': 'operator did not start the sliced plate'}
+        if refused_plates:
+            # The start the operator just confirmed followed the refused-plate
+            # disclosure above: that confirmation is the explicit acceptance
+            # of the partial job print-now requires (P1-20).
+            accepted = json.loads(jp.read_text())
+            accepted['partial_job_accepted'] = True
+            mj.write_job(folder, accepted)
         # One click recorded: bed clear, bound to the exact JOB.json and G-code. print-now still runs every gate
         # (verify-gcode, live readiness, single-use approval, duplicate-start claim).
         receipt['bed_clear_approval'] = {'job_json': str(jp), 'gcode': str(first), 'gcode_sha256': target['gcode_sha256'],

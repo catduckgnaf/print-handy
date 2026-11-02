@@ -7206,6 +7206,27 @@ def _print_now_control_lock(target):
     return _cl.control_lock(key)
 
 
+def partial_job_refusal(job):
+    """Why launching this job would silently print an incomplete model, or None.
+
+    A per-plate slice records every plate a guard refused in refused_plates
+    and returns only the survivors. Those survivors are not the model the
+    operator asked for, so launch stays blocked until the operator
+    explicitly accepts the partial job (the chat intake discloses the
+    refused plates and records partial_job_accepted when the operator
+    confirms the start) (P1-20).
+    """
+    refused = (job or {}).get('refused_plates') or []
+    if not refused or (job or {}).get('partial_job_accepted'):
+        return None
+    named = '; '.join(f"plate {row.get('plate_id')} (slot {row.get('slot')}): {row.get('reason')}"
+                      for row in refused)
+    return (f"this job is incomplete: {len(refused)} plate(s) were refused during slicing and "
+            f"will not print: {named}. Reslice after fixing the refusal, or accept the partial "
+            "job explicitly (the chat intake records acceptance when you confirm the start "
+            "after it shows you this list)")
+
+
 def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None):
     """Bed is confirmed clear: verify, upload, start, confirm, record. One command.
 
@@ -7255,6 +7276,9 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
         # A file from an earlier slice of this job (2026-10-10: the bot reran the pre-reslice name).
         raise SystemExit(f"REFUSED: {g.name} is an older slice of this job. The current slice is {cur}; "
                          f"run print-now {job_path} instead. Nothing uploaded or started.")
+    partial = partial_job_refusal(job)
+    if partial:
+        raise SystemExit(f"REFUSED: {partial}. Nothing uploaded or started.")
     require_current_artifact(job, g)
     if not g.is_file(): raise SystemExit(f"REFUSED: no G-code at {g}")
     # The job's printer (#334): a recorded printer_id resolves the roster entry, its adapter
