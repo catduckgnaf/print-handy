@@ -55,6 +55,17 @@ class BundleTests(unittest.TestCase):
         self.assertNotIn("s3cretpw", str(summary))
         self.assertNotIn("s3cr", str(summary))
 
+    def test_zero_log_lines_returns_no_lines_not_the_whole_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "pb.log"
+            log.write_text("first line\nsecond line\n")
+            data = _data(tmp)
+            data["logging"] = {"file": str(log)}
+            for count in (0, -3):
+                tail = diagnostics_bundle.log_tail(data, lines=count)
+                self.assertNotIn("first line", tail)
+                self.assertIn("no log lines", tail)
+
     def test_missing_log_file_setting_is_explained_not_silent(self):
         with tempfile.TemporaryDirectory() as tmp:
             tail = diagnostics_bundle.log_tail(_data(tmp))

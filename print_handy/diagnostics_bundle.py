@@ -106,7 +106,11 @@ def log_tail(data, lines: int = DEFAULT_LOG_LINES) -> str:
         text = target.read_text(errors="replace")
     except OSError as exc:
         return f"(log file {target} could not be read: {exc})"
-    tail = text.splitlines()[-max(0, min(lines, MAX_LOG_LINES)):]
+    count = max(0, min(lines, MAX_LOG_LINES))
+    if count == 0:
+        # [-0:] is the whole file, so a zero request needs its own answer.
+        return "(no log lines included: the requested line count is 0)"
+    tail = text.splitlines()[-count:]
     return "\n".join(logs.redact(line) for line in tail) or "(log file is empty)"
 
 
