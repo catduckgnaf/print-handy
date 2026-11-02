@@ -1101,6 +1101,39 @@ def test_save_config_disconnect_is_the_expected_restart_not_a_failure(error):
     assert reads.count(cal.PRINTER_INFO_PATH) == 3
 
 
+def test_pid_before_reads_the_lowercase_keys_configfile_returns():
+    settings_map = {"extruder": {"pid_kp": "22.2", "pid_ki": "1.5", "pid_kd": "105.0"}}
+    assert cal._pid_before(settings_map, "extruder") == cal.PidValues(22.2, 1.5, 105.0)
+    assert cal._pid_before(settings_map, "heater_bed") is None
+
+
+def test_is_restart_disconnect_separates_presend_from_postsend_failures():
+    # Post-send drops are the SAVE_CONFIG restart signature; a refused
+    # connection or a wrapped connect timeout means the request never
+    # reached Moonraker, so nothing was saved (P2-230).
+    assert cal._is_restart_disconnect(TimeoutError("read timed out"))
+    assert cal._is_restart_disconnect(ConnectionResetError(104, "Connection reset by peer"))
+    assert cal._is_restart_disconnect(
+        urllib.error.URLError(ConnectionResetError(104, "Connection reset by peer")))
+    assert not cal._is_restart_disconnect(ConnectionRefusedError(111, "Connection refused"))
+    assert not cal._is_restart_disconnect(
+        urllib.error.URLError(ConnectionRefusedError(111, "Connection refused")))
+    assert not cal._is_restart_disconnect(urllib.error.URLError(TimeoutError("timed out")))
+
+
+@pytest.mark.parametrize("error", [
+    ConnectionRefusedError(111, "Connection refused"),
+    urllib.error.URLError(ConnectionRefusedError(111, "Connection refused")),
+    urllib.error.URLError(TimeoutError("timed out")),
+])
+def test_save_config_presend_failures_stay_uncertain_and_are_not_resent(error):
+    transport = RestartingTransport(error, startup_reads=0)
+    with pytest.raises(cal.CalibrationError) as excinfo:
+        cal._save_config(transport, sleep=NO_SLEEP)
+    assert "The send did not succeed" in str(excinfo.value)
+    assert transport.scripts == ["SAVE_CONFIG"]
+
+
 def test_save_config_other_errors_stay_uncertain_and_are_not_resent():
     transport = RestartingTransport(_http_error(400))
     with pytest.raises(cal.CalibrationError) as excinfo:
