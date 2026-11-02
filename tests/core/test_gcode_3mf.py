@@ -150,6 +150,20 @@ def test_read_gcode_text_refuses_ambiguous_or_empty_packages(tmp_path):
         gcode_3mf.read_gcode_text(empty)
 
 
+def test_plate_metadata_parses_comma_separated_filament_usage():
+    # Real multi-filament Orca headers separate per-filament usage with commas,
+    # unlike the semicolon-separated type/colour lists (P2-227).
+    text = ("; filament_type = PLA;PETG\n"
+            "; filament_colour = #FFFFFF;#000000\n"
+            "; filament used [g] = 20.00, 15.50\n")
+    meta = gcode_3mf.plate_metadata(text)
+    assert meta["filaments"] == [
+        {"id": 1, "type": "PLA", "color": "#FFFFFF", "used_g": 20.0},
+        {"id": 2, "type": "PETG", "color": "#000000", "used_g": 15.5},
+    ]
+    assert meta["weight"] == 35.5
+
+
 def test_plate_metadata_omits_what_the_header_does_not_carry():
     meta = gcode_3mf.plate_metadata("G28\nG1 X1\n")
     assert meta == {"index": 1, "filaments": []}
