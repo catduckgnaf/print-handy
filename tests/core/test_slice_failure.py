@@ -174,3 +174,40 @@ def test_guard_reason_is_one_line_redacted_and_capped():
 def test_guard_failure_without_a_reason_keeps_the_generic_text():
     exc = slice_failure.SliceFailure('Pre-slice guard blocked:', kind='guard')
     assert slice_failure.explain(exc).plain == 'A safety check rejected the slicing settings or generated G-code.'
+
+
+def test_unexplained_worker_error_logs_child_traceback_but_not_in_chat(monkeypatch, tmp_path, caplog):
+    # A real child raises a plain bug (the P2-282 shape). The parent log must
+    # name the child's failing frame, or the operator sees only the message.
+    script = '''import runpy
+from print_handy.core import model_job
+def failing_build_item_edit(*args, **kwargs):
+    None.group(1)
+model_job.slice_job = failing_build_item_edit
+runpy.run_module('print_handy.core.heavy_worker', run_name='__main__')
+'''
+    real_run = owned_worker.run
+
+    async def child(command, payload, **kwargs):
+        return await real_run([sys.executable, '-c', script], payload, **kwargs)
+
+    monkeypatch.setattr(owned_worker, 'run', child)
+    from print_handy.core import model_job
+    with caplog.at_level('ERROR', logger='print_handy.core.prepared_intake'):
+        with pytest.raises(worker_errors.RemoteError) as info:
+            asyncio.run(prepared_intake._heavy(model_job.slice_job, str(tmp_path / 'JOB.json')))
+    assert "'NoneType' object has no attribute 'group'" in str(info.value)
+    assert 'failing_build_item_edit' in info.value.worker_traceback
+    assert 'failing_build_item_edit' in caplog.text and 'worker traceback' in caplog.text
+    post = slice_failure.post(info.value)
+    assert 'Traceback' not in post and 'failing_build_item_edit' not in post
+
+
+def test_worker_traceback_is_bounded_and_skipped_for_explained_failures():
+    try:
+        raise RuntimeError('x' * (worker_errors.TRACEBACK_LIMIT * 2))
+    except RuntimeError as exc:
+        reply = worker_errors.encode(exc)
+    assert len(reply['traceback']) == worker_errors.TRACEBACK_LIMIT
+    explained = worker_errors.encode(slice_failure.SliceFailure('guard', kind='guard'))
+    assert 'traceback' not in explained

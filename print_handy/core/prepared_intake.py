@@ -531,6 +531,10 @@ async def _heavy(func, *args, **kwargs):
         raise RuntimeError(f'{name} worker failed: {detail}') from None
     if not reply.get('ok'):
         from .worker_errors import decode
+        if reply.get('traceback'):
+            # The parent's own traceback ends at this raise; log where the child failed.
+            logger.error('%s worker raised %s; worker traceback:\n%s',
+                         name, reply.get('type') or 'an error', reply['traceback'].rstrip())
         raise decode(reply)
     return Path(reply['result']) if reply.get('path') else reply['result']
 

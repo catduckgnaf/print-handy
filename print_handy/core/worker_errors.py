@@ -1,7 +1,13 @@
 """An explicit, JSON-only error protocol; never import a reported exception type."""
+import traceback
+
 from .. import diagnostics
 from .slice_failure import SliceFailure
 from .slice_refusal import SliceRefusal
+
+
+# The tail of a traceback holds the failing frame; keep the reply line bounded.
+TRACEBACK_LIMIT = 8000
 
 
 class RemoteError(RuntimeError):
@@ -9,6 +15,7 @@ class RemoteError(RuntimeError):
         super().__init__(reply.get('error') or 'worker failed without an explanation')
         self.worker_error_type = reply.get('type')
         self.diagnostic_category = reply.get('category', 'unknown')
+        self.worker_traceback = reply.get('traceback')
 
 
 def encode(exc):
@@ -18,6 +25,13 @@ def encode(exc):
         reply['refusal'] = exc.as_dict()
     elif isinstance(exc, SliceFailure):
         reply['slice_failure'] = exc.as_dict()
+    else:
+        # An unexplained error crossed a process boundary. Without the child's
+        # traceback the parent log shows only the message (for example
+        # "'NoneType' object has no attribute 'group'") and the failing line is
+        # lost. It is for the operator log only and never reaches chat.
+        text = ''.join(traceback.format_exception(exc))
+        reply['traceback'] = text[-TRACEBACK_LIMIT:]
     return reply
 
 
