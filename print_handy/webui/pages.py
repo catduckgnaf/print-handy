@@ -80,6 +80,7 @@ PROVENANCE_LABELS = {
     config_api.MODEL_DEFAULT: "model default",
     config_api.HOME_CONFIG: "home config",
     config_api.SETTINGS_FILE: "settings file",
+    config_api.USER_FILE: "your settings file",
     config_api.ENVIRONMENT: "environment override",
     config_api.DEFAULT: "default",
 }
@@ -190,7 +191,7 @@ def _field_row(field_value, *, data, errors, submitted):
     field = field_value.field
     if not config_page_visible(field, data):
         return _hidden_inputs(field, _current(field, field_value, submitted))
-    disabled = field_value.env_overridden
+    disabled = field_value.overridden
     badge = PROVENANCE_LABELS.get(field_value.provenance, field_value.provenance)
     parts = [f'<div class="field" id="row-{_esc(field.id)}">',
              f'<label for="f-{_esc(field.id)}">{_esc(field.label)} '
@@ -428,7 +429,7 @@ def parse_form(form, field_values, *, only=None):
     changes, submitted, errors = {}, {}, {}
     for field_value in field_values:
         field = field_value.field
-        if field_value.env_overridden:
+        if field_value.overridden:
             continue
         if only is not None and field.id not in only:
             continue
