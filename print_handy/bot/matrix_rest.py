@@ -108,6 +108,21 @@ def send_message(homeserver, token, room_id, text, *, txn_id=None, opener=None, 
     return str((sent or {}).get("event_id") or "")
 
 
+def edit_message(homeserver, token, room_id, event_id, text, *, txn_id=None, opener=None, timeout=30):
+    """Edit one posted message: an m.replace relation carrying the new text.
+
+    Returns the edit event's id, or ''. Clients render the replacement in
+    place of the original event; the fallback body keeps the '* ' prefix
+    convention for clients that do not understand edits.
+    """
+    content = {"msgtype": "m.text", "body": f"* {text}",
+               "m.new_content": {"msgtype": "m.text", "body": str(text)},
+               "m.relates_to": {"rel_type": "m.replace", "event_id": str(event_id)}}
+    sent = send_event(homeserver, token, room_id, "m.room.message", content,
+                      txn_id, opener=opener, timeout=timeout)
+    return str((sent or {}).get("event_id") or "")
+
+
 def upload_media(homeserver, token, path, *, opener=None, timeout=120):
     """Upload one file to the media repo. Returns its mxc:// URI."""
     path = Path(path)
