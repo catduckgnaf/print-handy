@@ -240,6 +240,45 @@ def test_redaction_secret_appears_nowhere_in_repr_or_errors():
         assert SECRET not in message
 
 
+def test_redact_url_redacts_nested_ffmpeg_camera_source():
+    # P1-71: an ffmpeg: source wraps a nested URL; its credentials must not
+    # survive redaction just because the outer scheme has no authority.
+    redacted = ls.redact_url("ffmpeg:rtsp://user:hunter2@cam.example/live#video=h264")
+    assert "hunter2" not in redacted
+    assert "user" not in redacted.split("@")[0]
+    assert redacted.startswith("ffmpeg:rtsp://")
+    assert "cam.example" in redacted and "/live" in redacted
+    # A credential-free ffmpeg source keeps its shape.
+    assert ls.redact_url("ffmpeg:rtsp://cam.example/live") == \
+        "ffmpeg:rtsp://cam.example/live"
+
+
+# A fullwidth solidus in the authority makes urlsplit raise a ValueError
+# whose message embeds the whole authority, password included (P2-103).
+BAD_AUTHORITY_URL = "http://user:secretpw@cam\uff0f.local/stream"
+
+
+def test_urlsplit_failure_is_sanitized_at_every_entry_point():
+    attempts = [
+        lambda: ls.derive_from_snapshot_url(BAD_AUTHORITY_URL),
+        lambda: ls.camera_source_from_moonraker(
+            {"webcams": [{"name": "c", "stream_url": BAD_AUTHORITY_URL}]}),
+        lambda: ls.camera_source_from_octoprint(
+            {"webcam": {"streamUrl": BAD_AUTHORITY_URL}}),
+        lambda: ls.camera_source_from_moonraker(
+            {"webcams": [{"name": "c", "stream_url": "/feed"}]},
+            base_url=BAD_AUTHORITY_URL),
+    ]
+    for attempt in attempts:
+        with pytest.raises(ls.LiveStreamError) as caught:
+            attempt()
+        assert "secretpw" not in str(caught.value)
+        # The original ValueError must not ride along as the chain: traceback
+        # logging of the chain would print the credential-bearing message.
+        assert caught.value.__context__ is None
+        assert caught.value.__cause__ is None
+
+
 def test_redact_url_keeps_host_path_and_non_secret_query():
     redacted = ls.redact_url(f"http://user:{SECRET}@cam.local:8080/webcam/?action=stream&token={SECRET}")
     assert redacted == "http://***@cam.local:8080/webcam/?action=stream&token=%2A%2A%2A" or \

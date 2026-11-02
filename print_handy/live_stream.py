@@ -181,6 +181,13 @@ def redact_url(url) -> str:
     except ValueError:
         return "***"
     if not parts.netloc and not parts.query:
+        # A wrapper scheme such as go2rtc's ffmpeg: carries a nested URL in
+        # its path (ffmpeg:rtsp://user:pass@host/...), which has no authority
+        # of its own at this level: redact the nested URL too, or the wrapper
+        # passes the camera credentials through verbatim.
+        if "://" in parts.path:
+            nested = redact_url(parts.path)
+            return f"{parts.scheme}:{nested}" if parts.scheme else nested
         # A relative path carries no userinfo; still scrub a query if present.
         return url.strip()
     host = parts.hostname or ""
@@ -215,6 +222,24 @@ def _is_sensitive_key(key: str) -> bool:
 
 # --------------------------------------------------------------------- helpers
 
+def _split_url(url, *, context="camera URL"):
+    """`urlsplit` that never lets a parse failure carry credentials out.
+
+    urlsplit's ValueError message embeds the whole authority — userinfo
+    included — so a malformed credential-bearing URL would otherwise leak
+    its password through the exception text, and through the traceback
+    chain if the ValueError rode along as context. Raise a sanitized
+    LiveStreamError instead, with the chain suppressed.
+    """
+    try:
+        return urlsplit(url)
+    except ValueError:
+        pass  # fall through: raise only once the except block has exited,
+        # so the ValueError is neither the cause nor the context of the
+        # LiveStreamError and no traceback of it can disclose the authority.
+    raise LiveStreamError(f"{context}: unparseable URL {redact_url(url)!r}")
+
+
 def _clean(value):
     if isinstance(value, str):
         value = value.strip()
@@ -227,7 +252,7 @@ def _resolve_url(base_url, raw_url, *, context: str):
     url = _clean(raw_url)
     if url is None:
         return None
-    parts = urlsplit(url)
+    parts = _split_url(url, context=context)
     if parts.scheme:
         if parts.scheme not in ("http", "https", "rtsp", "rtsps", "webrtc"):
             raise LiveStreamError(
@@ -237,7 +262,7 @@ def _resolve_url(base_url, raw_url, *, context: str):
     if not base:
         raise LiveStreamError(
             f"{context}: relative camera URL {redact_url(url)!r} has no base URL to resolve against")
-    if urlsplit(base).scheme not in ("http", "https"):
+    if _split_url(base, context=context).scheme not in ("http", "https"):
         raise LiveStreamError(f"{context}: base URL {redact_url(base)!r} is not an http(s) URL")
     return urljoin(base.rstrip("/") + "/", url)
 
@@ -246,7 +271,7 @@ def _infer_kind(stream_url, snapshot_url, service=None) -> str:
     if stream_url:
         service_text = (service or "").casefold()
         stream_text = stream_url.casefold()
-        if urlsplit(stream_url).scheme in ("rtsp", "rtsps"):
+        if _split_url(stream_url).scheme in ("rtsp", "rtsps"):
             return "rtsp"
         if "webrtc" in service_text or "webrtc" in stream_text:
             return "webrtc"
@@ -320,15 +345,15 @@ def derive_from_snapshot_url(snapshot_url, *, name="", service=None) -> CameraSo
     snapshot = _clean(snapshot_url)
     if not snapshot:
         raise LiveStreamError("no snapshot URL was provided to derive a camera source from")
-    if urlsplit(snapshot).scheme not in ("http", "https", "rtsp", "rtsps"):
+    parts = _split_url(snapshot, context="snapshot URL")
+    if parts.scheme not in ("http", "https", "rtsp", "rtsps"):
         raise LiveStreamError(
             f"snapshot URL {redact_url(snapshot)!r} is not an http(s) or rtsp URL")
-    pairs = parse_qsl(urlsplit(snapshot).query, keep_blank_values=True)
+    pairs = parse_qsl(parts.query, keep_blank_values=True)
     action_values = [value for key, value in pairs if key == "action"]
     if "snapshot" in action_values:
         new_pairs = [(key, "stream" if (key == "action" and value == "snapshot") else value)
                      for key, value in pairs]
-        parts = urlsplit(snapshot)
         stream_url = urlunsplit((parts.scheme, parts.netloc, parts.path,
                                  urlencode(new_pairs), ""))
         return CameraSource(stream_url=stream_url, snapshot_url=snapshot,

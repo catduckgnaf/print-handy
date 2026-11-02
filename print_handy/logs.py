@@ -128,6 +128,26 @@ class TextFormatter(_Base):
         return redact(line)
 
 
+def _redact_value(value):
+    """Redact credentials inside one payload value, before serialization.
+
+    Redacting the already-serialized JSON cannot work: escaping rewrites the
+    quotes the credential patterns anchor on, so a secret inside a quoted
+    value survives, and a replacement can eat an escape character and leave
+    the line invalid JSON. Redact each string value while it is still a
+    plain string, then serialize.
+    """
+    if isinstance(value, str):
+        return redact(value)
+    if isinstance(value, dict):
+        return {key: _redact_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_redact_value(item) for item in value]
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return redact(str(value))
+
+
 class JsonFormatter(_Base):
     """One JSON object per line, for log shippers: ts, level, logger, message, any bound fields, exception."""
 
@@ -138,7 +158,7 @@ class JsonFormatter(_Base):
         trace = self.exception_text(record)
         if trace:
             payload["exception"] = trace
-        return redact(json.dumps(payload, default=str, ensure_ascii=False))
+        return json.dumps(_redact_value(payload), default=str, ensure_ascii=False)
 
 
 def _formatter(kind: str) -> logging.Formatter:
