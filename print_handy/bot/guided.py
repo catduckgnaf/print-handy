@@ -834,19 +834,42 @@ def _onboard_thermal(conn, answers, secrets):
         return {"proposals": [], "note": "the thermal probe did not run; nothing was proposed."}
 
 
+def _rollback_roster_write(result):
+    """Undo a just-committed roster append whose follow-up steps failed
+    (P2-218): restore the backup ``add_printer`` kept next to the settings
+    file, so the file is exactly what it was before the attempt. A rollback
+    failure is logged, never hidden — the original failure is the one the
+    operator sees, and the log names the state the file was left in."""
+    from ..setup_wizard import _atomic_write
+    try:
+        text = Path(result["backup"]).read_text(encoding="utf-8")
+        _atomic_write(Path(result["path"]), text, 0o644)
+    except Exception:
+        logger.warning("could not roll back the roster write in %s after a failed "
+                       "onboarding apply; the new entry may still be in the file",
+                       result["path"], exc_info=True)
+
+
 def _apply_onboarding(answers):
     """The onboarding apply: roster write (converting a legacy config on the
     way), then the new printer's first hardware record. Raises on failure;
-    the handler keeps the session at review so nothing is lost."""
+    the handler keeps the session at review so nothing is lost. A failure
+    after the append rolls the append back (P2-218): the review's 'nothing
+    was written' stays true, and the retry does not die on the duplicate
+    id its own first attempt left behind."""
     from .. import roster_write
     from ..core import printer_state
 
     entry = _onboard_entry(answers)
     result = roster_write.add_printer(entry)
-    view = settings.view_for(entry["id"], settings.load())
-    seeded = printer_state.seed_hardware_record(entry["id"], view)
-    from ..core import thermal_probe
-    confirmed = thermal_probe.record_confirmed(entry["id"], entry["model"], answers.get("thermal"))
+    try:
+        view = settings.view_for(entry["id"], settings.load())
+        seeded = printer_state.seed_hardware_record(entry["id"], view)
+        from ..core import thermal_probe
+        confirmed = thermal_probe.record_confirmed(entry["id"], entry["model"], answers.get("thermal"))
+    except Exception:
+        _rollback_roster_write(result)
+        raise
     converted = (" Your existing single-printer settings were converted into "
                  "the roster's first entry on the way."
                  if result["converted"] else "")
