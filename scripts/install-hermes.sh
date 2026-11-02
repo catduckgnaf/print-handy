@@ -199,6 +199,39 @@ for f in AGENTS.md MEMORY.md status_phrases.yaml cron/jobs.json; do
     copy_if_missing "$P/$f" "$HERMES_HOME/$f"
 done
 
+# 2b. Profiles created by the first installer version keep their config.yaml (step 2
+# never overwrites an existing one), but that version rendered terminal.cwd as the
+# profile directory itself; the template now runs the terminal from the repo, so
+# repository-relative commands work (P1-14). Rewrite only that one known generated
+# value — a customized cwd is the operator's and stays. The original is backed up
+# under .install-backups like every other installer edit.
+cfg="$HERMES_HOME/config.yaml"
+if [ -f "$cfg" ]; then
+    cwd_state=$(HERMES_HOME="$HERMES_HOME" REPO="$REPO" DRY="$DRY" STAMP="$STAMP" python3 - "$cfg" <<'PY'
+import os, re, shutil, sys
+path = sys.argv[1]
+home, repo = os.environ["HERMES_HOME"], os.environ["REPO"]
+text = open(path).read()
+pattern = re.compile(r"^(\s*cwd:\s*)" + re.escape(home) + r"\s*$", re.M)
+if not pattern.search(text):
+    print("ok")
+elif os.environ["DRY"] == "1":
+    print("would")
+else:
+    backup_dir = os.path.join(home, ".install-backups", os.environ["STAMP"])
+    os.makedirs(backup_dir, exist_ok=True)
+    shutil.copy2(path, os.path.join(backup_dir, "config.yaml"))
+    with open(path, "w") as handle:
+        handle.write(pattern.sub(lambda m: m.group(1) + repo, text, count=1))
+    print("migrated")
+PY
+)
+    case "$cwd_state" in
+        would) act "migrate $cfg terminal.cwd: $HERMES_HOME -> $REPO" ;;
+        migrated) say "migrated $cfg terminal.cwd: $HERMES_HOME -> $REPO (backup in $HERMES_HOME/.install-backups/$STAMP/config.yaml)" ;;
+    esac
+fi
+
 # 3. Local overlay (gitignored): files replace the profile files at the same relative path.
 overlay_units=""
 if [ -d "$OVERLAY" ]; then

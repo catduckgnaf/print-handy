@@ -208,6 +208,51 @@ class InstallerTests(unittest.TestCase):
         self.run_installer()
         self.assertIn(f"cwd: {ROOT}", (self.home / "config.yaml").read_text())
 
+    def test_fresh_install_provisions_the_hardware_record(self):
+        """P1-7: a fresh profile gets state/printer_hardware.json — every
+        pipeline command reads it and nothing else created it."""
+        import json
+        self.run_installer(python=sys.executable)
+        record_path = self.home / "state" / "printer_hardware.json"
+        self.assertTrue(record_path.is_file())
+        record = json.loads(record_path.read_text())
+        self.assertIn("diameter_mm", record["nozzle"])
+        self.assertEqual({}, record["spool"])
+        before = record_path.read_text()
+        self.run_installer(python=sys.executable)
+        self.assertEqual(before, record_path.read_text(), "an existing record is never overwritten")
+
+    def test_existing_profile_cwd_is_migrated_to_the_repo(self):
+        """P1-14: a profile created by the first installer version rendered
+        terminal.cwd as the profile directory; rerunning migrates that one
+        known generated value to the repo and backs the original up."""
+        self.home.mkdir(parents=True)
+        (self.home / "config.yaml").write_text(
+            f"terminal:\n  cwd: {self.home}\nother: keep me\n")
+        self.run_installer()
+        text = (self.home / "config.yaml").read_text()
+        self.assertIn(f"cwd: {ROOT}", text)
+        self.assertIn("other: keep me", text)
+        [backup] = (self.home / ".install-backups").glob("*/config.yaml")
+        self.assertIn(f"cwd: {self.home}", backup.read_text())
+
+    def test_customized_cwd_is_left_alone(self):
+        """P1-14: any cwd other than the known generated one is the operator's."""
+        self.home.mkdir(parents=True)
+        (self.home / "config.yaml").write_text("terminal:\n  cwd: /somewhere/else\n")
+        self.run_installer()
+        self.assertEqual("terminal:\n  cwd: /somewhere/else\n",
+                         (self.home / "config.yaml").read_text())
+        self.assertFalse(any((self.home / ".install-backups").glob("*/config.yaml")))
+
+    def test_listener_unit_carries_the_settings_hermes_home(self):
+        """P1-15: print_handy never reads HERMES_HOME; the unit must also pass
+        PRINT_HANDY__PATHS__HERMES_HOME so a --hermes-home install's listener
+        resolves the profile it was installed into."""
+        self.run_installer()
+        unit = (self.units / "hermes-3dprinting-moonraker-listener.service").read_text()
+        self.assertIn(f"Environment=PRINT_HANDY__PATHS__HERMES_HOME={self.home}", unit)
+
     def test_bot_name_is_escaped_in_yaml_and_verbatim_in_markdown(self):
         import yaml
         name = 'Bob "The Bot" \\ Jr'
