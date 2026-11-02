@@ -363,8 +363,14 @@ class BambuPrintMonitor:
                 message += f"\n{path}\nMEDIA:{path}"
             message += f"\nMEDIA:{video}"
             try:
-                self._post(message)
-                return kind
+                # The production sender reports a refusal as a False
+                # return, not an exception (P2-173): only an explicit
+                # False means undelivered — injected senders returning
+                # None delivered fine.
+                if self._post(message) is not False:
+                    return kind
+                log(f"bambu completion post with timelapse was refused for {self.filename!r}; "
+                    "posting without the video")
             except Exception as exc:
                 log(f"bambu completion post with timelapse failed for {self.filename!r}: {exc!r}; "
                     "posting without the video")
@@ -372,7 +378,10 @@ class BambuPrintMonitor:
             text = f"{text}\n{_too_big_text()}"
         if path is not None:
             try:
-                self._post(text + f"\n{path}\nMEDIA:{path}")
+                if self._post(text + f"\n{path}\nMEDIA:{path}") is False:
+                    log(f"bambu completion post with the snapshot was refused for "
+                        f"{self.filename!r}; posting the text only")
+                    self._post(text)
             except Exception as exc:
                 log(f"bambu completion post with the snapshot failed for {self.filename!r}: {exc!r}; "
                     "posting the text only")

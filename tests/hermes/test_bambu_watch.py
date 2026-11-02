@@ -674,3 +674,38 @@ def test_full_lifecycle_produces_a_valid_h264_mp4_under_the_limit(tmp_path, monk
     frames = list((session_dir / "frames").glob("frame-*.jpg"))
     assert len(frames) >= 2
     assert frames[0].read_bytes().startswith(b"\xff\xd8")
+
+
+def test_a_refused_video_post_falls_back_to_the_snapshot_post(capture_logs):
+    """P2-173: the production sender returns False on a refusal instead of
+    raising. A refused video post must not end delivery — the monitor
+    continues to the snapshot post without the video."""
+    rig = CaptureRig([st("printing"), st("complete")])
+    attempts = []
+
+    def post(message):
+        attempts.append(message)
+        return "timelapse.mp4" not in message
+
+    rig.monitor._post = post
+    assert rig.monitor.run() == "complete"
+    assert len(attempts) == 2
+    assert "MEDIA:/tmp/timelapse.mp4" in attempts[0]
+    assert "timelapse.mp4" not in attempts[1] and "MEDIA:" in attempts[1]
+
+
+def test_a_refused_snapshot_post_falls_back_to_the_text_completion(capture_logs):
+    """P2-173: the same False contract on the snapshot fallback post —
+    a refusal there still owes the chat the plain completion text."""
+    monitor, _posts = _monitor([st("printing"), st("complete")])
+    attempts = []
+
+    def post(message):
+        attempts.append(message)
+        return "MEDIA:" not in message
+
+    monitor._post = post
+    assert monitor.run() == "complete"
+    assert len(attempts) == 2
+    assert "MEDIA:" in attempts[0]
+    assert "MEDIA:" not in attempts[1]
