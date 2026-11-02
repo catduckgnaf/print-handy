@@ -6775,6 +6775,25 @@ def remap_slot(target, new_slot, tool="0", state=None):
         st = printer_state.load(routed_id)
     routed_adapter = _job_adapter(job) if routed_id else printers.current()
 
+    # A split job's artifact binding hashes each derived plate apart (a dict
+    # keyed like require_current_artifact builds it). The remap below must
+    # update only the remapped plate's entry — and a file no derived plate
+    # names has no entry to update, so it is refused here, before finalize
+    # rewrites anything (P2-29).
+    binding_key = None
+    if job is not None and isinstance(job.get("artifact_binding"), dict):
+        recorded = job["artifact_binding"].get("gcode_sha256")
+        if isinstance(recorded, dict):
+            for row in job.get("derived_plates") or []:
+                if isinstance(row, dict) and row.get("gcode") \
+                        and Path(row["gcode"]).expanduser().resolve() == gcode_path:
+                    binding_key = str(row.get("binding_key") or row.get("slot"))
+                    break
+            if binding_key is None or binding_key not in recorded:
+                raise RuntimeError(
+                    f"split job artifact binding has no binding entry for {gcode_path}; "
+                    "refusing to remap a plate the binding does not name")
+
     slot_int = int(new_slot)
     if slot_int not in range(1, FILAMENT_SLOTS + 1):
         raise ValueError(f"physical IFS slot must be an integer from 1 through {FILAMENT_SLOTS}")
@@ -6811,11 +6830,17 @@ def remap_slot(target, new_slot, tool="0", state=None):
     if job is not None and job_path is not None:
         job["filament_selection"] = selection
         if new_sha:
-            job["gcode_sha256"] = new_sha
             job["gcode_verified"] = True
-            if "artifact_binding" in job and isinstance(job["artifact_binding"], dict):
-                job["artifact_binding"]["gcode_sha256"] = new_sha
+            if binding_key is not None:
+                # Split job: the one plate's new hash, in its own entry only;
+                # the job-level single hash does not exist for a split job.
+                job["artifact_binding"]["gcode_sha256"][binding_key] = new_sha
                 job["artifact_binding"]["decisions_sha256"] = decisions_digest(job.get("color_decisions"))
+            else:
+                job["gcode_sha256"] = new_sha
+                if "artifact_binding" in job and isinstance(job["artifact_binding"], dict):
+                    job["artifact_binding"]["gcode_sha256"] = new_sha
+                    job["artifact_binding"]["decisions_sha256"] = decisions_digest(job.get("color_decisions"))
         write_job(job_path.parent, job)
 
     return {
