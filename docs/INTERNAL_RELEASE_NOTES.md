@@ -2,7 +2,7 @@
 
 # Unreleased
 
-Nothing yet.
+- A supplied Bambu AMS mapping that assigns one tray to two filament slots is now refused instead of accepted (#762).
 
 # Version 2.2.4
 
