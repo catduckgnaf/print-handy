@@ -343,6 +343,76 @@ def test_telegram_adapter_drives_a_full_intake_through_the_real_handlers(cfg):
     assert any("Sliced in White." in t for t in texts) and texts[-1] == "Started."
 
 
+class _ScriptedStub(BotApiStub):
+    """BotApiStub whose getUpdates answers come from a mutable script of batches."""
+
+    def __init__(self, script=()):
+        super().__init__()
+        self.script = list(script)
+
+    def __call__(self, req, timeout=None):
+        if req.full_url.rsplit("/", 1)[-1] == "getUpdates":
+            self.calls.append(("getUpdates", self._fields(req)))
+            result = self.script.pop(0) if self.script else []
+            return _Response(json.dumps({"ok": True, "result": result}).encode())
+        return super().__call__(req, timeout=timeout)
+
+
+def test_poll_once_keeps_polling_while_a_handler_awaits_an_answer(cfg):
+    """Bonus (found during DATA-7): Telegram's poll loop had the P1-65 stall
+    in the same shape — poll_once awaited handle_update inline, so while an
+    intake handler waited for a prompt answer, the getUpdates round that
+    would deliver the callback answer never ran. (The full-intake test
+    above bypasses poll_once for exactly this reason.)"""
+    link = {"update_id": 1, "message": {"message_id": 42, "from": {"id": int(USER), "is_bot": False},
+                                       "chat": {"id": int(CHAT)},
+                                       "text": "https://makerworld.com/en/models/931302-holder"}}
+    stub = _ScriptedStub([[link]])
+    client, core = make_core(cfg, stub)
+    seen = {}
+
+    async def fake_prepare(event, adapter_arg, state, root, reuse=None, **kwargs):
+        source = event.source
+        key = runtime.session_key(source)
+        color = await link_intake.ask(adapter_arg, source, key, "Which color?", ["Black", "White"])
+        await adapter_arg.send(chat_id=source.chat_id, content=f"Sliced in {['Black', 'White'][color]}.")
+        start = await link_intake.ask(adapter_arg, source, key, "Start the print?", ["Print it"])
+        seen["answers"] = (color, start)
+        await adapter_arg.send(chat_id=source.chat_id, content="Started.")
+        return {"action": "skip", "reason": "test intake"}
+
+    async def wait_prompt(question):
+        for _ in range(200):
+            cid = next((c for c, row in core.adapter._prompts.items()
+                        if row["question"].startswith(question)), None)
+            if cid is not None:
+                return cid
+            await asyncio.sleep(0.01)
+        raise AssertionError(f"no prompt {question!r}: {core.adapter._prompts}")
+
+    async def flow():
+        # Before the fix this await only returned once the intake handler
+        # finished, and the handler could not finish until a later
+        # getUpdates delivered its answer — bounded here so it fails fast.
+        assert await asyncio.wait_for(client.poll_once(), timeout=5) == 1
+        assert client._offset == 2  # the update is confirmed at receipt, not after handling
+        cid = await wait_prompt("Which color?")
+        stub.script.append([{"update_id": 2, "callback_query": _callback(cid, 1)}])
+        await client.poll_once()
+        cid = await wait_prompt("Start the print?")
+        stub.script.append([{"update_id": 3, "callback_query": _callback(cid, 0, query_id="q2")}])
+        await client.poll_once()
+        assert await client.drain_handlers(timeout=5)
+
+    with mock.patch("print_handy.core.prepared_intake.prepare_link", fake_prepare), \
+            mock.patch("print_handy.core.printer_state.load", return_value={}):
+        run(flow())
+    assert seen["answers"] == (1, 0)
+    assert client._offset == 4
+    texts = [p.get("text", "") for p in stub.payloads("sendMessage")]
+    assert any("Sliced in White." in t for t in texts) and texts[-1] == "Started."
+
+
 # ---------------------------------------------------------------------- settings
 
 

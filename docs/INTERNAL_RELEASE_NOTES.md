@@ -2,6 +2,7 @@
 
 # Unreleased
 
+- Telegram polling now dispatches updates as managed tasks, so a command waiting on a prompt answer no longer stalls message polling (#764).
 - Multicolor jobs for printers with more than four toolheads (for example a five-toolhead Prusa XL) are no longer refused by the geometry exporter (#767).
 
 # Version 2.2.4
