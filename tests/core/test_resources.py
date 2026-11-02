@@ -169,6 +169,15 @@ def test_pid_status_and_report(tmp_path):
     assert warn and '256/256' in text
 
 
+def test_pid_status_reads_the_v1_controller_directory(tmp_path):
+    # cgroup v1 keeps the pids controller in a pids/ directory under the
+    # root, with the same file names as v2 (P2-251).
+    (tmp_path / 'pids').mkdir()
+    set_pids(tmp_path / 'pids', 42, 1024)
+    assert resources.pid_status(tmp_path) == (42, 1024)
+    assert resources.pid_report(tmp_path) == ('42/1024 processes and threads in use', False)
+
+
 def test_slicer_timeout_at_pid_limit_names_the_limit(monkeypatch):
     set_pids(resources.CGROUP_ROOT, 256, 256)
 

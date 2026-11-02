@@ -159,6 +159,11 @@ def pid_status(root=None):
     root = Path(CGROUP_ROOT if root is None else root)
     current, limit = _read(root / 'pids.current'), _read(root / 'pids.max')
     if current is None or limit is None:
+        # cgroup v1 keeps the pids controller in its own directory under
+        # the root, with the same file names (the cpu quota above reads
+        # its v1 directories the same way).
+        current, limit = _read(root / 'pids' / 'pids.current'), _read(root / 'pids' / 'pids.max')
+    if current is None or limit is None:
         return None
     try:
         return int(current), (None if limit == 'max' else int(limit))
