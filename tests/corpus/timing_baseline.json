@@ -305,7 +305,7 @@
   "stl-tall/hermes",
   "stl-tall/standalone"
  ],
- "recorded_from": "CI run 41365651326 (main 60341e2, 2026-11-02), artifact discord-timing, median of 3",
+ "recorded_from": "CI run 41376625077 (f26eab809bdcba33cf91ca322e53009fee3a5e23), artifact discord-timing, median of 3; each metric keeps the tighter of this run and the previous baseline (release 2.2.4: no slowdown, sub-0.1 s runner variance not adopted)",
  "slack_s": 0.5,
  "tolerance": 0.1
 }
