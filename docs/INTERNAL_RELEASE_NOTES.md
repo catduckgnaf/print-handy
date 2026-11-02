@@ -2,6 +2,7 @@
 
 # Unreleased
 
+- Telegram polling now dispatches updates as managed tasks, so a command waiting on a prompt answer no longer stalls message polling (#764).
 - Filament readiness for a print is now judged with that job's own printer adapter instead of the default printer's (#761).
 
 # Version 2.2.4
