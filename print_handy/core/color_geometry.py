@@ -90,7 +90,13 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
             if palette and palette != choices['part:' + part['key']]:
                 raise RuntimeError('part selection contradicts its source filament selection')
         slots = sorted({choices['part:' + part['key']]['slot'] for part in manifest['parts']})
-    if not slots or len(slots) > 4:
+    if not slots:
+        raise RuntimeError('multipart selection requires at least one slot')
+    if not identity_tools and len(slots) > 4:
+        # The compacted mapping is bounded by the four physical IFS slots. An
+        # identity (toolhead) mapping is bounded by the machine's toolheads
+        # instead — five on the XL — which intake and the adapter's tool
+        # mapping contract already enforce.
         raise RuntimeError('multipart selection requires one to four IFS slots')
     mapping = ({str(slot - 1): slot for slot in slots} if identity_tools
                else {str(i): slot for i, slot in enumerate(slots)})

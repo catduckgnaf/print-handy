@@ -4018,7 +4018,7 @@ def _plates_for(source, manifest):
                  'object_ids': sorted({int(p['object_id']) for p in manifest['parts']})}]
 
 
-def full_size_one_plate(source, state, decisions=None):
+def full_size_one_plate(source, state, decisions=None, capacity=None, multi_tool=False):
     """A 100%-scale, one-plate rearrangement the slicer will honor exactly, or None.
 
     This is the cheap first fit check after the author's layout fails the bed:
@@ -4028,6 +4028,8 @@ def full_size_one_plate(source, state, decisions=None):
     * per-part color decisions on a 3MF slice through the merge planner
       (``plate_merge.plan``) with the rearrangement flag, which keeps the
       merge spacing, bed-edge margin and prime-tower room for multi-slot jobs;
+      ``capacity``/``multi_tool`` carry the job printer's position count and
+      kind into that planner, exactly as ``slice_multi_plate`` passes them;
     * a single-color or generic single-plate source slices through
       ``geometry_layout.arrange_and_export``, so it is checked with
       ``probe_single_plate_rearrange`` at the same defaults.
@@ -4055,7 +4057,8 @@ def full_size_one_plate(source, state, decisions=None):
         flagged = {'full_size_rearrange_plan': {'rearrange_plate': True}}
         verdict = plate_merge.plan(source, manifest, _plates_for(source, manifest), slots, st,
                                    bed=int(bed[0]), job=flagged,
-                                   edge=_merge_edge(st.get('brim_override')))
+                                   edge=_merge_edge(st.get('brim_override')),
+                                   capacity=capacity, multi_tool=multi_tool)
         if verdict.get('mode') != 'merge':
             return None
         boxes = list((verdict.get('placed_bounds_mm') or {}).values())
@@ -4181,9 +4184,14 @@ def slice_multi_plate(job, job_path, src, manifest, decisions, st, brim_override
         verdict['reason'] = 'Resized per-part job: one fitted plate per slot'
     elif mode == 'merge':
         _, _, plan_brim = _job_fit(job, brim_override)
-        verdict = plate_merge.plan(src, manifest, plates, slots, st, job=job, edge=_merge_edge(plan_brim))
+        adapter = _job_adapter(job)
+        # The planner's capacity is the job printer's position count: a
+        # multi_tool model's toolheads, not the configured printer's IFS
+        # slots (a Creator-configured process has filament_slots=1) (P1-72).
+        verdict = plate_merge.plan(src, manifest, plates, slots, st, job=job, edge=_merge_edge(plan_brim),
+                                   capacity=position_limit(adapter), multi_tool=adapter.multi_tool)
         if verdict['mode'] == 'merge':
-            merged_slice = (_slice_merged_multi_tool if _job_adapter(job).multi_tool else _slice_merged)
+            merged_slice = (_slice_merged_multi_tool if adapter.multi_tool else _slice_merged)
             try:
                 result = merged_slice(job, job_path, src, manifest, decisions, view, verdict, st, brim_override, work)
             except plate_merge.SplitNeeded as exc:
@@ -5122,11 +5130,33 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         return result
     if decisions and decisions['mode'] == 'single_color':
         selection = decisions['selection']
+        job['filament_selection'] = selection
+        if multi_tool and src.suffix.lower() == '.3mf':
+            # A toolhead pick is a one-tool identity job: route it through
+            # the merged multi-tool slice (#346 machinery) so the geometry
+            # and filament profiles land on the picked toolhead instead of
+            # T0. The generic tail below has no tool channel to honor it,
+            # and it recorded the pick while silently slicing toolhead 1.
+            # The merged path slices the authored geometry once, so a job
+            # asking for copies, a resize or a rotation refuses here with
+            # the reason stated instead of silently dropping the transform.
+            scale_now = scale if scale is not None else job.get('scale')
+            if (copies and int(copies) > 1) or (job.get('orientation') or {}).get('rotation') \
+                    or (scale_now is not None and float(scale_now) != 1.0):
+                raise RuntimeError(
+                    f"{adapter.label} slices a single-color toolhead job as one merged plate at "
+                    "authored size; copies, resizing and rotation are not supported on that path. "
+                    "Slice one copy at 100% to print on the picked toolhead. Nothing sliced")
+            try:
+                return slice_multi_plate(job, job_path, src, manifest, decisions, st, brim_override)
+            except ImplicitPlateSplit as exc:
+                raise RuntimeError(
+                    f"{adapter.label} prints a single-color toolhead job as one merged plate; this source "
+                    f"does not merge onto one bed ({exc.verdict.get('reason')}). No slicing attempted") from exc
         if not multi_tool:
             # The IFS slot verification is slot-shaped; a toolhead pick was
             # already resolved against the recorded toolheads (#346).
             _validate_slot_selection(st, selection)
-        job['filament_selection'] = selection
     elif decisions and decisions['mode'] == 'per_part':
         if adapter.multi_tool:
             # Independent toolheads (#346): one merged G-code through the

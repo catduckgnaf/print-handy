@@ -192,7 +192,7 @@ def _oversized(env, monkeypatch, one_plate):
     monkeypatch.setattr(model_job, 'per_part_fit_options', lambda path, decisions, options, bed: options)
     checked = []
 
-    def full_size_one_plate(path, st, decisions):
+    def full_size_one_plate(path, st, decisions, capacity=None, multi_tool=False):
         checked.append(decisions)
         return one_plate
     monkeypatch.setattr(model_job, 'full_size_one_plate', full_size_one_plate)

@@ -732,7 +732,8 @@ def full_size_split_possible(source, manifest, bed=None, edge=None):
     return True
 
 
-def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=None, edge=None):
+def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=None, edge=None,
+         capacity=None, multi_tool=False):
     """Return a merge plan or a split decision with a human reason.
 
     manifest: source_colors.inventory(source); plates: model_job.plate_manifest(source)['plates'];
@@ -740,6 +741,15 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
     a merge proved only with turned objects also carries yaw_by_object (#221 R2b).
     ``edge`` is the bed-edge margin parts keep (default the merge edge
     margin); callers add the job's brim so a brim never crosses the edge.
+    ``capacity`` is the number of distinct filament positions the JOB's
+    printer offers, as its adapter counts them; the module-level
+    FILAMENT_SLOTS is only the configured printer's count, so a caller
+    slicing for a multi_tool model (whose filament_slots stays 1 by design)
+    must pass the job printer's count or every multi-toolhead merge is
+    refused in a process configured for that model. With ``multi_tool``
+    the positions are toolheads: each carries its own filament and heater,
+    so mixed materials across positions are allowed and a capacity refusal
+    names toolheads instead of IFS slots.
     """
     spacing = SPACING_MM if spacing is None else spacing
     edge = EDGE_MARGIN_MM if edge is None else edge
@@ -753,11 +763,13 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
         out['reason'] = f'author notes ask for separate printing ("{hint}")'
         return out
     used = sorted(set(slots.values()))
-    if len(used) > FILAMENT_SLOTS:
-        out['reason'] = f'needs {len(used)} filament slots; one IFS job has {FILAMENT_SLOTS}'
+    limit = FILAMENT_SLOTS if capacity is None else int(capacity)
+    if len(used) > limit:
+        out['reason'] = (f'needs {len(used)} toolheads; this printer has {limit}' if multi_tool
+                         else f'needs {len(used)} filament slots; one IFS job has {limit}')
         return out
     materials = {(state.get('filament_slots') or {}).get(str(s), {}).get('material') for s in used}
-    if len(used) > 1 and len(materials) > 1:
+    if not multi_tool and len(used) > 1 and len(materials) > 1:
         out['reason'] = 'mixed materials across slots cannot share one IFS job'
         return out
     object_ids = sorted({p['object_id'] for p in manifest['parts']}, key=int)
