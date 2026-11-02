@@ -2369,9 +2369,9 @@ def _answer_spool_question(listener, spool_sync, context, choice):
         raise error from exc
     spool_sync.resume_usage(spool_id)
     listener.clear_runout_pause()
-    bound_prior = result.get('prior_spool_id') if isinstance(result, dict) else None
-    gone = f' Spool #{bound_prior} marked used up.' if runout and bound_prior else ''
-    return f'{created}{spool_sync.bind_text(result)}{gone} Usage tracking is back on, charged to #{spool_id}.'
+    # bind_text already names the 'depleted' disposition ("Spool #N was
+    # marked as depleted"), so the old spool's fate is stated once (#787).
+    return f'{created}{spool_sync.bind_text(result)} Usage tracking is back on, charged to #{spool_id}.'
 
 
 _SPOOL_CANCELLED = 'Cancelled. Nothing changed.'

@@ -138,7 +138,10 @@ def test_runout_answer_depletes_old_spool_through_the_bind():
     record = {"filename": "job.gcode", "slot": 2, "prior_spool_id": 8,
               "cause": "runout", "recorded_at": 1500.0}
     listener = _listener(dict(record))
-    sync = _sync()
+    sync = _sync(bind_slot=mock.Mock(return_value={
+        "slot": 2, "spool_id": 12, "prior_spool_id": 8, "record": {"name": "Sunlu PLA Black"},
+        "screen": "pushed", "usage": "unchanged", "prior_disposition": "depleted"}),
+        bind_text=spool_sync.bind_text)
     message = plugin._answer_spool_question(listener, sync, dict(record),
                                             {"status": "existing", "spool_id": 12})
     sync.bind_slot.assert_called_once()
@@ -146,7 +149,9 @@ def test_runout_answer_depletes_old_spool_through_the_bind():
     sync.spoolman.assert_not_called()
     sync.resume_usage.assert_called_once_with(12)
     listener.clear_runout_pause.assert_called_once_with()
-    assert "Spool #8 marked used up." in message
+    # The old spool's fate is stated once, by bind_text (#787).
+    assert message.count("Spool #8") == 1
+    assert "Spool #8 was marked as depleted (0 g left)." in message
 
 
 def test_swap_answer_keeps_shelf_disposition_and_no_used_up_note():
