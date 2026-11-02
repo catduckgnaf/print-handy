@@ -1018,7 +1018,8 @@ def _onboard_review_text(session, note=""):
               "comments) and create the printer's first hardware record. "
               "Applying never restarts anything — you restart Print Handy "
               "afterwards to bring the printer live. Reply `manual` for the "
-              "exact roster YAML to add by hand instead, or `/print-handy "
+              "exact roster YAML to add by hand instead, reply `back` or a "
+              "different model key to change the model, or `/print-handy "
               "cancel` to pause."]
     if note:
         lines.insert(0, note)
@@ -1173,8 +1174,42 @@ def _onboard_review_answer(session, raw, *, store, now, onboard_apply=None):
         session["updated_at"] = now
         store.save(session)
         return _onboard_manual_text(session)
+    if low == "back":
+        # Back to the model step. Every later answer depends on the model, so
+        # the walkthrough restarts there — the geometry warning's "go back
+        # and pick Generic Klipper" advice needs this path to exist (P2-256).
+        session["ob_answers"] = {}
+        session.pop("ob_probe_error", None)
+        session.pop("ob_back_key", None)
+        session["updated_at"] = now
+        _onboard_advance(session)
+        store.save(session)
+        return _onboard_prompt_text(
+            session, "Back to the first step — pick the model again and the "
+                     "walkthrough redoes the rest from there.")
+    model_key = raw.strip()
+    if model_key in printers.MODELS:
+        answers = session["ob_answers"]
+        if model_key == answers.get("model"):
+            return ("That is the model already picked.\n\n"
+                    f"{_onboard_review_text(session)}")
+        # Switch models: keep only the name and id — every other answer was
+        # collected for the old model's connection and steps (P2-256).
+        kept = {k: answers[k] for k in ("name", "printer_id") if k in answers}
+        kept["model"] = model_key
+        session["ob_answers"] = kept
+        session.pop("ob_probe_error", None)
+        session.pop("ob_back_key", None)
+        session["updated_at"] = now
+        _onboard_advance(session)
+        store.save(session)
+        return _onboard_prompt_text(
+            session, f"Model changed to {printers.MODELS[model_key].label} "
+                     f"(`{model_key}`). The connection steps are redone for "
+                     "the new model; your name and id are kept.")
     return ("Reply `apply` to add the printer, `manual` for the YAML to add "
-            "by hand, or `/print-handy cancel` to pause.\n\n"
+            "by hand, `back` or a different model key to change the model, "
+            "or `/print-handy cancel` to pause.\n\n"
             f"{_onboard_review_text(session)}")
 
 

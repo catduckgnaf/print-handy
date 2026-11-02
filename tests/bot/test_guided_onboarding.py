@@ -395,6 +395,47 @@ def test_add_printer_restart_discards_a_cancelled_checklist(tmp_path):
     assert st.get("k")["status"] == "onboarding" and st.get("k")["ob_answers"] == {}
 
 
+def test_review_model_key_switches_the_model_and_redoes_connection_steps(tmp_path):
+    """P2-256: the geometry warning says 'go back and pick Generic Klipper',
+    so the review must actually offer a model change — typing a model key
+    switches the model, keeps the name/id, and redoes the connection steps
+    that were collected for the old model."""
+    st = store(tmp_path)
+    start(st, now=1000)
+    walk(st, ["creality.k1", "K1", "http://k1.local:7125"], probe_runner=ok_probe)
+    say(st, "test", probe_runner=ok_probe)
+    assert st.get("k")["status"] == "onboard_review"
+    reply = say(st, "klipper.generic")
+    session = st.get("k")
+    assert session["status"] == "onboarding"
+    assert session["ob_answers"]["model"] == "klipper.generic"
+    assert session["ob_answers"]["name"] == "K1"
+    assert session["ob_answers"]["printer_id"] == "k1"
+    assert "moonraker_url" not in session["ob_answers"]
+    assert "probe" not in session["ob_answers"]
+    assert "Printer URL" in reply
+    walk(st, ["http://k1.local:7125"], probe_runner=ok_probe)
+    reply = say(st, "test", probe_runner=ok_probe)
+    assert st.get("k")["status"] == "onboard_review"
+    assert "Generic Klipper" in reply or "klipper.generic" in reply
+    reply = say(st, "apply", onboard_apply=lambda answers: "written.")
+    assert "Printer onboarding complete" in reply
+
+
+def test_review_back_returns_to_the_model_step(tmp_path):
+    st = store(tmp_path)
+    start(st, now=1000)
+    walk(st, ["creality.k1", "K1", "skip"], probe_runner=ok_probe)
+    assert st.get("k")["status"] == "onboard_review"
+    reply = say(st, "back")
+    session = st.get("k")
+    assert session["status"] == "onboarding"
+    assert session["ob_answers"] == {}
+    assert "Printer model" in reply
+    reply = say(st, "klipper.generic")
+    assert st.get("k")["ob_answers"]["model"] == "klipper.generic"
+
+
 def test_manual_at_review_prints_the_roster_yaml(tmp_path):
     st = store(tmp_path)
     start(st, now=1000)
