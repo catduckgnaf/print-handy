@@ -14,6 +14,44 @@ HARDWARE = {"spool": {"material": "PLA", "density": 1.24}, "temps_c": {"nozzle":
             "nozzle": {"diameter_mm": 0.4}}
 
 
+class CheckLoggingTests(unittest.TestCase):
+    """check_logging probes the configured log file itself, with a unique
+    temporary name per probe (P2-162, P2-163)."""
+
+    def test_a_directory_at_the_log_path_fails(self):
+        # A directory is not writable-as-a-log even though its folder is;
+        # probing only a sibling file reported this ok.
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "pb.log"
+            target.mkdir()
+            with self.assertRaises(RuntimeError):
+                doctor.check_logging({"logging": {"file": str(target)}})
+
+    def test_an_existing_log_file_is_checked_without_truncating_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "pb.log"
+            target.write_text("precious line\n")
+            result = doctor.check_logging({"logging": {"file": str(target)}})
+            self.assertIn("file", result)
+            self.assertEqual(target.read_text(), "precious line\n")
+
+    def test_a_stale_probe_at_the_old_fixed_name_does_not_fail_the_check(self):
+        # A leftover (or a concurrent run's probe) at the old fixed probe
+        # name must not matter: each probe uses a unique temporary name.
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "pb.log"
+            (Path(tmp) / ".doctor-write-test").mkdir()
+            result = doctor.check_logging({"logging": {"file": str(target)}})
+            self.assertIn("file", result)
+            self.assertTrue((Path(tmp) / ".doctor-write-test").is_dir())
+
+    def test_the_probe_leaves_nothing_behind(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "pb.log"
+            doctor.check_logging({"logging": {"file": str(target)}})
+            self.assertEqual([p.name for p in Path(tmp).iterdir()], [])
+
+
 class DoctorTests(unittest.TestCase):
     def run_doctor(self, local_toml="", hardware=None, profile_config="enabled"):
         with tempfile.TemporaryDirectory() as tmp:
