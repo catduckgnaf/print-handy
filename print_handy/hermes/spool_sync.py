@@ -168,11 +168,24 @@ def spool_loaded_elsewhere(spool_id: int, *, state_path: Path | None = None,
     printers_dir = root / "printers"
     if printers_dir.is_dir():
         candidates += sorted(printers_dir.glob("*/printer_hardware.json"))
+    try:
+        default_id = _config.cfg()["printers"][0]["id"]
+    except Exception:
+        default_id = None
     if target == root / "printer_hardware.json":
         # The legacy root record IS the default printer's record (pre-adoption
         # spelling of it): its per-printer copy is the same printer, not another.
         try:
-            candidates.remove(root / "printers" / _config.cfg()["printers"][0]["id"] / "printer_hardware.json")
+            candidates.remove(root / "printers" / default_id / "printer_hardware.json")
+        except Exception:
+            pass
+    elif default_id is not None and target == root / "printers" / default_id / "printer_hardware.json":
+        # The reverse direction (P2-127): binding the default printer's
+        # per-printer record, the root record is that same printer's legacy
+        # spelling (retained as the rollback copy after adoption), not
+        # another printer — a spool it loads is this printer's own.
+        try:
+            candidates.remove(root / "printer_hardware.json")
         except Exception:
             pass
     for candidate in candidates:
@@ -182,8 +195,12 @@ def spool_loaded_elsewhere(spool_id: int, *, state_path: Path | None = None,
             other = json.loads(candidate.read_text())
         except (OSError, ValueError):
             continue
-        if isinstance(other, dict) and int(spool_id) in _loaded_spool_ids(other):
-            return candidate.parent.name if candidate.parent != root else "the default printer"
+        if isinstance(other, dict):
+            # Another printer's record may predate the #672 rename: adopt its
+            # legacy slot-map key or only its active spool is seen (P2-267).
+            filament_color.adopt_renamed_slots_key(other)
+            if int(spool_id) in _loaded_spool_ids(other):
+                return candidate.parent.name if candidate.parent != root else "the default printer"
     return None
 
 
