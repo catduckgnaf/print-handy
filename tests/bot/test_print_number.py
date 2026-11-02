@@ -93,7 +93,10 @@ def test_print_number_forms_all_offer_the_same_print(cfg, archive, text):
     start.assert_called_once()
     assert started[0]["title"] == "Newer Widget" and started[0]["gcode"] == str(newer.resolve())
     assert discord.sent == ["Preparing to start Newer Widget. Print #2; "
-                            "estimated print time ~1m, plus warmup ~6m total."]
+                            "estimated print time ~1m, plus warmup ~6m total.",
+                            # The handler posts the start announcement itself:
+                            # the start claim suppresses the listener's (P2-56).
+                            "Print started: Print\nPrint #2\nEstimated total: unknown"]
     assert core.help not in discord.sent
 
 
@@ -148,4 +151,5 @@ def test_print_again_x3_question_and_start_post_quote_all_copies(cfg, archive):
     assert started[0]["copies"] == 3
     assert discord.sent == ["Preparing to start Newer Widget. Print #2; "
                             "estimated print time ~1m, plus warmup ~6m total for this copy; "
-                            "all 3 copies: ~3m printing (plus ~5m warmup per copy), ~3 g filament."]
+                            "all 3 copies: ~3m printing (plus ~5m warmup per copy), ~3 g filament.",
+                            "Print started: Print\nPrint #2\nEstimated total: unknown"]

@@ -176,7 +176,10 @@ def test_runout_new_spool_carries_slot_hex_into_created_filament():
 
 
 
-def test_print_again_success_leaves_canonical_start_post_to_listener(monkeypatch):
+def test_print_again_success_posts_its_own_start_announcement(monkeypatch):
+    """The start claim suppresses the listener's fallback post, so a
+    successful /print-again posts and registers the canonical start
+    announcement itself (P2-56); before the fix it posted nothing."""
     import asyncio
     import sys
     from types import SimpleNamespace as S
@@ -215,8 +218,8 @@ def test_print_again_success_leaves_canonical_start_post_to_listener(monkeypatch
 
     assert result['reason'] == 'deterministic print again handled'
     queued.assert_called_once()
-    assert adapter.sent == ['Preparing to start Widget. Print #8; estimated print time ~1m, plus warmup ~6m total.']
-    assert not any(message.startswith('Print started:') for message in adapter.sent)
+    assert adapter.sent[0] == 'Preparing to start Widget. Print #8; estimated print time ~1m, plus warmup ~6m total.'
+    assert any(message.startswith('Print started') for message in adapter.sent)
 
 
 def test_parallel_duplicate_commands_are_bounded():
