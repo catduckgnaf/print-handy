@@ -188,7 +188,7 @@ class StandaloneAdapter(BasePlatformAdapter):
 
     # ------------------------------------------------------------------ answers
 
-    async def answer_typed(self, session_key, text):
+    async def answer_typed(self, session_key, text, user_id=None):
         """A typed reply, with a bare number ('2', '2.') translated to that choice's text first.
 
         Ordering (#416): the answer note is posted BEFORE the prompt is
@@ -212,6 +212,8 @@ class StandaloneAdapter(BasePlatformAdapter):
         resolve itself still happens after the note, so the flow's
         continuation cannot overtake the note in the room.
         """
+        if self.typed_approval_blocked(session_key, user_id):
+            return False
         text = str(text or "").strip()
         match = _NUMBER.fullmatch(text)
         if match:

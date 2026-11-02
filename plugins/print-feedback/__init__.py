@@ -4637,8 +4637,15 @@ async def typed_answer_dispatch(event, gateway, **kwargs):
         ui = _CLARIFY_UI
         if ui is None:
             return None
-        if not await ui.answer_typed(gateway._session_key_for_source(source),
-                                     getattr(event, 'text', '')):
+        live_key = gateway._session_key_for_source(source)
+        if ui.typed_approval_blocked(live_key, source.user_id):
+            adapter = _adapter_for(gateway, source)
+            if adapter is not None:
+                await adapter.send(chat_id=source.chat_id,
+                                   content='Only the approval user can approve a print. Nothing was changed.',
+                                   metadata={'thread_id': source.thread_id} if source.thread_id else None)
+            return {'action': 'skip', 'reason': 'typed approval refused'}
+        if not await ui.answer_typed(live_key, getattr(event, 'text', ''), user_id=source.user_id):
             return None
         return {'action': 'skip', 'reason': 'typed clarify answer handled'}
     from print_handy.core.link_intake import take_secret_reply

@@ -166,6 +166,18 @@ class SnapshotTests(unittest.TestCase):
         self.assertIn("not applicable", snap["bot"]["reason"])
         self.assertTrue(snap["ok"])
 
+    def test_healthz_follows_the_same_hermes_mode_gate(self):
+        # 2.2.5 review of P2-100: /healthz used to evaluate the standalone
+        # heartbeat unconditionally and answered 503 in Hermes mode.
+        with tempfile.TemporaryDirectory() as tmp:
+            hermes = load_settings(tmp, "bot:\n  mode: hermes\n")
+            standalone = load_settings(tmp, "bot:\n  mode: standalone\n")
+            code, body = server.healthz(hermes, heartbeat=None)
+            self.assertEqual(code, 200)
+            self.assertTrue(body["ok"])
+            self.assertIn("not applicable", body["reason"])
+            self.assertEqual(server.healthz(standalone, heartbeat=None)[0], 503)
+
     def test_unconfigured_spoolman_is_not_a_failure(self):
         # P2-101: Spoolman is optional and the setup wizard offers skipping
         # it; an unconfigured Spoolman is not-applicable, not a failure.

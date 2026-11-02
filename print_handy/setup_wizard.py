@@ -620,7 +620,7 @@ def build_plan(w, *, hermes_found=False, existing_profiles=()):
                 if rec["printer"].get(geo_key) is not None:
                     entry[geo_key] = rec["printer"][geo_key]
             if rec["bambu_lan"]:
-                env_name = "BAMBU_LAN_PASSWORD_" + rec["id"].upper().replace("-", "_")
+                env_name = "BAMBU_LAN_PASSWORD_" + secret_env_form(rec["id"])
                 entry.update(rec["bambu_lan"])
                 entry["lan_access_code_env"] = env_name
                 if rec["bambu_code"]:
@@ -630,7 +630,7 @@ def build_plan(w, *, hermes_found=False, existing_profiles=()):
                 _claim_secret(secrets, notes, "AD5X_SERIAL", rec["stock_serial"], rec)
                 _claim_secret(secrets, notes, "AD5X_CHECK_CODE", rec["stock_code"], rec)
             if rec["prusa_link"]:
-                env_name = "PRUSA_LINK_API_KEY_" + rec["id"].upper().replace("-", "_")
+                env_name = "PRUSA_LINK_API_KEY_" + secret_env_form(rec["id"])
                 entry.update(rec["prusa_link"])
                 entry["api_key_env"] = env_name
                 if rec["prusa_key"]:

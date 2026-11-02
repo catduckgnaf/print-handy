@@ -184,6 +184,27 @@ def test_add_with_roster_inherited_from_home_keeps_every_printer(tmp_path):
     assert [e["id"] for e in data["printers"]] == ["garage-a1", "workshop-ad5x", "bench-p1"]
 
 
+def test_conversion_keeps_measured_geometry_and_does_not_pin_model_defaults(tmp_path):
+    # A converted entry keeps its measured build volume, and the model's own
+    # nozzle_type / tool_count defaults are not written into the file
+    # (2.2.5 review of the per-entry geometry keys).
+    home = _home_with_roster(tmp_path)
+    raw = yaml.safe_load(Path(home).read_text())
+    raw["printers"][1].update(bed_mm=[200, 190], max_print_height_mm=180)
+    home.write_text(yaml.safe_dump(raw))
+    path = _write(tmp_path, 'discord:\n  chat_id: "111"\n')
+    _add(path, NEW_BAMBU, home=home)
+    written = yaml.safe_load(path.read_text())["printers"]
+    assert written[1]["bed_mm"] == [200, 190] and written[1]["max_print_height_mm"] == 180
+    for entry in written[:1] + written[2:]:
+        assert not {"bed_mm", "max_print_height_mm"} & set(entry)
+    for entry in written:
+        assert not {"nozzle_type", "tool_count"} & set(entry)
+    data = settings.load(home=home, local=path, environ={})
+    assert data["printers"][1]["bed_mm"] == [200.0, 190.0]
+    assert data["printers"][1]["max_print_height_mm"] == 180.0
+
+
 # ---------------------------------------------------------------------- refusals
 
 def test_duplicate_id_and_name_refused_without_writing(tmp_path):

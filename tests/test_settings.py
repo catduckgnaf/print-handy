@@ -928,9 +928,13 @@ def test_user_settings_file_layers_over_shipped_config_and_survives_image_config
     assert data["material_tuning"]["PLA"]["max_volumetric_speed"] == 12.0  # unset key keeps the default
     assert data["webui"]["port"] == 9000
     assert settings.load(environ={**env, "PRINT_HANDY__WEBUI__PORT": "9100"})["webui"]["port"] == 9100
-    # No user file: nothing changes. An explicit PRINT_HANDY_USER_CONFIG that is missing is still optional.
+    # No user file at the default location: nothing changes. A path named by PRINT_HANDY_USER_CONFIG must
+    # exist (2.2.5 review of #783), like PRINT_HANDY_CONFIG.
     assert settings.load(environ={"PRINT_HANDY_CONFIG": str(shipped), "HOME": str(tmp_path / "nobody")}
                          )["webui"]["port"] == 8088
+    gone = tmp_path / "gone.yaml"
+    with pytest.raises(settings.SettingsError, match="PRINT_HANDY_USER_CONFIG.*gone.yaml"):
+        settings.load(environ={**env, "PRINT_HANDY_USER_CONFIG": str(gone)})
     user.write_text("webui:\n  prot: 1\n")
     with pytest.raises(settings.SettingsError, match="prot"):
         settings.load(environ=env)

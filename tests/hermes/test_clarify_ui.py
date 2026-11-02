@@ -291,3 +291,24 @@ def test_retire_prompt_strips_buttons_without_an_answer_line():
         assert len(opener.patches()) == 1
     finally:
         close()
+
+
+def test_answer_typed_leaves_an_approval_open_for_a_non_approver():
+    """2.2.5 review of P1-93: the typed twin of the approval button check."""
+    from print_handy.hermes import _config
+    import copy
+    previous = copy.deepcopy(_config.cfg())
+    data = copy.deepcopy(previous)
+    data.setdefault("discord", {})["approval_user_id"] = "555"
+    _config.set_override(data)
+    ui = HermesClarifyAdapter(token="tok", opener=FakeOpener())
+    prompts.register(CID, KEY, QUESTION, CHOICES, approval=True)
+    asyncio.run(ui.send_clarify("chan1", QUESTION, CHOICES, CID, KEY))
+    try:
+        assert asyncio.run(ui.answer_typed(KEY, "Red", user_id="777")) is False
+        assert prompts.is_open(CID)
+        assert asyncio.run(ui.answer_typed(KEY, "Red", user_id="555")) is True
+        assert prompts.wait_for_response(CID, 1) == "Red"
+    finally:
+        _config.set_override(previous)
+        close()

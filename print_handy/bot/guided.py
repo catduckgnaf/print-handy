@@ -396,12 +396,14 @@ def _add_prompt_text(session, note=""):
 def _bambu_env_name(printer_id):
     """The per-printer LAN access code variable (setup_wizard.py: the same
     derivation the wizard writes into the roster entry)."""
-    return "BAMBU_LAN_PASSWORD_" + str(printer_id).upper().replace("-", "_")
+    from ..setup_wizard import secret_env_form
+    return "BAMBU_LAN_PASSWORD_" + secret_env_form(printer_id)
 
 
 def _prusa_env_name(printer_id):
     """The per-printer PrusaLink API key variable (same derivation rule)."""
-    return "PRUSA_LINK_API_KEY_" + str(printer_id).upper().replace("-", "_")
+    from ..setup_wizard import secret_env_form
+    return "PRUSA_LINK_API_KEY_" + secret_env_form(printer_id)
 
 
 def _derive_printer_id(name, taken_ids):

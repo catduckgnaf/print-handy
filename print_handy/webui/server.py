@@ -183,7 +183,8 @@ def healthz(data=None, heartbeat=status_module.READ_HEARTBEAT):
             heartbeat = bot_health.read()
         except Exception:  # an unreadable heartbeat file reads as no heartbeat
             heartbeat = None
-    ok, reason = bot_health.evaluate(heartbeat, stale_s=data["bot"]["health_stale_s"])
+    ok, reason = status_module.bot_verdict(data, heartbeat)
+    ok = ok is not False  # not applicable (Hermes mode) is healthy, as in the snapshot
     body = {"ok": ok, "reason": reason}
     if isinstance(heartbeat, dict):
         body.update({key: heartbeat[key] for key in status_module.HEARTBEAT_KEYS

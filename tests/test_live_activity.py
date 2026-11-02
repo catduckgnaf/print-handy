@@ -615,6 +615,33 @@ def test_pump_ends_once_both_directions_have_been_idle_past_the_cutoff(monkeypat
         go2rtc.close()
 
 
+def test_pump_rate_limits_the_should_close_check_while_chunks_flow():
+    # 2.2.5 review of P1-89: should_close re-reads the session file, so a busy relay
+    # must not call it once per chunk.
+    import socket
+
+    calls = []
+
+    def should_close():
+        calls.append(time.monotonic())
+        return False
+
+    browser, client = socket.socketpair()
+    go2rtc, upstream = socket.socketpair()
+    pump = threading.Thread(target=la._pump, args=(client, upstream, should_close), daemon=True)
+    pump.start()
+    try:
+        for _ in range(100):
+            go2rtc.sendall(b"frame;")
+            time.sleep(0.002)
+        time.sleep(0.1)
+    finally:
+        go2rtc.close()
+        pump.join(timeout=5)
+        browser.close()
+    assert 1 <= len(calls) <= 3, f"should_close ran {len(calls)} times for 100 chunks"
+
+
 # --------------------------------------------------------------------- P2-143: presence takes the shared lock
 
 def test_presence_updates_wait_for_the_shared_session_lock(tmp_path):

@@ -433,6 +433,7 @@ ACTIVITY_PAGE = """<!DOCTYPE html>
 #: as idle (P2-142). Module-level so tests can shrink them.
 _PUMP_POLL_S = 1
 _PUMP_IDLE_CUTOFF_S = 60
+_PUMP_CHECK_S = 1  # should_close re-reads the session file: at most once a second while chunks flow
 
 
 def _pump(client, upstream, should_close=None):
@@ -461,9 +462,15 @@ def _pump(client, upstream, should_close=None):
     been quiet for the whole cutoff.
     """
 
-    def ended():
+    checked = {"at": None}
+
+    def ended(force=False):
         if should_close is None:
             return False
+        now = time.monotonic()
+        if not force and checked["at"] is not None and now - checked["at"] < _PUMP_CHECK_S:
+            return False  # a busy relay re-reads the session at most once a second (2.2.5 review)
+        checked["at"] = now
         try:
             return bool(should_close())
         except Exception:
@@ -476,7 +483,7 @@ def _pump(client, upstream, should_close=None):
             while not ended():
                 readable, _, _ = select.select([source], [], [], _PUMP_POLL_S)
                 if not readable:
-                    if time.monotonic() - activity["last"] >= _PUMP_IDLE_CUTOFF_S:
+                    if ended(force=True) or time.monotonic() - activity["last"] >= _PUMP_IDLE_CUTOFF_S:
                         break
                     continue
                 chunk = source.recv(65536)
