@@ -133,6 +133,23 @@ class SpellingTests(unittest.TestCase):
                         "recognise", "organise"):
             self.assertIn(british, self.checker.BRITISH_TO_US)
 
+    def test_multiline_html_comment_state_is_preserved(self):
+        # P2-238: a British spelling inside a multi-line HTML comment is
+        # never rendered; the old per-line stripping only removed comments
+        # that opened and closed on the same line.
+        body = "Visible behavior text.\n<!--\ncolour inside a comment\n-->\nMore behavior.\n"
+        self.assertEqual([], self.checker.text_violations(body, "body"))
+
+    def test_prose_after_a_multiline_comment_closes_is_still_scanned(self):
+        body = "<!--\ncomment\n--> colour after the comment\n"
+        found = self.checker.text_violations(body, "body")
+        self.assertEqual(["colour"], [violation[2] for violation in found])
+
+    def test_diff_multiline_html_comment_is_not_flagged(self):
+        diff = make_diff(added=["<!--", "colour inside a comment", "-->",
+                                "Visible behavior text"])
+        self.assertEqual([], self.checker.diff_violations(diff))
+
 
 class WorkflowTests(unittest.TestCase):
     def test_ci_has_a_spelling_job_running_the_checker(self):
