@@ -62,8 +62,10 @@ ZMOD_OBJECTS = [
     "gcode_macro LOAD_ZOFFSET_NATIVE", "extruder", "heater_bed",
 ]
 ZMOD_SETTINGS = {
-    "extruder": {"pid_Kp": "22.2", "pid_Ki": "1.5", "pid_Kd": "105.0"},
-    "heater_bed": {"pid_Kp": "70.0", "pid_Ki": "3.0", "pid_Kd": "380.0"},
+    # Klipper's configfile status lowercases every option name, so the PID
+    # terms arrive as pid_kp / pid_ki / pid_kd whatever the file's casing.
+    "extruder": {"pid_kp": "22.2", "pid_ki": "1.5", "pid_kd": "105.0"},
+    "heater_bed": {"pid_kp": "70.0", "pid_ki": "3.0", "pid_kd": "380.0"},
     "input_shaper": {"shaper_type_x": "mzv", "shaper_freq_x": 36.8,
                      "shaper_type_y": "mzv", "shaper_freq_y": 40.1},
     "bed_mesh": {"mesh_min": "10,10"},
@@ -77,8 +79,8 @@ NATIVE_CONFIG = {"leftExtruderOffset": {"zProbeOffset": -1.24}}
 KLIPPER_OBJECTS = ["print_stats", "bed_mesh", "input_shaper", "save_variables",
                    "configfile", "resonance_tester", "extruder", "heater_bed"]
 KLIPPER_SETTINGS = {
-    "extruder": {"pid_Kp": 21.0, "pid_Ki": 1.2, "pid_Kd": 90.0},
-    "heater_bed": {"pid_Kp": 65.0, "pid_Ki": 2.5, "pid_Kd": 300.0},
+    "extruder": {"pid_kp": 21.0, "pid_ki": 1.2, "pid_kd": 90.0},
+    "heater_bed": {"pid_kp": 65.0, "pid_ki": 2.5, "pid_kd": 300.0},
     "input_shaper": {"shaper_type": "mzv", "shaper_freq_x": 40.0, "shaper_freq_y": 44.0},
     "bed_mesh": {"mesh_min": "10,10"},
     "screws_tilt_adjust": {"screw1": "-5,30"},
@@ -1097,6 +1099,39 @@ def test_save_config_disconnect_is_the_expected_restart_not_a_failure(error):
     assert transport.scripts == ["SAVE_CONFIG"]
     reads = [path for method, path, _b in transport.calls if method == "GET"]
     assert reads.count(cal.PRINTER_INFO_PATH) == 3
+
+
+def test_pid_before_reads_the_lowercase_keys_configfile_returns():
+    settings_map = {"extruder": {"pid_kp": "22.2", "pid_ki": "1.5", "pid_kd": "105.0"}}
+    assert cal._pid_before(settings_map, "extruder") == cal.PidValues(22.2, 1.5, 105.0)
+    assert cal._pid_before(settings_map, "heater_bed") is None
+
+
+def test_is_restart_disconnect_separates_presend_from_postsend_failures():
+    # Post-send drops are the SAVE_CONFIG restart signature; a refused
+    # connection or a wrapped connect timeout means the request never
+    # reached Moonraker, so nothing was saved (P2-230).
+    assert cal._is_restart_disconnect(TimeoutError("read timed out"))
+    assert cal._is_restart_disconnect(ConnectionResetError(104, "Connection reset by peer"))
+    assert cal._is_restart_disconnect(
+        urllib.error.URLError(ConnectionResetError(104, "Connection reset by peer")))
+    assert not cal._is_restart_disconnect(ConnectionRefusedError(111, "Connection refused"))
+    assert not cal._is_restart_disconnect(
+        urllib.error.URLError(ConnectionRefusedError(111, "Connection refused")))
+    assert not cal._is_restart_disconnect(urllib.error.URLError(TimeoutError("timed out")))
+
+
+@pytest.mark.parametrize("error", [
+    ConnectionRefusedError(111, "Connection refused"),
+    urllib.error.URLError(ConnectionRefusedError(111, "Connection refused")),
+    urllib.error.URLError(TimeoutError("timed out")),
+])
+def test_save_config_presend_failures_stay_uncertain_and_are_not_resent(error):
+    transport = RestartingTransport(error, startup_reads=0)
+    with pytest.raises(cal.CalibrationError) as excinfo:
+        cal._save_config(transport, sleep=NO_SLEEP)
+    assert "The send did not succeed" in str(excinfo.value)
+    assert transport.scripts == ["SAVE_CONFIG"]
 
 
 def test_save_config_other_errors_stay_uncertain_and_are_not_resent():

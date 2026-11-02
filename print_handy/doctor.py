@@ -243,14 +243,34 @@ def check_logging(data):
         raise RuntimeError(
             f"log file folder {target.parent} does not exist; create it or fix [logging] file "
             f"[PH_LOGGING_CONFIGURATION]")
-    probe = target.parent / ".doctor-write-test"
-    try:
-        probe.write_text("")
-        probe.unlink()
-    except OSError as exc:
+    if target.is_dir():
         raise RuntimeError(
-            f"log file folder {target.parent} is not writable ({exc}); fix its permissions "
-            f"or change [logging] file [PH_LOGGING_CONFIGURATION]") from exc
+            f"log file {target} is a folder, not a file; fix [logging] file "
+            f"[PH_LOGGING_CONFIGURATION]")
+    if target.exists():
+        # The configured file itself is the thing the logger must append
+        # to; a writable folder around an unwritable file is still broken.
+        try:
+            with target.open("a"):
+                pass
+        except OSError as exc:
+            raise RuntimeError(
+                f"log file {target} is not writable ({exc}); fix its permissions "
+                f"or change [logging] file [PH_LOGGING_CONFIGURATION]") from exc
+    else:
+        # No file yet (the logger creates it at first write): probe the
+        # folder, under a unique temporary name so concurrent doctor runs
+        # — and a stale probe left by a crashed one — never collide.
+        try:
+            with tempfile.NamedTemporaryFile(dir=target.parent,
+                                             prefix=".doctor-write-test-",
+                                             delete=False) as probe:
+                probe_path = Path(probe.name)
+            probe_path.unlink()
+        except OSError as exc:
+            raise RuntimeError(
+                f"log file folder {target.parent} is not writable ({exc}); fix its permissions "
+                f"or change [logging] file [PH_LOGGING_CONFIGURATION]") from exc
     return f"file {target}{suffix}"
 
 

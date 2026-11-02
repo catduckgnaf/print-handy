@@ -363,10 +363,12 @@ def build_export(data=None, *, state=None, now=None) -> tuple[str, str, str]:
         "```",
         "",
     ]
-    discord = (data or {}).get("discord") or {}
-    sanitizer = sanitize_logs.Sanitizer(
-        known_user_ids=str(discord.get("allowed_user_ids") or "").replace(",", " ").split(),
-        known_channel_ids=[str(discord.get("chat_id") or "")])
+    # Every platform's IDs, list-safe: the same registry the diagnostics
+    # bundle uses. Building this from the Discord section alone (and by
+    # string-splitting it) leaked Telegram/Matrix/approval IDs and mangled
+    # a list-valued allowed_user_ids into bracketed fragments.
+    users, channels = diagnostics_bundle._known_ids(data or {})
+    sanitizer = sanitize_logs.Sanitizer(known_user_ids=users, known_channel_ids=channels)
     clean = sanitizer.sanitize("\n".join(parts))
     report = sanitizer.report()
     return export_name(state, now=now), clean.replace("{REPORT}", report), report
@@ -416,7 +418,11 @@ def main(argv=None) -> int:
               f"Capture: {capture_path(data)}. Stop it with: python3 -m print_handy.debug_mode off")
         return 0
     if args.action == "off":
-        if _read_state(data) is None:
+        if _read_state(data) is None and not latest_session(data):
+            # No live state and no capture to recover: genuinely off. (A
+            # session that auto-expired has no state file left — a status
+            # check or listener poll ended it — but its capture remains,
+            # and off_and_export recovers it below.)
             print("Debug mode is already off.")
             return 0
         target, report, ended = off_and_export(data)

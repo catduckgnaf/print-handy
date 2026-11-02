@@ -374,6 +374,14 @@ def classify(exc: BaseException, *, category: Category | None = None) -> Categor
             return Category.CONFIGURATION
         if code == 429 or code >= 500:
             return Category.TRANSIENT
+    reason = getattr(exc, "reason", None)  # urllib URLError wraps the real failure
+    if isinstance(reason, BaseException) and reason is not exc:
+        # Classify what actually failed (a refused connection, a reset, a
+        # timeout): the wrapper itself is an OSError with no errno, so it
+        # would otherwise fall through to UNKNOWN and suppress the retry
+        # advice a recoverable failure earns. HTTPError never reaches
+        # here with an exception reason — its reason is the message text.
+        return classify(reason)
     if isinstance(exc, (TimeoutError, ConnectionError)):
         return Category.TRANSIENT
     # subprocess timeouts are not TimeoutError subclasses. Workers serialize this

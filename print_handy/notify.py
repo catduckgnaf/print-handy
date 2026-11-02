@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import logging
 import os
+import queue
 import secrets
 import socket
+import threading
 import urllib.request
 
 log = logging.getLogger("print_handy.notify")
@@ -46,6 +48,10 @@ def emit(kind, summary, *, printer_id="", connector=None, http_opener=None) -> b
     ``http_opener`` is the ntfy test seam: ``http_opener(request,
     timeout=...)`` returns a response with a ``status`` (production uses
     urllib.request.urlopen).
+
+    This blocks on the channels' I/O (a 3 s broker connect, a 5 s HTTP
+    POST); callers on a listener tick or an event loop use
+    :func:`emit_queued` instead.
     """
     try:
         return _emit(kind, summary, printer_id=printer_id, connector=connector,
@@ -53,6 +59,48 @@ def emit(kind, summary, *, printer_id="", connector=None, http_opener=None) -> b
     except Exception as exc:
         log.warning("notify publish failed: %s", exc)
         return False
+
+
+_queue: queue.SimpleQueue = queue.SimpleQueue()
+_worker: threading.Thread | None = None
+_worker_lock = threading.Lock()
+
+
+def _worker_loop():
+    while True:
+        kind, summary, printer_id = _queue.get()
+        emit(kind, summary, printer_id=printer_id)
+
+
+def _ensure_worker():
+    global _worker
+    if _worker is None or not _worker.is_alive():
+        with _worker_lock:
+            if _worker is None or not _worker.is_alive():
+                _worker = threading.Thread(target=_worker_loop, name="print-handy-notify",
+                                           daemon=True)
+                _worker.start()
+
+
+def emit_queued(kind, summary, *, printer_id="") -> bool:
+    """Queue one event for delivery on the shared notify worker thread.
+
+    The broker/HTTP I/O never runs on the caller's path: a listener tick
+    or an event-loop callback returns as soon as the event is queued, and
+    events deliver in order on the one worker. Returns True when the
+    event was queued, False for an unknown event name; the delivery
+    itself is logged by :func:`emit` on the worker, exactly as a direct
+    call reports it.
+    """
+    if kind not in EVENTS:
+        return False
+    try:
+        _ensure_worker()
+        _queue.put((kind, summary, printer_id))
+    except Exception as exc:
+        log.warning("notify queue failed: %s", exc)
+        return False
+    return True
 
 
 def _settings():

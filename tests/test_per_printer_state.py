@@ -76,6 +76,36 @@ def test_view_for_the_default_printer_is_the_resolved_settings():
     assert settings.view_for("garage-a1", data) is data
 
 
+def test_view_for_rederives_an_underived_timelapse_mode_per_printer():
+    # The roster-level mode derives from the FIRST entry's services (the
+    # Bambu: no Moonraker, capture off -> "off"); the Klipper entry's own
+    # view must re-derive from its own Moonraker URL, or its
+    # printer-rendered timelapses stay gated off (P2-261).
+    data = load_local(TWO_PRINTERS)
+    assert data["timelapse"]["mode"] == "off"
+    view = settings.view_for("workshop-ad5x", data)
+    assert view["timelapse"]["mode"] == "rendered"
+    from print_handy import go2rtc
+    assert go2rtc.timelapse_mode(view) == "rendered"
+    assert go2rtc.rendered_active(view) is True
+
+
+def test_view_for_keeps_an_explicit_timelapse_mode_for_every_printer():
+    data = load_local("""
+timelapse:
+  mode: "off"
+printers:
+  - id: garage-a1
+    model: bambulab.a1
+    lan_host: 192.168.1.60
+    lan_serial: "00M00A000000000"
+  - id: workshop-ad5x
+    model: flashforge.ad5x
+    moonraker_url: http://192.168.1.61:7125
+""")
+    assert settings.view_for("workshop-ad5x", data)["timelapse"]["mode"] == "off"
+
+
 def test_stamp_job_printer_records_the_default_id():
     job = {}
     model_job.stamp_job_printer(job)

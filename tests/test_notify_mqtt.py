@@ -89,16 +89,9 @@ def test_recorded_pause_notifies_once_and_the_chat_post_still_returns(monkeypatc
         calls.append((kind, text))
         return True
 
-    class _Now:
-        """Runs the publish where the test can see it; production starts a daemon thread."""
-        def __init__(self, target, args=(), daemon=None):
-            self.run = lambda: target(*args)
-
-        def start(self):
-            self.run()
-
-    monkeypatch.setattr(summary.threading, "Thread", _Now)
-    monkeypatch.setattr("print_handy.notify.emit", capture)
+    # format_event dispatches through the notify queue (P2-249); capturing
+    # emit_queued is the seam where the queued event is visible.
+    monkeypatch.setattr("print_handy.notify.emit_queued", capture)
     message = summary.format_event("paused", "plate.gcode")
     assert message.startswith("Print paused")
     assert calls == [("paused", message)]
@@ -106,7 +99,7 @@ def test_recorded_pause_notifies_once_and_the_chat_post_still_returns(monkeypatc
     def refuse(*args, **kwargs):
         raise OSError("refused")
 
-    monkeypatch.setattr("print_handy.notify.emit", refuse)
+    monkeypatch.setattr("print_handy.notify.emit_queued", refuse)
     again = summary.format_event("paused", "plate.gcode")
     assert again.startswith("Print paused")
 
@@ -132,6 +125,44 @@ def test_name_lookup_never_publishes_and_a_publish_never_blocks_the_caller(monke
         if thread is not threading.current_thread() and thread.daemon:
             thread.join(2)
     assert calls == ["print_started"]
+
+
+def test_emit_queued_delivers_in_order_on_the_worker(monkeypatch):
+    import time
+    from print_handy import notify
+    delivered = []
+    monkeypatch.setattr(notify, "emit", lambda kind, text, **kw: delivered.append(kind) or True)
+    assert notify.emit_queued("not-an-event", "x") is False
+    assert notify.emit_queued("paused", "first") is True
+    assert notify.emit_queued("complete", "second") is True
+    deadline = time.time() + 5
+    while delivered != ["paused", "complete"] and time.time() < deadline:
+        time.sleep(0.01)
+    assert delivered == ["paused", "complete"]
+
+
+def test_emit_queued_returns_before_a_slow_delivery_finishes(monkeypatch):
+    # The point of the queue (P2-249): broker I/O (a 3 s connect, a 5 s
+    # HTTP POST) never runs on the caller's path.
+    import threading
+    import time
+    from print_handy import notify
+    gate = threading.Event()
+    done = []
+
+    def slow(kind, text, **kwargs):
+        gate.wait(5)
+        done.append(kind)
+        return True
+
+    monkeypatch.setattr(notify, "emit", slow)
+    assert notify.emit_queued("failed", "boom") is True
+    assert done == []  # the caller returned while delivery is still blocked
+    gate.set()
+    deadline = time.time() + 5
+    while done != ["failed"] and time.time() < deadline:
+        time.sleep(0.01)
+    assert done == ["failed"]
 
 
 def test_connack_refusal_is_reported_and_client_ids_differ(monkeypatch):

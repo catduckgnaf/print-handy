@@ -46,6 +46,60 @@ class BundleTests(unittest.TestCase):
         self.assertEqual(len(tail.splitlines()), 5)
         self.assertNotIn(secret, tail)
 
+    def test_long_url_credentials_redact_before_truncation(self):
+        # The userinfo @ sits past the 77-char truncation point: truncating
+        # first would strand the password with no @ left for the credential
+        # pattern in logs.redact to match (P1-95).
+        value = "http://" + "a" * 65 + ":s3cretpw@cam.local:7125/" + "x" * 30
+        summary = diagnostics_bundle._summarise({"moonraker_url": value}, "services")
+        self.assertNotIn("s3cretpw", str(summary))
+        self.assertNotIn("s3cr", str(summary))
+
+    def test_zero_log_lines_returns_no_lines_not_the_whole_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "pb.log"
+            log.write_text("first line\nsecond line\n")
+            data = _data(tmp)
+            data["logging"] = {"file": str(log)}
+            for count in (0, -3):
+                tail = diagnostics_bundle.log_tail(data, lines=count)
+                self.assertNotIn("first line", tail)
+                self.assertIn("no log lines", tail)
+
+    def test_bundle_is_produced_when_settings_do_not_load(self):
+        with mock.patch.object(diagnostics_bundle.settings, "current",
+                               side_effect=settings.SettingsError("[printer] model is bad")):
+            text = diagnostics_bundle.build_bundle(include_doctor=False)
+        for heading in ("# Print Handy diagnostics bundle", "## Configuration summary",
+                        "## Printers", "## Recent log"):
+            self.assertIn(heading, text)
+        self.assertIn("could not be loaded", text)
+
+    def test_write_bundle_with_explicit_path_when_settings_do_not_load(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "bundle.md"
+            with mock.patch.object(diagnostics_bundle.settings, "current",
+                                   side_effect=settings.SettingsError("bad config")):
+                written = diagnostics_bundle.write_bundle(target)
+            self.assertEqual(written, target)
+            self.assertIn("diagnostics bundle", target.read_text())
+
+    def test_known_ids_cover_approval_and_bot_ids(self):
+        users, channels = diagnostics_bundle._known_ids({
+            "discord": {"allowed_user_ids": "111, 222", "approval_user_id": "333",
+                        "chat_id": "444"},
+            "telegram": {"allowed_user_ids": [555], "approval_user_id": "666",
+                         "chat_id": "-777"},
+            "matrix": {"allowed_user_ids": "@a:example.org",
+                       "approval_user_id": "@b:example.org",
+                       "bot_user_id": "@bot:example.org", "room_id": "!r:example.org"},
+        })
+        for expected in ("111", "222", "333", "555", "666", "@a:example.org",
+                         "@b:example.org", "@bot:example.org"):
+            self.assertIn(expected, users)
+        for expected in ("444", "-777", "!r:example.org"):
+            self.assertIn(expected, channels)
+
     def test_missing_log_file_setting_is_explained_not_silent(self):
         with tempfile.TemporaryDirectory() as tmp:
             tail = diagnostics_bundle.log_tail(_data(tmp))
