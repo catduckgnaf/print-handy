@@ -5292,7 +5292,8 @@ def alert_button_handlers(bot, adapter):
             await interaction.response.send_message('That plate picker is old or was already used. Nothing started.', ephemeral=True)
             return
         try:
-            part_id = str((getattr(interaction, 'data', {}) or {}).get('values', [None])[0])
+            selected = str((getattr(interaction, 'data', {}) or {}).get('values', [None])[0])
+            part_id = pab.plate_part_id(alert, selected)
             target = print_next.resolve_next(print_next.load_plan(alert['plan_id']), part_id=part_id)
         except Exception as exc:
             await interaction.response.send_message(f'Cannot start that plate: {exc}. Nothing started.', ephemeral=True)

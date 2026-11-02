@@ -434,3 +434,39 @@ def test_insertion_options_name_the_material_once():
                "filament": {"name": "Coffee PLA+", "material": "PLA+"}}]
     label = pab_.insertion_select_options(spools)[0]["label"]
     assert label == "#21 Coffee PLA+ 800 g"
+
+
+def test_plate_picker_maps_long_part_ids_instead_of_truncating(tmp_path):
+    """A part id over Discord's 100-char select-value cap must travel as a
+    short opaque token mapped to the full id in the alert record; a
+    truncated id can never match resolve_next's exact-id lookup (P2-12)."""
+    import json as _json
+    long_id = "part-" + "x" * 140
+    seen = {}
+
+    class Response:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+
+    def fake_open(request, timeout):
+        seen["request"] = request
+        return Response()
+
+    options = [{"label": "Plate 1", "value": "short-id"},
+               {"label": "Plate 2", "value": long_id}]
+    with patch.object(pab, "STATE", tmp_path / "alerts.json"), \
+         patch.object(pab.urllib.request, "urlopen", fake_open):
+        assert pab.post_plate_picker("token", "channel", "Which plate?", "plan1", options)
+        rows = [r for r in pab._load().values() if isinstance(r, dict) and r.get("kind") == "plate-picker"]
+        assert len(rows) == 1
+        alert = rows[0]
+    body = _json.loads(seen["request"].data)
+    posted = body["components"][0]["components"][0]["options"]
+    assert posted[0]["value"] == "short-id"
+    token = posted[1]["value"]
+    assert token != long_id[:100] and len(token) <= 100
+    # The pick handler resolves the token back to the exact full id.
+    assert pab.plate_part_id(alert, token) == long_id
+    assert pab.plate_part_id(alert, "short-id") == "short-id"
+    assert pab.plate_part_id({}, token) == token  # pre-mapping alerts pass through
