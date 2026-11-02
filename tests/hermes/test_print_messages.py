@@ -219,6 +219,25 @@ def test_claimed_start_edits_existing_message_and_posts_no_second_start(job, tmp
     assert not HEX.search(text)
 
 
+def test_claimed_start_edit_names_the_printing_objects(job, tmp_path, monkeypatch):
+    """P2-244: the unclaimed start post names the job's objects (the
+    exclude-object line); the claimed start's warmup edit built its text
+    from the summary alone and silently dropped them."""
+    gcode = tmp_path / "plate_with_objects.gcode"
+    gcode.write_text("EXCLUDE_OBJECT_DEFINE NAME=hinge_left\n"
+                     "EXCLUDE_OBJECT_DEFINE NAME=hinge_right\nG1 X1\n")
+    plate = dict(job.rows[0], gcode=str(gcode))
+    monkeypatch.setattr(summary, "find_job",
+                        lambda filename, archive=None, context_path=None: (job.data, plate))
+    monkeypatch.setattr(mel, "post_exclude_objects", lambda filename: False)
+    edits = _claimed_listener(monkeypatch, tmp_path, job)
+    posted = _drive_listener(monkeypatch, job.hashed, ["standby", "printing"], claimed=True)
+    assert posted == []
+    assert len(edits) == 1
+    assert "Objects still printing: hinge_left, hinge_right" in edits[0][1]
+    assert "Warmup complete, now printing." in edits[0][1]
+
+
 def test_claimed_start_warmup_edit_includes_exactly_one_roast(job, tmp_path, monkeypatch):
     """#374: the warmup-to-printing edit is the warming start's single roast point.
 

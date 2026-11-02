@@ -420,17 +420,27 @@ def generate_roast(title, summary=""):
         return ""
 
 
-def start_message_with_roast(filename, archive=None, context_path=None):
-    """Format the canonical start message and append a best-effort model roast."""
-    message = print_summary.format_event("started", filename, archive=archive, context_path=context_path)
+def _objects_line(filename, archive=None, context_path=None):
+    """The "Objects still printing: …" line for a job's plate G-code, or "".
+
+    One helper for both start announcements (P2-244): the fresh start
+    post and the claimed start's warmup-done edit must name the same
+    objects. Best-effort — any lookup failure is simply no line.
+    """
     try:
         from ..core.exclude_object import objects_line_for_path
         _job, plate = print_summary.find_job(filename, archive=archive, context_path=context_path)
-        line = objects_line_for_path((plate or {}).get("gcode"))
-        if line:
-            message += "\n" + line
+        return objects_line_for_path((plate or {}).get("gcode")) or ""
     except Exception:
-        pass
+        return ""
+
+
+def start_message_with_roast(filename, archive=None, context_path=None):
+    """Format the canonical start message and append a best-effort model roast."""
+    message = print_summary.format_event("started", filename, archive=archive, context_path=context_path)
+    line = _objects_line(filename, archive=archive, context_path=context_path)
+    if line:
+        message += "\n" + line
     job, _plate = print_summary.find_job(filename, archive=archive)
     title = (job or {}).get("title") or Path(str(filename or "")).stem
     roast = generate_roast(title)
@@ -2037,6 +2047,9 @@ def announce_warmup_done(filename):
     post and no roast is posted elsewhere.
     """
     text = print_summary.format_event("started", filename)
+    line = _objects_line(filename)
+    if line:
+        text += "\n" + line
     text += "\nWarmup complete, now printing."
     message_id = None
     channel_id = None
