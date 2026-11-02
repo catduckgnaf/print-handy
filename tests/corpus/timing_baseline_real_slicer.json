@@ -1,0 +1,33 @@
+{
+ "cases": {
+  "plates-multicolor/hermes": {
+   "first_prompt_s": 0.06,
+   "fit_check_s": 0.01,
+   "wall_s": 1.93
+  },
+  "rotation-fit/hermes": {
+   "first_prompt_s": 0.01,
+   "fit_check_s": 4.43,
+   "wall_s": 9.21
+  },
+  "single-part/hermes": {
+   "first_prompt_s": 0.01,
+   "fit_check_s": 5.5,
+   "wall_s": 6.19
+  },
+  "stl-single-part/hermes": {
+   "first_prompt_s": 0.01,
+   "fit_check_s": 5.51,
+   "wall_s": 6.19
+  },
+  "witch-ghost-cults3d/hermes": {
+   "first_prompt_s": 0.39,
+   "fit_check_s": 6.57,
+   "wall_s": 10.43
+  }
+ },
+ "description": "Real-Orca fake Discord flow (hermes transport), ci.yml slicer-timing-real, REPORTING ONLY (#734). Re-recorded every release from the release commit's CI artifact; see tests/README.md (Slicing-speed gate).",
+ "recorded_from": "CI run 41370825449 (18d3c5ef285f68a3c1a4368d2f20530fe5e9a188), artifact slicer-timing-real, median of 3",
+ "slack_s": 1.0,
+ "tolerance": 0.1
+}

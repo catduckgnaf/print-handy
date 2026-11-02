@@ -161,6 +161,7 @@ remainder), and the Matrix message-ordering flake root cause (scope 4).
 | Every PR | `ci.yml` | Everything under `tests/` with the fake slicer, including `tests/corpus/test_journey_matrix.py` (pinned fit option x color mode inventory), `test_spool_fixture.py` (state built by the real `create_spool` and `bind_slot`), and `test_timing_gate.py`. |
 | Every PR | `ci.yml` real Orca job | The generated CC0 corpus under `tests/corpus/cases` sliced by real Orca. |
 | Every PR | `ci.yml` timing job | Median of 3 repeats against `timing_baseline.json`: `wall_s`, `first_prompt_s`, `fit_check_s`, plus the absolute `fit_check_budget_s` ceiling, which is enforced even for a case with no baseline entry. |
+| Every PR, reporting only | `ci.yml` real-slicer timing job | Five corpus cases with the pinned Orca, median of 3 repeats against `timing_baseline_real_slicer.json`. Warnings only, not a required check (see Slicing-speed gate below). |
 | Weekly | `model-corpus.yml` | The downloaded public model corpus, sharded. |
 | Live only, not in CI | operator | Real printer, real Spoolman and Moonraker, real Discord, the private Duplo 3MF. |
 
@@ -208,3 +209,100 @@ rearrange's source hash binding and spool-question same/cancel doing printer or 
 (strict xfails, no production changes). Other handler families listed above have no new ordering proof.
 The original five failures were not replayed on 2.1.9; fit_check_s has mock-runner evidence only; restart 503
 coverage is the Spoolman bind refusal, not a gateway restart.
+
+## Slicing-speed gate (#734)
+
+The correctness tests prove a slice is right. This gate proves the Discord journey did not get slower than
+the last release. It measures whole flows through the fake Discord path (file in, intake questions answered,
+sliced, ready to confirm), not single functions.
+
+What runs:
+
+| Leg | CI job | Cases | Status |
+| --- | --- | --- | --- |
+| Mock slicer | `discord-timing` | every corpus case, `hermes` and `standalone` transports | Blocking. A problem fails the job. |
+| Real Orca | `slicer-timing-real`, "Slicer timing (real Orca, reporting only)" | `single-part`, `stl-single-part`, `plates-multicolor`, `witch-ghost-cults3d`, `rotation-fit` on `hermes` | Reporting only. Problems are warning annotations; the job is `continue-on-error` and is not a required check. |
+
+Both legs run `python -m tests.corpus.time_corpus` three times, then `python -m tests.corpus.timing_gate` on the
+three result files. The gate compares the per-case median of the three repeats, never one sample. Each leg writes
+a per-case table (median, baseline, limit, change) to the job summary and uploads its run files plus a
+`proposed-baseline.json` as an artifact (`discord-timing`, `slicer-timing-real`).
+
+The rule, per case/transport and per metric (`wall_s`, `first_prompt_s`, `fit_check_s`):
+
+    median > baseline x (1 + tolerance) + slack_s   ->  problem
+
+Each baseline file sets its own `tolerance` and `slack_s`. Both use `tolerance` 0.10, the issue's +10%.
+
+Why the mock leg has `slack_s` 0.5 s: its flows are tiny (0.02 to 1.1 s), and on a shared runner a tiny flow's
+median moves far more than 10% from noise alone. Twelve green `main` runs (2026-11-01, `discord-timing` artifacts,
+36 repeats, 68 case/transport rows each) showed medians of 0.07 s flows reading 0.12 s (+70%) with no code change. A
+percentage alone would fail every run. To pick the slack, each of the twelve runs was used in turn as the
+baseline (the same `--record` the release step uses) and the other eleven were gated against it at +10%:
+
+| `slack_s` | runs failing (of 132 pairings) | worst median over its limit |
+| --- | --- | --- |
+| 0.10 | 28 | +0.21 s |
+| 0.25 | 4 | +0.06 s |
+| 0.50 | 0 | 0.19 s under the limit |
+
+So 0.5 s is the smallest tested slack that never failed on unchanged code. It still catches any added half second
+in a flow, which covers the bug class that started this issue (a print-again scan that took 2.1 s instead of 5 ms).
+On the mock leg the slack dominates the 10%; the 10% matters on the real-Orca leg, where flows take seconds.
+
+The real-Orca leg starts with `slack_s` 1.0 s as a provisional value. Its runner noise is not known yet, which is
+why it reports instead of failing. It runs one untimed warm-up slice first, because the first flatpak start pays
+one-off costs. `must-shrink` and `stl-must-shrink` are left out on purpose: they take minutes and write a very large
+G-code, so they would measure disk and size search, not regressions, and would make the job slow.
+
+Noise controls in place: median of 3 repeats, per-case baselines (one heavy case cannot hide another's
+regression), absolute slack for tiny flows, the warm-up slice, and the fixed runner image (`ubuntu-24.04`). Not
+built yet: the same-job A/B against the merge base, and a control file to normalize runner speed. The stored
+per-release baseline ships first; A/B is the next step if the real-Orca warnings prove too noisy to promote.
+
+The checked-in mock baseline was re-recorded for #734 from `main` run 41365651326 (commit 60341e2) with these
+limits; its two entries that rose carry a `reason`. The real-Orca baseline was recorded from this job's first CI runs
+(its `recorded_from` names the run).
+
+Other refusals the gate makes: a failed or errored flow, a case missing from the run, a new case with no baseline,
+the fit check over `fit_check_budget_s`, a `fit_check_required` row with no fit measurement, and an entry whose
+numbers rose without a `reason`.
+
+### Updating the baselines (every release)
+
+Each release becomes the new normal, so the gate only answers "did this change make slicing slower than the last
+release?" The step is on the release checklist the Pre-release checklist workflow opens (section "Slicing-speed
+baselines"), and CONTRIBUTING.md requires it before tagging. Nothing updates a baseline automatically.
+
+1. Wait for the `ci.yml` run on the release commit on `main` to finish green.
+2. Download its two timing artifacts:
+
+       gh run download <run-id> -n discord-timing -D timing
+       gh run download <run-id> -n slicer-timing-real -D slicer-timing
+
+3. Each artifact holds `proposed-baseline.json`, made by `timing_gate --record --recorded-from "CI run <id> (<sha>) ..."`
+   from the three repeats. To rebuild it by hand from the run files:
+
+       python -m tests.corpus.timing_gate timing/run-*.json --record \
+           --recorded-from "CI run <id> (<sha>), artifact discord-timing, median of 3" > proposed.json
+       python -m tests.corpus.timing_gate slicer-timing/run-*.json \
+           --baseline tests/corpus/timing_baseline_real_slicer.json --record \
+           --recorded-from "CI run <id> (<sha>), artifact slicer-timing-real, median of 3" > proposed-real.json
+
+4. Copy them over `tests/corpus/timing_baseline.json` and `tests/corpus/timing_baseline_real_slicer.json`. Review
+   the diff. An entry that rose carries `raised_from`; write its `reason` (what got slower and why that is
+   acceptable, for example a new Orca version or a new pipeline stage). The gate refuses a raise with no reason.
+   Do not change `tolerance` or `slack_s` in this PR; that is a separate, measured change.
+5. Open a PR named "Timing baselines for X.Y.Z", let CI gate it against the new numbers, merge it, then tag.
+6. Record the decision on the release checklist issue: re-recorded or verified-no-change.
+
+A baseline is only as good as the run it came from. If the release run's summary shows a case far off its usual
+value, re-run the job and record from the re-run rather than freezing an outlier.
+
+### Promoting the real-Orca leg
+
+Keep it reporting-only for a few releases. At each release, look at its warnings since the last one and at how far
+medians moved on unchanged code (the job summaries show the change per case). When the spread is understood, set
+`slack_s` from that data the same way the mock leg's was set, then remove `--warn-only` and `continue-on-error`
+from `slicer-timing-real` and add it to the required checks. `test_timing_gate.py` pins the current split: the mock
+leg blocks, the real leg reports.

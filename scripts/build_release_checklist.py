@@ -255,7 +255,8 @@ def build_checklist(data):
         "- **Fix-first** (resolve before tagging, or defer explicitly "
         "here): variables without a verdict on every surface, registry "
         "or docs-matrix drift, Docker/GHCR mismatches, template "
-        "mismatches, and document-surface gaps."
+        "mismatches, slicing-speed baselines not re-recorded, and "
+        "document-surface gaps."
     )
     lines.append(
         "- **Defer** (only by catduck's explicit call on this issue): "
@@ -503,7 +504,42 @@ def build_checklist(data):
     )
     lines.append("")
 
-    # -- (h) The gate. --------------------------------------------------------
+    # -- (h) Slicing-speed baselines (#734). --------------------------------
+    lines.append("## Slicing-speed baselines (fix-first)")
+    lines.append("")
+    lines.append(
+        "Each release becomes the new normal for the slicing-speed gate "
+        "(#734, `tests/README.md`, Slicing-speed gate): the gate only asks whether a change "
+        "made slicing slower than the last release. Record the baselines "
+        "from the CI run of the commit being released, before tagging."
+    )
+    lines.append("")
+    lines.append(
+        f"- [ ] The `ci.yml` run on the {version} release commit is green. "
+        "Its `discord-timing` artifact (mock slicer, required gate) and "
+        "`slicer-timing-real` artifact (real Orca, reporting only) each "
+        "hold `proposed-baseline.json`, recorded with `--recorded-from` "
+        "naming that run."
+    )
+    lines.append(
+        "- [ ] `tests/corpus/timing_baseline.json` and "
+        "`tests/corpus/timing_baseline_real_slicer.json` are replaced by "
+        "those proposals in a reviewed PR. Every entry that rose keeps "
+        "`raised_from` and gets a `reason` (what got slower and why that "
+        "is acceptable); the gate refuses a raise without one. Tolerance "
+        "and slack are not changed in that PR. Decision: re-recorded / "
+        "verified-no-change."
+    )
+    lines.append(
+        "- [ ] The real-slicer leg's warnings since the last release were "
+        "reviewed, and its promotion to a required gate is decided "
+        "(promote / keep reporting-only, with the measured spread). "
+        "First release after #734: this whole section is the step's first "
+        "real run; record the outcome on #734."
+    )
+    lines.append("")
+
+    # -- (i) The gate. --------------------------------------------------------
     lines.append("## Fix-first gate")
     lines.append("")
     lines.append(
