@@ -402,6 +402,10 @@ class BotCore:
         self.agent_opener = agent_opener
         self.agent_unavailable = agent_unavailable_text()
         self._refusal_notices: dict[str, float] = {}  # user_id -> last notice time (#386)
+        # Did-you-mean waits running off the message path on serial-polling
+        # platforms (P1-109): the tasks are tracked so they are never
+        # garbage-collected mid-wait and their failures are logged.
+        self._suggestion_tasks: set[asyncio.Task] = set()
         self.bot_name = str(section.get("bot_name") or discord.get("bot_name") or "").strip() or "Print Handy"
         # Help is a platform surface: a platform that cannot run the live
         # command does not advertise it (P2-123).
@@ -581,6 +585,69 @@ class BotCore:
                                 metadata=metadata)
         return {"action": "skip", "reason": "command list"}
 
+    def _background_suggestion(self, coro):
+        """Run a did-you-mean wait off the message path (P1-109).
+
+        On a serial-polling platform (Telegram, Matrix) the polling loop
+        awaits each message's handling before fetching the next update —
+        the very update that answers the prompt — so waiting inline for up
+        to SUGGESTION_TIMEOUT_S starved the prompt of its own answer and
+        delayed every other user. The prompt is registered and posted
+        inline (so the next update already finds it open), and only the
+        wait and its dispatch continuation run in this managed background
+        task; event-driven platforms (Discord) keep the fully inline flow,
+        whose caller awaits the outcome.
+        """
+        task = asyncio.ensure_future(coro)
+        self._suggestion_tasks.add(task)
+
+        def _done(done_task):
+            self._suggestion_tasks.discard(done_task)
+            if not done_task.cancelled() and done_task.exception() is not None:
+                logger.warning("background did-you-mean flow failed: %r", done_task.exception())
+
+        task.add_done_callback(_done)
+        return {"action": "skip", "reason": "did-you-mean suggestion pending"}
+
+    async def _deliver_suggestion(self, event, question, labels, metadata):
+        """Register and post a did-you-mean prompt; its clarify_id, or None
+        when delivery failed (the registry row is cleaned up either way)."""
+        source = event.source
+        registry = prompts.gateway()
+        clarify_id = f"fuzzy-{uuid.uuid4().hex[:12]}"
+        try:
+            registry.register(clarify_id, session_key(source), question, labels)
+            result = await self.adapter.send_clarify(chat_id=source.chat_id, question=question,
+                                                      choices=labels, clarify_id=clarify_id,
+                                                      session_key=session_key(source), metadata=metadata)
+            if not getattr(result, "success", False):
+                raise RuntimeError("did-you-mean delivery failed")
+        except Exception:
+            logger.warning("did-you-mean suggestion failed; sending the unmatched reply", exc_info=True)
+            registry.resolve_gateway_clarify(clarify_id, registry.CANCELLED)
+            registry.wait_for_response(clarify_id, 0.001)
+            return None
+        return clarify_id
+
+    async def _wait_suggestion(self, clarify_id):
+        """(answer, delivered): wait out an open prompt, then close its row."""
+        registry = prompts.gateway()
+        answer, delivered = None, True
+        try:
+            answer = await asyncio.to_thread(registry.wait_for_response, clarify_id, SUGGESTION_TIMEOUT_S)
+        except Exception:
+            logger.warning("did-you-mean suggestion failed; sending the unmatched reply", exc_info=True)
+            delivered = False
+        finally:
+            registry.resolve_gateway_clarify(clarify_id, registry.CANCELLED)
+            registry.wait_for_response(clarify_id, 0.001)
+        return answer, delivered
+
+    async def _suggestion_unmatched(self, event, metadata):
+        await self.adapter.send(chat_id=event.source.chat_id, content=self.unmatched,
+                                reply_to=event.message_id, metadata=metadata)
+        return {"action": "skip", "reason": "command list"}
+
     async def _offer_suggestion(self, event, suggestion, metadata):
         """Ask "Did you mean …?" and dispatch only on an explicit yes (#468 stage 3).
 
@@ -594,31 +661,22 @@ class BotCore:
         (or a delivery failure) still gets the plain unmatched reply, so
         the decline path is byte-identical to today's fallback.
         """
-        source = event.source
-        registry = prompts.gateway()
-        clarify_id = f"fuzzy-{uuid.uuid4().hex[:12]}"
         question = (f"Did you mean `{suggestion}`? Nothing runs unless you say yes — "
                     "and the command still asks before anything prints.")
-        labels = [SUGGEST_YES_LABEL, SUGGEST_NO_LABEL]
-        answer, delivered = None, True
-        try:
-            registry.register(clarify_id, session_key(source), question, labels)
-            result = await self.adapter.send_clarify(chat_id=source.chat_id, question=question,
-                                                      choices=labels, clarify_id=clarify_id,
-                                                      session_key=session_key(source), metadata=metadata)
-            if not getattr(result, "success", False):
-                raise RuntimeError("did-you-mean delivery failed")
-            answer = await asyncio.to_thread(registry.wait_for_response, clarify_id, SUGGESTION_TIMEOUT_S)
-        except Exception:
-            logger.warning("did-you-mean suggestion failed; sending the unmatched reply", exc_info=True)
-            delivered = False
-        finally:
-            registry.resolve_gateway_clarify(clarify_id, registry.CANCELLED)
-            registry.wait_for_response(clarify_id, 0.001)
+        clarify_id = await self._deliver_suggestion(
+            event, question, [SUGGEST_YES_LABEL, SUGGEST_NO_LABEL], metadata)
+        if clarify_id is None:
+            return await self._suggestion_unmatched(event, metadata)
+        if getattr(self.adapter, "polls_serially", False):
+            return self._background_suggestion(
+                self._answer_suggestion(event, suggestion, metadata, clarify_id))
+        return await self._answer_suggestion(event, suggestion, metadata, clarify_id)
+
+    async def _answer_suggestion(self, event, suggestion, metadata, clarify_id):
+        source = event.source
+        answer, delivered = await self._wait_suggestion(clarify_id)
         if not delivered:
-            await self.adapter.send(chat_id=source.chat_id, content=self.unmatched, reply_to=event.message_id,
-                                    metadata=metadata)
-            return {"action": "skip", "reason": "command list"}
+            return await self._suggestion_unmatched(event, metadata)
         if answer == SUGGEST_YES_LABEL or (isinstance(answer, str) and answer.strip().casefold() in {"yes", "y"}):
             await self.adapter.close_prompt(clarify_id, f"Running {suggestion} — watch for its own confirmation.")
             # The corrected dispatch carries the original attachments (P2-222):
@@ -631,9 +689,7 @@ class BotCore:
             await self.adapter.close_prompt(clarify_id, "That suggestion expired — nothing ran.")
             return {"action": "skip", "reason": "did-you-mean suggestion expired"}
         await self.adapter.close_prompt(clarify_id, "OK — nothing ran.")
-        await self.adapter.send(chat_id=source.chat_id, content=self.unmatched, reply_to=event.message_id,
-                                metadata=metadata)
-        return {"action": "skip", "reason": "command list"}
+        return await self._suggestion_unmatched(event, metadata)
 
     async def _offer_suggestion_choice(self, event, candidates, metadata):
         """Ask "Did you mean one of these?" for a contested near miss.
@@ -648,31 +704,22 @@ class BotCore:
         delivery failure or the 60-second expiry all fall back to the
         plain unmatched reply path, and nothing runs.
         """
-        source = event.source
-        registry = prompts.gateway()
-        clarify_id = f"fuzzy-{uuid.uuid4().hex[:12]}"
         question = ("Did you mean one of these? Nothing runs unless you pick one — "
                     "and the command still asks before anything prints.")
-        labels = [*candidates, SUGGEST_NONE_LABEL]
-        answer, delivered = None, True
-        try:
-            registry.register(clarify_id, session_key(source), question, labels)
-            result = await self.adapter.send_clarify(chat_id=source.chat_id, question=question,
-                                                     choices=labels, clarify_id=clarify_id,
-                                                     session_key=session_key(source), metadata=metadata)
-            if not getattr(result, "success", False):
-                raise RuntimeError("did-you-mean delivery failed")
-            answer = await asyncio.to_thread(registry.wait_for_response, clarify_id, SUGGESTION_TIMEOUT_S)
-        except Exception:
-            logger.warning("did-you-mean pick-list failed; sending the unmatched reply", exc_info=True)
-            delivered = False
-        finally:
-            registry.resolve_gateway_clarify(clarify_id, registry.CANCELLED)
-            registry.wait_for_response(clarify_id, 0.001)
+        clarify_id = await self._deliver_suggestion(
+            event, question, [*candidates, SUGGEST_NONE_LABEL], metadata)
+        if clarify_id is None:
+            return await self._suggestion_unmatched(event, metadata)
+        if getattr(self.adapter, "polls_serially", False):
+            return self._background_suggestion(
+                self._answer_suggestion_choice(event, candidates, metadata, clarify_id))
+        return await self._answer_suggestion_choice(event, candidates, metadata, clarify_id)
+
+    async def _answer_suggestion_choice(self, event, candidates, metadata, clarify_id):
+        source = event.source
+        answer, delivered = await self._wait_suggestion(clarify_id)
         if not delivered:
-            await self.adapter.send(chat_id=source.chat_id, content=self.unmatched, reply_to=event.message_id,
-                                    metadata=metadata)
-            return {"action": "skip", "reason": "command list"}
+            return await self._suggestion_unmatched(event, metadata)
         if answer in candidates:
             await self.adapter.close_prompt(clarify_id, f"Running {answer} — watch for its own confirmation.")
             routed = make_event(source, answer, f"{event.message_id}:fuzzy",
@@ -682,9 +729,7 @@ class BotCore:
             await self.adapter.close_prompt(clarify_id, "That suggestion expired — nothing ran.")
             return {"action": "skip", "reason": "did-you-mean suggestion expired"}
         await self.adapter.close_prompt(clarify_id, "OK — nothing ran.")
-        await self.adapter.send(chat_id=source.chat_id, content=self.unmatched, reply_to=event.message_id,
-                                metadata=metadata)
-        return {"action": "skip", "reason": "command list"}
+        return await self._suggestion_unmatched(event, metadata)
 
     def prune_uploads(self, now=None):
         now = time.time() if now is None else now

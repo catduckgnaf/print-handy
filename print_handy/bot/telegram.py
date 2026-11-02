@@ -102,6 +102,7 @@ class StandaloneAdapter(BasePlatformAdapter):
     max_buttons = MAX_BUTTONS
     uses_llm = False
     supports_live_stream = False
+    polls_serially = True  # getUpdates loop awaits each update (P1-109)
 
     def __init__(self, client, allowed, *, denied=(), approver=None, registry=prompts,
                  upload_max_bytes=None, token=None, opener=None):
