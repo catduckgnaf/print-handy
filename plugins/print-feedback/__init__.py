@@ -1970,6 +1970,10 @@ async def maintenance_dispatch(event, gateway, **kwargs):
             final_record = session.pop('cold_pull_record', None) or session
             if not session.pop('cold_pull_record_persisted', False):
                 maintenance.append_run(final_record, **_pkw(pid))
+            # Reload before clearing the pending session: `state` was loaded
+            # before the appends above, so saving it as-is would overwrite
+            # the file with its stale runs list and erase them again.
+            state = maintenance.load(**_pkw(pid))
             state.pop('pending', None)
             maintenance.save(state, **_pkw(pid))
             message = f'{mode.title()} maintenance checklist saved. '
