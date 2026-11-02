@@ -1533,6 +1533,15 @@ FILE_LIST_SITES = ('printables', 'thingiverse', 'myminifactory', 'cults3d', 'cre
 CHOOSE_FILES = 'Choose files'
 
 
+def _unresolved_direct(job, row):
+    """A direct-link source whose filename only arrives with the download
+    response (a Dropbox share link with no filename in its path inventories
+    as the suffix-less "shared-file") has no suffix to filter on yet;
+    direct_download validates the name the response or final URL supplies
+    (P2-241)."""
+    return job.get('site') == 'direct' and not Path(row.get('name', '')).suffix
+
+
 def _and(words):
     words = [str(w) for w in words]
     return words[0] if len(words) == 1 else ', '.join(words[:-1]) + ' and ' + words[-1]
@@ -1735,7 +1744,8 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                       lambda: asyncio.to_thread(mj.inventory_for_url, url))
         rows = job.get('sources', [])
         if job['site'] in FILE_LIST_SITES:
-            rows = [r for r in rows if Path(r.get('name', '')).suffix.lower() in {'.3mf', '.stl'}]
+            rows = [r for r in rows if Path(r.get('name', '')).suffix.lower() in {'.3mf', '.stl'}
+                    or _unresolved_direct(job, r)]
         if not rows and job.get('site') in NO_DOWNLOAD_SITES:
             raise _unsupported_for(job['site'])  # the plain refusal, same as without a key (#712)
         if not rows:
@@ -1899,43 +1909,47 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             mode = await _ask(adapter, source, key, prompt, options, timeout)
         else:
             mode = 1
-        decisions = {'source_sha256': manifest['source_sha256'], 'schema': 'part_slots_v1',
-                     'mode': 'single_color' if mode == 1 else 'per_part'}
-        if mode != 1:
-            if job_adapter.multi_tool:
-                # One colour per toolhead (#346): more distinct source colours
-                # than toolheads can never be assigned; refuse before asking.
-                from .source_colors import distinct_source_colours
-                colours = distinct_source_colours(manifest)
-                if len(colours) > job_adapter.tool_count:
-                    raise printers.MultiColorUnsupported(
-                        f"{job_adapter.label} has {job_adapter.tool_count} toolheads and prints one color "
-                        f"per toolhead; this source uses {len(colours)} colors. Reduce the source to at "
-                        f"most {job_adapter.tool_count} colors or use a printer with more toolheads")
-            # Numbered siblings (Stencil 1/2/3) get one question unless the operator chose per part.
-            rows = grouped if mode == 0 else [{**row, 'keys': [row['key']]} for row in questions]
-            choices = {}
-            taken = {}  # toolhead -> source colour already assigned to it (multi_tool only)
-            for row in rows:
+        if not saved_decisions:
+            # A resumed intake reuses the decisions already saved on the job:
+            # they carry their mode, choices and selection, so nothing is
+            # rebuilt and no color question is asked again (P1-38).
+            decisions = {'source_sha256': manifest['source_sha256'], 'schema': 'part_slots_v1',
+                         'mode': 'single_color' if mode == 1 else 'per_part'}
+            if mode != 1:
                 if job_adapter.multi_tool:
-                    from .source_colors import prompt_source_colour
-                    colour = prompt_source_colour(manifest, row)
-                    offered = [(label, sel) for label, sel in zip(labels, selections)
-                               if taken.get(sel['slot'], colour) == colour]
-                    picked = offered[await _ask(adapter, source, key, row['question'],
-                                                [label for label, _ in offered], timeout)][1]
-                    taken[picked['slot']] = colour
-                else:
-                    picked = selections[await _ask(adapter, source, key, row['question'], labels, timeout)]
-                for decision_key in row['keys']:
-                    choices[decision_key] = picked
-            decisions['choices'] = choices
-        else:
-            # Core face colors print as one color, and the operator is told (#714).
-            from .source_colors import FACE_COLORS_NOTE
-            note = f' {FACE_COLORS_NOTE}' if manifest.get('face_colors_ignored') else ''
-            decisions['selection'] = selections[await _ask(adapter, source, key, f'Choose the color for {names}.{note}'
-                                                           if note else f'Choose the color for {names}', labels, timeout)]
+                    # One colour per toolhead (#346): more distinct source colours
+                    # than toolheads can never be assigned; refuse before asking.
+                    from .source_colors import distinct_source_colours
+                    colours = distinct_source_colours(manifest)
+                    if len(colours) > job_adapter.tool_count:
+                        raise printers.MultiColorUnsupported(
+                            f"{job_adapter.label} has {job_adapter.tool_count} toolheads and prints one color "
+                            f"per toolhead; this source uses {len(colours)} colors. Reduce the source to at "
+                            f"most {job_adapter.tool_count} colors or use a printer with more toolheads")
+                # Numbered siblings (Stencil 1/2/3) get one question unless the operator chose per part.
+                rows = grouped if mode == 0 else [{**row, 'keys': [row['key']]} for row in questions]
+                choices = {}
+                taken = {}  # toolhead -> source colour already assigned to it (multi_tool only)
+                for row in rows:
+                    if job_adapter.multi_tool:
+                        from .source_colors import prompt_source_colour
+                        colour = prompt_source_colour(manifest, row)
+                        offered = [(label, sel) for label, sel in zip(labels, selections)
+                                   if taken.get(sel['slot'], colour) == colour]
+                        picked = offered[await _ask(adapter, source, key, row['question'],
+                                                    [label for label, _ in offered], timeout)][1]
+                        taken[picked['slot']] = colour
+                    else:
+                        picked = selections[await _ask(adapter, source, key, row['question'], labels, timeout)]
+                    for decision_key in row['keys']:
+                        choices[decision_key] = picked
+                decisions['choices'] = choices
+            else:
+                # Core face colors print as one color, and the operator is told (#714).
+                from .source_colors import FACE_COLORS_NOTE
+                note = f' {FACE_COLORS_NOTE}' if manifest.get('face_colors_ignored') else ''
+                decisions['selection'] = selections[await _ask(adapter, source, key, f'Choose the color for {names}.{note}'
+                                                               if note else f'Choose the color for {names}', labels, timeout)]
         latest = json.loads(jp.read_text())
         if saved_decisions:
             if (latest.get('intake_id') != iid
@@ -2012,9 +2026,9 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                    metadata=metadata)
                 return {'action': 'skip', 'reason': 'cancelled oversized model'}
             latest['plate_mode'] = 'separate'
-            if options.get('brim_policy'):
-                latest['fit_brim_policy'] = options['brim_policy']
-                receipt['fit_brim_policy'] = options['brim_policy']
+            # No fit-options dict exists on the painted path (``options`` here
+            # is still the color-mode label list); painted_fit carries no brim
+            # policy, so there is nothing to record (P1-27).
             latest['scale'] = row['scale']
             receipt['scale'] = row['scale']
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
@@ -2534,6 +2548,18 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                content='Heads up on the source profile:\n'
                                        + '\n'.join(f'- {w}' for w in profile_warnings))
+        # P1-20: a plate a guard refused during slicing is never dropped
+        # silently. Name every refused plate before the start question; the
+        # operator's confirmed start below records the acceptance print-now
+        # requires for a partial job.
+        refused_plates = sliced.get('refused_plates') or []
+        if refused_plates:
+            named = '\n'.join(f"- Plate {row.get('plate_id')} (slot {row.get('slot')}): {row.get('reason')}"
+                              for row in refused_plates)
+            await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                               content='Heads up: part of this model will NOT print. These plates were '
+                                       f'refused during slicing:\n{named}\n'
+                                       'Starting prints only the plates that sliced cleanly.')
         has_dur_q = has_duration_question(getattr(event, 'text', ''))
         breakdown = print_summary.format_estimate_breakdown(sliced)
         # #720: the thermal facts recorded for the printer this job was sliced for ride with
@@ -2635,6 +2661,13 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                 tail = f' Plates stay ready: `/print-next {plan_id}`.' if split and can_print else ''
                 await adapter.send(chat_id=source.chat_id, content='Sliced. Nothing uploaded or started.' + tail, metadata=metadata)
                 return {'action': 'skip', 'reason': 'operator did not start the sliced plate'}
+        if refused_plates:
+            # The start the operator just confirmed followed the refused-plate
+            # disclosure above: that confirmation is the explicit acceptance
+            # of the partial job print-now requires (P1-20).
+            accepted = json.loads(jp.read_text())
+            accepted['partial_job_accepted'] = True
+            mj.write_job(folder, accepted)
         # One click recorded: bed clear, bound to the exact JOB.json and G-code. print-now still runs every gate
         # (verify-gcode, live readiness, single-use approval, duplicate-start claim).
         receipt['bed_clear_approval'] = {'job_json': str(jp), 'gcode': str(first), 'gcode_sha256': target['gcode_sha256'],

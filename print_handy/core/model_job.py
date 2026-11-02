@@ -5287,6 +5287,14 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         preserved = (layout_report.get("preserved_3mf_package") or {}).get("preserved_3mf")
         slice_src = rearrange_dir / (preserved or layout_report["exported_3mf_geometry_only"])
         job["layout_report"] = str(rearrange_dir / "validation.json")
+    slice_decisions = decisions
+    if decisions is not None and slice_src != src:
+        # The decisions were validated against the original source above, but
+        # the slicer validates them against the file it is handed — the
+        # arranged derivative, whose bytes (and SHA) differ. Bind the copy
+        # passed to the slicer to the derivative; JOB.json and decision_sha
+        # keep the original decisions (P1-50).
+        slice_decisions = {**decisions, 'source_sha256': file_sha256(slice_src)}
     # A single-slot printer slices as `generic`, which leaves `decisions` as None, but the Discord
     # intake has still written color_decisions into JOB.json. The post-slice check below hashes
     # the file's decisions, so hash the same thing here or every such slice is refused (#268).
@@ -5302,12 +5310,12 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         # Single-color jobs are bound to their named IFS slot exactly like
         # derived per-slot plates, so launch uses the mapped native route.
         out, provenance, configs = slice_model(slice_src, slice_dir, st, brim_override,
-                                              color_decisions=decisions, filament_slot=selected_slot,
+                                              color_decisions=slice_decisions, filament_slot=selected_slot,
                                               copies=copies, **scale_kw)
         finalize_multicolor(out, None, st, {"0": selected_slot})
     else:
         out, provenance, configs = slice_model(slice_src, slice_dir, st, brim_override,
-                                              color_decisions=decisions, copies=copies, **scale_kw)
+                                              color_decisions=slice_decisions, copies=copies, **scale_kw)
     _timing(job_path, 'orca_finalize_done')
     if adapter.key == printers.current().key:
         _verify_routed(out, adapter, st, _recorded_printer_id(job))
@@ -7345,6 +7353,27 @@ def _print_now_control_lock(target):
     return _cl.control_lock(key)
 
 
+def partial_job_refusal(job):
+    """Why launching this job would silently print an incomplete model, or None.
+
+    A per-plate slice records every plate a guard refused in refused_plates
+    and returns only the survivors. Those survivors are not the model the
+    operator asked for, so launch stays blocked until the operator
+    explicitly accepts the partial job (the chat intake discloses the
+    refused plates and records partial_job_accepted when the operator
+    confirms the start) (P1-20).
+    """
+    refused = (job or {}).get('refused_plates') or []
+    if not refused or (job or {}).get('partial_job_accepted'):
+        return None
+    named = '; '.join(f"plate {row.get('plate_id')} (slot {row.get('slot')}): {row.get('reason')}"
+                      for row in refused)
+    return (f"this job is incomplete: {len(refused)} plate(s) were refused during slicing and "
+            f"will not print: {named}. Reslice after fixing the refusal, or accept the partial "
+            "job explicitly (the chat intake records acceptance when you confirm the start "
+            "after it shows you this list)")
+
+
 def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None):
     """Bed is confirmed clear: verify, upload, start, confirm, record. One command.
 
@@ -7394,6 +7423,9 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
         # A file from an earlier slice of this job (2026-10-10: the bot reran the pre-reslice name).
         raise SystemExit(f"REFUSED: {g.name} is an older slice of this job. The current slice is {cur}; "
                          f"run print-now {job_path} instead. Nothing uploaded or started.")
+    partial = partial_job_refusal(job)
+    if partial:
+        raise SystemExit(f"REFUSED: {partial}. Nothing uploaded or started.")
     require_current_artifact(job, g)
     if not g.is_file(): raise SystemExit(f"REFUSED: no G-code at {g}")
     # The job's printer (#334): a recorded printer_id resolves the roster entry, its adapter
