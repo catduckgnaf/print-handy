@@ -5163,6 +5163,14 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         preserved = (layout_report.get("preserved_3mf_package") or {}).get("preserved_3mf")
         slice_src = rearrange_dir / (preserved or layout_report["exported_3mf_geometry_only"])
         job["layout_report"] = str(rearrange_dir / "validation.json")
+    slice_decisions = decisions
+    if decisions is not None and slice_src != src:
+        # The decisions were validated against the original source above, but
+        # the slicer validates them against the file it is handed — the
+        # arranged derivative, whose bytes (and SHA) differ. Bind the copy
+        # passed to the slicer to the derivative; JOB.json and decision_sha
+        # keep the original decisions (P1-50).
+        slice_decisions = {**decisions, 'source_sha256': file_sha256(slice_src)}
     # A single-slot printer slices as `generic`, which leaves `decisions` as None, but the Discord
     # intake has still written color_decisions into JOB.json. The post-slice check below hashes
     # the file's decisions, so hash the same thing here or every such slice is refused (#268).
@@ -5178,12 +5186,12 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         # Single-color jobs are bound to their named IFS slot exactly like
         # derived per-slot plates, so launch uses the mapped native route.
         out, provenance, configs = slice_model(slice_src, slice_dir, st, brim_override,
-                                              color_decisions=decisions, filament_slot=selected_slot,
+                                              color_decisions=slice_decisions, filament_slot=selected_slot,
                                               copies=copies, **scale_kw)
         finalize_multicolor(out, None, st, {"0": selected_slot})
     else:
         out, provenance, configs = slice_model(slice_src, slice_dir, st, brim_override,
-                                              color_decisions=decisions, copies=copies, **scale_kw)
+                                              color_decisions=slice_decisions, copies=copies, **scale_kw)
     _timing(job_path, 'orca_finalize_done')
     if adapter.key == printers.current().key:
         verify_gcode(out)

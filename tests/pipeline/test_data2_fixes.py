@@ -77,3 +77,72 @@ def test_painted_oversize_fit_accept_does_not_crash(env, monkeypatch):
     assert job['scale'] == 0.8 and job['plate_mode'] == 'separate'
     assert not any('has no attribute' in post for post in adapter.sent)
     assert result['action'] != 'skip' or result.get('reason') != 'intake failed'
+
+
+def test_single_color_rearranged_slice_binds_decisions_to_derivative(tmp_path, monkeypatch):
+    """P1-50: with a rearrangement plan, slicing runs on the arranged
+    derivative, whose SHA differs from the original source the color
+    decisions bind — the slicer's validate_decisions refused every such job.
+    The decisions must be validated against the original, then rebound to
+    the derivative's bytes for the slice; JOB.json keeps the original."""
+    from print_handy.core import source_colors
+    from .test_plate_merge import STATE, _source
+
+    source = tmp_path / 'source.3mf'
+    _source(source, {'1': (100, 20, 10), '2': (100, 20, 10)}, [['1', '2']])
+    manifest = source_colors.inventory(source)
+    st = json.loads(STATE.read_text())
+    selection = model_job.resolve_filament_selection(st, dict(st['filament_slots']['1'], slot=1))
+    decisions = {'schema': 'part_slots_v1', 'mode': 'single_color',
+                 'source_sha256': manifest['source_sha256'], 'selection': selection}
+    job_path = tmp_path / 'JOB.json'
+    job_path.write_text(json.dumps({
+        'downloaded_file': str(source),
+        'audit': {'plates': 1, 'size_x': 130, 'size_y': 50, 'size_z': 10},
+        'color_decisions': decisions, 'filament_selection': selection,
+        'full_size_rearrange_plan': {'rearrange_plate': True}}))
+    seen = {}
+
+    def fake_slice(src_arg, folder, state_arg, brim=None, **kw):
+        # The real adapter's first step with decisions: validate them against
+        # the exact file being sliced (orca_adapter.slice_model).
+        if kw.get('color_decisions'):
+            source_colors.validate_decisions(source_colors.inventory(src_arg),
+                                             kw['color_decisions'], state_arg,
+                                             model_job.resolve_filament_selection)
+        seen['src'] = Path(src_arg)
+        seen['decisions'] = kw.get('color_decisions')
+        folder = Path(folder)
+        folder.mkdir(parents=True, exist_ok=True)
+        out = folder / 'plate_1.gcode'
+        slot = state_arg['filament_slots']['1']
+        out.write_text(f'; filament_colour = {slot["hex"]}\n; nozzle_diameter = 0.4\n'
+                       f'M190 S{state_arg["temps_c"]["bed"]}\nM104 S{state_arg["temps_c"]["nozzle"]} T0\n'
+                       f'START_PRINT BED_TEMP={state_arg["temps_c"]["bed"]} '
+                       f'EXTRUDER_TEMP={state_arg["temps_c"]["nozzle"]}\n'
+                       'G1 X10 Y10 Z0.2\nEND_PRINT\n')
+        return out, {'offline_test': True}, []
+
+    def fake_arrange(src_arg, outdir, **kw):
+        # A derivative with different bytes (hence a different SHA) but the
+        # same inventory: the binding question, not the arranging, is tested.
+        import zipfile
+        outdir = Path(outdir)
+        outdir.mkdir(parents=True, exist_ok=True)
+        out = outdir / 'arranged.3mf'
+        with zipfile.ZipFile(src_arg) as zin, zipfile.ZipFile(out, 'w') as zout:
+            for item in zin.infolist():
+                zout.writestr(item, zin.read(item.filename))
+            zout.writestr('Metadata/arranged.txt', 'rearranged at 100%')
+        return {'exported_3mf_geometry_only': 'arranged.3mf'}
+
+    monkeypatch.setattr('print_handy.core.geometry_layout.arrange_and_export', fake_arrange)
+    monkeypatch.setattr('print_handy.core.orca_adapter.slice_model', fake_slice)
+    monkeypatch.setattr(model_job, 'finalize_multicolor', lambda *a, **k: None)
+    monkeypatch.setattr(model_job, 'verify_gcode', lambda _path: None)
+    model_job.slice_job(job_path)
+    assert seen['src'] != source  # the arranged derivative was sliced
+    assert seen['decisions']['source_sha256'] == model_job.file_sha256(seen['src'])
+    saved = json.loads(job_path.read_text())
+    assert saved['color_decisions']['source_sha256'] == manifest['source_sha256']
+    assert saved['gcode_verified'] is True
