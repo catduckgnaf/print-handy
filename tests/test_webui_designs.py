@@ -87,6 +87,22 @@ class CatalogApiTests(unittest.TestCase):
             self.assertIsNone(design.session_file(root, "missing99999", "stl"))
             self.assertIsNone(design.session_file(root, "..", "stl"))
 
+    def test_session_file_resolves_the_base_mesh(self):
+        # P2-165: a mesh edit's composed .scad imports the session-local
+        # source.stl (the record's base_stl), so the catalog must be able
+        # to serve that base mesh alongside the source.
+        with tempfile.TemporaryDirectory() as tmp:
+            edit = record(kind="edit", edit_mode="mesh", base_stl="source.stl",
+                          source={"origin": "file", "name": "gear.stl", "type": "stl"})
+            write_session(tmp, edit, {"source.stl": STL_BYTES, "turn-1.scad": SCAD_TEXT})
+            root = design.sessions_root(tmp)
+            self.assertEqual(design.session_file(root, edit["id"], "base").read_bytes(),
+                             STL_BYTES)
+        with tempfile.TemporaryDirectory() as tmp:
+            write_session(tmp, record(), full_files())  # a create: no base mesh
+            root = design.sessions_root(tmp)
+            self.assertIsNone(design.session_file(root, "abc123def456", "base"))
+
     def test_session_file_refuses_names_that_escape_the_folder(self):
         with tempfile.TemporaryDirectory() as tmp:
             secret = Path(tmp) / "secret.txt"
@@ -181,6 +197,26 @@ class DesignsRouteTests(unittest.TestCase):
         self.assertIn("Handed off", text)
         self.assertIn('src="/designs/create111111/preview"', text)
         self.assertLess(text.index("create111111"), text.index("edit22222222"))
+
+    def test_mesh_edit_offers_the_base_mesh_download(self):
+        # P2-165: without source.stl the downloaded .scad cannot render —
+        # its base() module imports that file — so a mesh edit's detail
+        # page offers the base mesh and the route serves it.
+        with tempfile.TemporaryDirectory() as tmp:
+            edit = record(id="edit33333333", kind="edit", edit_mode="mesh",
+                          description="make this twice as tall",
+                          base_stl="source.stl",
+                          source={"origin": "file", "name": "gear.stl", "type": "stl"},
+                          scad="turn-1.scad", stl=None, preview=None)
+            write_session(f"{tmp}/cache", edit,
+                          {"source.stl": STL_BYTES, "turn-1.scad": SCAD_TEXT})
+            port = self.start(tmp)
+            code, _headers, body = self.request(port, "GET", "/designs/edit33333333/base")
+            self.assertEqual(code, 200)
+            self.assertEqual(body, STL_BYTES)
+            code, _headers, body = self.request(port, "GET", "/designs/edit33333333")
+            self.assertEqual(code, 200)
+            self.assertIn("/designs/edit33333333/base", body.decode())
 
     def test_listing_works_with_design_disabled(self):
         # The catalog lists what is on disk; [design] enabled=false (the
