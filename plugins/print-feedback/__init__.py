@@ -3097,8 +3097,16 @@ async def purchase_dispatch(event, gateway, **kwargs):
                                         list(purchase_intake.CONFIRM_CHOICES),
                                         _spool_timeout(), live_key=live_key)
                 if choice == 'Create all':
-                    created = await asyncio.to_thread(purchase_intake.create_purchase, lines)
-                    message = purchase_intake.created_text(created)
+                    try:
+                        created = await asyncio.to_thread(purchase_intake.create_purchase, lines)
+                        message = purchase_intake.created_text(created)
+                    except purchase_intake.PartialCreationError as exc:
+                        # Some spools landed: say which, never "nothing was created".
+                        message = str(exc)
+                    except Exception:
+                        logger.exception('purchase creation failed before any spool was created')
+                        message = ('Creating the spools failed before any were created, so nothing '
+                                   'was added. Add the spools by hand with `/spool new`.')
                 elif choice == 'Edit':
                     message = purchase_intake.edit_handoff_text(lines)
                 else:

@@ -56,8 +56,9 @@ PURCHASE_PROMPT = (
     'nothing else: {"items": [...]} with one item per distinct filament product bought, each '
     'with these keys: "brand" (the maker\'s name, or null), '
     '"material" (the filament material including any sub-type, e.g. "PLA", "Silk PLA", "PLA+", "PETG"), '
-    '"color" (the color name exactly as shown; for a multi-color pack list every color '
-    'separated by "/", e.g. "Black/White/Gray/Red"), '
+    '"color" (the color name exactly as shown; for a multi-color pack of separate rolls list every color '
+    'separated by "/", e.g. "Black/White/Gray/Red"; for ONE roll that is itself multicolor, '
+    'give its colors the same way and add "multicolor": true), '
     '"color_hex" (the color as a hex code like "CD7F32" when shown, else null), '
     '"grams" (the net filament weight per roll in grams as a number), '
     '"quantity" (how many rolls of this item were bought), '
@@ -226,34 +227,48 @@ def _check_material(material: str) -> None:
 def _split_pack(line: dict[str, Any]) -> list[dict[str, Any]]:
     """Split a multi-color pack line into one line per color.
 
-    Colors arrive "/" or "," separated ("Black/White/Gray/Red"), or as a
-    ``colors`` list. The quantity divides across the colors (the first
-    colors take the remainder), and a pack price divides per roll.
+    A split needs explicit pack evidence: a ``colors`` list enumerating the
+    pack's contents, or a stated quantity that covers every color in a
+    "/" or "," separated color string ("4 x 1 kg, Black/White/Gray/Red",
+    quantity 4). Slash-separated colors alone are NOT a pack: one roll of
+    dual-color filament ("Red/Black", quantity 1) is a single multicolor
+    roll — the existing spec_color path records its blend — so it stays one
+    line with its color and quantity untouched, as does any line the AI
+    flags ``multicolor``. The quantity divides across a pack's colors (the
+    first colors take the remainder), and a pack-total price divides per
+    roll, whether or not the pack splits by color.
     """
     price_is_total = bool(line.pop("price_is_total", False))
-    colors = line.pop("colors", None)
-    if not isinstance(colors, list) or not colors:
+    multicolor = bool(line.pop("multicolor", False))
+    listed = line.pop("colors", None)
+    qty = _quantity(line.get("quantity"))
+    if price_is_total and qty > 1 and line.get("price") is not None:
+        line = {**line, "price": round(float(line["price"]) / qty, 2)}
+    if multicolor:
+        return [line]
+    if isinstance(listed, list) and len(listed) >= 2:
+        colors = [str(color).strip() for color in listed if str(color).strip()]
+    elif isinstance(listed, list) and listed:
+        line["color"] = str(listed[0]).strip()
+        return [line]
+    else:
         raw = str(line.get("color") or "")
-        colors = [part.strip() for part in re.split(r"[/,]", raw) if part.strip()] \
+        parts = [part.strip() for part in re.split(r"[/,]", raw) if part.strip()] \
             if ("/" in raw or "," in raw) else []
+        # A color string naming several colors is a pack only when the
+        # quantity covers them; below that it is one multicolor roll.
+        colors = parts if len(parts) >= 2 and qty >= len(parts) else []
     if len(colors) < 2:
         return [line]
-    qty = _quantity(line.get("quantity"))
     if qty == 1:
         qty = len(colors)  # one pack of one roll per color ("4 x 1 kg, Black/White/Gray/Red")
     per, extra = divmod(qty, len(colors))
-    # A line whose price is the pack total (structured product data) divides
-    # it evenly across the pack's rolls; an AI line's price is already per
-    # roll (the purchase prompt asks for it that way) and carries over.
     out = []
     for index, color in enumerate(colors):
         share = per + (1 if index < extra else 0)
         if share <= 0:
             continue
-        split = {**line, "color": str(color).strip(), "quantity": share}
-        if price_is_total and line.get("price") is not None:
-            split["price"] = round(float(line["price"]) / qty, 2)
-        out.append(split)
+        out.append({**line, "color": color, "quantity": share})
     return out
 
 
@@ -300,6 +315,8 @@ def validate_purchase_answer(answer: Any, *, purchase_url: str | None = None) ->
         }
         if isinstance(raw.get("colors"), list):
             line["colors"] = raw["colors"]
+        if raw.get("multicolor"):
+            line["multicolor"] = True
         missing = tuple(name for name, value in
                         (("material", line["material"]), ("color", line["color"]),
                          ("weight", line["grams"])) if not value)
@@ -357,6 +374,24 @@ def _offer_price(product: dict[str, Any]) -> float | None:
     return None
 
 
+def _pack_count(name: str) -> int | None:
+    """The roll count a product name states for a pack, else None.
+
+    Structured product data rarely carries an explicit quantity, but pack
+    names state it: "4 x 1 kg", "Pack of 4", "2-Pack", "4 rolls". The count
+    matters before the data can count as complete — without it a 4-roll
+    pack priced as a whole would resolve as one roll at the pack price.
+    """
+    text = str(name or "")
+    match = re.search(r"(\d+)\s*[x×]\s*[\d.]+\s*(?:kg|g)\b", text, re.I) \
+        or re.search(r"(?:pack|bundle|set)\s*(?:of\s*)?(\d+)", text, re.I) \
+        or re.search(r"(\d+)\s*-?\s*(?:pack|rolls?|spools?)\b", text, re.I)
+    if not match:
+        return None
+    count = int(match.group(1))
+    return count if count > 1 else None
+
+
 def _structured_lines(page: str, url: str) -> list[dict[str, Any]] | None:
     """Complete line items from the page's own structured data, else None.
 
@@ -379,9 +414,14 @@ def _structured_lines(page: str, url: str) -> list[dict[str, Any]] | None:
             spec = spool_label.spec_from_label_text(name)
         except spool_label.SpoolLabelError:
             return None
+        qty = _quantity(product.get("quantity", 1))
+        if qty == 1:
+            pack = _pack_count(name)
+            if pack:
+                qty = _quantity(pack)
         line = {"brand": spool_label._clean_text(brand) or spec["brand"],
                 "material": spec["material"], "color": spec["color"], "hex": None,
-                "grams": spec["grams"], "quantity": _quantity(product.get("quantity", 1)),
+                "grams": spec["grams"], "quantity": qty,
                 "price": _offer_price(product), "price_is_total": True,
                 "nozzle_temp": spec["nozzle_temp"], "bed_temp": spec["bed_temp"],
                 "purchase_url": url}
@@ -399,8 +439,9 @@ def _structured_lines(page: str, url: str) -> list[dict[str, Any]] | None:
             spec = spool_label.spec_from_label_text(title)
         except spool_label.SpoolLabelError:
             return None
+        og_qty = _quantity(_pack_count(title) or 1)
         line = {"brand": spec["brand"], "material": spec["material"], "color": spec["color"],
-                "hex": None, "grams": spec["grams"], "quantity": 1,
+                "hex": None, "grams": spec["grams"], "quantity": og_qty,
                 "price": _price(meta.og.get("product:price:amount") or meta.og.get("og:price:amount")), "price_is_total": True,
                 "nozzle_temp": spec["nozzle_temp"], "bed_temp": spec["bed_temp"],
                 "purchase_url": url}
@@ -529,6 +570,24 @@ def edit_handoff_text(lines: list[dict[str, Any]]) -> str:
             f"{commands}")
 
 
+class PartialCreationError(RuntimeError):
+    """Creation stopped partway: some spools exist and must be reported as such.
+
+    Claiming "nothing was created" after a partial failure sends the
+    operator to add the spools by hand and duplicate the ones that did
+    land, so the created ids travel with the failure.
+    """
+
+    def __init__(self, created: list[dict[str, Any]], cause: Exception):
+        self.created = created
+        self.cause = cause
+        ids = ", ".join(f"#{entry['spool_id']}" for entry in created)
+        super().__init__(
+            f"Partly created: spool(s) {ids} are on the shelf, but creating the rest "
+            f"failed ({type(cause).__name__}), so the remaining rolls were not created. "
+            "Check the shelf before adding anything by hand, so nothing is duplicated.")
+
+
 def create_purchase(lines: list[dict[str, Any]], *,
                     create_spool: Callable[[dict[str, Any]], dict[str, Any]] | None = None
                     ) -> list[dict[str, Any]]:
@@ -538,6 +597,9 @@ def create_purchase(lines: list[dict[str, Any]], *,
     own per-roll price and the purchase URL. Filament matching/creation is
     create_spool's own rule (brand + material + color; created only when
     new), so a second roll of a line reuses the filament the first made.
+    A failure after some rolls landed raises PartialCreationError naming
+    them; a failure before the first roll re-raises as-is, so callers can
+    tell "some were created" from "none were".
     """
     create = create_spool or spool_sync.create_spool
     created = []
@@ -548,6 +610,11 @@ def create_purchase(lines: list[dict[str, Any]], *,
                 "price": line.get("price"), "purchase_url": line.get("purchase_url")}
         spec = {key: value for key, value in spec.items() if value is not None}
         for _ in range(_quantity(line.get("quantity"))):
-            made = create(spec)
+            try:
+                made = create(spec)
+            except Exception as exc:
+                if created:
+                    raise PartialCreationError(created, exc) from exc
+                raise
             created.append({**made, "line": line})
     return created

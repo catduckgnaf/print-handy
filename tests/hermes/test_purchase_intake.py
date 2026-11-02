@@ -422,3 +422,74 @@ def test_dispatch_screenshot_uses_the_vision_route(monkeypatch, tmp_path):
     spool_posts = [b for m, p, b in fake.writes if m == "POST" and p == "/api/v1/spool"]
     assert len(spool_posts) == 3
     assert "Created spool(s) #20, #21, #22 on the shelf." in adapter.sent[-1]
+
+
+# ------------------------------------------------------------- Codex P2 fixes on PR #803
+
+JSONLD_PACK_PAGE = """<html><head>
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "Product",
+ "name": "Sunlu PLA Filament Black 4 x 1 kg",
+ "brand": {"@type": "Brand", "name": "Sunlu"},
+ "offers": {"@type": "Offer", "price": "60", "priceCurrency": "USD"}}
+</script></head><body><h1>Sunlu PLA Filament Black 4 x 1 kg</h1></body></html>"""
+
+
+def test_jsonld_pack_count_comes_from_the_product_name_and_the_price_divides():
+    # No explicit quantity property: "4 x 1 kg" is the pack evidence, the
+    # offer price is the pack total, and no AI call is needed.
+    lines = pi.propose_from_link("https://shop.example/products/sunlu-pla-black-4pack",
+                                 fetcher=_fetcher(200, JSONLD_PACK_PAGE), ai_call=_ai_boom)
+    assert len(lines) == 1
+    assert lines[0]["quantity"] == 4
+    assert lines[0]["grams"] == 1000.0
+    assert lines[0]["price"] == 15.0
+
+
+def test_one_multicolor_roll_is_not_split_into_separate_rolls():
+    lines = pi.validate_purchase_answer({"items": [
+        {"brand": "Acme", "material": "PLA", "color": "Red/Black",
+         "grams": 1000, "quantity": 1, "price": 22.0}]})
+    assert len(lines) == 1
+    assert lines[0]["color"] == "Red/Black"
+    assert lines[0]["quantity"] == 1
+    assert lines[0]["price"] == 22.0
+
+
+def test_multicolor_flag_keeps_a_listed_blend_as_one_roll():
+    lines = pi.validate_purchase_answer({"items": [
+        {"brand": "Acme", "material": "PLA", "color": "Red/Black",
+         "colors": ["Red", "Black"], "multicolor": True,
+         "grams": 1000, "quantity": 2, "price": 22.0}]})
+    assert len(lines) == 1
+    assert lines[0]["quantity"] == 2
+
+
+def test_partial_creation_names_the_spools_that_did_land():
+    calls = {"n": 0}
+
+    def flaky(spec):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise OSError("spoolman down")
+        return {"spool_id": 41, "filament_id": 7, "reused_filament": False, "hex": None}
+
+    lines = [{"brand": "Sunlu", "material": "PLA", "color": "Black", "grams": 1000.0,
+              "quantity": 3, "price": None, "purchase_url": None, "hex": None,
+              "nozzle_temp": None, "bed_temp": None}]
+    with pytest.raises(pi.PartialCreationError) as caught:
+        pi.create_purchase(lines, create_spool=flaky)
+    assert [entry["spool_id"] for entry in caught.value.created] == [41]
+    assert "#41" in str(caught.value)
+    assert "nothing was created" not in str(caught.value)
+
+
+def test_creation_failure_before_any_spool_reraises_the_original_error():
+    def down(spec):
+        raise OSError("spoolman down")
+
+    lines = [{"brand": "Sunlu", "material": "PLA", "color": "Black", "grams": 1000.0,
+              "quantity": 1, "price": None, "purchase_url": None, "hex": None,
+              "nozzle_temp": None, "bed_temp": None}]
+    with pytest.raises(OSError):
+        pi.create_purchase(lines, create_spool=down)
