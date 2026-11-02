@@ -1880,26 +1880,52 @@ async def _nozzle_change_workflow(adapter, source, metadata, *, printer_id=None,
     question_timeout = (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800)
     safety_timeout = (globals().get('_config').safety_confirm_timeout_s() if globals().get('_config') else 600)
 
-    dia_answer = await _confirm(adapter, source, metadata, 'nozzle-diameter',
-        'Which diameter is the replacement nozzle?',
-        [f'{d:g} mm' for d in nc.GUIDED_DIAMETERS_MM] + ['Cancel'], question_timeout, live_key=live_key)
-    dia = next((d for d in nc.GUIDED_DIAMETERS_MM if str(dia_answer).strip().casefold() == f'{d:g} mm'), None)
-    if dia is None:
-        return 'Cancelled or expired. Nothing sent and nothing changed.'
-    type_answer = await _confirm(adapter, source, metadata, 'nozzle-type',
-        'Which material is the replacement nozzle?',
-        [_NOZZLE_TYPE_LABELS[t] for t in nc.GUIDED_TYPES] + ['Cancel'], question_timeout, live_key=live_key)
-    nozzle_type = next((t for t in nc.GUIDED_TYPES
-                        if str(type_answer).strip().casefold() in (_NOZZLE_TYPE_LABELS[t].casefold(), t)), None)
-    if nozzle_type is None:
-        return 'Cancelled or expired. Nothing sent and nothing changed.'
-
+    # Capabilities first (P2-195): the prompts offer only what this printer
+    # supports, and the selection is validated against the same sets before
+    # any heating or manual-change instruction — finish_change used to be
+    # the first check, after the physical swap and cooldown.
     try:
         connection = pc._adapter_for(printer_id).connection
         supported_sizes = pc._adapter_for(printer_id).supported_nozzle_sizes
         supported_types = pc._adapter_for(printer_id).supported_nozzle_types
     except Exception:
         connection, supported_sizes, supported_types = None, None, None
+    diameters = [d for d in nc.GUIDED_DIAMETERS_MM
+                 if supported_sizes is None
+                 or any(abs(float(s) - d) < 0.01 for s in supported_sizes)]
+    types = [t for t in nc.GUIDED_TYPES if supported_types is None or t in supported_types]
+    if not diameters or not types:
+        return ('This printer reports nozzle capabilities the guided walk cannot offer '
+                '(supported diameters: '
+                f"{', '.join(f'{s:g}' for s in supported_sizes or ()) or 'unknown'}; "
+                'supported types: '
+                f"{', '.join(supported_types or ()) or 'unknown'}). "
+                'Nothing sent and nothing changed.')
+
+    dia_answer = await _confirm(adapter, source, metadata, 'nozzle-diameter',
+        'Which diameter is the replacement nozzle?',
+        [f'{d:g} mm' for d in diameters] + ['Cancel'], question_timeout, live_key=live_key)
+    dia = next((d for d in nc.GUIDED_DIAMETERS_MM if str(dia_answer).strip().casefold() == f'{d:g} mm'), None)
+    if dia is None:
+        return 'Cancelled or expired. Nothing sent and nothing changed.'
+    type_answer = await _confirm(adapter, source, metadata, 'nozzle-type',
+        'Which material is the replacement nozzle?',
+        [_NOZZLE_TYPE_LABELS[t] for t in types] + ['Cancel'], question_timeout, live_key=live_key)
+    nozzle_type = next((t for t in nc.GUIDED_TYPES
+                        if str(type_answer).strip().casefold() in (_NOZZLE_TYPE_LABELS[t].casefold(), t)), None)
+    if nozzle_type is None:
+        return 'Cancelled or expired. Nothing sent and nothing changed.'
+
+    try:
+        # A typed answer can still name a guided option the filtered
+        # buttons did not offer; refuse it with the record path's own rule.
+        from print_handy.core import nozzle as _nozzle
+        _nozzle.validate_nozzle_setting(dia, nozzle_type,
+                                        supported_sizes=supported_sizes,
+                                        supported_types=supported_types)
+    except Exception as exc:
+        return (f'That replacement cannot be used on this printer: {exc} '
+                'Nothing was sent and nothing changed — the physical change was not started.')
     live = nc.supports_live_heat(connection)
     kw = {'printer_id': printer_id} if printer_id else {}
 
