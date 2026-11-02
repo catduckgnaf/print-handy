@@ -2,7 +2,7 @@
 
 # Unreleased
 
-Nothing yet.
+- Setup wizard secrets (SEC-6, P2-60): after the config merge, the wizard saves standalone secrets (.env) to the effective `paths.hermes_home` from config/local.yaml — the folder install-standalone.sh resolves for the services — instead of always using the wizard's proposed default folder, so a preserved custom data folder no longer loses the bot token.
 
 # Version 2.2.4
 
