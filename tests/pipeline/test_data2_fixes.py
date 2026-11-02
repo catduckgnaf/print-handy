@@ -203,3 +203,28 @@ def test_intake_discloses_refused_plates_and_records_acceptance(env, monkeypatch
     job = json.loads(Path(receipt['job_json']).read_text())
     assert job['partial_job_accepted'] is True
     assert len(env.starts) == 1  # the disclosed, accepted partial job started
+
+
+def test_dropbox_link_without_filename_survives_the_extension_filter(env, monkeypatch):
+    """P2-241: a Dropbox share URL with no filename in its path inventories
+    as the suffix-less name "shared-file"; the file-list extension filter
+    must not remove it before the download, whose response carries the real
+    filename (validated by direct_download). Serving HTML proves the flow
+    reached the download: it refuses as a web page, not as empty inventory."""
+    from .test_direct_links import FakeResponse
+    monkeypatch.setattr(model_job, '_resolve_host_ips', lambda host: {'93.184.216.34'})
+    monkeypatch.setattr(model_job, '_open_once', lambda url: FakeResponse(
+        b'<html><body>share page</body></html>', {'Content-Type': 'text/html'}))
+
+    async def fake_preview(*args, **kw):
+        pass
+
+    monkeypatch.setattr(prepared_intake, 'send_preview', fake_preview)
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+              message_id='dropbox1', text='https://www.dropbox.com/s/abc123?dl=0')
+    adapter = Adapter([])
+    asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
+    receipt = _receipt(env, 'dropbox1')
+    assert receipt['status'] == 'FAILED', receipt
+    assert any('web page instead of a print file' in post for post in adapter.sent)
+    assert not any('no selectable geometry' in post for post in adapter.sent)

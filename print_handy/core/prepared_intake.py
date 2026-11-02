@@ -1527,6 +1527,15 @@ FILE_LIST_SITES = ('printables', 'thingiverse', 'myminifactory', 'cults3d', 'cre
 CHOOSE_FILES = 'Choose files'
 
 
+def _unresolved_direct(job, row):
+    """A direct-link source whose filename only arrives with the download
+    response (a Dropbox share link with no filename in its path inventories
+    as the suffix-less "shared-file") has no suffix to filter on yet;
+    direct_download validates the name the response or final URL supplies
+    (P2-241)."""
+    return job.get('site') == 'direct' and not Path(row.get('name', '')).suffix
+
+
 def _and(words):
     words = [str(w) for w in words]
     return words[0] if len(words) == 1 else ', '.join(words[:-1]) + ' and ' + words[-1]
@@ -1729,7 +1738,8 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                       lambda: asyncio.to_thread(mj.inventory_for_url, url))
         rows = job.get('sources', [])
         if job['site'] in FILE_LIST_SITES:
-            rows = [r for r in rows if Path(r.get('name', '')).suffix.lower() in {'.3mf', '.stl'}]
+            rows = [r for r in rows if Path(r.get('name', '')).suffix.lower() in {'.3mf', '.stl'}
+                    or _unresolved_direct(job, r)]
         if not rows and job.get('site') in NO_DOWNLOAD_SITES:
             raise _unsupported_for(job['site'])  # the plain refusal, same as without a key (#712)
         if not rows:
