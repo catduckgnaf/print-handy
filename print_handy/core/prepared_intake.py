@@ -444,6 +444,39 @@ def large_model_notice(path):
             f'{minutes} minute{"s" if minutes != 1 else ""}, so it is not stuck.')
 
 
+_WORKER_LOG_LINE = re.compile(r'^\S+\s+(DEBUG|INFO|WARNING|ERROR|CRITICAL)\s')
+_LOG_LEVELS = ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')
+
+
+def _forward_worker_log_lines(err):
+    """Re-emit a heavy worker's stderr through this process's logging (P2-55).
+
+    The worker configures the shared logging, so its lines are already
+    formatted, timestamped and redacted; forwarding keeps them in the
+    operator's log instead of dropping them whenever the JSON reply parses.
+    A line that does not start a formatted record (a traceback continuation)
+    follows the previous line's level, as does unformatted noise.
+    """
+    if not err:
+        return
+    level = logging.INFO
+    for raw in err.decode(errors='replace').splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        match = _WORKER_LOG_LINE.match(line)
+        if match:
+            level = getattr(logging, match.group(1))
+        elif line.startswith('{'):
+            try:
+                record = json.loads(line)
+            except ValueError:
+                record = None
+            if isinstance(record, dict) and str(record.get('level', '')).upper() in _LOG_LEVELS:
+                level = getattr(logging, str(record['level']).upper())
+        logger.log(level, '%s', line)
+
+
 async def _heavy(func, *args, **kwargs):
     """Run CPU-heavy intake work in a child process (own GIL) so Discord buttons answer in time.
 
@@ -460,13 +493,15 @@ async def _heavy(func, *args, **kwargs):
     def plain(v):
         return str(v) if isinstance(v, Path) else v
     payload = json.dumps({'module': short, 'func': name, 'args': [plain(a) for a in args],
-                          'kwargs': {k: plain(v) for k, v in kwargs.items()}}).encode()
+                          'kwargs': {k: plain(v) for k, v in kwargs.items()},
+                          'log_context': logs.bound_context()}).encode()
     slicer = (short, name) in _SLICER_STEPS
     # A slice worker leaves a record in its intake folder, so a restart mid-slice can be explained.
     record = Path(args[0]).parent / owned_worker.RECORD if (short, name) == ('model_job', 'slice_job') else None
     out, err = await owned_worker.run(
         [sys.executable, '-m', 'print_handy.core.heavy_worker'], payload, label=_STEP_LABELS.get(name, name),
         lane=owned_worker.SLICER if slicer else owned_worker.GENERAL, cwd=str(settings.ROOT), record=record)
+    _forward_worker_log_lines(err)
     try:
         reply = json.loads(out.decode().rstrip().rsplit('\n', 1)[-1])
     except (ValueError, IndexError):

@@ -18,6 +18,38 @@ import pytest
 from print_handy.core import model_job, orca_adapter, prepared_intake, source_colors
 from print_handy.core.background_slice import BackgroundSlice
 
+
+def test_heavy_worker_configures_logging_and_binds_the_forwarded_context(monkeypatch):
+    # P2-55: the worker entrypoint installs the shared logging (its lines go
+    # to stderr; stdout stays the JSON reply channel) and binds the log
+    # context the parent forwarded in the request.
+    import io
+    import logging as _logging
+
+    from print_handy import logs
+    from print_handy.core import heavy_worker
+    source = Path(__file__).parents[1] / 'corpus/cases/single-part/model.3mf'
+    request = {'module': 'source_colors', 'func': 'inventory', 'args': [str(source)],
+               'log_context': {'intake': 't-55'}}
+    out = io.StringIO()
+    root = _logging.getLogger()
+    old_level = root.level
+    monkeypatch.setattr(sys, 'stdin', io.StringIO(json.dumps(request)))
+    monkeypatch.setattr(sys, 'stdout', out)
+    try:
+        heavy_worker.main()
+        assert logs.bound_context() == {'intake': 't-55'}
+        assert any(getattr(h, '_print_handy_handler', False) for h in root.handlers)
+    finally:
+        logs.clear_context()
+        for handler in list(root.handlers):
+            if getattr(handler, '_print_handy_handler', False):
+                root.removeHandler(handler)
+                handler.close()
+        root.setLevel(old_level)
+    reply = json.loads(out.getvalue().rstrip().rsplit('\n', 1)[-1])
+    assert reply['ok'] is True
+
 FAKE = r'''
 import json, os, signal, subprocess, sys, time
 mode, box = os.environ['FAKE_MODE'], os.environ['FAKE_DIR']
