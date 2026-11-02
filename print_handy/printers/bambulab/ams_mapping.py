@@ -154,6 +154,12 @@ def validate_supplied(mapping, slot_count):
                 tray == UNMAPPED_TRAY or tray in EXTERNAL_TRAYS or 0 <= tray <= 135):
             raise MappingError(f"the job's ams_mapping holds {tray!r}, which is not a canonical "
                                "tray id (-1 unmapped, 0-135 AMS trays, 254/255 external spool)")
+    assigned = [tray for tray in mapping if tray != UNMAPPED_TRAY]
+    if len(set(assigned)) != len(assigned):
+        # A tray serves one slot (resolve() enforces the same rule): one physical
+        # tray cannot hold two of the job's filaments at once.
+        raise MappingError(f"the job's ams_mapping assigns a tray to more than one filament "
+                           f"slot: {mapping!r}; each filament slot needs its own tray")
     return list(mapping)
 
 

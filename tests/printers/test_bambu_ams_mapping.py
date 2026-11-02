@@ -132,6 +132,20 @@ def test_resolver_job_mapping_is_trusted_verbatim_and_all_unmapped_recomputes():
         ams_mapping.resolve_for_print(text, snap(), job_mapping=[0, 999])
 
 
+def test_resolver_job_mapping_cannot_assign_one_tray_to_two_slots():
+    # Bonus (found during SAFE-11): resolve() enforces "a tray serves one slot",
+    # but a supplied mapping was shape-checked only per entry, so [0, 0] passed
+    # verbatim — one physical tray claimed by two different filaments.
+    text = "; filament_type = PLA;PETG\n"
+    with pytest.raises(ams_mapping.MappingError, match="more than one filament slot"):
+        ams_mapping.resolve_for_print(text, snap([unit(0, ["PLA", "PETG"])]), job_mapping=[0, 0])
+    with pytest.raises(ams_mapping.MappingError, match="more than one filament slot"):
+        ams_mapping.resolve_for_print(text, snap(), job_mapping=[254, 254])
+    # Repeated unmapped markers are not tray assignments and stay legal.
+    assert ams_mapping.resolve_for_print(text, snap([unit(0, ["PLA", "PETG"])]),
+                                         job_mapping=[-1, -1]) == ([0, 1], "snapshot")
+
+
 def test_resolver_dual_nozzle_filters_by_the_units_reported_extruder():
     text = "; filament_type = PLA;PETG\n; filament_extruder_id = 2,1\n"  # slot 1 -> left (1), slot 2 -> right (0)
     dual_snap = snap([unit(0, ["PETG"], extruder=0), unit(1, ["PLA"], extruder=1)])
