@@ -62,3 +62,22 @@ def test_stored_full_clean_status_without_history():
         now=now,
     )
     assert text == "Maintenance: last full clean 2 days / 0.0 h ago."
+
+
+def test_listener_history_totals_are_hours_not_seconds(monkeypatch):
+    # Moonraker's /server/history/totals reports total_time/print_time in
+    # SECONDS; maintenance records and thresholds are in HOURS, so the
+    # listener's totals must be converted before reminder_text sees them.
+    from print_handy.hermes import moonraker_event_listener as mel
+
+    monkeypatch.setattr(mel.print_control, "_call",
+                        lambda path: {"result": {"total_time": 7200.0, "print_time": 7000.0}})
+    assert mel._maintenance_history_totals() == 2.0
+    monkeypatch.setattr(mel.print_control, "_call",
+                        lambda path: {"result": {"print_time": 1800.0}})
+    assert mel._maintenance_history_totals() == 0.5
+    # A run recorded at 2.0 total hours with 0.5 h printed since must not
+    # read as thousands of hours and retrigger the reminder at once.
+    state = {"runs": [{"kind": "full", "hours_total": 2.0,
+                       "at": datetime(2026, 10, 12, tzinfo=timezone.utc).isoformat()}]}
+    assert maintenance.reminder_text(state, mel._maintenance_history_totals(), idle=True) is None

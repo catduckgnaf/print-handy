@@ -2289,9 +2289,16 @@ def _mapped_spool(slot):
 
 
 def _maintenance_history_totals():
+    """The printer's lifetime print total in HOURS.
+
+    /server/history/totals reports total_time/print_time in seconds;
+    maintenance records and thresholds are in hours, so convert here —
+    raw seconds read as thousands of hours and retrigger reminders
+    immediately after every maintenance run.
+    """
     payload = print_control._call('/server/history/totals')
     result = payload.get('result') or {}
-    return float(result.get('total_time') or result.get('print_time') or 0.0)
+    return float(result.get('total_time') or result.get('print_time') or 0.0) / 3600.0
 
 
 async def maintenance_reminder_tick(listener):
