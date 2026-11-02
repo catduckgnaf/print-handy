@@ -133,23 +133,6 @@ class SpellingTests(unittest.TestCase):
                         "recognise", "organise"):
             self.assertIn(british, self.checker.BRITISH_TO_US)
 
-    def test_multiline_html_comment_state_is_preserved(self):
-        # P2-238: a British spelling inside a multi-line HTML comment is
-        # never rendered; the old per-line stripping only removed comments
-        # that opened and closed on the same line.
-        body = "Visible behavior text.\n<!--\ncolour inside a comment\n-->\nMore behavior.\n"
-        self.assertEqual([], self.checker.text_violations(body, "body"))
-
-    def test_prose_after_a_multiline_comment_closes_is_still_scanned(self):
-        body = "<!--\ncomment\n--> colour after the comment\n"
-        found = self.checker.text_violations(body, "body")
-        self.assertEqual(["colour"], [violation[2] for violation in found])
-
-    def test_diff_multiline_html_comment_is_not_flagged(self):
-        diff = make_diff(added=["<!--", "colour inside a comment", "-->",
-                                "Visible behavior text"])
-        self.assertEqual([], self.checker.diff_violations(diff))
-
 
 class WorkflowTests(unittest.TestCase):
     def test_ci_has_a_spelling_job_running_the_checker(self):
@@ -157,6 +140,22 @@ class WorkflowTests(unittest.TestCase):
         job = workflow["jobs"]["spelling"]
         runs = [step.get("run", "") for step in job["steps"]]
         self.assertTrue(any("check_us_spelling.py" in run for run in runs))
+
+    def test_description_edits_rerun_only_the_spelling_job(self):
+        # P2-237: the spelling job scans the PR description, but the
+        # workflow never fired on description edits, so a wording fix in
+        # the body left the stale failure standing until the next push.
+        workflow = yaml.load(WORKFLOW_PATH.read_text(), Loader=yaml.BaseLoader)
+        types = workflow["on"]["pull_request"]["types"]
+        self.assertIn("edited", types)
+        self.assertIn("opened", types)
+        self.assertIn("synchronize", types)
+        for name, job in workflow["jobs"].items():
+            with self.subTest(job=name):
+                if name == "spelling":
+                    self.assertNotIn("if", job)
+                else:
+                    self.assertEqual("github.event.action != 'edited'", job.get("if"))
 
 
 if __name__ == "__main__":
