@@ -101,5 +101,11 @@ def require_idle_settled(read_moonraker, read_native, timeout_s=90, interval_s=5
             raise RuntimeError("REFUSED: idle guard failed: " + "; ".join(failures))
         if clock() >= deadline:
             status = n.get('status', 'unknown')
-            raise RuntimeError(f"Printer screen still reports {status} while Moonraker is idle (usually lingering after a cancel). Nothing was sent to the printer. Wait a minute or clear the job on the printer screen, then ask again. Detail: " + "; ".join(failures))
+            # A clean idle refusal like every other raise here (P1-42): the
+            # launch path only converts REFUSED-prefixed messages into a
+            # clean pre-upload refusal, and print-next releases the plate
+            # claim only for those — an unprefixed timeout stranded the
+            # claim even though nothing was sent to the printer.
+            raise RuntimeError("REFUSED: idle guard failed: "
+                               f"Printer screen still reports {status} while Moonraker is idle (usually lingering after a cancel). Nothing was sent to the printer. Wait a minute or clear the job on the printer screen, then ask again. Detail: " + "; ".join(failures))
         sleep(min(interval_s, max(0, deadline - clock())))

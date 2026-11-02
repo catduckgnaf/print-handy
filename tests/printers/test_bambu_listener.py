@@ -274,6 +274,93 @@ def test_status_events_validate_against_the_contract(monkeypatch):
         assert listeners.validate_status(event["status"]) == []
 
 
+def test_telemetry_only_changes_emit_updated_status(monkeypatch):
+    # P2-117: a delta that changes only progress / temperatures on the same
+    # layer must still reach the sink; deduping on (state, filename, layer)
+    # alone left the sink holding the first frame's 10% and 20 C forever.
+    fake = FakeMqtt([
+        full("RUNNING", subtask_name="a.gcode.3mf", layer_num=1, total_layer_num=9,
+             mc_percent=10, nozzle_temper=20.0),
+        delta(mc_percent=20, nozzle_temper=200.0),
+        delta(mc_percent=20, nozzle_temper=200.0),
+    ], stop_on_empty=True)
+    listener, _clock, _beats = make_listener(monkeypatch, [fake])
+    listener.run_forever()
+    statuses = [event for event in listener.events if event["kind"] == "status"]
+    assert [event["status"]["progress"] for event in statuses] == [0.1, 0.2]
+    assert statuses[-1]["status"]["hotend_c"] == 200.0
+
+
+def test_session_with_no_report_at_all_goes_stale(monkeypatch):
+    # P2-116: the staleness deadline starts at connect, not at the first
+    # report — a session the printer never talks to must still be recycled.
+    clock_holder = {}
+    holder = {}
+
+    def tick():
+        clock = clock_holder["clock"]
+        clock.t += 10.0
+        if clock.t > 400 and "listener" in holder:
+            holder["listener"].stop()
+
+    fake1 = FakeMqtt([], tick=tick)  # connects and stays silent forever
+    fake2 = FakeMqtt([full("IDLE")], stop_on_empty=True)
+    listener, clock, _beats = make_listener(monkeypatch, [fake1, fake2])
+    clock_holder["clock"] = clock
+    holder["listener"] = listener
+    listener.run_forever()
+    assert fake1.disconnected  # the silent session was hard-reset...
+    assert fake2.disconnected  # ...and the listener moved on to a fresh client
+
+
+def test_debug_mode_is_polled_during_an_active_session(monkeypatch):
+    # P2-187: debug-mode start/stop must be observed while a healthy session
+    # runs, not only between sessions.
+    from print_handy import debug_mode
+    clock_holder = {}
+    polls = []
+
+    def tick():
+        clock_holder["clock"].t += 10.0
+
+    fake = FakeMqtt([full("IDLE"), full("IDLE"), full("IDLE"), full("IDLE")],
+                    tick=tick, stop_on_empty=True)
+    listener, clock, _beats = make_listener(monkeypatch, [fake])
+    clock_holder["clock"] = clock
+    monkeypatch.setattr(debug_mode, "poll",
+                        lambda: polls.append(fake.disconnected))
+    listener.run_forever()
+    assert polls and any(seen is False for seen in polls)  # polled mid-session
+
+
+def test_idle_observations_are_forwarded_while_terminal(monkeypatch):
+    # P1-107: after a print finishes, unchanged idle reports are deduped
+    # away, so the sink's light idle_tick starved. The listener forwards a
+    # periodic idle observation while the state stays terminal.
+    clock_holder = {}
+    holder = {}
+
+    def tick():
+        clock = clock_holder["clock"]
+        clock.t += 10.0
+        if clock.t >= 150 and "listener" in holder:
+            holder["listener"].stop()
+
+    fake = FakeMqtt([
+        full("RUNNING", subtask_name="a.gcode.3mf", layer_num=1, total_layer_num=9),
+        delta(gcode_state="FINISH", mc_percent=100),
+    ], tick=tick)
+    fresh = FakeMqtt([full("IDLE")], stop_on_empty=True)  # the post-staleness session
+    listener, clock, _beats = make_listener(monkeypatch, [fake, fresh])
+    clock_holder["clock"] = clock
+    holder["listener"] = listener
+    listener.run_forever()
+    idle = [event for event in listener.events
+            if event["kind"] == "status" and event["status"]["state"] == "complete"
+            and event.get("transition") is None]
+    assert len(idle) >= 3  # the finish observation plus periodic re-forwards
+
+
 # --------------------------------------------------------------------- liveness / configuration
 
 def test_unconfigured_listener_idles_beats_and_never_touches_the_network(monkeypatch):

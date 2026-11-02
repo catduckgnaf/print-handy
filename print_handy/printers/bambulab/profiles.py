@@ -409,6 +409,32 @@ def _vendor_filament_template(adapter, material, folder):
     return path
 
 
+def _stored_profile_material(adapter, settings_id, folder, names):
+    """The material a settings id names in the installed folder, or False.
+
+    A folder generated under a retained identity can carry that release's
+    profile names — P1S templates from OrcaSlicer 2.4.2 name the PLA
+    profile "Bambu PLA Basic @BBL X1C", where the current facts name the
+    dedicated P1S profile (P2-128, P2-129). The folder is verified by
+    require() before any of its names are trusted, so resolving against
+    the stored names accepts exactly the checked folders, nothing else.
+    """
+    default = adapter.fact("orca_profiles")["filament"]
+    try:
+        require(adapter, folder)
+        stored = {}
+        for material, current in names.items():
+            if material is None or current == default:
+                stored[material] = json.loads((folder / "filament.json").read_text()).get("name")
+            else:
+                path = folder / UPSTREAM / FILAMENTS / f"{material}.json"
+                if path.is_file():
+                    stored[material] = json.loads(path.read_text()).get("name")
+    except (ProfileError, OSError, ValueError):
+        return False
+    return next((m for m, name in stored.items() if name == settings_id), False)
+
+
 def filament_for_settings_id(adapter, settings_id, folder=None):
     """The verified filament template whose profile name a sliced file's filament_settings_id names, or ProfileError."""
     folder = Path(folder or adapter.pinned_templates_folder())
@@ -417,6 +443,8 @@ def filament_for_settings_id(adapter, settings_id, folder=None):
             return operator_template(adapter, material, folder)
     names = filament_set(adapter) or {None: adapter.fact("orca_profiles")["filament"]}
     material = next((m for m, name in names.items() if name == settings_id), False)
+    if material is False:
+        material = _stored_profile_material(adapter, settings_id, folder, names)
     if material is False:
         raise ProfileError(f"filament_settings_id {settings_id!r} is not a checked {adapter.label} vendor filament "
                            f"profile ({', '.join(names.values())})")
@@ -531,12 +559,19 @@ def operator_template(adapter, material, folder=None):
 
 
 def _preset_numbers(data, key):
-    """Every value of a numeric filament setting as floats; None when a value is not a number, [] when unset."""
+    """Every value of a numeric filament setting as floats; None when a value is not a number, [] when unset.
+
+    Orca's "nil" is the unset sentinel for a nullable setting (a preset
+    that leaves retraction at the printer default flattens to ["nil"]), so
+    it counts as unset, not as a malformed number (P2-130).
+    """
     if key not in data:
         return []
     values = data[key] if isinstance(data[key], list) else [data[key]]
     out = []
     for value in values:
+        if value == "nil":
+            continue
         try:
             out.append(float(value))
         except (TypeError, ValueError):

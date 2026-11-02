@@ -242,6 +242,25 @@ def test_merge_print_merges_nested_dicts_and_replaces_leaves():
     assert merged == {"ams": {"ams": [{"id": 0}], "tray_now": 2}, "mc_percent": 5}
 
 
+def test_merge_print_merges_ams_units_and_trays_by_id():
+    # P2-107: a tray-level delta must merge into the accumulated snapshot,
+    # not replace the tray list wholesale and lose the sibling trays and
+    # the updated tray's material.
+    full = {"ams": {"ams": [{"id": "0", "tray": [{"id": "0", "tray_type": "PLA", "remain": 90},
+                                                  {"id": "1", "tray_type": "PETG", "remain": 50}]}],
+                    "tray_now": "0"}}
+    delta = {"ams": {"ams": [{"id": "0", "tray": [{"id": "0", "remain": 80}]}]}}
+    merged = merge_print(full, delta)
+    unit = merged["ams"]["ams"][0]
+    assert [tray["id"] for tray in unit["tray"]] == ["0", "1"]
+    assert unit["tray"][0] == {"id": "0", "tray_type": "PLA", "remain": 80}
+    assert unit["tray"][1] == {"id": "1", "tray_type": "PETG", "remain": 50}
+    assert merged["ams"]["tray_now"] == "0"
+    # A unit the snapshot has never seen is appended, existing units kept.
+    merged = merge_print(full, {"ams": {"ams": [{"id": "1", "tray": []}]}})
+    assert [u["id"] for u in merged["ams"]["ams"]] == ["0", "1"]
+
+
 # --------------------------------------------------------------------- adapter
 
 def config_for(**environ):

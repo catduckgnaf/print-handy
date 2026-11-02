@@ -128,7 +128,10 @@ def trays_from_snapshot(snapshot):
             if slot is None:
                 continue
             if slot in EXTERNAL_TRAYS:  # a dual-nozzle external spool reported in the tray list
-                add(slot, tray, external=True)
+                # It sits in this unit's list, so the unit's reported extruder
+                # is its routing evidence too (P2-113): without it the strict
+                # dual-nozzle filter excluded the spool from every slot.
+                add(slot, tray, extruder=extruder, external=True)
             elif unit_id in _AMS_HT_RANGE:  # AMS-HT: one tray per unit, id passes through
                 add(unit_id, tray, extruder=extruder)
             else:

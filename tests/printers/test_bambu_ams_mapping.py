@@ -194,6 +194,22 @@ def test_resolver_fts_skips_the_extruder_filter():
         ams_mapping.resolve(reqs, trays, dual=True, fts=False)
 
 
+def test_trays_from_snapshot_external_spool_keeps_the_units_extruder():
+    # P2-113: an external spool reported inside a unit's tray list inherits
+    # that unit's reported extruder, so the dual-nozzle strict filter can
+    # route an extruder-bound slot to it like any AMS tray.
+    snapshot = snap([
+        {"id": "0", "extruder": 1, "tray": [{"id": "0", "tray_type": "PLA"}]},
+        {"id": "1", "extruder": 0, "tray": [{"id": "254", "tray_type": "PETG"}]},
+    ])
+    trays = ams_mapping.trays_from_snapshot(snapshot)
+    external = next(t for t in trays if t["external"])
+    assert external["tray"] == 254 and external["extruder"] == 0
+    text = "; filament_type = PLA;PETG\n; filament_extruder_id = 2,1\n"
+    reqs = ams_mapping.requirements_from_gcode(text)
+    assert ams_mapping.resolve(reqs, trays, dual=True) == [0, 254]
+
+
 def test_trays_from_snapshot_shapes():
     trays = ams_mapping.trays_from_snapshot(snap(
         [unit(2, ["PLA", "", "PETG"]), {"id": "130", "tray": [{"id": "0", "tray_type": "TPU"}]}],

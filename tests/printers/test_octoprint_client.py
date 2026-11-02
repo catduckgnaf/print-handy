@@ -60,6 +60,23 @@ def test_download_returns_raw_bytes_with_auth():
     assert seen[0].get_header("X-api-key") == "SECRETKEY"
 
 
+def test_download_resolves_against_the_origin_when_the_base_has_a_prefix():
+    # P2-148: OctoPrint under a URL prefix returns movie URLs that already
+    # include the prefix (it builds them from url_for("index")). Resolving
+    # the server-relative path against the configured base would double
+    # the prefix (/octoprint/octoprint/...); the origin is the right base.
+    # API requests keep using the full base, prefix included.
+    seen = []
+
+    def opener(req, timeout=None):
+        seen.append(req)
+        return _Response(b"video")
+
+    client = OctoPrintClient("http://octo.test:5000/octoprint", "SECRETKEY", opener=opener)
+    assert client.download("/octoprint/downloads/timelapse/a.mp4") == b"video"
+    assert seen[0].full_url == "http://octo.test:5000/octoprint/downloads/timelapse/a.mp4"
+
+
 @pytest.mark.parametrize("path", ["http://evil.test/x", "//evil.test/x", "relative.mp4", ""])
 def test_download_refuses_non_relative_paths(path):
     client = _client([], [])

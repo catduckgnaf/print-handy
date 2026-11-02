@@ -28,7 +28,12 @@ MODEL = PrinterModel(
         "printer": {
             "name": "Bambu Lab P1S",
             "bed_mm": list(facts.P1S["bed_mm"].value),
-            "max_print_height_mm": facts.P1S["max_print_height_mm"].value,
+            # The default working height is the slicer's usable height
+            # (P2-64): the generated P1S machine profile limits slicing to
+            # 250 mm, so fit/volume defaults must use orca_profile_height_mm.
+            # The physical 256 mm specification stays the max_print_height_mm
+            # fact (the recorded-height cap in the adapter).
+            "max_print_height_mm": facts.P1S["orca_profile_height_mm"].value,
             "nozzle_diameter_mm": 0.4,
             "nozzle_type": "stainless_steel",
             # Filament slots: the AMS unit's trays from the facts ("ams":

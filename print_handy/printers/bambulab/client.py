@@ -180,12 +180,39 @@ def signature_required(print_payload) -> bool:
         return False
 
 
+def _id_keyed(entries) -> bool:
+    """True when every entry is a dict carrying an `id` (AMS units, their trays)."""
+    return all(isinstance(entry, dict) and "id" in entry for entry in entries)
+
+
+def _merge_id_list(accumulated: list, update: list) -> list:
+    """Merge two id-keyed lists entry by entry: entries the update names are
+    merged in place, entries it does not name survive, new ids append."""
+    out = copy.deepcopy(accumulated)
+    positions = {entry["id"]: index for index, entry in enumerate(out)}
+    for entry in update:
+        if entry["id"] in positions:
+            out[positions[entry["id"]]] = merge_print(out[positions[entry["id"]]], entry)
+        else:
+            positions[entry["id"]] = len(out)
+            out.append(copy.deepcopy(entry))
+    return out
+
+
 def merge_print(accumulated: dict, update: dict) -> dict:
-    """Merge one (possibly delta) `print` payload into the accumulated snapshot state."""
+    """Merge one (possibly delta) `print` payload into the accumulated snapshot state.
+
+    Id-keyed lists (the AMS unit list, a unit's tray list) merge by id
+    (P2-107): a delta naming one tray must not discard its siblings or the
+    fields it does not repeat. Every other list replaces wholesale.
+    """
     out = copy.deepcopy(accumulated)
     for key, value in (update or {}).items():
         if isinstance(value, dict) and isinstance(out.get(key), dict):
             out[key] = merge_print(out[key], value)
+        elif (isinstance(value, list) and value and isinstance(out.get(key), list)
+              and _id_keyed(out[key]) and _id_keyed(value)):
+            out[key] = _merge_id_list(out[key], value)
         else:
             out[key] = copy.deepcopy(value)
     return out

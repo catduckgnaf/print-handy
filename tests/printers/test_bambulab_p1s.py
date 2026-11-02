@@ -83,7 +83,10 @@ def test_model_registration_defaults_and_p1s_specific_hardware(p1s_profiles):
     # The AMS is the P1S's slot system (#671): multi_slot, four slots.
     assert (a.connection, a.slot_count, a.multi_slot) == ("bambulab_lan", 4, True)
     volume = a.build_volume()
-    assert volume.bed_mm == (256.0, 256.0) and volume.max_height_mm == 256.0
+    # P2-64: the working volume is the slicer's usable height (the Orca
+    # machine profile's 250 mm), not the physical 256 mm specification —
+    # a 253 mm model must not be told it fits. The fact itself stays 256.
+    assert volume.bed_mm == (256.0, 256.0) and volume.max_height_mm == 250.0
     assert a.supported_nozzle_sizes == (0.4,)
     assert a.supported_nozzle_types == ("stainless_steel", "hardened_steel")
     assert a.fact("bed_exclude_area") == ((0.0, 0.0), (18.0, 0.0), (18.0, 28.0), (0.0, 28.0))
@@ -95,7 +98,7 @@ def test_p1s_defaults_to_bambu_studio_and_orca_can_be_selected(p1s_profiles):
     assert adapter_for().verified_slicers == ("bambu_studio", "orca")
     assert config_for(slicer="orca")["printer"]["slicer"] == "orca"
     assert config_for()["printer"]["bed_mm"] == [256.0, 256.0]
-    assert config_for()["printer"]["max_print_height_mm"] == 256.0
+    assert config_for()["printer"]["max_print_height_mm"] == 250.0  # P2-64: usable height, above
     # The P1S's own AMS count is the default since #671 (multi_slot).
     assert config_for()["printer"]["filament_slots"] == 4
     with pytest.raises(settings.SettingsError, match="not supported by model 'bambulab.p1s'"):
@@ -206,6 +209,30 @@ def test_p1s_fit_uses_model_specific_working_volume(p1s_profiles):
     assert (adapter_for().fact("max_print_height_mm"), adapter_for().fact("orca_profile_height_mm")) == (256.0, 250.0)
     assert adapter_for().fact("bed_exclude_area")[2] == (18.0, 28.0)
     assert state()["bed_mm"] == [256, 256]
+
+
+def test_retained_242_folder_still_resolves_its_pla_name(p1s_profiles, monkeypatch):
+    # P2-128 / P2-129: a folder generated from OrcaSlicer 2.4.2 names its PLA
+    # profile "Bambu PLA Basic @BBL X1C" (the X1C profile listed the P1S
+    # then); the current facts name the dedicated P1S profile. The folder
+    # still matches a retained identity, so a sliced file naming the old
+    # profile must resolve to the folder's verified default template
+    # instead of being refused as an unchecked profile.
+    a = adapter_for()
+    folder = a.pinned_templates_folder()
+    old_name = "Bambu PLA Basic @BBL X1C"
+    upstream = json.loads((folder / "upstream" / "filament.json").read_text())
+    upstream["name"] = old_name
+    (folder / "upstream" / "filament.json").write_text(profiles._dump(upstream))
+    (folder / "filament.json").write_text(profiles.template_text("filament", upstream))
+    identity = dict(p1s_fixture.identity())
+    identity["sha256"] = {**identity["sha256"], "filament": profiles.sha256(upstream)}
+    monkeypatch.setattr(P1SAdapter, "facts",
+                        {**facts.P1S, "orca_identity": facts.Fact((identity,), "TEST", False)})
+    assert profiles.problems(a, folder) == []  # the retained folder still verifies
+    assert profiles.filament_for_settings_id(a, old_name, folder) == folder / "filament.json"
+    current = facts.P1S["orca_profiles"].value["filament"]
+    assert profiles.filament_for_settings_id(a, current, folder) == folder / "filament.json"
 
 
 def test_profile_defaults_reference_orca_profile_names_and_sources(p1s_profiles):
