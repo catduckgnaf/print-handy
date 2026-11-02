@@ -661,14 +661,22 @@ class DesignEngine:
     """Runs design sessions against an injected model callable and OpenSCAD."""
 
     def __init__(self, cache_dir, complete, *, cfg=None, runner=None, preview=None,
-                 render_timeout_s=RENDER_TIMEOUT_S):
+                 render_timeout_s=None):
         self.root = sessions_root(cache_dir)
         self.complete = complete
         self.cfg = cfg or {}
         self.runner = runner
         self.preview = preview  # callable(stl_path) -> preview path; None uses render_preview
-        self.render_timeout_s = render_timeout_s
         design = self.cfg.get("design") or {}
+        if render_timeout_s is None:
+            # The documented [design] timeout_s bounds rendering as well as
+            # the model call (P2-152, P2-157); an explicit constructor
+            # argument still wins, and the constant is the last resort.
+            configured = design.get("timeout_s")
+            render_timeout_s = (configured if isinstance(configured, (int, float))
+                                and not isinstance(configured, bool) and configured > 0
+                                else RENDER_TIMEOUT_S)
+        self.render_timeout_s = render_timeout_s
         self.repair_attempts = int(design.get("repair_attempts", 3))
 
     # -- session lifecycle -------------------------------------------------
