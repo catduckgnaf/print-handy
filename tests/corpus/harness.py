@@ -241,15 +241,35 @@ FAKE_GCODE = """\
 ; nozzle_diameter = {nozzle}
 ; enable_support = {support}
 ; filament_type = {types}
-M190 S60
-M104 S210 T0
-START_PRINT BED_TEMP=60 EXTRUDER_TEMP=210 MESH=MESH_DATA
+M190 S{bed}
+M104 S{hotend} T0
+START_PRINT BED_TEMP={bed} EXTRUDER_TEMP={hotend} MESH=MESH_DATA
 G90
 {tools}; FEATURE: Outer wall
 G1 X100 Y100 Z0.2 F3000
 G1 X120 Y120 E1
 {support_lines}END_PRINT
 """
+
+
+def _profile_temperatures(filament_json):
+    """(hotend, bed) as an Orca run would print them from one filament profile, 210/60 if unset."""
+    try:
+        data = json.loads(Path(filament_json).read_text())
+    except (OSError, ValueError):
+        return 210, 60
+
+    def first(*keys, default):
+        for key in keys:
+            value = data.get(key)
+            value = value[0] if isinstance(value, list) and value else value
+            try:
+                return int(float(value))
+            except (TypeError, ValueError):
+                continue
+        return default
+    return (first("nozzle_temperature_initial_layer", "nozzle_temperature", default=210),
+            first("hot_plate_temp_initial_layer", "hot_plate_temp", default=60))
 
 
 def fake_orca_run(real_run, orca_command, events=None):
@@ -267,8 +287,12 @@ def fake_orca_run(real_run, orca_command, events=None):
         nozzle = json.loads(machine.read_text()).get("nozzle_diameter", "0.4")
         nozzle = nozzle[0] if isinstance(nozzle, list) else nozzle
         tools = "".join(f"T{i}\n" for i in range(len(filaments))) if len(filaments) > 1 else ""
+        # Like Orca, write the temperatures the first filament profile asks for: Print Handy puts
+        # the nozzle-type-adjusted temperature there (+5 C for the AD5X's stainless nozzle), and
+        # offline verification checks START_PRINT against exactly that.
+        hotend, bed = _profile_temperatures(filaments[0])
         text = FAKE_GCODE.format(
-            nozzle=nozzle, support=support, types=";".join(["PLA"] * len(filaments)), tools=tools,
+            hotend=hotend, bed=bed, nozzle=nozzle, support=support, types=";".join(["PLA"] * len(filaments)), tools=tools,
             support_lines="; FEATURE: Support\nG1 X110 Y110 E2\n" if support == "1" else "")
         (out / "plate_1.gcode").write_text(text)
         return S(returncode=0, stdout="", stderr="")

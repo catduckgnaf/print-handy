@@ -559,7 +559,9 @@ def test_screenless_set_zcolor_timeout_during_warmup_is_not_a_refusal(mapped, mo
         return original(st, path, data=data, timeout=timeout)
 
     model_job._mr.side_effect = held_open
-    model_job._preparation_evidence.return_value = heating
+    # #836: the mapped path re-reads heater evidence immediately before the POST; that read must
+    # see the heaters as they were before the POST went out (off), not the warmup that follows it.
+    model_job._preparation_evidence.side_effect = lambda st: bool(mapped.scripts) and heating
     out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
     assert len(mapped.scripts) == 1  # never resubmitted
     claims = model_job._read_claims()
@@ -703,6 +705,42 @@ def test_mapped_launch_refuses_a_slot_label_that_disagrees_before_upload(mapped,
     job = json.loads(jp.read_text())
     with pytest.raises(SystemExit, match=r"REFUSED: printer slot 1 is labeled .* but Spoolman has .*Nothing uploaded"):
         model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+    assert uploads(mapped.run) == [] and mapped.scripts == [] and leases() == []
+
+
+def test_mapped_launch_prints_anyway_on_an_accepted_label_difference(mapped, capsys):
+    """#839: a Print anyway recorded for this exact G-code waives the label
+    difference (with a WARNING), exactly like the color flow (#795); an
+    acceptance bound to other bytes does not."""
+    mapped_label[0] = "PETG"
+    mapped.st["filament_slots"]["1"]["material"] = "PLA"
+    jp, g = make_job(mapped.root, "a")
+    job = json.loads(jp.read_text())
+    job["label_mismatch_accepted"] = {
+        "gcode_sha256": "0" * 64,  # some other G-code: must not waive this launch
+        "slots": [model_job.label_mismatch_key(1, "PETG", "PLA")]}
+    with pytest.raises(SystemExit, match=r"REFUSED: printer slot 1 is labeled PETG"):
+        model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+    job["label_mismatch_accepted"]["gcode_sha256"] = model_job.file_sha256(g)
+    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+    assert out["submission_count"] == 1 and len(uploads(mapped.run)) == 1
+    assert "the operator chose Print anyway" in capsys.readouterr().out
+
+
+def test_mapped_launch_names_a_label_and_a_color_difference_in_one_refusal(mapped):
+    """#839: both difference kinds are gathered and refused together, so the
+    intake's ask-once rounds see the whole picture."""
+    mapped_label[0] = "PETG"
+    mapped_hex[0] = "E53935"
+    mapped.st["filament_slots"]["1"]["material"] = "PLA"
+    mapped.st["filament_slots"]["1"]["hex"] = "#000000"
+    jp, g = make_job(mapped.root, "a")
+    job = json.loads(jp.read_text())
+    with pytest.raises(SystemExit) as caught:
+        model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
+    text = str(caught.value)
+    assert "is labeled PETG but Spoolman has PLA there (T0)" in text
+    assert "color is #E53935 but Spoolman has #000000 there (T0)" in text
     assert uploads(mapped.run) == [] and mapped.scripts == [] and leases() == []
 # An uncertain start settles from the printer's own record of that exact file (2026-10-30
 # Bag Clip: uploaded as X.gcode.3mf, reported as 3mf_print/X.gcode, finished before the next

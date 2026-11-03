@@ -81,6 +81,31 @@ def test_http_500_is_unavailable():
         server.stop()
 
 
+def test_unavailable_carries_the_http_status():
+    # #839: callers must tell a 404 (no such spool) from an outage (5xx),
+    # and a transport failure carries no status at all.
+    server = _Server(_handler(status=404, payload={"error": "no such spool"}))
+    try:
+        with pytest.raises(spoolman_client.SpoolmanUnavailable) as caught:
+            spoolman_client.request("GET", "/api/v1/spool/99", base_url=server.url, timeout=2)
+        assert caught.value.status == 404
+    finally:
+        server.stop()
+    server = _Server(_handler(status=500, payload={"error": "boom"}))
+    try:
+        with pytest.raises(spoolman_client.SpoolmanUnavailable) as caught:
+            spoolman_client.request("GET", "/api/v1/spool/7", base_url=server.url, timeout=2)
+        assert caught.value.status == 500
+    finally:
+        server.stop()
+    with pytest.raises(spoolman_client.SpoolmanUnavailable) as caught:
+        spoolman_client.request("GET", "/api/v1/spool/7", base_url=refused_url(), timeout=2)
+    assert caught.value.status is None
+    with pytest.raises(spoolman_client.SpoolmanUnavailable) as caught:
+        spoolman_client.request("GET", "/api/v1/spool/7", base_url="")
+    assert caught.value.status is None
+
+
 def test_timeout_is_unavailable():
     server = _Server(_handler(payload={}, delay=3.0))
     try:

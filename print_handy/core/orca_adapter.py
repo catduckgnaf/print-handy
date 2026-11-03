@@ -2291,6 +2291,22 @@ def largest_fitting_scale(source, state, ceiling, **probe_kw):
     return lo / 1000.0
 
 
+def largest_fitting_fraction(source, state, unit_factor, **probe_kw):
+    """Largest fraction (50%-100%, 0.1% steps) of a unit-scaled size that fits, or None.
+
+    For a size reached through a unit conversion (an inch-confirmed STL
+    prints at ``unit_factor`` x its authored size): the fraction is of the
+    converted size, and each probe runs at ``unit_factor * fraction``, so
+    the 50% floor is half the converted size — not half the authored file,
+    which is what largest_fitting_scale's absolute floor would mean here.
+    """
+    def fits(fraction):
+        return orca_plate_capacity(source, state, scale=float(unit_factor) * fraction,
+                                   **probe_kw) > 0
+
+    return _confirm_scale(fits, 1.0)
+
+
 def scale_label(scale):
     """98.6% / 75% style label: one decimal only when the scale is not a whole percent."""
     pct = round(float(scale) * 100, 1)

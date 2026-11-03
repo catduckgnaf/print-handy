@@ -235,3 +235,109 @@ def test_dropbox_link_without_filename_survives_the_extension_filter(env, monkey
     assert receipt['status'] == 'FAILED', receipt
     assert any('web page instead of a print file' in post for post in adapter.sent)
     assert not any('no selectable geometry' in post for post in adapter.sent)
+
+
+def test_painted_fit_crash_offers_retry_not_a_size_verdict(env, monkeypatch):
+    """#839: a painted fit check that throws is not "does not fit" — the post
+    says the check failed and offers Retry/Cancel; a retry that succeeds
+    continues the intake normally."""
+    painted = painted_source(env.tmp, painted=True)
+
+    def copy_painted(job, chosen, dest):
+        dest = Path(dest)
+        dest.mkdir(parents=True, exist_ok=True)
+        out = dest / 'ghost.3mf'
+        out.write_bytes(painted.read_bytes())
+        return out
+
+    monkeypatch.setattr(model_job, 'printables_download', copy_painted)
+    monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 0)
+    calls = []
+
+    def flaky_fit(path, decisions, state=None):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError('mesh parse exploded')
+        return {'scale': 0.8, 'plates': 1, 'blocking_plate': None}
+    monkeypatch.setattr(model_job, 'painted_fit_for_job', flaky_fit)
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+              message_id='painted-err', text='https://www.printables.com/model/1-ghost')
+    adapter = Adapter([0] * 30)  # every first choice; Retry is the first fit-error choice
+    result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
+    receipt = _receipt(env, 'painted-err')
+    asked = [q for q in adapter.questions if q['choices'] == ['Retry fit check', 'Cancel']]
+    assert len(asked) == 1 and 'could not check whether this fits' in asked[0]['question']
+    assert 'PH_INTAKE' in asked[0]['question']
+    assert not any('does not fit' in q['question'] for q in adapter.questions)
+    assert not any('does not fit' in post for post in adapter.sent)
+    assert len(calls) == 2
+    assert receipt['painted_fit']['scale'] == 0.8 and receipt['status'] != 'FAILED', receipt
+
+
+def test_painted_fit_error_cancel_cancels_without_a_size_verdict(env, monkeypatch):
+    """#839: cancelling the fit-error question cancels plainly; no fit verdict is recorded."""
+    painted = painted_source(env.tmp, painted=True)
+
+    def copy_painted(job, chosen, dest):
+        dest = Path(dest)
+        dest.mkdir(parents=True, exist_ok=True)
+        out = dest / 'ghost.3mf'
+        out.write_bytes(painted.read_bytes())
+        return out
+
+    monkeypatch.setattr(model_job, 'printables_download', copy_painted)
+    monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 0)
+
+    def broken_fit(path, decisions, state=None):
+        raise RuntimeError('worker died')
+    monkeypatch.setattr(model_job, 'painted_fit_for_job', broken_fit)
+
+    class CancelRetry(Adapter):
+        async def send_clarify(self, **kw):
+            if kw.get('choices') == ['Retry fit check', 'Cancel']:
+                self.questions.append(kw)
+                import tools.clarify_gateway as cm
+                cm.resolve_gateway_clarify(kw['clarify_id'], 'Cancel')
+                return S(success=True)
+            return await super().send_clarify(**kw)
+
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+              message_id='painted-err-cancel', text='https://www.printables.com/model/1-ghost')
+    adapter = CancelRetry([0] * 30)
+    result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
+    receipt = _receipt(env, 'painted-err-cancel')
+    assert result['reason'] == 'painted fit check failed; operator cancelled'
+    assert receipt['status'] == 'CANCELLED'
+    assert receipt['painted_fit'].get('error') == 'worker died'
+    assert not any('does not fit' in post for post in adapter.sent)
+
+
+def test_painted_no_fit_names_the_measured_layout(env, monkeypatch):
+    """#839: a real no-fit keeps its text and adds the measured painted
+    extent at the 50% floor, the tower footprint and the usable area."""
+    painted = painted_source(env.tmp, painted=True)
+
+    def copy_painted(job, chosen, dest):
+        dest = Path(dest)
+        dest.mkdir(parents=True, exist_ok=True)
+        out = dest / 'ghost.3mf'
+        out.write_bytes(painted.read_bytes())
+        return out
+
+    monkeypatch.setattr(model_job, 'printables_download', copy_painted)
+    monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 0)
+    monkeypatch.setattr(model_job, 'painted_fit_for_job',
+                        lambda path, decisions, state=None: {
+                            'scale': None, 'blocking_plate': 1, 'plates': 1,
+                            'blocking_layout': {'extent_mm': [231.0, 198.0],
+                                                'tower_mm': 35.0, 'scale': 0.5}})
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+              message_id='painted-nofit', text='https://www.printables.com/model/1-ghost')
+    adapter = Adapter([0] * 30)  # the only fit choice offered is Cancel
+    result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
+    receipt = _receipt(env, 'painted-nofit')
+    asked = [q['question'] for q in adapter.questions if 'does not fit' in q['question']]
+    assert len(asked) == 1
+    assert '231 x 198 mm' in asked[0] and '35 x 35 mm prime tower' in asked[0]
+    assert 'usable area is 220 x 220 mm' in asked[0]
+    assert receipt['status'] == 'CANCELLED_OVERSIZED'
