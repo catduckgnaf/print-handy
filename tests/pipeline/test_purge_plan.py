@@ -240,7 +240,10 @@ def test_chute_slice_has_no_prime_tower_and_records_the_plan(tmp_path, monkeypat
     ipm.fake_moonraker(monkeypatch, 1)
     machine, process, provenance, _ = ipm.slice_ad5x(tmp_path, monkeypatch, [1, 2, 1, 2])
     assert process['enable_prime_tower'] == '0' and process['purge_in_prime_tower'] == '0'
-    assert process['prime_tower_width'] == '0'
+    # Towerless means no tower position at all; the template width stays because Orca
+    # range-checks prime_tower_width even when the tower is off.
+    assert 'wipe_tower_x' not in process and process['prime_tower_width'] != '0'
+    assert provenance['geometry']['prime_tower_xy_mm'] is None
     assert provenance['geometry']['purge_plan']['mode'] == 'printer_chute'
     assert provenance['geometry']['purge_plan']['prime_tower'] is False
 
