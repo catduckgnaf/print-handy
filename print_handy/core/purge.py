@@ -294,6 +294,7 @@ def tower_mm(nozzle_dia, plan=None):
 # ---------------------------------------------------------------- guards
 
 _TOWERLESS_GCODE = re.compile(r'^; enable_prime_tower = 0\s*$', re.M)
+_TOOL_CHANGE = re.compile(r'^\s*T(\d+)\b', re.M)
 
 
 def gcode_is_towerless(text):
@@ -304,12 +305,15 @@ def gcode_is_towerless(text):
 def require_launch_safe(gcode_text, state, say=print):
     """Refuse (SystemExit) a towerless multicolor G-code the printer would not purge.
 
-    Only a printer that positively reports use_trash_on_print = 0 (nopoop: the
+    A G-code that never changes tool (fewer than two distinct T commands) is a single-color
+    print and always passes: there is no color change to purge. Only a printer that positively reports use_trash_on_print = 0 (nopoop: the
     slicer must purge into a tower) is refused. Mode 1 passes silently; an
     unreadable or other mode passes with an informational line. Read-only.
     """
     if not gcode_is_towerless(gcode_text):
         return
+    if len(set(_TOOL_CHANGE.findall(gcode_text or ''))) < 2:
+        return  # one color: no color change ever purges, so the purge mode does not matter
     from .printer_state import read_purge_mode
     live = read_purge_mode(state)
     if live == 0:

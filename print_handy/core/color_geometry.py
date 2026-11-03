@@ -350,10 +350,10 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
         out.writestr('3D/3dmodel.model', ET.tostring(model, encoding='utf-8', xml_declaration=True))
         out.writestr('Metadata/model_settings.config', ET.tostring(config, encoding='utf-8', xml_declaration=True))
     towers = prime_tower_candidates(part_bounds, tower=tower_mm)
-    tower = towers[0]
+    tower = towers[0] if towers else None  # None: a towerless plan (#832)
     return mapping, {'source_sha256': digest(source), 'converted_sha256': digest(target), 'parts': records,
                      **({'cutter_bounds_by_object': cutter_bounds} if cutter_bounds else {}),
-                     'build_bounds_mm': bounds, 'translation_mm': delta if item_shifts is None else None, 'merged_placement': item_shifts is not None, 'prime_tower_xy_mm': list(tower),
+                     'build_bounds_mm': bounds, 'translation_mm': delta if item_shifts is None else None, 'merged_placement': item_shifts is not None, 'prime_tower_xy_mm': list(tower) if tower else None,
                      'prime_tower_candidates_mm': [list(t) for t in towers],
                      **({'fit_by_object': {oid: {'rotation': matrix} for oid, matrix in rotations.items()}} if rotations else {}),
                      'policy': 'all mesh leaves as independent build items; component transforms; one rigid translation; float64 XML'
@@ -1319,6 +1319,8 @@ def _drop_unused_relationships(rels_bytes, unused_models):
 def _tower_friendly_delta(bounds, centered, bed=BED_MM, tower=None):
     """Centered placement unless the prime tower cannot fit beside it; then
     slide the whole layout (rigidly) toward a bed edge to free a tower lane."""
+    if tower is not None and float(tower) <= 0:
+        return centered  # towerless (#832): nothing needs a lane
     w, h = bounds[0][1] - bounds[0][0], bounds[1][1] - bounds[1][0]
     lo, hi = TOWER_EDGE_MM, bed - TOWER_EDGE_MM
     cx, cy = (bed - w) / 2, (bed - h) / 2
@@ -1349,6 +1351,10 @@ def prime_tower_candidates(part_bounds, bed=None, tower=None, margin=None,
     least `spread` mm apart so a retry actually moves the tower.
     """
     bed = BED_MM if bed is None else bed
+    if tower is not None and float(tower) <= 0:
+        # A towerless plan (#832: the printer purges into its chute) has no tower to place, so
+        # there is no clearance to prove and nothing to search.
+        return []
     tower = TOWER_MM if tower is None else tower
     margin = TOWER_MARGIN_MM if margin is None else margin
 
@@ -1388,8 +1394,9 @@ def prime_tower_candidates(part_bounds, bed=None, tower=None, margin=None,
 
 
 def prime_tower_xy(part_bounds, bed=None, tower=None, margin=None):
-    """Best axis-aligned tower origin (the old fixed (15, 150) landed inside a stencil)."""
-    return prime_tower_candidates(part_bounds, bed=bed, tower=tower, margin=margin, limit=1)[0]
+    """Best axis-aligned tower origin (the old fixed (15, 150) landed inside a stencil); None when towerless."""
+    candidates = prime_tower_candidates(part_bounds, bed=bed, tower=tower, margin=margin, limit=1)
+    return candidates[0] if candidates else None
 
 
 def _identity_for_key(source, key):

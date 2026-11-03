@@ -146,7 +146,7 @@ goes. Print Handy reads it live and slices to match.
 
 | Value | ZMod behaviour | Print Handy |
 | --- | --- | --- |
-| `1` (default) | Purges into the trash chute on every colour change | Slices without a prime tower and reserves no tower room in the fit check (override with `purge.prime_tower`) |
+| `1` (default) | Purges into the trash chute on every color change | Slices without a prime tower and reserves no tower room in the fit check (override with `purge.prime_tower`) |
 | `0` (Nopoop) | No chute purge; the slicer purges into the prime tower | Slices with purge in the prime tower: tower type 2, by-layer sequence, no ramming, nozzle volume 144 mm³, 424 mm³ flush per colour change. OrcaSlicer only |
 | `2` | Slicer-controlled purge at the chute, from ZMod's own Orca profiles | Refused: Print Handy has no profile for it |
 

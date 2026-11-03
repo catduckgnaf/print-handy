@@ -1343,10 +1343,12 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         import copy
         purge_mode, purge_machine, purge_process = ifs_purge_settings(printer, state, len(mapping), purge_plan)
         machine.update({'single_extruder_multi_material': '1', 'change_filament_gcode': '', **purge_machine})
-        tower_x, tower_y = geometry['prime_tower_xy_mm']
-        tower_width = '%g' % tower_mm
-        process.update({'enable_prime_tower': '1', 'prime_tower_width': tower_width,
-                        'wipe_tower_x': str(tower_x), 'wipe_tower_y': str(tower_y), **purge_process})
+        process.update({'enable_prime_tower': '1', **purge_process})
+        if tower_mm:  # a towerless plan keeps the template's width; Orca range-checks it even when off
+            process['prime_tower_width'] = '%g' % tower_mm
+        if geometry.get('prime_tower_xy_mm'):
+            tower_x, tower_y = geometry['prime_tower_xy_mm']
+            process.update({'wipe_tower_x': str(tower_x), 'wipe_tower_y': str(tower_y)})
         if purge_plan is not None and purge_plan.zmod:
             geometry['purge_plan'] = purge_plan.as_dict()
         if purge_mode == 0:
