@@ -504,7 +504,9 @@ def scad_params(source: str) -> dict:
 
 
 def _format_number(value) -> str:
-    return f"{float(value):g}"
+    # 12 significant digits: enough for any value a person types, and
+    # never the 6-digit rounding (1234.5678 -> 1234.57) of a bare :g.
+    return f"{float(value):.12g}"
 
 
 def _set_scad_param(source: str, name: str, value) -> str | None:
@@ -577,9 +579,10 @@ def deterministic_param_edit(source, instruction):
     if match:
         delta = float(match.group(1))
         word = _RELATIVE_PARAMS[match.group(2).casefold()]
-        exact = next((key for key in params if key.casefold() == word), None)
-        candidates = [key for key in params if word in key.casefold()]
-        name = exact or (candidates[0] if len(candidates) == 1 else None)
+        # Only the exact height/width/length parameter: a name that merely
+        # contains the word ("hole_height") is a feature, not the part's
+        # overall size, so anything else takes the model path.
+        name = next((key for key in params if key.casefold() == word), None)
         if name is None:
             return None
         value = params[name] + delta
@@ -1090,6 +1093,9 @@ class DesignEngine:
                 result["param_changes"] = changes
                 return result
         old_params = scad_params(previous) if previous and not mesh else {}
+        # A first turn has no earlier source: every parameter would read as
+        # "(new)", which is noise, not a diff — report changes only after one.
+        had_previous = bool(previous)
         error = None
         attempts = 1 + self.repair_attempts
         last_error = ""
@@ -1109,7 +1115,7 @@ class DesignEngine:
             result, last_error = await asyncio.to_thread(
                 self._render_and_validate, session, source)
             if result is not None:
-                if not mesh:
+                if not mesh and had_previous:
                     # Name what the rewrite actually changed, so a model
                     # that quietly moved a dimension is visible (#841).
                     result["param_changes"] = param_changes(

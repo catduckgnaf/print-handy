@@ -359,3 +359,51 @@ def test_render_scad_error_keeps_the_first_error_line(tmp_path):
                                    runner=noisy_runner)
     assert ok is False
     assert "ERROR: the real problem is here" in error
+
+
+# --------------------------------------------------------------------- review fixes
+
+def test_first_model_turn_reports_no_parameter_changes(tmp_path, monkeypatch):
+    # Turn 1 has no earlier source, so a diff would list every parameter as
+    # "(new)"; that is noise, not a change the user needs to check.
+    monkeypatch.setattr(render_preview, "render_sheet",
+                        lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("no renderer")))
+    eng = engine(tmp_path, scripted([GOOD]))
+    session = eng.start_session("o", "c", "a plate")
+    result = run(eng.run_turn(session, "a plate"))
+    assert result["param_changes"] == []
+
+
+@pytest.mark.parametrize("value,written", [
+    ("1234.5678", "1234.5678"), ("0.125", "0.125"), ("5", "5"), ("123456789", "123456789"),
+])
+def test_named_edit_writes_the_value_without_rounding(value, written):
+    source = "width = 10;\ncube([width, 1, 1]);\n"
+    new_source, changes = design.deterministic_param_edit(source, f"set width to {value}")
+    assert f"width = {written};" in new_source
+    assert design.format_param_changes(changes) == [f"width: 10 → {written}"]
+
+
+@pytest.mark.parametrize("source,instruction", [
+    ("hole_height = 4;\nbase = 30;\ncube([10, 10, base]);\n", "make it 5 mm taller"),
+    ("wall_width = 2;\ncube([40, 20, 3]);\n", "make it 5 mm wider"),
+    ("screw_length = 12;\ncube([40, 20, 3]);\n", "make it 5 mm longer"),
+])
+def test_relative_edit_needs_an_exact_parameter_name(source, instruction):
+    # A parameter that merely contains the word is a feature, not the part's
+    # overall size: no deterministic edit, the model turn decides.
+    assert design.deterministic_param_edit(source, instruction) is None
+
+
+def test_relative_edit_without_exact_name_falls_back_to_the_model(tmp_path, monkeypatch):
+    monkeypatch.setattr(render_preview, "render_sheet",
+                        lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("no renderer")))
+    feature = "hole_height = 4;\nbase = 30;\ncube([10, 10, base]);\n"
+    taller = feature.replace("base = 30", "base = 35")
+    fake = scripted([feature, taller])
+    eng = engine(tmp_path, fake)
+    session = eng.start_session("o", "c", "a block")
+    run(eng.run_turn(session, "a block"))
+    result = run(eng.run_turn(session, "make it 5 mm taller"))
+    assert len(fake.calls) == 2  # the model was asked
+    assert result["param_changes"] == [("base", 30.0, 35.0)]
