@@ -103,8 +103,13 @@ def _store_mark(entry):
 class _Observer:
     """Classifies the start from the polled statuses alone, like _wait_printing does."""
 
-    def __init__(self, remote, prep_seen=False):
+    def __init__(self, remote, prep_seen=False, stale=None):
         self.remote, self.prep_seen = remote, prep_seen
+        # An error/cancelled job already on the printer when polling began (the generic route lets a
+        # start follow one) is not this start's outcome; only a terminal state that differs from it,
+        # or one reached after the printer left it, is. [state, filename], or None.
+        self.stale = list(stale) if stale else None
+        self._first = stale is None
 
     def see(self, status):
         """The settled outcome this status shows, or None while the start is still open."""
@@ -113,7 +118,15 @@ class _Observer:
         if state == "printing" and launch_state.same_remote(ps.get("filename"), self.remote):
             return "printing"
         if state in ("error", "cancelled"):
-            return state
+            key = [state, ps.get("filename")]
+            if self._first:
+                self.stale = key
+            self._first = False
+            if key != self.stale:
+                return state
+        else:
+            self._first = False
+            self.stale = None
         targets = []
         for name in ("extruder", "heater_bed"):
             try:
@@ -286,6 +299,11 @@ class StartRecorder:
                 return
             self.outcome = str(outcome)
             self.note("outcome", source="start_path", outcome=self.outcome, **fields)
+            if self.outcome in FIXTURES.values() and not self.observed and not self._closed:
+                # The start path saw the printer settle between two polls: hand off so the
+                # recording still captures the settled frame its outcome claims.
+                self._handoff()
+                return
             if self.outcome in SETTLED or self.observed or self._closed:
                 self._stop.set()
                 self._end("start path " + self.outcome)
@@ -298,7 +316,7 @@ class StartRecorder:
         with self._lock:
             self._stop.set()
             self._closed = True
-        state = {"prep_seen": self.observer.prep_seen,
+        state = {"prep_seen": self.observer.prep_seen, "stale": self.observer.stale,
                  "watermark": list(self.watermark) if self.watermark else None,
                  "samples": self.samples, "store_lines": self.store_lines, "outcome": self.outcome}
         # Written before the spawn: the follower reads this line to continue where this process stopped.
@@ -405,7 +423,8 @@ def follow(path, *, interval_s=None, store_after=None):
     rec.deadline_wall = float(header.get("deadline_wall") or time.time() + CAP_S)
     # CLOCK_MONOTONIC is system-wide on Linux, so t_s continues the print-now process's timeline.
     rec.t0 = float(header.get("mono") or time.monotonic()) - float(header.get("t_s") or 0)
-    rec.observer = _Observer(rec.remote, prep_seen=bool(state.get("prep_seen")))
+    rec.observer = _Observer(rec.remote, prep_seen=bool(state.get("prep_seen")), stale=state.get("stale"))
+    rec.observer._first = False  # the print-now process already took the first sample
     rec.zmod_version = "read"  # the print-now process already read (or tried to read) it
     rec.watermark = tuple(state["watermark"]) if state.get("watermark") else None
     if rec.watermark and isinstance(rec.watermark[1], list):
@@ -523,6 +542,13 @@ def _scrub_status(status, names):
     return status
 
 
+def _scrub_command(command, names):
+    """The start command with its file name replaced: SET_ZCOLOR FILENAME=... or print/start <file>."""
+    text = re.sub(r"FILENAME=(\S+)", lambda m: "FILENAME=" + names(m.group(1)), str(command or ""))
+    text = re.sub(r"(print/start\s+)(\S+)", lambda m: m.group(1) + names(m.group(2)), text)
+    return text or None
+
+
 def export_fixture(path, fixture, out_dir, *, force=False, first_name=1):
     """objects_query.<fixture>.json from a recording, in the fixture tree's shape.
 
@@ -535,9 +561,10 @@ def export_fixture(path, fixture, out_dir, *, force=False, first_name=1):
     lines = read_recording(path)
     summary = summarize(lines)
     wanted = FIXTURES[fixture]
-    if summary["outcome"] != wanted and not force:
-        raise SystemExit(f"REFUSED: this recording's outcome is {summary['outcome']!r}, not {wanted!r}, "
-                         f"so it is not a {fixture} recording. Pass --force to export it anyway.")
+    # The polled frames must themselves reach the outcome, not just the start path's own line.
+    if summary["observed_outcome"] != wanted and not force:
+        raise SystemExit(f"REFUSED: this recording's frames reach {summary['observed_outcome']!r}, not "
+                         f"{wanted!r}, so it is not a {fixture} recording. Pass --force to export it anyway.")
     names = _Names(first_name)
     frames = []
     for line in lines:
@@ -554,8 +581,7 @@ def export_fixture(path, fixture, out_dir, *, force=False, first_name=1):
     doc = {"recorded": {"date": recorded_on, "zmod_version": summary["zmod_version"],
                         "display_off": header.get("display_off"), "query": header.get("query"),
                         "interval_s": header.get("interval_s"), "outcome": summary["outcome"],
-                        "start_command": re.sub(r"FILENAME=\S+", lambda m: "FILENAME=" + names(m.group(0)[9:]),
-                                                str(header.get("command") or "")) or None,
+                        "start_command": _scrub_command(header.get("command"), names),
                         "delivery_suffix": header.get("delivery_suffix"),
                         "first_heater_target_s": summary["first_heater_target_s"],
                         "first_printing_s": summary["first_printing_s"]},

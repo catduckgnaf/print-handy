@@ -267,3 +267,41 @@ def test_export_writes_fixture_shaped_scrubbed_json(ad5x, tmp_path, recording_on
     # The CLI prints the README row the issue asks for.
     start_recorder.main(["export", str(path), "--fixture", "preparing", "--out", str(tmp_path / "cli")])
     assert (tmp_path / "cli" / "objects_query.preparing.json").is_file()
+
+
+def _status(state, filename="", target=0.0):
+    return {"print_stats": {"state": state, "filename": filename},
+            "extruder": {"target": target}, "heater_bed": {"target": 0.0}}
+
+
+def test_a_stale_terminal_job_before_the_start_is_not_this_starts_outcome():
+    seen = start_recorder._Observer("new.gcode")
+    # The previous job was cancelled; the generic route allows a start after it.
+    assert seen.see(_status("cancelled", "old.gcode")) is None
+    assert seen.see(_status("cancelled", "old.gcode", target=200)) is None
+    assert seen.see(_status("error", "new.gcode")) == "error"
+    again = start_recorder._Observer("new.gcode")
+    assert again.see(_status("cancelled", "old.gcode")) is None
+    assert again.see(_status("standby")) is None
+    assert again.see(_status("cancelled", "old.gcode")) == "cancelled"  # reached after leaving it
+
+
+def test_a_settled_outcome_without_a_settled_frame_is_handed_to_the_follower(tmp_path):
+    spawned = []
+    rec = start_recorder.StartRecorder(tmp_path / "r.jsonl", "http://printer.invalid", "a.gcode",
+                                       native=False, header={"command": "print/start a.gcode"},
+                                       spawn=lambda path: spawned.append(path))
+    rec.finish("printing")
+    kinds = [line["kind"] for line in lines_of(rec.path)]
+    assert spawned == [rec.path] and "handoff" in kinds
+    # Its frames never reached printing, so it is no "preparing" fixture.
+    with pytest.raises(SystemExit, match="frames reach None"):
+        start_recorder.export_fixture(rec.path, "preparing", tmp_path / "out")
+
+
+def test_a_generic_start_command_is_scrubbed():
+    names = start_recorder._Names()
+    text = start_recorder._scrub_command("print/start Confidential-Project.gcode", names)
+    assert "Confidential" not in text and text.startswith("print/start Replay-Part-1_plate_1_")
+    native = start_recorder._scrub_command("SET_ZCOLOR FILENAME=3mf_print/Secret.gcode.3mf", names)
+    assert "Secret" not in native and "FILENAME=3mf_print/Replay-Part-2_plate_1_" in native
