@@ -13,7 +13,7 @@ was developed (numbers in the PR body):
 """
 import pytest
 
-from print_handy.core import fuzzy
+from print_handy.core import fuzzy, fuzzy_vocabulary
 
 
 # ------------------------------------------------------------------- fold
@@ -311,3 +311,65 @@ def test_decide_grid():
     assert (tie.kind, tie.contenders) == ("suggest", ("a", "b"))
     # Ranking is stable: equal scores keep caller order (no coin flips).
     assert fuzzy.decide([(80, "b"), (80, "a")]).contenders == ("b", "a")
+
+
+# --------------------------------------------------- expanded vocabulary (1,000+)
+
+def test_expanded_vocabulary_scale_and_integrity():
+    total_entries = len(fuzzy_vocabulary.PHRASE_FORMS) + len(fuzzy_vocabulary.TOKEN_FORMS)
+    assert total_entries >= 1000, f"Expected at least 1,000 entries, found {total_entries}"
+    # Verify all phrase keys are lowercased tuples of non-empty strings
+    for (w1, w2), targets in fuzzy_vocabulary.PHRASE_FORMS.items():
+        assert w1 == w1.lower() and w1.strip() == w1 and w1
+        assert w2 == w2.lower() and w2.strip() == w2 and w2
+        assert isinstance(targets, tuple) and len(targets) >= 1
+    # Verify all token keys are lowercased strings
+    for k, v in fuzzy_vocabulary.TOKEN_FORMS.items():
+        assert k == k.lower() and k.strip() == k and k
+        assert isinstance(v, str) and v.strip() == v and v
+
+
+@pytest.mark.parametrize("query,target", [
+    # Brands and printer lines
+    ("bamboo lab", "bambu"),
+    ("bambu lab", "bambu"),
+    ("ender3v2", "ender 3 v2"),
+    ("k1max", "k1 max"),
+    ("coreone", "core one"),
+    ("prusaxl", "prusa xl"),
+    ("neptune4pro", "neptune 4 pro"),
+    ("saturn3", "saturn 3"),
+    ("kobra2", "kobra 2"),
+    ("sv08", "sv08"),
+    ("q1pro", "q1 pro"),
+    # Materials and filament brands
+    ("colorfabb", "colorfabb"),
+    ("polyflex", "polyflex"),
+    ("polymax", "polymax"),
+    ("toughpla", "tough pla"),
+    ("silkpla", "silk pla"),
+    ("carbonfiber", "carbon fiber"),
+    # Common mobile autocorrects and fat-finger typos
+    ("rebot", "reboot"),
+    ("restrt", "restart"),
+    ("resum", "resume"),
+    ("cancle", "cancel"),
+    ("pauze", "pause"),
+    ("staus", "status"),
+    ("slise", "slice"),
+    ("halp", "help"),
+    ("camra", "camera"),
+    ("disply", "display"),
+    ("connet", "connect"),
+    # Mechanical and slicing phrases
+    ("all metal", "allmetal"),
+    ("hardened steel", "hardenedsteel"),
+    ("direct drive", "directdrive"),
+    ("anti backlash", "antibacklash"),
+    ("treesupport", "tree support"),
+    ("bed temp", "bedtemperature"),
+    ("infilloverlap", "infill overlap"),
+])
+def test_expanded_vocabulary_matches(query, target):
+    assert fuzzy.fuzzy_score(query, target) >= fuzzy.FUZZY_FLOOR
+
