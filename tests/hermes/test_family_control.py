@@ -80,7 +80,9 @@ def test_resume_refuses_a_different_file_than_the_alert_names():
 def test_resume_reports_a_readback_that_never_prints():
     adapter, control = control_for([st("paused"), st("paused")])
     ok, text = control.resume(REMOTE, wait_s=0)
-    assert ok and "still reports paused" in text and "Not retrying" in text
+    # #837 bonus: the family mirror of print_control.resume must not call
+    # a resume that never took a success either.
+    assert not ok and "still reports paused" in text and "Not retrying" in text
     assert adapter.calls == ["resume"]
 
 

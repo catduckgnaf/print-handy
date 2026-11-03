@@ -1198,7 +1198,8 @@ def convert_stl_to_geometry_3mf(
     if center_bed is not None:
         bx, by = float(center_bed[0]), float(center_bed[1])
         if span[0] > bx + 1e-4 or span[1] > by + 1e-4:
-            raise ValueError('Assembly does not fit supplied XY bed. No scaling performed.')
+            raise ValueError(f'Assembly spans {span[0]:.1f} x {span[1]:.1f} mm; bed is {bx:g} x {by:g} mm. '
+                             'No scaling performed.')
         shift = [bx / 2.0 - (all_lo[0] + all_hi[0]) / 2.0, by / 2.0 - (all_lo[1] + all_hi[1]) / 2.0, -all_lo[2]]
 
     placed_objects = []

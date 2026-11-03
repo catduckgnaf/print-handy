@@ -412,6 +412,28 @@ class ThemeTests(unittest.TestCase):
         self.assertEqual(shell.theme_from_cookies(""), "dark")
         self.assertEqual(shell.theme_from_cookies(None), "dark")
 
+    def test_submit_script_restores_controls_on_a_bfcache_return(self):
+        # A page restored from the back/forward cache keeps the DOM as
+        # it was at submit time: submit buttons disabled, the clicked
+        # one still showing its busy label, and the hidden submitter
+        # mirror still in the form. The shared script must undo all
+        # three on a persisted pageshow, or e.g. Back to the
+        # Configuration page leaves "Preview changes" unusable.
+        script = shell.SUBMIT_SCRIPT
+        self.assertIn("pageshow", script)
+        self.assertIn("persisted", script)
+        self.assertIn("b.disabled=false", script)
+        # The clicked button's original label is saved before the
+        # busy label replaces it, and restored on the bfcache return.
+        self.assertIn("b.dataset.phLabel=b.textContent", script)
+        self.assertIn("b.textContent=b.dataset.phLabel", script)
+        # Injected submitter mirrors are marked at submit time and
+        # removed on the bfcache return, so a stale action value
+        # cannot be submitted twice.
+        self.assertIn("data-ph-mirror", script)
+        self.assertIn("input[data-ph-mirror]", script)
+        self.assertIn("h.remove()", script)
+
 
 class StatusOverallCardTests(unittest.TestCase):
     """The overall card derives only from the snapshot's own fields."""

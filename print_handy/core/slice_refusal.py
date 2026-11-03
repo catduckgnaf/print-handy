@@ -134,7 +134,7 @@ def assembly_cannot_split(colors, size_mm, bed_mm, message: str, reason: Any = N
     one_color = "choose One color for everything to print it in one color"
     if cause == "space":
         plain = f"{head} It does not leave room to print all of its colors on one plate. {tail}"
-        step = f"Make the model smaller in your slicer so it leaves room for the color tower, or {one_color}."
+        step = f"Make the model smaller in your slicer so all of its colors fit on one plate, or {one_color}."
     elif cause == "materials":
         plain = (f"{head} Its colors are set to materials that cannot print in one job. {tail}")
         step = f"Use colors from one material family for this model, or {one_color}."

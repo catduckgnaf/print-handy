@@ -777,3 +777,69 @@ def test_attached_model_wins_over_link_in_the_same_message(design_env, tmp_path)
     source_path, link_url = calls[0]
     assert source_path is not None and Path(source_path).name == "attached.stl"
     assert link_url is None
+
+
+# --------------------------------------------------------------------- #841: preview wording, params, baseline
+
+def _fake_result(session, tmp_path, **overrides):
+    session["turns"] = 1
+    result = {"session": session,
+              "scad_path": tmp_path / "turn-1.scad",
+              "stl_path": tmp_path / "turn-1.stl",
+              "preview_path": str(tmp_path / "turn-1.png"),
+              "preview_error": None,
+              "param_changes": [],
+              "geometry": {"dimensions_mm": [40.0, 20.0, 3.0],
+                           "abs_volume_mm3": 2400.0, "shell_count": 1,
+                           "watertight": True, "manifold": True}}
+    result.update(overrides)
+    return result
+
+
+def test_no_preview_post_names_the_reason_and_still_states_dimensions(design_env, tmp_path):
+    async def fake_run_turn(self, session, instruction):
+        return _fake_result(session, tmp_path, preview_path=None,
+                            preview_error="openscad not on PATH")
+
+    adapter = FakeAdapter()
+    with mock.patch.object(design.DesignEngine, "run_turn", fake_run_turn):
+        out = _dispatch("/print-design a plate", adapter, scripted([GOOD]),
+                        design.CANCEL_LABEL)
+    assert out["reason"] == "design cancelled"
+    post = next(content for content in adapter.sent if "Design turn 1" in content)
+    assert "(No preview: openscad not on PATH. Check the dimensions above before slicing.)" in post
+    assert "40 × 20 × 3" in post  # the measured dimensions are on the card regardless
+    assert "(No preview could be rendered" not in post
+
+
+def test_turn_post_lists_the_changed_parameters(design_env, tmp_path):
+    async def fake_run_turn(self, session, instruction):
+        return _fake_result(session, tmp_path,
+                            param_changes=[("plate_z", 3.0, 5.0)])
+
+    adapter = FakeAdapter()
+    with mock.patch.object(design.DesignEngine, "run_turn", fake_run_turn):
+        _dispatch("/print-design a plate", adapter, scripted([GOOD]), design.CANCEL_LABEL)
+    post = next(content for content in adapter.sent if "Design turn 1" in content)
+    assert "plate_z: 3 → 5" in post
+
+
+def test_dropped_file_with_no_instruction_uses_the_baseline_turn(design_env, tmp_path):
+    calls = []
+
+    async def fake_run_turn(self, session, instruction):
+        calls.append("run_turn")
+        raise AssertionError("an empty instruction must not run a model turn")
+
+    def fake_baseline(self, session):
+        calls.append("baseline")
+        return _fake_result(session, tmp_path)
+
+    adapter = FakeAdapter()
+    with mock.patch.object(design.DesignEngine, "run_turn", fake_run_turn), \
+            mock.patch.object(design.DesignEngine, "baseline_turn", fake_baseline):
+        out = _dispatch_event(
+            _media_event("/print-design", _plate_stl(tmp_path)),
+            adapter, scripted([EDIT_BODY]), design.CANCEL_LABEL)
+    assert out["reason"] == "design cancelled"
+    assert calls == ["baseline"]

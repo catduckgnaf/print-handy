@@ -474,6 +474,32 @@ def resolve(printer, outcome):
     return out
 
 
+def release_abandoned(printer, filename):
+    """Release a submitting/uncertain lease whose start the printer abandoned (#836, #848 review).
+
+    The listener calls this only after the abandoned-start watch saw the printer sit in
+    standby/error with both heaters cold for ABANDONED_START_COLD_S without ever printing the
+    claimed file: the same answer an operator gives with ``reconcile-launch --not-started``,
+    from evidence they would look at. Without it every later start was refused until someone
+    ran that command, which a chat user cannot. Only the lease for that exact file is touched,
+    never a ``leased`` row. Returns the released row, or None.
+    """
+    if not filename:
+        return None
+    printer = printer or settings.default_printer_id()
+    if not os.environ.get("PRINT_HANDY_LAUNCH_DB") and not (settings.printer_state_dir(printer) / "jobs.db").is_file():
+        return None
+    with transaction(printer) as con:
+        row = con.execute("SELECT * FROM leases WHERE printer=?", (printer,)).fetchone()
+        if row is None or row["phase"] == "leased" or not same_remote(filename, row["remote"]):
+            return None
+        if row["phase"] == "submitting" and _owner_alive(row, unknown=False):
+            return None  # print-now is still deciding this start; it settles its own lease
+        con.execute("DELETE FROM leases WHERE printer=? AND token=?", (printer, row["token"]))
+        con.execute("DELETE FROM lease_baselines WHERE printer=?", (printer,))
+    return dict(row, reconciled="not_started", reconciled_at=_now())
+
+
 # A printer clock this far from the host's is "off": history start times can no longer be compared
 # with the lease time directly, and the operator is warned (never blocked).
 CLOCK_SKEW_WARN_S = 300
@@ -512,18 +538,33 @@ def clock_warning(skew):
             "reboot it.")
 
 
-def sync_printer_clock(moonraker_url, tz_name, *, now=None, log=None):
-    """Set an idle ZMOD printer's clock when it is far off, then read it back. Returns a short outcome.
+# DATE_SET takes local time in the printer's own zone (ZMod's SET_TIMEZONE, default
+# Asia/Yekaterinburg), which need not be the operator's. The zone gap learned from a
+# readback, per Moonraker URL, so later syncs land right the first time.
+_CLOCK_ZONE_GAP_S = {}
+# A residual this close to a whole quarter hour, and no larger than any two real zones can
+# differ by, is the printer reading the stamp in another zone rather than a failed set.
+_ZONE_STEP_S = 900
+_ZONE_TOLERANCE_S = 120
+_MAX_ZONE_GAP_S = 26 * 3600  # two zones differ by at most UTC+14 minus UTC-12
 
-    ZMOD printers lose their clock on every power cycle and can take a long time to resync. Only
-    acts when the skew is at least CLOCK_SKEW_WARN_S, and only when Moonraker reports a fully idle
-    printer (standby, no file, SD card not active). Uses the same DATE_SET macro an operator would.
-    Never raises; PRINT_HANDY_CLOCK_SYNC=0 turns it off. Outcomes: off, ok, skipped:<why>, failed:<why>.
+
+def sync_printer_clock(moonraker_url, tz_name, *, now=None, log=None):
+    """Make an idle ZMOD printer's clock match this host's: Print Handy is the time source.
+
+    ZMOD printers lose their clock on every power cycle (ZMod sets 2026-01-01 at boot) and
+    only recover when NTP answers in the first minutes after boot, which an offline or
+    UDP-123-filtered printer never gets. Only acts when the skew is at least
+    CLOCK_SKEW_WARN_S, and only when Moonraker reports a fully idle printer (standby, no
+    file, SD card not active). Uses the same DATE_SET macro an operator would, in tz_name;
+    when the readback is off by a whole time-zone gap (the printer's own zone differs), it
+    sets once more corrected by that gap and remembers it. Never raises;
+    PRINT_HANDY_CLOCK_SYNC=0 turns it off. Outcomes: off, ok, skipped:<why>, failed:<why>.
     """
     import json
     import urllib.parse
     import urllib.request
-    from datetime import datetime
+    from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
     say = log or (lambda m: None)
     if os.environ.get("PRINT_HANDY_CLOCK_SYNC", "1").strip().lower() in ("0", "false", "no", "off"):
@@ -534,20 +575,35 @@ def sync_printer_clock(moonraker_url, tz_name, *, now=None, log=None):
         return "skipped:clock unreadable"
     if abs(skew) < CLOCK_SKEW_WARN_S:
         return "ok"
+
+    def set_clock(gap):
+        # The gap is between two zones' wall clocks, so shift the local wall time, not the
+        # instant: across a DST change in tz_name the instant's offset would differ by an hour.
+        local = datetime.fromtimestamp(now if now is not None else time.time(), ZoneInfo(tz_name))
+        stamp = (local.replace(tzinfo=None) + timedelta(seconds=gap)).strftime("%Y.%m.%d-%H:%M:%S")
+        req = urllib.request.Request(base + "/printer/gcode/script?" + urllib.parse.urlencode({"script": f"DATE_SET DT={stamp}"}),
+                                     data=b"", method="POST")
+        urllib.request.urlopen(req, timeout=20).read()
+        time.sleep(2)
+        return stamp, printer_clock_skew(base)
+
     try:
         with urllib.request.urlopen(base + "/printer/objects/query?print_stats&virtual_sdcard", timeout=8) as r:
             st = json.load(r)["result"]["status"]
         ps, sd = st.get("print_stats") or {}, st.get("virtual_sdcard") or {}
         if ps.get("state") != "standby" or ps.get("filename") or sd.get("is_active"):
             return "skipped:printer not idle"
-        stamp = datetime.fromtimestamp(now if now is not None else time.time(), ZoneInfo(tz_name)).strftime("%Y.%m.%d-%H:%M:%S")
-        req = urllib.request.Request(base + "/printer/gcode/script?" + urllib.parse.urlencode({"script": f"DATE_SET DT={stamp}"}),
-                                     data=b"", method="POST")
-        urllib.request.urlopen(req, timeout=20).read()
-        time.sleep(2)
-        after = printer_clock_skew(base)
+        gap = _CLOCK_ZONE_GAP_S.get(base, 0.0)
+        stamp, after = set_clock(gap)
+        if after is not None and abs(after) >= CLOCK_SKEW_WARN_S:
+            zone = round(after / _ZONE_STEP_S) * _ZONE_STEP_S
+            if zone and abs(after - zone) < _ZONE_TOLERANCE_S and abs(gap + zone) <= _MAX_ZONE_GAP_S:
+                gap += zone
+                stamp, after = set_clock(gap)
         if after is not None and abs(after) < CLOCK_SKEW_WARN_S:
-            say(f"printer clock was {abs(skew) / 86400:.1f} day(s) off; set it to {stamp} ({tz_name}) and verified")
+            _CLOCK_ZONE_GAP_S[base] = gap
+            zone_note = f", printer zone differs by {gap / 3600:+g} h" if gap else ""
+            say(f"printer clock was {abs(skew) / 86400:.1f} day(s) off; set it to {stamp} ({tz_name}{zone_note}) and verified")
             return "ok"
         return "failed:clock still off after DATE_SET"
     except Exception as exc:
