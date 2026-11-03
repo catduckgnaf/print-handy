@@ -287,6 +287,10 @@ async def _await_background_slice(runner, binding):
 # long phase, at most once per FIT_FALLBACK_HEARTBEAT_S.
 FIT_HEARTBEAT_S = 15.0
 FIT_FALLBACK_HEARTBEAT_S = 60.0
+# A fit check that settles this fast posts no status at all: the prefetched probe (#734) is
+# usually a second or two behind a quick color answer, and a status that appears and is
+# replaced at once is noise (2026-11-03).
+FIT_QUIET_S = 3.0
 
 # Start progress (#734): print-now runs as a child process and its result arrives only at
 # the end, while a real start spends 25-75 s between the tap and that result (the start
@@ -365,13 +369,20 @@ class FitStatus:
         """Await ``work`` while the status names ``phase`` and the time spent so far.
 
         ``work`` may be a task started earlier (:func:`_prefetch`); when it has already
-        finished there is nothing to wait for, so no status line is posted at all.
+        finished, or finishes within FIT_QUIET_S while no status is showing yet, no status
+        line is posted at all.
         """
         task = asyncio.ensure_future(work)
         if task.done():
             return task.result()
-        await self.show(first_text or f'Checking the fit: {phase} ({self.elapsed()}).')
         try:
+            if self.last_text is None and FIT_QUIET_S > 0:
+                # Nothing shown yet: give a nearly finished check a moment before announcing it.
+                # Inside the try, so a cancelled intake still cancels the worker below.
+                await asyncio.wait({task}, timeout=FIT_QUIET_S)
+                if task.done():
+                    return task.result()
+            await self.show(first_text or f'Checking the fit: {phase} ({self.elapsed()}).')
             while True:
                 done, _ = await asyncio.wait({task}, timeout=FIT_HEARTBEAT_S)
                 if done:
