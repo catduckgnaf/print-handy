@@ -4382,6 +4382,44 @@ def _painted_tower_mm(state):
     return 0.0 if plan.zmod and plan.towerless else None
 
 
+def painted_plate_layout(src, view, object_ids, scale, tower_mm=None):
+    """Measured layout of one painted plate at ``scale``, or None when unmeasurable.
+
+    Display only, for fit-refusal wording (#839): the parts' extent and the
+    prime tower footprint the fit reserves (tower_mm None when the printer
+    needs no tower, #832). A failed measurement is not a fit verdict, so
+    every failure returns None and the caller words the refusal without
+    measured numbers.
+    """
+    import tempfile
+    from .color_geometry import export_color_geometry
+    try:
+        with tempfile.TemporaryDirectory(prefix='painted-layout-') as tmp:
+            # Measure towerless (#839): the part bounds do not depend on
+            # tower placement, but the export raises when no tower position
+            # clears the parts — exactly the no-fit case this measurement
+            # exists to explain. The tower size is reported from tower_mm
+            # below, not from a placement that may not exist.
+            _, geometry = export_color_geometry(src, Path(tmp) / 'g.3mf', view,
+                                                object_ids=object_ids, scale=scale, tower_mm=0.0)
+    except Exception:
+        return None
+    bounds = geometry.get('build_bounds_mm') or []
+    if len(bounds) < 2:
+        return None
+    try:
+        extent = [round(float(bounds[a][1]) - float(bounds[a][0]), 1) for a in range(2)]
+    except (TypeError, ValueError, IndexError):
+        return None
+    tower = None
+    if tower_mm is None:
+        from .color_geometry import effective_tower_mm
+        tower = float(effective_tower_mm())
+    elif float(tower_mm) > 0:
+        tower = float(tower_mm)
+    return {'extent_mm': extent, 'tower_mm': tower, 'scale': float(scale)}
+
+
 def painted_fit(src, view, plates, ceiling=1.0, tower_mm=None):
     """One shared scale for every authored plate of a painted source."""
     scale, blocking = ceiling, None
@@ -4389,7 +4427,11 @@ def painted_fit(src, view, plates, ceiling=1.0, tower_mm=None):
         ids = {str(o) for o in plate['object_ids']}
         fitted = painted_plate_scale(src, view, ids, scale, tower_mm)
         if fitted is None:
-            return {'scale': None, 'blocking_plate': plate['id'], 'plates': len(plates)}
+            result = {'scale': None, 'blocking_plate': plate['id'], 'plates': len(plates)}
+            layout = painted_plate_layout(src, view, ids, PAINTED_SCALE_STEPS[-1], tower_mm)
+            if layout is not None:
+                result['blocking_layout'] = layout
+            return result
         if fitted < scale:
             scale, blocking = fitted, plate['id']
     return {'scale': scale, 'blocking_plate': blocking, 'plates': len(plates)}
@@ -5848,14 +5890,28 @@ def intake_spool_projection(job, spool_weights, manifest=None, copies=1):
     return rows
 
 
+class IntakeSpoolWeights(dict):
+    """Spool weights plus whether the live Spoolman fetch failed (#839).
+
+    A plain dict for every existing reader; ``fetch_failed`` carries the
+    availability signal alongside the fallback weights, so a caller can
+    tell amounts that came from a live check from amounts that came from
+    the cached slot record after Spoolman did not answer.
+    """
+
+    fetch_failed = False
+
+
 def intake_spool_weights(state, spool_ids, fetch=None):
     """Currently available grams per Spoolman ID: Spoolman first, then the slot record, else absent.
 
-    Display only. Never raises; an unreachable Spoolman just falls back.
+    Display only. Never raises; an unreachable Spoolman just falls back,
+    and the returned weights carry ``fetch_failed`` so the fallback is
+    never mistaken for a live check (#839).
     """
     slots = {s.get('spoolman_id'): s for s in ((state or {}).get('filament_slots') or {}).values()
              if isinstance(s, dict) and s.get('spoolman_id') is not None}
-    weights = {}
+    weights = IntakeSpoolWeights()
     for sid in spool_ids:
         grams = None
         if fetch is not None and isinstance(sid, int) and not isinstance(sid, bool):
@@ -5865,6 +5921,7 @@ def intake_spool_weights(state, spool_ids, fetch=None):
                     grams = float(rem)
             except Exception:
                 grams = None
+                weights.fetch_failed = True
         if grams is None:
             rem = (slots.get(sid) or {}).get('remaining_grams')
             if isinstance(rem, (int, float)) and not isinstance(rem, bool) and rem >= 0:
@@ -6610,6 +6667,23 @@ def accepted_color_mismatches(job, gcode_sha256):
     return frozenset(str(key) for key in accepted.get('slots') or [])
 
 
+def label_mismatch_key(slot, shown_label, shown_recorded):
+    """The one slot material-label difference a Print anyway acknowledgement names (#839)."""
+    return f"{slot}:{shown_label}:{shown_recorded}"
+
+
+def accepted_label_mismatches(job, gcode_sha256):
+    """Slot material-label differences the operator chose to print anyway, for this exact G-code only.
+
+    The label analog of accepted_color_mismatches (#795): same binding —
+    the exact G-code's SHA, consumed by the caller before the start POST.
+    """
+    accepted = (job or {}).get('label_mismatch_accepted') or {}
+    if not gcode_sha256 or accepted.get('gcode_sha256') != gcode_sha256:
+        return frozenset()
+    return frozenset(str(key) for key in accepted.get('slots') or [])
+
+
 def _check_mapped_slot_color(slot, tool, live_raw, expected, accepted=frozenset(), found=None):
     """The printer screen's slot color against the recorded one, before a mapped launch.
 
@@ -6700,7 +6774,9 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
     label_matches = adapter.native.screen_label_matches
     mapped = normalize_mapping(mapping, st)
     accepted_colors = accepted_color_mismatches(job, file_sha256(g))
+    accepted_labels = accepted_label_mismatches(job, file_sha256(g))
     color_found = []  # every unacknowledged slot color difference, refused together below (#795)
+    found_segments = []  # color and label differences in slot order, for the one combined refusal
     for tool, slot in mapped.items():
         expected = st['filament_slots'][str(slot)]
         matches = [item for item in configured if str(item.get('ID')) == str(slot)]
@@ -6711,19 +6787,31 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
                              "Nothing uploaded or started.")
         label = matches[0].get('Material')
         if not label_matches(label, expected['material']):
-            raise SystemExit(f"REFUSED: printer slot {slot} is labeled {label or 'blank'} but Spoolman has "
-                             f"{expected['material']} there (T{tool}). Nothing uploaded or started.")
+            # A stale or blank native label gets the #795 ask-once treatment
+            # too (#839): collected here, refused once with the color
+            # differences below, and waived only by a Print anyway recorded
+            # for this exact G-code.
+            shown_label = label or 'blank'
+            if label_mismatch_key(slot, shown_label, expected['material']) in accepted_labels:
+                print(f"WARNING: printer slot {slot} is labeled {shown_label} but Spoolman has "
+                      f"{expected['material']} there (T{tool}); the operator chose Print anyway "
+                      "for this G-code.", flush=True)
+            else:
+                found_segments.append(f"printer slot {slot} is labeled {shown_label} but Spoolman has "
+                                      f"{expected['material']} there (T{tool})")
+        before = len(color_found)
         _check_mapped_slot_color(slot, tool, matches[0].get('HEX'), expected, accepted_colors, color_found)
+        for c_slot, c_tool, live, recorded in color_found[before:]:
+            found_segments.append(f"printer slot {c_slot} color is {live} but Spoolman has "
+                                  f"{recorded} there (T{c_tool})")
         if occupancy.get(slot) is not True:
             # Operator-confirmed loaded feeders supersede idle false occupancy,
             # never unknown telemetry or an actual native error/activity.
             if occupancy.get(slot) is not False or expected.get('physical_loading_verified') is not True:
                 raise RuntimeError(f'T{tool} slot {slot} occupancy is unknown or unconfirmed')
-    if color_found:
+    if found_segments:
         # One refusal naming every mismatched slot, so the intake asks once (#795).
-        raise SystemExit('REFUSED: ' + '; '.join(
-            f"printer slot {slot} color is {live} but Spoolman has {recorded} there (T{tool})"
-            for slot, tool, live, recorded in color_found) + '. Nothing uploaded or started.')
+        raise SystemExit('REFUSED: ' + '; '.join(found_segments) + '. Nothing uploaded or started.')
     sha = file_sha256(g)
     remote = remote_name(g, sha, job)
     upload_path, upload_sha, remote, delivery = _zmod_upload_artifact(adapter, st, g, sha, remote)

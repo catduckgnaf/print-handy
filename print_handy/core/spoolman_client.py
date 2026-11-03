@@ -54,7 +54,14 @@ class SpoolmanUnavailable(RuntimeError):
 
     The message is the underlying transport/HTTP error's message, so
     existing warning text built from it stays accurate (#235/#240).
+    ``status`` carries the HTTP status when Spoolman answered with one
+    (None for a timeout, a refused connection, or "not configured"), so
+    callers can tell a 404 — no such record — from an outage (#839).
     """
+
+    def __init__(self, message: str = "", *, status: int | None = None):
+        super().__init__(message)
+        self.status = status
 
 
 def _resolve_base(base_url: str | None) -> str:
@@ -97,7 +104,8 @@ def request(method: str, path: str, body: Any = None, *,
         from .. import diagnostics
         logger.warning("Spoolman %s %s failed: %s [%s]", method, path, exc,
                        diagnostics.marker("spoolman", diagnostics.classify(exc)))
-        raise SpoolmanUnavailable(str(exc) or type(exc).__name__) from exc
+        raise SpoolmanUnavailable(str(exc) or type(exc).__name__,
+                                  status=getattr(exc, 'code', None)) from exc
 
 
 def call(method: str, path: str, body: Any = None, *,

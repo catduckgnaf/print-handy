@@ -225,3 +225,70 @@ class MultiPlateFitFailureTests(unittest.TestCase):
             with mock.patch.object(mj, 'plate_manifest', return_value={'plates': [{'object_ids': [1]}]}):
                 with self.assertRaises(RuntimeError):
                     oa._multi_plate_capacity(source, {'bed_mm': [220, 220], 'max_print_height_mm': 220})
+
+
+class TestScaleSearches(unittest.TestCase):
+    def test_fraction_is_of_the_converted_size_with_a_half_floor(self):
+        from unittest.mock import patch
+        from print_handy.core import orca_adapter as oa
+        probed = []
+
+        def capacity(source, state, scale=1.0, **kw):
+            probed.append(scale)
+            return 1 if scale <= 25.4 * 0.86 else 0
+
+        with patch.object(oa, 'orca_plate_capacity', capacity):
+            # An inch size that fits at 86%: probes run at 25.4 x fraction.
+            self.assertEqual(oa.largest_fitting_fraction('src', {}, 25.4, copy_limit=1), 0.86)
+        self.assertTrue(all(s <= 25.4 for s in probed))
+        with patch.object(oa, 'orca_plate_capacity', lambda s, st, scale=1.0, **kw: 0):
+            self.assertIsNone(oa.largest_fitting_fraction('src', {}, 25.4, copy_limit=1))
+
+    def test_painted_fit_reports_the_blocking_plate_layout(self):
+        from unittest.mock import patch
+        from print_handy.core import color_geometry, model_job as mj
+
+        def export(src, out, view, object_ids=None, scale=1.0, tower_mm=None):
+            return None, {'parts': [{'bounds_mm': [[0, 500 * scale], [0, 100 * scale], [0, 10]]}],
+                          'build_bounds_mm': [(0.0, 500 * scale), (0.0, 100 * scale), (0.0, 10.0)]}
+
+        with patch.object(color_geometry, 'export_color_geometry', export):
+            fit = mj.painted_fit('src', None, [{'id': 1, 'object_ids': ['1']}])
+        self.assertIsNone(fit['scale'])
+        # Measured at the 50% floor: the size that still did not fit.
+        self.assertEqual(fit['blocking_layout']['extent_mm'], [250.0, 50.0])
+        self.assertEqual(fit['blocking_layout']['scale'], 0.5)
+        self.assertGreater(fit['blocking_layout']['tower_mm'], 0)
+
+    def test_painted_fit_layout_is_measured_without_a_fitting_tower(self):
+        from unittest.mock import patch
+        from print_handy.core import color_geometry, model_job as mj
+
+        def export(src, out, view, object_ids=None, scale=1.0, tower_mm=None):
+            # The real export raises when no prime tower position clears
+            # the parts; a towerless measurement of the same parts succeeds
+            # and carries the same bounds.
+            if tower_mm != 0:
+                raise RuntimeError('no prime tower position clears every part')
+            return None, {'parts': [{'bounds_mm': [[0, 500 * scale], [0, 100 * scale], [0, 10]]}],
+                          'build_bounds_mm': [(0.0, 500 * scale), (0.0, 100 * scale), (0.0, 10.0)]}
+
+        with patch.object(color_geometry, 'export_color_geometry', export):
+            fit = mj.painted_fit('src', None, [{'id': 1, 'object_ids': ['1']}])
+        self.assertIsNone(fit['scale'])
+        # The tower-blocked no-fit case still reports its measured extent
+        # and the tower size it could not place.
+        self.assertEqual(fit['blocking_layout']['extent_mm'], [250.0, 50.0])
+        self.assertGreater(fit['blocking_layout']['tower_mm'], 0)
+
+    def test_painted_fit_without_a_measurable_layout_omits_it(self):
+        from unittest.mock import patch
+        from print_handy.core import color_geometry, model_job as mj
+
+        def broken(src, out, view, object_ids=None, scale=1.0, tower_mm=None):
+            raise RuntimeError('mesh parse exploded')
+
+        with patch.object(color_geometry, 'export_color_geometry', broken):
+            fit = mj.painted_fit('src', None, [{'id': 1, 'object_ids': ['1']}])
+        self.assertIsNone(fit['scale'])
+        self.assertNotIn('blocking_layout', fit)

@@ -37,15 +37,18 @@ from .slice_recipe import RECIPE_VERSION, binding_sha256  # noqa: E402
 
 _OFFLOAD = {('model_job', 'audit'), ('model_job', 'slice_job'), ('source_colors', 'inventory'),
             ('orca_adapter', 'orca_plate_capacity'), ('orca_adapter', 'fit_options'),
+            ('orca_adapter', 'largest_fitting_fraction'),
             ('model_job', 'per_part_fit_options'), ('plate_merge', 'full_size_split_possible'),
             ('geometry_layout', 'inspect_geometry'), ('geometry_layout', 'arrange_and_export'),
             ('geometry_layout', 'probe_single_plate_rearrange'), ('model_job', 'full_size_one_plate'),
             ('cad_split', 'check_source_against_split_plan'), ('cad_split', 'prepare_cad_split'),
             ('model_parts', 'combine')}
 # Steps that run the slicer share one lane; the geometry-only steps share a small general lane.
-_SLICER_STEPS = {('model_job', 'slice_job'), ('orca_adapter', 'orca_plate_capacity'), ('orca_adapter', 'fit_options')}
+_SLICER_STEPS = {('model_job', 'slice_job'), ('orca_adapter', 'orca_plate_capacity'), ('orca_adapter', 'fit_options'),
+                 ('orca_adapter', 'largest_fitting_fraction')}
 _STEP_LABELS = {'slice_job': 'slicing', 'audit': 'the model check', 'inventory': 'the color check',
                 'orca_plate_capacity': 'the bed fit check', 'fit_options': 'the bed fit check',
+                'largest_fitting_fraction': 'the bed fit check',
                 'per_part_fit_options': 'the per-part fit check', 'full_size_split_possible': 'the split check',
                 'inspect_geometry': 'the geometry check', 'arrange_and_export': 'the layout',
                 'probe_single_plate_rearrange': 'the layout check', 'combine': 'combining the files',
@@ -145,7 +148,7 @@ def _color_prompt_follows(refusal_context, tail):
 
     Only then is the Retry refusal text held back; when no question follows (the last round), the
     refusal keeps its guidance plus Retry like any other pre-upload refusal."""
-    return bool(refusal_context.get('color_prompt') and color_confirm(tail))
+    return bool(refusal_context.get('color_prompt') and (color_confirm(tail) or label_confirm(tail)))
 
 
 async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=False, refusal_context=None):
@@ -1027,8 +1030,71 @@ def _fit_failure(job, capacity):
         plate = str(source.get('title') or source.get('name') or 'selected source')
     else:
         plate = str(source or 'selected source')
-    return (f'{model} using {plate} does not fit on one {_printer_name(job)} plate: calculated capacity is {capacity} copy with '
+    # Name the measured extent against the usable area, so the operator can
+    # tell whether the model is over by 2 mm or 80 mm (#839).
+    measured = ''
+    dims = audit_dimensions(job)
+    if dims:
+        hardware = job.get('hardware') if isinstance(job.get('hardware'), dict) else {}
+        bed = hardware.get('bed_mm') or BED
+        measured = (f" ({dims[0]:g} x {dims[1]:g} mm vs usable {float(bed[0]) - 16:g} x "
+                    f"{float(bed[1]) - 16:g} mm)")
+    return (f'{model} using {plate} does not fit on one {_printer_name(job)} plate{measured}: calculated capacity is {capacity} copy with '
             '10 mm spacing and 8 mm edge margins. Choose a smaller profile, split it into plates, or scale it down.')
+
+
+def _painted_no_fit_detail(fit, state):
+    """The measured size sentence for a real painted no-fit (#839).
+
+    Uses the blocking plate's layout measured at the 50% floor by
+    painted_fit_for_job; when no measurement exists, says so instead of
+    inventing numbers.
+    """
+    layout = fit.get('blocking_layout') or {}
+    extent = layout.get('extent_mm')
+    if not extent or len(extent) < 2:
+        return ' I could not measure the plate layout, so no measured size is available for this refusal.'
+    bed = (state or {}).get('bed_mm') or BED
+    detail = (f" Even at 50%, the plate that blocks it measures {float(extent[0]):g} x "
+              f"{float(extent[1]):g} mm")
+    tower = layout.get('tower_mm')
+    if tower:
+        detail += f" plus a {float(tower):g} x {float(tower):g} mm prime tower"
+    return detail + f"; the usable area is {float(bed[0]):g} x {float(bed[1]):g} mm."
+
+
+def _unit_oversize_reply(text, rows):
+    """Typed answers for the oversize-inch question: mm, scale (or its percent), or cancel."""
+    value = str(text or '').strip().casefold()
+    if value in {'mm', 'millimeter', 'millimeters', 'use mm', 'use mm instead', 'millimeters instead'}:
+        matches = [i for i, row in enumerate(rows) if row['kind'] == 'mm']
+    elif value in {'scale', 'shrink', 'smaller', 'scale it', 'scale to fit'}:
+        matches = [i for i, row in enumerate(rows) if row['kind'] == 'scale']
+    elif re.fullmatch(r'\d+(?:\.\d+)?\s*%', value):
+        percent = float(value.rstrip('%').strip())
+        matches = [i for i, row in enumerate(rows)
+                   if row['kind'] == 'scale' and abs(row['scale'] * 100 - percent) < 0.06]
+    elif value in {'cancel', 'stop', "don't print"}:
+        matches = [i for i, row in enumerate(rows) if row['kind'] == 'cancel']
+    else:
+        return None
+    if len(matches) != 1:
+        raise ValueError('that choice is not available; choose a listed button')
+    return matches[0]
+
+
+def _retry_choice_reply(text, rows):
+    """Typed answers for a Retry/Cancel question: 'retry'/'try again' or 'cancel'."""
+    value = str(text or '').strip().casefold()
+    if value in {'retry', 'try again', 'retry fit check'}:
+        matches = [i for i, row in enumerate(rows) if row['kind'] == 'retry']
+    elif value in {'cancel', 'stop', "don't print"}:
+        matches = [i for i, row in enumerate(rows) if row['kind'] == 'cancel']
+    else:
+        return None
+    if len(matches) != 1:
+        raise ValueError('that choice is not available; choose a listed button')
+    return matches[0]
 
 
 MODEL_FILE_EXTS = {'.3mf', '.stl'}
@@ -1227,9 +1293,28 @@ async def _spool_projection_text(mj, job, manifest, state, copies):
                 return spool_lifecycle.fetch_spoolman_spool(sid, base_url=base)
         weights = await _heavy(mj.intake_spool_weights, state, ids, fetch)
         rows = mj.intake_spool_projection(job, weights, manifest, copies=copies)
-        return mj.format_spool_projection(
+        text = mj.format_spool_projection(
             rows, position_noun='Toolhead' if mj._job_adapter(job).multi_tool else 'Slot')
+        if getattr(weights, 'fetch_failed', False):
+            # The amounts above fell back to the slot record because
+            # Spoolman did not answer (#839): say so on the same post, or
+            # cached amounts read as a live check that found enough.
+            note = ("Spoolman didn't answer, so the amounts above are the last recorded "
+                    "ones, not a live check.")
+            text = f'{text}\n{note}' if text else note
+        return text
     except Exception:
+        # Fail soft (#387) but not silently (#839): when Spoolman is
+        # configured, the operator hears the check was skipped instead of
+        # mistaking a missing line for "enough filament". Installs without
+        # Spoolman stay quiet.
+        try:
+            from .printer_state import spoolman_url
+            if spoolman_url(state):
+                return ("Filament check skipped: Spoolman didn't answer, so the spool amounts were "
+                        "not checked (spool tracking skipped for this job; the print can still start).")
+        except Exception:
+            pass
         return ''
 
 
@@ -1473,6 +1558,53 @@ def clear_color_acceptance(job_json):
     from . import model_job as mj
     job = json.loads(Path(job_json).read_text())
     if job.pop('color_mismatch_accepted', None) is not None:
+        mj.write_job(Path(job_json).parent, job)
+
+
+_CONFIRM_LABEL = re.compile(r'printer slot (\d+) is labeled (.+?) but Spoolman has (.+?) there \(T(\d+)\)')
+
+
+def label_confirm(tail):
+    """Every slot material-label difference print-now stopped on before upload, in slot order ([] if none) (#839)."""
+    raw = _raw_preupload_refusal(tail)
+    if not raw.startswith('REFUSED:'):
+        return []
+    return [{'slot': int(m[1]), 'live': m[2], 'recorded': m[3], 'tool': int(m[4])}
+            for m in _CONFIRM_LABEL.finditer(raw)]
+
+
+def label_confirm_question(confirms):
+    lines = [f"slot {c['slot']} (T{c['tool']}): the screen label says {c['live']}, "
+             f"Spoolman has {c['recorded']}" for c in confirms]
+    return ("Heads-up: " + ('a slot material label differs' if len(lines) == 1
+                            else 'some slot material labels differ')
+            + " between the printer screen and Spoolman.\n" + "\n".join(lines)
+            + "\nNothing is uploaded yet. Print anyway with the loaded spools, or cancel?")
+
+
+def accept_label_mismatch(job_json, target, confirms):
+    """Record a single-use Print anyway for this exact G-code and these listed label differences (#839).
+
+    Mirrors accept_color_mismatch: same per-G-code-SHA binding, consumed
+    by the caller before the retry's start runs.
+    """
+    from . import model_job as mj
+    job = json.loads(Path(job_json).read_text())
+    keys = [mj.label_mismatch_key(c['slot'], c['live'], c['recorded']) for c in confirms]
+    prior = mj.accepted_label_mismatches(job, target['gcode_sha256'])  # a later round adds to the earlier ones
+    job['label_mismatch_accepted'] = {
+        'gcode_sha256': target['gcode_sha256'],
+        'slots': sorted(prior | set(keys)),
+        'granted_at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'via': 'button'}
+    mj.write_job(Path(job_json).parent, job)
+    return job['label_mismatch_accepted']
+
+
+def clear_label_acceptance(job_json):
+    """Consume the acknowledgement: it never carries over to a later start."""
+    from . import model_job as mj
+    job = json.loads(Path(job_json).read_text())
+    if job.pop('label_mismatch_accepted', None) is not None:
         mj.write_job(Path(job_json).parent, job)
 
 
@@ -2084,14 +2216,53 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                 height = state.get('max_print_height_mm')
                 if (unit_q['inch_mm'][0] > float(bed[0]) or unit_q['inch_mm'][1] > float(bed[1])
                         or (height is not None and unit_q['inch_mm'][2] > float(height))):
-                    receipt.update(status='CANCELLED_OVERSIZED')
+                    # Too big as inches is a choice, not a cancel (#839): name
+                    # the volume and offer the millimeter size or the largest
+                    # scale of the inch size that fits. The job is not
+                    # cancelled until the operator picks Cancel.
+                    try:
+                        fit_fraction = await _heavy(orca_adapter.largest_fitting_fraction,
+                                                    path, state, mj.INCH_TO_MM, copy_limit=1)
+                    except Exception:
+                        logger.exception('inch fit search failed')
+                        fit_fraction = None
+                    volume = (f"{float(bed[0]):g} x {float(bed[1]):g} x {float(height):g} mm printer volume"
+                              if height is not None else
+                              f"{float(bed[0]):g} x {float(bed[1]):g} mm printer bed")
+                    rows = [{'kind': 'mm', 'label': 'Use mm instead'}]
+                    if fit_fraction is not None:
+                        rows.append({'kind': 'scale', 'label': f'Scale to {_pct(fit_fraction)}',
+                                     'scale': fit_fraction})
+                    rows.append({'kind': 'cancel', 'label': 'Cancel'})
+                    pick = await _ask(
+                        adapter, source, key,
+                        f'Treating it as inches would make it {as_inch} mm, which exceeds the {volume}. '
+                        'Use the millimeter size instead'
+                        + (f', or scale the inch size to {_pct(fit_fraction)}?' if fit_fraction is not None
+                           else '?'),
+                        [row['label'] for row in rows], timeout,
+                        parser=lambda text: _unit_oversize_reply(text, rows))
+                    row = rows[pick]
+                    if row['kind'] == 'cancel':
+                        receipt.update(status='CANCELLED_OVERSIZED')
+                        receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                        await adapter.send(chat_id=source.chat_id,
+                                           content='Print cancelled. Nothing was sliced, uploaded, or started.',
+                                           metadata=metadata)
+                        return {'action': 'skip', 'reason': 'inch-confirmed model exceeds printer volume'}
+                    if row['kind'] == 'mm':
+                        decision = mj.make_unit_decision('mm', manifest['source_sha256'],
+                                                         unit_q['original_mm'])
+                        mj.set_unit_decision(job, decision)
+                        receipt.update(unit_decision=decision)
+                    else:
+                        # The scale is of the authored file, so it carries the
+                        # inch factor: slicing's explicit scale then lands the
+                        # part at the fitted fraction of the inch size.
+                        job['scale'] = round(mj.INCH_TO_MM * row['scale'], 6)
+                        receipt.update(scale=job['scale'])
+                    mj.write_job(folder, job)
                     receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
-                    await adapter.send(chat_id=source.chat_id,
-                                       content=f'Treating it as inches would make it {as_inch} mm, which exceeds '
-                                               'the printer volume. Print cancelled. Nothing was sliced, '
-                                               'uploaded, or started.',
-                                       metadata=metadata)
-                    return {'action': 'skip', 'reason': 'inch-confirmed model exceeds printer volume'}
         job_adapter = mj._job_adapter(job)
         # ZMod purge awareness (#832): re-read the printer's purge mode and plugins (read-only, short
         # timeouts, never blocks intake), then refuse a source an IFS Jacker printer cannot model yet.
@@ -2222,16 +2393,47 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             # Painted multicolor: one multicolor G-code per authored plate at
             # one shared scale, 100% whenever it fits. No per-slot shrink rows.
             title = latest.get('title') or 'This model'
+            fit_error = None
             try:
                 fit = await _heavy(mj.painted_fit_for_job, path, latest['color_decisions'], state)
             except Exception as exc:
                 fit = {'scale': None, 'error': str(exc)}
+                fit_error = exc
+            # A crashed fit check is not a size verdict (#839): the post says
+            # the check itself failed and offers Retry/Cancel, never
+            # "does not fit". Only a fit with no error is a real no-fit.
+            while fit.get('error'):
+                receipt['painted_fit'] = fit
+                retry_rows = [{'kind': 'retry', 'label': 'Retry fit check'},
+                              {'kind': 'cancel', 'label': 'Cancel'}]
+                pick = await _ask(adapter, source, key,
+                                  diagnostics.plain_post(
+                                      'Stage: fit check. I could not check whether this fits the bed, '
+                                      'so whether it fits is unverified.',
+                                      not_happened='Nothing was sliced, uploaded or started.',
+                                      next_step='Retry the fit check, or cancel the print.',
+                                      subsystem='intake', exc=fit_error),
+                                  [row['label'] for row in retry_rows], timeout,
+                                  parser=lambda text: _retry_choice_reply(text, retry_rows))
+                if retry_rows[pick]['kind'] == 'cancel':
+                    receipt['status'] = 'CANCELLED'
+                    receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                    await adapter.send(chat_id=source.chat_id,
+                                       content='Print cancelled. Nothing was sliced, uploaded, or started.',
+                                       metadata=metadata)
+                    return {'action': 'skip', 'reason': 'painted fit check failed; operator cancelled'}
+                fit_error = None
+                try:
+                    fit = await _heavy(mj.painted_fit_for_job, path, latest['color_decisions'], state)
+                except Exception as exc:
+                    fit = {'scale': None, 'error': str(exc)}
+                    fit_error = exc
             receipt['painted_fit'] = fit
             scale = fit.get('scale')
             if scale is None:
                 picked = [{'kind': 'cancel', 'label': 'Cancel'}]
                 prompt = (f"{title} does not fit the {_printer_name()} bed with its prime tower at 50% or larger, "
-                          'even split into its plates.')
+                          'even split into its plates.' + _painted_no_fit_detail(fit, state))
             else:
                 plates = fit['plates']
                 where = f"{plates} plates" if plates > 1 else 'one plate'
@@ -2852,9 +3054,17 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                     await owned_worker.in_thread(slice_refusal.apply_fix, refusal.fix)
                 except Exception:
                     logger.exception('slice refusal fix failed')
+                    # The fix only writes the local slot record's color, so a
+                    # Spoolman bind is not the remedy: name the slot and the
+                    # /spool form that records its spool (and its color) (#839).
+                    fix_slot = (refusal.fix or {}).get('slot')
+                    remedy = (f"Record the spool loaded in slot {fix_slot} with "
+                              f"`/spool change {fix_slot} <spool#>`, then ask again."
+                              if fix_slot else
+                              'Record the slot\'s spool with `/spool`, then ask again.')
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                        content='That confirmation could not be saved, so nothing was sliced, '
-                                               'uploaded or started. Set the spool with `/spool`, then ask again.')
+                                               f'uploaded or started. {remedy}')
                     return {'action': 'skip', 'reason': 'slice refusal fix failed'}
             if retry != 0:
                 receipt.update(status='CANCELLED', sliced=False, uploaded=False, started=False)
@@ -3075,8 +3285,27 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                                                  print_next.start(target)),
                                             allow_stop=True, refusal_context=start_context)
                 confirms = [] if ok or not start_context['color_prompt'] else color_confirm(tail)
-                if not confirms:
+                label_confirms = [] if ok or not start_context['color_prompt'] else label_confirm(tail)
+                if not confirms and not label_confirms:
                     break
+                if label_confirms and not confirms:
+                    # A slot material-label difference gets the same ask-once
+                    # treatment as a color difference (#839): the native
+                    # label can be blank or stale, so the operator decides.
+                    pick = await _ask(adapter, source, key, label_confirm_question(label_confirms),
+                                      [PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL], timeout,
+                                      approval=True)
+                    receipt['label_mismatch'] = {'slots': label_confirms, 'choice': pick}
+                    if pick == 0:
+                        accept_label_mismatch(jp, target, label_confirms)
+                    else:
+                        receipt['status'] = 'SLICED_NOT_STARTED'
+                        receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                           content='Cancelled. Nothing uploaded or started.')
+                        return {'action': 'skip', 'reason': 'operator cancelled on a slot material label difference'}
+                    uploading = "Uploading to the printer. Press Stop to request cancellation."
+                    continue
                 # A slot color difference never blocks on its own (#795): the operator decides,
                 # once for every mismatched slot; a later round only asks about what is new.
                 pick = await _ask(adapter, source, key, color_confirm_question(confirms),
@@ -3113,6 +3342,8 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         finally:
             with contextlib.suppress(Exception):
                 clear_color_acceptance(jp)
+            with contextlib.suppress(Exception):
+                clear_label_acceptance(jp)
         mj._timing(jp, 'intake_start_returned', ok=bool(ok))
         started_as = classify_start(ok, tail)
         unknown, pending = started_as.unknown, started_as.pending

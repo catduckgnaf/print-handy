@@ -331,13 +331,58 @@ def test_color_mismatch_cancel_uploads_nothing(env, monkeypatch):
     assert any('Cancelled. Nothing uploaded or started.' in m for m in adapter.log)
 
 
-def test_label_mismatch_is_still_a_retry_refusal():
-    tail = ("REFUSED: printer slot 2 is labeled PETG but Spoolman has Silk PLA there (T0). "
-            "Nothing uploaded or started.")
-    assert prepared_intake.color_confirm(tail) == []
+LABEL_REFUSAL = ("REFUSED: printer slot 2 is labeled PETG but Spoolman has Silk PLA there (T0). "
+                 "Nothing uploaded or started.")
+
+
+def test_label_mismatch_parses_separately_from_color():
+    # #839: label differences have their own parser; the color parser still ignores them.
+    assert prepared_intake.color_confirm(LABEL_REFUSAL) == []
+    assert prepared_intake.label_confirm(LABEL_REFUSAL) == [{'slot': 2, 'live': 'PETG',
+                                                             'recorded': 'Silk PLA', 'tool': 0}]
+    assert prepared_intake.label_confirm(COLOR_REFUSAL) == []
     assert prepared_intake.color_confirm(COLOR_REFUSAL) == [{'slot': 1, 'live': '#E53935',
                                                              'recorded': '#CD7F32', 'tool': 0}]
     assert [c['slot'] for c in prepared_intake.color_confirm(TWO_COLOR_REFUSAL)] == [1, 2]
+
+
+def _label_mismatch_start(monkeypatch, refusal=LABEL_REFUSAL):
+    """First start stops on the label difference; later starts record what JOB.json allowed."""
+    seen = []
+
+    async def start(target):
+        job = json.loads(Path(target['job_json']).read_text())
+        seen.append(job.get('label_mismatch_accepted'))
+        if len(seen) == 1:
+            return False, refusal
+        return True, 'started'
+
+    monkeypatch.setattr(print_next, 'start', start)
+    return seen
+
+
+def test_label_mismatch_asks_and_print_anyway_starts_this_gcode_once(env, monkeypatch):
+    """#839: the label mismatch mirrors the color flow — ask once, Print anyway
+    binds the acceptance to this exact G-code, and it is consumed after."""
+    seen = _label_mismatch_start(monkeypatch)
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 0])  # one color, slot 1, print now, Print anyway
+    question = adapter.questions[-1]
+    assert question['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert 'PETG' in question['question'] and 'Silk PLA' in question['question']
+    assert len(seen) == 2 and seen[0] is None
+    assert seen[1]['slots'] == [model_job.label_mismatch_key(2, 'PETG', 'Silk PLA')]
+    assert not any(m.startswith("Didn't start:") for m in adapter.log)
+    assert receipt['status'] == 'STARTED' and receipt['label_mismatch']['choice'] == 0
+    job_json = next(env.tmp.rglob('JOB.json'))
+    assert 'label_mismatch_accepted' not in json.loads(job_json.read_text())  # single use
+
+
+def test_label_mismatch_cancel_uploads_nothing(env, monkeypatch):
+    seen = _label_mismatch_start(monkeypatch)
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 1])  # ... then Cancel
+    assert len(seen) == 1
+    assert receipt['status'] == 'SLICED_NOT_STARTED' and receipt['started'] is False
+    assert any('Cancelled. Nothing uploaded or started.' in m for m in adapter.log)
 
 
 def test_two_mismatched_slots_get_one_prompt_and_one_print_anyway_for_both(env, monkeypatch):
