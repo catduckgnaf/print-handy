@@ -260,6 +260,27 @@ class TestScaleSearches(unittest.TestCase):
         self.assertEqual(fit['blocking_layout']['scale'], 0.5)
         self.assertGreater(fit['blocking_layout']['tower_mm'], 0)
 
+    def test_painted_fit_layout_is_measured_without_a_fitting_tower(self):
+        from unittest.mock import patch
+        from print_handy.core import color_geometry, model_job as mj
+
+        def export(src, out, view, object_ids=None, scale=1.0, tower_mm=None):
+            # The real export raises when no prime tower position clears
+            # the parts; a towerless measurement of the same parts succeeds
+            # and carries the same bounds.
+            if tower_mm != 0:
+                raise RuntimeError('no prime tower position clears every part')
+            return None, {'parts': [{'bounds_mm': [[0, 500 * scale], [0, 100 * scale], [0, 10]]}],
+                          'build_bounds_mm': [(0.0, 500 * scale), (0.0, 100 * scale), (0.0, 10.0)]}
+
+        with patch.object(color_geometry, 'export_color_geometry', export):
+            fit = mj.painted_fit('src', None, [{'id': 1, 'object_ids': ['1']}])
+        self.assertIsNone(fit['scale'])
+        # The tower-blocked no-fit case still reports its measured extent
+        # and the tower size it could not place.
+        self.assertEqual(fit['blocking_layout']['extent_mm'], [250.0, 50.0])
+        self.assertGreater(fit['blocking_layout']['tower_mm'], 0)
+
     def test_painted_fit_without_a_measurable_layout_omits_it(self):
         from unittest.mock import patch
         from print_handy.core import color_geometry, model_job as mj

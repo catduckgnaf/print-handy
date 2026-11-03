@@ -1015,7 +1015,15 @@ def test_intake_spool_weights_prefers_spoolman_then_slot_record_never_guesses():
 
     def down(sid):
         raise OSError('spoolman down')
-    assert model_job.intake_spool_weights(st, [10, 12], down) == {10: 500.0}
+    fallback = model_job.intake_spool_weights(st, [10, 12], down)
+    assert fallback == {10: 500.0}
+    # The fallback must carry the failure with it (#839 Codex): production
+    # intake_spool_weights never raises, so a caller that only sees the
+    # weights cannot tell a live check from the cached slot record.
+    assert fallback.fetch_failed is True
+    assert model_job.intake_spool_weights(
+        st, [10], lambda sid: {'remaining_weight': 321.5}).fetch_failed is False
+    assert model_job.intake_spool_weights(st, [10]).fetch_failed is False
     rows = model_job.intake_spool_projection(
         {'color_decisions': {'mode': 'single_color', 'selection': {'slot': 3, 'color': 'black',
                                                                     'material': 'PLA', 'spoolman_id': 12}}},
@@ -2257,6 +2265,17 @@ def _run_oversize_stl_upload(env, monkeypatch, picks, fit_fraction=0.86):
     return adapter, result, receipt, job
 
 
+def test_inch_fit_search_is_a_serialized_slicer_worker_step():
+    # #839 Codex: the inch fit search runs Orca, so it must go through the
+    # owned worker's SLICER lane like the other fit searches — inline it can
+    # overlap another slice on the Flatpak Orca deployment and collide.
+    from print_handy.core import heavy_worker
+    entry = ('orca_adapter', 'largest_fitting_fraction')
+    assert entry in prepared_intake._OFFLOAD
+    assert entry in prepared_intake._SLICER_STEPS
+    assert entry in heavy_worker.ALLOWED
+
+
 def test_oversize_inch_answer_offers_mm_scale_and_cancel(env, monkeypatch):
     adapter, result, receipt, job = _run_oversize_stl_upload(env, monkeypatch, [1, 0, 0, 1, 1])
     question = adapter.questions[1]
@@ -2304,9 +2323,14 @@ def test_fit_failure_without_measurements_keeps_the_plain_text():
     assert 'vs usable' not in text and 'calculated capacity is 0 copy' in text
 
 
-def _projection_mj():
+def _projection_mj(fetch_failed=False):
+    # Production-shaped stub (#839 Codex): intake_spool_weights does not
+    # raise when Spoolman is down — it falls back to the cached weights and
+    # flags the failure on the result.
     def weights(state, ids, fetch):
-        raise RuntimeError('Spoolman did not answer')
+        result = model_job.IntakeSpoolWeights({5: 250.0})
+        result.fetch_failed = fetch_failed
+        return result
     return S(filament_usage_by_selection=lambda job, manifest: [({'spoolman_id': 5}, None)],
              intake_spool_weights=weights,
              intake_spool_projection=lambda *a, **k: [],
@@ -2314,19 +2338,22 @@ def _projection_mj():
              _job_adapter=lambda job: S(multi_tool=False))
 
 
-def test_spool_projection_warns_when_spoolman_is_configured_but_down(monkeypatch):
+def test_spool_projection_warns_when_the_weights_are_cached_not_live(monkeypatch):
     from print_handy.core import printer_state
     monkeypatch.setattr(printer_state, 'spoolman_url', lambda st=None: 'http://spoolman.test:8000')
-    text = asyncio.run(prepared_intake._spool_projection_text(_projection_mj(), {}, {}, {}, 1))
-    assert text.startswith('Filament check skipped: Spoolman didn\'t answer')
-    assert 'print can still start' in text
+    text = asyncio.run(prepared_intake._spool_projection_text(
+        _projection_mj(fetch_failed=True), {}, {}, {}, 1))
+    # The cached amounts are still shown, but named as cached — never
+    # presented as a live check that found enough filament.
+    assert text.startswith('projection')
+    assert "Spoolman didn't answer" in text and 'last recorded' in text
 
 
 def test_spool_projection_stays_quiet_without_spoolman(monkeypatch):
     from print_handy.core import printer_state
     monkeypatch.setattr(printer_state, 'spoolman_url', lambda st=None: '')
     text = asyncio.run(prepared_intake._spool_projection_text(_projection_mj(), {}, {}, {}, 1))
-    assert text == ''
+    assert text == 'projection'
 
 
 def test_slice_refusal_fix_failure_names_the_slot_and_the_real_remedy(env, monkeypatch):

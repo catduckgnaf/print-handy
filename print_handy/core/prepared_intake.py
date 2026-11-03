@@ -37,15 +37,18 @@ from .slice_recipe import RECIPE_VERSION, binding_sha256  # noqa: E402
 
 _OFFLOAD = {('model_job', 'audit'), ('model_job', 'slice_job'), ('source_colors', 'inventory'),
             ('orca_adapter', 'orca_plate_capacity'), ('orca_adapter', 'fit_options'),
+            ('orca_adapter', 'largest_fitting_fraction'),
             ('model_job', 'per_part_fit_options'), ('plate_merge', 'full_size_split_possible'),
             ('geometry_layout', 'inspect_geometry'), ('geometry_layout', 'arrange_and_export'),
             ('geometry_layout', 'probe_single_plate_rearrange'), ('model_job', 'full_size_one_plate'),
             ('cad_split', 'check_source_against_split_plan'), ('cad_split', 'prepare_cad_split'),
             ('model_parts', 'combine')}
 # Steps that run the slicer share one lane; the geometry-only steps share a small general lane.
-_SLICER_STEPS = {('model_job', 'slice_job'), ('orca_adapter', 'orca_plate_capacity'), ('orca_adapter', 'fit_options')}
+_SLICER_STEPS = {('model_job', 'slice_job'), ('orca_adapter', 'orca_plate_capacity'), ('orca_adapter', 'fit_options'),
+                 ('orca_adapter', 'largest_fitting_fraction')}
 _STEP_LABELS = {'slice_job': 'slicing', 'audit': 'the model check', 'inventory': 'the color check',
                 'orca_plate_capacity': 'the bed fit check', 'fit_options': 'the bed fit check',
+                'largest_fitting_fraction': 'the bed fit check',
                 'per_part_fit_options': 'the per-part fit check', 'full_size_split_possible': 'the split check',
                 'inspect_geometry': 'the geometry check', 'arrange_and_export': 'the layout',
                 'probe_single_plate_rearrange': 'the layout check', 'combine': 'combining the files',
@@ -1279,8 +1282,16 @@ async def _spool_projection_text(mj, job, manifest, state, copies):
                 return spool_lifecycle.fetch_spoolman_spool(sid, base_url=base)
         weights = await _heavy(mj.intake_spool_weights, state, ids, fetch)
         rows = mj.intake_spool_projection(job, weights, manifest, copies=copies)
-        return mj.format_spool_projection(
+        text = mj.format_spool_projection(
             rows, position_noun='Toolhead' if mj._job_adapter(job).multi_tool else 'Slot')
+        if getattr(weights, 'fetch_failed', False):
+            # The amounts above fell back to the slot record because
+            # Spoolman did not answer (#839): say so on the same post, or
+            # cached amounts read as a live check that found enough.
+            note = ("Spoolman didn't answer, so the amounts above are the last recorded "
+                    "ones, not a live check.")
+            text = f'{text}\n{note}' if text else note
+        return text
     except Exception:
         # Fail soft (#387) but not silently (#839): when Spoolman is
         # configured, the operator hears the check was skipped instead of

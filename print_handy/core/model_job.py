@@ -4395,8 +4395,13 @@ def painted_plate_layout(src, view, object_ids, scale, tower_mm=None):
     from .color_geometry import export_color_geometry
     try:
         with tempfile.TemporaryDirectory(prefix='painted-layout-') as tmp:
+            # Measure towerless (#839): the part bounds do not depend on
+            # tower placement, but the export raises when no tower position
+            # clears the parts — exactly the no-fit case this measurement
+            # exists to explain. The tower size is reported from tower_mm
+            # below, not from a placement that may not exist.
             _, geometry = export_color_geometry(src, Path(tmp) / 'g.3mf', view,
-                                                object_ids=object_ids, scale=scale, tower_mm=tower_mm)
+                                                object_ids=object_ids, scale=scale, tower_mm=0.0)
     except Exception:
         return None
     bounds = geometry.get('build_bounds_mm') or []
@@ -5885,14 +5890,28 @@ def intake_spool_projection(job, spool_weights, manifest=None, copies=1):
     return rows
 
 
+class IntakeSpoolWeights(dict):
+    """Spool weights plus whether the live Spoolman fetch failed (#839).
+
+    A plain dict for every existing reader; ``fetch_failed`` carries the
+    availability signal alongside the fallback weights, so a caller can
+    tell amounts that came from a live check from amounts that came from
+    the cached slot record after Spoolman did not answer.
+    """
+
+    fetch_failed = False
+
+
 def intake_spool_weights(state, spool_ids, fetch=None):
     """Currently available grams per Spoolman ID: Spoolman first, then the slot record, else absent.
 
-    Display only. Never raises; an unreachable Spoolman just falls back.
+    Display only. Never raises; an unreachable Spoolman just falls back,
+    and the returned weights carry ``fetch_failed`` so the fallback is
+    never mistaken for a live check (#839).
     """
     slots = {s.get('spoolman_id'): s for s in ((state or {}).get('filament_slots') or {}).values()
              if isinstance(s, dict) and s.get('spoolman_id') is not None}
-    weights = {}
+    weights = IntakeSpoolWeights()
     for sid in spool_ids:
         grams = None
         if fetch is not None and isinstance(sid, int) and not isinstance(sid, bool):
@@ -5902,6 +5921,7 @@ def intake_spool_weights(state, spool_ids, fetch=None):
                     grams = float(rem)
             except Exception:
                 grams = None
+                weights.fetch_failed = True
         if grams is None:
             rem = (slots.get(sid) or {}).get('remaining_grams')
             if isinstance(rem, (int, float)) and not isinstance(rem, bool) and rem >= 0:

@@ -73,8 +73,16 @@ def _unavailable_error(method: str, path: str, exc: Exception) -> SpoolError:
 
     A 404 on a single-spool GET is not an outage: the id is wrong or the
     spool was deleted, so say that. Everything else names Spoolman, the
-    configured URL, that nothing changed, and the remedy — the raw
-    transport string ("HTTP Error 502: Bad Gateway") named none of those.
+    configured URL, and the remedy — the raw transport string
+    ("HTTP Error 502: Bad Gateway") named none of those.
+
+    "Nothing changed" is promised only for a read: a GET writes nothing.
+    A failed write is worded as unconfirmed instead — the request may
+    have reached Spoolman before the failure, and a multi-write action
+    (a bind patches the new spool before the replaced one, a swap
+    patches both spools) may have partly applied, so the operator is
+    told to check before retrying rather than told no reconciliation
+    is needed.
     """
     match = _SPOOL_GET.fullmatch(path or "")
     if getattr(exc, "status", None) == 404 and str(method).upper() == "GET" and match:
@@ -82,7 +90,11 @@ def _unavailable_error(method: str, path: str, exc: Exception) -> SpoolError:
                           "Check the id with /spool list. Nothing changed")
     remedy = spoolman_client.UNAVAILABLE_NOTICE.split(". ", 1)[-1]
     where = f" at {SPOOLMAN}" if SPOOLMAN else ""
-    return SpoolError(f"Spoolman did not answer{where} ({exc}). Nothing changed. {remedy}")
+    if str(method).upper() == "GET":
+        return SpoolError(f"Spoolman did not answer{where} ({exc}). Nothing changed. {remedy}")
+    return SpoolError(f"Spoolman did not answer{where} ({exc}). This change may have partly "
+                      "applied in Spoolman — check /spool list or run /spool sync before "
+                      f"trying again. {remedy}")
 
 
 def spoolman(method: str, path: str, body: Any = None) -> Any:

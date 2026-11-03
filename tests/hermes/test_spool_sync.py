@@ -409,12 +409,61 @@ def _spoolman_down(monkeypatch, exc):
 def test_spoolman_outage_error_names_spoolman_url_and_that_nothing_changed(monkeypatch):
     _spoolman_down(monkeypatch, _unavailable(502))
     with pytest.raises(spool_sync.SpoolError) as caught:
-        spool_sync.spoolman("POST", "/api/v1/spool", {"name": "x"})
+        spool_sync.spoolman("GET", "/api/v1/spool", None)
     text = str(caught.value)
     assert text.startswith("Spoolman did not answer at http://spoolman.test:8000")
     assert "Nothing changed" in text
     assert "Spoolman service is running" in text and "services.spoolman_url" in text
     assert text != "HTTP Error 502: Bad Gateway"
+
+
+def test_spoolman_write_failure_does_not_promise_nothing_changed(monkeypatch):
+    # #839 Codex: a failed write may have partly applied before Spoolman
+    # stopped answering, so the wording must say so instead of promising
+    # that nothing changed.
+    _spoolman_down(monkeypatch, _unavailable(502))
+    with pytest.raises(spool_sync.SpoolError) as caught:
+        spool_sync.spoolman("PATCH", "/api/v1/spool/99", {"location": "Shelf"})
+    text = str(caught.value)
+    assert "did not answer" in text
+    assert "Nothing changed" not in text
+    assert "partly" in text or "may have" in text
+
+
+def test_bind_failure_after_the_first_write_reports_a_partial_change(monkeypatch, tmp_path):
+    # bind_slot patches the new spool first, then the replaced one: a
+    # failure on the later patch must not report "Nothing changed".
+    from print_handy.core import spoolman_client
+    spools = {7: {"id": 7, "filament": {"name": "Pink PLA", "material": "PLA"},
+                  "remaining_weight": 500.0},
+              9: {"id": 9, "filament": {"name": "Black PLA", "material": "PLA"},
+                  "remaining_weight": 400.0, "location": "IFS Slot 1"}}
+    patched = []
+
+    def request(method, path, body=None, **kw):
+        if method == "GET" and path.startswith("/api/v1/spool/"):
+            return spools[int(path.rsplit("/", 1)[1])]
+        if method == "GET":
+            return []
+        if method == "PATCH":
+            patched.append(path)
+            if len(patched) > 1:
+                raise _unavailable(502)
+            return {}
+        return {}
+    monkeypatch.setattr(spoolman_client, "request", request)
+    monkeypatch.setattr(spool_sync, "SPOOLMAN", "http://spoolman.test:8000")
+    monkeypatch.setattr(spool_sync._config, "cfg", lambda: {"printers": [{"id": "ad5x"}]})
+    state = tmp_path / "printer_hardware.json"
+    state.write_text(json.dumps({"filament_slots": {
+        "1": {"spoolman_id": 9, "material": "PLA"}}}))
+    with pytest.raises(spool_sync.SpoolError) as caught:
+        spool_sync.bind_slot(1, 7, client=spool_sync.spoolman, mr=mock.Mock(),
+                             state_path=state, push_screen_update=False)
+    assert patched  # the first write really did go out before the failure
+    text = str(caught.value)
+    assert "Nothing changed" not in text
+    assert "partly" in text or "may have" in text
 
 
 def test_spoolman_404_on_a_spool_get_says_no_such_spool(monkeypatch):
