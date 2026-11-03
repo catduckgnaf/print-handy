@@ -1882,8 +1882,8 @@ def orca_plate_capacity(source: Path, state: dict, spacing_mm: float = 10.0, edg
     import tempfile
     source = Path(source)
     scale = float(scale)
-    if not 0 < scale <= 1:
-        raise ValueError('scale must be greater than 0 and no more than 1')
+    if not scale > 0:
+        raise ValueError('scale must be greater than 0')
     copy_limit = int(copy_limit)
     if copy_limit < 1:
         raise ValueError('copy_limit must be at least 1')

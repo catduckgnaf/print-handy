@@ -60,15 +60,16 @@ def saved_job(env):
 
 def test_a1_without_spoolman_reaches_the_color_question_and_saves_one_color(env, monkeypatch):  # noqa: F811
     use_model(monkeypatch, A1)
-    # "One color for everything", the only slot, then "Stop with colors saved".
-    adapter, result, receipt = run_a1_flow(env, [1, 0, 2], a1_state())
+    # "One color for everything", the only slot, then "Cancel print request":
+    # the color decisions are already saved on the job when it is answered.
+    adapter, result, receipt = run_a1_flow(env, [1, 0, 3], a1_state())
     assert not any("configured slots" in m for m in adapter.sent), adapter.sent
     color = next(q for q in adapter.questions if q["question"].startswith("Choose the color for"))
     assert color["choices"][:-1] == ["White PLA"]
     job = saved_job(env)
     assert job["filament_selection"] == {"slot": 1, "color": "white", "material": "PLA", "spoolman_id": None}
     assert job["color_decisions"]["mode"] == "single_color"
-    assert receipt["status"] == "COLORS_SAVED_STOPPED" and env.sliced == [] and env.starts == []
+    assert receipt["status"] == "CANCELLED" and env.sliced == [] and env.starts == []
 
 
 def test_a1_link_intake_offers_print_in_one_color(tmp_path, monkeypatch):

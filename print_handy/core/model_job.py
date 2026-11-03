@@ -4049,7 +4049,7 @@ def _job_fit(job, brim_override):
     scale = job.get('scale')
     orientation = job.get('orientation') or {}
     rotation = orientation.get('rotation')
-    if not rotation and (scale is None or float(scale) >= 1.0):
+    if not rotation and (scale is None or float(scale) == 1.0):
         if brim_override is None and job.get('fit_brim_policy'):
             brim_override = job['fit_brim_policy'].get('width_mm', 0)
         return None, None, brim_override
@@ -4309,8 +4309,14 @@ def painted_plate_scale(src, view, object_ids, ceiling=1.0):
     fits the bed. Pure geometry export, no slicer, no printer."""
     import tempfile
     from .color_geometry import export_color_geometry
+    # The exact ceiling is tried first, whatever its size: the confirm
+    # prompt's scaling records arbitrary cumulative scales (99%, 105%),
+    # and printing the nearest ladder step instead would change the size
+    # the operator approved. The ladder below is the fallback for a
+    # ceiling that does not fit as-is; it only ever shrinks.
+    steps = [ceiling] + [s for s in PAINTED_SCALE_STEPS if s < ceiling - 1e-9]
     with tempfile.TemporaryDirectory(prefix='painted-fit-') as tmp:
-        for scale in PAINTED_SCALE_STEPS:
+        for scale in steps:
             if scale > ceiling + 1e-9:
                 continue
             try:
@@ -4374,7 +4380,7 @@ def _slice_painted_plates(job, job_path, src, manifest, decisions, view, plates,
             continue
         slice_dir = work / 'sliced' / 'orca' / uuid.uuid4().hex
         out, provenance, configs = slice_model(src, slice_dir, st, brim_override, color_decisions=view,
-                                               object_ids=ids, scale=None if scale >= 1.0 else scale)
+                                               object_ids=ids, scale=None if scale == 1.0 else scale)
         geometry = provenance.get('geometry') or {}
         if sorted(r['part_key'] for r in geometry.get('parts', [])) != sorted(keys):
             raise RuntimeError(f"painted plate {plate['id']} dropped or duplicated a source part")

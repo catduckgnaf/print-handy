@@ -221,7 +221,7 @@ def test_one_click_slice_and_print_needs_no_typed_approval(env):
     adapter, result, receipt = run_flow(env, [1, 0, 0])
     last = adapter.questions[-1]['choices']
     assert last[0].startswith('Slice and print') and 'bed is clear' in last[0]
-    assert last[1] == 'Slice only' and last[2] == 'Stop with colors saved' and last[3] == 'Cancel print request'
+    assert last[1] == 'Slice only' and last[2] == 'Scale the model' and last[3] == 'Cancel print request'
     assert 'does not authorize printing' not in adapter.questions[-1]['question']
     assert len(env.sliced) == 1 and len(env.starts) == 1
     assert receipt['status'] == 'STARTED' and receipt['started'] is True
@@ -333,11 +333,80 @@ def test_stop_during_live_start_reaps_child_and_reports_uncertain_outcome(env, m
     assert not any('Nothing sliced, uploaded or started.' in line for line in adapter.sent)
 
 
-def test_stop_choice_discards_the_early_slice_and_never_starts(env):
-    adapter, result, receipt = run_flow(env, [1, 0, 2])
-    # Issue 63 starts the slice while the confirm question is up. Stop throws it away.
-    assert env.starts == [] and receipt['status'] == 'COLORS_SAVED_STOPPED'
+def test_cancel_choice_discards_the_early_slice_and_never_starts(env):
+    adapter, result, receipt = run_flow(env, [1, 0, 3])
+    # Issue 63 starts the slice while the confirm question is up. Cancel throws it away.
+    assert env.starts == [] and receipt['status'] == 'CANCELLED'
     assert not any(env.root.parent.glob('archive/*/sliced/*.gcode'))
+
+
+def test_scale_bigger_repeats_the_ready_question_and_slices_at_the_new_size(env, monkeypatch):
+    from print_handy.core import orca_adapter
+    monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st, **kw: 1)
+    # color, slot, Scale the model, Bigger, 5%, then Slice and print now.
+    adapter, result, receipt = run_flow(env, [1, 0, 2, 0, 1, 0])
+    ready = [q for q in adapter.questions if q['question'].startswith('Ready to slice')]
+    assert len(ready) == 2
+    assert 'Scaled to 105% of the authored size.' in ready[1]['question']
+    direction = [q for q in adapter.questions if q['question'] == 'Scale the model bigger or smaller?']
+    assert direction and direction[0]['choices'] == ['Bigger', 'Smaller', 'Cancel scaling']
+    amount = [q for q in adapter.questions if q['question'] == 'How much bigger?']
+    assert amount and amount[0]['choices'] == ['1%', '5%', '10%', 'Cancel scaling']
+    assert len(env.sliced) == 1 and len(env.starts) == 1
+    assert receipt['status'] == 'STARTED' and receipt['scale'] == 1.05
+    job = json.loads(Path(receipt['bed_clear_approval']['job_json']).read_text())
+    assert job['scale'] == 1.05
+    # The slice that was kept is the one bound to the scaled recipe.
+    current = binding_sha256(slice_binding(job, model_job.file_sha256(job['downloaded_file'])))
+    assert env.recipes[-1] == current
+
+
+def test_scale_smaller_stacks_on_the_previous_scale(env, monkeypatch):
+    from print_handy.core import orca_adapter
+    monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st, **kw: 1)
+    # Scale smaller by 10% (to 90%), then scale bigger by 10% (to 99%), then Cancel.
+    adapter, result, receipt = run_flow(env, [1, 0, 2, 1, 2, 2, 0, 2, 3])
+    ready = [q for q in adapter.questions if q['question'].startswith('Ready to slice')]
+    assert len(ready) == 3
+    assert 'Scaled to 90% of the authored size.' in ready[1]['question']
+    assert 'Scaled to 99% of the authored size.' in ready[2]['question']
+    assert receipt['status'] == 'CANCELLED' and receipt['scale'] == 0.99
+    assert env.starts == []
+
+
+def test_scale_that_does_not_fit_the_bed_is_refused_and_nothing_is_scaled(env, monkeypatch):
+    from print_handy.core import orca_adapter
+    real = orca_adapter.orca_plate_capacity
+    monkeypatch.setattr(orca_adapter, 'orca_plate_capacity',
+                        lambda path, st, **kw: 0 if float(kw.get('scale') or 1.0) > 1.0 else real(path, st))
+    # Scale bigger by 10% is refused; the repeated question is answered with Cancel.
+    adapter, result, receipt = run_flow(env, [1, 0, 2, 0, 2, 3])
+    assert any('110% does not fit' in text and 'stays at 100%' in text for text in adapter.sent)
+    assert receipt['status'] == 'CANCELLED' and 'scale' not in receipt
+    assert env.starts == [] and env.sliced == []
+
+
+def test_scale_prompts_can_be_backed_out_without_changing_anything(env):
+    # Scale the model, back out of the amount question, back out of the
+    # direction question on a second try, then Cancel the print request.
+    adapter, result, receipt = run_flow(env, [1, 0, 2, 0, 3, 2, 2, 3])
+    ready = [q for q in adapter.questions if q['question'].startswith('Ready to slice')]
+    assert len(ready) == 3
+    assert not any('Scaled to' in q['question'] for q in ready)
+    assert receipt['status'] == 'CANCELLED' and 'scale' not in receipt
+    assert env.starts == []
+
+
+def test_scale_typed_replies_resolve_direction_and_percent():
+    assert prepared_intake._scale_direction_reply('bigger') == 0
+    assert prepared_intake._scale_direction_reply('make it smaller') == 1
+    assert prepared_intake._scale_direction_reply('cancel') == 2
+    assert prepared_intake._scale_direction_reply('whatever') is None
+    assert prepared_intake._scale_percent_reply('1') == 0
+    assert prepared_intake._scale_percent_reply('5%') == 1
+    assert prepared_intake._scale_percent_reply('10') == 2
+    assert prepared_intake._scale_percent_reply('back') == 3
+    assert prepared_intake._scale_percent_reply('7') is None
 
 
 def test_expired_slice_confirmation_discards_the_background_slice(env):
@@ -454,8 +523,8 @@ def test_direct_link_failure_posts_the_known_cause(env, monkeypatch):
 
 
 def test_expired_question_offers_one_resume_and_keeps_the_saved_intake(env):
-    # Expire the first question, then continue: mode, two part colors, stop.
-    adapter = Adapter([0, 0, 0, 0, 2])
+    # Expire the first question, then continue: mode, two part colors, cancel.
+    adapter = Adapter([0, 0, 0, 0, 3])
     adapter.expire_once = True
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='m1',
               text='https://www.printables.com/model/1-ghost')
@@ -492,8 +561,8 @@ def test_unanswered_or_cancelled_resume_closes_the_intake(env, monkeypatch, resu
 def test_resume_continues_the_saved_intake_instead_of_stopping_at_the_marker(env):
     # First color question expires. Resume must ask the next saved question
     # (the color choice), not stop after the action marker.
-    # Picks: Resume, per-part mode, two part colors, then stop with colors saved.
-    adapter = Adapter([0, 0, 0, 0, 2])
+    # Picks: Resume, per-part mode, two part colors, then cancel the print request.
+    adapter = Adapter([0, 0, 0, 0, 3])
     adapter.expire_once = True
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='m1',
               text='https://www.printables.com/model/1-ghost')
@@ -808,7 +877,7 @@ AD5X_ROW = {'name': 'ghost.3mf', 'instance_id': 1, 'site_printer': 'Flashforge A
     {'name': 'p1', 'prediction_s': 3600, 'weight_g': 12.4}, {'name': 'p2', 'prediction_s': 1800, 'weight_g': 7.2}]}
 
 
-def run_preview(env, monkeypatch, summary, row, picks=(2,), send_fails=False):
+def run_preview(env, monkeypatch, summary, row, picks=(3,), send_fails=False):
     monkeypatch.setattr(model_job, 'printables_inventory', lambda url: {
         'site': 'printables', 'slug': 'ghost', 'title': 'Ghost Stand', 'summary': summary, 'sources': [row]})
     log = []
@@ -886,7 +955,7 @@ def test_color_save_prompt_shows_spool_projection_and_estimate_before_print_choi
                         lambda path: {**real(path), 'filament_stats': {'total_g': 25, 'total_m': 8, 'extruders': {}}})
     st = state()
     st['filament_slots']['1']['remaining_grams'] = 200
-    adapter = Adapter([1, 0, 2])  # one color, slot 1, stop with colors saved
+    adapter = Adapter([1, 0, 3])  # one color, slot 1, cancel the print request
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='spool1',
               text='https://www.printables.com/model/1-ghost')
     asyncio.run(prepared_intake.prepare_link(event, adapter, st, env.root, timeout=1))
@@ -985,8 +1054,8 @@ def test_linked_maker_profile_is_selected_automatically(env, monkeypatch):
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
               message_id='profiles', text=url)
     # Contract (2026-10-12): the URL profileId is used directly; no profile button.
-    # one color, slot 1, then stop. The early slice starts during the question and is discarded.
-    adapter = Adapter([1, 0, 2])
+    # one color, slot 1, then cancel. The early slice starts during the question and is discarded.
+    adapter = Adapter([1, 0, 3])
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     assert not any('print profiles' in q['question'] for q in adapter.questions)
     assert selected == [3848581]
@@ -1304,7 +1373,7 @@ def _many_profiles(env, monkeypatch, answers):
             import tools.clarify_gateway as cm
             cm.resolve_gateway_clarify(kw['clarify_id'], answers if first else kw['choices'][next(self.picks)])
             return S(success=True)
-    adapter = Typed([1, 0, 2])
+    adapter = Typed([1, 0, 3])
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='many', text=url)
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     return adapter, result, selected
@@ -1369,7 +1438,7 @@ def _slow_inventory_flow(env, monkeypatch, audit_manifest=None):
         task = asyncio.create_task(ticker())
         event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
                   message_id=__import__('uuid').uuid4().hex, text='https://www.printables.com/model/1-ghost')
-        adapter = Ordered([0, 0, 1, 2])  # per-part mode, Shell->slot1, Eyes->slot2, stop
+        adapter = Ordered([0, 0, 1, 3])  # per-part mode, Shell->slot1, Eyes->slot2, cancel
         try:
             await prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1)
         finally:
@@ -1941,8 +2010,8 @@ def _parts_model(env, monkeypatch, names, answers, typed=None, size=None):
 
 
 def test_uno_link_prints_all_parts_and_asks_only_which_cap(env, monkeypatch):
-    # no sign, then one color for everything, slot 1, then stop at the final question.
-    adapter, downloads, job = _parts_model(env, monkeypatch, UNO_FILES, [1, 1, 0, 2])
+    # no sign, then one color for everything, slot 1, then cancel at the final question.
+    adapter, downloads, job = _parts_model(env, monkeypatch, UNO_FILES, [1, 1, 0, 3])
     first = adapter.questions[0]
     assert first['question'] == ('This model has 4 files that print together: container, latch and a cap in 2 '
                                  "versions. I'll put them on one job, one of each. Which cap?")
@@ -1963,7 +2032,7 @@ def test_uno_link_prints_all_parts_and_asks_only_which_cap(env, monkeypatch):
 
 def test_parts_without_versions_offer_all_or_choose_files(env, monkeypatch):
     adapter, downloads, job = _parts_model(env, monkeypatch, ['arm_left.stl', 'arm_right.stl', 'base.stl'],
-                                           [0, 1, 0, 2])
+                                           [0, 1, 0, 3])
     assert adapter.questions[0]['choices'][:2] == ['Print all 3', 'Choose files']
     assert 'arm left, arm right and base' in adapter.questions[0]['question']
     assert downloads == ['arm_left.stl', 'arm_right.stl', 'base.stl']
@@ -1976,7 +2045,7 @@ def _unit_questions(adapter):
 
 def test_tiny_stl_parts_ask_inch_or_mm_once_for_the_set(env, monkeypatch):
     adapter, downloads, job = _parts_model(env, monkeypatch, ['arm_left.stl', 'arm_right.stl', 'base.stl'],
-                                           [0, 1, 0, 0, 2], size=(3, 2, 1))
+                                           [0, 1, 0, 0, 3], size=(3, 2, 1))
     asked = _unit_questions(adapter)
     assert len(asked) == 1 and 'One answer covers all the STL files' in asked[0]['question']
     assert asked[0]['choices'][:2] == ['Millimeters — print at 3 x 2 x 1 mm', 'Inches — print at 76.2 x 50.8 x 25.4 mm']
@@ -1988,19 +2057,19 @@ def test_tiny_stl_parts_ask_inch_or_mm_once_for_the_set(env, monkeypatch):
 
 def test_tiny_stl_parts_answered_millimeters_stay_small(env, monkeypatch):
     adapter, downloads, job = _parts_model(env, monkeypatch, ['arm_left.stl', 'arm_right.stl'],
-                                           [0, 0, 0, 0, 2], size=(3, 2, 1))
+                                           [0, 0, 0, 0, 3], size=(3, 2, 1))
     assert len(_unit_questions(adapter)) == 1 and job['unit_provenance']['units'] == 'mm'
     from .test_model_parts import _objects
     assert {round(o['box'][1] - o['box'][0], 1) for o in _objects(job['downloaded_file'])} == {3.0}
 
 
 def test_normal_sized_stl_parts_do_not_ask_about_units(env, monkeypatch):
-    adapter, downloads, job = _parts_model(env, monkeypatch, UNO_FILES, [1, 1, 0, 2])
+    adapter, downloads, job = _parts_model(env, monkeypatch, UNO_FILES, [1, 1, 0, 3])
     assert not _unit_questions(adapter) and 'unit_provenance' not in job
 
 
 def test_choose_files_takes_typed_numbers(env, monkeypatch):
-    adapter, downloads, job = _parts_model(env, monkeypatch, UNO_FILES, [2, 1, 0, 2], typed='2 3')
+    adapter, downloads, job = _parts_model(env, monkeypatch, UNO_FILES, [2, 1, 0, 3], typed='2 3')
     assert adapter.questions[1]['question'].startswith('Which files should I print?')
     assert '4. UNO - cap-nosign-1.stl' in adapter.questions[1]['question']
     assert downloads == ['UNO - container-1.stl', 'UNO - uno-latch-1.stl']
@@ -2009,7 +2078,7 @@ def test_choose_files_takes_typed_numbers(env, monkeypatch):
 
 def test_choose_files_one_button_is_the_old_single_file_path(env, monkeypatch):
     # Choose files, then the "2: UNO - container-1.stl" button: one download, no combined project.
-    adapter, downloads, job = _parts_model(env, monkeypatch, UNO_FILES, [2, 1, 0, 2])
+    adapter, downloads, job = _parts_model(env, monkeypatch, UNO_FILES, [2, 1, 0, 3])
     assert downloads == ['UNO - container-1.stl']
     assert 'selected_sources' not in job
     assert job['selected_source']['name'] == 'UNO - container-1.stl'
@@ -2017,7 +2086,7 @@ def test_choose_files_one_button_is_the_old_single_file_path(env, monkeypatch):
 
 
 def test_one_3mf_among_stls_is_preferred(env, monkeypatch):
-    adapter, downloads, job = _parts_model(env, monkeypatch, ['uno box.3mf', 'container.stl', 'lid.stl'], [0, 1, 0, 2])
+    adapter, downloads, job = _parts_model(env, monkeypatch, ['uno box.3mf', 'container.stl', 'lid.stl'], [0, 1, 0, 3])
     first = adapter.questions[0]
     assert first['question'].startswith('This model has a 3MF project, uno box.3mf, and 2 STL files.')
     assert first['choices'][:3] == ['Use uno box.3mf', 'Print the STL files', 'Choose files']

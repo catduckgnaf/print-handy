@@ -307,7 +307,7 @@ A new vendor is a package with an `__init__.py` defining `VENDOR = VendorProfile
 
 ## After a slice
 
-The Discord flow is unchanged up to the slice: preview, colors, copies, then "Slice and print now (bed is clear)", "Slice only", "Stop with colors saved" and "Cancel print request". The slice summary still shows per-plate artifacts, estimates and validation. A vendor without `printer` delivery (Bambu Lab) does not get the "Slice and print now" button.
+The Discord flow is unchanged up to the slice: preview, colors, copies, then "Slice and print now (bed is clear)", "Slice only", "Scale the model" and "Cancel print request". "Scale the model" asks bigger or smaller, then 1%, 5% or 10%, and repeats the confirmation at the new size; a size that does not fit the bed is refused and nothing is scaled. The slice summary still shows per-plate artifacts, estimates and validation. A vendor without `printer` delivery (Bambu Lab) does not get the "Slice and print now" button.
 
 After **Slice only**:
 
