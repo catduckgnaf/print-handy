@@ -23,7 +23,7 @@ from typing import Any, NamedTuple
 
 from .. import firmware_update, printers, settings
 from ..printers.base import MultiColorUnsupported
-from . import _external, filament_color, gcode_3mf, launch_state, printer_state, spoolman_client
+from . import _external, filament_color, gcode_3mf, launch_state, printer_state, purge, spoolman_client
 from .site_accounts import SiteLoginNeeded
 
 logger = logging.getLogger(__name__)
@@ -4304,9 +4304,10 @@ def slice_multi_plate(job, job_path, src, manifest, decisions, st, brim_override
 PAINTED_SCALE_STEPS = (1.0, 0.95, 0.9, 0.87, 0.85, 0.8, 0.75, 0.7, 0.65, 0.6, 0.55, 0.5)
 
 
-def painted_plate_scale(src, view, object_ids, ceiling=1.0):
+def painted_plate_scale(src, view, object_ids, ceiling=1.0, tower_mm=None):
     """Largest ladder scale <= ceiling at which this plate plus its prime tower
-    fits the bed. Pure geometry export, no slicer, no printer."""
+    fits the bed. Pure geometry export, no slicer, no printer.
+    tower_mm is the tower width to reserve (0 for a printer that purges into its chute)."""
     import tempfile
     from .color_geometry import export_color_geometry
     # The exact ceiling is tried first, whatever its size: the confirm
@@ -4320,7 +4321,8 @@ def painted_plate_scale(src, view, object_ids, ceiling=1.0):
             if scale > ceiling + 1e-9:
                 continue
             try:
-                _, geometry = export_color_geometry(src, Path(tmp) / 'g.3mf', view, object_ids=object_ids, scale=scale)
+                _, geometry = export_color_geometry(src, Path(tmp) / 'g.3mf', view, object_ids=object_ids, scale=scale,
+                                                 tower_mm=tower_mm)
             except RuntimeError:
                 continue
             if all(0 <= ax[0] and ax[1] <= BED_LIMIT_MM for row in geometry['parts'] for ax in row['bounds_mm'][:2]):
@@ -4331,12 +4333,20 @@ def painted_plate_scale(src, view, object_ids, ceiling=1.0):
 BED_LIMIT_MM = BED_MM
 
 
-def painted_fit(src, view, plates, ceiling=1.0):
+def _painted_tower_mm(state):
+    """The tower width a painted-plate fit reserves for this printer: None keeps the configured one."""
+    if not state:
+        return None
+    plan = purge.resolve(state=state)
+    return 0.0 if plan.zmod and plan.towerless else None
+
+
+def painted_fit(src, view, plates, ceiling=1.0, tower_mm=None):
     """One shared scale for every authored plate of a painted source."""
     scale, blocking = ceiling, None
     for plate in plates:
         ids = {str(o) for o in plate['object_ids']}
-        fitted = painted_plate_scale(src, view, ids, scale)
+        fitted = painted_plate_scale(src, view, ids, scale, tower_mm)
         if fitted is None:
             return {'scale': None, 'blocking_plate': plate['id'], 'plates': len(plates)}
         if fitted < scale:
@@ -4344,7 +4354,7 @@ def painted_fit(src, view, plates, ceiling=1.0):
     return {'scale': scale, 'blocking_plate': blocking, 'plates': len(plates)}
 
 
-def painted_fit_for_job(src, decisions):
+def painted_fit_for_job(src, decisions, state=None):
     """Intake helper: shared painted-plate scale for an exact-source decision."""
     from .source_colors import inventory
     manifest = inventory(src)
@@ -4354,7 +4364,7 @@ def painted_fit_for_job(src, decisions):
     except RuntimeError:
         plates = [{'id': 1, 'object_ids': sorted({str(p['object_id']) for p in manifest['parts']})}]
     plates = [p for p in plates if any(str(o) in {str(x['object_id']) for x in manifest['parts']} for o in p['object_ids'])]
-    return painted_fit(src, view, plates)
+    return painted_fit(src, view, plates, tower_mm=_painted_tower_mm(state))
 
 
 def _slice_painted_plates(job, job_path, src, manifest, decisions, view, plates, st, brim_override, work):
@@ -4368,7 +4378,7 @@ def _slice_painted_plates(job, job_path, src, manifest, decisions, view, plates,
     import uuid
     from .orca_adapter import slice_model
     source_sha = file_sha256(src); decision_sha = decisions_digest(decisions)
-    fit = painted_fit(src, view, plates, float(job.get('scale') or 1.0))
+    fit = painted_fit(src, view, plates, float(job.get('scale') or 1.0), tower_mm=_painted_tower_mm(st))
     scale = fit['scale']
     if scale is None:
         raise RuntimeError(f"painted plate {fit['blocking_plate']} does not fit the bed with a prime tower at 50% or larger; no slicing attempted")
@@ -6613,6 +6623,7 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
     text = g.read_text()
     _embedded = adapter.native.embedded_mapping
     _embedded(text, st)  # refuses a spool swapped since slicing, before any printer I/O
+    purge.require_launch_safe(text, st)  # a towerless G-code on a Nopoop printer would purge nowhere (#832)
     validate_saved_mesh_start(text, mesh)
     response = _mr(st, '/printer/objects/query?webhooks&print_stats&extruder&heater_bed&zmod_color&filament_switch_sensor%20head_switch_sensor')
     status = response['result']['status']

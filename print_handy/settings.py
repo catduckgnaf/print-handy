@@ -161,12 +161,18 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("discord", "denied_user_ids"): str,
                  ("discord", "chat_llm_enabled"): bool,
                  ("discord", "clarify_ui"): bool,
-                 ("elegoo_sdcp", "host"): str}
+                 ("elegoo_sdcp", "host"): str,
+                 ("purge", "flush_multiplier"): float}
 # List settings that may also come from the environment, as a comma- or space-separated value
 # (PRINT_HANDY__DELIVERY__METHODS=discord,bambu_handoff,printer). Every other list or table is file
 # only. [delivery] methods is here so a Docker operator can opt into the Bambu LAN print button without
 # replacing the image's docker.yaml (#270); the value is validated exactly like the YAML list.
-ENV_LISTS = {("delivery", "methods")}
+ENV_LISTS = {("delivery", "methods"), ("zmod", "plugins")}
+# Settings whose value is a word or a list of names ([zmod] plugins: "auto" or a list). The default
+# is the word, so the type check accepts either shape; _validate_purge checks the content.
+MIXED_KEYS = {("zmod", "plugins")}
+PURGE_MODES = ("auto", "printer_chute", "prime_tower", "slicer_chute")
+PURGE_TOWER_CHOICES = ("auto", "on", "off")
 # [[printers]] entry keys (#257 Stage 2a, #333; design docs/MULTI-PRINTER-DESIGN.md §2.1). The
 # roster is a list, so it is file-only like every other list; scalar keys of a *declared* entry may
 # be overridden from the environment with the indexed spelling PRINT_HANDY__PRINTERS__<ID>__<KEY>
@@ -277,6 +283,8 @@ def _check_keys(home, extra, source):
                         raise SettingsError(f"{source}: [{section}] {key} should be {expected_type.__name__}, got {value!r}")
                     continue
                 raise _unknown(source, section, key)
+            if (section, key) in MIXED_KEYS and isinstance(value, (str, list)):
+                continue
             if not _same_type(home[section][key], value):
                 raise SettingsError(f"{source}: [{section}] {key} should be like {home[section][key]!r}, got {value!r}")
 
@@ -1516,6 +1524,30 @@ def _validate_bot(data):
     agent["timeout_s"] = _positive(data, "agent", "timeout_s")
 
 
+def _validate_purge(data):
+    """[purge] and [zmod]: where a ZMod printer's color-change purge goes (#832)."""
+    purge = data.setdefault("purge", {})
+    for key, choices in (("mode", PURGE_MODES), ("prime_tower", PURGE_TOWER_CHOICES)):
+        value = purge.setdefault(key, "auto")
+        if isinstance(value, bool) or value not in choices:
+            raise SettingsError(f"[purge] {key} must be one of {', '.join(choices)}, got {value!r}")
+    multiplier = purge.get("flush_multiplier")
+    if multiplier is not None:
+        if (isinstance(multiplier, bool) or not isinstance(multiplier, (int, float))
+                or not math.isfinite(multiplier) or not 0.05 <= multiplier <= 5):
+            raise SettingsError(f"[purge] flush_multiplier must be a number from 0.05 to 5, got {multiplier!r}")
+        purge["flush_multiplier"] = float(multiplier)
+    zmod = data.setdefault("zmod", {})
+    plugins = zmod.setdefault("plugins", "auto")
+    if isinstance(plugins, list) and plugins == ["auto"]:
+        plugins = zmod["plugins"] = "auto"  # the environment spelling of auto
+    if plugins != "auto":
+        if (not isinstance(plugins, list)
+                or not all(isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9_.-]+", name) for name in plugins)):
+            raise SettingsError(f"[zmod] plugins must be auto or a list of plugin names, got {plugins!r}")
+        zmod["plugins"] = [name.lower() for name in plugins]
+
+
 def validate(data):
     """Normalize types and fail loudly on a typo instead of slicing with a bad bed."""
     # [[printers]] (#333): an explicit roster projects its first (default) entry into the legacy
@@ -1662,6 +1694,7 @@ def validate(data):
         data["discord"][key] = _positive(data, "discord", key, int)
     _validate_bot(data)
     _validate_design(data)
+    _validate_purge(data)
     _validate_vision(data)
     _validate_spool(data)
     _validate_notify(data)

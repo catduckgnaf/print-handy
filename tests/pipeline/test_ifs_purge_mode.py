@@ -94,8 +94,9 @@ def test_read_purge_mode_queries_save_variables(monkeypatch):
 
 def test_trash_mode_keeps_the_existing_profile(monkeypatch):
     fake_moonraker(monkeypatch, 1)
+    # The printer purges into its chute, so the slice needs no prime tower (#832).
     assert orca_adapter.ifs_purge_settings(ad5x(), {'moonraker_url': 'http://p.test'}, 2) == (
-        1, {}, {'purge_in_prime_tower': '0'})
+        1, {}, {'purge_in_prime_tower': '0', 'enable_prime_tower': '0'})
 
 
 def test_nopoop_purges_into_the_prime_tower(monkeypatch):
@@ -140,7 +141,7 @@ def test_slice_trash_mode_matches_todays_profile(tmp_path, monkeypatch):
     assert machine['purge_in_prime_tower'] == template['purge_in_prime_tower'] == '0'
     assert machine['nozzle_volume'] == template['nozzle_volume']
     assert 'wipe_tower_type' not in machine
-    assert process['enable_prime_tower'] == '1' and process['purge_in_prime_tower'] == '0'
+    assert process['enable_prime_tower'] == '0' and process['purge_in_prime_tower'] == '0'
     assert 'flush_volumes_matrix' not in process and 'flush_multiplier' not in process
     assert 'ifs_purge_mode' not in provenance['geometry']
     assert len(calls) == 1
@@ -172,7 +173,10 @@ def test_slice_unknown_mode_keeps_trash_profile_and_notes_it(tmp_path, monkeypat
     trash_machine, trash_process, _, _ = slice_ad5x(tmp_path / 'trash', monkeypatch, [1, 2, 1, 2])
     fake_moonraker(monkeypatch, value)
     machine, process, provenance, calls = slice_ad5x(tmp_path / 'unknown', monkeypatch, [1, 2, 1, 2])
-    assert machine == trash_machine and process == trash_process
+    # Unreadable keeps the long-standing profile, prime tower included.
+    assert machine == trash_machine
+    assert process['enable_prime_tower'] == '1' and process['purge_in_prime_tower'] == '0'
+    assert process['prime_tower_width'] != '0'
     assert provenance['geometry']['ifs_purge_mode'].startswith('purge mode unknown, assuming trash chute')
     assert len(calls) == 1
 

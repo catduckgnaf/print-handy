@@ -50,7 +50,7 @@ def slice_recipe(job, source_sha256, state=None, *, copies=None, scale=None, bri
     copies, scale and brim_override are the slice_job arguments that take precedence over the job.
     """
     from .. import printers, settings
-    from . import model_job as mj, orca_adapter, printer_state
+    from . import model_job as mj, orca_adapter, printer_state, purge
     from .nozzle import get_tuned_nozzle_profile
     if state is None:
         # Slicing passes the loaded hardware record. A binding compared before any record
@@ -90,6 +90,9 @@ def slice_recipe(job, source_sha256, state=None, *, copies=None, scale=None, bri
                     # parts land, so a settings change must not reuse an old slice.
                     'spacing': settings.spacing_summary(current)['values'],
                     'prime_tower': dict(current.get('prime_tower') or {})},
+        # Where a ZMod printer's color-change purge goes decides whether the slice has a prime
+        # tower and its flush volumes (#832), so a change of plan must not reuse an old slice.
+        'purge': purge.resolve(job.get('printer_id'), state=state, adapter=adapter).recipe(),
         'filament': {'decisions_sha256': mj.decisions_digest(decisions) if decisions else None,
                      'selected_slot': (job.get('filament_selection') or {}).get('slot'),
                      'slots': {str(key): {field: (row or {}).get(field) for field in ('material', 'color', 'hex')}

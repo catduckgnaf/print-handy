@@ -882,38 +882,40 @@ NOPOOP_NOZZLE_VOLUME_MM3 = 144
 NOPOOP_FLUSH_MM3 = 280 + NOPOOP_NOZZLE_VOLUME_MM3
 
 
-def ifs_purge_settings(printer, state, tools):
-    """Match an IFS multicolour slice to the printer's ZMod colour-change purge.
+def ifs_purge_settings(printer, state, tools, plan=None):
+    """Match an IFS multicolor slice to the printer's ZMod color-change purge (core/purge.py).
 
-    Returns (mode, machine_updates, process_updates). mode is ZMod's live
-    use_trash_on_print, 'unknown' when it is missing, unknown or unreadable,
-    or None for a printer without one. 1, 'unknown' (assumed to be ZMod's
-    default 1) and any non-ZMod IFS printer keep the long-standing profile:
-    ZMod purges into the trash chute, the tower only primes. 0 (Nopoop)
-    turns on purging into the prime tower with explicit flush volumes. 2 is
-    refused: Print Handy has no slicer-controlled-poop profile.
+    Returns (mode, machine_updates, process_updates). mode is 1 when the printer
+    purges into its chute, 0 for Nopoop, 'unknown' when the mode could not be
+    read, or None for a printer without ZMod. The chute modes slice without a
+    prime tower (enable_prime_tower 0) unless purge.prime_tower is on; 'unknown'
+    and any non-ZMod IFS printer keep the long-standing prime-tower profile.
+    0 (Nopoop) turns on purging into the prime tower with explicit flush
+    volumes. A slicer-controlled-poop plan (2) is refused: Print Handy has no
+    such profile yet. purge.flush_multiplier, when set, replaces Orca's.
     """
-    from .printer_state import PURGE_MODES, read_purge_mode
-    if not getattr(printer, 'has_native_screen', False):
+    from . import purge
+    plan = plan or purge.resolve(state=state, adapter=printer, live=True)
+    if not plan.zmod:
         return None, {}, {'purge_in_prime_tower': '0'}
-    mode = read_purge_mode(state)
-    if mode == 1:
-        return mode, {}, {'purge_in_prime_tower': '0'}
-    if mode == 0:
+    if plan.refusal:
+        raise RuntimeError(plan.refusal)
+    multiplier = ['%g' % plan.flush_multiplier] if plan.flush_multiplier is not None else None
+    if plan.mode == 'prime_tower':
         flush = [('0' if src == dst else str(NOPOOP_FLUSH_MM3)) for src in range(tools) for dst in range(tools)]
         machine = {'purge_in_prime_tower': '1', 'wipe_tower_type': 'type2', 'enable_filament_ramming': '0',
                    'nozzle_volume': [str(NOPOOP_NOZZLE_VOLUME_MM3)]}
         process = {'purge_in_prime_tower': '1', 'print_sequence': 'by layer',
-                   'flush_multiplier': ['1'], 'flush_volumes_matrix': flush}
-        return mode, machine, process
-    if mode == 2:
-        raise RuntimeError(f'ZMod USE_TRASH_ON_PRINT=2 ({PURGE_MODES[2]}) needs ZMod\'s own Orca profile '
-                           'change-filament G-code, which Print Handy does not slice with. Set '
-                           'SAVE_ZMOD_DATA USE_TRASH_ON_PRINT=0 (Nopoop) or 1 (trash chute), then slice again. '
-                           'Nothing was sliced.')
-    # Missing, unknown or unreadable: ZMod's default is 1, and this is the
-    # profile every AD5X multicolour slice used before the mode was read.
-    return 'unknown', {}, {'purge_in_prime_tower': '0'}
+                   'flush_multiplier': multiplier or ['1'], 'flush_volumes_matrix': flush}
+        return 0, machine, process
+    # printer_chute, or unknown (ZMod's default is 1, and this is the profile every AD5X
+    # multicolor slice used before the mode was read).
+    process = {'purge_in_prime_tower': '0'}
+    if plan.towerless:
+        process['enable_prime_tower'] = '0'
+    if multiplier:
+        process['flush_multiplier'] = multiplier
+    return (1 if plan.mode == 'printer_chute' else 'unknown'), {}, process
 
 
 def start_mesh_profile(state):
@@ -985,6 +987,16 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     mapping = None
     mapped_profile = False
     purge_mode = None
+    # A ZMod printer that purges into its own chute needs no prime tower (#832): decide once,
+    # before the geometry reserves room for one, and refuse a plan that cannot be sliced.
+    purge_plan = None
+    if (getattr(printer, 'has_native_screen', False) and color_decisions
+            and color_decisions.get('mode') == 'per_part'):
+        from . import purge
+        purge_plan = purge.resolve(state=state, adapter=printer, live=True)
+        if purge_plan.refusal:
+            raise RuntimeError(purge_plan.refusal)
+        tower_mm = purge.tower_mm(nozzle_dia, purge_plan)
     # A multi_tool printer slices per-part colours as true multi-extruder
     # output: tools are toolheads (identity mapping), the model's templates
     # already describe every extruder, and no native IFS finalize applies (#346).
@@ -1329,12 +1341,14 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         mapped_profile = True
     elif mapping:
         import copy
-        purge_mode, purge_machine, purge_process = ifs_purge_settings(printer, state, len(mapping))
+        purge_mode, purge_machine, purge_process = ifs_purge_settings(printer, state, len(mapping), purge_plan)
         machine.update({'single_extruder_multi_material': '1', 'change_filament_gcode': '', **purge_machine})
         tower_x, tower_y = geometry['prime_tower_xy_mm']
         tower_width = '%g' % tower_mm
         process.update({'enable_prime_tower': '1', 'prime_tower_width': tower_width,
                         'wipe_tower_x': str(tower_x), 'wipe_tower_y': str(tower_y), **purge_process})
+        if purge_plan is not None and purge_plan.zmod:
+            geometry['purge_plan'] = purge_plan.as_dict()
         if purge_mode == 0:
             geometry['ifs_purge_mode'] = 'nopoop: purge into prime tower (ZMod use_trash_on_print=0)'
         elif purge_mode == 'unknown':
@@ -1547,7 +1561,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         (folder / 'result.json').unlink(missing_ok=True)
         result = _run_slicer(command, 'OrcaSlicer', folder)
         (folder / 'orca.log').write_text(result.stdout + result.stderr)
-    if (primary == 'orca' and mapped_profile and result.returncode and _orca_conflict(folder)):
+    if (primary == 'orca' and mapped_profile and result.returncode and _orca_conflict(folder)
+            and (purge_plan is None or purge_plan.prime_tower)):
         # Tower placement clears mesh bounds, but tree supports and brims can
         # still reach it. Retry the precomputed alternate tower origins only;
         # never relax Orca's conflict check.

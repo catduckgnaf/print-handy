@@ -44,6 +44,7 @@ from urllib.parse import urlparse
 
 from .. import __version__, doctor, healthcheck, logs, printers, settings
 from ..bot import health as bot_health
+from ..core import purge
 
 # Heartbeat record keys that are safe and useful to show. The record is
 # written by the bot itself; whitelisting keeps anything unexpected (and
@@ -303,6 +304,10 @@ def _roster_section(data):
                     "lan_host", "link_host", "host"):
             if entry.get(key):
                 row[key] = _shown_url(entry[key]) if key.endswith("_url") else entry[key]
+        # Where a ZMod printer's color-change purge goes (#832): the cached reading only, so the
+        # status page never waits on a printer. Present once intake or the doctor has read one.
+        if purge.read_cache(entry["id"], data):
+            row["purge"] = purge.status_row(entry["id"], data)
         rows.append(row)
     return rows
 
