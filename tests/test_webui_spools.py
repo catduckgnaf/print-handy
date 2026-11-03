@@ -12,6 +12,7 @@ import json
 import tempfile
 import threading
 import unittest
+import urllib.error
 import urllib.parse
 from pathlib import Path
 from unittest import mock
@@ -245,6 +246,19 @@ class ViewTests(SpoolCase):
         self.assertEqual(code, 404)
         self.assertIn("nope", body["reason"])
 
+    def test_get_spoolman_down_reason_names_no_exception(self):
+        # #840: the operator-facing reason is a plain sentence naming
+        # Spoolman — no exception class or repr (that goes to the log).
+        def down(method, path, body=None):
+            raise urllib.error.URLError(OSError(111, "Connection refused"))
+
+        code, body = spools.spools_view(self.data, PRINTER, client=down,
+                                        state_path=self.state)
+        self.assertEqual(code, 502)
+        self.assertIn("Spoolman did not answer", body["reason"])
+        self.assertNotIn("URLError", body["reason"])
+        self.assertNotIn("Errno", body["reason"])
+
 
 # ---------------------------------------------------------------------- guard
 
@@ -442,6 +456,18 @@ class EditTests(SpoolCase):
         self.assertEqual(code, 200)
         self.assertFalse(self.fake.spools[7]["archived"])
 
+    def test_edit_transport_failure_reason_names_no_exception(self):
+        # #840: _call's 502 wording drops the exception class/repr too.
+        def down(method, path, body=None):
+            raise RuntimeError("kaput")
+
+        code, body = spools.edit(self.data, PRINTER,
+                                 {"spool_id": 7, "remaining_weight": 1}, client=down)
+        self.assertEqual(code, 502)
+        self.assertIn("did not complete", body["reason"])
+        self.assertNotIn("RuntimeError", body["reason"])
+        self.assertNotIn("kaput", body["reason"])
+
     def test_edit_refusals_are_named(self):
         code, body = spools.edit(self.data, PRINTER,
                                  {"spool_id": 999, "remaining_weight": 1}, **self.deps())
@@ -606,11 +632,15 @@ class RouteTests(unittest.TestCase):
         return httpd
 
     def request(self, port, method, path, body=b"", headers=None):
+        code, _headers, raw = self.request_full(port, method, path, body, headers)
+        return code, raw
+
+    def request_full(self, port, method, path, body=b"", headers=None):
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
         try:
             conn.request(method, path, body=body, headers=headers or {})
             response = conn.getresponse()
-            return response.status, response.read().decode()
+            return response.status, dict(response.getheaders()), response.read().decode()
         finally:
             conn.close()
 
@@ -727,12 +757,191 @@ class RouteTests(unittest.TestCase):
             form = urllib.parse.urlencode(
                 {"_csrf": httpd.form_token, "spool_action": "assign",
                  "slot": "1", "spool_id": "7"}).encode()
-            code, raw = self.request(port, "POST", f"/spools/{PRINTER}", form,
-                                     headers={"Content-Type":
-                                              "application/x-www-form-urlencoded"})
+            # #840: success is Post/Redirect/Get — the POST itself is a
+            # 303 to the page with the action's detail as the notice, so
+            # a reload never repeats the action.
+            code, headers, _ = self.request_full(
+                port, "POST", f"/spools/{PRINTER}", form,
+                headers={"Content-Type": "application/x-www-form-urlencoded"})
+            self.assertEqual(code, 303)
+            location = headers["Location"]
+            self.assertTrue(location.startswith(f"/spools/{PRINTER}?done="), location)
+            code, raw = self.request(port, "GET", location,
+                                     headers={server.TOKEN_HEADER: TOKEN})
             self.assertEqual(code, 200)
-            self.assertIn("Slot 1", raw)
+            self.assertIn("Slot 1", raw)  # the detail round-trips as the notice
         self.assertEqual(seen, [(PRINTER, "assign", {"slot": 1, "spool_id": 7})])
+
+    # ---------------------------------------------------------- #840 pages
+
+    def test_spools_page_spoolman_down_is_a_themed_html_error(self):
+        def down_view(printer_id):
+            return 502, {"ok": False,
+                         "reason": "Spoolman did not answer, so the spool view "
+                                   "cannot be built"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd = self.start(tmp, spools_view_func=down_view)
+            port = httpd.server_address[1]
+            code, headers, raw = self.request_full(
+                port, "GET", f"/spools/{PRINTER}",
+                headers={server.TOKEN_HEADER: TOKEN})
+            self.assertEqual(code, 502)  # the status code is unchanged
+            self.assertIn("text/html", headers["Content-Type"])
+            self.assertIn('<header class="site">', raw)
+            self.assertIn("Spoolman did not answer", raw)
+            self.assertIn('href="/config"', raw)  # the Configuration hint
+            self.assertNotIn('"ok": false', raw)
+            self.assertNotIn("URLError", raw)
+
+    def test_spools_page_unknown_printer_is_an_html_404(self):
+        def missing_view(printer_id):
+            return 404, {"ok": False,
+                         "reason": f"no printer with id {printer_id!r} is configured"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd = self.start(tmp, spools_view_func=missing_view)
+            port = httpd.server_address[1]
+            code, headers, raw = self.request_full(
+                port, "GET", "/spools/nope", headers={server.TOKEN_HEADER: TOKEN})
+            self.assertEqual(code, 404)
+            self.assertIn("text/html", headers["Content-Type"])
+            self.assertIn('<header class="site">', raw)
+            self.assertIn("Pick a printer", raw)
+            self.assertNotIn('"ok": false', raw)
+            # A malformed id (extra path segment) is the same HTML 404.
+            code, _, raw = self.request_full(
+                port, "GET", "/spools/a/b", headers={server.TOKEN_HEADER: TOKEN})
+            self.assertEqual(code, 404)
+            self.assertIn("Pick a printer", raw)
+
+    def test_api_spools_route_stays_json_when_spoolman_is_down(self):
+        def down_view(printer_id):
+            return 502, {"ok": False,
+                         "reason": "Spoolman did not answer, so the spool view "
+                                   "cannot be built"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd = self.start(tmp, spools_view_func=down_view)
+            port = httpd.server_address[1]
+            code, headers, raw = self.request_full(
+                port, "GET", f"/api/printers/{PRINTER}/spools",
+                headers={server.TOKEN_HEADER: TOKEN})
+            self.assertEqual(code, 502)
+            self.assertIn("application/json", headers["Content-Type"])
+            self.assertFalse(json.loads(raw)["ok"])
+
+    def test_spools_post_stale_form_token_is_an_html_refusal(self):
+        view = {"ok": True, "id": PRINTER, "name": "AD5X", "slots": [],
+                "shelf": [], "spools": [], "conflicts": []}
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd = self.start(tmp, spools_view_func=lambda pid: (200, view),
+                               spools_action_func=lambda pid, a, b: (200, {"ok": True}))
+            port = httpd.server_address[1]
+            form = urllib.parse.urlencode(
+                {"spool_action": "sync"}).encode()  # no form token at all
+            code, headers, raw = self.request_full(
+                port, "POST", f"/spools/{PRINTER}", form,
+                headers={"Content-Type": "application/x-www-form-urlencoded"})
+            self.assertEqual(code, 403)
+            self.assertIn("text/html", headers["Content-Type"])
+            self.assertIn('<header class="site">', raw)
+            self.assertIn("out of date (Print Handy restarted)", raw)
+            self.assertNotIn('"ok": false', raw)
+
+    def test_spools_post_refusal_keeps_the_direct_render(self):
+        view = {"ok": True, "id": PRINTER, "name": "AD5X",
+                "slots": [{"slot": n, "spool": None} for n in (1, 2, 3, 4)],
+                "shelf": [], "spools": [], "conflicts": []}
+
+        def refusing_action(printer_id, action, body):
+            return 409, {"ok": False, "reason": "slot 1 has no spool assigned"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd = self.start(tmp, spools_view_func=lambda pid: (200, view),
+                               spools_action_func=refusing_action)
+            port = httpd.server_address[1]
+            form = urllib.parse.urlencode(
+                {"_csrf": httpd.form_token, "spool_action": "unassign",
+                 "slot": "1"}).encode()
+            code, headers, raw = self.request_full(
+                port, "POST", f"/spools/{PRINTER}", form,
+                headers={"Content-Type": "application/x-www-form-urlencoded"})
+            self.assertEqual(code, 409)  # no redirect: the refusal stays on screen
+            self.assertNotIn("Location", headers)
+            self.assertIn("slot 1 has no spool assigned", raw)
+
+    def test_spools_purchase_propose_keeps_the_direct_render(self):
+        view = {"ok": True, "id": PRINTER, "name": "AD5X",
+                "slots": [{"slot": n, "spool": None} for n in (1, 2, 3, 4)],
+                "shelf": [], "spools": [], "conflicts": []}
+
+        def propose_action(printer_id, action, body):
+            return 200, {"ok": True, "detail": "proposal", "lines": LINES}
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(spools, "purchase_available", lambda: True):
+            httpd = self.start(tmp, spools_view_func=lambda pid: (200, view),
+                               spools_action_func=propose_action)
+            port = httpd.server_address[1]
+            form = urllib.parse.urlencode(
+                {"_csrf": httpd.form_token, "spool_action": "purchase_propose",
+                 "url": "https://shop.example/pla"}).encode()
+            code, headers, raw = self.request_full(
+                port, "POST", f"/spools/{PRINTER}", form,
+                headers={"Content-Type": "application/x-www-form-urlencoded"})
+            self.assertEqual(code, 200)  # proposed lines render on the same page
+            self.assertNotIn("Location", headers)
+            self.assertIn("Create these spools", raw)
+            self.assertIn('data-busy="Creating', raw)
+
+    def test_spools_page_carries_the_shared_submit_script_and_button_attrs(self):
+        view = {"ok": True, "id": PRINTER, "name": "AD5X",
+                "slots": [{"slot": 1, "spool": {"id": 3, "name": "Pink PLA",
+                                                "color": "Pink", "material": "PLA",
+                                                "brand": "Sunlu", "color_hex": "F95D73",
+                                                "remaining_weight": 500.0,
+                                                "initial_weight": 1000.0,
+                                                "remaining_percent": 50.0,
+                                                "archived": False,
+                                                "location": "IFS Slot 1"}},
+                          {"slot": 2, "spool": None}, {"slot": 3, "spool": None},
+                          {"slot": 4, "spool": None}],
+                "shelf": [{"id": 7, "name": "Coffee PLA+", "color": "Coffee",
+                           "material": "PLA+", "brand": "eSun", "color_hex": "6F4E37",
+                           "remaining_weight": 800.0, "initial_weight": 1000.0,
+                           "remaining_percent": 80.0, "archived": False,
+                           "location": "Shelf"}],
+                "spools": [], "conflicts": []}
+        view["spools"] = [view["slots"][0]["spool"], view["shelf"][0]]
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd = self.start(tmp, spools_view_func=lambda pid: (200, view))
+            port = httpd.server_address[1]
+            code, raw = self.request(port, "GET", f"/spools/{PRINTER}",
+                                     headers={server.TOKEN_HEADER: TOKEN})
+            self.assertEqual(code, 200)
+            self.assertIn("<script>", raw)  # the shell's one shared submit script
+            self.assertIn("dataset.confirm", raw)
+            self.assertIn('data-busy="Syncing', raw)      # Sync
+            self.assertIn("data-confirm", raw)            # Unassign / Swap forms
+            self.assertIn('class="table-scroll"', raw)    # the shelf/loaded wrap
+
+    def test_unknown_browser_get_is_an_html_refusal_api_stays_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd = self.start(tmp)
+            port = httpd.server_address[1]
+            code, headers, raw = self.request_full(
+                port, "GET", "/nope",
+                headers={server.TOKEN_HEADER: TOKEN, "Accept": "text/html"})
+            self.assertEqual(code, 404)
+            self.assertIn("text/html", headers["Content-Type"])
+            self.assertIn('<header class="site">', raw)
+            self.assertNotIn('"ok": false', raw)
+            code, headers, raw = self.request_full(
+                port, "GET", "/nope", headers={server.TOKEN_HEADER: TOKEN})
+            self.assertEqual(code, 404)
+            self.assertIn("application/json", headers["Content-Type"])
+            self.assertFalse(json.loads(raw)["ok"])
 
 
 if __name__ == "__main__":

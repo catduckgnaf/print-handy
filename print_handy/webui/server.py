@@ -4,7 +4,8 @@ A stdlib-only HTTP server (``http.server``; no new dependency, no build
 step) serving:
 
 - ``GET /`` — a simple server-rendered status page (plain HTML, every
-  interpolated value escaped, no JavaScript);
+  interpolated value escaped; the only JavaScript anywhere is the
+  shell's shared form-submit guard, #840);
 - ``GET /api/status`` — the status snapshot as JSON
   (:mod:`print_handy.webui.status`);
 - ``POST /api/printers/<id>/pause|resume|cancel|temperature`` — printer
@@ -98,6 +99,7 @@ import hmac
 import html
 import ipaddress
 import json
+import logging
 import os
 import secrets
 import sys
@@ -105,7 +107,7 @@ import threading
 import time
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from .. import settings
 from ..bot import health as bot_health
@@ -121,6 +123,8 @@ from . import spools as spools_module
 from . import status as status_module
 from . import walkthrough as walkthrough_module
 
+log = logging.getLogger(__name__)
+
 TOKEN_HEADER = "X-WebUI-Token"
 LOOPBACK_NAMES = frozenset({"localhost"})
 # Browser login sessions: the cookie carries only an opaque id; the
@@ -129,6 +133,13 @@ LOOPBACK_NAMES = frozenset({"localhost"})
 # documented posture is plain HTTP on a trusted LAN (Unraid WebUI link).
 SESSION_COOKIE = "webui_session"
 SESSION_TTL_S = 12 * 60 * 60  # 12 hours
+
+# The form-token refusal for browser forms (#840): the token is
+# regenerated on every process start, so a tab left open across a
+# restart — the config flow tells the operator to restart — always
+# lands here, and the wording names that case instead of the mechanism.
+STALE_FORM_MESSAGE = ("This page is out of date (Print Handy restarted). "
+                      "Reload it and try again.")
 
 
 class WebUIServerError(RuntimeError):
@@ -271,7 +282,7 @@ def _job_block(job):
 
 
 def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
-                       walkthrough_pending=False, job=None):
+                       walkthrough_pending=False, job=None, error=None):
     """The / page: the snapshot as escaped HTML in the shared shell (#813).
 
     The overall card on top is derived from what the snapshot already
@@ -279,7 +290,9 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
     printer's name and connection — plus, when the caller fetched one
     (``job``, the default printer's normalized live status), the active
     job's file, progress and layers. ``walkthrough_pending`` adds the
-    slim finish-setup banner under the header.
+    slim finish-setup banner under the header. ``error`` (a /debug
+    validation refusal re-rendering this page, #840) shows above the
+    card.
     """
     esc = html.escape
     bot, listener, spoolman = snap["bot"], snap["listener"], snap["spoolman"]
@@ -314,8 +327,9 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
             for row in roster)
         roster_table = ("<h2>Printers (read-only)</h2><p>The roster is edited in the config "
                         "file or the setup wizard, not here (stage 2e decision, docs/WEBUI.md).</p>"
-                        "<table><tr><th>id</th><th>name</th><th>model</th><th>connection</th>"
-                        f"<th>channel</th><th>endpoint</th></tr>{body}</table>")
+                        '<div class="table-scroll"><table><tr><th>id</th><th>name</th>'
+                        "<th>model</th><th>connection</th>"
+                        f"<th>channel</th><th>endpoint</th></tr>{body}</table></div>")
     doctor = "".join(
         f"<tr><td>{esc(row['label'])}</td><td>{esc(row['status'])}</td>"
         f"<td>{esc(row['detail'])}</td></tr>" for row in snap["doctor"])
@@ -336,7 +350,8 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
             f'<input type="hidden" name="{pages.CSRF_FIELD}" value="{esc(form_token)}">'
             '<label>Minutes <input name="minutes" size="4" placeholder="30"></label> '
             '<button name="action" value="on" type="submit">Turn on</button> '
-            '<button name="action" value="off" type="submit">Turn off</button>'
+            '<button name="action" value="off" type="submit" '
+            'data-confirm="Turn off debug mode? This ends the debug session.">Turn off</button>'
             "</form>")
     failures = snap.get("slice_failures") or []
     failures_table = ""
@@ -371,7 +386,8 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
         banner = ('<div class="banner"><span>Finish setting up Print Handy — '
                   'the first-run walkthrough is still open.</span>'
                   '<a class="button accent" href="/walkthrough">Finish setup</a></div>')
-    body = (overall
+    body = ((f'<p class="error">{esc(error)}</p>' if error else "")
+            + overall
             + f'<table class="rows">{main_rows}</table>'
             + roster_table
             + (f"<h2>Services</h2><table>{services}</table>" if services else "")
@@ -452,6 +468,16 @@ class _Handler(BaseHTTPRequestHandler):
     def _redirect(self, location, headers=()):
         self._send(303, "", "text/html; charset=utf-8",
                    headers=[("Location", location), *headers])
+
+    def _html_refusal(self, code, message, back="/"):
+        """A refusal as a themed page for a browser form or navigation
+        (#840): the shell, the plain message, and a Back link, with the
+        status code unchanged. ``/api/*`` routes never come through
+        here — they keep the JSON ``{ok, reason}`` shape."""
+        body = (f'<p class="error">{html.escape(message)}</p>'
+                f'<p><a href="{html.escape(back, quote=True)}">Back</a></p>')
+        self._send(code, shell.page("error", body, path=back, theme=self._theme()),
+                   "text/html; charset=utf-8")
 
     # -- auth ---------------------------------------------------------------
     def _header_authorized(self):
@@ -607,6 +633,10 @@ class _Handler(BaseHTTPRequestHandler):
                     self._send(code, body, content_type)
                 else:
                     self._json(code, body)
+            elif self._browser_navigation(path):
+                # A browser navigation to a path that does not exist
+                # gets the themed refusal, not a JSON dump (#840).
+                self._html_refusal(404, "No page lives at this address.", "/")
             else:
                 self._json(404, {"ok": False,
                                  "reason": "try /, /api/status, /api/printers/<id>/status, "
@@ -615,7 +645,12 @@ class _Handler(BaseHTTPRequestHandler):
                                            "/healthz, /config, /designs, /layers, /spools, "
                                            "/walkthrough or /login"})
         except Exception as exc:  # a broken snapshot is a 500, never a dropped connection
-            self._json(500, {"ok": False, "reason": f"{type(exc).__name__}: {exc}"})
+            if self._browser_navigation(path):
+                # The page hides the exception text, so keep it in the log (log_message is silenced).
+                log.exception("Web UI page %s failed", path)
+                self._html_refusal(500, "Something went wrong rendering this page.", "/")
+            else:
+                self._json(500, {"ok": False, "reason": f"{type(exc).__name__}: {exc}"})
 
     # -- per-printer live status (#664) -------------------------------------
     def _printer_status_route(self, rest):
@@ -733,17 +768,32 @@ class _Handler(BaseHTTPRequestHandler):
         code, payload = self.server.spools_action_func(unquote(segments[0]), action, body)
         self._json(code, payload)
 
+    def _spools_error_page(self, printer_id, code, reason):
+        self._send(code, spools_module.render_spools_error(
+            printer_id, code, reason, theme=self._theme()),
+            "text/html; charset=utf-8")
+
     def _spools_page(self, printer_id):
-        """GET /spools/<id>: the per-printer Spools page (#789)."""
+        """GET /spools/<id>: the per-printer Spools page (#789).
+
+        A failed view (Spoolman down, unknown id) renders the themed
+        error page at the same status code (#840); the JSON shape is
+        kept for ``/api/printers/<id>/spools`` only. A ``?done=`` from
+        a form post's redirect (#840's Post/Redirect/Get) reads back
+        as the page notice.
+        """
         if not printer_id or "/" in printer_id:
-            self._json(404, {"ok": False, "reason": "try /spools/<printer id>"})
+            self._spools_error_page(printer_id, 404,
+                                    "That printer id does not name a spools page.")
             return
         code, view = self.server.spools_view_func(printer_id)
         if code != 200:
-            self._json(code, view)
+            self._spools_error_page(printer_id, code, view.get("reason", ""))
             return
+        done = (parse_qs(urlparse(self.path).query).get("done") or [""])[0]
         self._send(200, spools_module.render_spools_page(
             view, form_token=self.server.form_token, theme=self._theme(),
+            notice=done or None,
             purchase_ready=spools_module.purchase_available()),
             "text/html; charset=utf-8")
 
@@ -753,23 +803,28 @@ class _Handler(BaseHTTPRequestHandler):
         Same authorization as a config POST (the access-token header or
         the page's form token; a login session alone never authorizes
         it). The form converts to the same action the JSON API takes,
-        so the page and the API can never diverge, and the page is
-        re-rendered with the action's detail or its named refusal.
+        so the page and the API can never diverge. Success answers
+        with Post/Redirect/Get (#840): a 303 to the page with the
+        action's detail in ``?done=``, so a reload never repeats the
+        action. Refusals keep the direct render, so the error and the
+        submitted values stay on screen, and ``purchase/propose`` keeps
+        its direct render too — its proposed lines belong on this page
+        and resubmitting it creates nothing.
         """
+        back = f"/spools/{quote(printer_id, safe='')}"
         if not printer_id or "/" in printer_id:
-            self._json(404, {"ok": False, "reason": "try /spools/<printer id>"})
+            self._spools_error_page(printer_id, 404,
+                                    "That printer id does not name a spools page.")
             return
         form, error = self._read_form()
         if error:
-            self._json(error[0], {"ok": False, "reason": error[1]})
+            self._html_refusal(error[0], error[1], back)
             return
         if not self._post_authorized(form):
-            self._json(403, {"ok": False,
-                             "reason": f"missing or wrong form token: POST /spools "
-                                       f"requires the {TOKEN_HEADER} header or the "
-                                       f"form's own {pages.CSRF_FIELD} token"})
+            self._html_refusal(403, STALE_FORM_MESSAGE, back)
             return
         action_name = (form.get("spool_action") or [""])[0]
+        action = None
         proposed = None
         try:
             action, body = spools_module.form_body(action_name, form)
@@ -779,9 +834,12 @@ class _Handler(BaseHTTPRequestHandler):
             code, payload = self.server.spools_action_func(printer_id, action, body)
             if code == 200 and action == "purchase/propose":
                 proposed = payload.get("lines")
+        if code == 200 and action != "purchase/propose":
+            self._redirect(f"{back}?done=" + quote(payload.get("detail", ""), safe=""))
+            return
         view_code, view = self.server.spools_view_func(printer_id)
         if view_code != 200:
-            self._json(view_code, view)
+            self._spools_error_page(printer_id, view_code, view.get("reason", ""))
             return
         self._send(code if code != 200 else 200,
                    spools_module.render_spools_page(
@@ -877,13 +935,10 @@ class _Handler(BaseHTTPRequestHandler):
         a config POST (access header or the page's form token)."""
         form, error = self._read_form()
         if error:
-            self._json(error[0], {"ok": False, "reason": error[1]})
+            self._html_refusal(error[0], error[1], "/walkthrough")
             return
         if not self._post_authorized(form):
-            self._json(403, {"ok": False,
-                             "reason": f"missing or wrong form token: POST /walkthrough "
-                                       f"requires the {TOKEN_HEADER} header or the "
-                                       f"form's own {pages.CSRF_FIELD} token"})
+            self._html_refusal(403, STALE_FORM_MESSAGE, "/walkthrough")
             return
         kind, payload = walkthrough_module.apply_post(
             self._walkthrough_data(), self.server.webui_environ, form,
@@ -954,11 +1009,11 @@ class _Handler(BaseHTTPRequestHandler):
         """
         form, error = self._read_form()
         if error:
-            self._json(error[0], {"ok": False, "reason": error[1]})
+            self._html_refusal(error[0], error[1], "/setup")
             return
         provided = (form.get(pages.CSRF_FIELD) or [""])[0]
         if not (provided and hmac.compare_digest(provided, self.server.setup_token)):
-            self._json(403, {"ok": False, "reason": "missing or wrong form token: reload /setup"})
+            self._html_refusal(403, STALE_FORM_MESSAGE, "/setup")
             return
         data = self.server.settings_data
         with self.server.setup_lock:
@@ -1028,13 +1083,10 @@ class _Handler(BaseHTTPRequestHandler):
         (the refusal response has already been sent)."""
         form, error = self._read_form()
         if error:
-            self._json(error[0], {"ok": False, "reason": error[1]})
+            self._html_refusal(error[0], error[1], "/config")
             return None
         if not self._post_authorized(form):
-            self._json(403, {"ok": False,
-                             "reason": f"missing or wrong form token: POST /config "
-                                       f"requires the {TOKEN_HEADER} header or the "
-                                       f"form's own {pages.CSRF_FIELD} token"})
+            self._html_refusal(403, STALE_FORM_MESSAGE, "/config")
             return None
         return form, self._field_values()
 
@@ -1110,9 +1162,8 @@ class _Handler(BaseHTTPRequestHandler):
             return
         form, field_values = got
         if (form.get(pages.CONFIRM_FIELD) or [""])[0] != "yes":
-            self._json(400, {"ok": False,
-                             "reason": "saving needs the preview step: POST to "
-                                       "/config/preview first, then confirm"})
+            self._html_refusal(400, "saving needs the preview step: POST to "
+                                    "/config/preview first, then confirm", "/config")
             return
         # The confirm form names the fields the preview parsed; re-parse
         # exactly those, so hidden-input absence keeps its preview meaning.
@@ -1151,13 +1202,10 @@ class _Handler(BaseHTTPRequestHandler):
         """
         form, error = self._read_form()
         if error:
-            self._json(error[0], {"ok": False, "reason": error[1]})
+            self._html_refusal(error[0], error[1], "/")
             return
         if not self._post_authorized(form):
-            self._json(403, {"ok": False,
-                             "reason": f"missing or wrong form token: POST /debug "
-                                       f"requires the {TOKEN_HEADER} header or the "
-                                       f"form's own {pages.CSRF_FIELD} token"})
+            self._html_refusal(403, STALE_FORM_MESSAGE, "/")
             return
         from .. import debug_mode
         action = (form.get("action") or [""])[0]
@@ -1167,15 +1215,26 @@ class _Handler(BaseHTTPRequestHandler):
             try:
                 minutes = int(raw) if raw else None
             except ValueError:
-                self._json(400, {"ok": False, "reason": "minutes must be a whole number"})
+                self._debug_error("minutes must be a whole number")
                 return
             debug_mode.start(data, minutes=minutes)
         elif action == "off":
             debug_mode.end(data)
         else:
-            self._json(400, {"ok": False, "reason": "action must be on or off"})
+            self._debug_error("action must be on or off")
             return
         self._redirect("/")
+
+    def _debug_error(self, message):
+        """A /debug validation refusal (#840): the status page itself
+        re-rendered at 400 with the error on it, so the debug form and
+        its current state stay on screen instead of a JSON dump."""
+        snap = self.server.snapshot_func()
+        self._send(400, render_status_html(
+            snap, form_token=self.server.form_token, theme=self._theme(),
+            walkthrough_pending=walkthrough_module.pending(self.server.settings_data),
+            job=_overall_job(self.server.settings_data), error=message),
+            "text/html; charset=utf-8")
 
     def _read_only(self):
         self._json(405, {"ok": False,
