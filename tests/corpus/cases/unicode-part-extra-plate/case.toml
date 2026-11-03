@@ -23,3 +23,13 @@ gcodes = 1
 scale = 1.0
 supports = false
 slots = 1
+
+[model]
+layout = "loose"
+extra_empty_plates = 1
+
+[[model.part]]
+name = "Unicode 🐙 – part"
+extruder = 1
+size = [25, 25, 6]
+at = [60, 60]

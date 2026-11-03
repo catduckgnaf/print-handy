@@ -30,3 +30,20 @@ colors = { "Base" = "white", "Overlay" = "black" }
 plate_mode = "merge"
 gcodes = 1
 slots = 2
+
+[model]
+layout = "assembly"
+fit = "roomy"
+aspect = 0.8333
+
+[[model.part]]
+name = "Base"
+extruder = 1
+height = 4
+footprint = [1.0, 1.0]
+
+[[model.part]]
+name = "Overlay"
+extruder = 2
+height = 2
+footprint = [1.0, 1.0]

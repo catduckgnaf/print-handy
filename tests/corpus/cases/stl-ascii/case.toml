@@ -21,3 +21,11 @@ gcodes = 1
 scale = 1.0
 supports = false
 slots = 1
+
+[model]
+format = "stl"
+binary = false
+
+[[model.part]]
+name = "Part"
+size = [24, 18, 8]

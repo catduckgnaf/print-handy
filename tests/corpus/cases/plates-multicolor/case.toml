@@ -36,3 +36,34 @@ gcodes = 1
 slots = 3
 scale = 1.0
 supports = false
+
+[model]
+layout = "plates"
+palette = ["#FFFFFF", "#000000", "#C0392B"]
+
+[[model.part]]
+name = "Body"
+extruder = 1
+size = [60, 40, 12]
+at = [50, 60]
+
+[[model.part]]
+name = "Lid"
+extruder = 2
+size = [60, 40, 4]
+at = [50, 60]
+
+[[model.part]]
+name = "Knob"
+extruder = 3
+shape = "cylinder"
+size = [9, 14]
+at = [60, 130]
+
+[[model.plate]]
+name = "Body"
+parts = [0]
+
+[[model.plate]]
+name = "Lid and knob"
+parts = [1, 2]

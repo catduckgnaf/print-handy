@@ -24,3 +24,20 @@ parts = ["Gear", "Axle"]
 gcodes = 1
 supports = false
 slots = 1
+
+[model]
+format = "core-3mf"
+
+[[model.part]]
+name = "Gear"
+shape = "cylinder"
+size = [15, 6]
+at = [50, 60]
+color = "#C0392B"
+
+[[model.part]]
+name = "Axle"
+shape = "cylinder"
+size = [4, 20]
+at = [100, 60]
+color = "#C0392B"

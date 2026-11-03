@@ -23,3 +23,11 @@ colors = { Swatch = "white" }
 gcodes = 1
 supports = false
 slots = 1
+
+[model]
+format = "face-props-3mf"
+
+[[model.part]]
+name = "Swatch"
+size = [30, 30, 6]
+at = [60, 60]
