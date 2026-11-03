@@ -218,7 +218,12 @@ _PHRASE_FORMS = {
     ("linear", "advance"): ("linearadvance",),
     ("g", "code"): ("gcode",),
     ("cold", "pull"): ("coldpull",),
-    ("first", "layer"): ("firstlayer",),
+    # No ("first", "layer") entry: "first" is a number word, and joining
+    # it into an opaque "firstlayer" token here (before number parsing)
+    # broke the ordinal equivalence — "first layer" must canonicalize
+    # to "1 layer", the same as "1st layer". The joined spelling still
+    # equates: canonical() splits a leading number word back out of a
+    # joined token ("firstlayer" -> "first" + "layer") before parsing.
     ("top", "layer"): ("toplayer",),
     ("bottom", "layer"): ("bottomlayer",),
     ("outer", "wall"): ("outerwall",),

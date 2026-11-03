@@ -95,6 +95,22 @@ def test_number_forms_match(query, target):
     assert fuzzy.fuzzy_score(query, target) >= fuzzy.FUZZY_FLOOR
 
 
+def test_first_layer_keeps_ordinal_normalization():
+    # Regression (PR #812 review): folding ("first", "layer") to the
+    # opaque token "firstlayer" ran before number parsing, so the word
+    # form stopped equating with the digit form — "first layer" scored
+    # 0 against "1st layer" and /print-again "1st layer" no longer
+    # offered an archived "First Layer Calibration". The joined token
+    # still equates: canonical() splits a leading number word back out
+    # of "firstlayer" before the number parser runs.
+    assert fuzzy.canonical("first layer") == "1 layer"
+    assert fuzzy.canonical("1st layer") == "1 layer"
+    assert fuzzy.canonical("firstlayer") == "1 layer"
+    assert fuzzy.fuzzy_score("first layer", "1st layer") >= fuzzy.FUZZY_FLOOR
+    assert fuzzy.windowed_fuzzy_score(
+        "1st layer", "First Layer Calibration") >= fuzzy.FUZZY_FLOOR
+
+
 def test_number_forms_do_not_equate_different_numbers():
     # The canonical forms stay distinct, and a different number scores
     # strictly below the same number written the other way (83 vs 99
