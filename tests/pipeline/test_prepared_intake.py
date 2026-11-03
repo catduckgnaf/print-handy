@@ -748,6 +748,40 @@ def test_explicit_preupload_refusal_is_still_a_refusal(env, monkeypatch):
     assert receipt['status'] == 'START_REFUSED' and receipt['started'] is False
 
 
+def test_failed_upload_post_names_the_upload_stage_and_unknown_state(env, monkeypatch):
+    # #817: the production flow, not just plain_start_failure, must not say "probably still heating".
+    async def start(target):
+        env.starts.append(target)
+        return False, 'The file could not be uploaded to the printer, so nothing started. Detail: boom'
+    monkeypatch.setattr(print_next, 'start', start)
+    adapter, result, receipt = run_flow(env, [1, 0, 0], mid='upload-failure')
+    final = adapter.sent[-1]
+    assert receipt['status'] == 'START_PENDING'
+    assert 'Stage: upload.' in final and 'may already have the file' in final
+    assert 'probably still heating' not in final
+    assert receipt['failure']['stage'] == 'upload' and receipt['failure']['submitted'] == 'unknown'
+
+
+def test_unconfirmed_start_post_names_the_launch_stage(env, monkeypatch):
+    async def start(target):
+        return False, 'UNCERTAIN: print-now timed out. The plate may already have started. Not retrying.'
+    monkeypatch.setattr(print_next, 'start', start)
+    adapter, result, receipt = run_flow(env, [1, 0, 0], mid='launch-unknown')
+    assert 'has not confirmed it yet' in adapter.sent[-1]
+    assert receipt['failure']['stage'] == 'launch' and receipt['failure']['submitted'] == 'unknown'
+
+
+def test_confirmed_refusal_post_names_the_launch_stage_in_the_flow(env, monkeypatch):
+    async def start(target):
+        env.starts.append(target)
+        return False, 'REFUSED: idle guard failed: print.state is printing. Nothing uploaded or started.'
+    monkeypatch.setattr(print_next, 'start', start)
+    adapter, result, receipt = run_flow(env, [1, 0, 0], mid='refusal-stage')
+    posts = adapter.sent + [q['question'] for q in adapter.questions]
+    assert any(m.startswith("Didn't start") for m in posts), posts
+    assert receipt['failure']['stage'] == 'launch' and receipt['failure']['submitted'] == 'nothing'
+
+
 def test_intake_recognizes_real_print_now_output():
     assert print_next.still_preparing(REAL_AWAITING)
     assert print_next.still_preparing('START ACCEPTED; PREPARATION STILL RUNNING {"started": false}')
@@ -2011,6 +2045,37 @@ def test_second_slice_failure_keeps_reference_and_diagnostics_step(env, monkeypa
     assert 'SECRET' not in final and 'retry the slice once' not in final
     assert len(calls) == 2 and env.starts == []
     assert receipt['status'] == 'SLICE_FAILED' and 'slice_approval' not in receipt
+
+
+def test_retry_clears_the_first_failure_record_and_replaces_it_on_a_second_failure(env, monkeypatch):
+    from print_handy.core.slice_failure import SliceFailure
+    real_slice = model_job.slice_job
+    calls = []
+
+    def once_then_ok(job_path, *args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise SliceFailure('x', kind='timeout', slicer='OrcaSlicer')
+        return real_slice(job_path, *args, **kwargs)
+
+    monkeypatch.setattr(model_job, 'slice_job', once_then_ok)
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 0, 0], mid='retry-clears-failure')
+    assert len(calls) == 2 and receipt['status'] == 'STARTED'
+    assert 'failure' not in receipt and 'slice_error' not in receipt
+
+
+def test_second_slice_failure_replaces_the_first_failure_record(env, monkeypatch):
+    from print_handy.core.slice_failure import SliceFailure
+    errors = [SliceFailure('x', kind='timeout', slicer='OrcaSlicer'),
+              SliceFailure('x', kind='engine', slicer='OrcaSlicer', signature='model_unreadable')]
+
+    def fail(*args, **kwargs):
+        raise errors.pop(0)
+
+    monkeypatch.setattr(model_job, 'slice_job', fail)
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 0], mid='retry-replaces-failure')
+    assert receipt['status'] == 'SLICE_FAILED'
+    assert receipt['failure']['signature'] == 'model_unreadable' and receipt['failure']['stage'] == 'parse'
 
 
 # --- multi-file models: file-list site files are parts of one model, printed together ---

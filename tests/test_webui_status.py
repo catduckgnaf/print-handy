@@ -312,6 +312,28 @@ FAKE_SNAPSHOT = {
 }
 
 
+class FailureFolderTests(unittest.TestCase):
+    """#817: the status page points at the archived slice-failure folders."""
+
+    def test_snapshot_and_page_list_the_failure_folders(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = load_settings(tmp)
+            kept = Path(tmp) / "hermes" / "state" / "slice-failures" / "abc123"
+            kept.mkdir(parents=True)
+            snap = status.snapshot(data, environ={}, heartbeat=None, probe=ok_probe, checks=OK_CHECKS)
+            self.assertEqual([row["name"] for row in snap["slice_failures"]], ["abc123"])
+            page = server.render_status_html(snap)
+            self.assertIn("Recent model failures", page)
+            self.assertIn("abc123", page)
+
+    def test_page_omits_the_section_when_nothing_failed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = load_settings(tmp)
+            snap = status.snapshot(data, environ={}, heartbeat=None, probe=ok_probe, checks=OK_CHECKS)
+            self.assertEqual(snap["slice_failures"], [])
+            self.assertNotIn("Recent model failures", server.render_status_html(snap))
+
+
 class ServerRouteTests(unittest.TestCase):
     def start(self, tmp, extra="", environ=None):
         data = load_settings(tmp, "webui:\n  enabled: true\n  port: 8765\n" + extra,
