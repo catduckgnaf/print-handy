@@ -27,7 +27,8 @@ def test_foreign_out_of_range_value_produces_exactly_one_warning():
     text = warnings[0]
     assert "outer_wall_speed" in text and "700" in text and "600" in text
     assert "Bambu Lab X1 Carbon" in text  # provenance named
-    assert "not changed" in text  # and the no-mutation promise
+    # and what happens to it: the source value is not used, the target profile's is (#868)
+    assert "does not slice with this value" in text and "not changed" not in text
 
 
 def test_foreign_acceleration_conflict_is_named():

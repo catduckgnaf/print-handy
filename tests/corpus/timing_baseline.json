@@ -170,6 +170,14 @@
    "first_prompt_s": 0.01,
    "wall_s": 0.06
   },
+  "foreign-bambu-profile-split/hermes": {
+   "first_prompt_s": 0.01,
+   "wall_s": 0.12
+  },
+  "foreign-bambu-profile-split/standalone": {
+   "first_prompt_s": 0.02,
+   "wall_s": 0.15
+  },
   "four-colors-one-plate/hermes": {
    "first_prompt_s": 0.01,
    "wall_s": 0.06

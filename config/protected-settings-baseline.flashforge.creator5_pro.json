@@ -1,0 +1,21 @@
+{
+  "host_type": {
+    "sha256": "eb63341d333b56ab226dae866b440b328d5140d9e88c4c73d6e4e684223ef338",
+    "value": "octoprint"
+  },
+  "machine_end_gcode": {
+    "sha256": "568eac3d1a9a0bffeef6ef42d47e6afc1cc4d31d05318783e1b1dacf2047af24",
+    "value": "END_PRINT"
+  },
+  "machine_start_gcode": {
+    "sha256": "71815a57d9c134fb0e7fb7ac58b359b3eb8c564f05ff249137c96c1e30c195b3"
+  },
+  "post_process": {
+    "sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+    "value": ""
+  },
+  "printer_technology": {
+    "sha256": "11a187af8435cf2ff3aa6674d584eacaed00fdbc610a062fec4e363ee286266e",
+    "value": "FFF"
+  }
+}

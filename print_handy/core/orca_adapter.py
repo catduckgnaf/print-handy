@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 from .. import logs, printers, settings
 from ..printers.base import start_code_problems
-from . import mesh_fast, resources
+from . import author_settings, mesh_fast, resources
 from .compact_geometry import IndexedTriangles
 from . import slice_guard as sg
 from .slice_guard import pre_slice, post_slice
@@ -574,12 +574,16 @@ FLEX_PROFILE = {
 # Designer intent carried from a 3MF's project settings over the printer template. Support keys: the
 # switch and type, plus where supports go (overhang threshold, style, critical-regions-only, small
 # overhang removal, build-plate-only); support filaments, speeds and Z gaps stay the template's (#275).
+# Seam, wall order, infill angle, surface patterns, ironing and elephant-foot compensation are the
+# designer's too (#868); speeds are kept only where the designer lowered them (author_settings).
 PROCESS_KEYS = ('layer_height', 'initial_layer_print_height', 'wall_loops', 'sparse_infill_density',
                 'sparse_infill_pattern', 'brim_type', 'brim_width', 'brim_object_gap', 'enable_support',
                 'support_type', 'support_style', 'support_threshold_angle', 'support_critical_regions_only',
                 'support_remove_small_overhang', 'support_on_build_plate_only', 'top_shell_layers',
                 'bottom_shell_layers', 'top_shell_thickness', 'bottom_shell_thickness', 'gap_fill_target',
-                'filter_out_gap_fill', 'wall_generator')
+                'filter_out_gap_fill', 'wall_generator', 'seam_position', 'wall_sequence', 'infill_direction',
+                'top_surface_pattern', 'bottom_surface_pattern', 'ironing_type', 'ironing_pattern', 'ironing_flow',
+                'ironing_spacing', 'elefant_foot_compensation')
 
 
 RANGE_ERROR = re.compile(r'^(\w+): (\S+) not in range \[([-0-9.eE+]+),([-0-9.eE+]+)\]', re.M)
@@ -623,7 +627,8 @@ def _rewrite_project_settings(path, settings, name):
     tmp.replace(path)
 
 
-def _sanitize_imported_settings(path, templates, slot_count, filament_profiles=(), filament_template=None, slot_limit=None):
+def _sanitize_imported_settings(path, templates, slot_count, filament_profiles=(), filament_template=None, slot_limit=None,
+                                tower_width=None):
     name = 'Metadata/project_settings.config'
     with zipfile.ZipFile(path) as archive:
         if name not in archive.namelist():
@@ -700,7 +705,10 @@ def _sanitize_imported_settings(path, templates, slot_count, filament_profiles=(
     points = [tuple(map(float, point.split('x'))) for point in area]
     min_x, max_x = min(p[0] for p in points), max(p[0] for p in points)
     min_y, max_y = min(p[1] for p in points), max(p[1] for p in points)
-    width = float(own.get('prime_tower_width', 0))
+    # The tower Orca builds is the job's effective width (configured size, raised for a larger nozzle:
+    # color_geometry.effective_tower_mm), not the template's, so clamp with that (#868).
+    width = float(tower_width if tower_width else own.get('prime_tower_width', 0))
+    # Per-plate positions (one list entry per plate) are each kept inside the bed.
     for key, low, high in (('wipe_tower_x', min_x, max_x-width),
                            ('wipe_tower_y', min_y, max_y-width)):
         if key in settings:
@@ -713,10 +721,12 @@ def _sanitize_imported_settings(path, templates, slot_count, filament_profiles=(
     return changed
 
 
-def sanitize_project_settings(path, log_text='', templates=None, slot_count=None, filament_template=None, slot_limit=None):
+def sanitize_project_settings(path, log_text='', templates=None, slot_count=None, filament_template=None, slot_limit=None,
+                              tower_width=None):
     """Normalize Orca sentinels and foreign motion/profile data on private 3MF copies.
 
-    filament_template is the job's filament profile; the template folder's filament.json by default."""
+    filament_template is the job's filament profile; the template folder's filament.json by default.
+    tower_width is the job's effective prime-tower width; the template's when not given."""
     del log_text
     if Path(path).suffix.lower() != '.3mf':
         return {}
@@ -731,7 +741,142 @@ def sanitize_project_settings(path, log_text='', templates=None, slot_count=None
                           for key in ('filament_settings_id', 'filament_type', 'filament_colour')
                           if imported.get(key) is not None), default=1)
     return _sanitize_imported_settings(path, templates, slot_count, filament_template=filament_template,
-                                       slot_limit=slot_limit)
+                                       slot_limit=slot_limit, tower_width=tower_width)
+
+
+# Project keys that describe another machine, its motion or its heat. On a 3MF Orca reads directly (a
+# derived plate copies its source byte for byte), one the job's own profile does not set is removed so
+# Orca falls back to its default, the same value a sliced STL gets (#868).
+_FOREIGN_KEY = re.compile(
+    r'.*_(?:speed|acceleration|jerk|gcode|temp|temperature)(?:_initial_layer(?:_single)?|_range_(?:low|high))?'
+    r'|(?:machine|printer|printable|bed|nozzle|extruder|retract|retraction|z_hop|print_host|printhost)_.*'
+    r'|curr_bed_type|default_bed_type|host_type|post_process|z_hop|wipe|wipe_distance|travel_slope')
+# Multi-extruder variant bookkeeping (OrcaSlicer 2.5): the printer and filament halves must agree, and the
+# filament half stays, so these are never removed even though their names look like machine keys.
+_VARIANT_KEY = re.compile(r'.*_variant(?:_list)?|.*_extruder_id|extruder_type|nozzle_volume_type')
+# Preset bookkeeping, not settings: never rewritten from the job's templates.
+_PRESET_META = frozenset(('name', 'from', 'type', 'instantiation', 'setting_id', 'version', 'inherits',
+                          'inherits_group', 'different_settings_to_system', 'compatible_printers',
+                          'compatible_printers_condition', 'compatible_prints', 'compatible_prints_condition'))
+# Orca's bed type when a profile sets none, read from the `; curr_bed_type` line of an Orca 2.4.2
+# AD5X slice (tests/fixtures/printers/ad5x_zmod/silk_pla_slot2_sliced.gcode.txt).
+ORCA_DEFAULT_BED_TYPE = 'Cool Plate'
+_MODEL_SETTINGS = 'Metadata/model_settings.config'
+_LAYER_RANGES = 'Metadata/layer_config_ranges.xml'
+# Object and part metadata that is structure, not a setting override.
+_STRUCTURAL_META = frozenset(('name', 'extruder', 'matrix'))
+
+
+def _rewrite_entries(path, entries):
+    """Replace the named members of a private 3MF copy; every other member is copied as is."""
+    tmp = Path(path).with_suffix('.sanitizing')
+    with zipfile.ZipFile(path) as archive, zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED) as out:
+        for info in archive.infolist():
+            out.writestr(info, entries[info.filename] if info.filename in entries else archive.read(info))
+    tmp.replace(path)
+
+
+def _job_value(key, project_value, job_value):
+    """The job's value in the shape the project stores: a per-filament list keeps its length."""
+    from .color_geometry import _PER_FILAMENT_KEYS
+    if (isinstance(project_value, list) and isinstance(job_value, list) and job_value
+            and len(project_value) != len(job_value) and _PER_FILAMENT_KEYS.fullmatch(key)):
+        return [job_value[0]] * len(project_value)
+    return job_value
+
+
+def _restrict_overrides(data, element, drop):
+    """Remove the metadata (or layer-range option) lines `drop(key, value)` names inside each `element` block."""
+    if element == b'option':
+        pattern = rb'[ \t]*<option opt_key="([^"]+)"\s*>([^<]*)</option>[ \t]*\r?\n?'
+        blocks = [(0, len(data))]
+    else:
+        pattern = rb'[ \t]*<metadata key="([^"]+)" value="([^"]*)"\s*/>[ \t]*\r?\n?'
+        blocks = [m.span() for m in re.finditer(rb'<' + element + rb'\b.*?</' + element + rb'>', data, re.S)]
+    removed, out, last = [], [], 0
+    for start, end in blocks:
+        def edit(match):
+            key, value = match.group(1).decode(), match.group(2).decode()
+            if drop(key, value):
+                removed.append(key)
+                return b''
+            return match.group(0)
+        out += [data[last:start], re.sub(pattern, edit, data[start:end])]
+        last = end
+    out.append(data[last:])
+    return b''.join(out), removed
+
+
+def adopt_job_settings(path, job, kept=PROCESS_KEYS):
+    """Make a private 3MF copy describe the job's own profile, not the source printer's (#868).
+
+    A derived plate (route (c): merges and splits) is a byte copy of its source package, so the
+    source's project_settings.config and per-object overrides reach Orca with it. On the copy:
+    every project key the job's merged machine/process/filament profile sets takes the job's value
+    (the author's kept keys are already in that profile); a machine, motion, temperature or bed-type
+    key the job leaves unset is removed; curr_bed_type becomes the job's (Orca's default when the
+    job sets none); inherits and different_settings_to_system are cleared, so no setting is treated
+    as a user change to re-apply. Object and part overrides in model_settings.config and height-range
+    options are limited to the kept author-intent keys, enum-checked like the project's, and a plate
+    keeps no foreign machine or bed setting. Returns {entry or key: [old, new]} for what changed.
+    """
+    path = Path(path)
+    if path.suffix.lower() != '.3mf':
+        return {}
+    name = 'Metadata/project_settings.config'
+    with zipfile.ZipFile(path) as archive:
+        names = set(archive.namelist())
+        project = json.loads(archive.read(name)) if name in names else None
+        model_settings = archive.read(_MODEL_SETTINGS) if _MODEL_SETTINGS in names else None
+        ranges = archive.read(_LAYER_RANGES) if _LAYER_RANGES in names else None
+    changed, entries = {}, {}
+    if project is not None:
+        for key in list(project):
+            previous = project[key]
+            if key in ('inherits', 'inherits_group', 'different_settings_to_system'):
+                replacement = [''] * len(previous) if isinstance(previous, list) else ''
+            elif key == 'curr_bed_type':
+                replacement = job.get('curr_bed_type', ORCA_DEFAULT_BED_TYPE)
+            elif key in _PRESET_META:
+                continue
+            elif key in job:
+                replacement = _job_value(key, previous, job[key])
+            elif _FOREIGN_KEY.fullmatch(key) and key not in kept and not _VARIANT_KEY.fullmatch(key):
+                del project[key]
+                changed[key] = [previous, None]
+                continue
+            else:
+                continue
+            if replacement != previous:
+                project[key] = replacement
+                changed[key] = [previous, replacement]
+        if changed:
+            entries[name] = json.dumps(project, indent=4).encode()
+    config_keys = set(job) | set(project or {})
+    kept = set(kept)
+
+    def override(key, value):
+        # An object or part override survives only as a kept author key with a value Orca accepts.
+        if key in _STRUCTURAL_META or key.startswith('source_'):
+            return False
+        if key in kept:
+            return author_settings.invalid_enum(key, value)
+        return key in config_keys
+
+    if model_settings is not None:
+        data, dropped = _restrict_overrides(model_settings, b'object', override)
+        data, plate_dropped = _restrict_overrides(data, b'plate', lambda key, value: bool(_FOREIGN_KEY.fullmatch(key)))
+        if dropped or plate_dropped:
+            entries[_MODEL_SETTINGS] = data
+            changed[_MODEL_SETTINGS] = [sorted(set(dropped + plate_dropped)), None]
+    if ranges is not None:
+        data, dropped = _restrict_overrides(ranges, b'option', override)
+        if dropped:
+            entries[_LAYER_RANGES] = data
+            changed[_LAYER_RANGES] = [sorted(set(dropped)), None]
+    if entries:
+        _rewrite_entries(path, entries)
+    return changed
 
 
 def clamp_rejected_settings(path, log_text):
@@ -1037,9 +1182,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         mapping, geometry = export_color_geometry(source, input_path, color_decisions, item_shifts=item_shifts,
                                                   object_ids=object_ids, scale=scale, fit_by_object=fit_by_object,
                                                   identity_tools=multi_tool, tower_mm=tower_mm)
-        with zipfile.ZipFile(source) as archive:
-            if 'Metadata/project_settings.config' in archive.namelist():
-                author = json.loads(archive.read('Metadata/project_settings.config'))
+        author = author_settings.read(source)
     elif identity_single:
         # Expand the one pick to a per-part view in memory (the persisted
         # decision stays single_color) and export every part onto the picked
@@ -1052,13 +1195,9 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                                                   item_shifts=item_shifts, object_ids=object_ids,
                                                   scale=scale, fit_by_object=fit_by_object,
                                                   identity_tools=True, tower_mm=tower_mm)
-        with zipfile.ZipFile(source) as archive:
-            if 'Metadata/project_settings.config' in archive.namelist():
-                author = json.loads(archive.read('Metadata/project_settings.config'))
+        author = author_settings.read(source)
     elif source.suffix.lower() == '.3mf' and not preserve_layout:
-        with zipfile.ZipFile(source) as archive:
-            if 'Metadata/project_settings.config' in archive.namelist():
-                author = json.loads(archive.read('Metadata/project_settings.config'))
+        author = author_settings.read(source)
         input_path = folder / ('geometry.3mf' if has_cutters(source) else 'geometry.stl')
         geometry.update(export_geometry(source, input_path, scale=scale or 1.0, rotation=rotation,
                                         bed=printer.build_volume().bed_mm))
@@ -1072,23 +1211,32 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                                   bed=printer.build_volume().bed_mm))
     else:
         if source.suffix.lower() == '.3mf':
-            with zipfile.ZipFile(source) as archive:
-                if 'Metadata/project_settings.config' in archive.namelist():
-                    author = json.loads(archive.read('Metadata/project_settings.config'))
+            author = author_settings.read(source)
         input_path = source
         geometry = {'policy': 'derived plate; documented translation preserved; no arrange', 'source_sha256': digest(source)}
     if brim_policy is not None:
         geometry['fit_brim_policy'] = json.dumps(brim_policy, sort_keys=True)
-    # Preserve author structural intent, not P1S motion/material calibration.
-    process.update({k: author[k] for k in PROCESS_KEYS if k in author})
+    # Preserve author structural intent, not P1S motion/material calibration: the kept keys, enum-checked
+    # against what Orca accepts, plus any speed the designer lowered below the template's (#868).
+    # Gap fill falls back to 'everywhere' below, never to the templates' 'none' (not an Orca value).
+    carried, author_notes = author_settings.carry(author, {**process, 'gap_fill_target': 'everywhere'}, PROCESS_KEYS)
+    process.update(carried)
+    if 'wall_sequence' in carried:
+        process.pop('wall_infill_order', None)  # the template's legacy spelling would override the author's order
     # The active printer template, not imported project settings, defines the
     # brim mode; an explicit operator width may still control its extent.
     process['brim_type'] = json.loads((templates / 'process.json').read_text())['brim_type']
-    process.update({'filter_out_gap_fill': '0', 'gap_fill_target': author.get('gap_fill_target', 'everywhere'),
+    process.update({'filter_out_gap_fill': '0', 'gap_fill_target': carried.get('gap_fill_target', 'everywhere'),
                     'enable_support': author.get('enable_support', '0'), 'brim_width': str(brim) if brim is not None else author.get('brim_width', '0')})
     if brim_policy is not None:
         process['brim_type'] = brim_policy.get('type', 'no_brim')
         process['brim_width'] = str(brim_policy.get('width_mm', 0))
+    if (supports is None and not first_layer and str(process['enable_support']) != '1'
+            and author_settings.painted_supports(source)):
+        # Painted support enforcers do nothing while generation is off (ForgeBridge rule): turn it on,
+        # unless the operator decided supports for this job.
+        process['enable_support'] = '1'
+        author_notes.append('supports turned on: the model has painted support enforcers')
     if supports is not None:
         process.update({'enable_support': '1' if supports else '0'})
         if supports:
@@ -1133,6 +1281,9 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             process['brim_type'] = brim_policy.get('type', 'no_brim')
             process['brim_width'] = str(brim_policy.get('width_mm', 0))
         geometry['thin_feature_profile'] = 'arachne flex (designer asked for arachne walls)'
+    tree_note = author_settings.tree_style(process, source) if str(process.get('enable_support')) == '1' else None
+    if tree_note:
+        author_notes.append(tree_note)
     from .nozzle import get_nozzle_type_adjustments
     adj = get_nozzle_type_adjustments(nozzle_type)
     machine['nozzle_temperature_range_high'] = [str(int(adj['max_temperature_c']))]
@@ -1460,6 +1611,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         if input_path == source:
             command[-1:-1] = ['--scale', str(scale)]
     sanitized = {}
+    rewritten = {}  # what adopt_job_settings changed on the private 3MF copy
     # Keep the untouched base templates for protected-setting comparison; gate the
     # final effective configs immediately before invoking Orca.
     base_profile = {**json.loads((templates / 'machine.json').read_text()),
@@ -1529,7 +1681,10 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         sanitized.update(sanitize_project_settings(
             input_path, templates=templates,
             slot_count=len(filament_paths) if mapped_profile else 1, filament_template=filament_template,
-            slot_limit=int(printer.slot_count) if multi_tool else FILAMENT_SLOTS))
+            slot_limit=int(printer.slot_count) if multi_tool else FILAMENT_SLOTS, tower_width=tower_mm))
+        # Then the copy takes the job's own machine, process and filament values (#868): a derived
+        # plate is a byte copy of a foreign project, and its settings must not reach Orca.
+        rewritten.update(adopt_job_settings(input_path, {**machine, **process, **filament}))
     # Never accept stale output if a failed slicer leaves the preceding artifact behind.
     output.unlink(missing_ok=True)
     primary = slicer_choice(printer)
@@ -1589,6 +1744,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             process['brim_type'], process['brim_width'] = resolved_brim
         geometry['thin_feature_profile'] = 'arachne flex (AD5X Flexy Ring guide)'
         configs[1].write_text(json.dumps(process, indent=2) + '\n')
+        if input_path.suffix.lower() == '.3mf':
+            rewritten.update(adopt_job_settings(input_path, {**machine, **process, **filament}))
         output.unlink(missing_ok=True)
         (folder / 'result.json').unlink(missing_ok=True)
         result = _run_slicer(command, 'OrcaSlicer', folder)
@@ -1811,6 +1968,10 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                     "slicer_command": command, "generator": generator, "slicer": slicer,
                     'fallback': fallback,
                     'author_process': {k: author[k] for k in PROCESS_KEYS if k in author},
+                    # What the author's values became (#868): lowered speeds kept, enum fallbacks, painted
+                    # supports, Tree Hybrid; and which project keys the private 3MF copy took from the job.
+                    'author_notes': author_notes,
+                    'project_settings_rewritten': sorted(rewritten),
                     'source_profile_warnings': profile_warnings,
                     'sanitized_author_settings': sanitized,
                     'offline_geometry_and_slicer': True}, configs

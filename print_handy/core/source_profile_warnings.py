@@ -7,11 +7,13 @@ machine limits in its Orca machine template (`machine_max_speed_x/y`,
 `machine_max_acceleration_x/y`) and the 0-100 percent fan scale — and returns
 plain-language warnings for demonstrated conflicts only.
 
-Warnings are visibility, never changes: nothing here mutates a setting, and the
-existing precedence (template/vendor profile, filament family, material variant,
-operator/spool values) is untouched. Values with no verified target range — wall
-count and brim width among the #722 candidates — are checked and deliberately not
-warned about, because there is no target fact to conflict with.
+Warnings are visibility, never changes: nothing here mutates a setting. The flagged
+values are not used for slicing either: Print Handy slices from the target's own
+template and carries over only the author-intent allowlist (orca_adapter.PROCESS_KEYS,
+with an author speed only when it is lower; #868), so each warning says so. Values
+with no verified target range — wall count and brim width among the #722
+candidates — are checked and deliberately not warned about, because there is no
+target fact to conflict with.
 """
 import json
 import re
@@ -23,6 +25,9 @@ _ACCEL_KEYS = ("default_acceleration", "outer_wall_acceleration", "travel_accele
                "inner_wall_acceleration")
 # Fan speeds in Orca filament/profile settings are percentages of the fan's range.
 _FAN_KEYS = ("fan_max_speed", "fan_min_speed", "overhang_fan_speed")
+# What happens to the value (#868): these keys are never carried over the target's own profile (only the
+# author-intent allowlist is, and an author speed only when it is lower), so the source's value is not used.
+_NOT_USED = "Print Handy does not slice with this value; the {target} profile's own setting is used."
 
 
 def _number(value):
@@ -131,7 +136,7 @@ def source_profile_warnings(author, *, source_label, target_label, limits, alias
             warnings.append(
                 f"Source profile warning: {key} is {value:g} {unit} in {origin}, above the "
                 f"{target_label} limit of {limit:g} {unit} (its machine template {fact}). "
-                "Print Handy has not changed this setting.")
+                f"{_NOT_USED.format(target=target_label)}")
     for key in _FAN_KEYS:
         raw = author.get(key)
         entries = list(raw) if isinstance(raw, (list, tuple)) else [raw]
@@ -142,5 +147,5 @@ def source_profile_warnings(author, *, source_label, target_label, limits, alias
             which = f" (filament {index + 1})" if len(entries) > 1 else ""
             warnings.append(
                 f"Source profile warning: {key}{which} is {value:g}% in {origin}, above the "
-                f"{target_label} fan range of 0-100%. Print Handy has not changed this setting.")
+                f"{target_label} fan range of 0-100%. {_NOT_USED.format(target=target_label)}")
     return warnings

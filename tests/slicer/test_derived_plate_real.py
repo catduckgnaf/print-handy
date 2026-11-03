@@ -9,6 +9,7 @@ Skipped unless PRINT_HANDY_REAL_SLICER=1 (CI's Slicer test jobs).
 """
 import json
 import os
+import re
 import tempfile
 import zipfile
 from pathlib import Path
@@ -68,3 +69,36 @@ def test_single_slot_plate_from_a_two_filament_source_slices(source_extruder):
         assert Path(out).is_file() and Path(out).stat().st_size > 0
         gcode = Path(out).read_text(errors="replace")
         assert "\nT1" not in gcode, "a derived single-slot plate must stay on tool 0"
+
+
+def test_foreign_bambu_project_on_a_derived_plate_slices_with_the_job_profile():
+    """#868 route (c): a Bambu X1C project with foreign speeds and accelerations, a Bambu start G-code, a
+    Supertack bed and the X1C printer model, split onto a derived plate, slices with the job's Flashforge
+    values. Read back from the real Orca G-code header, which reports the settings Orca actually used."""
+    from tests.pipeline.test_foreign_project_adoption import derived_plate, foreign_source
+
+    WORK.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=WORK) as tmp:
+        tmp = Path(tmp)
+        plate = derived_plate(tmp, foreign_source(tmp / "bambu.3mf"))
+        state = json.loads(STATE.read_text())
+        out, provenance, configs = orca_adapter.slice_model(plate, tmp / "slice", state, preserve_layout=True,
+                                                            filament_slot=1)
+        job = {}
+        for path in configs[:3]:
+            job.update(json.loads(Path(path).read_text()))
+        text = Path(out).read_text(errors="replace")
+        header = dict(line[2:].split(" = ", 1) for line in text.splitlines() if line.startswith("; ") and " = " in line)
+        print(f"\nrewritten: {provenance['project_settings_rewritten']}\nnotes: {provenance['author_notes']}")
+        assert header["printer_model"] == job["printer_model"] == "Flashforge AD5X"
+        assert header["curr_bed_type"] == "Cool Plate"
+        for key in ("outer_wall_speed", "inner_wall_speed", "travel_speed", "default_acceleration",
+                    "outer_wall_acceleration"):
+            assert float(header[key]) == float(job[key]), (key, header[key], job[key])
+        assert float(header["bridge_speed"]) == 5  # the designer's lowered bridge speed is kept
+        assert header["sparse_infill_pattern"] == "gyroid" and header["seam_position"] == "back"
+        assert "M1002" not in header["machine_start_gcode"] and "START_PRINT" in header["machine_start_gcode"]
+        assert "M1002" not in text, "the Bambu start G-code reached the Flashforge output"
+        assert header.get("enable_prime_tower") == job["enable_prime_tower"]
+        bed = str(job["cool_plate_temp_initial_layer"][0])
+        assert re.search(rf"^M190 S{re.escape(bed)}\b", text, re.M), f"bed not heated to the job's {bed} C"

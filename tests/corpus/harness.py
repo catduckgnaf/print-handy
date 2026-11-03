@@ -504,7 +504,8 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, in_gateway_env=
     return S(outcome=outcome, receipt=receipt, job=job, state=state, adapter=adapter, starts=starts, events=events,
              slice_starts=slice_starts, state_root=state_root, receipts=receipts, archive=archive,
              gcodes=[Path(g) for g in receipt.get("gcodes", [])], audit_started=audit_started,
-             spoolman=spoolman, spoolman_calls_built=spoolman_calls_built, state_file=state_file)
+             spoolman=spoolman, spoolman_calls_built=spoolman_calls_built, state_file=state_file,
+             real_slicer=real_slicer)
 
 
 async def _noop_receipt(*args, **kwargs):
@@ -576,6 +577,26 @@ def slice_support_setting(run):
             if path.name == "process.json" and path.is_file():
                 values.add(str(json.loads(path.read_text()).get("enable_support", "0")))
     return values
+
+
+def orca_inputs(run):
+    """[(project settings Orca read, the job's merged machine/process/filament profile)] for every 3MF the
+    slicer was handed directly (orca_input.3mf: a derived plate's private copy, #868)."""
+    import zipfile
+    found = []
+    for plate in [run.job] + list(run.job.get("derived_plates") or []):
+        configs = [Path(c) for c in plate.get("slice_config") or []]
+        if not configs or not (configs[0].parent / "orca_input.3mf").is_file():
+            continue
+        with zipfile.ZipFile(configs[0].parent / "orca_input.3mf") as archive:
+            if "Metadata/project_settings.config" not in archive.namelist():
+                continue
+            project = json.loads(archive.read("Metadata/project_settings.config"))
+        job = {}
+        for path in configs[:3]:
+            job.update(json.loads(path.read_text()))
+        found.append((project, job))
+    return found
 
 
 def gcode_checks(run):
@@ -675,6 +696,22 @@ def check_expectations(case, run):
         said = " ".join(run.adapter.sent).casefold()
         for text in want["says"]:
             assert text.casefold() in said, f"never told the operator {text!r}\n{_transcript(run)}"
+    if any(key in want for key in ("orca_input", "orca_input_from_job", "orca_input_absent")):
+        inputs = orca_inputs(run)
+        assert inputs, "no 3MF was handed to the slicer directly (expected a derived plate, route (c))"
+        for project, job in inputs:
+            for key, value in (want.get("orca_input") or {}).items():
+                assert project.get(key) == value, f"Orca read {key}={project.get(key)!r}, expected {value!r}"
+            for key in want.get("orca_input_from_job") or ():
+                assert project.get(key) == job.get(key), f"Orca read {key}={project.get(key)!r}, job has {job.get(key)!r}"
+            for key in want.get("orca_input_absent") or ():
+                assert key not in project, f"Orca still read the source's {key}={project[key]!r}"
+    if "gcode_settings" in want and getattr(run, "real_slicer", False):
+        for path in run.gcodes:
+            header = dict(line[2:].split(" = ", 1) for line in path.read_text(errors="replace").splitlines()
+                          if line.startswith("; ") and " = " in line)
+            for key, value in want["gcode_settings"].items():
+                assert header.get(key) == value, f"{path.name}: {key} = {header.get(key)!r}, expected {value!r}"
     if want.get("started", True):
         assert len(run.starts) == 1, "the start button path did not run exactly once"
     for row in gcode_checks(run):

@@ -41,7 +41,7 @@ slots = 4
 [model]
 layout = "loose"
 palette = ["#FFFFFF", "#101010", "#4F146C", "#075E32"]
-project = { prime_tower_enable = "1", prime_tower_width = "35", printer_model = "Bambu Lab X1 Carbon", printer_settings_id = "Bambu Lab X1 Carbon 0.4 nozzle", process_settings_id = "0.20mm Standard @BBL X1C", filament_settings_id = ["Generic PLA @BBL X1C", "Generic PLA @BBL X1C", "Generic PLA @BBL X1C", "Generic PLA @BBL X1C"], machine_start_gcode = "M1002 judge_flag g29_before_print_flag\nG28\n", purge_in_prime_tower = "0" }
+project = { enable_prime_tower = "1", prime_tower_width = "35", printer_model = "Bambu Lab X1 Carbon", printer_settings_id = "Bambu Lab X1 Carbon 0.4 nozzle", process_settings_id = "0.20mm Standard @BBL X1C", filament_settings_id = ["Generic PLA @BBL X1C", "Generic PLA @BBL X1C", "Generic PLA @BBL X1C", "Generic PLA @BBL X1C"], machine_start_gcode = "M1002 judge_flag g29_before_print_flag\nG28\n", purge_in_prime_tower = "0" }
 
 [[model.part]]
 name = "Base"

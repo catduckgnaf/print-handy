@@ -1,0 +1,22 @@
+{
+  "host_type": {
+    "sha256": "eb63341d333b56ab226dae866b440b328d5140d9e88c4c73d6e4e684223ef338",
+    "value": "octoprint"
+  },
+  "machine_end_gcode": {
+    "sha256": "4ccf9161f3893892e2e588b3ab24b8e6ce63e6f188c06ea2a8b8a6a995445f80",
+    "value": "M104 S0\\nM140 S0\\nM84"
+  },
+  "machine_start_gcode": {
+    "sha256": "28a980a4d09d3d8b7f1cfa1948b823e2acc87ea5266bf762c317c9e16abee74f",
+    "value": "M190 S[bed_temperature_initial_layer_single]\\nM109 S[nozzle_temperature_initial_layer]\\nG28\\nG90\\nM83\\nG92 E0"
+  },
+  "post_process": {
+    "sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+    "value": ""
+  },
+  "printer_technology": {
+    "sha256": "11a187af8435cf2ff3aa6674d584eacaed00fdbc610a062fec4e363ee286266e",
+    "value": "FFF"
+  }
+}
