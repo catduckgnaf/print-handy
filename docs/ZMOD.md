@@ -152,6 +152,49 @@ Two boundaries to know:
   timelapse markers inside one) are listed on issue #564 for the first
   operator who runs them.
 
+## Printer clock after a reboot (#807)
+
+A ZMod printer does not keep time across a power cycle. Observed on the
+AD5X on 2026-11-02: about a minute after a reboot the clock read
+31 Dec 2025, and Moonraker's HTTP `Date` header said the same. Two time
+clients were running on the printer — the stock firmware's `ntpclient`
+against `pool.ntp.org` and an `ntpd` against a rotating Russian pool
+server (`ntpN.vniiftri.ru`) — and the clock had not caught up a minute
+in, with the firewall already allowing all outbound traffic. While the
+clock is wrong, the printer's own TLS connections can fail (GitHub
+certificates look "not yet valid", so Moonraker update checks fail) and
+Moonraker history is stamped with the wrong dates.
+
+What the ZMod documentation (audited against the ZMod repo and wiki,
+2026-11-02) does and does not offer:
+
+- `SET_TIMEZONE ZONE=<zone>` is the supported way to set the timezone
+  (System macros; run it with no parameters to list zones). Its default
+  zone is `Asia/Yekaterinburg`. The setup guide has the operator run it
+  once during installation. The docs do not state a separate NTP-server
+  setting, and none was found in the ZMod macros or docs: the NTP
+  server is not a ZMod setting Print Handy can point at a different
+  pool.
+- `DATE_SET DT=YYYY.MM.DD-HH:MM:SS` sets the system date and time once.
+  It does not make the clock persist: the printer has no battery-backed
+  clock to persist to, so the next power cycle starts from Dec 2025
+  again and waits on NTP.
+- There is no documented ZMod boot hook Print Handy could use to set
+  the clock at startup, and Print Handy does not edit ZMod files or set
+  the printer's clock itself.
+
+What Print Handy does instead is watch and warn. The Moonraker listener
+compares the printer's clock (the `Date` header Moonraker already
+sends) with the host's every minute. A clock five minutes or more off
+posts one "printer clock has not synced yet" message, one reminder if
+it is still wrong after 30 minutes, and one "printer clock synced"
+message when it catches up. The watch never blocks a print and never
+fires for an unreadable clock — a printer that does not answer is
+unknown, not wrong. If the clock never catches up, check the printer
+can reach an NTP server (outbound UDP port 123) and run
+`SET_TIMEZONE ZONE=<your zone>` once in the printer console if the
+zone was never set.
+
 ## Bundled Spoolman from printer Moonraker (#443)
 
 Print Handy's bundled Spoolman normally lives on loopback inside the

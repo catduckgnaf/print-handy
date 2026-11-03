@@ -32,7 +32,7 @@ from pathlib import Path
 import websockets
 
 from .. import __version__, debug_mode, go2rtc, healthcheck, logs, printers, settings
-from ..core import delivery, filament_color, launch_state, spoolman_client
+from ..core import delivery, filament_color, launch_state, printer_clock, spoolman_client
 from . import _config
 from . import moonraker_discord_announcements as announcer
 from . import discord_print_summary as print_summary
@@ -2691,6 +2691,9 @@ class Listener:
         self.screen_reboot_task = None
         self.background_tasks = set()  # strong refs: an unreferenced task can be collected mid-run
         self.maintenance_last_check = 0.0
+        self.clock_watch = printer_clock.PrinterClockWatch(
+            lambda: printer_clock.read_clock_skew(_config.moonraker_url()))
+        self.last_clock_check = 0.0
         self.last_pause_was_runout = False
         self.pause_context = None
         self.native_error_alerted = load_native_error_alerted()
@@ -2754,6 +2757,19 @@ class Listener:
             self.slot_tracker.runout_question(slot)
         await asyncio.to_thread(post_spool_question, record)
         return record
+
+    async def poll_printer_clock(self):
+        """Post once when a rebooted printer's clock is still wrong, then once when it syncs (#807).
+
+        The watch itself is read-only and warn-only: it never sets the
+        clock and never blocks anything. Fail-soft like the spool poll
+        beside it — an unreadable clock posts nothing and changes
+        nothing, and the caller logs and continues on any error.
+        """
+        messages = await asyncio.to_thread(self.clock_watch.poll)
+        for message in messages:
+            log(f"printer clock watch: {message.splitlines()[0][:160]}")
+            await asyncio.to_thread(post, message)
 
     async def poll_spoolman_new_spools(self):
         """Prompt once per spool created in Spoolman outside Print Handy (#483).
@@ -3586,6 +3602,12 @@ class Listener:
                         await self.poll_spoolman_new_spools()
                     except Exception as exc:
                         log(f"spoolman new-spool poll failed: {exc!r}")
+                    if time.monotonic() - self.last_clock_check >= printer_clock.CHECK_INTERVAL_S:
+                        self.last_clock_check = time.monotonic()
+                        try:
+                            await self.poll_printer_clock()
+                        except Exception as exc:
+                            log(f"printer clock poll failed: {exc!r}")
                     try:
                         await self.poll_lane_data()
                     except Exception as exc:
