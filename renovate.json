@@ -1,0 +1,73 @@
+{
+    "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+    "description": "Renovate covers the three dependency surfaces of this repo: GitHub Actions, pip requirements and Dockerfile base images. It supersedes Dependabot, which watched GitHub Actions only.",
+    "extends": [
+        "config:recommended"
+    ],
+    "labels": [
+        "dependencies"
+    ],
+    "minimumReleaseAge": "3 days",
+    "packageRules": [
+        {
+            "commitMessagePrefix": "ci:",
+            "description": "Group GitHub Actions updates into one PR. Renovate updates actions that are already SHA-pinned in place, digest and trailing version comment together; tag-referenced actions (@v7) stay on tags. config:recommended does not add digest pinning.",
+            "groupName": "github-actions",
+            "matchManagers": [
+                "github-actions"
+            ]
+        },
+        {
+            "commitMessagePrefix": "deps:",
+            "description": "Group pip updates for requirements.txt and requirements-test.txt (both matched by the pip_requirements manager's default file patterns). The files use version ranges, so these PRs are mostly range-widening and vulnerability-driven.",
+            "groupName": "pip requirements",
+            "matchManagers": [
+                "pip_requirements"
+            ]
+        },
+        {
+            "commitMessagePrefix": "deps:",
+            "description": "Group base image updates for the Dockerfile stages.",
+            "groupName": "docker base images",
+            "matchManagers": [
+                "dockerfile"
+            ]
+        },
+        {
+            "description": "The python:3.12-slim-trixie job containers in ci.yml hold the supported Python floor on purpose; never bump them.",
+            "matchManagers": [
+                "github-actions"
+            ],
+            "matchDatasources": [
+                "docker"
+            ],
+            "matchPackageNames": [
+                "python"
+            ],
+            "enabled": false
+        },
+        {
+            "description": "runs-on: ubuntu-24.04 is a deliberate runner pin; runner image moves are made by hand.",
+            "matchDatasources": [
+                "github-runners"
+            ],
+            "enabled": false
+        },
+        {
+            "description": "discord.py is capped below 3 on purpose; a major release needs approval on the Dependency Dashboard before any PR opens.",
+            "matchPackageNames": [
+                "discord.py"
+            ],
+            "matchUpdateTypes": [
+                "major"
+            ],
+            "dependencyDashboardApproval": true
+        }
+    ],
+    "prConcurrentLimit": 5,
+    "prHourlyLimit": 2,
+    "schedule": [
+        "before 6am on monday"
+    ],
+    "timezone": "America/New_York"
+}
