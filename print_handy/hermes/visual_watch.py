@@ -13,13 +13,12 @@ VisualPrintWatch only decides when a check is due.
 from __future__ import annotations
 
 import base64
-import ipaddress
 import json
 import logging
 import os
-import urllib.parse
 import urllib.request
 
+from .. import ai_routes
 from . import _config, local_vision
 
 logger = logging.getLogger(__name__)
@@ -105,29 +104,14 @@ def _strip_json_fence(text):
 _vision_missing_logged = False
 
 
-def keyless_ok(url) -> bool:
-    """True when the vision endpoint is on this machine or the local network.
-
-    A local OpenAI-compatible server (Ollama, LM Studio, llama.cpp, a Docker
-    service name like ``http://ollama:11434``) usually takes no key, so the
-    key is optional there. A hosted endpoint still needs one: without it every
-    check would fail and post a false alert. Decided from the URL alone (no
-    DNS): loopback, private and link-local IPs, ``localhost``, a single-label
-    host name, and ``.local`` / ``.lan`` / ``.home.arpa`` names.
-    """
-    host = (urllib.parse.urlsplit(str(url or "")).hostname or "").lower()
-    if not host:
-        return False
-    try:
-        ip = ipaddress.ip_address(host)
-    except ValueError:
-        return (host == "localhost" or "." not in host
-                or host.endswith((".local", ".lan", ".home.arpa", ".localhost")))
-    return ip.is_loopback or ip.is_private or ip.is_link_local
+# The endpoint-locality rule lives with the AI routes (#818); this name stays for existing callers.
+keyless_ok = ai_routes.keyless_ok
 
 
 def chat_key_ready(api_key) -> bool:
     """Whether the chat route has what it needs: its key, or a local endpoint."""
+    if ai_routes.explicit("small"):
+        return ai_routes.ready("small")
     if keyless_ok(_config.service_url("vision_chat_url")):
         return True
     return bool(api_key())
@@ -144,7 +128,7 @@ def vision_ready(api_key, log=None):
     global _vision_missing_logged
     if os.environ.get("PRINT_VISION_URL"):
         return True
-    if _config.service_url("vision_chat_url") and chat_key_ready(api_key):
+    if (ai_routes.explicit("small") or _config.service_url("vision_chat_url")) and chat_key_ready(api_key):
         return True
     if local_vision.detector_ready():
         return True
@@ -184,20 +168,21 @@ def _vision_answer(image, prompt, *, chat_url, model, api_key, context):
         with urllib.request.urlopen(req, timeout=30) as response:
             return json.loads(response.read())
     key = api_key()
-    url = chat_url()
-    if not key and not keyless_ok(url):
-        raise _VisionKeyMissing("vision key is not configured")
-    encoded = base64.b64encode(image).decode()
-    body = {"model": model, "temperature": 0, "max_tokens": 200,
-            "messages": [{"role": "user", "content": [{"type": "text", "text": context + str(prompt)},
-                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded}"}}]}]}
-    headers = {"Content-Type": "application/json"}
-    if key:
-        headers["Authorization"] = f"Bearer {key}"
-    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers=headers)
-    with urllib.request.urlopen(req, timeout=60) as response:
-        result = json.loads(response.read())
-    content = _strip_json_fence(result["choices"][0]["message"]["content"])
+    try:
+        url = chat_url()
+    except Exception:
+        # An unset services.vision_chat_url: [ai.small] may still name the
+        # endpoint, and the call reports a missing one itself.
+        url = ""
+    try:
+        content, served_by = ai_routes.call(
+            "small", [{"role": "user", "content": context + str(prompt)}], images=[image],
+            compat=ai_routes.Compat(url, model, key), purpose="vision",
+            max_tokens=200, temperature=0, timeout=60)
+    except ai_routes.AIKeyMissing as exc:
+        raise _VisionKeyMissing("vision key is not configured") from exc
+    logger.debug("vision answer served by %s", served_by)
+    content = _strip_json_fence(content)
     try:
         return json.loads(content)
     except ValueError:
@@ -234,7 +219,7 @@ def _chat_route_configured(api_key):
     caller injects a chat_url built on ``services.vision_chat_url``, so
     the setting is the honest test; a key that cannot even be read counts
     as configured (endpoint semantics win ties)."""
-    if not _config.service_url("vision_chat_url"):
+    if not (ai_routes.explicit("small") or _config.service_url("vision_chat_url")):
         return False
     try:
         return chat_key_ready(api_key)
