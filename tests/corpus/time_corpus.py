@@ -19,7 +19,12 @@ import time
 import traceback
 from pathlib import Path
 
-from . import harness
+# The planner reads its part spacing when print_handy is first imported. Pin the "medium" preset the test suite
+# pins (tests/conftest.py) before that import, so a case splits or merges here exactly as it does in pytest;
+# with the default spacing the 144 and 512 part gap pack cases merge onto one plate instead of splitting.
+os.environ.setdefault("PRINT_HANDY__LAYOUT__SPACING", "medium")
+
+from . import harness  # noqa: E402
 
 # Same pin as tests/conftest.py: the corpus fixtures carry literal temperatures from before the shipped
 # #513 steel offsets took effect.

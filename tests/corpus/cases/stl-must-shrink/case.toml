@@ -28,3 +28,10 @@ scale_range = [0.78, 0.84]
 prompts = ["does not fit", "Choose the color for"]
 supports = false
 slots = 1
+
+[model]
+format = "stl"
+
+[[model.part]]
+name = "Part"
+size = [260, 260, 230]

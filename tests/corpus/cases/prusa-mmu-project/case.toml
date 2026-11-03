@@ -32,3 +32,12 @@ gcodes = 1
 supports = false
 # The painted half currently reaches the G-code on the base slot only; the
 # region-to-slot split for slic3rpe paint is tracked as a follow-up to #717.
+
+[model]
+format = "prusa-mmu-3mf"
+colors = ["#E74C3C", "#2980B9"]
+
+[[model.part]]
+name = "Banner"
+size = [40, 20, 10]
+at = [60, 60]

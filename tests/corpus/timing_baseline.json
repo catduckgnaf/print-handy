@@ -1,5 +1,25 @@
 {
  "cases": {
+  "assembly-2c-tight/hermes": {
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "wall_s": 0.07
+  },
+  "assembly-2c-tight/standalone": {
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "wall_s": 0.07
+  },
+  "assembly-3c-tight/hermes": {
+   "first_prompt_s": 0.06,
+   "fit_check_s": 0.0,
+   "wall_s": 0.22
+  },
+  "assembly-3c-tight/standalone": {
+   "first_prompt_s": 0.2,
+   "fit_check_s": 0.0,
+   "wall_s": 0.26
+  },
   "assembly-four-color-tight/hermes": {
    "first_prompt_s": 0.06,
    "fit_check_s": 0.0,
@@ -9,6 +29,16 @@
    "first_prompt_s": 0.2,
    "fit_check_s": 0.0,
    "wall_s": 0.26
+  },
+  "assembly-small-tower/hermes": {
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "wall_s": 0.07
+  },
+  "assembly-small-tower/standalone": {
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "wall_s": 0.07
   },
   "assembly-three-color-no-room/hermes": {
    "first_prompt_s": 0.01,
@@ -59,6 +89,26 @@
    "first_prompt_s": 0.01,
    "wall_s": 0.05
   },
+  "core-cyclic-components/hermes": {
+   "wall_s": 0.01
+  },
+  "core-cyclic-components/standalone": {
+   "wall_s": 0.01
+  },
+  "core-dangling-build-item/hermes": {
+   "wall_s": 0.01
+  },
+  "core-dangling-build-item/standalone": {
+   "wall_s": 0.01
+  },
+  "core-inch-nested-assembly/hermes": {
+   "first_prompt_s": 0.02,
+   "wall_s": 0.06
+  },
+  "core-inch-nested-assembly/standalone": {
+   "first_prompt_s": 0.04,
+   "wall_s": 0.08
+  },
   "core-multiproperties-texture/hermes": {
    "first_prompt_s": 0.01,
    "wall_s": 0.04
@@ -78,6 +128,14 @@
     "wall_s": 0.08
    },
    "reason": "#734 re-baseline from main CI run 41365651326: the old entry predates later pipeline changes that the old +25% +1 s limit absorbed silently; accepted as the current normal before tightening to +10% +0.5 s.",
+   "wall_s": 0.08
+  },
+  "core-prefixed-namespace/hermes": {
+   "first_prompt_s": 0.02,
+   "wall_s": 0.06
+  },
+  "core-prefixed-namespace/standalone": {
+   "first_prompt_s": 0.04,
    "wall_s": 0.08
   },
   "core-triangle-colors/hermes": {
@@ -104,11 +162,53 @@
    "first_prompt_s": 0.01,
    "wall_s": 0.06
   },
+  "foreign-bambu-profile/hermes": {
+   "first_prompt_s": 0.01,
+   "wall_s": 0.06
+  },
+  "foreign-bambu-profile/standalone": {
+   "first_prompt_s": 0.01,
+   "wall_s": 0.06
+  },
   "four-colors-one-plate/hermes": {
    "first_prompt_s": 0.01,
    "wall_s": 0.06
   },
   "four-colors-one-plate/standalone": {
+   "first_prompt_s": 0.01,
+   "wall_s": 0.06
+  },
+  "islands-144-four-color/hermes": {
+   "first_prompt_s": 0.18,
+   "fit_check_s": 0.01,
+   "wall_s": 1.0
+  },
+  "islands-144-four-color/standalone": {
+   "first_prompt_s": 0.17,
+   "fit_check_s": 0.01,
+   "wall_s": 0.98
+  },
+  "loose-2c-tight/hermes": {
+   "first_prompt_s": 0.01,
+   "wall_s": 0.06
+  },
+  "loose-2c-tight/standalone": {
+   "first_prompt_s": 0.01,
+   "wall_s": 0.06
+  },
+  "loose-3c-tight/hermes": {
+   "first_prompt_s": 0.01,
+   "wall_s": 0.06
+  },
+  "loose-3c-tight/standalone": {
+   "first_prompt_s": 0.01,
+   "wall_s": 0.06
+  },
+  "loose-4c-tight/hermes": {
+   "first_prompt_s": 0.01,
+   "wall_s": 0.06
+  },
+  "loose-4c-tight/standalone": {
    "first_prompt_s": 0.01,
    "wall_s": 0.06
   },
@@ -154,6 +254,16 @@
    "first_prompt_s": 0.01,
    "wall_s": 0.04
   },
+  "parts-512-four-color/hermes": {
+   "first_prompt_s": 0.68,
+   "fit_check_s": 0.01,
+   "wall_s": 4.74
+  },
+  "parts-512-four-color/standalone": {
+   "first_prompt_s": 0.67,
+   "fit_check_s": 0.01,
+   "wall_s": 4.75
+  },
   "parts-one-plate/hermes": {
    "first_prompt_s": 0.02,
    "wall_s": 0.06
@@ -169,6 +279,16 @@
   "plates-multicolor/standalone": {
    "first_prompt_s": 0.02,
    "wall_s": 0.07
+  },
+  "prime-tower-clearance/hermes": {
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.01,
+   "wall_s": 0.07
+  },
+  "prime-tower-clearance/standalone": {
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.01,
+   "wall_s": 0.08
   },
   "prusa-mmu-project/hermes": {
    "first_prompt_s": 0.01,

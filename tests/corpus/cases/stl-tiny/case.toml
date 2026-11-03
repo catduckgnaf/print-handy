@@ -26,3 +26,10 @@ gcodes = 1
 scale = 1.0
 supports = false
 slots = 1
+
+[model]
+format = "stl"
+
+[[model.part]]
+name = "Part"
+size = [1.5, 1.5, 1.5]

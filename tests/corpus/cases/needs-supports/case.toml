@@ -25,3 +25,18 @@ scale = 1.0
 # The slice profile must say enable_support = 1 and the G-code must contain support material.
 supports = true
 slots = 1
+
+[model]
+layout = "plates"
+support = true
+
+[[model.part]]
+name = "T bracket"
+extruder = 1
+shape = "t"
+size = [60, 12, 40, 6, 30]
+at = [80, 90]
+
+[[model.plate]]
+name = "Plate 1"
+parts = [0]

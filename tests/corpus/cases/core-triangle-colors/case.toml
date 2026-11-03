@@ -23,3 +23,12 @@ colors = { Checker = "white" }
 gcodes = 1
 supports = false
 slots = 1
+
+[model]
+format = "core-3mf"
+triangle_colors = ["#FFFFFF", "#000000"]
+
+[[model.part]]
+name = "Checker"
+size = [30, 30, 10]
+at = [60, 60]

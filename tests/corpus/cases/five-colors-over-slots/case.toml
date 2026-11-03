@@ -43,3 +43,36 @@ gcodes = 1
 scale = 1.0
 supports = false
 slots = 4
+
+[model]
+layout = "loose"
+
+[[model.part]]
+name = "Part 1"
+extruder = 1
+size = [15, 15, 5]
+at = [10, 50]
+
+[[model.part]]
+name = "Part 2"
+extruder = 2
+size = [15, 15, 5]
+at = [34, 50]
+
+[[model.part]]
+name = "Part 3"
+extruder = 3
+size = [15, 15, 5]
+at = [58, 50]
+
+[[model.part]]
+name = "Part 4"
+extruder = 4
+size = [15, 15, 5]
+at = [82, 50]
+
+[[model.part]]
+name = "Part 5"
+extruder = 5
+size = [15, 15, 5]
+at = [106, 50]

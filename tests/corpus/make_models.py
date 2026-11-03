@@ -1,16 +1,28 @@
-"""Write the corpus models. Run `python3 tests/corpus/make_models.py` to regenerate every model fixture.
+"""Write the corpus models. Run `python -m tests.corpus.make_models` from the repository root to regenerate every model fixture.
+
+Each generated case is described by a `[model]` table in its case.toml (see "declarative specs" below), or
+by an entry of tests/corpus/matrix.toml that expands to a whole case; this module reads those specs and writes
+the model files. Adding a case is one case.toml edit plus running the generator.
 
 The shapes are generated here, not copied from anyone, so each one is CC0 and safe to commit.
 Fixture content is deterministic (fixed ZIP timestamps and sorted entries); compressed ZIP bytes may vary by zlib version.
-Only the standard library is used. A million-triangle torus is generated at test time only.
+The writers use only the standard library. Sizes that a spec derives from the merge planner (`fit`) import
+print_handy, with the test suite's part spacing pinned below. A million-triangle torus is generated at test time only.
 """
 import html
 import json
 import math
+import os
 import struct
 import sys
+import tomllib
 import zipfile
 from pathlib import Path
+
+# The planner reads its part spacing from the settings when print_handy is first imported. The test suite
+# pins the "medium" preset (tests/conftest.py); pin it here too so a size computed by the generator equals
+# the one computed inside pytest. Must run before anything imports print_handy.
+os.environ.setdefault("PRINT_HANDY__LAYOUT__SPACING", "medium")
 
 HERE = Path(__file__).resolve().parent
 NS = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
@@ -129,7 +141,7 @@ def write_binary_stl_stream(path, triangles):
 
 
 def _xml(objects, items):
-    """3dmodel.model. objects: [(id, kind, payload)]; items: [(object_id, (x, y))]."""
+    """3dmodel.model. objects: [(id, kind, payload)]; items: [(object_id, (x, y) or (x, y, z))]."""
     out = ['<?xml version="1.0" encoding="UTF-8"?>',
            f'<model unit="millimeter" xml:lang="en-US" xmlns="{NS}">',
            '<metadata name="Title">Corpus model (CC0)</metadata>', '<resources>']
@@ -146,8 +158,8 @@ def _xml(objects, items):
             out.append(f'<object id="{oid}" type="model"><components>'
                        + "".join(f'<component objectid="{m}"/>' for m in members) + '</components></object>')
     out.append('</resources><build>')
-    for oid, (x, y) in items:
-        out.append(f'<item objectid="{oid}" transform="1 0 0 0 1 0 0 0 1 {x} {y} 0"/>')
+    for oid, (x, y, *z) in items:
+        out.append(f'<item objectid="{oid}" transform="1 0 0 0 1 0 0 0 1 {x} {y} {z[0] if z else 0}"/>')
     out.append('</build></model>')
     return "\n".join(out)
 
@@ -205,8 +217,10 @@ def write_assembly_3mf(path, bodies, palette, at=(10, 10)):
             archive.writestr(info, files[name])
 
 
-def write_3mf(path, shapes, plates, palette, support=False, *, omit_plate_metadata=False, extra_empty_plates=0):
-    """shapes: [(name, extruder, mesh, (x, y))]; plates: [(plate name, [shape index])]."""
+def write_3mf(path, shapes, plates, palette, support=False, *, omit_plate_metadata=False, extra_empty_plates=0,
+              project_extra=None):
+    """shapes: [(name, extruder, mesh, (x, y) or (x, y, z))]; plates: [(plate name, [shape index])].
+    project_extra: more project_settings.config keys (prime tower, an embedded foreign slicer profile)."""
     objects, items, parts = [], [], []
     for index, (name, extruder, mesh, at) in enumerate(shapes):
         mesh_id, assembly = 2 * index + 2, 2 * index + 1
@@ -217,6 +231,7 @@ def write_3mf(path, shapes, plates, palette, support=False, *, omit_plate_metada
                "enable_support": "1" if support else "0"}
     if support:
         project["support_type"] = "tree(auto)"
+    project.update(project_extra or {})
     # Plates arrive as shape indices; model_settings.config must reference the
     # assembly object ids (2 * index + 1), as real Orca/Bambu files do.
     plate_rows = [] if omit_plate_metadata else [
@@ -362,6 +377,43 @@ def _write_package(path, members):
             archive.writestr(info, data if isinstance(data, bytes) else data.encode())
 
 
+def _mesh_xml(mesh, prefix=""):
+    vertices, faces = mesh
+    p = prefix
+    return (f"<{p}mesh><{p}vertices>" + "".join(f'<{p}vertex x="{x:.4f}" y="{y:.4f}" z="{z:.4f}"/>' for x, y, z in vertices)
+            + f"</{p}vertices><{p}triangles>" + "".join(f'<{p}triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in faces)
+            + f"</{p}triangles></{p}mesh>")
+
+
+def _transform(at):
+    x, y, *z = at
+    return f"1 0 0 0 1 0 0 0 1 {x} {y} {z[0] if z else 0}"
+
+
+def write_raw_core_3mf(path, objects, items, *, unit="millimeter", prefix=""):
+    """Plain core 3MF written exactly as described, valid or not, for intake and unit cases.
+
+    objects: [(id, mesh or [(component id, at or None)])], items: [(object id, at or None)]. Ids are written as
+    given and need not resolve (a dangling build item, a component cycle). prefix "ns0:" binds the core
+    namespace to a prefix instead of the default namespace, the shape ElementTree writes (#814).
+    """
+    p = prefix
+    xmlns = f'xmlns:{p[:-1]}="{NS}"' if p else f'xmlns="{NS}"'
+    resources = []
+    for oid, body in objects:
+        if isinstance(body, tuple):
+            resources.append(f'<{p}object id="{oid}" type="model">{_mesh_xml(body, p)}</{p}object>')
+        else:
+            parts = "".join(f'<{p}component objectid="{cid}"' + (f' transform="{_transform(at)}"' if at else "") + "/>"
+                            for cid, at in body)
+            resources.append(f'<{p}object id="{oid}" type="model"><{p}components>{parts}</{p}components></{p}object>')
+    build = "".join(f'<{p}item objectid="{oid}"' + (f' transform="{_transform(at)}"' if at else "") + "/>"
+                    for oid, at in items)
+    _write_package(path, {"3D/3dmodel.model": (
+        f'<?xml version="1.0" encoding="UTF-8"?><{p}model {xmlns} unit="{unit}" xml:lang="en-US">'
+        f"<{p}resources>{''.join(resources)}</{p}resources><{p}build>{build}</{p}build></{p}model>")})
+
+
 def torus_triangles(major_radius=28.0, minor_radius=9.7, major_segments=1000, minor_segments=500):
     """Stream a 75.4 x 75.4 x 19.4 mm torus as exactly one million facets."""
     tau = 2 * math.pi
@@ -384,93 +436,219 @@ def generate_large_torus(path):
     return target
 
 
+# ----------------------------------------------------------------------------- declarative specs (#824)
+#
+# A generated case is a folder with a case.toml. Its [model] table is the only description of the model
+# file next to it, and this module the only writer: there is no hand written build() list to keep in step.
+#
+#   [model]
+#   format = "3mf"          "3mf" (default), "stl", "core-3mf", "face-props-3mf", "prusa-mmu-3mf" or "raw-core-3mf"
+#   layout = "plates"       3mf only: "plates" (explicit [[model.plate]]), "loose" (every part on one plate,
+#                           auto placed when a part has no `at`) or "assembly" (all parts are bodies of one
+#                           build item that must travel together)
+#   fit = "tight"           optional: "roomy", "tight" or "none". Sizes the parts that carry a `footprint`
+#                           from the merge planner (tests/corpus/fit.py), for the case's own [printer]
+#   aspect = 0.8667         depth / width of the fitted footprint (default 1)
+#   margin_mm = 5           optional margin over the planner's limit (tight: below it, none: above it)
+#
+#   [[model.part]]          one per object or body, in order
+#   name = "Base"           extruder = 1 (default)   shape = "box" (default), "cylinder", "t", "degenerate"
+#   size = [70, 50, 6]      mm: box w d h, cylinder radius height, t bar_w stem_w height bar_t depth
+#   at = [60, 60]           build position of the part (3mf, core and face-props formats); a third value is Z
+#   footprint = [1.0, 0.7]  with fit: the part's footprint as fractions of the fitted one; `height` is in mm
+#
+# `[[model.grid]]` stands for rows x cols parts in one entry (name = "Tile {row:02} {col:02}", rows, cols,
+# origin, pitch, size, z, extruders = N, mix = [a, b] gives part extruder (col * a + row * b) % N + 1). Grid parts
+# follow the explicit ones. `project = {...}` adds keys to project_settings.config (prime tower, a foreign
+# slicer's embedded profile). The "raw-core-3mf" format writes ids and references exactly as given, valid or not:
+# unit, prefix (a namespace prefix such as "ns0:"), `[[model.object]]` id + (shape, size) or components =
+# [{object = 2, at = [x, y]}], and `[[model.item]]` object + optional at.
+#
+# Other keys: palette (filament hex colors), support, omit_plate_metadata, extra_empty_plates, [[model.plate]]
+# name + parts (indices), STL flags (binary, invert, lying_solid), part drop_faces and color, core-3mf
+# style and triangle_colors, prusa-mmu-3mf colors. `[[matrix]]` entries (tests/corpus/matrix.toml) expand to
+# whole cases, case.toml included, through tests/corpus/matrix.py.
+
+SOURCE = Path(__file__).resolve().parent  # where the checked in specs are read; HERE is where files are written
+DEFAULT_PALETTE = ["#FFFFFF", "#000000", "#FF00FF", "#067749", "#C0392B"]
+GRID_GAP_MM = 10
+
+
+def _sibling(name):
+    import importlib
+    return importlib.import_module(f"{__package__ or 'tests.corpus'}.{name}")
+
+
+def _parts(model):
+    """The model's parts: the explicit `[[model.part]]` entries, then each `[[model.grid]]` expanded."""
+    parts = list(model.get("part", []))
+    for grid in model.get("grid", []):
+        ox, oy = grid["origin"]
+        px, py = grid["pitch"]
+        mix_col, mix_row = grid.get("mix", (1, 0))
+        for row in range(grid["rows"]):
+            for col in range(grid["cols"]):
+                part = {"name": grid["name"].format(row=row, col=col), "size": grid["size"],
+                        "extruder": (col * mix_col + row * mix_row) % grid["extruders"] + 1,
+                        "at": [round(ox + col * px, 4), round(oy + row * py, 4)]}
+                if "shape" in grid:
+                    part["shape"] = grid["shape"]
+                parts.append(part)
+    return parts
+
+
+def _mesh(part, width=None, depth=None):
+    """The part's mesh, its size taken from `size` or, with a `footprint`, from the fitted footprint."""
+    kind = part.get("shape", "box")
+    size = part.get("size")
+    if "footprint" in part:
+        fx, fy = part["footprint"]
+        size = [round(width * fx, 2), round(depth * fy, 2), part["height"]]
+    if kind == "degenerate":
+        return [(0, 0, 0), (1, 0, 0), (0, 1, 0)], [(0, 1, 2), (0, 1, 2), (0, 1, 2)]
+    builders = {"box": box, "cylinder": cylinder, "t": t_shape}
+    if kind not in builders or not size:
+        raise ValueError(f"part {part.get('name')!r} needs a shape of {sorted(builders)} and a size or footprint")
+    vertices, faces = builders[kind](*size)
+    drop = int(part.get("drop_faces", 0))
+    return (vertices, faces[:-drop] if drop else faces)
+
+
+def _positions(parts, meshes):
+    """Build positions: each part's `at`, else a grid with gaps, so loose parts never share space."""
+    free = [i for i, part in enumerate(parts) if "at" not in part]
+    spans = [(max(v[0] for v in m[0]), max(v[1] for v in m[0])) for m in meshes]
+    columns = max(1, math.ceil(math.sqrt(len(free))))
+    cell = (math.ceil(max((spans[i][0] for i in free), default=0)) + GRID_GAP_MM,
+            math.ceil(max((spans[i][1] for i in free), default=0)) + GRID_GAP_MM)
+    out = []
+    for index, part in enumerate(parts):
+        if "at" in part:
+            out.append(tuple(part["at"]))
+        else:
+            slot = free.index(index)
+            out.append((GRID_GAP_MM + slot % columns * cell[0], GRID_GAP_MM + slot // columns * cell[1]))
+    return out
+
+
+def _palette(model, parts):
+    colors = model.get("palette") or DEFAULT_PALETTE[:max(int(p.get("extruder", 1)) for p in parts)]
+    return [(color, "PLA") for color in colors]
+
+
+def model_suffix(model):
+    return ".stl" if model.get("format", "3mf") == "stl" else ".3mf"
+
+
+def render(data, target, width=None):
+    """Write the model a case.toml's [model] table describes to `target`.
+
+    `data` is the parsed case.toml. `width` overrides the fitted footprint width (the fit search tries
+    candidate widths this way); left None, a `fit` resolves it from the planner.
+    """
+    model = data["model"]
+    if model.get("format") == "raw-core-3mf":
+        _render_raw_core(model, target)
+        return
+    parts = _parts(model)
+    if "fit" in model and width is None:
+        width = resolve_width(data)
+    depth = None if width is None else round(width * float(model.get("aspect", 1.0)))
+    meshes = [_mesh(part, width, depth) for part in parts]
+    kind = model.get("format", "3mf")
+    names = [part["name"] for part in parts]
+    if kind == "stl":
+        write_stl(target, meshes[0], binary=model.get("binary", True), invert=model.get("invert", False),
+                  lying_solid=model.get("lying_solid", False))
+        return
+    places = _positions(parts, meshes)
+    if kind == "core-3mf":
+        write_core_3mf(target, [(n, part.get("color"), m, at) for n, part, m, at in zip(names, parts, meshes, places)],
+                       style=model.get("style", "basematerials"), triangle_colors=model.get("triangle_colors"))
+    elif kind == "face-props-3mf":
+        write_face_props_3mf(target, names[0], meshes[0], places[0])
+    elif kind == "prusa-mmu-3mf":
+        write_prusa_mmu_3mf(target, names[0], meshes[0], places[0], model["colors"])
+    elif kind == "3mf":
+        palette = _palette(model, parts)
+        extruders = [int(part.get("extruder", 1)) for part in parts]
+        layout = model.get("layout", "plates")
+        if layout == "assembly":
+            write_assembly_3mf(target, list(zip(names, extruders, meshes)), palette,
+                               at=tuple(model.get("at", (10, 10))))
+            return
+        if layout == "loose":
+            plates = [(model.get("plate_name", "One plate"), list(range(len(parts))))]
+        elif layout == "plates":
+            plates = [(plate["name"], list(plate["parts"])) for plate in model["plate"]]
+        else:
+            raise ValueError(f"unknown layout {layout!r}: use plates, loose or assembly")
+        write_3mf(target, list(zip(names, extruders, meshes, places)), plates, palette,
+                  support=model.get("support", False), omit_plate_metadata=model.get("omit_plate_metadata", False),
+                  extra_empty_plates=model.get("extra_empty_plates", 0), project_extra=model.get("project"))
+    else:
+        raise ValueError(f"unknown model format {kind!r}")
+
+
+def _render_raw_core(model, target):
+    objects = []
+    for entry in model["object"]:
+        if "components" in entry:
+            objects.append((entry["id"], [(c["object"], c.get("at")) for c in entry["components"]]))
+        else:
+            objects.append((entry["id"], _mesh(entry)))
+    write_raw_core_3mf(target, objects, [(item["object"], item.get("at")) for item in model["item"]],
+                       unit=model.get("unit", "millimeter"), prefix=model.get("prefix", ""))
+
+
+_WIDTHS = {}
+
+
+def resolve_width(data):
+    """The footprint width in mm a case's `fit` means on its `[printer]`, from the merge planner."""
+    model, printer = data["model"], data.get("printer")
+    key = json.dumps([model, printer], sort_keys=True, default=str)
+    if key not in _WIDTHS:
+        _WIDTHS[key] = _sibling("fit").fitted_width(
+            lambda path, width: render(data, path, width), model["fit"],
+            len({int(p.get("extruder", 1)) for p in _parts(model)}), printer, model.get("margin_mm"))
+    return _WIDTHS[key]
+
+
+def specs():
+    """{case name: (case.toml text, parsed data)} for every generated case: [model] tables and the matrix.
+
+    A matrix case's case.toml is itself generated, so a checked in copy of it is not read as a spec.
+    """
+    found = {}
+    for case in _sibling("matrix").expand_all():
+        found[case.name] = (case.text, tomllib.loads(case.text))
+    for manifest in sorted((SOURCE / "cases").glob("*/case.toml")):
+        if manifest.parent.name in found:
+            continue
+        text = manifest.read_text(encoding="utf-8")
+        if text.startswith(_sibling("matrix").HEADER.splitlines()[0]):
+            raise ValueError(f"{manifest.parent.name} was generated from the matrix, which no longer yields it: delete the folder")
+        data = tomllib.loads(text)
+        if "model" in data:
+            found[manifest.parent.name] = (text, data)
+    return found
+
+
 def build():
+    """Write every generated case's model (and the case.toml of matrix cases) under HERE/cases."""
     cases = HERE / "cases"
-    write_3mf(cases / "parts-one-plate/model.3mf",
-              [("Base", 1, box(70, 50, 6), (60, 60)),
-               ("Post", 1, cylinder(10, 30), (70, 130)),
-               ("Tab", 1, box(30, 12, 4), (130, 140))],
-              # Post is assigned to both plates; production tolerates the
-              # overlap and prints it with the later plate (see the case).
-              [("Plate 1", [0, 1]), ("Plate 2", [1, 2])], [("#FFFFFF", "PLA")])
-    write_3mf(cases / "plates-multicolor/model.3mf",
-              [("Body", 1, box(60, 40, 12), (50, 60)), ("Lid", 2, box(60, 40, 4), (50, 60)),
-               ("Knob", 3, cylinder(9, 14), (60, 130))],
-              [("Body", [0]), ("Lid and knob", [1, 2])],
-              [("#FFFFFF", "PLA"), ("#000000", "PLA"), ("#C0392B", "PLA")])
-    write_3mf(cases / "needs-supports/model.3mf",
-              [("T bracket", 1, t_shape(60, 12, 40, 6, 30), (80, 90))],
-              [("Plate 1", [0])], [("#FFFFFF", "PLA")], support=True)
-    write_3mf(cases / "must-shrink/model.3mf", [("Big plate", 1, box(260, 260, 230), (0, 0))],
-              [("Plate 1", [0])], [("#FFFFFF", "PLA")])
-    write_3mf(cases / "split-plan/model.3mf",
-              [("Left half", 1, box(150, 150, 10), (0, 0)), ("Right half", 1, box(150, 150, 10), (160, 0))],
-              [("Plate 1", [0, 1])], [("#FFFFFF", "PLA")])
-    write_3mf(cases / "single-part/model.3mf", [("Cube", 1, box(30, 30, 20), (90, 90))],
-              [("Plate 1", [0])], [("#FFFFFF", "PLA")])
-    names8 = [(f"Part {i}", 1, box(10, 10, 5), (10 + ((i - 1) % 4) * 22, 10 + ((i - 1) // 4) * 22)) for i in range(1, 9)]
-    write_3mf(cases / "many-parts/model.3mf", names8, [("One plate", list(range(8)))], [("#FFFFFF", "PLA")])
-    palette = [("#FFFFFF", "PLA"), ("#000000", "PLA"), ("#FF00FF", "PLA"), ("#067749", "PLA"), ("#C0392B", "PLA")]
-    four = [(f"Part {i}", i, box(18, 18, 5), (15 + (i - 1) * 28, 40)) for i in range(1, 5)]
-    write_3mf(cases / "four-colors-one-plate/model.3mf", four, [("One plate", [0, 1, 2, 3])], palette[:4])
-    five = [(f"Part {i}", i, box(15, 15, 5), (10 + (i - 1) * 24, 50)) for i in range(1, 6)]
-    write_3mf(cases / "five-colors-over-slots/model.3mf", five, [("One plate", [0, 1, 2, 3, 4])], palette)
-    two = [("Plate A", 1, box(150, 150, 10), (0, 0)), ("Plate B", 1, box(150, 150, 10), (0, 0))]
-    write_3mf(cases / "multiplate-select/model.3mf", two, [("Plate A", [0]), ("Plate B", [1])], [palette[0]])
-    write_3mf(cases / "unicode-part-extra-plate/model.3mf",
-              [("Unicode 🐙 – part", 1, box(25, 25, 6), (60, 60))],
-              [("One plate", [0])], [palette[0]], extra_empty_plates=1)
-    write_3mf(cases / "rotation-fit/model.3mf", [("Rotatable plate", 1, box(223, 100, 8), (0, 0))],
-              [("Plate 1", [0])], [palette[0]])
-    write_stl(cases / "stl-single-part/model.stl", box(30, 30, 20))
-    write_stl(cases / "stl-must-shrink/model.stl", box(260, 260, 230))
-    write_stl(cases / "stl-needs-supports/model.stl", t_shape(60, 12, 40, 6, 30))
-    write_stl(cases / "stl-thin-footprint/model.stl", box(8, 8, 180))
-    write_stl(cases / "stl-ascii/model.stl", box(24, 18, 8), binary=False)
-    write_stl(cases / "stl-text-solid-header/model.stl", box(24, 18, 8), lying_solid=True)
-    write_stl(cases / "stl-tiny/model.stl", box(1.5, 1.5, 1.5))
-    write_stl(cases / "stl-open-thin-wall/model.stl", box(30, 30, 1.0)[:1] + (box(30, 30, 1.0)[1][:-2],))
-    write_stl(cases / "stl-degenerate-zero-volume/model.stl", ([(0, 0, 0), (1, 0, 0), (0, 1, 0)], [(0, 1, 2), (0, 1, 2), (0, 1, 2)]))
-    write_stl(cases / "stl-inverted-normals/model.stl", box(24, 18, 8), invert=True)
-    write_stl(cases / "stl-tall/model.stl", box(12, 16, 275))
-    write_stl(cases / "stl-very-thin-wall/model.stl", box(0.25, 20, 15))
-    write_3mf(cases / "duplicate-part-names/model.3mf",
-              [("Duplicate", 1, box(18, 18, 5), (20, 40)), ("Duplicate", 1, box(18, 18, 5), (60, 40))],
-              [("One plate", [0, 1])], [palette[0]])
-    write_3mf(cases / "missing-plate-metadata/model.3mf",
-              [("No plate metadata", 1, box(24, 18, 8), (40, 50))],
-              [("One plate", [0])], [palette[0]], omit_plate_metadata=True)
-    # Plain core 3MFs with core material colors and no slicer metadata (#711, #714).
-    write_core_3mf(cases / "core-basematerials-parts/model.3mf",
-                   [("body", "#FAF9F7", box(30, 30, 20), (40, 60)), ("hat", "#383845", box(20, 20, 15), (80, 60)),
-                    ("band", "#FFB3C4", box(20, 6, 4), (120, 60)), ("gold", "#067749", cylinder(5, 4), (40, 110))])
-    write_core_3mf(cases / "core-colorgroup-items/model.3mf",
-                   [("Left", "#FFFFFF", box(25, 25, 8), (40, 60)), ("Middle", "#000000", box(25, 25, 8), (80, 60)),
-                    ("Right", "#FF80C0", box(25, 25, 8), (120, 60))], style="colorgroup")
-    write_core_3mf(cases / "core-one-color/model.3mf",
-                   [("Gear", "#C0392B", cylinder(15, 6), (50, 60)), ("Axle", "#C0392B", cylinder(4, 20), (100, 60))])
-    write_core_3mf(cases / "core-triangle-colors/model.3mf",
-                   [("Checker", None, box(30, 30, 10), (60, 60))], triangle_colors=["#FFFFFF", "#000000"])
-    write_face_props_3mf(cases / "core-multiproperties-texture/model.3mf", "Swatch", box(30, 30, 6), (60, 60))
-    write_prusa_mmu_3mf(cases / "prusa-mmu-project/model.3mf", "Banner", box(40, 20, 10), (60, 60),
-                        ["#E74C3C", "#2980B9"])
-    quantity_parts = [("Quantity A", 1, box(35, 30, 8), (35, 40)),
-                      ("Quantity B", 1, box(35, 30, 8), (95, 40))]
-    write_3mf(cases / "copies-multiple-plates/model.3mf", quantity_parts,
-              [("Plate A", [0]), ("Plate B", [1])], [palette[0]])
-    # One assembly (a single build item) of 2-4 colors, sized against the 220 mm bed and the 45 mm
-    # prime tower: roomy, tight (4 colors near the limit), and too big to leave room for any tower. The smaller tower
-    # case depends on the nozzle, so it lives in tests/pipeline/test_plate_merge.py.
-    asm = {"assembly-two-color-roomy": [("Base", 1, box(120, 100, 4)), ("Overlay", 2, box(120, 100, 2))],
-           "assembly-four-color-tight": [("Base", 1, box(150, 130, 4)), ("Trim", 2, box(150, 130, 1)),
-                                         ("Letters", 3, box(100, 60, 1)), ("Dots", 4, box(40, 40, 1))],
-           "assembly-three-color-no-room": [("Base", 1, box(214, 214, 4)), ("Ring", 2, box(150, 150, 1)),
-                                                  ("Eye", 3, box(30, 30, 1))]}
-    for name, bodies in asm.items():
-        write_assembly_3mf(cases / name / "model.3mf", bodies, palette[:len(bodies)])
+    matrix_names = {case.name for case in _sibling("matrix").expand_all()}
+    for name, (text, data) in specs().items():
+        folder = cases / name
+        folder.mkdir(parents=True, exist_ok=True)
+        render(data, folder / f"model{model_suffix(data['model'])}")
+        if name in matrix_names:
+            (folder / "case.toml").write_text(text, encoding="utf-8", newline="\n")
 
 
 if __name__ == "__main__":
+    sys.path.insert(0, str(HERE.parents[1]))  # so the sibling modules import when run as a script
     build()
     cases = HERE / "cases"
     counts = {suffix: sum(path.suffix.lower() == suffix for case in cases.iterdir() for path in case.iterdir())

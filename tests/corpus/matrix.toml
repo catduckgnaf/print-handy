@@ -1,0 +1,23 @@
+# Corpus cases expanded from axes (#824). `python -m tests.corpus.make_models` writes each case's
+# case.toml and model; tests/corpus/matrix.py documents the derived expectations. Edit this file, not
+# the generated case folders.
+#
+# name        case name; {layout}, {colors} and {fit} are filled in
+# layout      "assembly" (bodies of one build item) or "loose" (one part per color on one plate)
+# colors      color counts, 2 to 4 (one filament slot each)
+# fit         "roomy", "tight" or "none", sized from the merge planner (tests/corpus/fit.py)
+# printer     optional [printer] override for every case of the entry (nozzle, tower, bed, slots)
+# known_failure  optional rules; a case whose layout/colors/fit equal a rule's keys links the rule's
+#                reason, e.g. { layout = "assembly", fit = "none", reason = "#820: ..." }
+
+[[matrix]]
+name = "{layout}-{colors}c-{fit}"
+layout = "assembly"
+colors = [2, 3]
+fit = ["tight"]
+
+[[matrix]]
+name = "{layout}-{colors}c-{fit}"
+layout = "loose"
+colors = [2, 3, 4]
+fit = ["tight"]

@@ -6,3 +6,10 @@ description = "degenerate zero-volume mesh is rejected at intake"
 status = "FAILED"
 started = false
 error_contains = "no printable volume"
+
+[model]
+format = "stl"
+
+[[model.part]]
+name = "Part"
+shape = "degenerate"
