@@ -205,9 +205,10 @@ def test_tower_width_is_zero_without_a_tower(monkeypatch):
 # ------------------------------------------------------------------ the fit check
 
 def _two_wide_parts(tmp_path):
-    """Two 200 x 100 mm parts in two slots: they fit a 220 mm bed only when no tower is reserved."""
+    """Two 190 x 95 mm parts in two slots: with the 10 mm spacing and 8 mm edge the planner uses,
+    they need 95 + 10 + 95 + 2 x 8 = 216 mm of a 220 mm bed, so they fit only when no tower is reserved."""
     source = tmp_path / 's.3mf'
-    _source(source, {'1': (200, 100, 10), '2': (200, 100, 10)}, [['1', '2']])
+    _source(source, {'1': (190, 95, 10), '2': (190, 95, 10)}, [['1', '2']])
     manifest = source_colors.inventory(source)
     slots = {p['key']: (1 if p['object_id'] == '1' else 2) for p in manifest['parts']}
     return source, manifest, model_job.plate_manifest(source)['plates'], slots
