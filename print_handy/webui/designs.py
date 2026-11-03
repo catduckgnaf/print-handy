@@ -28,6 +28,7 @@ import time
 from pathlib import Path
 
 from ..core import design
+from . import shell
 
 # The file kinds a session exposes, with their download presentation:
 # kind -> (content type, inline?) — the preview is inline so the
@@ -168,20 +169,14 @@ def _esc(value):
     return html.escape(str(value), quote=True)
 
 
-def _page(title, body):
-    return ("<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\">"
-            f"<title>Print Handy — {_esc(title)}</title></head><body>"
-            f"<h1>Print Handy {_esc(title)}</h1>{body}</body></html>\n")
+def _page(title, body, *, theme=shell.DEFAULT_THEME):
+    """Through the one shell (#813); the header chrome carries the nav."""
+    return shell.page(title, body, path="/designs", theme=theme)
 
 
-_NAV = ('<p><a href="/">Status</a> · <a href="/config">Configuration</a> · '
-        '<a href="/designs">Designs</a> · <a href="/layers">Layers</a></p>')
-
-
-def render_designs_page(rows):
+def render_designs_page(rows, *, theme=shell.DEFAULT_THEME):
     """The GET /designs list: one row per session, newest first."""
-    parts = [_NAV,
-             "<p>Designs made from chat with <code>/print-design</code> (or <code>/design</code>) "
+    parts = ["<p>Designs made from chat with <code>/print-design</code> (or <code>/design</code>) "
              "(<a href=\"https://github.com/catduckgnaf/print-handy/blob/main/docs/DESIGN.md\">"
              "the design guide</a>). This catalog is read-only: it shows the "
              "sessions kept on this machine (14 days) and serves their files; "
@@ -192,7 +187,7 @@ def render_designs_page(rows):
                      "describe a part with <code>/print-design</code>, or drop a "
                      "model and ask to design or change it — finished sessions "
                      "will be listed here.</p>")
-        return _page("designs", "".join(parts))
+        return _page("designs", "".join(parts), theme=theme)
     body = []
     for row in rows:
         preview = (f'<img src="/designs/{_esc(row["id"])}/preview" '
@@ -211,14 +206,14 @@ def render_designs_page(rows):
     parts.append("<table><tr><th>Design</th><th>Kind</th><th>State</th>"
                  "<th>Turns</th><th>Created</th><th>Updated</th><th>Preview</th></tr>"
                  + "".join(body) + "</table>")
-    return _page("designs", "".join(parts))
+    return _page("designs", "".join(parts), theme=theme)
 
 
-def render_design_detail(session, scad_text, *, has_stl, has_preview, has_base=False):
+def render_design_detail(session, scad_text, *, has_stl, has_preview, has_base=False,
+                         theme=shell.DEFAULT_THEME):
     """The GET /designs/<id> page: facts, downloads, the .scad source."""
     sid = _esc(session.get("id") or "")
-    parts = [_NAV,
-             f"<h2>{_esc(session_name(session))}</h2>",
+    parts = [f"<h2>{_esc(session_name(session))}</h2>",
              "<table>"
              f"<tr><th>Kind</th><td>{_esc(session_kind(session))}</td></tr>"
              f"<tr><th>State</th><td>{_esc(session_state(session))}</td></tr>"
@@ -245,7 +240,7 @@ def render_design_detail(session, scad_text, *, has_stl, has_preview, has_base=F
         parts.append(f"<pre>{_esc(scad_text)}</pre>")
     else:
         parts.append("<p>No source recorded for this session yet.</p>")
-    return _page("design", "".join(parts))
+    return _page("design", "".join(parts), theme=theme)
 
 
 __all__ = [

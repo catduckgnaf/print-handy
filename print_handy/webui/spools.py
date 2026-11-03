@@ -65,6 +65,7 @@ from urllib.parse import quote
 from .. import settings
 from ..hermes import purchase_intake, spool_sync
 from . import controls as controls_module
+from . import shell
 
 ACTIONS = ("assign", "swap", "unassign", "add", "edit", "sync")
 PURCHASE_ACTIONS = ("purchase/propose", "purchase/create")
@@ -663,21 +664,19 @@ def _esc(value):
     return html.escape(str(value), quote=True)
 
 
-def _page(title, body):
-    return ("<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\">"
-            f"<title>Print Handy — {_esc(title)}</title></head><body>"
-            f"<h1>Print Handy {_esc(title)}</h1>{body}</body></html>\n")
+def _page(title, body, *, theme=shell.DEFAULT_THEME):
+    """Through the one shell (#813); the header chrome carries the nav."""
+    return shell.page(title, body, path="/spools", theme=theme)
 
 
-def render_spools_index(entries):
+def render_spools_index(entries, *, theme=shell.DEFAULT_THEME):
     """GET /spools: one link per configured printer — no default is picked."""
     items = "".join(
         f'<li><a href="/spools/{quote(str(entry["id"]), safe="")}">{_esc(entry.get("name") or entry["id"])}</a>'
         f' ({_esc(entry["id"])}, {_esc(entry.get("model") or "")})</li>'
         for entry in entries)
-    return _page("spools", '<p><a href="/">Status</a></p>'
-                           "<p>Spools are managed per printer. Pick the printer:</p>"
-                           f"<ul>{items}</ul>")
+    return _page("spools", "<p>Spools are managed per printer. Pick the printer:</p>"
+                           f"<ul>{items}</ul>", theme=theme)
 
 
 def _amount_text(spool):
@@ -714,12 +713,12 @@ def _form(form_token, printer_id, action, inner):
 
 
 def render_spools_page(view, *, form_token, notice=None, error=None, proposed=None,
-                       purchase_ready=False):
+                       purchase_ready=False, theme=shell.DEFAULT_THEME):
     """The per-printer Spools page: the #744 loaded view, the shelf,
     and the assign/swap/unassign/add/edit/sync forms with pickers."""
     esc = _esc
     pid = view["id"]
-    parts = ['<p><a href="/">Status</a> · <a href="/spools">All printers</a></p>']
+    parts = []
     if notice:
         parts.append(f'<p class="notice">{esc(notice)}</p>')
     if error:
@@ -822,7 +821,7 @@ def render_spools_page(view, *, form_token, notice=None, error=None, proposed=No
                         "<p>Nothing is created until you press Create.</p>"))
     else:
         parts.append(f"<p>{esc(NO_AI_REASON)}</p>")
-    return _page(f"spools — {view.get('name') or pid}", "".join(parts))
+    return _page(f"spools — {view.get('name') or pid}", "".join(parts), theme=theme)
 
 
 # ------------------------------------------------------------------ form posts

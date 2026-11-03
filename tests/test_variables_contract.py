@@ -117,7 +117,6 @@ EXEMPTIONS = {
     ("printer", "firmware"): (frozenset({"webui"}), "#657"),
     ("printer", "filament_slots"): (frozenset({"webui"}), "#657"),
     ("printer", "max_print_height_mm"): (frozenset({"webui"}), "#657"),
-    ("printer", "name"): (frozenset({"webui"}), "#657"),
     ("printer", "nozzle_diameter_mm"): (frozenset({"webui"}), "#657"),
     ("printer", "nozzle_type"): (frozenset({"webui"}), "#657"),
     ("printer", "start_macro"): (frozenset({"webui"}), "#657"),

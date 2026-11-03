@@ -16,6 +16,8 @@ import json
 import re
 from pathlib import Path
 
+from . import shell
+
 MAX_BYTES = 8_000_000
 MAX_MOVES = 200_000
 # A job id is an archive folder name. The longest producer is the chat
@@ -202,14 +204,9 @@ def _esc(value) -> str:
     return html.escape(str(value), quote=True)
 
 
-def _page(title, body) -> str:
-    return ("<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\">"
-            f"<title>Print Handy — {_esc(title)}</title></head><body>"
-            f"<h1>Print Handy — {_esc(title)}</h1>{body}</body></html>\n")
-
-
-_NAV = ('<p><a href="/">Status</a> · <a href="/config">Configuration</a> · '
-        '<a href="/designs">Designs</a> · <a href="/layers">Layers</a></p>')
+def _page(title, body, *, theme=shell.DEFAULT_THEME) -> str:
+    """Through the one shell (#813); the header chrome carries the nav."""
+    return shell.page(title, body, path="/layers", theme=theme)
 
 
 def _bounds(moves):
@@ -258,18 +255,17 @@ _PAN = (
 )
 
 
-def render_error(message) -> str:
+def render_error(message, *, theme=shell.DEFAULT_THEME) -> str:
     """An error page with no drawing."""
-    return _page("layers", _NAV + f"<p>{_esc(message)}</p>")
+    return _page("layers", f"<p>{_esc(message)}</p>", theme=theme)
 
 
-def render_list(rows) -> str:
-    parts = [_NAV,
-             "<p>Sliced plates already in the archive. This view is read-only. "
+def render_list(rows, *, theme=shell.DEFAULT_THEME) -> str:
+    parts = ["<p>Sliced plates already in the archive. This view is read-only. "
              "Nothing here starts a job, and chat confirmation is unchanged.</p>"]
     if not rows:
         parts.append("<p>No sliced plates are in the archive yet.</p>")
-        return _page("layers", "".join(parts))
+        return _page("layers", "".join(parts), theme=theme)
     body = "".join(
         "<tr>"
         f'<td><a href="/layers/{_esc(row["job_id"])}/{int(row["index"])}">{_esc(row["title"])}</a></td>'
@@ -277,13 +273,14 @@ def render_list(rows) -> str:
         "</tr>"
         for row in rows)
     parts.append("<table><tr><th>Plate</th><th>File</th></tr>" + body + "</table>")
-    return _page("layers", "".join(parts))
+    return _page("layers", "".join(parts), theme=theme)
 
 
-def render_plate(parsed, index, *, title) -> str:
+def render_plate(parsed, index, *, title, theme=shell.DEFAULT_THEME) -> str:
     """One plate, or the error page when ``parsed`` is not ok."""
     if not parsed or not parsed.get("ok"):
-        return render_error((parsed or {}).get("error") or "this G-code could not be drawn")
+        return render_error((parsed or {}).get("error") or "this G-code could not be drawn",
+                            theme=theme)
     count = len(parsed["layers"])
     chosen = clamp_layer(count, index)
     links = []
@@ -297,14 +294,13 @@ def render_plate(parsed, index, *, title) -> str:
     z = parsed["layers"][chosen].get("z")
     height = f" · Z {float(z):g} mm" if isinstance(z, (int, float)) else ""
     body = (
-        _NAV
-        + "<p>Read-only. Nothing here starts a job. "
+        "<p>Read-only. Nothing here starts a job. "
         + " ".join(links) + "</p>"
         + f"<p>Layer {chosen + 1} of {count}{height}. {legend}</p>"
         + svg_for(parsed, chosen)
         + _PAN
     )
-    return _page(title, body)
+    return _page(title, body, theme=theme)
 
 
 def _safe_job(job_id) -> bool:
@@ -402,10 +398,10 @@ def load_plate(path: Path) -> dict:
     return parse_gcode(raw.decode("utf-8", "replace"))
 
 
-def respond(archive: Path, rest: str, layer) -> tuple:
+def respond(archive: Path, rest: str, layer, theme=shell.DEFAULT_THEME) -> tuple:
     """``(status, content_type, body)`` for ``GET /layers`` and ``GET /layers/<job>/<n>``."""
     if not rest:
-        return 200, "text/html; charset=utf-8", render_list(list_plates(archive))
+        return 200, "text/html; charset=utf-8", render_list(list_plates(archive), theme=theme)
     segments = [segment for segment in rest.split("/") if segment != ""]
     if len(segments) != 2:
         return 404, "application/json", {"ok": False, "reason": "no such sliced plate"}
@@ -414,4 +410,4 @@ def respond(archive: Path, rest: str, layer) -> tuple:
         return 404, "application/json", {"ok": False, "reason": "no such sliced plate"}
     parsed = load_plate(path)
     title = path.stem
-    return 200, "text/html; charset=utf-8", render_plate(parsed, layer, title=title)
+    return 200, "text/html; charset=utf-8", render_plate(parsed, layer, title=title, theme=theme)
