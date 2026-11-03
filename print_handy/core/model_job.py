@@ -25,6 +25,7 @@ from .. import firmware_update, printers, settings
 from ..printers.base import MultiColorUnsupported
 from . import _external, filament_color, gcode_3mf, launch_state, printer_state, spoolman_client
 from .site_accounts import SiteLoginNeeded
+from .threemf_canonical import intake_working_copy
 
 logger = logging.getLogger(__name__)
 
@@ -2005,7 +2006,7 @@ def audit(path, printer_model=None):
                 if n.endswith(("3dmodel.model","model_settings.config")):
                     try:text+=z.read(n).decode(errors="ignore")
                     except:pass
-            out["objects"]=len(re.findall(r'<object\b',text)); out["components"]=len(re.findall(r'<component\b',text)); out["build_items"]=len(re.findall(r'<item\b',text)); out["named_parts"]=re.findall(r'<metadata key="name" value="([^"]+)',text)[:30]
+            out["objects"]=len(re.findall(r'<(?:\w+:)?object\b',text)); out["components"]=len(re.findall(r'<(?:\w+:)?component\b',text)); out["build_items"]=len(re.findall(r'<(?:\w+:)?item\b',text)); out["named_parts"]=re.findall(r'<metadata key="name" value="([^"]+)',text)[:30]
     from .source_colors import inventory, prompts
     manifest = inventory(path)
     out['color_manifest'] = manifest
@@ -8243,6 +8244,7 @@ def _main():
         if site_mats and st["spool"]["material"] not in site_mats: notes.append(f"site profile material is {', '.join(sorted(site_mats))}; loaded material is {st['spool']['material']}")
         if notes: print("SITE PROFILE NOT REUSED: " + "; ".join(notes) + ". Reslicing geometry to live local state.")
     srcdir=folder/"source"; path=download_for_site(job,chosen,srcdir)
+    intake_working_copy(path)  # canonical namespace and millimeters for everything below (#814, #825)
     job["selected_source"],job["downloaded_file"],job["audit"]=chosen,str(path),audit(path, printer_model=job.get("printer_model") or printers.current().key); write_job(folder,job)
     print("\nAUDIT: "+json.dumps(job["audit"],indent=2))
     if a.inspect_only:

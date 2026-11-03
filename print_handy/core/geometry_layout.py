@@ -28,6 +28,7 @@ from .model_job import mesh_topology
 from .orca_adapter import _hull, read_stl_triangles
 from .painted_geometry import paint_census
 from .source_colors import cutter_ids, inventory as color_inventory
+from .threemf_canonical import UNIT_TO_MM
 
 NS = {'c': 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'}
 
@@ -49,23 +50,6 @@ def apply(t, point):
         t[2] * x + t[5] * y + t[8] * z + t[11],
     )
 
-UNIT_TO_MM = {
-    'millimeter': 1.0,
-    'millimetre': 1.0,
-    'mm': 1.0,
-    'centimeter': 10.0,
-    'centimetre': 10.0,
-    'cm': 10.0,
-    'meter': 1000.0,
-    'metre': 1000.0,
-    'm': 1000.0,
-    'inch': 25.4,
-    'in': 25.4,
-    'foot': 304.8,
-    'ft': 304.8,
-    'micron': 0.001,
-    'micrometer': 0.001,
-}
 
 STATUS_LADDER_STAGES = (
     'geometry_inspected',
@@ -844,7 +828,7 @@ def preserve_3mf_package_layout(source: Path, placed, target: Path, bed=DEFAULT_
         updated_oids.append(oid)
         return line
 
-    new_model_bytes = re.sub(br'<item\b[^>]*>', edit_item, model_bytes)
+    new_model_bytes = re.sub(br'<(?:\w+:)?item\b[^>]*>', edit_item, model_bytes)
     if sorted(updated_oids) != sorted(placement_by_oid):
         raise RuntimeError('in-place 3MF layout rewrite did not match all printable build items')
     payload['3D/3dmodel.model'] = new_model_bytes
