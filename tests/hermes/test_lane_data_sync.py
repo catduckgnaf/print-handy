@@ -554,3 +554,88 @@ def test_lane_event_text_is_the_event_text():
     assert lane_data_sync.lane_event_text({"text": "hello"}) == "hello"
     assert lane_data_sync.lane_event_text({}) == ""
     assert "color" in lane_data_sync.lane_event_text({"text": "the color is locked"})
+
+
+# ---------------------------------------------------------------- Codex fixes on PR #809
+
+def test_removing_a_lock_reprocesses_the_lane_so_it_can_converge(tmp_path):
+    mr = FakeMoonraker()
+    client = FakeSpoolman([spool(11), spool(19, "White", "PLA", "FFFFFF")])
+    watcher, applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {"lane2": lane(11, slot=2)})
+    mr.lanes = {"lane2": lane(19, slot=2, color="FF0000", scan_time=200,
+                              locked_color=True, name="White PLA")}
+    assert [e["kind"] for e in watcher.poll()] == ["locked"]
+    assert applied == []
+    # The operator follows the prompt and removes the lock on the screen;
+    # spool, material and color are unchanged, only the lock flag moved.
+    mr.lanes = {"lane2": lane(19, slot=2, color="FF0000", scan_time=300,
+                              locked_color=False, name="White PLA")}
+    events = watcher.poll()
+    assert applied == [(2, 19)]
+    assert "loaded" in [e["kind"] for e in events]
+
+
+def test_deleted_spool_through_the_production_transport_still_prompts(tmp_path):
+    # The production transport wraps a deleted spool's 404 in SpoolError,
+    # exactly like an outage: the watcher must confirm through the spool
+    # list before calling it missing.
+    class TransportSpoolman(FakeSpoolman):
+        def __call__(self, method, path, body=None):
+            if method == "GET" and path.startswith("/api/v1/spool/") \
+                    and int(path.rsplit("/", 1)[1]) not in self.spools:
+                raise spool_sync.SpoolError("Spoolman request failed: 404")
+            return super().__call__(method, path, body)
+
+    mr = FakeMoonraker()
+    client = TransportSpoolman([spool(11)])
+    watcher, applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {"lane1": lane(11)})
+    mr.lanes = {"lane1": lane(99, scan_time=200)}
+    events = watcher.poll()
+    assert [e["kind"] for e in events] == ["stale_spool"]
+    assert "no longer exists" in events[0]["text"]
+    assert applied == []
+
+
+def test_spoolman_silence_through_the_transport_is_unknown_not_missing(tmp_path):
+    class DownSpoolman(FakeSpoolman):
+        def __call__(self, method, path, body=None):
+            raise spool_sync.SpoolError("Spoolman did not answer")
+
+    mr = FakeMoonraker()
+    client = DownSpoolman([spool(11)])
+    watcher, applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {"lane1": lane(11)})
+    mr.lanes = {"lane1": lane(99, scan_time=200)}
+    assert watcher.poll() == []
+    assert applied == []
+
+
+def test_failed_assignment_write_keeps_the_old_claim_and_adopts_nothing(tmp_path):
+    class ExtraRefusingSpoolman(FakeSpoolman):
+        def __call__(self, method, path, body=None):
+            if method == "PATCH" and isinstance(body, dict) and "extra" in body:
+                raise OSError("spoolman refused the extra write")
+            return super().__call__(method, path, body)
+
+    client = ExtraRefusingSpoolman([
+        spool(11, ph_slot="ad5x:1"),
+        spool(19, "White", "PLA", "FFFFFF"),
+    ])
+    state = tmp_path / "printer_hardware.json"
+    state.write_text(json.dumps(
+        {"spool": {}, "filament_slots": {"1": {"spoolman_id": 11, "name": "Black PLA",
+                                               "material": "PLA", "color": "black",
+                                               "hex": "161616"}}}))
+    mr = FakeMoonraker(lanes={"lane1": lane(19, color="FFFFFF", name="White PLA")})
+    try:
+        lane_data_sync.apply_screen_assignment(PID, 1, 19, client=client, mr=mr,
+                                               state_path=state)
+        raised = None
+    except spool_sync.SpoolError as exc:
+        raised = exc
+    assert raised is not None and "did not accept" in str(raised)
+    # The previous spool's claim was NOT cleared behind the failed write.
+    assert spool_sync.spool_ph_slot(client.spools[11]) == (PID, 1)
+    assert spool_sync.spool_ph_slot(client.spools[19]) is None

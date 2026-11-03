@@ -146,25 +146,34 @@ def parse_lane_data(value: Any) -> dict[int, dict[str, Any]] | None:
 
 
 def lane_fingerprint(lane: dict[str, Any]) -> dict[str, Any]:
-    """The diffed fields for one lane: spool_id / lane / scan_time / color / material."""
+    """The diffed fields for one lane: spool_id / lane / scan_time / color / material / locks.
+
+    The helix_locked_* flags are diffed too: removing a lock that blocked a
+    lane (without changing its spool, material or color) is a material
+    change — the lane must be reprocessed so the assignment can converge.
+    """
     return {
         "spool_id": lane.get("spool_id"),
         "lane": lane.get("lane"),
         "scan_time": str(lane.get("scan_time") or ""),
         "color": _norm_color(lane.get("color")),
         "material": _norm_text(lane.get("material")),
+        "locked_color": bool(lane.get("locked_color")),
+        "locked_material": bool(lane.get("locked_material")),
     }
 
 
 def _action_key(fingerprint: dict[str, Any] | None) -> str:
-    """What a lane materially says: which spool, of what material and color.
+    """What a lane materially says: which spool, of what material and color, under which locks.
 
     A fresh ``scan_time`` (or a rewritten inner ``lane``) with the same
-    spool, material and color is a rescan of the same physical state, not
-    a change to act on or announce.
+    spool, material, color and locks is a rescan of the same physical
+    state, not a change to act on or announce. A lock change is not a
+    rescan: it can unblock (or newly block) the lane's convergence.
     """
     fp = fingerprint or {}
-    return f"{fp.get('spool_id')}|{fp.get('material')}|{fp.get('color')}"
+    return (f"{fp.get('spool_id')}|{fp.get('material')}|{fp.get('color')}"
+            f"|{fp.get('locked_color')}|{fp.get('locked_material')}")
 
 
 def _spool_label(spool: dict[str, Any]) -> str:
@@ -223,12 +232,28 @@ def apply_screen_assignment(printer_id: str, slot: int, spool_id: int | None, *,
     of announcing a convergence that did not happen.
     """
     if spool_id is not None:
-        spool_sync._set_ph_slot(client, int(spool_id), spool_sync.format_ph_slot(printer_id, int(slot)))
+        if not spool_sync._set_ph_slot(client, int(spool_id),
+                                       spool_sync.format_ph_slot(printer_id, int(slot))):
+            # A rejected write must not be followed by clearing the previous
+            # spool's claim or by adopting the lane: the slot keeps its old
+            # mapping and a later poll retries the converge.
+            raise spool_sync.SpoolError(
+                f"Spoolman did not accept the slot assignment for spool #{spool_id}; "
+                "nothing was changed")
     spool_sync._clear_ph_slot_claims(client, printer_id, int(slot), keep_spool_id=spool_id)
     result = spool_sync.reconcile(printer_id, client=client, mr=mr,
                                   state_path=state_path, pending_path=pending_path)
     if not result.get("ok"):
         raise spool_sync.SpoolError(str(result.get("error") or "spool reconcile did not complete"))
+    # Verify the reconcile actually produced the requested state: an ok
+    # result whose assignments name a different spool (or still name one,
+    # for an unload) means the converge did not happen, so the caller must
+    # not adopt the lane or announce success.
+    settled = (result.get("assignments") or {}).get(int(slot))
+    if settled != spool_id:
+        raise spool_sync.SpoolError(
+            f"spool reconcile settled slot {slot} on {settled!r}, not the screen's "
+            f"{spool_id!r}; the change was not adopted")
     return result
 
 
@@ -280,6 +305,28 @@ class LaneDataWatcher:
                 self._print_state = "unknown"
         return self._print_state
 
+    def _lookup_via_list(self, spool_id: int) -> tuple[str, dict[str, Any] | None]:
+        """Confirm a spool's fate from a successful spool list.
+
+        The production transport wraps every failure — including a deleted
+        spool's 404 — in SpoolError, so a single-spool GET cannot tell
+        "gone" from "Spoolman is down". A list that answers settles it: the
+        spool is either in it (live/archived) or genuinely missing. A list
+        that does not answer proves nothing (unknown).
+        """
+        try:
+            rows = spool_sync._call_client(self.client, "GET",
+                                           "/api/v1/spool?allow_archived=true", None)
+        except Exception:
+            return "unknown", None
+        if not isinstance(rows, list):
+            return "unknown", None
+        for row in rows:
+            if isinstance(row, dict) and row.get("id") is not None \
+                    and int(row["id"]) == int(spool_id):
+                return ("archived", row) if row.get("archived") else ("live", row)
+        return "missing", None
+
     def _lookup_spool(self, spool_id: int) -> tuple[str, dict[str, Any] | None]:
         """("live" | "archived" | "missing" | "unknown", spool record)."""
         try:
@@ -287,7 +334,9 @@ class LaneDataWatcher:
         except KeyError:
             return "missing", None  # a 404-shaped answer: the record is gone
         except spool_sync.SpoolError:
-            return "unknown", None  # Spoolman did not answer: proves nothing
+            # The production transport raises this for a 404 (deleted spool)
+            # and for a genuine outage alike: confirm through the list.
+            return self._lookup_via_list(spool_id)
         except Exception:
             return "unknown", None
         if not isinstance(row, dict) or row.get("id") is None:
