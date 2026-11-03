@@ -35,3 +35,25 @@ colors = { "Base" = "white", "Ring" = "black", "Eye" = "pink" }
 plate_mode = "split"
 gcodes = 1
 slots = 3
+
+[model]
+layout = "assembly"
+fit = "none"
+
+[[model.part]]
+name = "Base"
+extruder = 1
+height = 4
+footprint = [1.0, 1.0]
+
+[[model.part]]
+name = "Ring"
+extruder = 2
+height = 1
+footprint = [0.7, 0.7]
+
+[[model.part]]
+name = "Eye"
+extruder = 3
+height = 1
+footprint = [0.14, 0.14]

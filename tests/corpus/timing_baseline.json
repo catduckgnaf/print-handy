@@ -1,5 +1,25 @@
 {
  "cases": {
+  "assembly-2c-tight/hermes": {
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "wall_s": 0.07
+  },
+  "assembly-2c-tight/standalone": {
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "wall_s": 0.07
+  },
+  "assembly-3c-tight/hermes": {
+   "first_prompt_s": 0.06,
+   "fit_check_s": 0.0,
+   "wall_s": 0.22
+  },
+  "assembly-3c-tight/standalone": {
+   "first_prompt_s": 0.2,
+   "fit_check_s": 0.0,
+   "wall_s": 0.26
+  },
   "assembly-four-color-tight/hermes": {
    "first_prompt_s": 0.06,
    "fit_check_s": 0.0,
@@ -9,6 +29,16 @@
    "first_prompt_s": 0.2,
    "fit_check_s": 0.0,
    "wall_s": 0.26
+  },
+  "assembly-small-tower/hermes": {
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "wall_s": 0.07
+  },
+  "assembly-small-tower/standalone": {
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "wall_s": 0.07
   },
   "assembly-three-color-no-room/hermes": {
    "first_prompt_s": 0.01,
@@ -109,6 +139,30 @@
    "wall_s": 0.06
   },
   "four-colors-one-plate/standalone": {
+   "first_prompt_s": 0.01,
+   "wall_s": 0.06
+  },
+  "loose-2c-tight/hermes": {
+   "first_prompt_s": 0.01,
+   "wall_s": 0.06
+  },
+  "loose-2c-tight/standalone": {
+   "first_prompt_s": 0.01,
+   "wall_s": 0.06
+  },
+  "loose-3c-tight/hermes": {
+   "first_prompt_s": 0.01,
+   "wall_s": 0.06
+  },
+  "loose-3c-tight/standalone": {
+   "first_prompt_s": 0.01,
+   "wall_s": 0.06
+  },
+  "loose-4c-tight/hermes": {
+   "first_prompt_s": 0.01,
+   "wall_s": 0.06
+  },
+  "loose-4c-tight/standalone": {
    "first_prompt_s": 0.01,
    "wall_s": 0.06
   },

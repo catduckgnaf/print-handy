@@ -29,3 +29,16 @@ gcodes = 1
 scale_range = [0.78, 0.84]
 supports = false
 slots = 1
+
+[model]
+layout = "plates"
+
+[[model.part]]
+name = "Big plate"
+extruder = 1
+size = [260, 260, 230]
+at = [0, 0]
+
+[[model.plate]]
+name = "Plate 1"
+parts = [0]

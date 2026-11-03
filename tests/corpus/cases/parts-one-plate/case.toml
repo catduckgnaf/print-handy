@@ -24,3 +24,33 @@ plate_mode = "merge"
 gcodes = 1
 supports = false
 slots = 1
+
+[model]
+layout = "plates"
+
+[[model.part]]
+name = "Base"
+extruder = 1
+size = [70, 50, 6]
+at = [60, 60]
+
+[[model.part]]
+name = "Post"
+extruder = 1
+shape = "cylinder"
+size = [10, 30]
+at = [70, 130]
+
+[[model.part]]
+name = "Tab"
+extruder = 1
+size = [30, 12, 4]
+at = [130, 140]
+
+[[model.plate]]
+name = "Plate 1"
+parts = [0, 1]
+
+[[model.plate]]
+name = "Plate 2"
+parts = [1, 2]

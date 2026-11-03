@@ -26,3 +26,18 @@ colors = { "One plate" = "white" }
 gcodes = 1
 supports = false
 slots = 1
+
+[model]
+layout = "loose"
+
+[[model.part]]
+name = "Duplicate"
+extruder = 1
+size = [18, 18, 5]
+at = [20, 40]
+
+[[model.part]]
+name = "Duplicate"
+extruder = 1
+size = [18, 18, 5]
+at = [60, 40]

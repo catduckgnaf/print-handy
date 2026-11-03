@@ -24,3 +24,10 @@ scale = 1.0
 prompts = ["Choose the color for"]
 supports = false
 slots = 1
+
+[model]
+format = "stl"
+
+[[model.part]]
+name = "Part"
+size = [30, 30, 20]
