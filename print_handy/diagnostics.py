@@ -298,6 +298,14 @@ def known_cause(exc: BaseException) -> KnownCause | None:
             "for screenless mode or no longer matches the screen's Z offset.",
             "Confirm the native screen's Z offset with /calibration, then send the print "
             "again. Retrying the slice will not help.")
+    if "3mf declares the length unit" in low:
+        # A 3MF unit that intake could not convert exactly (core/threemf_canonical.py, #825).
+        # The refusal text names the unit and the remedy, so it is configuration, never unknown.
+        return KnownCause(
+            Category.CONFIGURATION,
+            "This 3MF uses a length unit Print Handy cannot convert exactly.",
+            "Re-export the model in millimeters (or inches, centimeters, meters, feet or microns "
+            "in the main model) and send it again.")
     if any(cue in low for cue in _COLOR_PLATE_CUES):
         # Color plate export (#716): the multicolor exporters refuse a
         # source layout they cannot split into single-color plates. Name it

@@ -89,7 +89,7 @@ def remap_code(code, table):
 def _object_blocks(model_bytes):
     """{object_id: (start, end)} byte spans of <object> blocks."""
     return {m.group(1).decode(): (m.start(), m.end())
-            for m in re.finditer(rb'<object\b[^>]*\bid="(\d+)".*?</object>', model_bytes, re.S)}
+            for m in re.finditer(rb'<(?:\w+:)?object\b[^>]*\bid="(\d+)".*?</(?:\w+:)?object>', model_bytes, re.S)}
 
 
 def _mesh_ids(model_bytes, object_id):
@@ -102,9 +102,9 @@ def _mesh_ids(model_bytes, object_id):
             continue
         seen.add(oid)
         body = model_bytes[slice(*blocks[oid])]
-        if b'<mesh' in body:
+        if re.search(rb'<(?:\w+:)?mesh\b', body):
             meshes.append(oid)
-        for comp in re.finditer(rb'<component\b[^>]*>', body):
+        for comp in re.finditer(rb'<(?:\w+:)?component\b[^>]*>', body):
             if re.search(rb'\bp:path=|\bpath=', comp.group(0)):
                 raise RuntimeError('painted export supports single-model packages only')
             todo.append(re.search(rb'objectid="(\d+)"', comp.group(0)).group(1).decode())
@@ -116,7 +116,7 @@ def paint_census(source, build_object_ids=None):
     with zipfile.ZipFile(source) as archive:
         model = archive.read('3D/3dmodel.model')
     blocks = _object_blocks(model)
-    items = re.findall(rb'<item\b[^>]*\bobjectid="(\d+)"', model)
+    items = re.findall(rb'<(?:\w+:)?item\b[^>]*\bobjectid="(\d+)"', model)
     out = {}
     for raw in items:
         oid = raw.decode()
@@ -125,7 +125,7 @@ def paint_census(source, build_object_ids=None):
         counter, unpainted = collections.Counter(), 0
         for mid in _mesh_ids(model, oid):
             body = model[slice(*blocks[mid])]
-            for tri in re.finditer(rb'<triangle\b[^>]*>', body):
+            for tri in re.finditer(rb'<(?:\w+:)?triangle\b[^>]*>', body):
                 m = PAINT_RE.search(tri.group(0))
                 if m:
                     counter.update(decode_states(m.group(1).decode()))
@@ -187,7 +187,7 @@ def leaf_states(source, part):
         raise RuntimeError(f'painted part mesh {mesh_id} not found in {model_path}')
     body = model[slice(*span)]
     counter, unpainted = collections.Counter(), 0
-    for tri in re.finditer(rb'<triangle\b[^>]*>', body):
+    for tri in re.finditer(rb'<(?:\w+:)?triangle\b[^>]*>', body):
         m = PAINT_RE.search(tri.group(0))
         if m:
             counter.update(decode_states(m.group(1).decode()))

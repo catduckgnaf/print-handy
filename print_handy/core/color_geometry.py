@@ -13,6 +13,7 @@ from .. import settings
 from . import source_colors
 from .source_colors import inventory
 from .orca_adapter import _check_rotation, _rotate, digest
+from .threemf_canonical import require_millimeter
 
 CORE = 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'
 IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]
@@ -105,8 +106,7 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
         for name in archive.namelist():
             if name.endswith('.model'):
                 root = ET.fromstring(archive.read(name))
-                if root.get('unit', 'millimeter') != 'millimeter':
-                    raise RuntimeError('only millimeter 3MF geometry supported')
+                require_millimeter(root)
                 models[name] = (root, {n.get('id'): n for n in root if n.tag.split('}')[-1] == 'resources' for n in n if n.tag.split('}')[-1] == 'object'})
         leaves = []
 
@@ -383,8 +383,7 @@ def export_volume_plate(source, target, scale=1.0, rotation=None):
         for name in archive.namelist():
             if name.endswith('.model'):
                 root = ET.fromstring(archive.read(name))
-                if root.get('unit', 'millimeter') != 'millimeter':
-                    raise RuntimeError('only millimeter 3MF geometry supported')
+                require_millimeter(root)
                 models[name] = (root, {n.get('id'): n for r in root if r.tag.split('}')[-1] == 'resources'
                                        for n in r if n.tag.split('}')[-1] == 'object'})
         leaves = []
@@ -1045,12 +1044,19 @@ def _flatten_core_assemblies(source):
             rows.append((item.get('objectid'), _matrix(item), item.get('printable')))
     if not flattened:
         return source
-    build = ''.join(
-        f'<item objectid="{oid}" transform="{" ".join(repr(v) for v in matrix)}"'
-        + (f' printable="{printable}"' if printable is not None else '') + '/>'
-        for oid, matrix, printable in rows)
-    payload['3D/3dmodel.model'] = re.sub(br'(<(?:\w+:)?build\b[^>]*>).*?(</(?:\w+:)?build>)',
-                                         lambda m: m.group(1) + build.encode() + m.group(2), model, count=1, flags=re.S)
+    def rebuild(match):
+        # Emit items under the build element's own prefix: in a prefixed core
+        # 3MF (<ns0:build>) a bare <item> is in no namespace and the reader
+        # finds no build item (#814).
+        prefix = match.group(2).decode()
+        build = ''.join(
+            f'<{prefix}item objectid="{oid}" transform="{" ".join(repr(v) for v in matrix)}"'
+            + (f' printable="{printable}"' if printable is not None else '') + '/>'
+            for oid, matrix, printable in rows)
+        return match.group(1) + build.encode() + match.group(3)
+
+    payload['3D/3dmodel.model'] = re.sub(br'(<((?:\w+:)?)build\b[^>]*>).*?(</(?:\w+:)?build>)',
+                                         rebuild, model, count=1, flags=re.S)
     # In memory, not a temp file: nothing to clean up on any exit path.
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as out:
@@ -1067,7 +1073,7 @@ def _core_model_settings(model_bytes):
 
 
 def _build_ids(model_bytes):
-    return {match.decode() for match in re.findall(br'<item\b[^>]*\bobjectid="(\d+)"', model_bytes)}
+    return {match.decode() for match in re.findall(br'<(?:\w+:)?item\b[^>]*\bobjectid="(\d+)"', model_bytes)}
 
 
 def _select_build_items(model_bytes, selected, shift, park=None, fit=None, fit_by_object=None):
@@ -1128,7 +1134,7 @@ def _select_build_items(model_bytes, selected, shift, park=None, fit=None, fit_b
             line = with_transform(line, values)
         return line
 
-    out = re.sub(br'<item\b[^>]*>', edit, model_bytes)
+    out = re.sub(br'<(?:\w+:)?item\b[^>]*>', edit, model_bytes)
     return out, kept
 
 
@@ -1166,7 +1172,7 @@ def _collapse_to_one_plate(settings_bytes, selected):
 
 def _validate_derived_plate(model_before, model_after, settings_after, selected):
     """Fail closed before Orca sees a package whose references disagree."""
-    strip = lambda data: re.sub(br'<item\b[^>]*>', b'', data)
+    strip = lambda data: re.sub(br'<(?:\w+:)?item\b[^>]*>', b'', data)
     if strip(model_before) != strip(model_after):
         raise RuntimeError('derived plate changed resource XML outside build items')
     root = ET.fromstring(model_after)
@@ -1261,7 +1267,7 @@ def _translate_selected_items(model_bytes, selected, shift):
     kept = []
     out = []
     for line in lines:
-        match = re.search(br'<item\b[^>]*\bobjectid="(\d+)"[^>]*>', line)
+        match = re.search(br'<(?:\w+:)?item\b[^>]*\bobjectid="(\d+)"[^>]*>', line)
         if match is None:
             out.append(line)
             continue
@@ -1287,7 +1293,7 @@ def _translate_selected_items(model_bytes, selected, shift):
     # Match one object open through its own close, including the multiline
     # component block. A greedy DOTALL match swallows every following object
     # and keeps an empty shell, which Orca then refuses to load.
-    model_out = re.sub(br'<object\b[^>]*\bid="(\d+)"[^>]*>.*?</object>\n?', drop_resource, b'\n'.join(out), flags=re.S)
+    model_out = re.sub(br'<(?:\w+:)?object\b[^>]*\bid="(\d+)"[^>]*>.*?</(?:\w+:)?object>\n?', drop_resource, b'\n'.join(out), flags=re.S)
     return model_out, kept
 
 
