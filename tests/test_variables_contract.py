@@ -58,6 +58,11 @@ ROOT = settings.ROOT
 EXEMPTIONS = {
     ("agent", "api_key_env"): (frozenset({"webui"}), "#286"),
     ("agent", "timeout_s"): (frozenset({"webui"}), "#657"),
+    # The AI tier tables (#818) are file-only: model routes and key names
+    # are set in the settings file, not from a page click.
+    ("ai", "chat"): (frozenset({"webui"}), "#818"),
+    ("ai", "heavy"): (frozenset({"webui"}), "#818"),
+    ("ai", "small"): (frozenset({"webui"}), "#818"),
     ("bambu", "command"): (frozenset({"webui"}), "#657"),
     ("bambu", "lan_access_code_env"): (frozenset({"webui"}), "#286"),
     ("bambu", "start_confirm_s"): (frozenset({"webui"}), "#657"),

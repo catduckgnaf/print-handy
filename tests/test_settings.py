@@ -300,6 +300,7 @@ class OverrideTests(unittest.TestCase):
             "nozzle_temp_offsets": {"brass", "hardened_steel", "stainless_steel", "ruby", "tungsten_carbide", "diamond"},
             "material_temps": {"PLA", "PETG", "ABS", "ASA", "TPU", "PA", "PC"},
             "material_tuning": {"PLA"},
+            "ai": {"small", "chat", "heavy"},
         }
         # "printers" is the resolved [[printers]] roster (#333): a list, not a section, so it is
         # pinned separately below rather than as another expected section.

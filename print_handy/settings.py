@@ -167,6 +167,9 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
 # (PRINT_HANDY__DELIVERY__METHODS=discord,bambu_handoff,printer). Every other list or table is file
 # only. [delivery] methods is here so a Docker operator can opt into the Bambu LAN print button without
 # replacing the image's docker.yaml (#270); the value is validated exactly like the YAML list.
+# The keys of one [ai.<tier>] table (#818); the tables are file only, so they are not in OPTIONAL_KEYS.
+AI_TIER_KEYS = ("chat_url", "model", "fallback_model", "fallback_url", "api_key_env",
+                "fallback_api_key_env", "timeout_s")
 ENV_LISTS = {("delivery", "methods"), ("zmod", "plugins")}
 # Settings whose value is a word or a list of names ([zmod] plugins: "auto" or a list). The default
 # is the word, so the type check accepts either shape; _validate_purge checks the content.
@@ -1426,6 +1429,49 @@ def _validate_design(data):
     design["repair_attempts"] = attempts
 
 
+def _validate_ai(data):
+    """The [ai] section (#818): optional small, chat and heavy tiers, each a table.
+
+    Every tier defaults to empty, which keeps the settings the install already
+    had (print_handy.ai_routes documents the mapping). A tier value is checked
+    here so a typo fails at load, not on the first print: only known keys,
+    http(s) URLs, a model whenever chat_url is set, environment variable names
+    for the key settings and a positive timeout.
+    """
+    ai = data.setdefault("ai", {})
+    for tier in ("small", "chat", "heavy"):
+        values = ai.setdefault(tier, {})
+        if not isinstance(values, dict):
+            raise SettingsError(f"[ai] {tier} must be a table, got {values!r}")
+        unknown = sorted(set(values) - set(AI_TIER_KEYS))
+        if unknown:
+            raise SettingsError(f"[ai.{tier}] unknown setting {', '.join(unknown)} "
+                                f"(known: {', '.join(AI_TIER_KEYS)})")
+        for key in AI_TIER_KEYS:
+            if key == "timeout_s":
+                continue
+            value = values.get(key, "")
+            if value is None:
+                value = ""
+            if not isinstance(value, str):
+                raise SettingsError(f"[ai.{tier}] {key} must be text, got {value!r}")
+            value = value.strip()
+            if key.endswith("_url") and value and not value.startswith(("http://", "https://")):
+                raise SettingsError(f"[ai.{tier}] {key} must be a URL, got {value!r}")
+            if key.endswith("_env") and value and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
+                raise SettingsError(f"[ai.{tier}] {key} must be an environment variable name, got {value!r}")
+            if value:
+                values[key] = value
+            else:
+                values.pop(key, None)
+        if values.get("chat_url") and not values.get("model"):
+            raise SettingsError(f"[ai.{tier}] model is required when chat_url is set")
+        if "timeout_s" in values:
+            timeout = values["timeout_s"]
+            if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
+                raise SettingsError(f"[ai.{tier}] timeout_s must be a positive number of seconds, got {timeout!r}")
+
+
 def _validate_logging(data):
     """The [logging] section (#150). Absent in a hand-made home file means the defaults."""
     logging_cfg = data.setdefault("logging", {})
@@ -1693,6 +1739,7 @@ def validate(data):
     for key in ("question_timeout_s", "safety_confirm_timeout_s", "upload_wait_s", "cold_pull_outcome_s"):
         data["discord"][key] = _positive(data, "discord", key, int)
     _validate_bot(data)
+    _validate_ai(data)
     _validate_design(data)
     _validate_purge(data)
     _validate_vision(data)
