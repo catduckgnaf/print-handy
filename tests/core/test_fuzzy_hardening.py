@@ -421,3 +421,9 @@ def test_common_words_are_not_folded_into_brands_or_commands(word, folded, phras
 ])
 def test_compound_phrases_keep_their_joined_form(spaced, joined):
     assert fuzzy.canonical(spaced) == fuzzy.canonical(joined)
+
+
+def test_sensorless_homing_typo_still_finds_the_archived_print():
+    # Codex on #855: 'sensorless' -> 'sensorless homing' was expanded twice by the windowed
+    # scorer while the target folded to one token, so this archive match fell from 90 to 0.
+    assert fuzzy.windowed_fuzzy_score("sensorless homming", "Sensorless Homing Test") >= 80

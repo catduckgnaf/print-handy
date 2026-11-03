@@ -879,7 +879,6 @@ TOKEN_FORMS: dict[str, str] = {
     'secs': 's',
     'senor': 'sensor',
     'senser': 'sensor',
-    'sensorless': 'sensorless homing',
     'sensors': 'sensor',
     'sensr': 'sensor',
     'seting': 'setting',
