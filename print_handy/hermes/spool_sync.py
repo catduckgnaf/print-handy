@@ -1452,10 +1452,19 @@ def create_spool(spec: dict[str, Any], *, client: Client = spoolman) -> dict[str
                    {"multi_color_hexes": ",".join(multi_hexes), "multi_color_direction": "longitudinal"})
         except Exception:
             pass
-    created = client("POST", "/api/v1/spool", {
-        "filament_id": match["id"], "initial_weight": spec["grams"], "remaining_weight": spec["grams"],
-        "location": SHELF, "lot_nr": spec.get("lot"), "comment": CREATED_SPOOL_COMMENT,
-    })
+    # A purchase intake (#801) records what the roll cost and where it was
+    # bought: Spoolman's own price field, and the purchase URL appended to
+    # the created-spool comment (the watcher reads that comment's head, so
+    # a purchase spool is still recognized as Print Handy-made).
+    comment = CREATED_SPOOL_COMMENT
+    if spec.get("purchase_url"):
+        comment = f"{CREATED_SPOOL_COMMENT}; purchased: {spec['purchase_url']}"
+    body = {"filament_id": match["id"], "initial_weight": spec["grams"],
+            "remaining_weight": spec["grams"],
+            "location": SHELF, "lot_nr": spec.get("lot"), "comment": comment}
+    if spec.get("price") is not None:
+        body["price"] = spec["price"]
+    created = client("POST", "/api/v1/spool", body)
     return {"spool_id": created["id"], "filament_id": match["id"], "reused_filament": reused,
             "hex": color_hex, "hex_source": color_source}
 
