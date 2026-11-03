@@ -373,13 +373,16 @@ class FitStatus:
         line is posted at all.
         """
         task = asyncio.ensure_future(work)
-        if not task.done() and self.last_text is None and FIT_QUIET_S > 0:
-            # Nothing shown yet: give a nearly finished check a moment before announcing it.
-            await asyncio.wait({task}, timeout=FIT_QUIET_S)
         if task.done():
             return task.result()
-        await self.show(first_text or f'Checking the fit: {phase} ({self.elapsed()}).')
         try:
+            if self.last_text is None and FIT_QUIET_S > 0:
+                # Nothing shown yet: give a nearly finished check a moment before announcing it.
+                # Inside the try, so a cancelled intake still cancels the worker below.
+                await asyncio.wait({task}, timeout=FIT_QUIET_S)
+                if task.done():
+                    return task.result()
+            await self.show(first_text or f'Checking the fit: {phase} ({self.elapsed()}).')
             while True:
                 done, _ = await asyncio.wait({task}, timeout=FIT_HEARTBEAT_S)
                 if done:
