@@ -829,6 +829,10 @@ def _spawn_slicer(command, *, timeout, cwd):
         timer.cancel()
 
 
+_BAMBU_NOT_INSTALLED = ('the Bambu Studio fallback slicer is not installed in this image, '
+                        'so there was no second attempt')
+
+
 def _run_slicer(command, name, folder):
     """subprocess.run for a slicer, logging the command name, exit code and elapsed time.
 
@@ -1652,9 +1656,18 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             raise SliceFailure(f'{orca_failure}; {bambu_role} failed to start: {exc}', kind=exc.kind,
                                slicer='Bambu Studio' if primary == 'bambu_studio' else 'OrcaSlicer and Bambu Studio',
                                returncode=exc.returncode) from exc
+        except FileNotFoundError as exc:
+            raise SliceFailure(f'{orca_failure}; {_BAMBU_NOT_INSTALLED}', kind='launch',
+                               slicer='Bambu Studio' if primary == 'bambu_studio' else 'OrcaSlicer and Bambu Studio',
+                               returncode=127) from exc
         except (subprocess.TimeoutExpired, OSError) as exc:
             raise RuntimeError(f'{orca_failure}; {bambu_role} failed to start: {exc}') from exc
         (folder / 'bambu.log').write_text(bambu_result.stdout + bambu_result.stderr)
+        if bambu_result.returncode == 127 and 'failed to execute' in bambu_result.stderr:
+            # taskset (the CPU-budget wrapper) exits 127 when the slicer binary is absent.
+            raise SliceFailure(f'{orca_failure}; {_BAMBU_NOT_INSTALLED}', kind='launch',
+                               slicer='Bambu Studio' if primary == 'bambu_studio' else 'OrcaSlicer and Bambu Studio',
+                               returncode=127)
         if bambu_result.returncode or not output.is_file() or output.stat().st_size == 0:
             if primary == 'bambu_studio':
                 raise SliceFailure(

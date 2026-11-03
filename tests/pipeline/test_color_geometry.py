@@ -576,3 +576,55 @@ def test_export_records_cutter_bounds_so_the_proof_compares_matching_volumes(tmp
     for a in range(3):
         assert placed[oid][a][0] == pytest.approx(min(p[a] for p in points) + delta[a])
         assert placed[oid][a][1] == pytest.approx(max(p[a] for p in points) + delta[a])
+
+
+# ---------------------------------------------------------------------- #814
+
+CORE_NS = 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'
+
+
+def _prefixed_assembly(path):
+    """One ns0-prefixed core 3MF: build item -> object 1 -> component -> mesh object 2 (no default xmlns)."""
+    model = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        f'<ns0:model xmlns:ns0="{CORE_NS}" unit="millimeter"><ns0:resources>'
+        '<ns0:object id="2" type="model"><ns0:mesh><ns0:vertices>'
+        '<ns0:vertex x="0" y="0" z="0"/><ns0:vertex x="10" y="0" z="0"/>'
+        '<ns0:vertex x="0" y="10" z="0"/><ns0:vertex x="0" y="0" z="10"/></ns0:vertices>'
+        '<ns0:triangles><ns0:triangle v1="0" v2="2" v3="1"/><ns0:triangle v1="0" v2="1" v3="3"/>'
+        '<ns0:triangle v1="1" v2="2" v3="3"/><ns0:triangle v1="2" v2="0" v3="3"/></ns0:triangles>'
+        '</ns0:mesh></ns0:object>'
+        '<ns0:object id="1" type="model"><ns0:components><ns0:component objectid="2"/></ns0:components></ns0:object>'
+        '</ns0:resources><ns0:build>'
+        '<ns0:item objectid="1" transform="1 0 0 0 1 0 0 0 1 50 60 0"/></ns0:build></ns0:model>')
+    with zipfile.ZipFile(path, 'w') as archive:
+        archive.writestr('[Content_Types].xml', '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>')
+        archive.writestr('3D/3dmodel.model', model)
+    return path
+
+
+def test_flattened_prefixed_core_assembly_keeps_build_items_in_the_core_namespace(tmp_path):
+    from print_handy.core.color_geometry import _flatten_core_assemblies
+    flat = _flatten_core_assemblies(_prefixed_assembly(tmp_path / 'ns0.3mf'))
+    with zipfile.ZipFile(flat) as archive:
+        root = ET.fromstring(archive.read('3D/3dmodel.model'))
+    ns = {'c': CORE_NS}
+    items = root.findall('c:build/c:item', ns)
+    assert [item.get('objectid') for item in items] == ['2']
+    assert [float(v) for v in items[0].get('transform').split()][9:] == [50.0, 60.0, 0.0]
+    objects = {node.get('id') for node in root.findall('c:resources/c:object', ns)}
+    assert {item.get('objectid') for item in items} <= objects
+    # Nothing was left outside the namespace: no un-namespaced item anywhere.
+    assert not [node for node in root.iter('item')]
+
+
+def test_build_item_edits_see_prefixed_core_items(tmp_path):
+    from print_handy.core.color_geometry import _build_ids, _select_build_items
+    with zipfile.ZipFile(_prefixed_assembly(tmp_path / 'ns0.3mf')) as archive:
+        model = archive.read('3D/3dmodel.model')
+    assert _build_ids(model) == {'1'}
+    out, kept = _select_build_items(model, {'1'}, [5.0, 0.0, 0.0], None, None)
+    assert kept == ['1']
+    item = ET.fromstring(out).find(f'{{{CORE_NS}}}build/{{{CORE_NS}}}item')
+    assert item.get('printable') == '1'
+    assert [float(v) for v in item.get('transform').split()][9:] == [55.0, 60.0, 0.0]
