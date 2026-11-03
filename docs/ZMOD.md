@@ -180,20 +180,43 @@ What the ZMod documentation (audited against the ZMod repo and wiki,
   clock to persist to, so the next power cycle starts from Dec 2025
   again and waits on NTP.
 - There is no documented ZMod boot hook Print Handy could use to set
-  the clock at startup, and Print Handy does not edit ZMod files or set
-  the printer's clock itself.
+  the clock at startup.
 
-What Print Handy does instead is watch and warn. The Moonraker listener
-compares the printer's clock (the `Date` header Moonraker already
-sends) with the host's every minute. A clock five minutes or more off
-posts one "printer clock has not synced yet" message, one reminder if
-it is still wrong after 30 minutes, and one "printer clock synced"
-message when it catches up. The watch never blocks a print and never
-fires for an unreadable clock — a printer that does not answer is
-unknown, not wrong. If the clock never catches up, check the printer
-can reach an NTP server (outbound UDP port 123) and run
-`SET_TIMEZONE ZONE=<your zone>` once in the printer console if the
-zone was never set.
+ZMod's own boot script (ghzserg/z_ad5x `.shell/root/start.sh`, read
+2026-11-03) sets the clock to 2026-01-01 00:00 local time on every boot,
+then tries a fixed NTP server list for about ten minutes and never
+again. A printer with no internet, or whose outbound UDP 123 is not
+answered in that window, keeps the boot date for its whole uptime.
+
+So Print Handy is the printer's time source. The Moonraker listener
+compares the printer's clock (the `Date` header Moonraker already sends)
+with the Print Handy host's every minute, and whenever it is five
+minutes or more off and the printer is fully idle (standby, no file, SD
+card not active) it runs `DATE_SET` with the host's time. This happens
+at connect, at Klipper ready and on every minute's check, so a printer
+that was busy at boot is set as soon as it is idle. It never touches a
+printing or paused printer. `DATE_SET` reads its stamp in the printer's
+own zone (ZMod's `SET_TIMEZONE`, default `Asia/Yekaterinburg`); when the
+readback is off by a whole zone gap, Print Handy sets it once more
+corrected by that gap and remembers the gap, so a printer left on the
+default zone still gets the right absolute time. A failed set (no
+`DATE_SET` macro, a refusal, a clock still off) waits 30 minutes before
+the next try. `PRINT_HANDY_CLOCK_SYNC=0` turns setting off.
+
+The printer needs no internet for any of this; it only needs the Print
+Handy host's clock to be right (the host's own NTP, or the router's).
+Launch reconciliation does not depend on the printer clock at all: a
+held start settles from Moonraker job ids and the printer's current
+file.
+
+The watch-and-warn messages remain for a clock Print Handy could not
+set. A clock five minutes or more off posts one "printer clock has not
+synced yet" message, one reminder if it is still wrong after 30 minutes,
+and one "printer clock synced" message when it catches up. The watch
+never blocks a print and never fires for an unreadable clock: a printer
+that does not answer is unknown, not wrong. Running
+`SET_TIMEZONE ZONE=<your zone>` once in the printer console keeps the
+printer's own local times (screen, logs) in your zone.
 
 ## Bundled Spoolman from printer Moonraker (#443)
 
