@@ -9,7 +9,7 @@ import os
 import sys
 from pathlib import Path
 
-from .. import __version__, logs, settings
+from .. import __version__, ai_routes, logs, settings
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +147,7 @@ def checks(cfg):
         add("llm", True, "off (discord.chat_llm_enabled is false: no chat LLM; "
                          "unmatched messages get the short not-understood reply)")
     else:
-        add("llm", True, f"{cfg['llm']['model']} at {cfg['llm']['chat_url']}" if llm.configured(cfg)
+        add("llm", True, ai_routes.describe("chat", cfg) if llm.configured(cfg)
             else "off (unmatched messages get the short not-understood reply)")
     # The stray-chat agent lane (#524 stage 3): a configured [agent]
     # endpoint answers Discord free text ahead of the [llm] call above.
@@ -189,8 +189,13 @@ def checks(cfg):
     # default — and an LLM/vision endpoint is available.
     vision = cfg.get("vision") or {}
     vision_url = str((cfg.get("services") or {}).get("vision_chat_url") or "")
+    small_route = ai_routes.describe("small", cfg, purpose="roast") if ai_routes.explicit("small", cfg) else ""
+    if small_route:  # [ai.small] is a vision endpoint too (#818)
+        vision_url = vision_url or cfg["ai"]["small"]["chat_url"]
     if not vision.get("roast_enabled", True):
         add("roast", True, "off (vision.roast_enabled is false)")
+    elif small_route:
+        add("roast", True, f"on ({small_route}; set vision.roast_enabled=false to turn roasts off)")
     elif vision_url:
         add("roast", True, f"on ({vision.get('roast_model') or 'luna-latest'} at {vision_url}; "
                            "set vision.roast_enabled=false to turn roasts off)")

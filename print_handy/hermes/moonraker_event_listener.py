@@ -31,7 +31,7 @@ from pathlib import Path
 
 import websockets
 
-from .. import __version__, debug_mode, go2rtc, healthcheck, logs, printers, settings
+from .. import __version__, ai_routes, debug_mode, go2rtc, healthcheck, logs, printers, settings
 from ..core import delivery, filament_color, launch_state, printer_clock, spoolman_client
 from . import _config
 from . import moonraker_discord_announcements as announcer
@@ -396,37 +396,27 @@ def generate_roast(title, summary=""):
     if not roast_enabled():
         log("roast skipped: vision.roast_enabled is false")
         return ""
-    key = _profile_env_value("CLIPROXY_API_KEY")
-    chat_url = _config.service_url("vision_chat_url")
-    if not chat_url:
+    # The small AI tier (#818): [ai.small] when set, else services.vision_chat_url
+    # with the vision roast model and CLIPROXY_API_KEY, as before.
+    compat = ai_routes.Compat(_config.service_url("vision_chat_url"),
+                              str(_config.cfg()["vision"]["roast_model"]),
+                              _profile_env_value("CLIPROXY_API_KEY"), timeout_s=4)
+    if not ai_routes.configured("small", compat=compat):
         log("roast skipped: services.vision_chat_url is not configured")
         return ""
-    if not key and not _visual_watch.keyless_ok(chat_url):
+    if not ai_routes.ready("small", compat=compat):
         return ""
     prompt = f"Model: {title}"
     if summary:
         prompt += f" ({summary})"
-    headers = {"Content-Type": "application/json"}
-    if key:
-        headers["Authorization"] = f"Bearer {key}"
-    req = urllib.request.Request(
-        chat_url,
-        headers=headers,
-        data=json.dumps({
-            "model": str(_config.cfg()["vision"]["roast_model"]),
-            "messages": [
-                {"role": "system", "content": f"You are {_config.bot_name()}, a witty 3D printer assistant who gently roasts 3D prints. Give ONE short funny sentence roasting this model. Keep it under 20 words. No quotes, no hashtags, no introductory filler."},
-                {"role": "user", "content": prompt}
-            ],
-            "max_tokens": 50,
-            "temperature": 0.8
-        }).encode()
-    )
     try:
-        with urllib.request.urlopen(req, timeout=4) as resp:
-            data = json.loads(resp.read())
-            res = data["choices"][0]["message"]["content"].strip().strip("\"'")
-            return res if res else ""
+        res, served_by = ai_routes.call(
+            "small",
+            [{"role": "system", "content": f"You are {_config.bot_name()}, a witty 3D printer assistant who gently roasts 3D prints. Give ONE short funny sentence roasting this model. Keep it under 20 words. No quotes, no hashtags, no introductory filler."},
+             {"role": "user", "content": prompt}],
+            compat=compat, purpose="roast", max_tokens=50, temperature=0.8)
+        log(f"roast written by {served_by}")
+        return res.strip("\"'").strip()
     except Exception:
         return ""
 
