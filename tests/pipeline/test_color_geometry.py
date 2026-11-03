@@ -662,3 +662,108 @@ def test_default_core_namespace_keeps_other_prefixes_and_default_files_byte_iden
     # A prefix bound to something else, beside a default core namespace, is not touched.
     other = f'<model xmlns="{CORE_NS}" xmlns:x="urn:x"><x:a/></model>'.encode()
     assert default_core_namespace(other) == other
+
+
+def _painted_two_plate_source(path):
+    """Two objects on two authored plates; the Holder is partly painted filament 2.
+
+    Painted part_slots_v1 decisions are keyed by palette row ('filament:N')
+    only, never per part: the shape of the 'Estanteria Hello' corpus model.
+    """
+    holder = _mesh('object_1', [(0, 0, 0), (40, 0, 0), (0, 20, 10)]).replace(
+        '<triangle v1="0" v2="1" v3="2"/>',
+        '<triangle v1="0" v2="1" v3="2" paint_color="8"/><triangle v1="0" v2="2" v3="1"/>')
+    stencil = _mesh('object_2', [(0, 0, 0), (30, 0, 0), (0, 20, 5)])
+    with zipfile.ZipFile(path, 'w') as archive:
+        archive.writestr('3D/Objects/object_1.model', holder)
+        archive.writestr('3D/Objects/object_2.model', stencil)
+        archive.writestr('3D/3dmodel.model', '''<model xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" unit="millimeter"><resources>
+          <object id="1" name="Holder"><components><component p:path="/3D/Objects/object_1.model" objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"/></components></object>
+          <object id="2" name="Stencil"><components><component p:path="/3D/Objects/object_2.model" objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"/></components></object>
+        </resources><build>
+          <item objectid="1" transform="1 0 0 0 1 0 0 0 1 20 30 0"/>
+          <item objectid="2" transform="1 0 0 0 1 0 0 0 1 40 50 0"/>
+        </build></model>''')
+        archive.writestr('Metadata/model_settings.config', '''<config>
+          <object id="1"><metadata key="name" value="Holder"/><metadata key="extruder" value="1"/><part id="1"><metadata key="name" value="Holder"/><metadata key="extruder" value="1"/></part></object>
+          <object id="2"><metadata key="name" value="Stencil"/><metadata key="extruder" value="1"/><part id="1"><metadata key="name" value="Stencil"/><metadata key="extruder" value="1"/></part></object>
+          <plate><metadata key="plater_id" value="1"/><model_instance><metadata key="object_id" value="1"/></model_instance></plate>
+          <plate><metadata key="plater_id" value="2"/><model_instance><metadata key="object_id" value="2"/></model_instance></plate>
+        </config>''')
+        archive.writestr('Metadata/project_settings.config', _project_settings(['#FF00FF', '#067749']))
+        archive.writestr('3D/_rels/3dmodel.model.rels', '''<Relationships>
+ <Relationship Target="/3D/Objects/object_1.model" Id="rel-1"/>
+ <Relationship Target="/3D/Objects/object_2.model" Id="rel-2"/>
+</Relationships>''')
+
+
+def test_painted_one_color_view_exports_each_part_plate(tmp_path):
+    source = tmp_path / 'source.3mf'
+    _painted_two_plate_source(source)
+    manifest = source_colors.inventory(source)
+    assert manifest['painted']
+    assert {row['key'] for row in source_colors.canonical_prompts(manifest)} == {'filament:1', 'filament:2'}
+    state = json.loads(STATE.read_text())
+    white = model_job.resolve_filament_selection(state, dict(state['filament_slots']['1'], slot=1))
+    one_color = {'schema': 'part_slots_v1', 'mode': 'single_color', 'source_sha256': manifest['source_sha256'],
+                 'selection': white}
+    view = model_job._per_part_view(manifest, one_color)
+    for key in ('1:1', '2:1'):
+        # Before the fix this raised KeyError: 'part:1:1' (painted decisions have no part rows).
+        target = tmp_path / f'plate{key[0]}.3mf'
+        report = export_single_color_plate(source, target, view, [key], slot_colors=state['filament_slots'])
+        assert report['slot'] == 1 and report['part_keys'] == [key]
+        with zipfile.ZipFile(target) as archive:
+            # One logical filament: no paint code may still name source filament 2.
+            assert not any(b'paint_color' in archive.read(n) for n in archive.namelist() if n.endswith('.model'))
+            settings = archive.read('Metadata/model_settings.config')
+            assert set(re.findall(rb'key="extruder" value="(\d+)"', settings)) == {b'1'}
+
+
+def test_painted_part_plate_refuses_paint_of_another_slot(tmp_path):
+    source = tmp_path / 'source.3mf'
+    _painted_two_plate_source(source)
+    manifest = source_colors.inventory(source)
+    state = json.loads(STATE.read_text())
+    white = model_job.resolve_filament_selection(state, dict(state['filament_slots']['1'], slot=1))
+    green = model_job.resolve_filament_selection(state, dict(state['filament_slots']['4'], slot=4))
+    view = {'schema': 'part_slots_v1', 'mode': 'per_part', 'source_sha256': manifest['source_sha256'],
+            'choices': {'filament:1': white, 'filament:2': green}}
+    # The Holder's painted filament-2 region is slot 4, its body slot 1.
+    with pytest.raises(RuntimeError, match='mixes physical slots'):
+        export_single_color_plate(source, tmp_path / 'holder.3mf', view, ['1:1'])
+    assert not (tmp_path / 'holder.3mf').exists()
+    # The unpainted Stencil prints only its own filament 1 row.
+    assert export_single_color_plate(source, tmp_path / 'stencil.3mf', view, ['2:1'])['slot'] == 1
+
+
+def test_slice_job_splits_a_one_color_painted_model_per_plate(tmp_path, monkeypatch):
+    source = tmp_path / 'source.3mf'
+    _painted_two_plate_source(source)
+    manifest = source_colors.inventory(source)
+    state = json.loads(STATE.read_text())
+    white = model_job.resolve_filament_selection(state, dict(state['filament_slots']['1'], slot=1))
+    job_path = tmp_path / 'JOB.json'
+    job_path.write_text(json.dumps({'downloaded_file': str(source), 'audit': {'plates': 2}, 'plate_mode': 'separate',
+                                    'color_decisions': {'schema': 'part_slots_v1', 'mode': 'single_color',
+                                                        'source_sha256': manifest['source_sha256'],
+                                                        'selection': white}}))
+
+    def fake_slice(source, folder, state, brim=None, first_layer=False, color_decisions=None, preserve_layout=False,
+                   filament_slot=None, **kwargs):
+        folder = Path(folder)
+        folder.mkdir(parents=True, exist_ok=True)
+        slot = state['filament_slots'][str(filament_slot)]
+        out = folder / f'slot{filament_slot}.gcode'
+        out.write_text(f'; filament_colour = {slot["hex"]}\n; nozzle_diameter = 0.4\nM190 S{state["temps_c"]["bed"]}\nM104 S{state["temps_c"]["nozzle"]} T0\nSTART_PRINT BED_TEMP={state["temps_c"]["bed"]} EXTRUDER_TEMP={state["temps_c"]["nozzle"]}\nG1 X10 Y10 Z0.2\nEND_PRINT\n')
+        return out, {'slot': filament_slot}, []
+
+    monkeypatch.setattr(model_job.printer_state, 'check',
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError('slice contacted the printer')))
+    monkeypatch.setattr('print_handy.core.orca_adapter.slice_model', fake_slice)
+    paths = model_job.slice_job(job_path)
+    saved = json.loads(job_path.read_text())
+    assert len(paths) == 2
+    assert 'refused_plates' not in saved
+    assert [(row['plate_id'], row['slot'], row['part_keys']) for row in saved['derived_plates']] == [
+        (1, 1, ['1:1']), (2, 1, ['2:1'])]

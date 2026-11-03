@@ -790,6 +790,12 @@ def export_single_color_plate(source, target, decisions, part_keys, bed=BED_MM, 
     the bed; otherwise one rigid translation is applied to selected items
     only. Mixed slots and a group that cannot fit are refused.
 
+    A triangle-painted source is chosen per source filament (painted
+    part_slots_v1 decisions carry only 'filament:N' rows), so a part's slot
+    is every filament its triangles use (_part_selections); the plate is
+    refused unless they all name one slot, and only the paint attributes
+    are dropped from the copied meshes since the plate has one filament.
+
     item_shifts ({object_id: [dx, dy, dz]}) gives each selected object its own
     absolute translation (one-bed merge of several source plates). The caller
     owns spacing; every placed box is still checked against the bed.
@@ -862,18 +868,22 @@ def export_single_color_plate(source, target, decisions, part_keys, bed=BED_MM, 
     planner = source_colors.canonical_prompts if decisions.get('schema') == 'part_slots_v1' else source_colors.prompts
     if set(decisions['choices']) != {row['key'] for row in planner(manifest)}:
         raise RuntimeError('incomplete part/source-filament decisions')
+    choices = decisions['choices']
     # Same rule as the multipart exporter: a part may not disagree with the
     # palette row it refers to, or the plate would be labeled for one slot
-    # while the decisions say another.
+    # while the decisions say another. Painted part_slots_v1 decisions have
+    # no part rows at all (the palette rows are the choices), so there is
+    # nothing a part could contradict there.
     for part in manifest['parts']:
-        palette = decisions['choices'].get(f"filament:{part['source_extruder']}")
-        if palette and palette != decisions['choices']['part:' + part['key']]:
+        own = choices.get('part:' + part['key'])
+        palette = choices.get(f"filament:{part['source_extruder']}")
+        if own is not None and palette and palette != own:
             raise RuntimeError('part selection contradicts its source filament selection')
     wanted = list(dict.fromkeys(part_keys))
     parts = [part for part in manifest['parts'] if part['key'] in wanted]
     if len(parts) != len(wanted) or len(wanted) != len(part_keys):
         raise RuntimeError('single-color plate part keys do not match the source inventory')
-    slots = {decisions['choices']['part:' + part['key']]['slot'] for part in parts}
+    slots = {row['slot'] for part in parts for row in _part_selections(source, manifest, choices, part)}
     if len(slots) != 1:
         raise RuntimeError('single-color plate mixes physical slots')
     slot = slots.pop()
@@ -978,6 +988,14 @@ def export_single_color_plate(source, target, decisions, part_keys, bed=BED_MM, 
     settings_out = _collapse_to_one_plate(settings_out, selected)
     _validate_derived_plate(model_bytes, model_out, settings_out, selected)
     payload['3D/3dmodel.model'] = model_out
+    if manifest['painted']:
+        # Every painted region of the selected parts was proved above to map
+        # to this one slot, and the plate declares one logical filament.
+        # Paint codes would still name source filaments 2..N that the plate
+        # no longer has, so drop them: the whole plate prints as filament 1.
+        for name in list(payload):
+            if name.lower().endswith('.model'):
+                payload[name] = _PAINT_ATTR_RE.sub(b'', payload[name])
     if not core_source:
         payload['Metadata/model_settings.config'] = settings_out
     color = None
@@ -1015,6 +1033,42 @@ def export_single_color_plate(source, target, decisions, part_keys, bed=BED_MM, 
             'placed_bounds_mm': placed, 'bed_mm': bed, 'changed_entries': changed,
             'policy': 'production package copy; every object, mesh and relationship kept; unselected build items printable=0; all extruders logical 1; selected transforms kept unless the group must shift to fit',
             **({'filament_colour': color} if color is not None else {})}
+
+
+_PAINT_ATTR_RE = re.compile(rb'\s+(?:[\w.-]+:)?(?:paint_color|mmu_segmentation)="[^"]*"')
+
+
+def _part_selections(source, manifest, choices, part):
+    """Every decision row whose slot one source part prints with.
+
+    A part row ('part:<key>') is the part's own choice. A triangle-painted
+    source is chosen per source filament instead (part_slots_v1 has only
+    'filament:N' rows), and one part prints every filament its triangles
+    are painted with plus its own extruder for unpainted triangles — the
+    same states the multicolor exporter maps. PrusaSlicer mmu_segmentation
+    paint is not decoded per state, so such a part counts every palette
+    row. A part with no row that names it is refused, never guessed.
+    """
+    rows = []
+    if 'part:' + part['key'] in choices:
+        rows.append(choices['part:' + part['key']])
+    if manifest['painted']:
+        from . import painted_geometry
+        states = painted_geometry.leaf_states(source, part)
+        used = {state or part['source_extruder'] for state in states['states']}
+        if states['unpainted'] or not used:
+            used.add(part['source_extruder'])
+        model_path = part['ancestry'][-1][0] if part.get('ancestry') else '3D/3dmodel.model'
+        with zipfile.ZipFile(source) as archive:
+            if b'mmu_segmentation=' in archive.read(model_path):
+                used |= {f['source_extruder'] for f in manifest['filaments']}
+        missing = sorted(n for n in used if f'filament:{n}' not in choices)
+        if missing:
+            raise RuntimeError(f'painted source filament(s) {missing} have no slot choice')
+        rows += [choices[f'filament:{n}'] for n in sorted(used)]
+    if not rows:
+        raise RuntimeError(f"part {part['key']} has no slot choice")
+    return rows
 
 
 def _flatten_core_assemblies(source):
