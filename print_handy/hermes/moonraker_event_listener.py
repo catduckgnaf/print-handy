@@ -3070,6 +3070,9 @@ class Listener:
             return
         self.native_poll_inflight = True
         failure = None
+        # This tick's presence is unknown until its read succeeds: a failed read must never
+        # leave the previous tick's answer looking current to the lane watcher (#852).
+        self.last_slots_at = None
         try:
             detail, slots = await self.read_slots()
             self.note_slot_presence(slots)

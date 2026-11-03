@@ -847,3 +847,38 @@ def test_listener_lane_presence_is_this_tick_read_or_unknown(monkeypatch):
     assert listener.lane_presence() == {1: True, 2: False}
     now[0] += mel.NATIVE_POLL_SECONDS  # a tick later, and that tick's read failed
     assert listener.lane_presence() is None
+
+
+def test_a_reappearing_record_drops_its_undelivered_unverified_warning(tmp_path):
+    # Codex on #863: an undelivered unverified_unload stayed pending after the record came back
+    # and was retried for a disappearance that had already been undone.
+    presence = {"slots": {1: True, 2: True, 3: False, 4: False}}
+    watcher, mr, _client, applied = collided_watcher(tmp_path, presence)
+    now = [1000.0]
+    watcher.clock = lambda: now[0]
+    baseline = copy.deepcopy(mr.lanes)
+    mr.lanes = copy.deepcopy(ZMOD_SLOT1)
+    events = watcher.poll()
+    assert [e["kind"] for e in events] == ["unverified_unload"]  # never delivered
+    mr.lanes = baseline  # the record is back
+    now[0] += lane_data_sync.LANE_RETRY_S + 1
+    assert watcher.poll() == []
+    assert applied == []
+
+
+def test_a_failed_presence_read_this_tick_is_unknown_not_last_ticks_answer(monkeypatch):
+    # Codex on #863: last_native_poll is set before the read, last_slots_at after it, so a
+    # failing read could leave the previous answer inside the freshness window.
+    listener = mel.Listener()
+    listener.note_slot_presence({1: True, 2: True})
+    monkeypatch.setattr(mel.printers, "current", lambda: mock.Mock(has_native_screen=True))
+
+    async def broken():
+        raise OSError("printer unreachable")
+    monkeypatch.setattr(listener, "read_slots", broken)
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    try:
+        asyncio.run(listener.poll_native_presence())
+    except Exception:
+        pass
+    assert listener.lane_presence() is None

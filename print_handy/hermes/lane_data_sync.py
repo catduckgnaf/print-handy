@@ -483,8 +483,9 @@ class LaneDataWatcher:
             if slot not in lanes and slot in foreign:
                 continue  # another writer holds the key (#852): unknown, not unloaded
             if slot in lanes and str(noted.get(str(slot)) or "").startswith("unverified:"):
-                # The record is back: a later vanish must be named again.
-                noted.pop(str(slot))
+                # The record is back: drop the note and any undelivered warning for it, so a
+                # later vanish is named again and an obsolete warning is never retried.
+                self._drop_noted(pending, noted, slot)
                 dirty = True
             old_fp = seen.get(slot)
             lane = lanes.get(slot)
