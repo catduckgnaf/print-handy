@@ -50,8 +50,8 @@ def model_artifact(key, tmp_path, adapter=False):
 
     adapter=True writes the start/end G-code as slice_model hands it to Orca (the
     printer adapter's machine_start_gcode/machine_end_gcode around the template
-    text) and Orca's default host_type (octoprint) where the template sets none:
-    what a real slice's header carries."""
+    text): what a real slice's header carries. A host_type the template does not set
+    is left out, as the real Orca header leaves it out (AD5M, AD5M Pro)."""
     model = printers.MODELS[key]
     machine = json.loads((ROOT / "print_handy/templates/orca" / model.templates
                           / "machine.json").read_text())
@@ -59,10 +59,11 @@ def model_artifact(key, tmp_path, adapter=False):
         a = printers.get(key, config_for(key))
         machine = {**machine,
                    "machine_start_gcode": a.machine_start_gcode(machine["machine_start_gcode"], "MESH_DATA"),
-                   "machine_end_gcode": a.machine_end_gcode(machine.get("machine_end_gcode", "")),
-                   "host_type": machine.get("host_type", "octoprint")}
+                   "machine_end_gcode": a.machine_end_gcode(machine.get("machine_end_gcode", ""))}
     lines = []
     for k in ARTIFACT_KEYS:
+        if adapter and k == "host_type" and k not in machine:
+            continue
         v = machine.get(k, "")
         if isinstance(v, str):
             v = v.replace("\n", "\\n")

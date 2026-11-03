@@ -1,8 +1,4 @@
 {
-  "host_type": {
-    "sha256": "eb63341d333b56ab226dae866b440b328d5140d9e88c4c73d6e4e684223ef338",
-    "value": "octoprint"
-  },
   "machine_end_gcode": {
     "sha256": "568eac3d1a9a0bffeef6ef42d47e6afc1cc4d31d05318783e1b1dacf2047af24",
     "value": "END_PRINT"
