@@ -1,0 +1,42 @@
+{
+    "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+    "description": "Renovate covers the three dependency surfaces of this repo: GitHub Actions, pip requirements and Dockerfile base images. It supersedes Dependabot, which watched GitHub Actions only.",
+    "extends": [
+        "config:recommended"
+    ],
+    "labels": [
+        "dependencies"
+    ],
+    "packageRules": [
+        {
+            "commitMessagePrefix": "ci:",
+            "description": "Group GitHub Actions updates into one PR. Actions stay SHA-pinned with their trailing version comments: config:recommended keeps digest pinning for github-actions, and Renovate updates the digest and the comment together.",
+            "groupName": "github-actions",
+            "matchManagers": [
+                "github-actions"
+            ]
+        },
+        {
+            "commitMessagePrefix": "deps:",
+            "description": "Group pip updates for requirements.txt and requirements-test.txt (both matched by the pip_requirements manager's default file patterns). The files use version ranges, so these PRs are mostly range-widening and vulnerability-driven.",
+            "groupName": "pip requirements",
+            "matchManagers": [
+                "pip_requirements"
+            ]
+        },
+        {
+            "commitMessagePrefix": "deps:",
+            "description": "Group base image updates for the Dockerfile stages.",
+            "groupName": "docker base images",
+            "matchManagers": [
+                "dockerfile"
+            ]
+        }
+    ],
+    "prConcurrentLimit": 5,
+    "prHourlyLimit": 2,
+    "schedule": [
+        "before 6am on monday"
+    ],
+    "timezone": "America/New_York"
+}
