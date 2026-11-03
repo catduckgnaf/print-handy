@@ -767,7 +767,8 @@ def test_unconfirmed_start_post_names_the_launch_stage(env, monkeypatch):
         return False, 'UNCERTAIN: print-now timed out. The plate may already have started. Not retrying.'
     monkeypatch.setattr(print_next, 'start', start)
     adapter, result, receipt = run_flow(env, [1, 0, 0], mid='launch-unknown')
-    assert 'has not confirmed it yet' in adapter.sent[-1] and 'Stage: launch.' in adapter.sent[-1]
+    assert 'has not confirmed it yet' in adapter.sent[-1]
+    assert receipt['failure']['stage'] == 'launch' and receipt['failure']['submitted'] == 'unknown'
 
 
 def test_confirmed_refusal_post_names_the_launch_stage_in_the_flow(env, monkeypatch):
@@ -777,7 +778,7 @@ def test_confirmed_refusal_post_names_the_launch_stage_in_the_flow(env, monkeypa
     monkeypatch.setattr(print_next, 'start', start)
     adapter, result, receipt = run_flow(env, [1, 0, 0], mid='refusal-stage')
     posts = adapter.sent + [q['question'] for q in adapter.questions]
-    assert any("Didn't start" in m and 'Stage: launch.' in m for m in posts), posts
+    assert any(m.startswith("Didn't start") for m in posts), posts
     assert receipt['failure']['stage'] == 'launch' and receipt['failure']['submitted'] == 'nothing'
 
 

@@ -214,7 +214,7 @@ def test_unconfirmed_start_is_submitted_with_unknown_status(tail, stage):
 def test_confirmed_refusal_post_names_the_launch_stage():
     post = prepared_intake.plain_start_failure(
         'REFUSED: internal probe 7 failed. Nothing uploaded or started.')
-    assert post.startswith("Stage: launch. Didn't start:") and post.endswith('press Retry.')
+    assert post.startswith("Didn't start:") and post.endswith('press Retry.')
 
 
 # --- the archived failure folder -------------------------------------------------------------

@@ -1518,8 +1518,12 @@ def _start_report(tail):
 
 
 def _launch_refusal_text(tail):
-    """A confirmed pre-upload refusal as posted in chat: the stage first, like every failure post, then its guidance (#817)."""
-    return 'Stage: launch. ' + _refusal_text(tail)
+    """A confirmed pre-upload refusal as posted in chat (#817).
+
+    "Didn't start:" is itself the launch stage, so the text stays exactly as operators and
+    the start-path contracts know it; the classification rides on the receipt's failure record.
+    """
+    return _refusal_text(tail)
 
 
 def start_unknown_message(tail):
@@ -1532,7 +1536,7 @@ def start_unknown_message(tail):
     report = _start_report(tail)
     if report.stage == 'upload':
         return failure_report.plain(report)
-    return 'Stage: launch. ' + START_PENDING_MESSAGE
+    return START_PENDING_MESSAGE
 
 
 def plain_start_failure(tail):
