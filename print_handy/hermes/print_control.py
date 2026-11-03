@@ -235,7 +235,10 @@ def resume(expected_filename: str = "", wait_s: float = 20, poll_s: float = 1.0,
     if after["state"] == "printing":
         where = where_text(after)
         return True, f"Resumed. Printer now reports printing{', ' + where if where else ''}."
-    return True, f"Resume sent, but the printer still reports {after['state']} after {wait_s:.0f}s. Check the printer screen. Not retrying."
+    # #837: the resume was sent but never took, so this is not a success —
+    # callers that trust the boolean (alert buttons, /print-resume) must
+    # not report a resumed print while the printer still reports paused.
+    return False, f"Resume sent, but the printer still reports {after['state']} after {wait_s:.0f}s. Check the printer screen. Not retrying."
 
 
 def _artifact_for(record: Path) -> Path:
