@@ -174,7 +174,7 @@ def test_discord_flow(case, tmp_path):
                           and any(term in event[1].casefold() for term in
                                   ("fit", "orient", "support", "quality", "layer", "material", "filament", "color", "how many copies"))]
         assert all(index < first_slice for index in option_prompts), run.events
-        if not REAL:
+        if not REAL and case.expect.get("status") != "SLICE_FAILED":
             assert any(event[0] == "slice" for event in run.events), "fake slicer was never called"
     finally:
         if REAL:

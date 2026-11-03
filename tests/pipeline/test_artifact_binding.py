@@ -75,6 +75,9 @@ def test_callback_swap_stale_refusal_and_reslice_launch(tmp_path, monkeypatch):
         out.write_text(artifact(1) + f'; test_plate = {Path(plate).read_text()}\n')
         return out, {'offline_test': True}, []
     monkeypatch.setattr(color_geometry, 'export_single_color_plate', plate_fake)
+    # The fixture's parts share build objects across slots and the exporter is
+    # faked; this test is about artifact binding, not the #820 assembly guard.
+    monkeypatch.setattr(mj, 'refuse_assembly_split', lambda *a, **k: None)
     monkeypatch.setattr(orca_adapter, 'slice_model', slice_fake)
     asyncio.run(collect(jp, st, Transport([0, 0, 3]), 'offline', 'first', timeout=1))
     first = json.loads(jp.read_text())['color_decisions']
