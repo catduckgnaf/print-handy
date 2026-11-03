@@ -16,12 +16,13 @@ GENERIC_CLICKS = [{"question": "Choose the color", "button": "White"},
                   {"question": "one color for everything?", "button": "One color for everything"},
                   # STL files carry no units; the corpus models are authored in millimeters.
                   {"question": "STL files do not record units", "button": "Millimeters"},
-                  # Pick the offered shrink, never silently approve a rotation/support tradeoff. A model
-                  # that only fits as several full-size plates splits (no tradeoff), and a flat turn on
-                  # the bed is not an orientation change.
+                  # Prefer the offered shrink, then a split onto full-size plates, then a flat turn on the
+                  # bed, then a reorientation (the owner accepts a rotated print, 2026-11-03). Never
+                  # silently approve added supports.
                   {"question": "does not fit", "button": "Shrink to"},
                   {"question": "does not fit", "button": "split"},
                   {"question": "does not fit", "button": "turned"},
+                  {"question": "does not fit", "button": "rotated"},
                   {"question": "Which plate prints first?", "button": "Plate 1"},
                   {"question": "How many copies", "button": "One copy"},
                   {"question": "·", "button": "Slice and print"}]
