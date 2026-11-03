@@ -412,3 +412,22 @@ def test_missing_bambu_fallback_binary_says_it_is_not_installed(tmp_path, monkey
         adapter.slice_model(_source(tmp_path), tmp_path / 'out', _state())
     assert 'Bambu Studio fallback slicer is not installed in this image' in str(caught.value)
     assert 'Orca slicing failed (18)' in str(caught.value)
+
+
+def test_missing_bambu_fallback_keeps_why_orca_failed(tmp_path, monkeypatch):
+    # The #814 failure itself: Orca could not read the 3MF and the fallback is absent. The
+    # classification must come from Orca's log, not from the missing fallback (#817 review).
+    _allow_post(monkeypatch)
+    out = tmp_path / 'out'
+
+    def run(command, **_kwargs):
+        if 'com.orcaslicer.OrcaSlicer' in command:
+            return type('R', (), {'returncode': 250, 'stdout': '',
+                                  'stderr': 'can not find object id 1 to builditem'})()
+        return type('R', (), {'returncode': 127, 'stdout': '',
+                              'stderr': 'taskset: failed to execute /usr/bin/bambu-studio: No such file or directory'})()
+
+    monkeypatch.setattr(adapter, '_spawn_slicer', run)
+    with pytest.raises(adapter.SliceFailure) as caught:
+        adapter.slice_model(_source(tmp_path), out, _state())
+    assert caught.value.signature == 'model_unreadable'
