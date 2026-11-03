@@ -99,6 +99,7 @@ import hmac
 import html
 import ipaddress
 import json
+import logging
 import os
 import secrets
 import sys
@@ -121,6 +122,8 @@ from . import shell
 from . import spools as spools_module
 from . import status as status_module
 from . import walkthrough as walkthrough_module
+
+log = logging.getLogger(__name__)
 
 TOKEN_HEADER = "X-WebUI-Token"
 LOOPBACK_NAMES = frozenset({"localhost"})
@@ -643,6 +646,8 @@ class _Handler(BaseHTTPRequestHandler):
                                            "/walkthrough or /login"})
         except Exception as exc:  # a broken snapshot is a 500, never a dropped connection
             if self._browser_navigation(path):
+                # The page hides the exception text, so keep it in the log (log_message is silenced).
+                log.exception("Web UI page %s failed", path)
                 self._html_refusal(500, "Something went wrong rendering this page.", "/")
             else:
                 self._json(500, {"ok": False, "reason": f"{type(exc).__name__}: {exc}"})
