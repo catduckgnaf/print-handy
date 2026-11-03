@@ -38,6 +38,15 @@ PINNED_REFUSALS = {
 }
 
 
+# Extra answers for corpus-v2 complex cases whose own case.toml (in the release, not this repo)
+# predates a question. Appended after the case's rules, so its own answers always win.
+EXTRA_CLICKS = {
+    # The fit question now offers only "83.3% · rotated 90° on X" on the AD5X bed; a rotated
+    # print is acceptable (owner decision, 2026-11-03).
+    "spiral-vase": [{"question": "does not fit", "button": "rotated"}],
+}
+
+
 def build_case(model, root):
     """The harness case for one model file.
 
@@ -52,7 +61,8 @@ def build_case(model, root):
     if case_toml.is_file():
         data = tomllib.loads(case_toml.read_text())
         return S(name=case_dir.name, dir=case_dir, model=model, data=data,
-                 clicks=data.get("click", []), expect=data.get("expect", {}))
+                 clicks=data.get("click", []) + EXTRA_CLICKS.get(case_dir.name, []),
+                 expect=data.get("expect", {}))
     refusal = PINNED_REFUSALS.get(case_dir.name)
     return S(name=case_dir.name, dir=case_dir, model=model,
              data={"description": model.name},
