@@ -127,6 +127,10 @@ def explain(exc):
 
 def report(exc):
     """The failure_report.Report for a slice failure, for receipts (stage, cause, recovery)."""
+    plain = getattr(exc, 'plain', None)
+    if isinstance(plain, str) and plain:  # a SliceRefusal carries its own plain-language reason
+        return failure_report.Report('slice', plain, getattr(exc, 'next_step', None) or BUNDLE,
+                                     failure_report.Submitted.NOTHING, False, None)
     info = explain(exc)
     return failure_report.Report(info.stage, info.plain, info.next_step, failure_report.Submitted.NOTHING,
                                  info.retryable, getattr(exc, 'signature', None))

@@ -225,11 +225,11 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
                 refusal_context['start_prompt_message_id'] = str(getattr(stop_msg, 'id', '') or '')
                 if REFUSAL_EDITOR is not None:
                     with contextlib.suppress(Exception):
-                        handled = bool(await REFUSAL_EDITOR(source, stop_msg, _refusal_text(detail),
+                        handled = bool(await REFUSAL_EDITOR(source, stop_msg, _launch_refusal_text(detail),
                                                             refusal_context, detail))
                 if not handled:
                     with contextlib.suppress(Exception):
-                        await stop_msg.edit(content=_refusal_text(detail), view=None)
+                        await stop_msg.edit(content=_launch_refusal_text(detail), view=None)
                         handled = True
                 refusal_context['prompt_handled'] = handled
             if not handled:
@@ -253,7 +253,7 @@ async def _with_stop(adapter, source, key, metadata, text, work, *, allow_stop=F
                     with contextlib.suppress(Exception):
                         handled = bool(await REFUSAL_EDITOR_BY_ID(
                             source, str(getattr(source, "thread_id", None) or source.chat_id),
-                            str(sent.message_id), _refusal_text(detail),
+                            str(sent.message_id), _launch_refusal_text(detail),
                             refusal_context, detail))
                 refusal_context['prompt_handled'] = handled
             if not handled:
@@ -1517,6 +1517,24 @@ def _start_report(tail):
         upload_failed=('could not be uploaded' in low or 'upload failed' in low))
 
 
+def _launch_refusal_text(tail):
+    """A confirmed pre-upload refusal as posted in chat: its guidance, then the stage (#817)."""
+    return _refusal_text(tail) + ' Stage: launch.'
+
+
+def start_unknown_message(tail):
+    """The post for a start the printer has not confirmed (#817).
+
+    An upload that failed or was not confirmed gets the classified wording (stage upload, the
+    printer may already have the file); "probably still heating" is only true of a start that
+    was sent, so every other unresolved start keeps that message with its stage.
+    """
+    report = _start_report(tail)
+    if report.stage == 'upload':
+        return failure_report.plain(report)
+    return START_PENDING_MESSAGE + ' Stage: launch.'
+
+
 def plain_start_failure(tail):
     """The plain chat wording for a failed/refused print-now run (#467).
 
@@ -1528,10 +1546,10 @@ def plain_start_failure(tail):
     the honest uncertain wording (the printer may or may not have it).
     """
     if _safe_preupload_refusal(tail):
-        return _refusal_text(tail) + ' Stage: launch.'
+        return _launch_refusal_text(tail)
     if str(tail or '').lstrip().upper().startswith('UNCERTAIN:') or not _raw_preupload_refusal(tail):
         return failure_report.plain(_start_report(tail))
-    return _refusal_text(tail) + ' Stage: launch.'
+    return _launch_refusal_text(tail)
 
 
 def _restart_helps(tail):
@@ -2830,6 +2848,7 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                            'decisions_sha256': mj.decisions_digest(validated), 'attempt': attempt,
                                            'recipe_version': RECIPE_VERSION, 'recipe_sha256': recipe_sha})
             receipt.pop('slice_error', None)
+            receipt.pop('failure', None)  # the first attempt's classification does not describe this one
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
             # A prior "slice and print" choice applies only to the failed output.
             # The retry is slice-only; starting the new artifact requires a fresh button.
@@ -2845,7 +2864,8 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                 logger.exception('slice retry failed')
                 await early.discard()
                 receipt.update(status='SLICE_FAILED', sliced=False, uploaded=False, started=False,
-                               slice_error=str(retry_error))
+                               slice_error=str(retry_error),
+                               failure=slice_failure.report(retry_error).as_dict())
                 receipt.pop('slice_approval', None)
                 receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
                 again = slice_refusal.explain(retry_error)
@@ -3095,7 +3115,7 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             if platform_name.casefold() != 'discord':
                 remote = None
         if unknown:
-            message = START_PENDING_MESSAGE
+            message = start_unknown_message(tail)
         elif ok or pending:
             message = print_summary.format_started(exact_job, exact_plate) + later
             if remote is None:
@@ -3111,7 +3131,7 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                     if roast:
                         message += f'\n\n{roast}'
         else:
-            message = print_summary.scrub(_refusal_text(tail))
+            message = print_summary.scrub(_launch_refusal_text(tail))
             if _restart_helps(tail):
                 message = await _offer_force_restart(adapter, source, key, message, timeout,
                                                      printer_id=printer_id)
