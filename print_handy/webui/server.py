@@ -17,6 +17,15 @@ step) serving:
 - ``GET /api/printers/<id>/camera/snapshot`` — one JPEG from that
   printer's camera (:mod:`print_handy.webui.camera`, #708), never the
   camera URL itself;
+- ``GET /api/printers/<id>/spools`` and
+  ``POST /api/printers/<id>/spools/{assign,swap,unassign,add,edit,sync,
+  purchase/propose,purchase/create}`` — spool management (#789,
+  :mod:`print_handy.webui.spools`): the loaded view and shelf as JSON,
+  and the slot/spool changes through spool_sync, behind the same
+  header-only POST auth and the #708 controls guard as the controls;
+- ``GET /spools`` and ``GET /spools/<id>`` — the per-printer Spools
+  page (#789): the same view as HTML, with picker forms that post back
+  to ``POST /spools/<id>`` under the config posts' form-token rule;
 - ``GET /healthz`` — the bot heartbeat evaluation, with the same
   200/503 + JSON shape as the standalone bot's own health server;
 - ``GET /config`` — the picker configuration page
@@ -94,6 +103,7 @@ from . import controls as controls_module
 from . import designs as designs_module
 from . import layers as layers_module
 from . import pages
+from . import spools as spools_module
 from . import status as status_module
 
 TOKEN_HEADER = "X-WebUI-Token"
@@ -260,7 +270,8 @@ def render_status_html(snap, form_token=""):
             "settings are changed on the <a href=\"/config\">configuration page</a>, "
             "which writes the YAML settings file; AI designs are listed on the "
             "<a href=\"/designs\">designs page</a>; sliced plates are on the "
-            "<a href=\"/layers\">layers page</a>)</p>"
+            "<a href=\"/layers\">layers page</a>; spools are on the "
+            "<a href=\"/spools\">spools page</a>)</p>"
             f"<table>{main_rows}</table>"
             + roster_table
             + (f"<h2>Services</h2><table>{services}</table>" if services else "")
@@ -450,6 +461,12 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(200, self.server.snapshot_func())
             elif path.startswith("/api/printers/"):
                 self._printer_status_route(path[len("/api/printers/"):])
+            elif path == "/spools":
+                entries = settings.printers(self.server.settings_data)
+                self._send(200, spools_module.render_spools_index(entries),
+                           "text/html; charset=utf-8")
+            elif path.startswith("/spools/"):
+                self._spools_page(unquote(path[len("/spools/"):]))
             elif path == "/config":
                 self._send(200, self._config_html(self._field_values()),
                            "text/html; charset=utf-8")
@@ -472,7 +489,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(404, {"ok": False,
                                  "reason": "try /, /api/status, /api/printers/<id>/status, "
                                            "/api/printers/<id>/camera/snapshot, "
-                                           "/healthz, /config, /designs, /layers or /login"})
+                                           "/api/printers/<id>/spools, "
+                                           "/healthz, /config, /designs, /layers, /spools or /login"})
         except Exception as exc:  # a broken snapshot is a 500, never a dropped connection
             self._json(500, {"ok": False, "reason": f"{type(exc).__name__}: {exc}"})
 
@@ -486,6 +504,10 @@ class _Handler(BaseHTTPRequestHandler):
             code, payload = self.server.printer_status_func(unquote(segments[0]))
             self._json(code, payload)
             return
+        if len(segments) == 2 and segments[0] and segments[1] == "spools":
+            code, payload = self.server.spools_view_func(unquote(segments[0]))
+            self._json(code, payload)
+            return
         if len(segments) == 3 and segments[0] and segments[1:] == ["camera", "snapshot"]:
             code, body, content_type = self.server.camera_snapshot_func(unquote(segments[0]))
             if code != 200:
@@ -494,7 +516,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, body, content_type, headers=[("Cache-Control", "no-store")])
             return
         self._json(404, {"ok": False,
-                         "reason": "try /api/printers/<id>/status or "
+                         "reason": "try /api/printers/<id>/status, "
+                                   "/api/printers/<id>/spools or "
                                    "/api/printers/<id>/camera/snapshot"})
 
     # -- per-printer controls (#708, control endpoints phase) ----------------
@@ -539,6 +562,112 @@ class _Handler(BaseHTTPRequestHandler):
         printer_id, verb = unquote(segments[0]), segments[1]
         code, payload = self.server.printer_control_func(printer_id, verb, body)
         self._json(code, payload)
+
+    # -- per-printer spools (#789) -------------------------------------------
+    def _printer_spools_route(self, rest):
+        """POST /api/printers/<id>/spools/<action> (and purchase/<step>).
+
+        Authorization and body rules mirror the control route exactly:
+        the access-token header only (a login-session cookie never
+        authorizes a spool POST), a JSON body only, so a cross-site
+        HTML form cannot post here. The controls_enabled guard, the
+        named-printer rule and every refusal live in spools.py.
+        """
+        if not self._header_authorized():
+            self._json(401, {"ok": False, "reason": f"missing or wrong {TOKEN_HEADER}"})
+            return
+        segments = rest.split("/")
+        actions = (*spools_module.ACTIONS, "purchase/propose", "purchase/create")
+        action = None
+        if len(segments) == 3 and segments[0] and segments[1] == "spools" \
+                and segments[2] in spools_module.ACTIONS:
+            action = segments[2]
+        elif len(segments) == 4 and segments[0] and segments[1] == "spools" \
+                and segments[2] == "purchase" and segments[3] in ("propose", "create"):
+            action = f"purchase/{segments[3]}"
+        if action is None:
+            self._json(404, {"ok": False, "reason": "try /api/printers/<id>/spools/"
+                                                    + ", ".join(actions)})
+            return
+        content_type = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = -1
+        if length < 0 or length > 65536:
+            self._json(400, {"ok": False, "reason": "bad or oversized body. Nothing changed."})
+            return
+        raw = self.rfile.read(length) if length else b""
+        if content_type != "application/json":
+            self._json(415, {"ok": False, "reason": "spool POSTs must be application/json. "
+                                                    "Nothing changed."})
+            return
+        try:
+            body = json.loads(raw or b"{}")
+        except ValueError:
+            self._json(400, {"ok": False, "reason": "body is not valid JSON. Nothing changed."})
+            return
+        code, payload = self.server.spools_action_func(unquote(segments[0]), action, body)
+        self._json(code, payload)
+
+    def _spools_page(self, printer_id):
+        """GET /spools/<id>: the per-printer Spools page (#789)."""
+        if not printer_id or "/" in printer_id:
+            self._json(404, {"ok": False, "reason": "try /spools/<printer id>"})
+            return
+        code, view = self.server.spools_view_func(printer_id)
+        if code != 200:
+            self._json(code, view)
+            return
+        self._send(200, spools_module.render_spools_page(
+            view, form_token=self.server.form_token,
+            purchase_ready=spools_module.purchase_available()),
+            "text/html; charset=utf-8")
+
+    def _spools_page_post(self, printer_id):
+        """POST /spools/<id>: one picker form from the Spools page.
+
+        Same authorization as a config POST (the access-token header or
+        the page's form token; a login session alone never authorizes
+        it). The form converts to the same action the JSON API takes,
+        so the page and the API can never diverge, and the page is
+        re-rendered with the action's detail or its named refusal.
+        """
+        if not printer_id or "/" in printer_id:
+            self._json(404, {"ok": False, "reason": "try /spools/<printer id>"})
+            return
+        form, error = self._read_form()
+        if error:
+            self._json(error[0], {"ok": False, "reason": error[1]})
+            return
+        if not self._post_authorized(form):
+            self._json(403, {"ok": False,
+                             "reason": f"missing or wrong form token: POST /spools "
+                                       f"requires the {TOKEN_HEADER} header or the "
+                                       f"form's own {pages.CSRF_FIELD} token"})
+            return
+        action_name = (form.get("spool_action") or [""])[0]
+        proposed = None
+        try:
+            action, body = spools_module.form_body(action_name, form)
+        except spools_module.SpoolsError as refusal:
+            code, payload = refusal.code, {"ok": False, "reason": refusal.reason}
+        else:
+            code, payload = self.server.spools_action_func(printer_id, action, body)
+            if code == 200 and action == "purchase/propose":
+                proposed = payload.get("lines")
+        view_code, view = self.server.spools_view_func(printer_id)
+        if view_code != 200:
+            self._json(view_code, view)
+            return
+        self._send(code if code != 200 else 200,
+                   spools_module.render_spools_page(
+                       view, form_token=self.server.form_token,
+                       notice=payload.get("detail") if code == 200 else None,
+                       error=payload.get("reason") if code != 200 else None,
+                       proposed=proposed,
+                       purchase_ready=spools_module.purchase_available()),
+                   "text/html; charset=utf-8")
 
     # -- designs catalog (read-only, #388 stage 3) --------------------------
     def _design_route(self, rest):
@@ -739,8 +868,15 @@ class _Handler(BaseHTTPRequestHandler):
                 self._config_save()
             elif path == "/debug":
                 self._debug_post()
+            elif path.startswith("/spools/"):
+                self._spools_page_post(unquote(path[len("/spools/"):]))
             elif path.startswith("/api/printers/"):
-                self._printer_control_route(path[len("/api/printers/"):])
+                rest = path[len("/api/printers/"):]
+                segments = rest.split("/")
+                if len(segments) >= 2 and segments[1] == "spools":
+                    self._printer_spools_route(rest)
+                else:
+                    self._printer_control_route(rest)
             else:
                 self._read_only()
         except Exception as exc:  # a broken write is a 500, never a dropped connection
@@ -861,7 +997,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=None,
                 printer_status_func=None, printer_control_func=None,
-                camera_snapshot_func=None):
+                camera_snapshot_func=None, spools_view_func=None, spools_action_func=None):
     """A bound (not yet serving) ThreadingHTTPServer for the Web UI.
 
     ``host``/``port`` override the settings (tests bind port 0 for an
@@ -903,6 +1039,10 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
         lambda printer_id, verb, body: _printer_control(data, printer_id, verb, body))
     server.camera_snapshot_func = camera_snapshot_func or (
         lambda printer_id: camera_module.snapshot(data, printer_id))
+    server.spools_view_func = spools_view_func or (
+        lambda printer_id: spools_module.spools_view(data, printer_id))
+    server.spools_action_func = spools_action_func or (
+        lambda printer_id, action, body: spools_module.spool_action(data, printer_id, action, body))
     return server
 
 
