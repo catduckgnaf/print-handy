@@ -2159,6 +2159,53 @@ def _confirm_scale(fits, bound, window=0.03):
     return lo / 1000.0
 
 
+def largest_fitting_scale(source, state, ceiling, **probe_kw):
+    """Largest 0.1%-step scale below ``ceiling`` at which one copy fits, or None.
+
+    ``ceiling`` is a size already known not to fit, so it is never re-probed;
+    the search starts at the largest whole 0.1% step below it, walks down in
+    1% steps to the 50% floor (the same floor the fit ladder uses), then
+    refines the fitting window to 0.1%. The floor itself is probed: a model
+    that only fits just above 50% still gets its offer. Probe keys (rotation,
+    supports, copy_limit, brim_policy) pass through to orca_plate_capacity,
+    so the answer is for the same layout the caller just refused.
+    """
+    top = math.floor((float(ceiling) - 1e-9) * 1000)
+    if top < 500:
+        return None
+
+    def fits(step):
+        for _ in range(2):  # one retry, like _confirm_scale: a probe abort is not a fit verdict
+            try:
+                return orca_plate_capacity(source, state, scale=step / 1000.0, **probe_kw) > 0
+            except RuntimeError:
+                continue
+        return False
+
+    if fits(top):
+        return top / 1000.0
+    coarse = top - top % 10
+    if coarse == top:
+        coarse -= 10
+    found = None
+    step = coarse
+    while step >= 500:
+        if fits(step):
+            found = step
+            break
+        step -= 10
+    if found is None:
+        return None
+    lo, hi = found, min(found + 10, top)  # lo fits; hi was probed above and does not
+    while hi - lo > 1:
+        middle = (lo + hi) // 2
+        if fits(middle):
+            lo = middle
+        else:
+            hi = middle
+    return lo / 1000.0
+
+
 def scale_label(scale):
     """98.6% / 75% style label: one decimal only when the scale is not a whole percent."""
     pct = round(float(scale) * 100, 1)

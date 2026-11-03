@@ -386,6 +386,38 @@ def test_scale_that_does_not_fit_the_bed_is_refused_and_nothing_is_scaled(env, m
     assert env.starts == [] and env.sliced == []
 
 
+def _capacity_up_to(limit):
+    return lambda path, st, **kw: 1 if float(kw.get('scale') or 1.0) <= limit else 0
+
+
+def test_scale_past_the_bed_offers_the_biggest_size_that_fits_and_scales_to_it(env, monkeypatch):
+    from print_handy.core import orca_adapter
+    monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', _capacity_up_to(1.04))
+    # Scale bigger by 10% does not fit; take the offered biggest fit (104%),
+    # then Slice and print now on the repeated question.
+    adapter, result, receipt = run_flow(env, [1, 0, 2, 0, 2, 0, 0])
+    offer = [q for q in adapter.questions if 'biggest size that fits' in q['question']]
+    assert offer and '110% does not fit' in offer[0]['question']
+    assert offer[0]['choices'] == ['Scale to 104%', 'Keep 100%', 'Cancel scaling']
+    ready = [q for q in adapter.questions if q['question'].startswith('Ready to slice')]
+    assert 'Scaled to 104% of the authored size.' in ready[-1]['question']
+    assert receipt['status'] == 'STARTED' and receipt['scale'] == 1.04
+    job = json.loads(Path(receipt['bed_clear_approval']['job_json']).read_text())
+    assert job['scale'] == 1.04
+    assert len(env.starts) == 1
+
+
+def test_declining_the_biggest_fit_offer_keeps_the_current_size(env, monkeypatch):
+    from print_handy.core import orca_adapter
+    monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', _capacity_up_to(1.04))
+    # Scale bigger by 10% does not fit; keep 100% at the offer, then Cancel.
+    adapter, result, receipt = run_flow(env, [1, 0, 2, 0, 2, 1, 3])
+    offer = [q for q in adapter.questions if 'biggest size that fits' in q['question']]
+    assert offer and offer[0]['choices'][0] == 'Scale to 104%'
+    assert receipt['status'] == 'CANCELLED' and 'scale' not in receipt
+    assert env.starts == [] and env.sliced == []
+
+
 def test_scale_prompts_can_be_backed_out_without_changing_anything(env):
     # Scale the model, back out of the amount question, back out of the
     # direction question on a second try, then Cancel the print request.
@@ -407,6 +439,15 @@ def test_scale_typed_replies_resolve_direction_and_percent():
     assert prepared_intake._scale_percent_reply('10') == 2
     assert prepared_intake._scale_percent_reply('back') == 3
     assert prepared_intake._scale_percent_reply('7') is None
+    assert prepared_intake._scale_fit_offer_reply('scale to the biggest') == 0
+    assert prepared_intake._scale_fit_offer_reply('yes') == 0
+    assert prepared_intake._scale_fit_offer_reply('keep 100%') == 1
+    assert prepared_intake._scale_fit_offer_reply('no') == 1
+    assert prepared_intake._scale_fit_offer_reply('do not scale') == 1
+    assert prepared_intake._scale_fit_offer_reply("don't scale") == 1
+    assert prepared_intake._scale_fit_offer_reply('no, keep the current scale') == 1
+    assert prepared_intake._scale_fit_offer_reply('cancel') == 2
+    assert prepared_intake._scale_fit_offer_reply('whatever') is None
 
 
 def test_expired_slice_confirmation_discards_the_background_slice(env):

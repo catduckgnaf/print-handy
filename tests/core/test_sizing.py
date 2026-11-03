@@ -94,6 +94,26 @@ class FeatureClearanceTests(unittest.TestCase):
             # 99% does not fit but 95% does: the ladder fallback still applies.
             self.assertEqual(mj.painted_plate_scale('src', None, {'1'}, ceiling=0.99), 0.95)
 
+    def test_largest_fitting_scale_searches_below_the_refused_ceiling(self):
+        from unittest.mock import patch
+        probed = []
+
+        def capacity(src, state, scale=1.0, **kw):
+            probed.append(scale)
+            return 1 if scale <= 1.04 else 0
+
+        with patch.object(oa, 'orca_plate_capacity', capacity):
+            self.assertEqual(oa.largest_fitting_scale('src', {}, 1.10), 1.04)
+        self.assertNotIn(1.10, probed)  # the refused ceiling is never re-probed
+        with patch.object(oa, 'orca_plate_capacity', lambda *a, **kw: 0):
+            self.assertIsNone(oa.largest_fitting_scale('src', {}, 1.10))
+        # A fit that only exists just above the 50% floor is still found.
+        with patch.object(oa, 'orca_plate_capacity',
+                          lambda src, state, scale=1.0, **kw: 1 if scale <= 0.505 else 0):
+            self.assertEqual(oa.largest_fitting_scale('src', {}, 1.10), 0.505)
+        # Below the 50% floor there is no search at all.
+        self.assertIsNone(oa.largest_fitting_scale('src', {}, 0.4))
+
     def test_fine_search_deferred_for_painted_multi_plate_jobs(self):
         from unittest.mock import patch
         with patch.object(oa, '_source_plate_count', return_value=2), \
