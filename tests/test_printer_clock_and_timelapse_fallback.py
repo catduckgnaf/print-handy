@@ -132,3 +132,69 @@ def test_clock_skew_shift_lets_a_stale_history_settle_the_lease():
     skew = leased - printer_clock_start + 60  # printer started 60 s after the lease, host time
     assert not launch_state.reached_printer(lease, started_files=[("1", "V17.gcode", printer_clock_start)])
     assert launch_state.reached_printer(lease, started_files=[("1", "V17.gcode", printer_clock_start + skew)])
+
+
+# --- automatic clock sync -------------------------------------------------------------------------
+
+import io
+import json
+import urllib.request
+
+
+def _sync_env(monkeypatch, *, skew, state="standby", filename="", active=False, after=0.0):
+    skews = iter([skew, after])
+    monkeypatch.setattr(launch_state, "printer_clock_skew", lambda *a, **k: next(skews))
+    monkeypatch.setattr(launch_state.time, "sleep", lambda *_: None)
+    calls = []
+
+    class R(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_open(req, timeout=0):
+        url = req if isinstance(req, str) else req.full_url
+        calls.append(url)
+        body = {"result": {"status": {"print_stats": {"state": state, "filename": filename},
+                                      "virtual_sdcard": {"is_active": active}}}}
+        return R(json.dumps(body).encode())
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_open)
+    return calls
+
+
+def test_sync_sets_clock_when_idle_and_far_off(monkeypatch):
+    calls = _sync_env(monkeypatch, skew=86400 * 307)
+    assert launch_state.sync_printer_clock("http://p:7125", "America/New_York", now=1793667044) == "ok"
+    sent = [c for c in calls if "gcode/script" in c]
+    assert len(sent) == 1 and "DATE_SET" in sent[0] and "2026.11.02-19%3A50%3A44" in sent[0]
+
+
+def test_sync_never_touches_a_busy_printer(monkeypatch):
+    for kw in ({"state": "printing"}, {"filename": "x.gcode"}, {"active": True}):
+        calls = _sync_env(monkeypatch, skew=86400 * 307, **kw)
+        assert launch_state.sync_printer_clock("http://p:7125", "America/New_York") == "skipped:printer not idle"
+        assert not [c for c in calls if "gcode/script" in c]
+
+
+def test_sync_leaves_a_correct_clock_alone(monkeypatch):
+    calls = _sync_env(monkeypatch, skew=3)
+    assert launch_state.sync_printer_clock("http://p:7125", "America/New_York") == "ok"
+    assert calls == []
+
+
+def test_sync_reports_failure_when_clock_stays_off(monkeypatch):
+    _sync_env(monkeypatch, skew=86400 * 307, after=86400 * 307)
+    assert launch_state.sync_printer_clock("http://p:7125", "America/New_York").startswith("failed")
+
+
+def test_sync_can_be_disabled_and_unreadable_is_skipped(monkeypatch):
+    calls = _sync_env(monkeypatch, skew=86400 * 307)
+    monkeypatch.setenv("PRINT_HANDY_CLOCK_SYNC", "0")
+    assert launch_state.sync_printer_clock("http://p:7125", "America/New_York") == "off"
+    monkeypatch.delenv("PRINT_HANDY_CLOCK_SYNC")
+    monkeypatch.setattr(launch_state, "printer_clock_skew", lambda *a, **k: None)
+    assert launch_state.sync_printer_clock("http://p:7125", "America/New_York").startswith("skipped")
+    assert calls == []

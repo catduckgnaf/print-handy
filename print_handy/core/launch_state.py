@@ -461,3 +461,45 @@ def clock_warning(skew):
             "until it is reconciled); timelapse, duration and \"started at\" times can be wrong; and TLS "
             "connections the printer makes can fail. Fix: let the printer reach an NTP server (UDP 123) and "
             "reboot it.")
+
+
+def sync_printer_clock(moonraker_url, tz_name, *, now=None, log=None):
+    """Set an idle ZMOD printer's clock when it is far off, then read it back. Returns a short outcome.
+
+    ZMOD printers lose their clock on every power cycle and can take a long time to resync. Only
+    acts when the skew is at least CLOCK_SKEW_WARN_S, and only when Moonraker reports a fully idle
+    printer (standby, no file, SD card not active). Uses the same DATE_SET macro an operator would.
+    Never raises; PRINT_HANDY_CLOCK_SYNC=0 turns it off. Outcomes: off, ok, skipped:<why>, failed:<why>.
+    """
+    import json
+    import urllib.parse
+    import urllib.request
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    say = log or (lambda m: None)
+    if os.environ.get("PRINT_HANDY_CLOCK_SYNC", "1").strip().lower() in ("0", "false", "no", "off"):
+        return "off"
+    base = str(moonraker_url or "").rstrip("/")
+    skew = printer_clock_skew(base)
+    if skew is None:
+        return "skipped:clock unreadable"
+    if abs(skew) < CLOCK_SKEW_WARN_S:
+        return "ok"
+    try:
+        with urllib.request.urlopen(base + "/printer/objects/query?print_stats&virtual_sdcard", timeout=8) as r:
+            st = json.load(r)["result"]["status"]
+        ps, sd = st.get("print_stats") or {}, st.get("virtual_sdcard") or {}
+        if ps.get("state") != "standby" or ps.get("filename") or sd.get("is_active"):
+            return "skipped:printer not idle"
+        stamp = datetime.fromtimestamp(now if now is not None else time.time(), ZoneInfo(tz_name)).strftime("%Y.%m.%d-%H:%M:%S")
+        req = urllib.request.Request(base + "/printer/gcode/script?" + urllib.parse.urlencode({"script": f"DATE_SET DT={stamp}"}),
+                                     data=b"", method="POST")
+        urllib.request.urlopen(req, timeout=20).read()
+        time.sleep(2)
+        after = printer_clock_skew(base)
+        if after is not None and abs(after) < CLOCK_SKEW_WARN_S:
+            say(f"printer clock was {abs(skew) / 86400:.1f} day(s) off; set it to {stamp} ({tz_name}) and verified")
+            return "ok"
+        return "failed:clock still off after DATE_SET"
+    except Exception as exc:
+        return f"failed:{type(exc).__name__}"

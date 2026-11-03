@@ -31,8 +31,8 @@ from pathlib import Path
 
 import websockets
 
-from .. import __version__, debug_mode, go2rtc, healthcheck, logs, printers
-from ..core import delivery, filament_color, spoolman_client
+from .. import __version__, debug_mode, go2rtc, healthcheck, logs, printers, settings
+from ..core import delivery, filament_color, launch_state, spoolman_client
 from . import _config
 from . import moonraker_discord_announcements as announcer
 from . import discord_print_summary as print_summary
@@ -3436,11 +3436,21 @@ class Listener:
             return
         self._capture_task = asyncio.create_task(self._capture_due(layer))
 
+    def _sync_printer_clock(self, why):
+        try:
+            res = launch_state.sync_printer_clock(_config.cfg()["services"]["moonraker_url"],
+                                                  settings.current()["discord"]["timezone"], log=log)
+            if res not in ("ok", "off"):
+                log(f"printer clock sync ({why}): {res}")
+        except Exception as exc:
+            log(f"printer clock sync ({why}) failed: {exc!r}")
+
     async def session(self):
         self.ifs_monitor.reset_baseline(warmup=True)
         async with websockets.connect(WS_URL, ping_interval=20, ping_timeout=20, max_size=2**22) as ws:
             self.moonraker_connected = True
             await ws.send(SUBSCRIBE)
+            await asyncio.to_thread(self._sync_printer_clock, "connect")
             last_tick = time.monotonic()
             while True:
                 try:
@@ -3488,6 +3498,7 @@ class Listener:
                     elif method == "notify_klippy_ready":
                         self.ifs_monitor.reset_baseline(warmup=True)
                         log("klippy ready; resubscribing")
+                        await asyncio.to_thread(self._sync_printer_clock, "klippy ready")
                         await ws.send(SUBSCRIBE)
                 if time.monotonic() - self.last_native_poll >= NATIVE_POLL_SECONDS:
                     self.last_native_poll = time.monotonic()
