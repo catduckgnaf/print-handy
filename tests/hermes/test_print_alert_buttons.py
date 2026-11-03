@@ -328,6 +328,99 @@ def test_visual_pause_post_failure_returns_a_string_and_records_a_fresh_alert(tm
     assert len(rows) == 1 and rows[0]["filename"] == "f.gcode"
 
 
+def test_visual_pause_print_completes_during_confirmation_reports_actual_state(tmp_path):
+    """Codex on #844: a print that completes inside the confirmation
+    window is not 'still printing' — the reply must name the actual
+    terminal state and no still-printing Pause alert may be re-posted
+    (there is nothing left to pause)."""
+    token_patch, chat_patch = _no_discord_route()
+    alert = {"kind": "visual", "filename": "f.gcode"}
+    seq = iter([{"klippy": "ready", "state": "printing", "filename": "f.gcode"},
+                {"klippy": "ready", "state": "complete", "filename": "f.gcode"}])
+    with patch.object(pab, "STATE", tmp_path / "alerts.json"), token_patch, chat_patch, \
+         patch("print_handy.hermes.print_control.status", side_effect=lambda: next(seq)), \
+         patch("print_handy.hermes.print_control._call") as call, \
+         patch("print_handy.hermes.print_stop._lan_adapter", return_value=None):
+        out = pab.handle_click("pause", alert, pause_wait_s=2, pause_poll_s=0.01)
+        rows = [r for r in pab._load().values() if isinstance(r, dict) and r.get("kind") == "visual"]
+    call.assert_called_once_with("/printer/print/pause", method="POST", timeout=15)
+    assert "complete" in out
+    assert "still reports printing" not in out and "still printing" not in out
+    assert rows == []
+
+
+def test_visual_pause_unreadable_during_confirmation_reports_unknown_not_still_printing(tmp_path):
+    """Codex on #844: status reads returning 'unknown' inside the
+    confirmation window are not a printing readback — the reply must
+    say the outcome could not be confirmed, and the replacement alert
+    must not claim the print is still printing."""
+    token_patch, chat_patch = _no_discord_route()
+    alert = {"kind": "visual", "filename": "f.gcode"}
+    seq = iter([{"klippy": "ready", "state": "printing", "filename": "f.gcode"}]
+               + [{"klippy": "unknown", "state": "unknown", "filename": ""}] * 10)
+    with patch.object(pab, "STATE", tmp_path / "alerts.json"), token_patch, chat_patch, \
+         patch("print_handy.hermes.print_control.status", side_effect=lambda: next(seq)), \
+         patch("print_handy.hermes.print_control._call"), \
+         patch.object(pab, "_repost_alert", wraps=pab._repost_alert) as repost, \
+         patch("print_handy.hermes.print_stop._lan_adapter", return_value=None):
+        out = pab.handle_click("pause", alert, pause_wait_s=0.05, pause_poll_s=0.01)
+        rows = [r for r in pab._load().values() if isinstance(r, dict) and r.get("kind") == "visual"]
+    assert "could not be confirmed" in out or "unknown" in out
+    assert "still reports printing" not in out and "did not pause" not in out
+    assert len(rows) == 1
+    assert "still printing" not in repost.call_args[0][3]
+
+
+def test_visual_pause_post_failure_but_readback_paused_reports_paused(tmp_path):
+    """Codex on #844: Moonraker may apply the pause even when the HTTP
+    response is lost. The exception path must confirm by readback
+    (without resending) and report the pause that actually happened."""
+    import urllib.error
+    token_patch, chat_patch = _no_discord_route()
+    alert = {"kind": "visual", "filename": "f.gcode"}
+    seq = iter([{"klippy": "ready", "state": "printing", "filename": "f.gcode"},
+                {"klippy": "ready", "state": "paused", "filename": "f.gcode"}])
+    with patch.object(pab, "STATE", tmp_path / "alerts.json"), token_patch, chat_patch, \
+         patch("print_handy.hermes.print_control.status", side_effect=lambda: next(seq)), \
+         patch("print_handy.hermes.print_control._call",
+               side_effect=urllib.error.URLError("response lost")) as call, \
+         patch("print_handy.hermes.print_stop._lan_adapter", return_value=None):
+        out = pab.handle_click("pause", alert, pause_wait_s=2, pause_poll_s=0.01)
+        rows = [r for r in pab._load().values() if isinstance(r, dict) and r.get("kind") == "visual"]
+    call.assert_called_once_with("/printer/print/pause", method="POST", timeout=15)
+    assert out.startswith("Paused.") and "did not pause" not in out
+    assert rows == []
+
+
+def test_visual_pause_post_failure_and_unreadable_reports_unknown_outcome(tmp_path):
+    """Codex on #844: a failed POST plus unreadable status is an UNKNOWN
+    outcome — never a definitive 'did not pause' — and the replacement
+    alert must not claim the print is still printing."""
+    import urllib.error
+    token_patch, chat_patch = _no_discord_route()
+    alert = {"kind": "visual", "filename": "f.gcode"}
+    reads = iter([{"klippy": "ready", "state": "printing", "filename": "f.gcode"}])
+
+    def status():
+        try:
+            return next(reads)
+        except StopIteration:
+            raise RuntimeError("printer unreachable")
+
+    with patch.object(pab, "STATE", tmp_path / "alerts.json"), token_patch, chat_patch, \
+         patch("print_handy.hermes.print_control.status", side_effect=status), \
+         patch("print_handy.hermes.print_control._call",
+               side_effect=urllib.error.URLError("response lost")) as call, \
+         patch.object(pab, "_repost_alert", wraps=pab._repost_alert) as repost, \
+         patch("print_handy.hermes.print_stop._lan_adapter", return_value=None):
+        out = pab.handle_click("pause", alert, pause_wait_s=0.05, pause_poll_s=0.01)
+        rows = [r for r in pab._load().values() if isinstance(r, dict) and r.get("kind") == "visual"]
+    call.assert_called_once_with("/printer/print/pause", method="POST", timeout=15)
+    assert "unknown" in out and "did not pause" not in out
+    assert len(rows) == 1
+    assert "still printing" not in repost.call_args[0][3]
+
+
 def test_visual_pause_controller_not_ready_sends_nothing():
     alert = {"kind": "visual", "filename": "f.gcode"}
     with patch("print_handy.hermes.print_control.status",

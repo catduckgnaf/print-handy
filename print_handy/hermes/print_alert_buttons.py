@@ -1279,13 +1279,24 @@ def _repost_alert(kind: str, filename: str, alert: dict[str, Any], content: str)
     return record(kind, filename, **extra)
 
 
+# States in which the job is over (or never ran): a pause cannot take
+# over this job any more, so polling can stop and the caller must name
+# the actual state instead of claiming the printer still prints (#844).
+_PAUSE_TERMINAL_STATES = ("complete", "cancelled", "canceled", "error", "standby")
+
+
 def _poll_for_paused(pc: Any, wait_s: float, poll_s: float) -> dict[str, Any] | None:
     """Poll ``pc.status()`` for up to ``wait_s`` for state == "paused" (#837).
 
-    Returns the paused status read, or None when the printer never
-    reported paused inside the window. Read failures are skipped, the
-    same way print_control.resume's readback loop treats them.
+    Returns the paused status read as soon as it is seen, and the first
+    terminal status read as soon as one is seen. Otherwise returns the
+    LAST status observed inside the window — a caller must distinguish
+    an actual "printing" readback from a terminal state or an
+    "unknown"/unavailable one (#844 review) — or None when no read
+    succeeded at all. Read failures are skipped, the same way
+    print_control.resume's readback loop treats them.
     """
+    last: dict[str, Any] | None = None
     deadline = time.monotonic() + wait_s
     while time.monotonic() < deadline:
         time.sleep(poll_s)
@@ -1293,9 +1304,10 @@ def _poll_for_paused(pc: Any, wait_s: float, poll_s: float) -> dict[str, Any] | 
             st = pc.status()
         except Exception:
             continue
-        if st.get("state") == "paused":
+        last = st
+        if st.get("state") == "paused" or st.get("state") in _PAUSE_TERMINAL_STATES:
             return st
-    return None
+    return last
 
 
 def handle_click(action: str, alert: dict[str, Any] | None, *,
@@ -1338,23 +1350,63 @@ def handle_click(action: str, alert: dict[str, Any] | None, *,
             # Pause button) was already consumed. Send once, then poll
             # for the paused state; on any failure a fresh visual alert
             # is re-posted so the button survives.
+            # #844 review: a lost HTTP response does not prove the pause
+            # was rejected — Moonraker may have applied it before the
+            # connection dropped. Whatever the send did, confirm by
+            # readback (never resending) and let the observed state
+            # choose the reply: paused, still printing, a terminal
+            # state, or unknown when no usable readback was obtained.
+            send_error: Exception | None = None
             try:
                 pc._call("/printer/print/pause", method="POST", timeout=15)
             except Exception as exc:
+                send_error = exc
+            outcome = _poll_for_paused(pc, pause_wait_s, pause_poll_s)
+            state = outcome.get("state") if outcome else None
+            if state == "paused":
+                if send_error is not None:
+                    return ("Paused. The pause response was lost, but readback confirms "
+                            "the printer now reports paused.")
+                return "Paused. Printer now reports paused."
+            if state == "printing":
+                # Only an actual printing readback earns the definitive
+                # "did not pause" wording and the still-printing alert.
                 _repost_alert("visual", filename, alert,
                               f"Camera check: {filename} is still printing and the pause did not take. "
                               "Tap Pause to try again.")
-                return (f"Pause not confirmed: sending the pause failed ({exc}). "
-                        "The printer did not pause from this tap. A fresh alert with a Pause "
-                        "button follows. Not retrying the send.")
-            if _poll_for_paused(pc, pause_wait_s, pause_poll_s) is not None:
-                return "Paused. Printer now reports paused."
-            _repost_alert("visual", filename, alert,
-                          f"Camera check: {filename} is still printing and the pause did not take. "
-                          "Tap Pause to try again.")
-            return (f"Pause sent, but the printer did not pause: it still reports printing "
-                    f"after {pause_wait_s:.0f}s. Check the printer screen. "
-                    "A fresh alert with a Pause button follows. Not retrying.")
+                if send_error is not None:
+                    return (f"Pause not confirmed: sending the pause failed ({send_error}), "
+                            "and readback still reports printing. The printer did not pause "
+                            "from this tap. A fresh alert with a Pause button follows. "
+                            "Not retrying the send.")
+                return (f"Pause sent, but the printer did not pause: it still reports printing "
+                        f"after {pause_wait_s:.0f}s. Check the printer screen. "
+                        "A fresh alert with a Pause button follows. Not retrying.")
+            if state is None or state == "unknown":
+                _repost_alert("visual", filename, alert,
+                              f"Camera check: the pause for {filename} could not be confirmed — "
+                              "the printer's status is unavailable. Check the printer screen; "
+                              "tap Pause to try again.")
+                if send_error is not None:
+                    return (f"Pause outcome unknown: sending the pause failed ({send_error}), "
+                            "and the printer's status could not be read afterwards, so I "
+                            "can't tell whether it paused. Check the printer screen. "
+                            "A fresh alert with a Pause button follows. "
+                            "The pause was not resent.")
+                return (f"Pause sent, but it could not be confirmed: the printer's status "
+                        f"became unreadable during the {pause_wait_s:.0f}s wait, so I can't "
+                        "tell whether it paused. Check the printer screen. "
+                        "A fresh alert with a Pause button follows. Not retrying.")
+            # The job ended (or entered an error state) inside the
+            # window: name the actual state; there is nothing left to
+            # pause, so no replacement Pause alert is posted.
+            if send_error is not None:
+                return (f"Pause not confirmed: sending the pause failed ({send_error}), and "
+                        f"the printer now reports {state}, so there is nothing left to "
+                        "pause. Check the printer screen. The pause was not resent.")
+            return (f"Pause sent, but the printer now reports {state} instead of paused — "
+                    "the print is no longer printing, so there is nothing to pause. "
+                    "Check the printer screen. Not retrying.")
         return "That visual alert action is not recognized. Nothing sent."
     connection = alert.get("connection")
     if connection:
