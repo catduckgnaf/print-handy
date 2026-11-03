@@ -3018,15 +3018,22 @@ def _loaded_spools_intent(text):
 _LOADED_FUZZY_PHRASES = (
     "what colors are loaded",
     "what color is loaded",
+    "what filament is loaded",
+    "what filaments are loaded",
     "which spools are loaded",
+    "which filament is loaded",
+    "which filaments are loaded",
     "current spools",
     "loaded filament",
     "loaded spools",
+    "loaded colors",
+    "loaded colours",
     "what is loaded",
     "show the loaded spools",
     "print colors",
     "how much filament is left",
     "how much filament is left on the spools",
+    "how much filament is loaded",
 )
 _LOADED_FUZZY_RIVALS = (
     "add new filament",

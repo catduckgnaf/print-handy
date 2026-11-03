@@ -374,11 +374,91 @@ def _recording_router(seen):
     ("I need to replace a filament roll", "/spool"),
     ("change spool", "/spool"),
     ("stop the print", "/print-stop"),
+    ("pause the print", "/print-pause"),
     ("what filaments are loaded", "/print-spools"),
+    ("printer status", "/print-status"),
+    ("how is the print doing", "/print-status"),
+    ("print progress", "/print-status"),
+    ("print again", "/print-again"),
+    ("bed leveling", "/print-calibrate"),
+    ("can you stop the print", "/print-stop"),
+    ("could you pause the print?", "/print-pause"),
+    ("how do i change the filament", "/spool"),
+    ("change the nozzle", "/nozzle change"),
+    ("is the print done", "/print-status"),
+    ("how long left", "/print-status"),
+    ("when will it finish", "/print-status"),
+    ("the print failed", "/print-status"),
+    ("run maintenance", "/print-maintenance"),
+    ("what maintenance is due", "/print-maintenance"),
+    ("update the firmware", "/print-firmware"),
+    ("is there a firmware update?", "/print-firmware"),
+    ("the nozzle is clogged", "/print-troubleshoot clog"),
+    ("filament is stuck", "/print-troubleshoot clog"),
+    ("extruder is clicking", "/print-troubleshoot clog"),
+    ("first layer not sticking", "/print-troubleshoot first-layer"),
+    ("bed adhesion issues", "/print-troubleshoot first-layer"),
+    ("the print is spaghetti", "/print-troubleshoot first-layer"),
+    ("heat creep", "/print-troubleshoot heat-creep"),
+    ("the bed is not level", "/print-troubleshoot bed-level"),
+    ("uneven first layer", "/print-troubleshoot bed-level"),
+    ("ringing", "/print-troubleshoot ringing"),
+    ("buy more filament", "/spool"),
+    ("i need to buy more filament", "/spool"),
+    ("need more filament", "/spool"),
+    ("where can i buy filament", "/spool"),
+    ("running low on filament", "/print-spools"),
+    ("what sites can you print from", "/print-source"),
+    ("can you print from printables", "/print-source"),
+    ("design a bracket", "/print-design a bracket"),
+    ("design me a phone stand", "/print-design a phone stand"),
+    ("what does thermal runaway mean", "/print-lookup thermal runaway"),
+    ("what is error 0300 8003", "/print-lookup error 0300 8003"),
+    ("thermal runaway", "/print-lookup thermal runaway"),
+    ("layer shift", "/print-lookup layer shift"),
+    ("i got a heating error", "/print-lookup heating error"),
+    ("how to level the bed", "/print-lookup level the bed"),
+    ("why does my print keep failing", "/print-lookup my print keep failing"),
+    ("ask ai why is my print stringing", None),   # invocation is the fallback's job, not a suggestion
+    ("what is the printer doing?", None),
+    ("make me a coffee", None),
     ("", None),
 ])
 def test_command_suggestion_pins(text, expected):
     assert runtime.command_suggestion(text) == expected
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    ("ask ai: why is my print stringing", "why is my print stringing"),
+    ("hey ai, what is stringing", "what is stringing"),
+    ("ai: stop the print", "stop the print"),
+    ("ask the ai to stop the print", "to stop the print"),
+    ("please ask ai what temperature for pla", "what temperature for pla"),
+    ("ask ai", None),
+    ("ai", None),
+    ("aioli is great", None),
+    ("the ai said so", None),
+    ("use a different filament", None),
+])
+def test_ai_invocation_pins(text, expected):
+    assert runtime._ai_invocation(text) == expected
+
+
+def test_ai_invocation_wearing_a_task_gets_the_suggestion_without_an_llm(cfg):
+    """"ask ai change a filament roll" with no lane enabled: the stripped
+    question still gets its deterministic suggestion — an explicit
+    invocation is not a dead end on a no-LLM platform."""
+    seen = []
+    discord, core = make(cfg, router=_recording_router(seen))
+
+    async def flow():
+        task = asyncio.create_task(core.handle_message(discord.message("ask ai change a filament roll")))
+        await press(discord, runtime.SUGGEST_YES_LABEL)
+        return await task
+
+    out = run(flow())
+    assert seen == ["/spool"]
+    assert out == {"action": "skip", "reason": "recorded"}
 
 
 def test_did_you_mean_fires_with_no_llm_and_yes_dispatches_the_correction(cfg):

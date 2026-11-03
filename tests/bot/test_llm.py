@@ -226,6 +226,35 @@ def test_llm_declining_falls_back_to_the_unmatched_reply_once(llm_cfg):
     assert len(opener.requests) == 1
 
 
+def test_ai_invocation_asks_the_llm_the_bare_question(llm_cfg):
+    """An explicit "ask ai: …" strips the invocation: the lane is asked the
+    question itself, and its answer is the reply."""
+    opener = FakeLLM("Stringing usually means wet filament or too much retraction.")
+    discord, core = make(llm_cfg, opener)
+    out = asyncio.run(core.handle_message(discord.message("ask ai: why is my print stringing")))
+    assert out == {"action": "skip", "reason": "llm reply"}
+    assert discord.sent == ["Stringing usually means wet filament or too much retraction."]
+    assert opener.requests[0]["messages"][1]["content"] == "why is my print stringing"
+
+
+def test_ai_invocation_the_llm_declines_gets_the_ai_wording(llm_cfg):
+    """The lane was there and produced nothing: the reply names the AI, not
+    the generic unmatched wording."""
+    opener = FakeLLM("", None)
+    discord, core = make(llm_cfg, opener)
+    out = asyncio.run(core.handle_message(discord.message("ask ai: tell me a joke")))
+    assert out == {"action": "skip", "reason": "ai no answer"}
+    assert discord.sent == [runtime.ai_no_answer_text()]
+    assert len(opener.requests) == 1
+
+
+def test_ai_invocation_without_an_llm_gets_the_not_enabled_reply(cfg):
+    discord, core = make(cfg, None)
+    out = asyncio.run(core.handle_message(discord.message("ask ai: tell me a joke")))
+    assert out == {"action": "skip", "reason": "ai not enabled"}
+    assert discord.sent == [runtime.ai_not_enabled_text()]
+
+
 def test_llm_timeout_falls_back_to_the_unmatched_reply_once(llm_cfg):
     def timing_out(req, timeout=None):
         raise TimeoutError("llm timed out")
