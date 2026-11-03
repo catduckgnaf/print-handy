@@ -373,3 +373,51 @@ def test_expanded_vocabulary_scale_and_integrity():
 def test_expanded_vocabulary_matches(query, target):
     assert fuzzy.fuzzy_score(query, target) >= fuzzy.FUZZY_FLOOR
 
+
+
+# ------------------------------------------- expanded vocabulary: review guards
+
+@pytest.mark.parametrize("query,target", [
+    ("two trees", "2 trees"),
+    ("two trees", "second tree"),
+    ("first layer", "1st layer"),
+])
+def test_vocabulary_never_breaks_number_equivalence(query, target):
+    # A phrase containing a number word, joined before number parsing,
+    # would turn "two trees" into an opaque token that "2 trees" never reaches.
+    assert fuzzy.canonical(query) == fuzzy.canonical(target)
+    assert fuzzy.fuzzy_score(query, target) >= fuzzy.FUZZY_FLOOR
+
+
+def test_no_vocabulary_phrase_contains_a_number_word():
+    for pair in fuzzy_vocabulary.PHRASE_FORMS:
+        assert not set(pair) & set(fuzzy._NUMBER_WORDS), pair
+
+
+def test_every_vocabulary_key_is_reachable_after_norm():
+    # norm() turns '-' and '_' into spaces, so such keys could never match.
+    for key in fuzzy_vocabulary.TOKEN_FORMS:
+        assert fuzzy.norm(key) == key, key
+    for pair in fuzzy_vocabulary.PHRASE_FORMS:
+        assert all(fuzzy.norm(word) == word for word in pair), pair
+
+
+@pytest.mark.parametrize("word,folded,phrase,target", [
+    # Bamboo is a filament and a print subject, not a misspelled Bambu.
+    ("bamboo", "bambu", "bamboo planter", "bambu lab a1"),
+    # Statues are print subjects, not a misspelled status.
+    ("statue", "status", "statue of david", "printer status"),
+])
+def test_common_words_are_not_folded_into_brands_or_commands(word, folded, phrase, target):
+    assert fuzzy.canonical(word) != fuzzy.canonical(folded)
+    assert fuzzy.fuzzy_score(phrase, target) < fuzzy.FUZZY_FLOOR
+
+
+@pytest.mark.parametrize("spaced,joined", [
+    ("thermal runaway", "thermalrunaway"), ("bed adhesion", "bedadhesion"),
+    ("shut down", "shutdown"), ("creality print", "crealityprint"),
+    ("creality cloud", "crealitycloud"), ("flash print", "flashprint"),
+    ("home assistant", "homeassistant"), ("web ui", "webui"),
+])
+def test_compound_phrases_keep_their_joined_form(spaced, joined):
+    assert fuzzy.canonical(spaced) == fuzzy.canonical(joined)
