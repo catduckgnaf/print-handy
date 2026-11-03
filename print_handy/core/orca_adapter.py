@@ -1701,9 +1701,11 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                                slicer='Bambu Studio' if primary == 'bambu_studio' else 'OrcaSlicer and Bambu Studio',
                                returncode=exc.returncode) from exc
         except FileNotFoundError as exc:
+            # Why Orca failed is the useful part: the missing fallback only explains why there
+            # was no second attempt (#814 + #817).
             raise SliceFailure(f'{orca_failure}; {_BAMBU_NOT_INSTALLED}', kind='launch',
                                slicer='Bambu Studio' if primary == 'bambu_studio' else 'OrcaSlicer and Bambu Studio',
-                               returncode=127) from exc
+                               returncode=127, **_failure_evidence(folder, 'orca.log')) from exc
         except (subprocess.TimeoutExpired, OSError) as exc:
             raise RuntimeError(f'{orca_failure}; {bambu_role} failed to start: {exc}') from exc
         (folder / 'bambu.log').write_text(bambu_result.stdout + bambu_result.stderr)
@@ -1711,7 +1713,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             # taskset (the CPU-budget wrapper) exits 127 when the slicer binary is absent.
             raise SliceFailure(f'{orca_failure}; {_BAMBU_NOT_INSTALLED}', kind='launch',
                                slicer='Bambu Studio' if primary == 'bambu_studio' else 'OrcaSlicer and Bambu Studio',
-                               returncode=127)
+                               returncode=127, **_failure_evidence(folder, 'orca.log'))
         if bambu_result.returncode or not output.is_file() or output.stat().st_size == 0:
             if primary == 'bambu_studio':
                 raise SliceFailure(

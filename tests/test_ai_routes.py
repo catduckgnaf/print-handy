@@ -152,6 +152,18 @@ def test_the_primary_key_never_goes_to_a_different_fallback_host(monkeypatch):
     assert endpoint.requests[1]["url"] == OTHER_URL
 
 
+def test_a_named_fallback_key_wins_even_on_the_primary_endpoint(monkeypatch):
+    # The fallback model on the same endpoint can run under its own key (#818 review).
+    monkeypatch.setenv("TIER_KEY", "primary-secret")
+    monkeypatch.setenv("BACKUP_KEY", "backup-secret")
+    tier = {"chat_url": URL, "model": "big", "api_key_env": "TIER_KEY",
+            "fallback_model": "small", "fallback_api_key_env": "BACKUP_KEY"}
+    endpoint = Endpoint(fail={"big"})
+    ai_routes.call("chat", MSG, cfg=cfg(ai={"small": {}, "heavy": {}, "chat": tier}), opener=endpoint)
+    assert [r["auth"] for r in endpoint.requests] == ["Bearer primary-secret", "Bearer backup-secret"]
+    assert endpoint.requests[1]["url"] == URL
+
+
 def test_the_small_tier_refuses_a_hosted_endpoint_without_a_key_and_sends_nothing():
     config = cfg(ai={"chat": {}, "heavy": {}, "small": {"chat_url": "https://api.example.com/v1/chat",
                                                          "model": "m", "api_key_env": "TIER_KEY"}})
