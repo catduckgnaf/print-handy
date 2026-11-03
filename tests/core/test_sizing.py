@@ -72,6 +72,28 @@ class FeatureClearanceTests(unittest.TestCase):
         self.assertEqual(PAINTED_SCALE_STEPS[0], 1.0)
         self.assertEqual(PAINTED_SCALE_STEPS[-1], 0.5)
 
+    def test_painted_scale_tries_the_exact_ceiling_before_the_ladder(self):
+        # The confirm prompt's Scale button records arbitrary cumulative
+        # scales (99%, 105%); the painted fit must try that exact size
+        # first, not snap to the nearest ladder step below it.
+        from unittest.mock import patch
+        from print_handy.core import color_geometry, model_job as mj
+
+        def fake_export(base):
+            def export(src, out, view, object_ids=None, scale=1.0):
+                return None, {'parts': [{'bounds_mm': [[0, base * scale], [0, 10], [0, 10]]}]}
+            return export
+
+        limit = mj.BED_LIMIT_MM
+        with patch.object(color_geometry, 'export_color_geometry', fake_export(limit)):
+            # 99% fits as-is: the exact ceiling wins over the 95% ladder step.
+            self.assertEqual(mj.painted_plate_scale('src', None, {'1'}, ceiling=0.99), 0.99)
+            # Below the ladder floor the exact ceiling is still tried.
+            self.assertEqual(mj.painted_plate_scale('src', None, {'1'}, ceiling=0.4), 0.4)
+        with patch.object(color_geometry, 'export_color_geometry', fake_export(limit / 0.97)):
+            # 99% does not fit but 95% does: the ladder fallback still applies.
+            self.assertEqual(mj.painted_plate_scale('src', None, {'1'}, ceiling=0.99), 0.95)
+
     def test_fine_search_deferred_for_painted_multi_plate_jobs(self):
         from unittest.mock import patch
         with patch.object(oa, '_source_plate_count', return_value=2), \

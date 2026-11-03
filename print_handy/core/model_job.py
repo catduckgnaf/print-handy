@@ -4309,9 +4309,12 @@ def painted_plate_scale(src, view, object_ids, ceiling=1.0):
     fits the bed. Pure geometry export, no slicer, no printer."""
     import tempfile
     from .color_geometry import export_color_geometry
-    # A ceiling above 100% (an operator scaling up at the confirm prompt) is
-    # tried exactly first; the ladder below only ever shrinks.
-    steps = ([ceiling] if ceiling > 1.0 else []) + list(PAINTED_SCALE_STEPS)
+    # The exact ceiling is tried first, whatever its size: the confirm
+    # prompt's scaling records arbitrary cumulative scales (99%, 105%),
+    # and printing the nearest ladder step instead would change the size
+    # the operator approved. The ladder below is the fallback for a
+    # ceiling that does not fit as-is; it only ever shrinks.
+    steps = [ceiling] + [s for s in PAINTED_SCALE_STEPS if s < ceiling - 1e-9]
     with tempfile.TemporaryDirectory(prefix='painted-fit-') as tmp:
         for scale in steps:
             if scale > ceiling + 1e-9:
