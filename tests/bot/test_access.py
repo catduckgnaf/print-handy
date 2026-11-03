@@ -181,17 +181,22 @@ def test_startup_log_states_the_access_mode(cfg, caplog):
 def test_a_second_ready_on_a_live_session_warns_about_a_duplicate_token(cfg, caplog):
     from print_handy.bot import client
 
+    def ours():
+        # Only this module's warnings: discord.py logs a one-time "PyNaCl is not installed" warning on the
+        # first client a process builds, which lands here when this test runs first (a CI shard).
+        return [r for r in caplog.records if r.levelno == logging.WARNING and r.name == "print_handy.bot.client"]
+
     async def flow(bot):
         with mock.patch.object(bot.tree, "sync", mock.AsyncMock(return_value=[])):
             await bot.setup_hook()
         try:
             await bot.on_ready()
             await bot.on_ready()  # READY again, no disconnect in between
-            warned = [r for r in caplog.records if r.levelno == logging.WARNING]
+            warned = ours()
             await bot.on_disconnect()
             caplog.clear()
             await bot.on_ready()  # an ordinary reconnect: no warning
-            assert not [r for r in caplog.records if r.levelno == logging.WARNING]
+            assert not ours()
             return warned
         finally:
             for task in bot._background:

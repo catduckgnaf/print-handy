@@ -27,6 +27,9 @@ env:
 jobs:
   offline-tests:
     if: github.event.action != 'edited'
+    # Three shards per Python run in parallel (tests/conftest.py, PRINT_HANDY_TEST_SHARD). The
+    # offline-tests-result job reports the per-Python check names branch protection requires.
+    name: offline-tests (${{ matrix.python-version }}, shard ${{ matrix.shard }})
     runs-on: ubuntu-24.04  # Debian 13 container; hosted runner supplies the VM only.
     container:
       image: python:${{ matrix.python-version }}-slim-trixie
@@ -34,6 +37,7 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.12", "3.14"]
+        shard: [0, 1, 2]
     steps:
       # Tests inspect tracked files and ignore rules, so checkout needs real Git metadata.
       - name: Install Git before checkout
@@ -67,7 +71,24 @@ jobs:
           jq --version
       - name: Offline tests (no printer, no slicer, no network)
         timeout-minutes: 25
+        env:
+          PRINT_HANDY_TEST_SHARD: ${{ matrix.shard }}/3
         run: python -m pytest -q -rs tests
+
+  offline-tests-result:
+    # Keeps the required check names "offline-tests (3.12)" and "offline-tests (3.14)": passes only when
+    # every offline shard passed.
+    if: always() && github.event.action != 'edited'
+    needs: offline-tests
+    name: offline-tests (${{ matrix.python-version }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.14"]
+    steps:
+      - name: All offline shards passed
+        run: test "${{ needs.offline-tests.result }}" = success
 
   discord-timing:
     if: github.event.action != 'edited'
@@ -244,7 +265,13 @@ jobs:
 
   slicer-test-stable:
     if: github.event.action != 'edited'
-    name: Slicer test (stable)
+    name: Slicer test (stable, shard ${{ matrix.shard }})
+    # Three corpus shards run in parallel (tests/conftest.py, PRINT_HANDY_TEST_SHARD); the
+    # slicer-test-stable-result job reports the "Slicer test (stable)" check branch protection requires.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2]
     # The production track: the stable build docker/orca-prebuilt.sh pins is the shipped slicer (#356), so the full
     # corpus and the slicer fixtures run against its upstream flatpak bundle. That bundle ships
     # packed vendor profiles only (BBL.opc), so this job is also the packed-tree proof:
@@ -277,10 +304,20 @@ jobs:
           key: orcaslicer-flatpak-v${{ env.ORCA_BUNDLE_VERSION }}-${{ env.ORCA_RUNTIME_COMMIT }}-${{ runner.os }}-x86_64
       - name: Install the pinned OrcaSlicer bundle and GNOME runtime
         run: sh scripts/install-orca-flatpak.sh
-      - name: Run slicer tests (pinned Orca)
-        run: xvfb-run -a python -m pytest -v -s tests/slicer
-      - name: Discord flow corpus with real Orca
-        run: xvfb-run -a python -m pytest -v -s tests/corpus
+      - name: Slicer tests and Discord flow corpus with real Orca
+        env:
+          PRINT_HANDY_TEST_SHARD: ${{ matrix.shard }}/3
+        run: xvfb-run -a python -m pytest -v -s tests/slicer tests/corpus
+
+  slicer-test-stable-result:
+    if: always() && github.event.action != 'edited'
+    needs: slicer-test-stable
+    name: Slicer test (stable)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: All stable slicer shards passed
+        run: test "${{ needs.slicer-test-stable.result }}" = success
 
   slicer-test-preview:
     if: github.event.action != 'edited'

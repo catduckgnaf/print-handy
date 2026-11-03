@@ -87,6 +87,15 @@ class OfflineTestsWorkflowContract(unittest.TestCase):
         offline = next(run for run in runs if "pytest" in run)
         self.assertIn("-rs", offline)
 
+    def test_shards_cover_every_python_and_report_the_required_names(self):
+        jobs = load_workflow()["jobs"]
+        self.assertEqual(jobs["offline-tests"]["strategy"]["matrix"]["shard"], ["0", "1", "2"])
+        result = jobs["offline-tests-result"]
+        self.assertEqual(result["needs"], "offline-tests")
+        self.assertEqual(result["name"], "offline-tests (${{ matrix.python-version }})")
+        self.assertEqual(result["strategy"]["matrix"]["python-version"],
+                         jobs["offline-tests"]["strategy"]["matrix"]["python-version"])
+
 
 if __name__ == "__main__":
     unittest.main()
