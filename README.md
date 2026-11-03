@@ -8,7 +8,7 @@
 
 **Bambu Handy for every printer, local-first.** I made Print Handy as a local-only solution: it runs on your own machine, talks to your printers on your own network, and keeps your models, spools and print history in your house, not in someone else's cloud. Paste a model link from your phone into Discord, Telegram or Matrix, tap a few buttons, and go live your life. Print Handy slices it, matches your spools, asks before it prints, watches the camera for spaghetti, sends the timelapse, and roasts your model on the way out.
 
-You do not need AI, and you do not need Discord. Every core flow works with no model endpoint at all, and Telegram, Matrix and the local Web UI are there if Discord is not your thing. The AI extras are optional add-ons, never the price of entry.
+You do not need AI, and you do not need Discord. Every core flow works with no model endpoint at all, and if Discord is not your thing the same bot runs on Telegram or Matrix instead; the local Web UI covers status, settings and spools on the machine itself. The AI extras are optional add-ons, never the price of entry.
 
 Current release: **2.2.4**
 
@@ -20,7 +20,7 @@ Bambu owners get a slick phone app: find a model, tap print, check on it from an
 
 Print Handy is that phone experience for everybody else, Bambu included. Klipper, Flashforge, Prusa, Elegoo, Creality, Sovol, Snapmaker, Qidi, Anycubic and OctoPrint printers all work. It lives in the chat app you already have open, so "print this" is one pasted link instead of a sit-down session with a slicer.
 
-**Local-first, on purpose.** Print Handy is one program running on your hardware: the slicer, the spool records, the print history and the camera checks all stay on your network, and your printers are reached at their local addresses. There is no Print Handy account and no Print Handy cloud. A chat platform is just the remote control you pick, and a model endpoint is just an optional extra you can point at a server in your own house. Run it with neither and it still slices, prints, tracks spools and reports back.
+**Local-first, on purpose.** Print Handy is one program running on your hardware: the slicer, the spool records, the print history and the camera checks all stay on your network, and your printers are reached at their local addresses. There is no Print Handy account and no Print Handy cloud. A model endpoint is just an optional extra you can point at a server in your own house: with none configured at all, Print Handy still slices, prints, tracks spools and reports back. The chat platform is the remote control you pick for that flow (Discord, Telegram or Matrix, all running against your local install), and the local-only surfaces — the doctor and the Web UI — need no chat platform at all.
 
 It is also a little mean. Every print start comes with a one-line roast of your model (another articulated dragon? bold choice), the camera watchdog asks whether that's spaghetti or modern art, and nothing prints until a human says so. Usually you. Possibly someone with better taste.
 

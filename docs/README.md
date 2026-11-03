@@ -2,7 +2,7 @@
 
 [Project overview](../README.md) · [Contributing](../CONTRIBUTING.md)
 
-**Local-first, by design.** Print Handy was made as a local-only solution: it runs on your own machine, reaches your printers at their local addresses, and keeps models, spool records and print history on your network. There is no Print Handy account and no Print Handy cloud. You do not need AI — every core flow works with no model endpoint configured — and you do not need Discord: Telegram, Matrix and the local Web UI are first-class alternatives. The guides below are written for that shape; anything that reaches outside the house (a model site, an optional cloud model endpoint) says so where it happens.
+**Local-first, by design.** Print Handy was made as a local-only solution: it runs on your own machine, reaches your printers at their local addresses, and keeps models, spool records and print history on your network. There is no Print Handy account and no Print Handy cloud. You do not need AI — every core flow works with no model endpoint configured — and you do not need Discord: the same bot runs on Telegram or Matrix instead, and the local Web UI covers status, settings and spools on the machine itself. The guides below are written for that shape; anything that reaches outside the house (a model site, an optional cloud model endpoint) says so where it happens.
 
 ## 1. Install one mode
 
