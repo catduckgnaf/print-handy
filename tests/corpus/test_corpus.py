@@ -337,6 +337,24 @@ def test_a_generated_matrix_case_the_matrix_no_longer_yields_is_an_error(tmp_pat
     {"name": "x", "layout": "assembly", "colors": [5], "fit": ["tight"]},
     {"name": "x", "layout": "assembly", "colors": [2], "fit": ["snug"]},
     {"name": "x", "layout": "assembly", "colors": [], "fit": ["tight"]}])
+def test_matrix_clicks_and_colors_follow_the_spools_a_slots_override_binds():
+    """printer = { slots = 2 } binds White and Pink (spool_fixture.SPOOLS[:2]): the color question offers only
+    those, so the generated clicks and expected colors must too, never a Black the flow cannot offer."""
+    from . import matrix, spool_fixture
+    entry = {"name": "{layout}-{colors}c", "layout": "loose", "colors": [2], "fit": ["tight"], "printer": {"slots": 2}}
+    (case,) = matrix.expand(entry)
+    data = tomllib.loads(case.text)
+    loaded = {spool[3].casefold() for spool in spool_fixture.SPOOLS[:2]}
+    color_buttons = [c["button"] for c in data["click"] if c["question"].startswith("(")]
+    assert color_buttons == ["White", "Pink"]
+    assert set(data["expect"]["colors"].values()) <= loaded
+    assert data["expect"]["slots"] == 2
+    with pytest.raises(ValueError, match="spools the printer override binds"):
+        matrix.expand({**entry, "colors": [3]})
+    default = tomllib.loads(matrix.expand({**entry, "printer": {}})[0].text)
+    assert [c["button"] for c in default["click"] if c["question"].startswith("(")] == ["White", "Black"]
+
+
 def test_matrix_entries_that_cannot_be_built_are_refused(entry):
     from . import matrix
     with pytest.raises(ValueError):

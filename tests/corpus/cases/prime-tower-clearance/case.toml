@@ -36,7 +36,8 @@ button = "Plate 1"
 
 [expect]
 status = "STARTED"
-gcodes = 1
+# One single color G-code per plate: the four colors split into four plates.
+gcodes = 4
 plate_mode = "split"
 scale = 1.0
 
