@@ -830,20 +830,33 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(400, {"ok": False, "reason": "set must be dark or light"})
             return
         back = (query.get("back") or ["/"])[0]
-        if not back.startswith("/") or back.startswith("//"):
+        if not back.startswith("/") or back.startswith("//") \
+                or any(ord(char) < 0x20 or ord(char) == 0x7F for char in back):
+            # Not a local path, or it carries control characters: a decoded
+            # CR/LF would otherwise land in the Location header verbatim
+            # and inject response headers of the caller's choosing.
             back = "/"
         self._redirect(back, headers=[("Set-Cookie", shell.theme_cookie_header(theme))])
 
     # -- first-run walkthrough (#813) -----------------------------------------
+    def _walkthrough_data(self):
+        """The current effective settings for a walkthrough render or
+        POST: reloaded rather than the server's startup snapshot, so a
+        step that just saved a new printer model renders the new model's
+        fields when the operator comes Back to it — field visibility is
+        model-driven, and the startup data still names the old model."""
+        return settings.load(environ=self.server.webui_environ)
+
     def _walkthrough_page(self):
         """GET /walkthrough: the current step, or / when this install
         has no walkthrough pending (finished, skipped, or never owed
         one — token, loopback and require_auth=false installs)."""
-        if not walkthrough_module.pending(self.server.settings_data):
+        data = self._walkthrough_data()
+        if not walkthrough_module.pending(data):
             self._redirect("/")
             return
         self._send(200, walkthrough_module.render_page(
-            self.server.settings_data, self._field_values(),
+            data, self._field_values(),
             form_token=self.server.form_token, theme=self._theme(),
             environ=self.server.webui_environ), "text/html; charset=utf-8")
 
@@ -861,7 +874,7 @@ class _Handler(BaseHTTPRequestHandler):
                                        f"form's own {pages.CSRF_FIELD} token"})
             return
         kind, payload = walkthrough_module.apply_post(
-            self.server.settings_data, self.server.webui_environ, form,
+            self._walkthrough_data(), self.server.webui_environ, form,
             self._field_values(), form_token=self.server.form_token,
             theme=self._theme())
         if kind == "redirect":

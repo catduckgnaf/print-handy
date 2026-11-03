@@ -161,6 +161,44 @@ class WalkthroughServerTests(unittest.TestCase):
             self.assertEqual(reloaded["printer"]["name"], "Bench Printer")
             self.assertEqual(settings.printers(reloaded)[0]["name"], "Bench Printer")
 
+    def test_a_bambu_install_gets_its_connection_fields_on_the_printer_step(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd, port, _, local, environ = self.start(
+                tmp, setup_done=True, extra="printer:\n  model: bambulab.a1\n")
+            code, _, body = self.request(port, "GET", "/walkthrough")
+            self.assertEqual(code, 200)
+            self.assertIn('id="f-bambu.lan_host"', body)
+            self.assertIn('id="f-bambu.lan_serial"', body)  # the pair the validator requires
+            self.assertNotIn('id="f-services.moonraker_url"', body)
+            code, headers, _ = self.post_step(
+                port, environ, httpd.form_token, "printer",
+                **{"bambu.lan_host": "192.168.1.60",
+                   "bambu.lan_serial": "00M00A000000000"})
+            self.assertEqual((code, headers["location"]), (303, "/walkthrough"))
+            reloaded = settings.load(local=local, environ={})
+            self.assertEqual(reloaded["bambu"]["lan_host"], "192.168.1.60")
+            self.assertEqual(reloaded["bambu"]["lan_serial"], "00M00A000000000")
+
+    def test_a_saved_model_change_refreshes_the_connection_fields(self):
+        # Field visibility follows the model that was saved, not the one
+        # the server started with: switch Moonraker -> OctoPrint, come
+        # Back, and the step must offer the OctoPrint URL.
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd, port, _, _, environ = self.start(tmp, setup_done=True)
+            code, _, body = self.request(port, "GET", "/walkthrough")
+            self.assertIn('id="f-services.moonraker_url"', body)  # AD5X: Moonraker
+            code, headers, _ = self.post_step(
+                port, environ, httpd.form_token, "printer",
+                **{"printer.model": "octoprint.ender3"})
+            self.assertEqual((code, headers["location"]), (303, "/walkthrough"))
+            code, _, _ = self.post_step(port, environ, httpd.form_token,
+                                        "chat", action="back")
+            self.assertEqual(code, 303)
+            code, _, body = self.request(port, "GET", "/walkthrough")
+            self.assertEqual(code, 200)
+            self.assertIn('id="f-services.octoprint_url"', body)
+            self.assertNotIn('id="f-services.moonraker_url"', body)
+
     def test_status_page_shows_the_default_printers_job(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, port, _, _, _ = self.start(tmp, host="127.0.0.1")
@@ -340,6 +378,17 @@ class ThemeTests(unittest.TestCase):
             code, headers, _ = self.request(
                 port, "GET", "/theme?set=dark&back=https://evil.example/")
             self.assertEqual((code, headers["location"]), (303, "/"))
+
+    def test_theme_route_rejects_control_characters_in_back(self):
+        # A decoded CR/LF in back would otherwise reach the Location
+        # header verbatim and inject response headers (Codex P1).
+        with tempfile.TemporaryDirectory() as tmp:
+            port = self.start(tmp, host="127.0.0.1")
+            code, headers, _ = self.request(
+                port, "GET", "/theme?set=dark&back=/%0d%0aX-Injected:%20yes")
+            self.assertEqual(code, 303)
+            self.assertEqual(headers["location"], "/")
+            self.assertNotIn("x-injected", headers)
 
     def test_theme_route_is_unreachable_before_setup(self):
         with tempfile.TemporaryDirectory() as tmp:

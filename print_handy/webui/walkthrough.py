@@ -97,8 +97,15 @@ STEP_LEADS = {
 # (one printer URL per connection family, the ZMod format only for
 # Flashforge), exactly as on /config.
 STEP_FIELDS = {
+    # Every family's connection field is here; config_page_visible shows
+    # exactly the one the configured model's connection uses (plus the
+    # Bambu serial its validator pairs with the host), so a Bambu LAN,
+    # PrusaLink, stock Flashforge or Elegoo SDCP install can configure
+    # its connection on this step just like a Moonraker or OctoPrint one.
     "printer": ("printer.name", "printer.model", "services.moonraker_url",
-                "services.octoprint_url", "printer.zmod_delivery_format"),
+                "services.octoprint_url", "bambu.lan_host", "bambu.lan_serial",
+                "prusa.link_host", "flashforge_stock.host", "elegoo_sdcp.host",
+                "printer.zmod_delivery_format"),
     "chat": ("bot.platform", "bot.mode", "discord.chat_id", "discord.allowed_user_ids",
              "telegram.chat_id", "telegram.allowed_user_ids", "matrix.homeserver_url",
              "matrix.room_id", "matrix.allowed_user_ids"),
