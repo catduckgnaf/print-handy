@@ -551,11 +551,13 @@ _RELATIVE_PARAMS = {"taller": "height", "wider": "width", "longer": "length"}
 def deterministic_param_edit(source, instruction):
     """A plain parameter edit applied without a model call, or None.
 
-    Handles 'make <name> to <number>' / 'set <name> = <number>' and
-    '<number> mm taller|wider|longer' (mapped to the height/width/length
-    parameter). Returns (new_source, [(name, old, new)]). Anything else —
-    an unknown or ambiguous parameter name — returns None and the caller
-    runs a normal model turn.
+    Handles 'make <name> to <number>' / 'set <name> = <number>' (absolute:
+    the parameter is set to the given value) and
+    '<number> mm taller|wider|longer' (relative: the given amount is
+    added to the parameter's current value, mapped to the
+    height/width/length parameter). Returns (new_source, [(name, old, new)]).
+    Anything else — an unknown or ambiguous parameter name — returns None
+    and the caller runs a normal model turn.
     """
     if not source:
         return None
@@ -573,13 +575,14 @@ def deterministic_param_edit(source, instruction):
         return new_source, [(name, params[name], value)]
     match = _DET_RELATIVE.match(instruction or "")
     if match:
-        value = float(match.group(1))
+        delta = float(match.group(1))
         word = _RELATIVE_PARAMS[match.group(2).casefold()]
         exact = next((key for key in params if key.casefold() == word), None)
         candidates = [key for key in params if word in key.casefold()]
         name = exact or (candidates[0] if len(candidates) == 1 else None)
         if name is None:
             return None
+        value = params[name] + delta
         new_source = _set_scad_param(source, name, value)
         return new_source, [(name, params[name], value)]
     return None
@@ -1133,6 +1136,11 @@ class DesignEngine:
             source = self.current_scad(session)
             if source is None:
                 raise DesignError("the dropped model's source could not be read back")
+            # The dropped source is user-supplied, not model-generated, so
+            # it gets the same sandbox scan run_turn applies before any
+            # render: file-access statements (include/import/use/surface)
+            # must never reach OpenSCAD, absolute paths included.
+            scan_scad(source)
         else:
             raise DesignError("a baseline preview needs a dropped model; "
                               "describe what to make instead")

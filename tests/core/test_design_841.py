@@ -220,8 +220,27 @@ def test_deterministic_relative_edit_maps_to_the_height_variable(tmp_path, monke
     run(eng.run_turn(session, "a block"))
     result = run(eng.run_turn(session, "make it 5 mm taller"))
     assert len(fake.calls) == 1
-    assert result["param_changes"] == [("height", 3.0, 5.0)]
-    assert "height = 5;" in Path(result["scad_path"]).read_text()
+    assert result["param_changes"] == [("height", 3.0, 8.0)]
+    assert "height = 8;" in Path(result["scad_path"]).read_text()
+
+
+@pytest.mark.parametrize("source,instruction,expected", [
+    ("height = 20;\ncube([40, 20, height]);\n", "make it 5 mm taller",
+     ("height", 20.0, 25.0)),
+    ("width = 40;\ncube([width, 20, 3]);\n", "make it 5 mm wider",
+     ("width", 40.0, 45.0)),
+    ("length = 10;\ncube([length, 20, 3]);\n", "make it 2.5 mm longer",
+     ("length", 10.0, 12.5)),
+    ("height = 20;\ncube([40, 20, height]);\n", "5 mm taller",
+     ("height", 20.0, 25.0)),
+])
+def test_deterministic_relative_edit_adds_to_existing_value(source, instruction, expected):
+    edit = design.deterministic_param_edit(source, instruction)
+    assert edit is not None
+    new_source, changes = edit
+    assert changes == [expected]
+    name, _old, new = expected
+    assert f"{name} = {new:g};" in new_source
 
 
 def test_llm_turn_reports_the_params_it_changed(tmp_path, monkeypatch):
@@ -296,6 +315,35 @@ def test_baseline_turn_scad_uses_the_source_as_is(tmp_path, monkeypatch):
     result = eng.baseline_turn(session)
     assert Path(result["scad_path"]).read_text() == GOOD
     assert result["geometry"]["dimensions_mm"] == [40.0, 20.0, 3.0]
+
+
+@pytest.mark.parametrize("evil", [
+    "include </etc/passwd.scad>\ncube([40, 20, 3]);\n",
+    "import('/etc/passwd');\ncube([40, 20, 3]);\n",
+    "use <lib.scad>\ncube([40, 20, 3]);\n",
+    "surface(file = 'height.png');\n",
+])
+def test_baseline_turn_scad_scans_dropped_source_before_rendering(
+        tmp_path, monkeypatch, evil):
+    monkeypatch.setattr(render_preview, "render_sheet",
+                        lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("no renderer")))
+    rendered = []
+
+    def recording_runner(cmd, **kwargs):
+        rendered.append(cmd)
+        return cube_runner(cmd, **kwargs)
+
+    def forbidden(messages):
+        raise AssertionError("baseline turn must not call the model")
+
+    source = tmp_path / "evil.scad"
+    source.write_text(evil)
+    eng = engine(tmp_path, forbidden, runner=recording_runner)
+    session = eng.start_edit_session("o", "c", "edit", source)
+    with pytest.raises(design.DesignError, match="may not use"):
+        eng.baseline_turn(session)
+    assert rendered == []  # nothing was rendered / run
+    assert session["turns"] == 0
 
 
 # --------------------------------------------------------------------- extra (a): first ERROR line
