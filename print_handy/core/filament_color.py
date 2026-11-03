@@ -176,6 +176,19 @@ def first_hex(value: Any) -> str | None:
     return parsed[0] if parsed else None
 
 
+def all_hexes(value: Any) -> list[str]:
+    """Every valid hex of a single value or a comma-separated list (a blend's
+    ``multi_color_hexes``), normalized, in order, duplicates removed."""
+    if not isinstance(value, str):
+        return []
+    out: list[str] = []
+    for part in value.split(","):
+        hx = normalize_hex(part.strip())
+        if hx and hx not in out:
+            out.append(hx)
+    return out
+
+
 def _lab(rgb: str) -> tuple[float, float, float]:
     """CIE L*a*b* (D65) of an ``RRGGBB`` code."""
     r, g, b = [((c + 0.055) / 1.055) ** 2.4 if c > 0.04045 else c / 12.92

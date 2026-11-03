@@ -1442,11 +1442,16 @@ def handle_click(action: str, alert: dict[str, Any] | None, *,
     # cancel
     notes = []
     if st.get("klippy") == "shutdown":
-        ok, msg = clear_shutdown()
-        notes.append(msg)
-        if not ok:
-            return "\n".join(notes)
-        st = pc.status()
+        # #838: Cancel used to clear the shutdown first, which runs
+        # FIRMWARE_RESTART — a Klipper restart as a side effect of a cancel,
+        # re-initializing zmod_color/zmod_ifs on HelixScreen, and not what
+        # the screenless cancel contract promises. Refuse on this path only
+        # and name the deliberate route; clear_shutdown itself and its other
+        # callers are unchanged, and a normal (ready) cancel is untouched.
+        return ("The printer's controller is in shutdown, so this print cannot be cancelled "
+                "from here: clearing a shutdown restarts the controller, and Cancel does not do "
+                "that. Use /print-reboot to restart the controller deliberately, then cancel "
+                "the print if it is still loaded.")
     if st.get("state") in print_stop.ACTIVE:
         if filename and st.get("filename") and st["filename"] != filename:
             notes.append("A different print is loaded now than the one in this alert. Not cancelling it.")

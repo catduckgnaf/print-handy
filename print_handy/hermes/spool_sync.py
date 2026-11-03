@@ -654,6 +654,10 @@ def _slot_record(slot: int, spool: dict[str, Any], old: dict[str, Any] | None, n
         "weight_confidence": "spoolman",
         "physical_color_verified": bool(hex_code),
         "multi_color": multi_color,
+        # The blend's full color list rides on the record (#838): the launch
+        # color check accepts a screen set to any of these as the same spool,
+        # where the representative hex alone would warn or refuse.
+        "multi_color_hexes": raw_multi if isinstance(raw_multi, str) and raw_multi.strip() else None,
         "representative_swatch": multi_color,
         "physical_loading_verified": True,
         "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),

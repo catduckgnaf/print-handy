@@ -247,6 +247,10 @@ class PrintHandyBot(ext_commands.Bot):
                                                            self.core.adapter)
             except Exception:
                 logger.exception("could not announce interrupted intakes")
+            try:
+                await self.core.announce_pending_launch()
+            except Exception:
+                logger.exception("could not announce a pending launch")
 
     async def on_message(self, message):
         try:
