@@ -154,6 +154,10 @@ class WorkflowTests(unittest.TestCase):
             with self.subTest(job=name):
                 if name == "spelling":
                     self.assertNotIn("if", job)
+                elif name.endswith("-result"):
+                    # Shard result jobs gate required checks; without always() a failed shard would
+                    # skip them, and a skipped required check counts as passing.
+                    self.assertEqual("always() && github.event.action != 'edited'", job.get("if"))
                 else:
                     self.assertEqual("github.event.action != 'edited'", job.get("if"))
 

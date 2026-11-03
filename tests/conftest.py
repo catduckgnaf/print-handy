@@ -91,3 +91,21 @@ def _instant_start_confirmation(monkeypatch):
     monkeypatch.setattr(model_job, "_confirm_clock", clock)
     monkeypatch.setattr(model_job, "_confirm_sleep", clock.sleep)
     return clock
+
+
+# CI splits a long suite across parallel jobs with PRINT_HANDY_TEST_SHARD="<index>/<count>" (0 based).
+# Items are dealt round robin in collection order, so every shard gets a slice of each module and the slow
+# corpus cases spread evenly instead of landing in one shard. Unset (local runs) collects everything.
+@pytest.hookimpl(trylast=True)
+def pytest_collection_modifyitems(config, items):
+    spec = os.environ.get("PRINT_HANDY_TEST_SHARD", "").strip()
+    if not spec:
+        return
+    index, count = (int(part) for part in spec.split("/"))
+    if not 0 <= index < count:
+        raise pytest.UsageError(f"PRINT_HANDY_TEST_SHARD={spec!r}: index must be in 0..{count - 1}")
+    keep = [item for n, item in enumerate(items) if n % count == index]
+    drop = [item for n, item in enumerate(items) if n % count != index]
+    if drop:
+        config.hook.pytest_deselected(items=drop)
+    items[:] = keep

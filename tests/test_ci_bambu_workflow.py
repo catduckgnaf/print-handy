@@ -82,7 +82,9 @@ class RealSlicerBambuWorkflowContract(unittest.TestCase):
         # upstream stage; these names are the GitHub check contexts, and
         # branch protection requires "Slicer test (stable)".
         jobs = load_workflow()["jobs"]
-        self.assertEqual(jobs["slicer-test-stable"]["name"], "Slicer test (stable)")
+        # The stable leg is sharded; its result job carries the required check name.
+        self.assertEqual(jobs["slicer-test-stable-result"]["name"], "Slicer test (stable)")
+        self.assertEqual(jobs["slicer-test-stable-result"]["needs"], "slicer-test-stable")
         self.assertEqual(jobs["slicer-test-preview"]["name"], "Slicer test (preview)")
         self.assertEqual(jobs["slicer-test-bambu"]["name"], "Slicer test (bambu)")
         for job_id in jobs:
