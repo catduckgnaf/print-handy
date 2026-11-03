@@ -3131,7 +3131,8 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                content='Sliced with the backup slicer (Bambu Studio) because the main slicer could not slice this model.',
                                metadata=metadata)
         # #722: source-profile compatibility warnings ride the slice provenance; they are
-        # shown before the operator confirms the start, and they never change a setting.
+        # shown before the operator confirms the start. They change nothing: the values they name
+        # were never used, because the slice runs on the target printer's own profile (#868).
         profile_warnings = provenance.get('source_profile_warnings') or []
         if profile_warnings:
             await adapter.send(chat_id=source.chat_id, metadata=metadata,

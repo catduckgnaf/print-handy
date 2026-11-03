@@ -6,11 +6,17 @@ file. Without one, orca_adapter enforces the AD5X's approved start/end G-code
 against the model's output and blocks ordinary slices, and re-approving the
 shared file for one model silently changes the AD5X's approval.
 
-The baseline files themselves are not shipped: approval is a separate,
-deliberate operator step from a real slice of that model
+Most baseline files are not shipped: approval is a separate, deliberate
+operator step from a real slice of that model
 (python3 -m print_handy.core.approve_baseline approve-baseline <artifact>
 --baseline config/<file>). Until a model's file exists the guard only warns,
 as it already does for the other per-model baselines (e.g. bambulab.a1).
+
+The other five Flashforge profiles ship theirs (#868). Each was approved with
+that same command from the model's slice header rebuilt offline
+(model_artifact(key, adapter=True)), the method that reproduces the AD5X's
+real-slice approval byte for byte (test_offline_artifact_reproduces_the_real_ad5x_approval).
+tests/slicer/test_flashforge_baselines_real.py checks each against real Orca output.
 """
 import contextlib
 import io
@@ -28,19 +34,33 @@ AD5X_ARTIFACT = ROOT / "tests/fixtures/printers/ad5x_zmod/silk_pla_slot2_sliced.
 # The protected keys a real Orca artifact header carries (see the AD5X fixture).
 ARTIFACT_KEYS = ("machine_start_gcode", "machine_end_gcode", "post_process",
                  "host_type", "printer_technology")
+# Models whose baseline ships, approved from model_artifact(key, adapter=True) (#868).
+SHIPPED = ("flashforge.ad5m", "flashforge.ad5m_pro", "flashforge.creator5", "flashforge.creator5_pro",
+           "flashforge_stock.ad5x")
 
 
 def config_for(key):
     return settings.load(local=False, environ={"PRINT_HANDY__PRINTER__MODEL": key})
 
 
-def model_artifact(key, tmp_path):
+def model_artifact(key, tmp_path, adapter=False):
     """A >1000-byte G-code artifact shaped like a slice of `key`: the model's own
     template protected values in Orca header form (newlines escaped, as Orca
-    writes them; post_process is the Orca default the templates leave unset)."""
+    writes them; post_process is the Orca default the templates leave unset).
+
+    adapter=True writes the start/end G-code as slice_model hands it to Orca (the
+    printer adapter's machine_start_gcode/machine_end_gcode around the template
+    text) and Orca's default host_type (octoprint) where the template sets none:
+    what a real slice's header carries."""
     model = printers.MODELS[key]
     machine = json.loads((ROOT / "print_handy/templates/orca" / model.templates
                           / "machine.json").read_text())
+    if adapter:
+        a = printers.get(key, config_for(key))
+        machine = {**machine,
+                   "machine_start_gcode": a.machine_start_gcode(machine["machine_start_gcode"], "MESH_DATA"),
+                   "machine_end_gcode": a.machine_end_gcode(machine.get("machine_end_gcode", "")),
+                   "host_type": machine.get("host_type", "octoprint")}
     lines = []
     for k in ARTIFACT_KEYS:
         v = machine.get(k, "")
@@ -62,7 +82,41 @@ def test_every_model_but_the_ad5x_declares_its_own_baseline():
         assert model.baseline == f"protected-settings-baseline.{key}.json", key
         path = settings.ROOT / "config" / model.baseline
         assert path != sg.BASELINE_PATH, key
-        assert not path.exists(), key  # approval is a separate operator step, not shipped
+        # Approval is a separate operator step, not shipped, except the Flashforge profiles (#868).
+        assert path.exists() == (key in SHIPPED), key
+
+
+def test_offline_artifact_reproduces_the_real_ad5x_approval(tmp_path):
+    """The method the shipped Flashforge baselines were approved with gives the AD5X's own
+    real-slice approval (config/protected-settings-baseline.json) byte for byte."""
+    artifact = model_artifact(SHARED_OWNER, tmp_path, adapter=True)
+    with contextlib.redirect_stdout(io.StringIO()):
+        approved = sg.approve_baseline(artifact, path=tmp_path / "ad5x.json")
+    assert approved == json.loads(sg.BASELINE_PATH.read_text())
+
+
+@pytest.mark.parametrize("key", SHIPPED)
+def test_shipped_flashforge_baseline_is_the_template_output(key, tmp_path):
+    """Each shipped file is what approve-baseline writes from that model's slice header, so a
+    template change to the start/end G-code fails here until it is re-approved."""
+    artifact = model_artifact(key, tmp_path, adapter=True)
+    shipped = settings.ROOT / "config" / printers.MODELS[key].baseline
+    with contextlib.redirect_stdout(io.StringIO()):
+        approved = sg.approve_baseline(artifact, path=tmp_path / "approved.json")
+    assert approved == json.loads(shipped.read_text())
+    assert sg.enforce_approved_baseline(artifact, path=shipped).ok
+
+
+@pytest.mark.parametrize("key", SHIPPED)
+def test_shipped_flashforge_baseline_blocks_a_foreign_start_gcode(key, tmp_path):
+    """These printers now block a changed start G-code instead of only warning (#868)."""
+    artifact = model_artifact(key, tmp_path, adapter=True)
+    artifact.write_text(artifact.read_text().replace(
+        "; machine_start_gcode = ", "; machine_start_gcode = M1002 judge_flag g29_before_print_flag\\n", 1))
+    shipped = settings.ROOT / "config" / printers.MODELS[key].baseline
+    gate = sg.enforce_approved_baseline(artifact, path=shipped)
+    assert gate.status == "blocked", gate.as_dict()
+    assert any("machine_start_gcode" in b for b in gate.blocked), gate.blocked
 
 
 def test_shared_baseline_still_approves_the_ad5x_output():
