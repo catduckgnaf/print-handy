@@ -110,13 +110,56 @@ def test_number_forms_do_not_equate_different_numbers():
 @pytest.mark.parametrize("query,target", [
     ("cfg", "config"),
     ("config", "configuration file"),
+    ("var", "variable"),
+    ("vars", "variables"),
+    ("param", "parameter"),
+    ("params", "parameters"),
+    ("dim", "dimension"),
+    ("dims", "dimensions"),
+    ("accel", "acceleration"),
+    ("fw", "firmware"),
+    ("sw", "software"),
+    ("calib", "calibration"),
+    ("diag", "diagnostic"),
     ("temp", "temperature"),
     ("temperature", "temp"),
     ("12 millimeter", "12 mm"),
     ("millimeters", "mm"),
+    ("centimeter", "cm"),
+    ("centimetre", "cm"),
+    ("meter", "m"),
+    ("metre", "m"),
+    ("micron", "um"),
+    ("micrometer", "um"),
+    ("inches", "in"),
+    ("kilogram", "kg"),
+    ("grams", "g"),
+    ("seconds", "s"),
+    ("10 sec", "10 s"),
+    ("minute", "min"),
+    ("hour", "hr"),
+    ("celsius", "c"),
+    ("degrees", "deg"),
+    ("percent", "pct"),
     ("hot end", "hotend"),
+    ("cold end", "coldend"),
     ("z offset", "zoffset"),
     ("build plate", "buildplate"),
+    ("heat bed", "heatbed"),
+    ("heated bed", "heatbed"),
+    ("print bed", "printbed"),
+    ("lead screw", "leadscrew"),
+    ("bowden tube", "bowdentube"),
+    ("input shaper", "inputshaper"),
+    ("pressure advance", "pressureadvance"),
+    ("layer height", "layerheight"),
+    ("flow rate", "flowrate"),
+    ("fan speed", "fanspeed"),
+    ("cold pull", "coldpull"),
+    ("spool holder", "spoolholder"),
+    ("bed mesh", "bedmesh"),
+    ("run out", "runout"),
+    ("time lapse", "timelapse"),
     ("power supply", "psu"),
     ("under extrusion", "underextrusion"),
     ("nozzles", "nozzle"),
@@ -124,6 +167,19 @@ def test_number_forms_do_not_equate_different_numbers():
     ("colours", "colors"),
     ("grey", "gray"),
     ("Silk Grey", "silk gray"),
+    ("aluminium", "aluminum"),
+    ("fibre", "fiber"),
+    ("carbon fibre", "carbon fiber"),
+    ("centre", "center"),
+    ("calibre", "caliber"),
+    ("matt", "matte"),
+    ("matt black", "matte black"),
+    ("customise", "customize"),
+    ("optimise", "optimize"),
+    ("behaviour", "behavior"),
+    ("favourite", "favorite"),
+    ("polyamide", "nylon"),
+    ("polycarbonate", "pc"),
     ("boxes", "box"),
     ("warped", "warp"),
     ("leveling", "level"),
@@ -141,9 +197,11 @@ def test_distinct_concepts_are_not_merged():
     assert fuzzy.canonical("skirt") != fuzzy.canonical("raft")
     assert fuzzy.canonical("nozzle") != fuzzy.canonical("hotend")
     assert fuzzy.canonical("hotend") != fuzzy.canonical("extruder")
+    assert fuzzy.canonical("petg") != fuzzy.canonical("pctg")
     # And the abbreviation fold must not rescue the pinned false friend:
     # "temp" (→ temperature) against "temple" scored 80 before, 0 now.
     assert fuzzy.fuzzy_score("temp", "temple") == 0
+    assert fuzzy.fuzzy_score("var", "vat") == 0
 
 
 # ------------------------------------------------------- canonical: typos
@@ -167,6 +225,11 @@ def test_misspelling_classes_match(query, target):
     ("enuf", "enough"),               # pure sound spelling: plain pass scores 0
     ("retrakshun", "retraction"),
     ("adhezhun", "adhesion"),
+    ("wat", "what"),
+    ("lite", "light"),
+    ("brite", "bright"),
+    ("clok", "clock"),
+    ("wring", "ring"),
 ])
 def test_phonetic_rescue_lifts_sound_spellings(query, target):
     assert fuzzy.fuzzy_score(query, target) >= fuzzy.FUZZY_FLOOR

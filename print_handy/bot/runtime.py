@@ -131,9 +131,15 @@ _TASK_INTENT_SUGGESTIONS = (
     (re.compile(r"^(?:please\s+)?(?:i\s+(?:need|want)\s+to\s+)?(?:add|create|new)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:filament|spool|roll)$", re.I), "/spool"),
     (re.compile(r"^(?:please\s+)?(?:what|which)\s+(?:filament|spool|color)s?\s+(?:is|are)\s+loaded$", re.I), "/print-spools"),
     (re.compile(r"^(?:please\s+)?(?:stop|cancel|abort)\s+(?:the\s+)?(?:current\s+)?print$", re.I), "/print-stop"),
+    (re.compile(r"^(?:please\s+)?pause\s+(?:the\s+)?(?:current\s+)?print$", re.I), "/print-pause"),
     (re.compile(r"^(?:please\s+)?(?:resume|continue|unpause)\s+(?:the\s+)?(?:current\s+)?print$", re.I), "/print-resume"),
     (re.compile(r"^(?:please\s+)?(?:restart|reboot)\s+(?:the\s+)?printer$", re.I), "/print-reboot"),
     (re.compile(r"^(?:please\s+)?(?:do|run)\s+(?:a\s+)?cold\s*pull$", re.I), "/print-coldpull"),
+    (re.compile(r"^(?:please\s+)?(?:what\s+is\s+(?:the\s+)?)?(?:printer|print)\s+status$", re.I), "/print-status"),
+    (re.compile(r"^(?:please\s+)?how\s+is\s+the\s+print\s+doing$", re.I), "/print-status"),
+    (re.compile(r"^(?:please\s+)?(?:is\s+the\s+print\s+(?:still\s+)?running|print\s+progress)$", re.I), "/print-status"),
+    (re.compile(r"^(?:please\s+)?(?:reprint|print\s+(?:it\s+)?again)$", re.I), "/print-again"),
+    (re.compile(r"^(?:please\s+)?(?:run\s+)?(?:bed\s+leveling|bed\s+level|auto\s+bed\s+leveling|calibration)$", re.I), "/print-calibrate"),
 )
 
 

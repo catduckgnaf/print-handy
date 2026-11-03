@@ -40,18 +40,22 @@ Hardening + vocabulary pass (post-2.2.1 audit, toward 2.2.2):
   matcher and print-history matching all route through it.
 - Scoring canonicalizes both sides (``canonical``): number words and
   digits are the same number ("twenty one" == "21", "2nd" == "second"
-  == "2"), a small set of domain abbreviations and compound forms are
-  equated ("cfg" == "configuration", "temp" == "temperature",
-  "hot end" == "hotend", "power supply" == "psu", millimetre == "mm",
-  "colour" == "color", "grey" == "gray"),
+  == "2"), domain abbreviations, variables and compound forms are
+  equated ("cfg" == "configuration", "var" == "variable", "param" == "parameter",
+  "dim" == "dimension", "accel" == "acceleration", "temp" == "temperature",
+  "hot end" == "hotend", "heat bed" == "heatbed", "lead screw" == "leadscrew",
+  "power supply" == "psu", units such as millimetre/cm/meter == "mm"/"cm"/"m",
+  and Commonwealth/British spelling equivalents such as "colour" == "color",
+  "grey" == "gray", "aluminium" == "aluminum", "fibre" == "fiber"),
   and simple plurals/verb forms fold together ("nozzles" == "nozzle",
   "leveling" == "level", "jammed" == "jam"). This lives only in the
   fuzzy scorer: exact tiers and the exact print-number path are
   untouched, and fuzzy hits still only ever produce suggestions.
 - When the plain pass scores 0, a phonetic rescue pass scores a lightly
   sound-folded form of both sides ("enuf" → "enough",
-  "retrakshun" → "retraction", "adhezhun" → "adhesion"). It can only
-  lift pairs the plain pass already rejected, so no existing score moves.
+  "retrakshun" → "retraction", "adhezhun" → "adhesion", "wat" → "what",
+  "lite" → "light"). It can only lift pairs the plain pass already rejected,
+  so no existing score moves.
 - ``windowed_fuzzy_score`` caps its window pass (see the constants):
   keyword-stuffed titles and very long queries fall back to the
   whole-string score instead of burning seconds of CPU per candidate.
@@ -180,34 +184,192 @@ def _parse_number_phrase(tokens, start):
 # Compound phrases users type both ways; folded to the joined form.
 _PHRASE_FORMS = {
     ("hot", "end"): ("hotend",),
+    ("cold", "end"): ("coldend",),
     ("z", "offset"): ("zoffset",),
     ("build", "plate"): ("buildplate",),
+    ("print", "bed"): ("printbed",),
+    ("heat", "bed"): ("heatbed",),
+    ("heated", "bed"): ("heatbed",),
+    ("print", "head"): ("printhead",),
+    ("heat", "break"): ("heatbreak",),
+    ("heat", "sink"): ("heatsink",),
+    ("heat", "block"): ("heatblock",),
     ("power", "supply"): ("psu",),
     ("under", "extrusion"): ("underextrusion",),
     ("over", "extrusion"): ("overextrusion",),
     ("pre", "heat"): ("preheat",),
+    ("bowden", "tube"): ("bowdentube",),
+    ("lead", "screw"): ("leadscrew",),
+    ("layer", "height"): ("layerheight",),
+    ("line", "width"): ("linewidth",),
+    ("flow", "rate"): ("flowrate",),
+    ("fan", "speed"): ("fanspeed",),
+    ("fan", "shroud"): ("fanshroud",),
+    ("in", "fill"): ("infill",),
+    ("spool", "holder"): ("spoolholder",),
+    ("run", "out"): ("runout",),
+    ("bed", "mesh"): ("bedmesh",),
+    ("part", "cooling"): ("partcooling",),
+    ("time", "lapse"): ("timelapse",),
+    ("time", "out"): ("timeout",),
+    ("input", "shaper"): ("inputshaper",),
+    ("input", "shaping"): ("inputshaping",),
+    ("pressure", "advance"): ("pressureadvance",),
+    ("linear", "advance"): ("linearadvance",),
+    ("g", "code"): ("gcode",),
+    ("cold", "pull"): ("coldpull",),
+    ("first", "layer"): ("firstlayer",),
+    ("top", "layer"): ("toplayer",),
+    ("bottom", "layer"): ("bottomlayer",),
+    ("outer", "wall"): ("outerwall",),
+    ("inner", "wall"): ("innerwall",),
+    ("step", "loss"): ("steploss",),
 }
 
-# Single-token equivalents: abbreviations and unit spellings a user
+# Single-token equivalents: abbreviations, variable/setting names,
+# unit spellings, and British/Commonwealth spelling variants a user
 # typing one of would accept the other as a lookup hit. Deliberately
-# small — distinct concepts (brim/skirt/raft, nozzle/hotend/extruder)
-# are NOT merged; they are different things, not variants.
+# targeted — distinct concepts (brim/skirt/raft, nozzle/hotend/extruder,
+# petg/pctg) are NOT merged; they are different things, not variants.
 _TOKEN_FORMS = {
+    # Configuration and variables / settings
     "cfg": "config",
     "configuration": "config",
+    "var": "variable",
+    "vars": "variable",
+    "param": "parameter",
+    "params": "parameter",
+    "dim": "dimension",
+    "dims": "dimension",
+    "spec": "specification",
+    "specs": "specification",
+    "accel": "acceleration",
+    "accelerations": "acceleration",
+    "res": "resolution",
+    "pos": "position",
+    "diag": "diagnostic",
+    "diags": "diagnostic",
+    "calib": "calibration",
+    "calibrate": "calibration",
+    "fw": "firmware",
+    "sw": "software",
+    "repo": "repository",
+    "repos": "repository",
+    "doc": "documentation",
+    "docs": "documentation",
+    "info": "information",
+    "init": "initialize",
+    "initialization": "initialize",
+    "initialisation": "initialize",
+    "sync": "synchronize",
+    "synchronization": "synchronize",
+    "synchronisation": "synchronize",
+    "auto": "automatic",
     "temp": "temperature",
+    # Units and measurements
     "millimeter": "mm",
     "millimeters": "mm",
     "millimetre": "mm",
     "millimetres": "mm",
-    # Spelling variants of the same color word — a spool named "Silk
-    # Grey" and a user asking for "gray" (or "colour" for "color") mean
-    # one color, as millimetre/millimeter mean one unit. Both plural
-    # forms are listed because the lookup runs before stemming.
+    "centimeter": "cm",
+    "centimeters": "cm",
+    "centimetre": "cm",
+    "centimetres": "cm",
+    "meter": "m",
+    "meters": "m",
+    "metre": "m",
+    "metres": "m",
+    "micron": "um",
+    "microns": "um",
+    "micrometer": "um",
+    "micrometers": "um",
+    "micrometre": "um",
+    "micrometres": "um",
+    "inch": "in",
+    "inches": "in",
+    "kilogram": "kg",
+    "kilograms": "kg",
+    "kilo": "kg",
+    "kilos": "kg",
+    "gram": "g",
+    "grams": "g",
+    "seconds": "s",
+    "sec": "s",
+    "secs": "s",
+    "minute": "min",
+    "minutes": "min",
+    "mins": "min",
+    "hour": "hr",
+    "hours": "hr",
+    "hrs": "hr",
+    "celsius": "c",
+    "centigrade": "c",
+    "fahrenheit": "f",
+    "degree": "deg",
+    "degrees": "deg",
+    "percent": "pct",
+    "percentage": "pct",
+    # Spelling variants (Commonwealth / British to US) — users typing either
+    # spelling mean the same word, as colour/color and grey/gray.
     "colour": "color",
     "colours": "color",
     "grey": "gray",
     "greys": "gray",
+    "aluminium": "aluminum",
+    "fibre": "fiber",
+    "fibres": "fiber",
+    "centre": "center",
+    "centres": "center",
+    "calibre": "caliber",
+    "calibres": "caliber",
+    "gauge": "gauge",
+    "gage": "gauge",
+    "gages": "gauge",
+    "matt": "matte",
+    "honour": "honor",
+    "honours": "honor",
+    "behaviour": "behavior",
+    "behaviours": "behavior",
+    "favour": "favor",
+    "favours": "favor",
+    "favourite": "favorite",
+    "favourites": "favorite",
+    "neighbour": "neighbor",
+    "neighbours": "neighbor",
+    "catalogue": "catalog",
+    "catalogues": "catalog",
+    "dialogue": "dialog",
+    "dialogues": "dialog",
+    "programme": "program",
+    "programmes": "program",
+    "mould": "mold",
+    "moulds": "mold",
+    "moulding": "molding",
+    "customise": "customize",
+    "customises": "customize",
+    "customised": "customize",
+    "customising": "customize",
+    "optimise": "optimize",
+    "optimises": "optimize",
+    "optimised": "optimize",
+    "optimising": "optimize",
+    "categorise": "categorize",
+    "categorises": "categorize",
+    "categorised": "categorize",
+    "categorising": "categorize",
+    "prioritise": "prioritize",
+    "prioritises": "prioritize",
+    "prioritised": "prioritize",
+    "prioritising": "prioritize",
+    "analise": "analyze",
+    "analyse": "analyze",
+    "analysed": "analyze",
+    "analysing": "analyze",
+    # Material / polymer synonyms
+    "polyamide": "nylon",
+    "polycarbonate": "pc",
+    "polypropylene": "pp",
+    "polyurethane": "tpu",
 }
 
 
@@ -320,6 +482,11 @@ def _phonetic(token):
     token = token.replace("ough", "uf")
     token = re.sub(r"c(?=[aou])", "k", token)
     token = token.replace("zh", "sh")
+    token = re.sub(r"^wh", "w", token)
+    token = re.sub(r"^wr", "r", token)
+    token = token.replace("ck", "k")
+    token = token.replace("lite", "light")
+    token = token.replace("brite", "bright")
     return token
 
 

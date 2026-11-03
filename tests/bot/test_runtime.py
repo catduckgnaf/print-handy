@@ -374,7 +374,13 @@ def _recording_router(seen):
     ("I need to replace a filament roll", "/spool"),
     ("change spool", "/spool"),
     ("stop the print", "/print-stop"),
+    ("pause the print", "/print-pause"),
     ("what filaments are loaded", "/print-spools"),
+    ("printer status", "/print-status"),
+    ("how is the print doing", "/print-status"),
+    ("print progress", "/print-status"),
+    ("print again", "/print-again"),
+    ("bed leveling", "/print-calibrate"),
     ("", None),
 ])
 def test_command_suggestion_pins(text, expected):
