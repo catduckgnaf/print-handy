@@ -229,6 +229,7 @@ def test_release_abandoned_touches_only_that_files_sent_lease():
     lease = launch_state.acquire(key, job_json="/archive/a/JOB.json", gcode_sha256="a" * 64, remote=FILE)
     assert launch_state.release_abandoned(key, FILE) is None  # leased: nothing was sent yet
     lease.submitting()
+    assert launch_state.release_abandoned(key, FILE) is None  # its live owner is still deciding
     lease.uncertain("preparing")
     assert launch_state.release_abandoned(key, OTHER) is None
     assert launch_state.release_abandoned(key, "") is None

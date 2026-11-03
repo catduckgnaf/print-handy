@@ -6145,7 +6145,7 @@ def _wait_printing(st, remote, wait_s, prep_check=None):
     prep_check (native mapped starts): heater targets set by the printer's own preparation prove
     acceptance only provisionally (#836). Once seen, keep watching: preparation that ends with
     the heaters cold and print_stats still standby was a start the printer abandoned (an IFS load
-    fault, say), so return then instead of reporting the early heat as a started print."""
+    fault, say), so return "abandoned" then instead of reporting the early heat as a started print."""
     t0=time.monotonic(); state=None; prep_seen=False
     while time.monotonic()-t0 < wait_s:
         state,fn,busy=_printer_phase(st)
@@ -6156,7 +6156,7 @@ def _wait_printing(st, remote, wait_s, prep_check=None):
             try:
                 prep = prep_check(st)
                 if prep is True: prep_seen=True
-                elif prep is False and prep_seen and state == "standby": return state  # prep ended, never printed
+                elif prep is False and prep_seen and state == "standby": return "abandoned"  # prep ended, never printed
             except Exception: pass
         if time.monotonic()-t0 > 20 and busy != "Printing": return state  # settled, not printing
         time.sleep(1)
@@ -6495,6 +6495,18 @@ def _start_receipt_error(st, receipt, *, watermark):
         if found:
             return found[0][:300]
     return None
+
+
+def _start_visibly_running(st, remote, heaters_were_off):
+    """Whether the printer shows this start under way: it reports this file printing or paused, or
+    heater targets are set now that were proven off immediately before the POST. Unreadable: False."""
+    try:
+        state, fn, _busy = _printer_phase(st)
+        if state in ("printing", "paused") and launch_state.same_remote(fn, remote):
+            return True
+    except Exception:
+        pass
+    return bool(heaters_were_off) and _preparation_evidence(st) is True
 
 
 START_OUTCOME_MARK = "START READBACK "  # "MAPPED START READBACK " contains it, so one parser reads both
@@ -6941,6 +6953,13 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
     # gcode store readback, past the pre-POST watermark) carries a `!!` line. That is a refusal,
     # not a pending start (#836).
     receipt_error = _start_receipt_error(st, receipt, watermark=store_watermark)
+    if receipt_error is not None and _start_visibly_running(st, remote, heaters_were_off):
+        # A held-open SET_ZCOLOR POST spans the printer's whole preparation, so the store window
+        # can hold a `!!` from anything that ran meanwhile. A printer already running or heating
+        # for this start has not refused it: confirm it like any other start instead.
+        print(f"WARNING: console error after the start ({receipt_error}), but the printer is running "
+              "this start; not treated as a refusal.", flush=True)
+        receipt_error = None
     if receipt_error is not None:
         lease.release()
         release_start_announcement(remote)
@@ -6981,6 +7000,16 @@ def _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_pat
     except Exception as exc:
         logger.warning('start record failed after submission: %s', exc)
     state = _wait_printing(st, remote, wait_s, prep_check=_preparation_evidence)
+    if state == 'abandoned':
+        # #848 review: the printer heated for this start (targets proven off just before the POST),
+        # then went back to standby cold without ever printing it. Nothing is printing, so the
+        # printer is free: release it now instead of leaving an uncertain lease that nothing
+        # settles (no history entry, no print) and that refuses every later start.
+        reason = 'it heated for this job, then went back to standby without printing; check the IFS slot and HelixScreen'
+        lease.release()
+        release_start_announcement(remote)
+        _write_checkpoint(checkpoint, {**out, 'phase': 'abandoned', 'rejection': reason})
+        raise SystemExit(_rejected_start_message(reason))
     readback = None
     try:
         snap = _mr(st, "/printer/objects/query?print_stats&extruder&heater_bed&virtual_sdcard&idle_timeout&webhooks&toolhead")

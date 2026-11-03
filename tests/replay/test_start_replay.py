@@ -129,16 +129,18 @@ def printer_heats_then_gives_up(prep_s=10):
 
 
 def test_a_start_that_heats_then_returns_to_standby_is_not_reported_started(ad5x, tmp_path):
-    ad5x.script_hook = printer_heats_then_gives_up(prep_s=10)
+    # Preparation outlasts print-now's first heater read (2 real s), as a real IFS load does.
+    ad5x.script_hook = printer_heats_then_gives_up(prep_s=60)
     job, _ = make_job(tmp_path)
 
-    ok, tail = run_print_now(job, wait_s=3)           # real seconds; covers 60 printer s at SCALE 1/20
+    ok, tail = run_print_now(job, wait_s=6)           # real seconds; covers 120 printer s at SCALE 1/20
 
     status, _message = intake_outcome(ok, tail)
     assert ad5x.status["print_stats"]["state"] == "standby"           # sanity: the printer never printed
     assert ad5x.status["extruder"]["target"] == 0.0
-    assert status != "STARTED", tail                                   # today: STARTED (phase "preparing")
-    assert [row["phase"] for row in leases()] == ["uncertain"]         # today: [] (released at 6882)
+    assert status == "START_REFUSED", tail                             # not "started": it never printed
+    assert "went back to standby without printing" in tail
+    assert leases() == []          # #848 review: the printer is free for the next start, no CLI needed
     assert len(ad5x.zcolor()) == 1 and len(ad5x.uploads) == 1          # never resubmitted
 
 
@@ -341,3 +343,26 @@ def test_a_failed_upload_reads_didnt_start_and_releases_the_lease(ad5x, tmp_path
     assert status == "START_REFUSED" and message.startswith("Didn't start")
     assert ad5x.zcolor() == [] and leases() == []
     assert not launch_state.submitted()
+
+
+def test_a_bang_line_logged_while_a_held_open_start_prints_is_not_its_refusal(ad5x, tmp_path):
+    """A held-open SET_ZCOLOR POST spans the printer's preparation; a `!!` from anything logged
+    meanwhile must not refuse (and release the lease of) a start the printer is already printing."""
+    def hook(fake, script):
+        if not script.startswith("SET_ZCOLOR"):
+            return 0
+        remote = re.search(r"FILENAME=(\S+)", script).group(1)
+        fake.after(1, fake.heat)
+        fake.after(2, lambda: fake.start_printing(remote))
+        fake.after(3, lambda: fake.gcode_store.append({"message": "!! some unrelated macro warning",
+                                                       "time": time.time()}))
+        return 5
+    ad5x.script_hook = hook
+    job, _ = make_job(tmp_path)
+
+    ok, tail = run_print_now(job)
+
+    status, _message = intake_outcome(ok, tail)
+    assert status == "STARTED", tail
+    assert leases() == []
+    assert len(ad5x.zcolor()) == 1

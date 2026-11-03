@@ -444,6 +444,8 @@ def release_abandoned(printer, filename):
         row = con.execute("SELECT * FROM leases WHERE printer=?", (printer,)).fetchone()
         if row is None or row["phase"] == "leased" or not same_remote(filename, row["remote"]):
             return None
+        if row["phase"] == "submitting" and _owner_alive(row, unknown=False):
+            return None  # print-now is still deciding this start; it settles its own lease
         con.execute("DELETE FROM leases WHERE printer=? AND token=?", (printer, row["token"]))
         con.execute("DELETE FROM lease_baselines WHERE printer=?", (printer,))
     return dict(row, reconciled="not_started", reconciled_at=_now())
