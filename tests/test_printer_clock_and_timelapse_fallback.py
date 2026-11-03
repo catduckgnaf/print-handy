@@ -292,3 +292,20 @@ def test_listener_retries_a_busy_printer_and_backs_off_after_a_failure(monkeypat
     clock[0] += mel.CLOCK_SYNC_BACKOFF_S + 1
     listener._sync_printer_clock("poll")
     assert len(tried) == 3
+
+
+def test_zone_gaps_beyond_14_hours_are_corrected(monkeypatch):
+    # Codex on #860: Pacific/Honolulu (UTC-10) against ZMod's default UTC+5 is 15 h apart.
+    calls = _zone_env(monkeypatch, [86400 * 307, 15 * 3600 + 2, 0.5])
+    assert launch_state.sync_printer_clock("http://p:7125", "Pacific/Honolulu", now=1793667044) == "ok"
+    assert len([c for c in calls if "gcode/script" in c]) == 2
+
+
+def test_the_zone_correction_shifts_wall_time_across_a_dst_change(monkeypatch):
+    # Codex on #860: at 2026-03-08T01:00Z New York is 20:00 EST; a UTC+5 printer needs 06:00.
+    # Shifting the instant by 10 h lands after the DST change and sends 07:00 instead.
+    calls = _zone_env(monkeypatch, [86400 * 307, 10 * 3600, 0.5])
+    now = 1772931600.0  # 2026-03-08T01:00:00Z
+    assert launch_state.sync_printer_clock("http://p:7125", "America/New_York", now=now) == "ok"
+    sent = [c for c in calls if "gcode/script" in c]
+    assert "2026.03.07-20%3A00%3A00" in sent[0] and "2026.03.08-06%3A00%3A00" in sent[1]

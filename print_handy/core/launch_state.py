@@ -467,11 +467,11 @@ def clock_warning(skew):
 # Asia/Yekaterinburg), which need not be the operator's. The zone gap learned from a
 # readback, per Moonraker URL, so later syncs land right the first time.
 _CLOCK_ZONE_GAP_S = {}
-# A residual this close to a whole quarter hour, and no larger than any real zone gap,
-# is the printer reading the stamp in another zone rather than a failed set.
+# A residual this close to a whole quarter hour, and no larger than any two real zones can
+# differ by, is the printer reading the stamp in another zone rather than a failed set.
 _ZONE_STEP_S = 900
 _ZONE_TOLERANCE_S = 120
-_MAX_ZONE_GAP_S = 14 * 3600
+_MAX_ZONE_GAP_S = 26 * 3600  # two zones differ by at most UTC+14 minus UTC-12
 
 
 def sync_printer_clock(moonraker_url, tz_name, *, now=None, log=None):
@@ -489,7 +489,7 @@ def sync_printer_clock(moonraker_url, tz_name, *, now=None, log=None):
     import json
     import urllib.parse
     import urllib.request
-    from datetime import datetime
+    from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
     say = log or (lambda m: None)
     if os.environ.get("PRINT_HANDY_CLOCK_SYNC", "1").strip().lower() in ("0", "false", "no", "off"):
@@ -502,8 +502,10 @@ def sync_printer_clock(moonraker_url, tz_name, *, now=None, log=None):
         return "ok"
 
     def set_clock(gap):
-        at = (now if now is not None else time.time()) + gap
-        stamp = datetime.fromtimestamp(at, ZoneInfo(tz_name)).strftime("%Y.%m.%d-%H:%M:%S")
+        # The gap is between two zones' wall clocks, so shift the local wall time, not the
+        # instant: across a DST change in tz_name the instant's offset would differ by an hour.
+        local = datetime.fromtimestamp(now if now is not None else time.time(), ZoneInfo(tz_name))
+        stamp = (local.replace(tzinfo=None) + timedelta(seconds=gap)).strftime("%Y.%m.%d-%H:%M:%S")
         req = urllib.request.Request(base + "/printer/gcode/script?" + urllib.parse.urlencode({"script": f"DATE_SET DT={stamp}"}),
                                      data=b"", method="POST")
         urllib.request.urlopen(req, timeout=20).read()
