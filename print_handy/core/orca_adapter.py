@@ -20,6 +20,7 @@ from .compact_geometry import IndexedTriangles
 from . import slice_guard as sg
 from .slice_guard import pre_slice, post_slice
 from .slice_failure import SliceFailure
+from .failure_report import slicer_evidence
 
 logger = logging.getLogger(__name__)
 
@@ -1513,7 +1514,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         if result.returncode or not output.is_file() or output.stat().st_size == 0:
             raise SliceFailure(f'Flash Studio slicing failed ({result.returncode}) or produced no G-code; '
                                f'see {_keep_failure_logs(folder) / "flash-studio.log"}',
-                               kind='engine', slicer='Flash Studio', returncode=result.returncode)
+                               kind='engine', slicer='Flash Studio', returncode=result.returncode,
+                               **_failure_evidence(folder))
     else:
         result = _run_slicer(command, 'OrcaSlicer', folder)
         (folder / 'orca.log').write_text(result.stdout + result.stderr)
@@ -1577,11 +1579,12 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         raise SliceFailure(f'Orca slicing failed ({result.returncode}) or no G-code output{details}; '
                            f'see {_keep_failure_logs(folder) / "orca.log"}',
                            kind='conflict' if _orca_conflict(folder) else 'engine',
-                           slicer='OrcaSlicer', returncode=result.returncode)
+                           slicer='OrcaSlicer', returncode=result.returncode, **_failure_evidence(folder))
     if primary == 'flash_studio' and (result.returncode or not output.is_file() or output.stat().st_size == 0):
         raise SliceFailure(f'Flash Studio slicing failed ({result.returncode}) or produced no G-code; '
                            f'see {_keep_failure_logs(folder) / "flash-studio.log"}',
-                           kind='engine', slicer='Flash Studio', returncode=result.returncode)
+                           kind='engine', slicer='Flash Studio', returncode=result.returncode,
+                           **_failure_evidence(folder))
     if primary == 'bambu_studio' or orca_failed:
         # Only an actual Orca execution failure (or the opt-in Bambu Studio primary) reaches this
         # branch. All Print Handy validation and placement refusals above remain fail-closed and
@@ -1660,12 +1663,14 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                 raise SliceFailure(
                     f'Bambu Studio is the configured slicer; Bambu Studio failed ({bambu_result.returncode}) '
                     f'or produced no G-code; see {_keep_failure_logs(folder) / "bambu.log"}',
-                    kind='engine', slicer='Bambu Studio', returncode=bambu_result.returncode
+                    kind='engine', slicer='Bambu Studio', returncode=bambu_result.returncode,
+                    **_failure_evidence(folder, 'bambu.log')
                 )
             raise SliceFailure(
                 f'{orca_failure}; {bambu_role} failed ({bambu_result.returncode}) or produced no G-code; '
                 + f'see {_keep_failure_logs(folder) / "bambu.log"}', kind='engine',
-                slicer='OrcaSlicer and Bambu Studio', returncode=bambu_result.returncode
+                slicer='OrcaSlicer and Bambu Studio', returncode=bambu_result.returncode,
+                **_failure_evidence(folder, 'orca.log')
             )
         if primary == 'bambu_studio':
             configs.extend([bambu_machine, bambu_process, *bambu_filaments])
@@ -1771,6 +1776,30 @@ def _orca_conflict(folder: Path) -> bool:
     except (OSError, json.JSONDecodeError):
         return False
     return 'G-code conflicts detected' in str(payload.get('error_string', ''))
+
+
+def _failure_evidence(folder: Path, only: str | None = None) -> dict:
+    """The known-signature id and one safe sentence from a failed slice's logs (#817).
+
+    Returned as SliceFailure keyword arguments. ``only`` limits the read to one
+    log (the Orca log when Bambu Studio failed as the fallback, so a missing
+    Bambu binary cannot hide why Orca failed). Never raises: evidence is a
+    courtesy and must not mask the slicer error.
+    """
+    folder = Path(folder)
+    text, error, code = '', '', None
+    try:
+        payload = json.loads((folder / 'result.json').read_text())
+        if isinstance(payload, dict):
+            error, code = str(payload.get('error_string') or ''), payload.get('return_code')
+    except (OSError, ValueError):
+        pass
+    try:
+        for log in ([folder / only] if only else sorted(folder.glob('*.log'))):
+            text += log.read_text(errors='replace')[-20000:] + '\n'
+    except OSError:
+        pass
+    return slicer_evidence(text, error, code if type(code) is int else None)
 
 
 def _orca_failure_details(folder: Path) -> str:

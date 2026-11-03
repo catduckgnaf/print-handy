@@ -56,3 +56,23 @@ def test_transient_failure_may_suggest_resending(env, monkeypatch):
     post = hits[0]
     assert "Reference: PH_INTAKE_TRANSIENT" in post
     assert "Send the link or file again" in post
+
+
+def test_unreadable_model_failure_names_stage_cause_and_recovery(env, monkeypatch):
+    # #817: a recognized parse failure leads with its stage, not "stopped before it was ready".
+    posts = _run(env, monkeypatch, RuntimeError("Invalid 3MF format in /data/secret/model.3mf"), "mw817")
+    hits = [m for m in posts if "Stage: parse." in m]
+    assert hits, posts
+    post = hits[0]
+    assert "Re-export the model" in post and "Nothing was sliced, uploaded or started." in post
+    assert "stopped before it was ready" not in post
+    assert "Reference: PH_INTAKE_CONFIGURATION" in post
+    assert "/data/secret" not in post
+    receipt = json.loads(next(env.root.glob("*.json")).read_text())
+    assert receipt["failure"]["stage"] == "parse" and receipt["failure"]["submitted"] == "nothing"
+
+
+def test_unknown_failure_still_names_its_stage(env, monkeypatch):
+    posts = _run(env, monkeypatch, RuntimeError("mystery"), "mw818")
+    hit = next(m for m in posts if "Preparing that model stopped" in m)
+    assert "Stage: intake." in hit and "Nothing was sliced, uploaded or started." in hit

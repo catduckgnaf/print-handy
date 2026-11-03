@@ -22,7 +22,7 @@ from typing import NamedTuple
 from urllib.parse import urlsplit
 
 from .. import diagnostics, logs, printers, settings
-from . import _external, delivery, owned_worker, plate_merge, split_fit
+from . import _external, delivery, failure_report, owned_worker, plate_merge, split_fit
 
 BED = settings.current()['printer']['bed_mm']
 FILAMENT_SLOTS = settings.current()['printer']['filament_slots']
@@ -1508,6 +1508,15 @@ def _refusal_text(tail):
             "resolve any warning, then press Retry.")
 
 
+def _start_report(tail):
+    """The failure_report.Report for one print-now outcome (#817): refused before sending, or sent unknown."""
+    raw = _raw_preupload_refusal(tail)
+    low = str(tail or '').lower()
+    return failure_report.start_report(
+        refused=_safe_preupload_refusal(tail), printer_rejected=_printer_rejected(raw),
+        upload_failed=('could not be uploaded' in low or 'upload failed' in low))
+
+
 def plain_start_failure(tail):
     """The plain chat wording for a failed/refused print-now run (#467).
 
@@ -1519,12 +1528,10 @@ def plain_start_failure(tail):
     the honest uncertain wording (the printer may or may not have it).
     """
     if _safe_preupload_refusal(tail):
-        return _refusal_text(tail)
+        return _refusal_text(tail) + ' Stage: launch.'
     if str(tail or '').lstrip().upper().startswith('UNCERTAIN:') or not _raw_preupload_refusal(tail):
-        return ("The printer did not confirm whether the print started. Check the printer "
-                "screen before doing anything else, and do not press Start again until "
-                "you know.")
-    return _refusal_text(tail)
+        return failure_report.plain(_start_report(tail))
+    return _refusal_text(tail) + ' Stage: launch.'
 
 
 def _restart_helps(tail):
@@ -2156,18 +2163,11 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             receipt['fit_error'] = str(exc)
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
             await adapter.send(chat_id=source.chat_id,
-                               content=diagnostics.known_post(
-                                   "I could not finish checking whether this model fits the bed, so the check is unverified.",
+                               content=failure_report.post(
+                                   exc, 'plate plan', subsystem='intake',
+                                   headline="I could not finish checking whether this model fits the bed, so the check is unverified.",
                                    not_happened="No slice or print was started.",
-                                   subsystem='intake', exc=exc)
-                               or diagnostics.plain_post(
-                                   "I could not finish checking whether this model fits the bed, so the check is unverified.",
-                                   not_happened="No slice or print was started.",
-                                   next_step=diagnostics.next_step_for(
-                                       exc,
-                                       transient="Send the link or file again to resume the check.",
-                                       other="Run `/print-handy bundle` and share the bundle so it can be looked into."),
-                                   subsystem='intake', exc=exc),
+                                   transient="Send the link or file again to resume the check."),
                                metadata=metadata)
             return {'action': 'skip', 'reason': 'fit unknown; resumable'}
         if (job.get('unit_decision') or {}).get('units') == 'inch':
@@ -2264,18 +2264,11 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                 receipt['fit_error'] = str(exc)
                 receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
                 await adapter.send(chat_id=source.chat_id,
-                                   content=diagnostics.known_post(
-                                   "I could not finish checking the resize options, so they are unverified.",
+                                   content=failure_report.post(
+                                   exc, 'plate plan', subsystem='intake',
+                                   headline="I could not finish checking the resize options, so they are unverified.",
                                    not_happened="No slice or print was started.",
-                                   subsystem='intake', exc=exc)
-                                   or diagnostics.plain_post(
-                                   "I could not finish checking the resize options, so they are unverified.",
-                                   not_happened="No slice or print was started.",
-                                   next_step=diagnostics.next_step_for(
-                                       exc,
-                                       transient="Send the link or file again to resume the check.",
-                                       other="Run `/print-handy bundle` and share the bundle so it can be looked into."),
-                                   subsystem='intake', exc=exc),
+                                   transient="Send the link or file again to resume the check."),
                                    metadata=metadata)
                 return {'action': 'skip', 'reason': 'fit unknown; resumable'}
             title = latest.get('title') or 'This model'
@@ -2783,8 +2776,10 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             # A failed attempt has no reusable slice approval or G-code. Retry is a
             # separate button action, and its output still needs a fresh start button.
             await early.discard()
+            from . import slice_failure
             receipt.update(status='SLICE_FAILED', sliced=False, uploaded=False, started=False,
-                           slice_error=str(slice_error))
+                           slice_error=str(slice_error),
+                           failure=slice_failure.report(slice_error).as_dict())
             for stale in ('slice_approval', 'bed_clear_approval', 'gcodes'):
                 receipt.pop(stale, None)
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
@@ -2795,11 +2790,11 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             refusal = slice_refusal.explain(slice_error)
             if refusal is not None and not refusal.fix:
                 await adapter.send(chat_id=source.chat_id, metadata=metadata, content=diagnostics.plain_post(
-                    refusal.plain, not_happened='Nothing was sliced, uploaded or started.',
+                    'Stage: slice. ' + refusal.plain, not_happened='Nothing was sliced, uploaded or started.',
                     next_step=refusal.next_step, subsystem='slicing', exc=slice_error))
                 return {'action': 'skip', 'reason': 'slice refused: ' + str(slice_error)}
             if refusal is not None:
-                prompt = diagnostics.plain_post(refusal.plain, next_step=refusal.next_step,
+                prompt = diagnostics.plain_post('Stage: slice. ' + refusal.plain, next_step=refusal.next_step,
                                                 subsystem='slicing', exc=slice_error)
                 labels = [refusal.fix_label, 'No, cancel']
             else:
@@ -2855,7 +2850,7 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                 receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
                 again = slice_refusal.explain(retry_error)
                 await adapter.send(chat_id=source.chat_id,
-                    content=(diagnostics.plain_post(again.plain,
+                    content=(diagnostics.plain_post('Stage: slice. ' + again.plain,
                                                     not_happened='Nothing was sliced, uploaded or started.',
                                                     next_step=again.next_step, subsystem='slicing',
                                                     exc=retry_error) if again is not None else
@@ -3080,7 +3075,7 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         if not ok and not pending:
             raw = _raw_preupload_refusal(tail)
             logger.warning('print start refused detail=%s', logs.redact(raw or str(tail)))
-            receipt.update(start_refusal_detail=str(tail),
+            receipt.update(start_refusal_detail=str(tail), failure=_start_report(tail).as_dict(),
                            uploaded=(True if _printer_rejected(raw) else False) if raw else None,
                            start_prompt_message_id=start_context.get('start_prompt_message_id', ''))
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
@@ -3222,7 +3217,7 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             cause = exc.cause
         else:
             cause = chat_safe(exc)
-        receipt.update(status='FAILED', error=cause)
+        receipt.update(status='FAILED', error=cause, failure=failure_report.describe(exc, 'intake').as_dict())
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
         from .intake_resources import IntakeLimitExceeded
         if isinstance(exc, IntakeLimitExceeded):
@@ -3256,23 +3251,14 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             # so keep it — the generic wording would hide the remedy.
             content = (f'That model could not be prepared: this printer {exc}. '
                        'Nothing was sliced, uploaded or started.')
-        elif diagnostics.known_cause(exc) is not None:
-            # #590: the failure carries a specific, user-safe cause (a
-            # missing site token, a site download gap, ...): name it and
-            # its remedy instead of the generic wording, its UNKNOWN
-            # marker and a resend that cannot help.
-            content = diagnostics.known_post(
-                'Preparing that model stopped before it was ready.',
-                not_happened='Nothing was sliced, uploaded or started.',
-                subsystem='intake', exc=exc)
         else:
-            content = diagnostics.plain_post('Preparing that model stopped before it was ready.',
-                                               not_happened='Nothing was sliced, uploaded or started.',
-                                               next_step=diagnostics.next_step_for(
-                                                   exc,
-                                                   transient='Send the link or file again; if it stops again, run `/print-handy bundle` and share the bundle so it can be looked into.',
-                                                   other='Run `/print-handy bundle` and share the bundle so it can be looked into.'),
-                                               subsystem='intake', exc=exc)
+            # #590 / #817: a recognized cause (a missing site token, a damaged 3MF, ...) is named
+            # with its stage and remedy; only a failure nothing recognizes keeps the generic lead.
+            content = failure_report.post(
+                exc, 'intake', subsystem='intake',
+                headline='Preparing that model stopped before it was ready.',
+                not_happened='Nothing was sliced, uploaded or started.',
+                transient='Send the link or file again; if it stops again, run `/print-handy bundle` and share the bundle so it can be looked into.')
         await adapter.send(chat_id=source.chat_id, content=content, metadata=metadata)
         return {'action': 'skip', 'reason': 'source-first intake failed closed'}
     finally:

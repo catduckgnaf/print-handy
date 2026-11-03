@@ -268,8 +268,19 @@ def snapshot(data=None, *, environ=None, heartbeat=READ_HEARTBEAT, probe=None, c
         "spoolman": spoolman,
         "services": services,
         "doctor": rows,
+        "slice_failures": _slice_failures_section(data),
         "ok": ok,
     }
+
+
+def _slice_failures_section(data):
+    """The newest archived slice-failure folders (#817): where the raw slicer logs of a
+    failed model are kept. Names and local paths only; the logs are not served."""
+    from ..core import failure_report
+    try:
+        return failure_report.failure_folders((data.get("paths") or {}).get("hermes_home") or ".")
+    except Exception:  # a listing problem never breaks the status page
+        return []
 
 
 def _roster_section(data):
