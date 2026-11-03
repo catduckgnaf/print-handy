@@ -332,11 +332,6 @@ def test_a_generated_matrix_case_the_matrix_no_longer_yields_is_an_error(tmp_pat
         make_models.specs()
 
 
-@pytest.mark.parametrize("entry", [
-    {"name": "x", "layout": "tower", "colors": [2], "fit": ["tight"]},
-    {"name": "x", "layout": "assembly", "colors": [5], "fit": ["tight"]},
-    {"name": "x", "layout": "assembly", "colors": [2], "fit": ["snug"]},
-    {"name": "x", "layout": "assembly", "colors": [], "fit": ["tight"]}])
 def test_matrix_clicks_and_colors_follow_the_spools_a_slots_override_binds():
     """printer = { slots = 2 } binds White and Pink (spool_fixture.SPOOLS[:2]): the color question offers only
     those, so the generated clicks and expected colors must too, never a Black the flow cannot offer."""
@@ -355,6 +350,11 @@ def test_matrix_clicks_and_colors_follow_the_spools_a_slots_override_binds():
     assert [c["button"] for c in default["click"] if c["question"].startswith("(")] == ["White", "Black"]
 
 
+@pytest.mark.parametrize("entry", [
+    {"name": "x", "layout": "tower", "colors": [2], "fit": ["tight"]},
+    {"name": "x", "layout": "assembly", "colors": [5], "fit": ["tight"]},
+    {"name": "x", "layout": "assembly", "colors": [2], "fit": ["snug"]},
+    {"name": "x", "layout": "assembly", "colors": [], "fit": ["tight"]}])
 def test_matrix_entries_that_cannot_be_built_are_refused(entry):
     from . import matrix
     with pytest.raises(ValueError):
