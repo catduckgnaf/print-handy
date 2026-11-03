@@ -2934,6 +2934,17 @@ class Listener:
                 await asyncio.to_thread(announce_start_abandoned, filename)
                 await asyncio.to_thread(release_start_claim, filename)
                 self.abandoned_watch.retire(filename)
+                await asyncio.to_thread(self._release_abandoned_lease, filename)
+
+    def _release_abandoned_lease(self, filename):
+        """The printer gave up on this start: free the printer for the next one (#848 review)."""
+        from .. import listeners as _listeners
+        try:
+            row = launch_state.release_abandoned(_listeners.instance_printer_id(), filename)
+            if row:
+                log(f"launch lease released: the printer abandoned {filename!r} without printing")
+        except Exception as exc:
+            log(f"abandoned launch lease release failed file={filename!r}: {exc!r}")
 
     async def poll_spoolman_new_spools(self):
         """Prompt once per spool created in Spoolman outside Print Handy (#483).

@@ -195,3 +195,46 @@ def test_poll_stays_quiet_while_the_claimed_start_is_heating(monkeypatch):
     monkeypatch.setattr(mel, "log", lambda line: None)
     asyncio.run(listener.poll_abandoned_starts())
     assert announced == []
+
+
+def test_an_abandoned_start_releases_its_launch_lease_for_the_next_print(monkeypatch):
+    # #848 review: the start path keeps a preparing start's lease uncertain. When the printer
+    # gives up on it, nothing else ever settled that lease, so every later print was refused
+    # until someone ran reconcile-launch, which a chat user cannot.
+    from print_handy.core import launch_state
+    key = "flashforge-ad5x"
+    lease = launch_state.acquire(key, job_json="/archive/a/JOB.json", gcode_sha256="a" * 64, remote=FILE)
+    lease.submitting()
+    lease.uncertain("preparing, never printed")
+    listener = mel.Listener()
+    listener.abandoned_watch.observe(FILE, "standby", 0.0, 0.0, now=time.time() - 120)
+    monkeypatch.setattr(mel, "claimed_start_filenames", lambda now=None: [FILE])
+    monkeypatch.setattr(mel.print_control, "_call", lambda path: {"result": {"status": {
+        "print_stats": {"state": "standby", "filename": ""},
+        "extruder": {"target": 0.0}, "heater_bed": {"target": 0.0}}}})
+    monkeypatch.setattr(mel, "announce_start_abandoned", lambda filename: True)
+    monkeypatch.setattr(mel, "release_start_claim", lambda filename: None)
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    from print_handy import listeners
+    monkeypatch.setattr(listeners, "instance_printer_id", lambda: key)
+    asyncio.run(listener.poll_abandoned_starts())
+    assert launch_state.pending(key) == []
+    launch_state.acquire(key, job_json="/archive/b/JOB.json", gcode_sha256="b" * 64,
+                         remote="Next.gcode").release()
+
+
+def test_release_abandoned_touches_only_that_files_sent_lease():
+    from print_handy.core import launch_state
+    key = "flashforge-ad5x"
+    lease = launch_state.acquire(key, job_json="/archive/a/JOB.json", gcode_sha256="a" * 64, remote=FILE)
+    assert launch_state.release_abandoned(key, FILE) is None  # leased: nothing was sent yet
+    lease.submitting()
+    lease.uncertain("preparing")
+    assert launch_state.release_abandoned(key, OTHER) is None
+    assert launch_state.release_abandoned(key, "") is None
+    assert launch_state.pending(key)[0]["phase"] == "uncertain"
+    released = launch_state.release_abandoned(key, "3mf_print/" + FILE)
+    assert released is None or released["reconciled"] == "not_started"
+    if released is None:  # FILE is plain gcode: the printer reports it bare or under gcodes/
+        released = launch_state.release_abandoned(key, "gcodes/" + FILE)
+    assert released["reconciled"] == "not_started" and launch_state.pending(key) == []
