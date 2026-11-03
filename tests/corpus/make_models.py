@@ -142,8 +142,9 @@ def _xml(objects, items):
             out += [f'<triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in faces]
             out.append('</triangles></mesh></object>')
         else:
+            members = payload if isinstance(payload, (list, tuple)) else [payload]
             out.append(f'<object id="{oid}" type="model"><components>'
-                       f'<component objectid="{payload}"/></components></object>')
+                       + "".join(f'<component objectid="{m}"/>' for m in members) + '</components></object>')
     out.append('</resources><build>')
     for oid, (x, y) in items:
         out.append(f'<item objectid="{oid}" transform="1 0 0 0 1 0 0 0 1 {x} {y} 0"/>')
@@ -169,6 +170,39 @@ def _settings(parts, plates):
         out.append("</plate>")
     out.append("</config>")
     return "\n".join(out)
+
+
+def write_assembly_3mf(path, bodies, palette, at=(10, 10)):
+    """One build item whose bodies share coordinates, like a two color panel (base plus overlay).
+
+    bodies: [(name, extruder, mesh)]. The bodies are components of one assembly object, so they
+    must travel together; the planner may never place them as independent objects.
+    """
+    objects = [(i + 1, "mesh", mesh) for i, (_, _, mesh) in enumerate(bodies)]
+    assembly = len(bodies) + 1
+    objects.append((assembly, "components", [i + 1 for i in range(len(bodies))]))
+    out = ["<config>", f'<object id="{assembly}"><metadata key="name" value="Assembly"/>']
+    for i, (name, extruder, _) in enumerate(bodies):
+        safe = html.escape(name, quote=True)
+        out.append(f'<part id="{i + 1}" subtype="normal_part"><metadata key="name" value="{safe}"/>'
+                   f'<metadata key="extruder" value="{extruder}"/></part>')
+    out += ["</object>", '<plate><metadata key="plater_id" value="1"/><metadata key="plater_name" value="One plate"/>',
+            f'<model_instance><metadata key="object_id" value="{assembly}"/></model_instance></plate>', "</config>"]
+    project = {"filament_colour": [c for c, _ in palette], "filament_type": [m for _, m in palette],
+               "enable_support": "0"}
+    files = {
+        "[Content_Types].xml": '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/><Default Extension="config" ContentType="text/xml"/></Types>',
+        "_rels/.rels": '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>',
+        "3D/3dmodel.model": _xml(objects, [(assembly, at)]),
+        "Metadata/model_settings.config": "\n".join(out),
+        "Metadata/project_settings.config": json.dumps(project, indent=2),
+    }
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name in sorted(files):
+            info = zipfile.ZipInfo(name, STAMP)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info, files[name])
 
 
 def write_3mf(path, shapes, plates, palette, support=False, *, omit_plate_metadata=False, extra_empty_plates=0):
@@ -424,6 +458,16 @@ def build():
                       ("Quantity B", 1, box(35, 30, 8), (95, 40))]
     write_3mf(cases / "copies-multiple-plates/model.3mf", quantity_parts,
               [("Plate A", [0]), ("Plate B", [1])], [palette[0]])
+    # One assembly (a single build item) of 2-4 colors, sized against the 220 mm bed and the 45 mm
+    # prime tower: roomy, tight (4 colors near the limit), and too big to leave room for any tower. The smaller tower
+    # case depends on the nozzle, so it lives in tests/pipeline/test_plate_merge.py.
+    asm = {"assembly-two-color-roomy": [("Base", 1, box(120, 100, 4)), ("Overlay", 2, box(120, 100, 2))],
+           "assembly-four-color-tight": [("Base", 1, box(150, 130, 4)), ("Trim", 2, box(150, 130, 1)),
+                                         ("Letters", 3, box(100, 60, 1)), ("Dots", 4, box(40, 40, 1))],
+           "assembly-three-color-no-room": [("Base", 1, box(214, 214, 4)), ("Ring", 2, box(150, 150, 1)),
+                                                  ("Eye", 3, box(30, 30, 1))]}
+    for name, bodies in asm.items():
+        write_assembly_3mf(cases / name / "model.3mf", bodies, palette[:len(bodies)])
 
 
 if __name__ == "__main__":
