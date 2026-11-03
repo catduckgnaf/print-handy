@@ -146,6 +146,22 @@ def _screen_authored(record: dict[str, Any]) -> bool:
         isinstance(key, str) and key.startswith("helix_") for key in record)
 
 
+def foreign_lane_slots(value: Any) -> set[int]:
+    """Slots whose ``laneN`` key holds a marker-less (ZMod ``orca_lanes``) record.
+
+    Such a key is occupied by another writer, not cleared: the watcher must
+    read the slot as unknown and change nothing, never as an unload (#852).
+    """
+    if not isinstance(value, dict):
+        return set()
+    slots = set()
+    for key, record in value.items():
+        match = re.fullmatch(r"lane(\d+)", str(key))
+        if match and isinstance(record, dict) and not _screen_authored(record):
+            slots.add(int(match.group(1)))
+    return slots
+
+
 def parse_lane_data(value: Any) -> dict[int, dict[str, Any]] | None:
     """{slot: normalized lane} from a raw ``lane_data`` namespace value, or None when unknown.
 
@@ -411,7 +427,8 @@ class LaneDataWatcher:
         re-applies.
         """
         self._print_state = None
-        lanes = parse_lane_data(spool_sync.read_lane_data(self.mr))
+        raw = spool_sync.read_lane_data(self.mr)
+        lanes = parse_lane_data(raw)
         if lanes is None:
             return []  # unknown, never empty: change nothing at all
         state = _read_json(self.state_path)
@@ -429,7 +446,10 @@ class LaneDataWatcher:
         pending = state.get("pending") if isinstance(state.get("pending"), dict) else {}
         noted = state.get("noted") if isinstance(state.get("noted"), dict) else {}
         dirty = False
+        foreign = foreign_lane_slots(raw)
         for slot in sorted(set(seen) | set(lanes)):
+            if slot not in lanes and slot in foreign:
+                continue  # another writer holds the key (#852): unknown, not unloaded
             old_fp = seen.get(slot)
             lane = lanes.get(slot)
             cur_fp = fingerprints.get(slot)

@@ -695,3 +695,20 @@ def test_zmod_publish_change_and_removal_make_no_watcher_events(tmp_path):
                 if key != "lane1"}
     assert watcher.poll() == []
     assert applied == []
+
+
+def test_zmod_record_overwriting_a_screen_key_is_unknown_not_an_unload(tmp_path):
+    # The #852 collision: Print Handy wrote lane1 (slot 1, spool 11), then ZMod
+    # publishes its slot 2 under the same key lane1. The key is occupied by
+    # another writer, not cleared: no unload converge, no Spoolman/screen write.
+    client = FakeSpoolman([spool(11, ph_slot="ad5x:1")])
+    mr = FakeMoonraker(lanes={})
+    watcher, applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {"lane1": lane(11, slot=1)})
+    mr.lanes = {"lane1": {"lane": "1", "material": "PLA", "color": "#FFFFFF", "name": "PLA"}}
+    assert watcher.poll() == []
+    assert applied == []
+    # When the key is really removed, the unload still converges as before.
+    mr.lanes = {}
+    watcher.poll()
+    assert applied == [(1, None)]
