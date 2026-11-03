@@ -31,6 +31,5 @@ status = "SLICE_FAILED"
 started = false
 parts = ["Base", "Ring", "Eye"]
 source_plates = 1
-plate_mode = "split"
 slice_error_contains = "an assembly cannot be split per slot"
 says = ["one assembly of 3 colors", "cannot be split onto separate plates", "PH_SLICING_CONFIGURATION"]
