@@ -66,7 +66,8 @@ def test_an_install_that_configures_nothing_has_no_route_and_sends_nothing():
     assert endpoint.requests == []
 
 
-def test_default_routes_map_the_existing_settings():
+def test_default_routes_map_the_existing_settings(monkeypatch):
+    monkeypatch.setenv("CLIPROXY_API_KEY", "vision-key")
     config = cfg(llm={"chat_url": URL, "model": "chat-model", "api_key_env": "", "timeout_s": 7},
                  services={"vision_chat_url": OTHER_URL + "/"},
                  design={"chat_url": "", "model": "design-model", "api_key_env": "", "timeout_s": 99})
@@ -170,7 +171,7 @@ def test_the_chat_tier_still_sends_without_a_key_to_a_hosted_endpoint():
 
 
 def test_images_ride_on_the_last_user_message():
-    config = cfg(ai={"chat": {}, "heavy": {}, "small": {"chat_url": URL, "model": "m"}})
+    config = cfg(ai={"chat": {}, "heavy": {}, "small": {"chat_url": LOCAL_URL, "model": "m"}})
     endpoint = Endpoint()
     ai_routes.call("small", [{"role": "user", "content": "look"}], images=[b"\xff\xd8"], cfg=config, opener=endpoint)
     content = endpoint.requests[0]["body"]["messages"][-1]["content"]

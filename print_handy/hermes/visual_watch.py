@@ -174,6 +174,10 @@ def _vision_answer(image, prompt, *, chat_url, model, api_key, context):
         # An unset services.vision_chat_url: [ai.small] may still name the
         # endpoint, and the call reports a missing one itself.
         url = ""
+    if not ai_routes.explicit("small") and not key and not keyless_ok(url):
+        # The long-standing rule for the legacy vision settings: no key for a hosted
+        # (or unset) endpoint is the missing-key result, before any route lookup.
+        raise _VisionKeyMissing("vision key is not configured")
     try:
         content, served_by = ai_routes.call(
             "small", [{"role": "user", "content": context + str(prompt)}], images=[image],
