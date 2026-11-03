@@ -1841,7 +1841,8 @@ def created_by_print_handy(spool):
     """True for a spool Print Handy made itself: /spool new, the insertion modal or a runout replacement."""
     from . import spool_sync
     comment = str((spool or {}).get("comment") or "").strip()
-    return comment in (spool_sync.CREATED_SPOOL_COMMENT, RUNOUT_SPOOL_COMMENT)
+    return (comment in (spool_sync.CREATED_SPOOL_COMMENT, RUNOUT_SPOOL_COMMENT)
+            or comment.startswith(spool_sync.CREATED_SPOOL_COMMENT + "; "))  # a purchase intake spool (#801)
 
 
 def _pending_entries(raw):

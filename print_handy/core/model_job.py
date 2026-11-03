@@ -1541,7 +1541,7 @@ class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
             req, context=self._context)
 
 
-def _open_once(url):
+def _open_once(url, timeout=90, user_agent=UA):
     """One GET with no redirect following (module-level so tests can fake the transport).
 
     The connection is pinned to an address from the resolution that was
@@ -1552,7 +1552,7 @@ def _open_once(url):
     goes through here. Environment proxies are disabled for the same
     reason: a proxy would resolve the name itself, outside the validated
     set. Each validated address is tried in turn before giving up."""
-    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    req = urllib.request.Request(url, headers={"User-Agent": user_agent})
     last_error = None
     for ip in _validated_public_ips(url):
         opener = urllib.request.build_opener(
@@ -1561,7 +1561,7 @@ def _open_once(url):
             _PinnedHTTPHandler(ip),
             _PinnedHTTPSHandler(ip))
         try:
-            return opener.open(req, timeout=90)
+            return opener.open(req, timeout=timeout)
         except urllib.error.HTTPError:
             raise
         except (urllib.error.URLError, OSError) as exc:

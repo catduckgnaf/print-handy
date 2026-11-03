@@ -279,6 +279,7 @@ def test_discord_clarify_cap_is_scoped_to_3dprinting_discord():
         ('pre_gateway_dispatch', plugin.typed_quantity_dispatch),
         ('pre_gateway_dispatch', plugin.upload_wait_dispatch),
         ('pre_gateway_dispatch', plugin.model_link_dispatch),
+        ('pre_gateway_dispatch', plugin.purchase_intake_dispatch),
         ('pre_gateway_dispatch', plugin.color_selection_dispatch),
         ('pre_gateway_dispatch', plugin.print_next_dispatch),
         ('pre_gateway_dispatch', plugin.runout_intake_dispatch),

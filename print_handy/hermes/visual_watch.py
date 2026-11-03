@@ -161,7 +161,7 @@ class _VisionKeyMissing(Exception):
     """The chat vision route is configured but its API key is not."""
 
 
-def _vision_answer(image, prompt, *, chat_url, model, api_key, context):
+def _vision_answer(image, prompt, *, chat_url, model, api_key, context, max_tokens=200):
     """One vision call: POST ``image`` + ``prompt`` and return the endpoint's answer.
 
     This is the one transport both vision consumers share (#294's rule):
@@ -175,10 +175,15 @@ def _vision_answer(image, prompt, *, chat_url, model, api_key, context):
     parsed as JSON; otherwise the OpenAI-compatible chat endpoint is used
     with the env-named key and its message content is parsed as JSON when it
     parses, else returned as the raw string. Transport and parse failures
-    raise; a missing chat key raises _VisionKeyMissing.
+    raise; a missing chat key raises _VisionKeyMissing. ``max_tokens`` caps the
+    chat answer (a verdict or one label needs little; a purchase's line items
+    ask for more), and ``image=None`` sends the prompt alone (chat endpoint only).
     """
     endpoint = os.environ.get("PRINT_VISION_URL")
     if endpoint:
+        if image is None:
+            # A text-only question (#801) has no {image, prompt} shape to send.
+            raise ValueError("PRINT_VISION_URL takes an image; a text-only call needs the chat endpoint")
         payload = json.dumps({"image": base64.b64encode(image).decode(), "prompt": prompt}).encode()
         req = urllib.request.Request(endpoint, data=payload, headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=30) as response:
@@ -187,10 +192,12 @@ def _vision_answer(image, prompt, *, chat_url, model, api_key, context):
     url = chat_url()
     if not key and not keyless_ok(url):
         raise _VisionKeyMissing("vision key is not configured")
-    encoded = base64.b64encode(image).decode()
-    body = {"model": model, "temperature": 0, "max_tokens": 200,
-            "messages": [{"role": "user", "content": [{"type": "text", "text": context + str(prompt)},
-                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded}"}}]}]}
+    parts = [{"type": "text", "text": context + str(prompt)}]
+    if image is not None:
+        encoded = base64.b64encode(image).decode()
+        parts.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded}"}})
+    body = {"model": model, "temperature": 0, "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": parts}]}
     headers = {"Content-Type": "application/json"}
     if key:
         headers["Authorization"] = f"Bearer {key}"
@@ -294,7 +301,7 @@ def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_st
     return verdict, str(parsed.get("reason", ""))[:300]
 
 
-def visual_extract(image, prompt, *, chat_url, model, api_key, context):
+def visual_extract(image, prompt, *, chat_url, model, api_key, context, max_tokens=200):
     """Ask the configured vision endpoint to extract data from one image (#514).
 
     The same call shape as ``visual_verdict`` — image bytes plus a JSON-only
@@ -307,7 +314,7 @@ def visual_extract(image, prompt, *, chat_url, model, api_key, context):
     """
     try:
         return _vision_answer(image, prompt, chat_url=chat_url, model=model,
-                              api_key=api_key, context=context)
+                              api_key=api_key, context=context, max_tokens=max_tokens)
     except Exception as exc:
         logger.warning("vision extraction failed via %s: %s: %s",
                        "PRINT_VISION_URL" if os.environ.get("PRINT_VISION_URL")

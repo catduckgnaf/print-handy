@@ -2526,6 +2526,209 @@ def _spool_label_routes(state):
     return routes
 
 
+# Purchase intake (#801): a shop/order link, or a purchase screenshot, in the
+# printer channel becomes an offer to add every roll at once. The reading and
+# validation live in hermes.purchase_intake; this is only the channel flow.
+_recent_spool_new = OrderedDict()
+_PURCHASE_NEW_WINDOW_S = 600
+_PURCHASE_IMAGE_EXTS = ('.jpg', '.jpeg', '.png', '.webp', '.gif')
+_PURCHASE_IMAGE_MAX = 10 << 20
+
+
+def _purchase_ready():
+    """Whether a purchase can be read (#801): the vision/AI endpoint is configured
+    (the visual_watch.vision_ready rule #514 uses for its vision route). A barcode
+    decoder or OCR cannot read an order, so they do not count. No AI route, no
+    offer, and the channel behaves exactly as it did."""
+    try:
+        from print_handy.hermes import moonraker_event_listener as listener
+        return bool(listener._vision_ready())
+    except Exception:
+        return False
+
+
+def _purchase_ai_call():
+    """The shared vision call for purchases (#801): the label call's endpoint
+    and key, with room for a list of line items, and ``image=None`` for a
+    page's text."""
+    from print_handy.hermes import moonraker_event_listener as listener
+    from print_handy.hermes import visual_watch
+
+    def call(image, prompt):
+        return visual_watch.visual_extract(
+            image, prompt, chat_url=listener._vision_chat_url, model=listener._VISION_MODEL,
+            api_key=lambda: listener._profile_env_value("CLIPROXY_API_KEY"),
+            context="Filament purchase. Reply with JSON only.", max_tokens=1500)
+
+    return call
+
+
+def _purchase_read(url, image):
+    """Read one purchase (blocking; run in a thread): a link, or screenshot bytes."""
+    from print_handy.hermes import purchase_intake as pi
+    call = _purchase_ai_call()
+    return pi.read_link(url, call) if url else pi.extract_from_image(image, call)
+
+
+def _note_spool_new(source):
+    """Remember that /spool new just started in this channel, so a screenshot posted
+    right after it is offered as a purchase even without filament words."""
+    _recent_spool_new[(source.chat_id, source.thread_id)] = time.monotonic()
+    while len(_recent_spool_new) > 64:
+        _recent_spool_new.popitem(last=False)
+
+
+def _spool_new_recent(source):
+    started = _recent_spool_new.get((source.chat_id, source.thread_id))
+    return started is not None and time.monotonic() - started <= _PURCHASE_NEW_WINDOW_S
+
+
+def _purchase_image(event):
+    """The first image attached to a message (gateway cache path), else None."""
+    for item in (getattr(event, 'media_urls', None) or []):
+        path = Path(str(item))
+        if path.suffix.lower() in _PURCHASE_IMAGE_EXTS and path.is_file():
+            return path
+    return None
+
+
+async def _purchase_refusal(adapter, source, metadata, gateway, spool_sync, message):
+    """A purchase that could not be read: say why, and offer the manual walkthrough."""
+    answer = await _spool_ask(adapter, source, metadata, gateway, message,
+                              ['Add a spool by hand', 'Done'])
+    if isinstance(answer, str) and answer.strip().casefold() == 'add a spool by hand':
+        _made, result = await _spool_guided_new(adapter, source, metadata, gateway,
+                                                spool_sync, None, {}, offer_load=False)
+        return result
+    return 'Okay. Nothing was created.'
+
+
+async def _purchase_create(adapter, source, metadata, spool_sync, pi, read):
+    """Create every confirmed roll through spool_sync.create_spool, on the Shelf.
+
+    create_spool matches an existing filament type by brand + material + color
+    and creates the type only when it is new, so the second roll of a line
+    reuses the first's type. A failure stops the run and names what exists,
+    so a retry never duplicates (the P2-204 precedent).
+    """
+    specs = pi.roll_specs(read.items, read.url)
+    made = []
+    for n, spec in enumerate(specs, 1):
+        try:
+            made.append(await asyncio.to_thread(spool_sync.create_spool, spec))
+        except Exception as exc:
+            logger.exception('purchase intake could not create spool %s of %s', n, len(specs))
+            reason = f' ({exc})' if isinstance(exc, spool_sync.SpoolError) else ''
+            done = ('Created ' + ', '.join(f"#{m['spool_id']}" for m in made) + '. ') if made else 'Nothing was created. '
+            return (f"{done}Spool {n} of {len(specs)} ({pi.line_text({**spec, 'quantity': 1})}) "
+                    f"did not work{reason}, so I stopped and the rest were not created. "
+                    "Add them with `/spool new`.")
+    new_types = sum(1 for m in made if not m.get('reused_filament'))
+    message = (f"Created {len(made)} spool{'s' if len(made) != 1 else ''} on the Shelf: "
+               + ', '.join(f"#{m['spool_id']}" for m in made) + '.')
+    if new_types:
+        message += f" {new_types} new filament type{'s' if new_types != 1 else ''} added."
+    return message + ' Load one with `/spool change <slot> <spool#>`.'
+
+
+async def _purchase_edit(adapter, source, metadata, gateway, spool_sync, pi, read):
+    """Edit: walk the normal new-spool steps (#512) once per roll. The usual
+    steps create a single spool each, so a two-roll line is two passes."""
+    rolls = pi.roll_specs(read.items, read.url)
+    ids = []
+    for n, spec in enumerate(rolls, 1):
+        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                           content=f"Spool {n} of {len(rolls)}: {pi.line_text({**spec, 'quantity': 1})}. "
+                                   "Walking the usual steps for it.")
+        made_id, message = await _spool_guided_new(adapter, source, metadata, gateway,
+                                                   spool_sync, None, {}, offer_load=False)
+        if made_id is None:
+            return (f"Created {', '.join(ids)}. " if ids else '') + message
+        ids.append(f'#{made_id}')
+    return f"Created {len(ids)} spool{'s' if len(ids) != 1 else ''} on the Shelf: {', '.join(ids)}."
+
+
+async def _purchase_flow(adapter, source, metadata, gateway, url, image):
+    """Offer, read, confirm, create. Returns the final message, or None when the
+    operator declined the offer (the message then goes on as it always did)."""
+    from print_handy.hermes import purchase_intake as pi
+    from print_handy.hermes import spool_sync
+    answer = await _spool_ask(adapter, source, metadata, gateway,
+                              'Add spools from this purchase? I will read it and show you every '
+                              'spool before anything is created.', ['Yes', 'No'])
+    if not (isinstance(answer, str) and answer.strip().casefold() in ('yes', 'y')):
+        return None
+    data = None
+    if image is not None:
+        if image.stat().st_size > _PURCHASE_IMAGE_MAX:
+            return await _purchase_refusal(adapter, source, metadata, gateway, spool_sync,
+                                           'That image is too large to read. Send a smaller screenshot, '
+                                           'or add the spools by hand.')
+        data = await asyncio.to_thread(image.read_bytes)
+    await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                       content='Reading the link...' if url else 'Reading the screenshot...')
+    try:
+        read = await asyncio.to_thread(_purchase_read, url, data)
+    except pi.PurchaseIntakeError as exc:
+        return await _purchase_refusal(adapter, source, metadata, gateway, spool_sync, str(exc))
+    except Exception:
+        logger.exception('purchase intake could not read the purchase')
+        return await _purchase_refusal(adapter, source, metadata, gateway, spool_sync,
+                                       pi.FAILURE_MESSAGES['unreadable'])
+    choice = await _spool_ask(adapter, source, metadata, gateway, pi.proposal_text(read),
+                              ['Create all', 'Edit', 'Cancel'])
+    picked = str(choice).strip().casefold() if isinstance(choice, str) else ''
+    if picked == 'create all':
+        return await _purchase_create(adapter, source, metadata, spool_sync, pi, read)
+    if picked == 'edit':
+        return await _purchase_edit(adapter, source, metadata, gateway, spool_sync, pi, read)
+    return _SPOOL_CANCELLED if _spool_is_cancel(choice) else _SPOOL_UNCLEAR
+
+
+async def purchase_intake_dispatch(event, gateway, **kwargs):
+    """Offer to add spools from a purchase (#801).
+
+    Triggers: a non-model shop or order link in the channel, or an image posted
+    with filament words or right after /spool new. Never automatic: a Yes/No
+    offer comes first, then every proposed roll is confirmed before anything is
+    created. It stands down (returns None, the message goes on exactly as
+    before) when no AI/vision route is ready, for model links (they keep their
+    routing in model_link_dispatch) and when the offer is declined.
+    """
+    text = str(getattr(event, 'text', '') or '')
+    if text.strip().startswith('/'):
+        return None
+    from print_handy.hermes import purchase_intake as pi
+    url = pi.purchase_link(text)
+    image = None if url else _purchase_image(event)
+    if url is None and image is None:
+        return None
+    source, adapter = _control_gate(event, gateway)
+    if source is None or adapter is None:
+        return None
+    if image is not None and not (pi.mentions_filament(text) or _spool_new_recent(source)):
+        return None
+    if not _purchase_ready():
+        return None
+    key = ('purchase', source.chat_id, source.thread_id)
+    if key in _seen:
+        return None
+    _seen[key] = time.monotonic()
+    metadata = {'thread_id': source.thread_id} if source.thread_id else None
+    try:
+        message = await _purchase_flow(adapter, source, metadata, gateway, url, image)
+    except Exception:
+        logger.exception('purchase intake failed')
+        message = ('That purchase did not work, so nothing was created. '
+                   'Add the spools with `/spool new` instead.')
+    finally:
+        _seen.pop(key, None)
+    if message is None:
+        return None
+    await adapter.send(chat_id=source.chat_id, metadata=metadata, content=message)
+    return {'action': 'skip', 'reason': 'purchase intake handled'}
+
+
 async def _spool_ask(adapter, source, metadata, gateway, question, choices):
     """One guided /spool question through the shared button prompt (_confirm)."""
     return await _confirm(adapter, source, metadata, 'spool', question, list(choices),
@@ -2650,6 +2853,7 @@ async def _spool_guided_new(adapter, source, metadata, gateway, spool_sync, pid,
     so no colour or hex question follows. Nothing is created before the
     confirmation button that names the number the new spool will be.
     """
+    _note_spool_new(source)  # a purchase screenshot right after this is offered (#801)
     types = await asyncio.to_thread(spool_sync.filament_types)
     predicted = await asyncio.to_thread(spool_sync.next_spool_id)
     # The number is previewed in the very first question (#512 §2), not only
@@ -5928,6 +6132,7 @@ _DISPATCH_HOOKS = (
     typed_quantity_dispatch,
     upload_wait_dispatch,
     model_link_dispatch,
+    purchase_intake_dispatch,
     color_selection_dispatch,
     print_next_dispatch,
     runout_intake_dispatch,
