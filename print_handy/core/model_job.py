@@ -6214,7 +6214,20 @@ def _moonraker_started_files(st):
         # baseline, not the clock, is what proves a run is new).
         skew = launch_state.printer_clock_skew(st.get('moonraker_url'))
         shift = skew if skew is not None and abs(skew) >= launch_state.CLOCK_SKEW_WARN_S else 0
-        return [(j.get('job_id'), j.get('filename'), j.get('start_time') + shift) for j in jobs
+        now = time.time()
+
+        def shifted(start):
+            # Only a run stamped by the wrong clock itself may be shifted. A run from before a
+            # clock reset carries a correct stamp; shifting it by the current skew would move it
+            # into the future, where reached_printer's lower bound alone (the pre-submission
+            # baseline can be empty when its read failed) would accept it as this lease's run.
+            # A shifted time beyond now (plus the history slack) proves a different clock epoch:
+            # keep the raw stamp, which is honestly dated and cannot confirm a later lease.
+            if shift > 0 and start + shift > now + launch_state.HISTORY_SLACK_S:
+                return start
+            return start + shift
+
+        return [(j.get('job_id'), j.get('filename'), shifted(j.get('start_time'))) for j in jobs
                 if isinstance(j, dict) and j.get('filename') and isinstance(j.get('start_time'), (int, float))]
     except Exception:
         return []

@@ -134,6 +134,47 @@ def test_clock_skew_shift_lets_a_stale_history_settle_the_lease():
     assert launch_state.reached_printer(lease, started_files=[("1", "V17.gcode", printer_clock_start + skew)])
 
 
+def _history_env(monkeypatch, jobs, skew):
+    from print_handy.core import model_job
+    monkeypatch.setattr(model_job, "_mr", lambda st, path, **kw: {"result": {"jobs": jobs}})
+    monkeypatch.setattr(launch_state, "printer_clock_skew", lambda url, **kw: skew)
+    return model_job
+
+
+def test_started_files_shift_only_runs_stamped_by_the_wrong_clock(monkeypatch):
+    skew = 86400 * 307
+    now = time.time()
+    jobs = [
+        # Stamped yesterday by the then-correct clock (before the reset): shifting it by the
+        # current skew would move it ~307 days into the future, so it keeps its raw stamp.
+        {"job_id": "old", "filename": "V17.gcode", "start_time": now - 86400},
+        # Stamped 60 s ago by the wrong clock: the shift lands it on host time.
+        {"job_id": "new", "filename": "V17.gcode", "start_time": now - skew - 60},
+    ]
+    model_job = _history_env(monkeypatch, jobs, skew)
+    got = {job_id: start for job_id, _name, start in model_job._moonraker_started_files({})}
+    assert got["old"] == now - 86400
+    assert abs(got["new"] - (now - 60)) < 2
+
+
+def test_pre_reset_run_cannot_confirm_a_lease_with_an_empty_baseline(monkeypatch):
+    # The Codex P2 on PR #804: the baseline read may fail (empty baseline), so a pre-reset
+    # run of the same file must not confirm a new lease just because the skew shift moved it.
+    from datetime import datetime
+    skew = 86400 * 307
+    now = time.time()
+    leased_at = datetime.fromtimestamp(now).astimezone().strftime("%Y-%m-%dT%H:%M:%S%z")
+    lease = {"remote": "V17.gcode", "leased_at": leased_at}
+    old_only = [{"job_id": "old", "filename": "V17.gcode", "start_time": now - 86400}]
+    model_job = _history_env(monkeypatch, old_only, skew)
+    assert not launch_state.reached_printer(
+        lease, started_files=model_job._moonraker_started_files({}), baseline=())
+    with_new = old_only + [{"job_id": "new", "filename": "V17.gcode", "start_time": now - skew - 60}]
+    model_job = _history_env(monkeypatch, with_new, skew)
+    assert launch_state.reached_printer(
+        lease, started_files=model_job._moonraker_started_files({}), baseline=())
+
+
 # --- automatic clock sync -------------------------------------------------------------------------
 
 import io
