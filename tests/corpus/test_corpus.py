@@ -150,6 +150,13 @@ def test_case_folder_is_complete(case):
     _assert_case_license(case)
 
 
+def _is_slice_confirmation(text):
+    """The ready-to-slice confirmation, recognized even when a very long question (144 parts) arrives
+    cut to its tail: its spool-usage lines ("needs about 1.4 g") survive the cut."""
+    low = text.casefold()
+    return "ready to slice" in low or "needs about" in low
+
+
 @pytest.mark.parametrize("case", _flow_params())
 def test_discord_flow(case, tmp_path):
     run = harness.run_case(case, tmp_path, real_slicer=REAL)
@@ -163,7 +170,7 @@ def test_discord_flow(case, tmp_path):
         assert len(run.slice_starts) == 1, run.slice_starts
         first_slice = next(i for i, event in enumerate(run.events) if event[0] == "slice_start")
         option_prompts = [i for i, event in enumerate(run.events)
-                          if event[0] == "prompt" and "ready to slice" not in event[1].casefold()
+                          if event[0] == "prompt" and not _is_slice_confirmation(event[1])
                           and any(term in event[1].casefold() for term in
                                   ("fit", "orient", "support", "quality", "layer", "material", "filament", "color", "how many copies"))]
         assert all(index < first_slice for index in option_prompts), run.events
@@ -413,7 +420,7 @@ def test_discord_flow_standalone(case, tmp_path):
     assert run.adapter.questions
     first_slice = next(i for i, event in enumerate(run.events) if event[0] == "slice_start")
     option_prompts = [i for i, event in enumerate(run.events)
-                      if event[0] == "prompt" and "ready to slice" not in event[1].casefold()
+                      if event[0] == "prompt" and not _is_slice_confirmation(event[1])
                       and any(term in event[1].casefold() for term in
                               ("fit", "orient", "support", "quality", "layer", "material", "filament", "color", "how many copies"))]
     assert option_prompts and all(i < first_slice for i in option_prompts), run.events
