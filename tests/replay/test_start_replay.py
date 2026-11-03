@@ -4,8 +4,10 @@ Real code end to end: print-now, the idle guard, slot checks, the launch lease, 
 POST, `_wait_printing`, `_printer_phase` and the readback all run unmodified against a fake
 Moonraker that serves the recorded responses. Only the upload subprocess is replaced.
 """
+import json
 import re
 import socket
+import time
 import urllib.error
 
 import pytest
@@ -105,6 +107,109 @@ def test_a_start_the_printer_never_shows_stays_pending_and_is_not_retried(ad5x, 
     status2, message2 = intake_outcome(ok2, tail2)
     assert status2 == "START_REFUSED" and message2.startswith("Didn't start: an earlier start")
     assert len(ad5x.zcolor()) == 1 and len(ad5x.uploads) == 1
+
+
+# --- #836: a start the printer accepts, heats for, then abandons is not "started" ---------------------
+
+def printer_heats_then_gives_up(prep_s=10):
+    """SET_ZCOLOR accepted at once; native prep heats for prep_s printer seconds, then the targets drop
+    back to 0 and print_stats stays standby with no file (the printer abandoned the start)."""
+    def cool(fake):
+        with fake.lock:
+            fake.status["extruder"]["target"] = 0.0
+            fake.status["heater_bed"]["target"] = 0.0
+            fake.status["idle_timeout"]["state"] = "Ready"
+    def hook(fake, script):
+        if not script.startswith("SET_ZCOLOR"):
+            return 0
+        fake.heat()                                   # targets set at once: what _preparation_evidence sees
+        fake.after(prep_s, lambda: cool(fake))
+        return 0                                      # the POST returns at once with 200
+    return hook
+
+
+def test_a_start_that_heats_then_returns_to_standby_is_not_reported_started(ad5x, tmp_path):
+    ad5x.script_hook = printer_heats_then_gives_up(prep_s=10)
+    job, _ = make_job(tmp_path)
+
+    ok, tail = run_print_now(job, wait_s=3)           # real seconds; covers 60 printer s at SCALE 1/20
+
+    status, _message = intake_outcome(ok, tail)
+    assert ad5x.status["print_stats"]["state"] == "standby"           # sanity: the printer never printed
+    assert ad5x.status["extruder"]["target"] == 0.0
+    assert status != "STARTED", tail                                   # today: STARTED (phase "preparing")
+    assert [row["phase"] for row in leases()] == ["uncertain"]         # today: [] (released at 6882)
+    assert len(ad5x.zcolor()) == 1 and len(ad5x.uploads) == 1          # never resubmitted
+
+
+def test_a_start_still_preparing_when_the_wait_ends_keeps_its_lease_uncertain(ad5x, tmp_path):
+    """#836: preparation evidence alone is provisional. While the printer is still heating at the end
+    of the wait, the start reads "preparing", but the lease stays uncertain (not released) and the
+    start claim stays held, so the listener can still report it if the printer never prints."""
+    def hook(fake, script):
+        if not script.startswith("SET_ZCOLOR"):
+            return 0
+        fake.heat()  # heats and keeps heating: preparation outlasts the wait window
+        return 0
+    ad5x.script_hook = hook
+    job, _ = make_job(tmp_path)
+
+    ok, tail = run_print_now(job, wait_s=3)
+
+    status, _message = intake_outcome(ok, tail)
+    assert status == "STARTED", tail  # provisional: the intake's card says started, warming up
+    phase = json.loads([ln for ln in tail.splitlines() if "MAPPED START READBACK " in ln][-1]
+                       .split("MAPPED START READBACK ", 1)[1])["phase"]
+    assert phase == "preparing", tail
+    assert [row["phase"] for row in leases()] == ["uncertain"]  # today: [] (released on prep evidence)
+    assert model_job._read_claims() != {}  # the claimed start card is still this start's to edit
+    assert len(ad5x.zcolor()) == 1 and len(ad5x.uploads) == 1
+
+
+def test_a_preheat_during_the_upload_refuses_before_the_start_is_sent(ad5x, tmp_path, monkeypatch):
+    """#836: the idle guard proves the heaters were off before the upload, but the upload can take
+    minutes. A HelixScreen preheat landing in that window must not be credited to this job: the
+    targets are re-read immediately before the SET_ZCOLOR POST and the start is refused, unsent."""
+    real_upload = model_job.subprocess.run
+
+    def upload_then_preheat(cmd, *args, **kwargs):
+        result = real_upload(cmd, *args, **kwargs)
+        if len(cmd) >= 4 and cmd[1] == "upload":
+            ad5x.heat(nozzle=210, bed=0)  # a preheat tapped on HelixScreen while the file uploads
+        return result
+    monkeypatch.setattr(model_job.subprocess, "run", upload_then_preheat)
+    ad5x.script_hook = lambda fake, script: 0
+    job, _ = make_job(tmp_path)
+
+    ok, tail = run_print_now(job)
+
+    status, message = intake_outcome(ok, tail)
+    assert status == "START_REFUSED", tail
+    assert message.startswith("Didn't start"), tail
+    assert ad5x.zcolor() == [] and len(ad5x.uploads) == 1  # the start was never sent
+    assert leases() == [] and model_job._read_claims() == {}
+
+
+def test_a_bang_bang_receipt_with_http_200_is_a_refusal(ad5x, tmp_path):
+    """#836: Klipper answers a failed macro with HTTP 200 and a `!!` line in the console history.
+    That is a refusal naming the `!!` text, not a pending start."""
+    def hook(fake, script):
+        if not script.startswith("SET_ZCOLOR"):
+            return 0
+        fake.gcode_store.append({"message": '!! Unknown command:"SET_ZCOLOR"', "time": time.time()})
+        return 0  # Moonraker still answers 200
+    ad5x.script_hook = hook
+    job, gcode = make_job(tmp_path)
+
+    ok, tail = run_print_now(job)
+
+    status, message = intake_outcome(ok, tail)
+    assert status == "START_REFUSED", tail
+    assert '!! Unknown command:"SET_ZCOLOR"' in message, tail
+    checkpoint = json.loads(gcode.with_suffix(".launch.json").read_text())
+    assert checkpoint["phase"] == "rejected"
+    assert leases() == []  # released: the printer refused, nothing is in flight
+    assert len(ad5x.zcolor()) == 1 and len(ad5x.uploads) == 1  # exactly one POST, never resubmitted
 
 
 # --- #690: the AD5X labels a Silk PLA slot SILK ------------------------------------------------------

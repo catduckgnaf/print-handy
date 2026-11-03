@@ -41,6 +41,7 @@ class FakeMoonraker:
         self.status["configfile"] = recorded("configfile_settings.json")["result"]["status"]["configfile"]
         self.history = recorded("history_list.json")["result"]["jobs"]
         self.active_spool = recorded("spool_id.json")["result"]["spool_id"]
+        self.gcode_store = []  # {"message": str, "time": float} console entries, as Moonraker serves them
         self.requests = []  # (method, path, parsed query, body)
         self.unhandled = []
         self.uploads = []  # remote names the (mocked) upload subprocess received
@@ -156,6 +157,8 @@ class FakeMoonraker:
             return recorded("server_info.json")
         if path == "/server/spoolman/spool_id":
             return {"result": {"spool_id": self.active_spool}}
+        if path == "/server/gcode_store":
+            return {"result": {"gcode_store": list(self.gcode_store)}}
         match = re.fullmatch(r"/api/v1/spool/(\d+)", path)
         if match and (FIXTURES / f"spoolman_spool_{match.group(1)}.json").exists():
             return recorded(f"spoolman_spool_{match.group(1)}.json")

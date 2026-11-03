@@ -6142,9 +6142,11 @@ def _preparation_evidence(st):
 def _wait_printing(st, remote, wait_s, prep_check=None):
     """Wait until print_stats is printing, or the start sequence settles without printing.
 
-    prep_check (native mapped starts): heater targets set by the printer's own preparation already
-    prove acceptance, so stop waiting as soon as they appear instead of sitting out the 20 s settle."""
-    t0=time.monotonic(); state=None
+    prep_check (native mapped starts): heater targets set by the printer's own preparation prove
+    acceptance only provisionally (#836). Once seen, keep watching: preparation that ends with
+    the heaters cold and print_stats still standby was a start the printer abandoned (an IFS load
+    fault, say), so return then instead of reporting the early heat as a started print."""
+    t0=time.monotonic(); state=None; prep_seen=False
     while time.monotonic()-t0 < wait_s:
         state,fn,busy=_printer_phase(st)
         # A ZMod .gcode.3mf prints as 3mf_print/X.gcode; an exact compare never matched and sat out wait_s.
@@ -6152,7 +6154,9 @@ def _wait_printing(st, remote, wait_s, prep_check=None):
         if state in ("error","cancelled"): return state
         if prep_check and time.monotonic()-t0 > 2:
             try:
-                if prep_check(st) is True: return state
+                prep = prep_check(st)
+                if prep is True: prep_seen=True
+                elif prep is False and prep_seen and state == "standby": return state  # prep ended, never printed
             except Exception: pass
         if time.monotonic()-t0 > 20 and busy != "Printing": return state  # settled, not printing
         time.sleep(1)
@@ -6405,6 +6409,51 @@ def _settle_lost_start(lease, st, remote, exc, *, base, heaters_were_off, first_
 def _rejected_start_message(rejection):
     return (f"REFUSED: the printer rejected the start request ({rejection}). "
             "The file was uploaded but nothing started.")
+
+
+def _bang_lines(payload):
+    """Every `!!` line in a Moonraker reply payload, however deeply nested.
+
+    Klipper reports a macro failure (unknown command, macro error) as a `!!` console line while
+    Moonraker still answers HTTP 200, so a start receipt has to be read, not just its status."""
+    lines = []
+    if isinstance(payload, str):
+        lines.extend(ln.strip() for ln in payload.splitlines() if ln.strip().startswith("!!"))
+    elif isinstance(payload, dict):
+        for value in payload.values():
+            lines.extend(_bang_lines(value))
+    elif isinstance(payload, (list, tuple)):
+        for value in payload:
+            lines.extend(_bang_lines(value))
+    return lines
+
+
+def _start_receipt_error(st, receipt, *, since):
+    """The printer's `!!` refusal of the one start just sent, or None (#836).
+
+    The POST receipt is inspected first; when it carries no `!!` line, the gcode store is read
+    back, counting only entries stored at or after the send (an older `!!` line belongs to an
+    earlier problem, not this start; 5 s of clock slack). An unreadable store is no evidence,
+    never a refusal."""
+    lines = _bang_lines(receipt)
+    if lines:
+        return lines[0][:300]
+    try:
+        entries = _mr(st, "/server/gcode_store?count=100")["result"]["gcode_store"]
+    except Exception:
+        return None
+    if not isinstance(entries, list):
+        return None
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get("message"), str):
+            continue
+        when = entry.get("time")
+        if isinstance(when, (int, float)) and when < since - 5:
+            continue
+        found = _bang_lines(entry["message"])
+        if found:
+            return found[0][:300]
+    return None
 
 
 START_OUTCOME_MARK = "START READBACK "  # "MAPPED START READBACK " contains it, so one parser reads both
@@ -6799,6 +6848,18 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
         except OSError as e: print(f"WARNING: start announcement claim failed, listener may also post: {e}")
         _announce_print_name(st, job, slots_used, g)
         _publish_job_card(st, job, remote, g.read_text(errors="ignore"))
+        # #836: the idle guard proved every heater target was 0 before an upload that can take
+        # minutes. Re-read the targets immediately before the one start POST: a preheat tapped on
+        # HelixScreen during the upload is not this job's preparation, and a printer someone else
+        # is heating must not be started over. An unreadable read (None) proves nothing either
+        # way: the start still goes out, but with no proven-off baseline, so heater targets after
+        # a lost POST response are never credited to this job.
+        pre_start_evidence = _preparation_evidence(st)
+        heaters_were_off = pre_start_evidence is False
+        if pre_start_evidence is True:
+            raise SystemExit("REFUSED: the printer's heaters are already on before the start was sent, "
+                             "so this start was not sent; a preheat or other work is heating the printer. "
+                             "Check the printer or HelixScreen, then try again. Nothing started.")
     except BaseException:
         lease.release()  # nothing was sent to start
         release_start_announcement(remote)  # the claim was taken in the block above
@@ -6806,14 +6867,17 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
             _write_checkpoint(checkpoint, {**checkpoint_data, 'phase': 'not_submitted'})
         raise
     lease.submitting()
+    sent_at = time.time()
     try:
         receipt = _mr(st, '/printer/gcode/script', data={'script': command})
     except Exception as exc:
         _timing(job_path, 'start_response_lost', detail=type(exc).__name__)
         # A synchronous POST can time out after Moonraker accepted SET_ZCOLOR. Reconcile by this exact
         # submitted file only (_settle_lost_start); heater targets alone may belong to unrelated work and
-        # are never attribution evidence. The idle guard proved the heaters were off before this request.
-        out, rejection = _settle_lost_start(lease, st, remote, exc, base=checkpoint_data, heaters_were_off=True)
+        # are never attribution evidence. heaters_were_off is the re-read taken immediately before
+        # this POST above, not the idle guard's pre-upload proof (#836).
+        out, rejection = _settle_lost_start(lease, st, remote, exc, base=checkpoint_data,
+                                            heaters_were_off=heaters_were_off)
         if out is None:
             _write_checkpoint(checkpoint, {**checkpoint_data, 'phase': 'rejected', 'rejection': rejection})
             raise SystemExit(_rejected_start_message(rejection)) from exc
@@ -6828,6 +6892,14 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
         _write_checkpoint(checkpoint, out)
         _emit_mapped_outcome(out)
         return out
+    # Klipper can answer the POST with HTTP 200 while the macro itself failed: the receipt (or the
+    # gcode store readback) carries a `!!` line. That is a refusal, not a pending start (#836).
+    receipt_error = _start_receipt_error(st, receipt, since=sent_at)
+    if receipt_error is not None:
+        lease.release()
+        release_start_announcement(remote)
+        _write_checkpoint(checkpoint, {**checkpoint_data, 'phase': 'rejected', 'rejection': receipt_error})
+        raise SystemExit(_rejected_start_message(receipt_error))
     _timing(job_path, 'start_submitted')
     out = {'accepted': False, 'started': False, 'phase': 'submitted_unconfirmed',
            'file': remote, 'artifact': str(g), 'sha256': sha, 'mapping': mapping,
@@ -6889,8 +6961,15 @@ def _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_pat
                    outcome=outcome_val,
                    message=msg, preparation_evidence=preparing)
     _write_checkpoint(checkpoint, out)
-    if out['accepted']:
-        lease.release()  # accepted; the busy printer now refuses another start
+    if out['accepted'] and out.get('moonraker_state') == 'printing':
+        lease.release()  # printing; the busy printer now refuses another start
+    elif out['accepted']:
+        # #836: preparation evidence is provisional. The printer may still abandon this start
+        # (heat, fail the IFS load, drop back to standby), so the lease stays uncertain until
+        # the printer reports this file printing; launch_state.acquire() self-settles it from
+        # Moonraker history when the file does run. The start claim stays held too: the
+        # listener edits this start's card when it prints, or reports the abandoned start.
+        lease.uncertain(out['message'])
     else:
         lease.uncertain(out['message'])  # reconciled when the printer reports this file
         release_start_announcement(remote)  # unannounced: the listener posts the start card
