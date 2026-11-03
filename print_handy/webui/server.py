@@ -37,11 +37,24 @@ step) serving:
 - ``GET /layers`` and ``GET /layers/<job>/<file>`` — a read-only view of
   one sliced plate (#624; :mod:`print_handy.webui.layers`). No print,
   pause, or exclude control, and nothing here changes chat confirm.
+- ``GET /walkthrough`` and ``POST /walkthrough`` — the first-run
+  walkthrough (#813; :mod:`print_handy.webui.walkthrough`), offered
+  only to installs that resolved access through the setup page and
+  have not finished it; its steps write through the config path above.
+- ``GET /theme?set=dark|light&back=<path>`` — the header theme toggle
+  (#813; :mod:`print_handy.webui.shell`): sets the ``ph-theme`` cookie
+  and redirects back. A browser preference only, behind the same
+  authorization as every other page.
+
+Every HTML page renders through the one shell
+(:mod:`print_handy.webui.shell`): one inline stylesheet, the header
+chrome, and the dark-by-default theme.
 
 Unknown GET paths are 404. Writes happen only through the config page's
 two POSTs (``POST /config/preview`` renders the diff and writes nothing;
-``POST /config`` with the confirm field performs the validated write);
-every other non-GET method or path is 405.
+``POST /config`` with the confirm field performs the validated write)
+and the walkthrough's ``POST /walkthrough``, which writes through the
+same validated path; every other non-GET method or path is 405.
 
 The server starts only when ``[webui] enabled`` is true and ``port`` is
 above 0. Access control is decided by :mod:`print_handy.webui.access`:
@@ -103,8 +116,10 @@ from . import controls as controls_module
 from . import designs as designs_module
 from . import layers as layers_module
 from . import pages
+from . import shell
 from . import spools as spools_module
 from . import status as status_module
+from . import walkthrough as walkthrough_module
 
 TOKEN_HEADER = "X-WebUI-Token"
 LOOPBACK_NAMES = frozenset({"localhost"})
@@ -202,8 +217,16 @@ def healthz(data=None, heartbeat=status_module.READ_HEARTBEAT):
     return (200 if ok else 503), body
 
 
-def render_status_html(snap, form_token=""):
-    """The / page: the snapshot as plain escaped HTML tables. No scripts."""
+def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
+                       walkthrough_pending=False):
+    """The / page: the snapshot as escaped HTML in the shared shell (#813).
+
+    The overall card on top is derived only from what the snapshot
+    already carries — its ok flag, the doctor rows' warn/fail counts,
+    and the printer's name and connection. The snapshot holds no live
+    job data, so the card names none. ``walkthrough_pending`` adds the
+    slim finish-setup banner under the header.
+    """
     esc = html.escape
     bot, listener, spoolman = snap["bot"], snap["listener"], snap["spoolman"]
     heartbeat = bot["heartbeat"] or {}
@@ -263,21 +286,32 @@ def render_status_html(snap, form_token=""):
             "</form>")
     main_rows = "".join(
         f"<tr><th>{esc(label)}</th><td>{esc(str(value))}</td></tr>" for label, value in rows)
-    return ("<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\">"
-            f"<title>Print Handy {esc(snap['version'])} — status</title></head><body>"
-            "<h1>Print Handy status</h1>"
-            f"<p>Overall: {'ok' if snap['ok'] else 'attention needed'} (read-only page; "
-            "settings are changed on the <a href=\"/config\">configuration page</a>, "
-            "which writes the YAML settings file; AI designs are listed on the "
-            "<a href=\"/designs\">designs page</a>; sliced plates are on the "
-            "<a href=\"/layers\">layers page</a>; spools are on the "
-            "<a href=\"/spools\">spools page</a>)</p>"
-            f"<table>{main_rows}</table>"
+    warns = sum(1 for row in snap["doctor"] if row["status"] == "warn")
+    fails = sum(1 for row in snap["doctor"] if row["status"] == "fail")
+    pills = []
+    if fails:
+        pills.append(f'<span class="badge bad">{fails} failing</span>')
+    if warns:
+        pills.append(f'<span class="badge warn">{warns} warning{"s" if warns != 1 else ""}</span>')
+    if not pills:
+        pills.append('<span class="badge ok">all checks ok</span>')
+    headline = "All good" if snap["ok"] else "Attention needed"
+    overall = ('<section class="card"><div class="overall-head">'
+               f"<h2>{headline}</h2><span>{' '.join(pills)}</span></div>"
+               f'<p class="muted">{esc(snap["printer"]["name"])} · '
+               f'{esc(snap["printer"]["connection"])}</p></section>')
+    banner = ""
+    if walkthrough_pending:
+        banner = ('<div class="banner"><span>Finish setting up Print Handy — '
+                  'the first-run walkthrough is still open.</span>'
+                  '<a class="button accent" href="/walkthrough">Finish setup</a></div>')
+    body = (overall
+            + f'<table class="rows">{main_rows}</table>'
             + roster_table
             + (f"<h2>Services</h2><table>{services}</table>" if services else "")
             + f"<h2>Doctor checks</h2><table>{doctor}</table>"
-            + debug_section
-            + "</body></html>\n")
+            + debug_section)
+    return shell.page("status", body, path="/", theme=theme, banner=banner)
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -361,6 +395,10 @@ class _Handler(BaseHTTPRequestHandler):
             return True
         return access.matches(self.headers.get(TOKEN_HEADER) or "")
 
+    def _theme(self):
+        """This browser's theme from its cookie (#813); dark by default."""
+        return shell.theme_from_cookies(self.headers.get("Cookie"))
+
     def _session_id(self):
         """The session id from the Cookie header, or "" (garbage = none)."""
         raw = self.headers.get("Cookie") or ""
@@ -429,7 +467,8 @@ class _Handler(BaseHTTPRequestHandler):
                 # First-run setup (#708): nothing but the setup page until
                 # the operator sets a password or chooses to leave it open.
                 if path == "/setup":
-                    self._send(200, pages.render_setup_page(self.server.setup_token),
+                    self._send(200, pages.render_setup_page(self.server.setup_token,
+                                                            theme=self._theme()),
                                "text/html; charset=utf-8")
                 elif self._browser_navigation(path):
                     self._redirect("/setup")
@@ -453,26 +492,39 @@ class _Handler(BaseHTTPRequestHandler):
                     return
                 self._json(401, {"ok": False, "reason": f"missing or wrong {TOKEN_HEADER}"})
                 return
-            if path == "/":
+            if path == "/theme":
+                self._theme_route()
+            elif path == "/walkthrough":
+                self._walkthrough_page()
+            elif path == "/":
+                pending = walkthrough_module.pending(self.server.settings_data)
+                if pending and self._browser_navigation(path):
+                    # First run (#813): a browser landing on the status
+                    # page goes to the walkthrough until it is done —
+                    # the setup gate's discipline, one step later. API
+                    # callers and every other route are unaffected.
+                    self._redirect("/walkthrough")
+                    return
                 snap = self.server.snapshot_func()
-                self._send(200, render_status_html(snap, form_token=self.server.form_token),
-                           "text/html; charset=utf-8")
+                self._send(200, render_status_html(
+                    snap, form_token=self.server.form_token, theme=self._theme(),
+                    walkthrough_pending=pending), "text/html; charset=utf-8")
             elif path == "/api/status":
                 self._json(200, self.server.snapshot_func())
             elif path.startswith("/api/printers/"):
                 self._printer_status_route(path[len("/api/printers/"):])
             elif path == "/spools":
                 entries = settings.printers(self.server.settings_data)
-                self._send(200, spools_module.render_spools_index(entries),
+                self._send(200, spools_module.render_spools_index(entries, theme=self._theme()),
                            "text/html; charset=utf-8")
             elif path.startswith("/spools/"):
                 self._spools_page(unquote(path[len("/spools/"):]))
             elif path == "/config":
-                self._send(200, self._config_html(self._field_values()),
+                self._send(200, self._config_html(self._field_values(), theme=self._theme()),
                            "text/html; charset=utf-8")
             elif path == "/designs":
                 rows = designs_module.catalog_rows(self.server.settings_data)
-                self._send(200, designs_module.render_designs_page(rows),
+                self._send(200, designs_module.render_designs_page(rows, theme=self._theme()),
                            "text/html; charset=utf-8")
             elif path.startswith("/designs/"):
                 self._design_route(path[len("/designs/"):])
@@ -480,7 +532,8 @@ class _Handler(BaseHTTPRequestHandler):
                 archive = layers_module.archive_root(self.server.settings_data)
                 rest = path[len("/layers/"):] if path.startswith("/layers/") else ""
                 layer = (parse_qs(urlparse(self.path).query).get("layer") or ["0"])[0]
-                code, content_type, body = layers_module.respond(archive, rest, layer)
+                code, content_type, body = layers_module.respond(
+                    archive, rest, layer, theme=self._theme())
                 if content_type.startswith("text/html"):
                     self._send(code, body, content_type)
                 else:
@@ -490,7 +543,8 @@ class _Handler(BaseHTTPRequestHandler):
                                  "reason": "try /, /api/status, /api/printers/<id>/status, "
                                            "/api/printers/<id>/camera/snapshot, "
                                            "/api/printers/<id>/spools, "
-                                           "/healthz, /config, /designs, /layers, /spools or /login"})
+                                           "/healthz, /config, /designs, /layers, /spools, "
+                                           "/walkthrough or /login"})
         except Exception as exc:  # a broken snapshot is a 500, never a dropped connection
             self._json(500, {"ok": False, "reason": f"{type(exc).__name__}: {exc}"})
 
@@ -620,7 +674,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(code, view)
             return
         self._send(200, spools_module.render_spools_page(
-            view, form_token=self.server.form_token,
+            view, form_token=self.server.form_token, theme=self._theme(),
             purchase_ready=spools_module.purchase_available()),
             "text/html; charset=utf-8")
 
@@ -662,7 +716,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._send(code if code != 200 else 200,
                    spools_module.render_spools_page(
-                       view, form_token=self.server.form_token,
+                       view, form_token=self.server.form_token, theme=self._theme(),
                        notice=payload.get("detail") if code == 200 else None,
                        error=payload.get("reason") if code != 200 else None,
                        proposed=proposed,
@@ -690,7 +744,7 @@ class _Handler(BaseHTTPRequestHandler):
             session, scad_text, has_stl, has_preview, has_base = detail
             self._send(200, designs_module.render_design_detail(
                 session, scad_text, has_stl=has_stl, has_preview=has_preview,
-                has_base=has_base),
+                has_base=has_base, theme=self._theme()),
                 "text/html; charset=utf-8")
             return
         if len(segments) == 2 and segments[0] and segments[1] in designs_module.FILE_KINDS:
@@ -706,13 +760,66 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._json(404, {"ok": False, "reason": "no such design session"})
 
+    # -- theme toggle (#813) --------------------------------------------------
+    def _theme_route(self):
+        """GET /theme?set=dark|light&back=<path>: remember the theme in
+        the ph-theme cookie and go back. Behind the same authorization
+        as every other page (and unreachable pre-setup, like them). The
+        ``back`` target must be a local path — anything else lands on
+        the status page, so the toggle is never an open redirect."""
+        query = parse_qs(urlparse(self.path).query)
+        theme = (query.get("set") or [""])[0]
+        if theme not in shell.THEMES:
+            self._json(400, {"ok": False, "reason": "set must be dark or light"})
+            return
+        back = (query.get("back") or ["/"])[0]
+        if not back.startswith("/") or back.startswith("//"):
+            back = "/"
+        self._redirect(back, headers=[("Set-Cookie", shell.theme_cookie_header(theme))])
+
+    # -- first-run walkthrough (#813) -----------------------------------------
+    def _walkthrough_page(self):
+        """GET /walkthrough: the current step, or / when this install
+        has no walkthrough pending (finished, skipped, or never owed
+        one — token, loopback and require_auth=false installs)."""
+        if not walkthrough_module.pending(self.server.settings_data):
+            self._redirect("/")
+            return
+        self._send(200, walkthrough_module.render_page(
+            self.server.settings_data, self._field_values(),
+            form_token=self.server.form_token, theme=self._theme(),
+            environ=self.server.webui_environ), "text/html; charset=utf-8")
+
+    def _walkthrough_post(self):
+        """POST /walkthrough: one step's action, authorized exactly like
+        a config POST (access header or the page's form token)."""
+        form, error = self._read_form()
+        if error:
+            self._json(error[0], {"ok": False, "reason": error[1]})
+            return
+        if not self._post_authorized(form):
+            self._json(403, {"ok": False,
+                             "reason": f"missing or wrong form token: POST /walkthrough "
+                                       f"requires the {TOKEN_HEADER} header or the "
+                                       f"form's own {pages.CSRF_FIELD} token"})
+            return
+        kind, payload = walkthrough_module.apply_post(
+            self.server.settings_data, self.server.webui_environ, form,
+            self._field_values(), form_token=self.server.form_token,
+            theme=self._theme())
+        if kind == "redirect":
+            self._redirect(payload)
+        else:
+            self._send(200, payload, "text/html; charset=utf-8")
+
     # -- browser login ------------------------------------------------------
     def _login_page(self):
         if not self.server.access.required:
             # Access is open: nothing to log in to (loopback posture).
             self._redirect("/")
             return
-        self._send(200, pages.render_login_page(password=self._password_mode()),
+        self._send(200, pages.render_login_page(password=self._password_mode(),
+                                                theme=self._theme()),
                    "text/html; charset=utf-8")
 
     def _password_mode(self):
@@ -741,7 +848,8 @@ class _Handler(BaseHTTPRequestHandler):
         if not self.server.access.matches(provided):
             what = "password" if self._password_mode() else "token"
             self._send(401, pages.render_login_page(
-                error=f"That {what} was not accepted. Try again.", password=self._password_mode()),
+                error=f"That {what} was not accepted. Try again.",
+                password=self._password_mode(), theme=self._theme()),
                 "text/html; charset=utf-8")
             return
         self._redirect("/", headers=[self._start_session()])
@@ -786,7 +894,8 @@ class _Handler(BaseHTTPRequestHandler):
                 else:
                     raise access_module.AccessError("Choose one of the two options.")
             except access_module.AccessError as exc:
-                self._send(400, pages.render_setup_page(self.server.setup_token, error=str(exc)),
+                self._send(400, pages.render_setup_page(self.server.setup_token,
+                                                        error=str(exc), theme=self._theme()),
                            "text/html; charset=utf-8")
                 return
             self.server.access = access_module.resolve(data, self.server.bind_host,
@@ -862,6 +971,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._login_submit()
             elif path == "/logout":
                 self._logout()
+            elif path == "/walkthrough":
+                self._walkthrough_post()
             elif path == "/config/preview":
                 self._config_preview()
             elif path == "/config":
@@ -896,19 +1007,19 @@ class _Handler(BaseHTTPRequestHandler):
                 errors["_general"] = general
         if errors:
             self._send(400, self._config_html(field_values, errors=errors,
-                                              submitted=submitted),
+                                              submitted=submitted, theme=self._theme()),
                        "text/html; charset=utf-8")
             return
         if not changes:
             self._send(200, self._config_html(
-                field_values, submitted=submitted,
+                field_values, submitted=submitted, theme=self._theme(),
                 notice="No changes: every submitted value already matches "
                        "the effective settings."), "text/html; charset=utf-8")
             return
         effective = {fv.field: fv.value for fv in field_values}
         entries = [(field, effective[field], value) for field, value in changes.items()]
         self._send(200, pages.render_preview_page(
-            entries, submitted, form_token=self.server.form_token),
+            entries, submitted, form_token=self.server.form_token, theme=self._theme()),
             "text/html; charset=utf-8")
 
     def _config_save(self):
@@ -928,7 +1039,7 @@ class _Handler(BaseHTTPRequestHandler):
         changes, submitted, errors = pages.parse_form(form, field_values, only=only)
         if errors:
             self._send(400, self._config_html(field_values, errors=errors,
-                                              submitted=submitted),
+                                              submitted=submitted, theme=self._theme()),
                        "text/html; charset=utf-8")
             return
         try:
@@ -942,10 +1053,11 @@ class _Handler(BaseHTTPRequestHandler):
             if general:
                 errors["_general"] = general
             self._send(400, self._config_html(field_values, errors=errors,
-                                              submitted=submitted),
+                                              submitted=submitted, theme=self._theme()),
                        "text/html; charset=utf-8")
             return
-        self._send(200, pages.render_result_page(changed), "text/html; charset=utf-8")
+        self._send(200, pages.render_result_page(changed, theme=self._theme()),
+                   "text/html; charset=utf-8")
 
     def _debug_post(self):
         """POST /debug (#478): turn debug log mode on or off.

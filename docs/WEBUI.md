@@ -25,6 +25,11 @@ The YAML file remains the only source of truth. The Web UI does not keep a secon
 | `GET /designs/<id>/<scad\|stl\|preview>` | That session's `.scad`, final `.stl`, or preview PNG download |
 | `GET /layers` | Read-only list of sliced plates already in the archive |
 | `GET /layers/<job>/<n>?layer=N` | Plate number `n` of that job (0 is the first), colored by extrusion role |
+| `GET /walkthrough` | The first-run walkthrough (#813), while it is pending for this install |
+| `POST /walkthrough` | One walkthrough step's action (continue, skip, back, finish) |
+| `GET /theme?set=dark\|light&back=<path>` | The header theme toggle: remembers the choice in the `ph-theme` cookie and redirects back |
+
+Every page renders through one shared shell (#813): the same header (Print Handy brand, navigation over the pages above, and a Dark/Light toggle), the same stylesheet, and the same layout on the status, configuration, spools, designs, layers, login, setup and walkthrough pages. **Dark is the default theme.** The toggle stores the choice in a browser cookie (`ph-theme`, one year, this browser only) — it is a presentation preference, not a setting: no settings-file key or environment variable mirrors it, and it works with JavaScript disabled. The status page opens with an overall card — **All good** or **Attention needed**, with the doctor checks' warning and failure counts — above the same status tables as before.
 
 ### Designs page
 
@@ -135,6 +140,20 @@ A Web UI on a non-loopback bind with no access token, no `require_auth = false`,
 - **Leave it open:** tick the box confirming that anyone who can reach the port may use the Web UI. Nothing else is shown until the box is ticked.
 
 The form carries the page's `_csrf` token, so another site cannot answer setup for you. Anyone on your network who reaches the page first can complete it, so do it right after the first start. To change the choice later, delete `webui_access.json` from the state folder and restart (setup runs again), or set an access token in the environment, which always takes precedence over the saved choice.
+
+## First-run walkthrough
+
+Once access is chosen, a new install gets the first-run walkthrough (#813) at `/walkthrough`: five steps — **Printer**, **Chat**, **Camera**, **Providers**, **Review** — covering the settings a first print needs. While it is unfinished, a browser opening the status page is sent to the walkthrough first, and the status page shows a **Finish setting up Print Handy** banner until it is done; every other page stays reachable, and nothing is trapped. Progress is kept in `webui_walkthrough.json` in the state folder, so leaving and coming back resumes at the step you left.
+
+- **Printer:** the printer model, its Moonraker or OctoPrint address (whichever the model uses), and the ZMod delivery format on Flashforge printers. The printer's name is shown but not edited here — it lives in the printer roster in the settings file; rename it there or in the setup wizard.
+- **Chat:** the bot platform and mode, and the chosen platform's channel and allowed users.
+- **Camera:** the camera source and snapshot address, and the timelapse essentials.
+- **Providers:** nothing to fill in. The step lists the model sites and which are connected; a site's token lives in a file or an environment variable, and the bot asks for it in chat the first time a link needs it. Printables needs no account.
+- **Review:** the values now in effect for the settings above, then **Finish setup**.
+
+Each step saves through the same validated write as the configuration page when you continue (fields an environment variable or your own settings file overrides are shown disabled, exactly as on `/config`), and each step can be skipped; **Skip setup** on any step ends the walkthrough without finishing it. Like every Web UI save, changes take effect after a restart.
+
+Only installs that chose access on the setup page are offered the walkthrough. Installs authorized any other way — an access token in the environment, a loopback bind, or `require_auth = false` — never see it, so an existing install is never interrupted by it. To run it again, delete `webui_walkthrough.json` from the state folder.
 
 ## Access token and browser access
 

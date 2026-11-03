@@ -9,7 +9,10 @@ write-back API over the YAML settings file
 ``python3 -m print_handy.webui`` entry point). Stage 3 adds the picker
 configuration page (:mod:`print_handy.webui.pages`): ``GET /config``
 renders the catalog as a form, and saving goes preview -> confirm ->
-validated write through the stage 1 API.
+validated write through the stage 1 API. #813 adds the shared page
+shell (:mod:`print_handy.webui.shell` — one stylesheet, the header
+chrome, the dark-by-default theme) that every page renders through,
+and the first-run walkthrough (:mod:`print_handy.webui.walkthrough`).
 """
 from __future__ import annotations
 

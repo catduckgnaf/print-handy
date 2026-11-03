@@ -43,6 +43,7 @@ from pathlib import Path
 
 from . import access as access_module
 from . import config as config_api
+from . import shell
 from .catalog import choice_label, choices_for, config_page_visible, field_by_id
 
 CSRF_FIELD = "_csrf"
@@ -212,13 +213,14 @@ def _field_row(field_value, *, data, errors, submitted):
     return "".join(parts)
 
 
-def _page(title, body):
-    return ("<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\">"
-            f"<title>Print Handy — {_esc(title)}</title></head><body>"
-            f"<h1>Print Handy {_esc(title)}</h1>{body}</body></html>\n")
+def _page(title, body, *, theme=shell.DEFAULT_THEME, path="", chrome=True):
+    """Every page renders through the one shell (#813): shared stylesheet,
+    header chrome and theme. Login and setup pass ``chrome=False`` — there
+    is no navigation to offer before access exists."""
+    return shell.page(title, body, path=path, theme=theme, chrome=chrome)
 
 
-def render_login_page(error=None, password=False):
+def render_login_page(error=None, password=False, *, theme=shell.DEFAULT_THEME):
     """The GET /login page: a single password field for the access token.
 
     A browser cannot send the ``X-WebUI-Token`` header, so this form is
@@ -246,10 +248,10 @@ def render_login_page(error=None, password=False):
         f'<input type="password" id="f-{LOGIN_TOKEN_FIELD}" '
         f'name="{LOGIN_TOKEN_FIELD}" autocomplete="current-password" required></p>'
         '<p><button type="submit">Log in</button></p></form>')
-    return _page("log in", "".join(parts))
+    return _page("log in", "".join(parts), theme=theme, path="/login", chrome=False)
 
 
-def render_setup_page(form_token, error=None):
+def render_setup_page(form_token, error=None, *, theme=shell.DEFAULT_THEME):
     """The GET /setup page (#708): set a password, or affirmatively leave it open.
 
     Shown only while no access rule exists for a LAN bind. Submitted
@@ -287,17 +289,16 @@ def render_setup_page(form_token, error=None):
     parts.append(
         '<p>To change this later, delete <code>webui_access.json</code> from the Print Handy '
         'state folder and restart, or set an access token in the environment.</p>')
-    return _page("setup", "".join(parts))
+    return _page("setup", "".join(parts), theme=theme, path="/setup", chrome=False)
 
 
 def render_config_page(field_values, *, data, form_token, errors=None,
-                       submitted=None, notice=None):
+                       submitted=None, notice=None, theme=shell.DEFAULT_THEME):
     """The GET /config form (also the error/notice re-render target)."""
     by_group = {}
     for field_value in field_values:
         by_group.setdefault(field_value.field.group, []).append(field_value)
     parts = [
-        '<p><a href="/">Status</a></p>',
         '<p>These settings live in the YAML settings file; this page is an '
         'editor for that file, not a second source of truth. Saving writes '
         'only the settings file layer, after validation by the real '
@@ -328,10 +329,10 @@ def render_config_page(field_values, *, data, form_token, errors=None,
         parts.extend(_field_row(fv, data=data, errors=errors, submitted=submitted)
                      for fv in rows)
     parts.append('<p><button type="submit">Preview changes</button></p></form>')
-    return _page("configuration", "".join(parts))
+    return _page("configuration", "".join(parts), theme=theme, path="/config")
 
 
-def render_preview_page(entries, submitted, *, form_token):
+def render_preview_page(entries, submitted, *, form_token, theme=shell.DEFAULT_THEME):
     """The diff preview: exact (field, old, new) rows plus the confirm form.
 
     ``entries`` is [(field, old, new)]; ``submitted`` carries the raw form
@@ -371,10 +372,10 @@ def render_preview_page(entries, submitted, *, form_token):
         '<form method="post" action="/config">', "".join(hidden),
         '<p><button type="submit">Save changes</button> '
         '<a href="/config">Back to the form</a></p></form>',
-    ]))
+    ]), theme=theme, path="/config")
 
 
-def render_result_page(changed):
+def render_result_page(changed, *, theme=shell.DEFAULT_THEME):
     """The post-save page: the keys write_changes actually changed."""
     if changed:
         listing = "".join(f"<li>{_esc(section)}.{_esc(key)}</li>"
@@ -387,8 +388,8 @@ def render_result_page(changed):
     else:
         body = "<p>Nothing changed: the settings file already held these values.</p>"
     return _page("configuration saved", body +
-                 '<p><a href="/config">Back to configuration</a> · '
-                 '<a href="/">Status</a></p>')
+                 '<p><a href="/config">Back to configuration</a></p>',
+                 theme=theme, path="/config")
 
 
 # ------------------------------------------------------------------ parsing
