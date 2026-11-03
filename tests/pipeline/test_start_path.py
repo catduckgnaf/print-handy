@@ -686,8 +686,11 @@ def test_836_a_bang_bang_gcode_store_reply_is_a_refusal(mapped, patch):
             posts.append(data["script"])
             return {"result": "ok"}
         if path.startswith("/server/gcode_store"):
-            return {"result": {"gcode_store": [
-                {"message": '!! Unknown command:"SET_ZCOLOR"', "time": time.time()}]}}
+            # The store only gains the `!!` line once the POST has gone out: the watermark is
+            # captured from the store immediately before the POST, so a stateless store that
+            # always showed the line would (correctly) read as a pre-submission error.
+            entries = [{"message": '!! Unknown command:"SET_ZCOLOR"', "time": time.time()}] if posts else []
+            return {"result": {"gcode_store": entries}}
         return original(st, path, data=data, timeout=timeout)
     model_job._mr.side_effect = mr
     jp, g = make_job(mapped.root, "a")
@@ -717,17 +720,85 @@ def test_836_a_bang_bang_line_in_the_receipt_itself_is_a_refusal(mapped, patch):
     assert json.loads(g.with_suffix(".launch.json").read_text())["phase"] == "rejected"
 
 
-def test_836_start_receipt_error_ignores_stale_store_lines_and_plain_ok():
+def _store_reply(entries):
+    return {"result": {"gcode_store": list(entries)}}
+
+
+def test_848_start_receipt_error_attributes_by_watermark_not_by_clock():
+    """Codex P1 on #848: a `!!` line logged just before the POST (inside the old 5 s window)
+    belongs to an earlier problem and must not refuse this start, and a `!!` line logged after
+    the POST must refuse it even when its timestamp is old (printer/host clock skew). Only the
+    gcode-store watermark captured before the POST separates the two — never a timestamp."""
     now = time.time()
-    store = {"result": {"gcode_store": [{"message": "!! Must home axis first", "time": now - 3600}]}}
-    with mock.patch.object(model_job, "_mr", return_value=store):
-        assert model_job._start_receipt_error({}, {"result": "ok"}, since=now) is None
-    fresh = {"result": {"gcode_store": [{"message": "echo: all good", "time": now},
-                                        {"message": "!! Unknown command:\"SET_ZCOLOR\"", "time": now}]}}
-    with mock.patch.object(model_job, "_mr", return_value=fresh):
-        assert model_job._start_receipt_error({}, {"result": "ok"}, since=now) == '!! Unknown command:"SET_ZCOLOR"'
+    before = {"message": "!! Must home axis first", "time": now - 1}  # 1 s before the send
+    after_skewed = {"message": '!! Unknown command:"SET_ZCOLOR"', "time": now - 3600}  # skewed clock
+    with mock.patch.object(model_job, "_mr", side_effect=[
+            _store_reply([before]), _store_reply([before])]):
+        watermark = model_job._gcode_store_watermark({})
+        assert model_job._start_receipt_error({}, {"result": "ok"}, watermark=watermark) is None
+    with mock.patch.object(model_job, "_mr", side_effect=[
+            _store_reply([before]), _store_reply([before, {"message": "echo: all good", "time": now},
+                                                  after_skewed])]):
+        watermark = model_job._gcode_store_watermark({})
+        assert model_job._start_receipt_error({}, {"result": "ok"}, watermark=watermark) \
+            == '!! Unknown command:"SET_ZCOLOR"'
+    # No watermark (the store was unreadable before the POST): store lines are not attributed
+    # to this submission at all — no evidence, never a refusal.
     with mock.patch.object(model_job, "_mr", side_effect=OSError("offline")):
-        assert model_job._start_receipt_error({}, {"result": "ok"}, since=now) is None  # unreadable: no evidence
+        assert model_job._gcode_store_watermark({}) is None
+    with mock.patch.object(model_job, "_mr", return_value=_store_reply([after_skewed])):
+        assert model_job._start_receipt_error({}, {"result": "ok"}, watermark=None) is None
+    # An unreadable readback store is likewise no evidence.
+    with mock.patch.object(model_job, "_mr", side_effect=[_store_reply([before]), OSError("offline")]):
+        watermark = model_job._gcode_store_watermark({})
+        assert model_job._start_receipt_error({}, {"result": "ok"}, watermark=watermark) is None
+    # A `!!` line in the receipt itself still refuses, watermark or not.
+    with mock.patch.object(model_job, "_mr", side_effect=OSError("offline")):
+        assert model_job._start_receipt_error({}, {"result": '!! Unknown command:"SET_ZCOLOR"'},
+                                              watermark=None) == '!! Unknown command:"SET_ZCOLOR"'
+
+
+def test_848_a_bang_line_logged_just_before_the_post_is_not_this_starts_refusal(mapped, patch):
+    """End to end on the mapped path: an unrelated console error 1 s before the SET_ZCOLOR POST
+    (the old code's 5 s window blamed it) does not refuse a start the printer goes on to print."""
+    store = [{"message": "!! Must home axis first", "time": time.time()}]  # already in the store pre-POST
+    original = model_job._mr.side_effect
+
+    def mr(st, path, data=None, timeout=30):
+        if path.startswith("/server/gcode_store"):
+            return _store_reply(store)
+        return original(st, path, data=data, timeout=timeout)
+    model_job._mr.side_effect = mr
+    patch(model_job, "_wait_printing", lambda *a, **k: "printing")
+    jp, g = make_job(mapped.root, "a")
+    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1},
+                                        json.loads(jp.read_text()), jp, 0, False)
+    assert out["started"] is True and out["phase"] == "executing"
+    assert len(mapped.scripts) == 1
+
+
+def test_848_a_bang_line_after_the_post_refuses_even_with_a_skewed_old_timestamp(mapped, patch):
+    """The `!!` answer to the POST carries a timestamp an hour before the send (clock skew):
+    the old time filter skipped it and waited out a pending start; the watermark counts it,
+    because it entered the store after the watermark was captured."""
+    store, posts = [], []
+    original = model_job._mr.side_effect
+
+    def mr(st, path, data=None, timeout=30):
+        if path == "/printer/gcode/script":
+            posts.append(data["script"])
+            store.append({"message": '!! Unknown command:"SET_ZCOLOR"', "time": time.time() - 3600})
+            return {"result": "ok"}
+        if path.startswith("/server/gcode_store"):
+            return _store_reply(store)
+        return original(st, path, data=data, timeout=timeout)
+    model_job._mr.side_effect = mr
+    jp, g = make_job(mapped.root, "a")
+    with pytest.raises(SystemExit, match=r"REFUSED: the printer rejected the start request \(!! Unknown command"):
+        model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1},
+                                      json.loads(jp.read_text()), jp, 0, False)
+    assert len(posts) == 1 and phases() == [] and model_job._read_claims() == {}
+    assert json.loads(g.with_suffix(".launch.json").read_text())["phase"] == "rejected"
 
 
 # --------------------------------------------------------------------------- item 3: the checkpoint

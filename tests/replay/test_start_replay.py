@@ -212,6 +212,21 @@ def test_a_bang_bang_receipt_with_http_200_is_a_refusal(ad5x, tmp_path):
     assert len(ad5x.zcolor()) == 1 and len(ad5x.uploads) == 1  # exactly one POST, never resubmitted
 
 
+def test_a_bang_line_logged_before_the_start_is_not_its_refusal(ad5x, tmp_path):
+    """#848 Codex P1: a `!!` line from an unrelated console command, logged a moment before the
+    SET_ZCOLOR POST, is in the store before the watermark is captured — it must not refuse a
+    start the printer accepts and prints. (The old 5 s timestamp window blamed it.)"""
+    ad5x.gcode_store.append({"message": "!! Must home axis first", "time": time.time()})
+    ad5x.script_hook = printer_starts(after_s=2)
+    job, _ = make_job(tmp_path)
+
+    ok, tail = run_print_now(job)
+
+    status, _message = intake_outcome(ok, tail)
+    assert status == "STARTED", tail
+    assert len(ad5x.zcolor()) == 1 and len(ad5x.uploads) == 1
+
+
 # --- #690: the AD5X labels a Silk PLA slot SILK ------------------------------------------------------
 
 def test_slot_two_labeled_silk_launches_with_silk_pla_in_spoolman(ad5x, tmp_path):

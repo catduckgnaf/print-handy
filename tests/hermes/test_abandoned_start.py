@@ -125,6 +125,65 @@ def test_poll_announces_and_releases_once_the_cold_window_is_met(monkeypatch):
     assert announced == [FILE] and released == [FILE]
 
 
+OTHER = "Other_plate_1_" + "cd" * 32 + ".gcode"
+
+
+def test_two_claims_each_keep_their_own_cold_window():
+    """Codex P2 on #848: the poll feeds every outstanding claim the same empty-filename cold
+    read, alternating filenames. A shared watch resets its window on every filename change, so
+    neither claim ever reached 60 s; per-claim watches each fire at their own 60 s."""
+    watch = mel.AbandonedStartWatch()
+    for filename in (FILE, OTHER):
+        assert cold(watch, filename=filename, now=1000.0) is False
+    for filename in (FILE, OTHER):
+        assert cold(watch, filename=filename, now=1030.0) is False
+    assert cold(watch, filename=FILE, now=1060.0) is True    # FILE's own window, met
+    assert cold(watch, filename=OTHER, now=1060.0) is True   # OTHER's own window, met
+    assert cold(watch, filename=FILE, now=2000.0) is False   # still exactly once each
+    assert cold(watch, filename=OTHER, now=2000.0) is False
+
+
+def test_a_completed_claim_does_not_starve_the_next_claims_window():
+    """Two claims: FILE's start completes (a printing read), OTHER's is abandoned. The poll
+    keeps feeding both claims the idle cold reads, and OTHER must still be reported after its
+    own sustained 60 s — the completed claim's interleaved reads must not reset it."""
+    watch = mel.AbandonedStartWatch()
+    assert watch.observe(FILE, "printing", 220.0, 60.0, now=0.0) is False  # FILE's start took
+    assert cold(watch, filename=OTHER, now=10.0) is False                  # OTHER goes cold
+    assert cold(watch, filename=FILE, now=20.0) is False                   # printer idle again
+    assert cold(watch, filename=OTHER, now=40.0) is False
+    assert cold(watch, filename=FILE, now=50.0) is False
+    assert cold(watch, filename=OTHER, now=70.0) is True                   # OTHER's own 60 s
+
+
+def test_a_retired_claim_gets_a_fresh_window_when_the_file_is_claimed_again():
+    watch = mel.AbandonedStartWatch()
+    assert cold(watch, now=0.0) is False
+    assert cold(watch, now=60.0) is True
+    watch.retire(FILE)  # the poll released the claim after firing
+    assert cold(watch, now=120.0) is False  # a reprint of the same file starts a new window
+    assert cold(watch, now=180.0) is True
+
+
+def test_poll_reports_two_outstanding_claims_from_the_same_cold_reads(monkeypatch):
+    """Poll level: two unexpired claims, the printer reports an empty filename, standby, cold.
+    Both watches were seeded cold 120 s ago; one poll must announce and release both, not just
+    whichever claim the shared watch happened to be tracking."""
+    listener = mel.Listener()
+    for filename in (FILE, OTHER):
+        listener.abandoned_watch.observe(filename, "standby", 0.0, 0.0, now=time.time() - 120)
+    announced, released = [], []
+    monkeypatch.setattr(mel, "claimed_start_filenames", lambda now=None: [FILE, OTHER])
+    monkeypatch.setattr(mel.print_control, "_call", lambda path: {"result": {"status": {
+        "print_stats": {"state": "standby", "filename": ""},
+        "extruder": {"target": 0.0}, "heater_bed": {"target": 0.0}}}})
+    monkeypatch.setattr(mel, "announce_start_abandoned", lambda filename: announced.append(filename) or True)
+    monkeypatch.setattr(mel, "release_start_claim", lambda filename: released.append(filename))
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    asyncio.run(listener.poll_abandoned_starts())
+    assert announced == [FILE, OTHER] and released == [FILE, OTHER]
+
+
 def test_poll_stays_quiet_while_the_claimed_start_is_heating(monkeypatch):
     listener = mel.Listener()
     announced = []

@@ -2190,40 +2190,55 @@ ABANDONED_START_MESSAGE = ("The printer stopped preparing this job without print
 class AbandonedStartWatch:
     """Tracks claimed starts that have not become prints, one cold window per claimed file.
 
-    Pure observation in, one decision out: `observe` returns True exactly once for a claimed
-    file whose printer reads standby/error with both heater targets at 0 for
-    ABANDONED_START_COLD_S. Any heater target, a printing/paused read, an unreadable target
-    or a different file restarts (or clears) the window — none of those is evidence a start
-    was abandoned.
+    Pure observation in, one decision out: `observe` returns True exactly once per claim for
+    a claimed file whose printer reads standby/error with both heater targets at 0 for
+    ABANDONED_START_COLD_S. Each outstanding claim keeps its own window: the poll feeds every
+    claim the same printer read (an empty reported filename matches them all), and one claim's
+    reads must never reset another claim's window (#848 — with a single shared window, two
+    outstanding claims alternately reset each other and neither was ever reported). Any
+    heater target or an unreadable target restarts that claim's window only — neither is
+    evidence a start was abandoned. A printing/paused read retires the claim's window
+    outright: that start took, so its later idle reads are a finished print's story, not an
+    abandoned start's. `retire` drops a claim the poll has released, and `retain` drops
+    windows for claims that are no longer outstanding, so a later claim of the same file
+    always starts a fresh window.
     """
 
     def __init__(self):
-        self.filename = None
-        self.cold_since = None
-        self.announced = False
+        self._claims = {}  # filename -> {"cold_since": float | None, "announced": bool}
 
     def observe(self, filename, state, extruder_target, bed_target, now=None):
+        if not filename:
+            return False
         now = time.time() if now is None else now
-        cold = (filename and state in ("standby", "error")
+        if state in ("printing", "paused"):
+            self._claims.pop(filename, None)  # this claim's start took: retire its window
+            return False
+        claim = self._claims.setdefault(filename, {"cold_since": None, "announced": False})
+        cold = (state in ("standby", "error")
                 and extruder_target is not None and bed_target is not None
                 and float(extruder_target) == 0.0 and float(bed_target) == 0.0)
         if not cold:
-            if filename != self.filename or state in ("printing", "paused"):
-                self.filename = filename or None
-                self.announced = False
-            self.cold_since = None
+            claim["cold_since"] = None
             return False
-        if filename != self.filename:
-            self.filename = filename
-            self.cold_since = None
-            self.announced = False
-        if self.cold_since is None:
-            self.cold_since = now
+        if claim["cold_since"] is None:
+            claim["cold_since"] = now
             return False
-        if not self.announced and now - self.cold_since >= ABANDONED_START_COLD_S:
-            self.announced = True
+        if not claim["announced"] and now - claim["cold_since"] >= ABANDONED_START_COLD_S:
+            claim["announced"] = True
             return True
         return False
+
+    def retire(self, filename):
+        """Drop one claim's window (it fired, or its claim was released another way)."""
+        self._claims.pop(filename, None)
+
+    def retain(self, filenames):
+        """Drop the windows of files that are no longer outstanding claims."""
+        outstanding = set(filenames)
+        for filename in list(self._claims):
+            if filename not in outstanding:
+                del self._claims[filename]
 
 
 def announce_start_abandoned(filename):
@@ -2890,10 +2905,15 @@ class Listener:
         card would otherwise say "Print started, warming up" forever. For each
         claimed file, read print_stats and the heater targets; the watch fires
         once after ABANDONED_START_COLD_S of standby/error with both targets 0,
-        and then the one start card is edited and the claim released. Fail-soft
-        like the polls beside it: an unreadable printer changes nothing.
+        and then the one start card is edited and the claim released. Each
+        outstanding claim is watched with its own cold window (#848), and
+        windows for claims that are no longer outstanding are retired first.
+        Fail-soft like the polls beside it: an unreadable printer changes
+        nothing.
         """
-        for filename in claimed_start_filenames():
+        claims = claimed_start_filenames()
+        self.abandoned_watch.retain(claims)
+        for filename in claims:
             try:
                 reply = await asyncio.to_thread(
                     print_control._call, "/printer/objects/query?print_stats&extruder&heater_bed")
@@ -2913,6 +2933,7 @@ class Listener:
                 log(f"claimed start never became a print file={filename!r}")
                 await asyncio.to_thread(announce_start_abandoned, filename)
                 await asyncio.to_thread(release_start_claim, filename)
+                self.abandoned_watch.retire(filename)
 
     async def poll_spoolman_new_spools(self):
         """Prompt once per spool created in Spoolman outside Print Handy (#483).

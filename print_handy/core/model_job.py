@@ -6428,27 +6428,68 @@ def _bang_lines(payload):
     return lines
 
 
-def _start_receipt_error(st, receipt, *, since):
-    """The printer's `!!` refusal of the one start just sent, or None (#836).
-
-    The POST receipt is inspected first; when it carries no `!!` line, the gcode store is read
-    back, counting only entries stored at or after the send (an older `!!` line belongs to an
-    earlier problem, not this start; 5 s of clock slack). An unreadable store is no evidence,
-    never a refusal."""
-    lines = _bang_lines(receipt)
-    if lines:
-        return lines[0][:300]
+def _gcode_store_entries(st):
+    """The gcode store entries Moonraker serves, or None when the read proves nothing."""
     try:
         entries = _mr(st, "/server/gcode_store?count=100")["result"]["gcode_store"]
     except Exception:
         return None
-    if not isinstance(entries, list):
+    return entries if isinstance(entries, list) else None
+
+
+def _store_entry_mark(entry):
+    """A store entry's identity for watermark matching: its message and store timestamp."""
+    if not isinstance(entry, dict):
         return None
-    for entry in entries:
+    return (entry.get("message"), entry.get("time"))
+
+
+def _gcode_store_watermark(st):
+    """The store's state immediately before a submission: (entry count, newest entry's mark).
+
+    Attribution by position, never by clock (#848): entries at or before the watermark belong
+    to whatever happened before the submission, however close in time, and entries after it
+    are the submission's, however skewed their timestamps are. None when the store cannot be
+    read at capture time — then no store entry can be attributed to the submission at all."""
+    entries = _gcode_store_entries(st)
+    if entries is None:
+        return None
+    return (len(entries), _store_entry_mark(entries[-1]) if entries else None)
+
+
+def _entries_after_watermark(entries, watermark):
+    """The entries that entered the store after `watermark` was captured.
+
+    The watermark's newest entry is located first (its last occurrence, in case the same line
+    was logged twice), because a capped store window can slide between capture and readback;
+    the count alone is the fallback when that entry is no longer served."""
+    count, mark = watermark
+    if mark is not None:
+        for index in range(len(entries) - 1, -1, -1):
+            if _store_entry_mark(entries[index]) == mark:
+                return entries[index + 1:]
+    return entries[count:] if len(entries) >= count else []
+
+
+def _start_receipt_error(st, receipt, *, watermark):
+    """The printer's `!!` refusal of the one start just sent, or None (#836).
+
+    The POST receipt is inspected first; when it carries no `!!` line, the gcode store is read
+    back, counting only entries after the watermark captured immediately before the POST
+    (#848: a `!!` line logged before the submission belongs to an earlier problem, not this
+    start, and comparing its printer timestamp with host time made attribution clock-skew
+    sensitive). With no watermark, or an unreadable store, there is no evidence — never a
+    refusal."""
+    lines = _bang_lines(receipt)
+    if lines:
+        return lines[0][:300]
+    if watermark is None:
+        return None
+    entries = _gcode_store_entries(st)
+    if entries is None:
+        return None
+    for entry in _entries_after_watermark(entries, watermark):
         if not isinstance(entry, dict) or not isinstance(entry.get("message"), str):
-            continue
-        when = entry.get("time")
-        if isinstance(when, (int, float)) and when < since - 5:
             continue
         found = _bang_lines(entry["message"])
         if found:
@@ -6867,7 +6908,11 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
             _write_checkpoint(checkpoint, {**checkpoint_data, 'phase': 'not_submitted'})
         raise
     lease.submitting()
-    sent_at = time.time()
+    # #848: capture the gcode-store watermark immediately before the one POST, so a `!!` line
+    # the store gains afterwards is attributable to this submission by position — a line that
+    # was already there (an unrelated console error a second earlier) is not, and no printer
+    # or host clock is ever compared.
+    store_watermark = _gcode_store_watermark(st)
     try:
         receipt = _mr(st, '/printer/gcode/script', data={'script': command})
     except Exception as exc:
@@ -6893,8 +6938,9 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
         _emit_mapped_outcome(out)
         return out
     # Klipper can answer the POST with HTTP 200 while the macro itself failed: the receipt (or the
-    # gcode store readback) carries a `!!` line. That is a refusal, not a pending start (#836).
-    receipt_error = _start_receipt_error(st, receipt, since=sent_at)
+    # gcode store readback, past the pre-POST watermark) carries a `!!` line. That is a refusal,
+    # not a pending start (#836).
+    receipt_error = _start_receipt_error(st, receipt, watermark=store_watermark)
     if receipt_error is not None:
         lease.release()
         release_start_announcement(remote)
