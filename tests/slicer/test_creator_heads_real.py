@@ -37,11 +37,10 @@ def test_creator_job_on_heads_3_and_4_slices(model_key, picks, heads):
             CASES / "four-colors-one-plate" / "model.3mf", tmp / "slice", tool_state(), adapter=adapter,
             color_decisions=four_colour_decisions(tmp, picks))
         text = Path(out).read_text(errors="replace")
-        used = {int(t) for t in re.findall(r"^T(\d)", text, re.M)}
+        used = {int(m.group(1)) for line in text.splitlines() if (m := re.match(r"\s*T(\d+)\s*(?:;.*)?$", line))}
         print(f"\n{model_key} picks {picks}: tools used {sorted(used)}; mapping {provenance['tool_mapping']}")
-        if not heads <= used:  # show how this G-code selects toolheads, for the failure report
-            hints = [line for line in text.splitlines()
-                     if re.match(r"\s*(T\d|M10[49]\s+T|M6\b|ACTIVATE|SET_|;\s*(CP |tool|filament|extruder))", line, re.I)]
-            print("\n".join(hints[:60]))
+        at = text.find("T2")
+        print("around the first T2:", repr(text[max(at - 40, 0):at + 40]) if at >= 0 else "none",
+              "| LF:", text.count("\n"), "CR:", text.count("\r"))
         assert heads <= used, used  # the start sequence may also select a tool; every picked head prints
         assert {int(tool) for tool in provenance["tool_mapping"]} == heads
