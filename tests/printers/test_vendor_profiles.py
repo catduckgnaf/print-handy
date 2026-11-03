@@ -25,6 +25,8 @@ def without_added(data):
     data.pop("elegoo_sdcp", None)  # added for the Elegoo SDCP vendor (#243), after capture
     data.pop("notify", None)  # #622's section joined the defaults tree in the 2.2.2 settings-surface fix, after capture
     data.pop("material_tuning", None)  # #783's shipped PLA tuning, added after capture
+    data.pop("purge", None)  # #832's purge plan settings, added after capture
+    data.pop("zmod", None)  # #832's ZMod plugin settings, added after capture
     for key in ("lan_host", "lan_serial", "lan_access_code_env"):  # added by #187, after capture
         data.get("bambu", {}).pop(key, None)
     data.get("bambu", {}).pop("start_confirm_s", None)  # added by #271, after capture
