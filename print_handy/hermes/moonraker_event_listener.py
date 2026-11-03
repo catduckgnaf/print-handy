@@ -43,6 +43,7 @@ from . import print_control
 from . import light_control
 from . import visual_watch as _visual_watch
 from . import local_vision as _local_vision
+from . import lane_data_sync
 from . import print_markers
 from . import print_records
 from . import vertical_short
@@ -1761,6 +1762,7 @@ RUNOUT_PAUSE_STATE = _config.state_file("RUNOUT_PAUSE_STATE", "runout_pause.json
 # The last stock-screen error alerted, so a listener restart does not post the same error again.
 NATIVE_ERROR_STATE = _config.state_file("NATIVE_ERROR_STATE", "native_error_alerted.json", per_instance=True)
 SPOOLMAN_KNOWN_STATE = _config.state_file("SPOOLMAN_KNOWN_STATE", "spoolman_known_spools.json", per_instance=True)
+LANE_DATA_STATE = _config.state_file("LANE_DATA_STATE", "lane_data_watch.json", per_instance=True)
 RUNOUT_SPOOL_COMMENT = "runout replacement; starting weight supplied by operator"
 # An undelivered new-spool prompt is retried this often, and given up after a day.
 NEW_SPOOL_RETRY_S = 300.0
@@ -1946,6 +1948,41 @@ class SpoolmanNewSpoolWatcher:
         pending = state.get("pending")
         if isinstance(pending, dict) and pending.pop(str(int(spool_id)), None) is not None:
             atomic_write_json(self.state_path, state)
+
+
+def post_lane_event(event):
+    """Post one HelixScreen lane announcement (#791) to the printer channel."""
+    text = lane_data_sync.lane_event_text(event)
+    if not text:
+        return False
+    return post(text)
+
+
+def feed_screen_runout_load(slot, spool_id, context, *, client=None, mr=None, state_path=None):
+    """Feed a screen-side load during a paused runout into the existing recovery (#791).
+
+    The same steps a chat answer to the spool question takes (the plugin's
+    _answer_spool_question existing-spool path): bind the slot with the
+    runout disposition so the depleted spool is marked depleted by the bind
+    itself, resume filament usage on the new spool, and clear the open
+    question so its reminders stop. The physical load at the screen is the
+    operator's answer; nothing here moves the printer. Returns False when
+    the screen spool is the one that just ran out — that spool cannot
+    answer its own runout question, exactly as a chat reply cannot.
+    """
+    from . import spool_sync
+    client = client or spool_sync.spoolman
+    mr = mr or spool_sync.moonraker
+    cause = (context or {}).get("cause")
+    prior = (context or {}).get("prior_spool_id")
+    if cause == "runout" and prior is not None and int(prior) == int(spool_id):
+        return False
+    spool_sync.bind_slot(int(slot), int(spool_id), client=client, mr=mr, state_path=state_path,
+                         prior_disposition="depleted" if cause == "runout" else "shelf",
+                         note="Bound from HelixScreen during a paused runout")
+    spool_sync.resume_usage(int(spool_id), mr=mr)
+    clear_runout_pause()
+    return True
 
 
 class FilamentInsertionMonitor:
@@ -2634,6 +2671,11 @@ class Listener:
         self.pause_message = ""
         self.ifs_monitor = FilamentInsertionMonitor()
         self.spoolman_watcher = SpoolmanNewSpoolWatcher()
+        self.lane_watcher = lane_data_sync.LaneDataWatcher(
+            LANE_DATA_STATE,
+            runout_context_fn=load_runout_pause,
+            runout_feed_fn=lambda slot, spool_id, context:
+                feed_screen_runout_load(slot, spool_id, context))
         self.slot_tracker = MidPrintSlotTracker()
         self.visual_watch = VisualPrintWatch()
         # #455: this printer's local-detector temporal escalation state;
@@ -2727,6 +2769,31 @@ class Listener:
                 log(f"spoolman watcher prompted for new spool #{spool.get('id')}")
             else:
                 log(f"spoolman watcher could not deliver the prompt for spool #{spool.get('id')}; will retry")
+
+    async def poll_lane_data(self):
+        """Announce and converge HelixScreen-initiated spool changes (#791).
+
+        Runs on the native-presence poll's cadence, beside the #483
+        Spoolman watcher — no new connection: the watcher reads the
+        Moonraker ``lane_data`` namespace through this printer's existing
+        Moonraker client. Fail-soft like the watcher beside it: an
+        unreachable or absent namespace reads as unknown and changes
+        nothing, and any error is logged by the caller, never raised.
+        """
+        from . import spool_sync
+        from .. import listeners as _listeners
+        instance_id = _listeners.instance_printer_id()
+        if instance_id:
+            self.lane_watcher.mr = spool_sync.moonraker_for(instance_id)
+            self.lane_watcher.printer_id = instance_id
+        due = await asyncio.to_thread(self.lane_watcher.poll)
+        for event in due:
+            if await asyncio.to_thread(post_lane_event, event):
+                await asyncio.to_thread(self.lane_watcher.delivered, event["key"])
+                log(f"lane_data watcher announced {event.get('kind')} for slot {event.get('slot')}")
+            else:
+                log(f"lane_data watcher could not deliver the {event.get('kind')} announcement "
+                    f"for slot {event.get('slot')}; will retry")
 
     async def nag_if_due(self):
         record = load_runout_pause()
@@ -3508,6 +3575,10 @@ class Listener:
                         await self.poll_spoolman_new_spools()
                     except Exception as exc:
                         log(f"spoolman new-spool poll failed: {exc!r}")
+                    try:
+                        await self.poll_lane_data()
+                    except Exception as exc:
+                        log(f"lane_data poll failed: {exc!r}")
                     try:
                         await self.nag_if_due()
                     except Exception as exc:

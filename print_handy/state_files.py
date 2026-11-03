@@ -30,6 +30,7 @@ KNOWN = (
     "ifs_pending_prompts.json",
     "ifs_presence_edges.json",
     "jobs.db",
+    "lane_data_watch.json",
     "last_bot_cancel.json",
     "lifecycle_notifications.json",
     "listener_health.json",

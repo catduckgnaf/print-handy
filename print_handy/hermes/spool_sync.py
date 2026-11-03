@@ -4,9 +4,11 @@ Spoolman is the source of truth. Which spool sits in which slot lives in the
 Spoolman extra field ``ph_slot`` (``<printer_id>:<slot>``, #798); ``location``
 stays human-readable (`IFS Slot N` / `Shelf`) and is written but never read
 as truth, and ``printer_hardware.json``'s ``filament_slots`` is a cache that
-:func:`reconcile` rebuilds from Spoolman. The AD5X screen is only *told*
-what Spoolman says, through the Z-Mod `CHANGE_ZCOLOR SLOT= TYPE= HEX=`
-macro. Nothing here reads the screen back into Spoolman.
+:func:`reconcile` rebuilds from Spoolman. The AD5X screen is *told* what
+Spoolman says, through the Z-Mod `CHANGE_ZCOLOR SLOT= TYPE= HEX=` macro and
+through the Moonraker ``lane_data`` record written on a bind (#791). The
+inbound direction — screen-initiated changes read back from ``lane_data``
+and converged through :func:`reconcile` — lives in ``lane_data_sync``.
 
 Usage accounting: Moonraker charges extrusion to its active Spoolman spool.
 `suspend_usage()` clears that so an unidentified mid-print swap charges no one
@@ -319,6 +321,95 @@ def flush_pending_screen(*, mr: Client = moonraker, pending_path: Path | None = 
     remaining = {k: v for k, v in queued.items() if int(k) not in done}
     pending.write_text(json.dumps(remaining, indent=2) + "\n")
     return done
+
+
+# ---------------------------------------------------------------- lane_data (#791)
+
+LANE_DATA_NAMESPACE = "lane_data"
+LANE_DATA_PATH = "/server/database/item?namespace=lane_data"
+
+
+def read_lane_data(mr: Client = moonraker) -> dict[str, Any] | None:
+    """The raw Moonraker ``lane_data`` namespace (``laneN`` -> record), or None when unknown.
+
+    The namespace is shared and cooperative: HelixScreen and other writers
+    keep one record per IFS lane there. Any failure — Moonraker unreachable,
+    the namespace absent, a payload in an unexpected shape — reads as
+    unknown (None), never as an empty namespace, so a caller must not
+    converge slots toward "unloaded" from a None here.
+    """
+    try:
+        res = mr("GET", LANE_DATA_PATH, None)
+    except Exception:
+        return None
+    if not isinstance(res, dict):
+        return None
+    result = res.get("result")
+    if not isinstance(result, dict):
+        return None
+    value = result.get("value")
+    return value if isinstance(value, dict) else None
+
+
+def build_lane_record(slot: int, spool: dict[str, Any], existing: dict[str, Any] | None = None,
+                      *, name: str | None = None, now: float | None = None) -> dict[str, Any]:
+    """The ``lane_data`` record Print Handy writes for one bound slot (#791).
+
+    The outer key is ``lane<slot>`` (1-based); the inner ``lane`` field is
+    0-based. ``spool_id`` is the Spoolman id. The ``helix_locked_*`` fields
+    are written false — Print Handy declares nothing on the user's behalf —
+    while every other ``helix_*`` key the screen already keeps on the record
+    is preserved untouched.
+    """
+    slot = int(slot)
+    filament = spool.get("filament") or {}
+    vendor = filament.get("vendor") or {}
+    vendor_id = filament.get("vendor_id") or (vendor.get("id") if isinstance(vendor, dict) else None)
+    color = (screen_hex(filament.get("color_hex"))
+             or screen_hex(first_hex_of(filament))
+             or str(filament.get("name") or "").strip())
+    material = str(filament.get("material") or "").strip()
+    display = name or " ".join(part for part in
+                               (str(filament.get("name") or "").strip(), material) if part)
+    record: dict[str, Any] = {}
+    if isinstance(existing, dict):
+        for key, value in existing.items():
+            if isinstance(key, str) and key.startswith("helix_") \
+                    and key not in ("helix_locked_color", "helix_locked_material"):
+                record[key] = value
+    record.update({
+        "spool_id": int(spool["id"]),
+        "spoolman_vendor_id": vendor_id,
+        "lane": slot - 1,
+        "material": material,
+        "color": color,
+        "name": display or f"Spool #{spool['id']}",
+        "scan_time": int(time.time() if now is None else now),
+        "helix_locked_color": False,
+        "helix_locked_material": False,
+    })
+    return record
+
+
+def write_lane_record(slot: int, spool: dict[str, Any], *, mr: Client = moonraker,
+                      name: str | None = None, now: float | None = None) -> dict[str, Any]:
+    """Write one slot's ``lane_data`` record through Moonraker's database POST (#791).
+
+    Best effort by the caller: this raises whatever Moonraker raises, and
+    ``bind_slot`` turns that into a named "not updated" note rather than
+    failing the bind. The ``CHANGE_ZCOLOR`` that clears a stale screen
+    override is not sent here — ``push_screen`` already sends it on the
+    bind path, beside this write.
+    """
+    slot = int(slot)
+    existing = None
+    raw = read_lane_data(mr)
+    if isinstance(raw, dict) and isinstance(raw.get(f"lane{slot}"), dict):
+        existing = raw[f"lane{slot}"]
+    record = build_lane_record(slot, spool, existing, name=name, now=now)
+    mr("POST", "/server/database/item",
+       {"namespace": LANE_DATA_NAMESPACE, "key": f"lane{slot}", "value": record})
+    return record
 
 
 def active_usage_spool(mr: Client = moonraker) -> int | None:
@@ -675,7 +766,17 @@ def bind_slot(slot: int, spool_id: int, *, client: Client = spoolman, mr: Client
             usage = f"now charged to #{spool_id}"
     except Exception as exc:
         usage = "not updated — the spool change itself is saved; run `/spool sync` to fix the charging"
+    lane_data = "not requested"
     if push_screen_update:
+        # The lane_data side of the screen converge (#791): write this slot's
+        # record beside the CHANGE_ZCOLOR push_screen sends below (the gcode
+        # itself is not duplicated here). Best effort, like the screen push:
+        # a Moonraker database failure names itself and never fails the bind.
+        try:
+            write_lane_record(slot, spool, mr=mr, name=record["name"])
+            lane_data = "written"
+        except Exception:
+            lane_data = "not updated — run `/spool sync` to try again"
         try:
             if printer_id:
                 screen = push_screen(slot, record["material"], record["hex"], mr=mr,
@@ -691,6 +792,7 @@ def bind_slot(slot: int, spool_id: int, *, client: Client = spoolman, mr: Client
                    if screen in ("pushed", "deferred") else None)
     return {"slot": slot, "spool_id": int(spool_id), "prior_spool_id": prior, "record": record,
             "screen": screen, "screen_note": screen_note, "usage": usage,
+            "lane_data": lane_data,
             "prior_disposition": prior_disposition}
 
 
