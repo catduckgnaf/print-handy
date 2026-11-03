@@ -152,6 +152,11 @@ th, td {
 }
 tr:last-child > th, tr:last-child > td { border-bottom: none; }
 th { color: var(--color-muted); font-weight: 500; }
+td, th { overflow-wrap: anywhere; }
+.table-scroll { overflow-x: auto; margin: 1rem 0; }
+.table-scroll > table { margin: 0; }
+form label { display: block; margin: 0 0 0.75rem; font-weight: 500; }
+form label > input:not([type=checkbox]), form label > select { margin-top: 0.375rem; }
 table.rows th { width: 12rem; }
 .field { margin: 0 0 1.25rem; }
 .field > label, .field .flabel { display: block; font-weight: 500; margin-bottom: 0.375rem; }
@@ -214,6 +219,29 @@ img { max-width: 100%; }
   th, td { padding: 0.45rem 0.5rem; }
 }
 """.strip()
+
+
+# The one script in the shell (#840): on any form submit, honor the
+# form's (or the clicked button's) data-confirm with a confirm dialog,
+# then disable the form's submit buttons so a slow action cannot be
+# sent twice, labeling the clicked one from its data-busy. Forms whose
+# clicked button carries the value (debug on/off, the walkthrough's
+# steps) get a hidden mirror of that button first: a disabled button
+# drops out of the submitted data, so without the mirror the value
+# would be lost. Without JavaScript every page behaves exactly as
+# before — this is pending-state polish only, never a gate.
+SUBMIT_SCRIPT = (
+    "<script>document.addEventListener('submit',function(e){var f=e.target;"
+    "var ask=f.dataset.confirm||(e.submitter&&e.submitter.dataset?"
+    "e.submitter.dataset.confirm:null);"
+    "if(ask&&!confirm(ask)){e.preventDefault();return;}"
+    "if(e.submitter&&e.submitter.name){var h=document.createElement('input');"
+    "h.type='hidden';h.name=e.submitter.name;h.value=e.submitter.value;"
+    "f.appendChild(h);}"
+    "f.querySelectorAll('button[type=submit]').forEach(function(b){"
+    "b.disabled=true;"
+    "if(b===e.submitter)b.textContent=b.dataset.busy||'Working…';});});"
+    "</script>")
 
 
 def _esc(value):
@@ -290,11 +318,13 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
     if heading:
         parts.append(f"<h1>{_esc(heading)}</h1>")
     parts.append(body)
-    parts.append("</div></main></body></html>\n")
+    parts.append("</div></main>")
+    parts.append(SUBMIT_SCRIPT)
+    parts.append("</body></html>\n")
     return "".join(parts)
 
 
 __all__ = [
-    "CSS", "DEFAULT_THEME", "NAV", "THEME_COOKIE", "THEMES",
+    "CSS", "DEFAULT_THEME", "NAV", "SUBMIT_SCRIPT", "THEME_COOKIE", "THEMES",
     "page", "theme_cookie_header", "theme_from_cookies",
 ]
