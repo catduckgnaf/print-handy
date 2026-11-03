@@ -23,6 +23,7 @@ def without_added(data):
     data.pop("flashforge_stock", None)  # added for the stock LAN vendor, after capture
     data.pop("prusa", None)  # added for the PrusaLink vendor (#242), after capture
     data.pop("elegoo_sdcp", None)  # added for the Elegoo SDCP vendor (#243), after capture
+    data.pop("ai", None)  # #818 added the empty optional [ai] tier tables, after capture
     data.pop("notify", None)  # #622's section joined the defaults tree in the 2.2.2 settings-surface fix, after capture
     data.pop("material_tuning", None)  # #783's shipped PLA tuning, added after capture
     for key in ("lan_host", "lan_serial", "lan_access_code_env"):  # added by #187, after capture

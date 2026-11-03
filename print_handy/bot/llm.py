@@ -8,10 +8,9 @@ The model gets no tools, no files, no links and no printer access.
 from __future__ import annotations
 
 import json
-import os
 import re
-import urllib.request
 
+from .. import ai_routes
 from ..hermes import _config
 
 # What the model may run. Each of these is read-only or asks for a button before acting.
@@ -47,8 +46,8 @@ ALLOWED = (
 
 
 def configured(cfg=None):
-    llm = (cfg or _config.cfg()).get("llm") or {}
-    return bool(llm.get("chat_url") and llm.get("model"))
+    """Whether the chat tier has an endpoint: [ai.chat], else the [llm] settings."""
+    return ai_routes.configured("chat", cfg or _config.cfg())
 
 
 def allowed_command(command):
@@ -84,21 +83,13 @@ def _parse(content):
 
 
 def ask(text, help_text, *, cfg=None, opener=None):
-    """(reply, command or None). Raises on transport errors; the caller falls back to the help text."""
-    llm = (cfg or _config.cfg())["llm"]
-    key = os.environ.get(str(llm.get("api_key_env") or "")) or ""
-    headers = {"Content-Type": "application/json"}
-    if key:
-        headers["Authorization"] = f"Bearer {key}"
-    body = json.dumps({
-        "model": llm["model"],
-        "messages": [{"role": "system", "content": system_prompt(help_text)},
-                     {"role": "user", "content": str(text)[:2000]}],
-        "max_tokens": 200,
-        "temperature": 0.2,
-    }).encode()
-    req = urllib.request.Request(llm["chat_url"], data=body, headers=headers, method="POST")
-    with (opener or urllib.request.urlopen)(req, timeout=float(llm.get("timeout_s") or 20)) as resp:
-        data = json.loads(resp.read())
-    reply, command = _parse(data["choices"][0]["message"]["content"])
+    """(reply, command or None). Raises on transport errors; the caller falls back to the help text.
+
+    Goes through the chat tier (ai_routes), so [ai.chat] may add a fallback model.
+    """
+    answer, _served_by = ai_routes.call(
+        "chat", [{"role": "system", "content": system_prompt(help_text)},
+                 {"role": "user", "content": str(text)[:2000]}],
+        max_tokens=200, temperature=0.2, cfg=cfg or _config.cfg(), opener=opener)
+    reply, command = _parse(answer)
     return reply[:1500], allowed_command(command)

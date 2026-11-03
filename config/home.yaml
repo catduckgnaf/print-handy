@@ -149,6 +149,24 @@ agent:
   model: ''
   api_key_env: AGENT_API_KEY
   timeout_s: 120
+ai:
+  # Optional AI tiers (#818). Nothing ships filled in: leave a tier empty and
+  # it keeps the settings it already used (small: services.vision_chat_url and
+  # the vision models; chat: llm; heavy: design, which inherits llm).
+  # A tier is a table with chat_url, model, fallback_model, fallback_url,
+  # api_key_env, fallback_api_key_env and timeout_s. small = print-start
+  # roast, camera and image check, label reading. chat = questions the
+  # scripted handlers cannot answer. heavy = model-file editing and repair
+  # (route only for now). A call that fails or times out is retried once on
+  # fallback_model (on fallback_url when set, else the same endpoint).
+  # Example:
+  #   small:
+  #     chat_url: http://127.0.0.1:11434/v1/chat/completions
+  #     model: a-small-model
+  #     fallback_model: another-model
+  small: {}
+  chat: {}
+  heavy: {}
 design:
   # AI design with OpenSCAD (#388): /print-design (or /design) creates a
   # new printable part from a description. There is deliberately no
