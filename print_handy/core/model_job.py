@@ -6209,7 +6209,12 @@ def _moonraker_started_files(st):
     history baseline (launch_state.acquire). Unreadable history settles nothing."""
     try:
         jobs = _mr(st, '/server/history/list?limit=20&order=desc', timeout=10)['result']['jobs']
-        return [(j.get('job_id'), j.get('filename'), j.get('start_time')) for j in jobs
+        # A printer with a wrong clock stamps its history with that clock, which never lines up with the
+        # lease time. Shift its start times onto host time so the lease can still settle (the history
+        # baseline, not the clock, is what proves a run is new).
+        skew = launch_state.printer_clock_skew(st.get('moonraker_url'))
+        shift = skew if skew is not None and abs(skew) >= launch_state.CLOCK_SKEW_WARN_S else 0
+        return [(j.get('job_id'), j.get('filename'), j.get('start_time') + shift) for j in jobs
                 if isinstance(j, dict) and j.get('filename') and isinstance(j.get('start_time'), (int, float))]
     except Exception:
         return []
@@ -7870,6 +7875,10 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
                                nozzle_mm=(st.get("nozzle") or {}).get("diameter_mm"), calibration=adapter.has_native_screen)
     print("PRINT STARTED " + json.dumps(out))
     print(out["details"])
+    clock_note = launch_state.clock_warning(launch_state.printer_clock_skew(st.get("moonraker_url")))
+    if clock_note:  # a warning, never a blocker: the print already started
+        out["clock_warning"] = clock_note
+        print(clock_note, flush=True)
     _emit_start_outcome(out)  # last, so a short tail always carries the phase
     return out
 

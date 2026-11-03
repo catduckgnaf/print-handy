@@ -423,3 +423,41 @@ def resolve(printer, outcome):
     out = dict(row, reconciled=outcome, reconciled_at=_now())
     print("LAUNCH RECONCILED " + json.dumps(out), flush=True)
     return out
+
+
+# A printer clock this far from the host's is "off": history start times can no longer be compared
+# with the lease time directly, and the operator is warned (never blocked).
+CLOCK_SKEW_WARN_S = 300
+
+
+def printer_clock_skew(moonraker_url, timeout=6):
+    """Seconds the host clock is ahead of the printer's (positive: printer behind), or None.
+
+    Read from the HTTP Date header Moonraker already sends, so no extra credential or port is
+    needed. Unreadable means unknown, never zero.
+    """
+    import time
+    import urllib.request
+    from email.utils import parsedate_to_datetime
+    try:
+        req = urllib.request.Request(str(moonraker_url).rstrip("/") + "/server/info", method="GET")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            stamp = resp.headers.get("Date")
+        return time.time() - parsedate_to_datetime(stamp).timestamp() if stamp else None
+    except Exception:
+        return None
+
+
+def clock_warning(skew):
+    """The operator-facing warning for a printer whose clock is off, or None. Informational only."""
+    if skew is None or abs(skew) < CLOCK_SKEW_WARN_S:
+        return None
+    days = abs(skew) / 86400
+    size = f"{days:.0f} day(s)" if days >= 1 else f"{abs(skew) / 60:.0f} minute(s)"
+    side = "behind" if skew > 0 else "ahead of"
+    return (f"WARNING: the printer's clock is {size} {side} real time. The print is not affected, but until the "
+            "printer syncs its time: its job history records wrong dates, so Print Handy can fail to match this "
+            "print to its start and leave the printer's launch lock stuck as uncertain (blocking the next print "
+            "until it is reconciled); timelapse, duration and \"started at\" times can be wrong; and TLS "
+            "connections the printer makes can fail. Fix: let the printer reach an NTP server (UDP 123) and "
+            "reboot it.")
