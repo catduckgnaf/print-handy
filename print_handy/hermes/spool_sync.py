@@ -815,10 +815,10 @@ def unbind_slot(slot: int, *, client: Client = spoolman, mr: Client = moonraker,
     The spool the slot holds is read from the cache AND from Spoolman's
     claims for this printer and slot; when they name different spools the
     unassign refuses and names the conflict (run the sync first) instead
-    of picking one. The active-spool record is left alone, exactly as a
-    reconcile rebuild leaves it when a slot assignment disappears, and
-    Moonraker's usage pointer is untouched — an empty slot has no spool
-    to charge, and repair_usage_spool (via the sync) owns that pointer.
+    of picking one. When the removed spool is also the record's active
+    spool, that reference is cleared too (it is part of what "loaded"
+    means), and Moonraker's charging pointer is suspended if it was
+    charging the removed spool.
     """
     slot = int(slot)
     if slot not in SLOTS:
@@ -867,9 +867,25 @@ def unbind_slot(slot: int, *, client: Client = spoolman, mr: Client = moonraker,
             body["extra"] = {PH_SLOT_FIELD: None}
         client("PATCH", f"/api/v1/spool/{spool_id}", body)
     slots.pop(str(slot), None)
+    # The active-spool record is part of "loaded": leaving it naming the
+    # removed spool would keep that spool classified as loaded forever
+    # (_loaded_spool_ids includes it), blocking its use on another printer
+    # and making the usage pointer look correct when it points at a
+    # shelved spool. Clear the reference, and stop Moonraker charging the
+    # removed spool — the same suspension an unidentified swap uses.
+    usage = "unchanged"
+    if (state.get("spool") or {}).get("spoolman_id") == spool_id:
+        state["spool"] = {}
+        try:
+            if active_usage_spool(mr) == spool_id:
+                suspend_usage(mr)
+                usage = f"charging stopped: spool #{spool_id} is no longer loaded"
+        except Exception:
+            usage = ("not updated — the unassign itself is saved; run `/spool sync` "
+                     "to fix the charging")
     save_state(state, state_path, printer_id=printer_id)
     return {"slot": slot, "spool_id": spool_id, "record": old or None,
-            "note": note}
+            "usage": usage, "note": note}
 
 
 def unbind_text(result: dict[str, Any]) -> str:
@@ -908,6 +924,45 @@ def swap_slots(slot_a: int, slot_b: int, *, client: Client = spoolman, mr: Clien
     old_a = slots.get(str(slot_a)) or {}
     old_b = slots.get(str(slot_b)) or {}
     id_a, id_b = old_a.get("spoolman_id"), old_b.get("spoolman_id")
+    effective_printer = printer_id or _default_printer_id()
+    if effective_printer:
+        # Validate against Spoolman's current claims before any write, as
+        # unbind_slot does: the cache may be stale (the picker shows
+        # Spoolman's claims), and swapping only the cached ids could move
+        # a spool nobody picked and clear another spool's legitimate
+        # claim. A disagreement refuses by name; a claim the cache has
+        # not caught up with is the spool that moves.
+        claims: dict[int, set[int]] = {slot_a: set(), slot_b: set()}
+        try:
+            rows = _call_client(client, "GET", "/api/v1/spool?allow_archived=true", None)
+        except Exception:
+            rows = None
+        if isinstance(rows, list):
+            for row in rows:
+                if not isinstance(row, dict) or row.get("id") is None:
+                    continue
+                parsed = spool_ph_slot(row)
+                if parsed is not None and parsed[0] == effective_printer \
+                        and parsed[1] in claims:
+                    claims[parsed[1]].add(int(row["id"]))
+            resolved: dict[int, int | None] = {}
+            for slot, old in ((slot_a, old_a), (slot_b, old_b)):
+                named = set(claims[slot])
+                if old.get("spoolman_id") is not None:
+                    named.add(int(old["spoolman_id"]))
+                if len(named) > 1:
+                    ids = " and ".join(f"#{sid}" for sid in sorted(named))
+                    raise SpoolError(f"slot {slot} is claimed by spools {ids} — the local "
+                                     "record and Spoolman disagree, so nothing was changed. "
+                                     "Run the spool sync to name the conflict, fix it, "
+                                     "and try again")
+                resolved[slot] = named.pop() if named else None
+            id_a, id_b = resolved[slot_a], resolved[slot_b]
+            if id_a is not None and id_a == id_b:
+                raise SpoolError(f"spool #{id_a} is claimed by both slot {slot_a} and "
+                                 f"slot {slot_b} in Spoolman, so nothing was changed. "
+                                 "Run the spool sync to name the conflict, fix it, "
+                                 "and try again")
     if id_a is None and id_b is None:
         raise SpoolError(f"slots {slot_a} and {slot_b} are both empty. Nothing changed")
     spools: dict[int, dict[str, Any]] = {}
@@ -925,7 +980,6 @@ def swap_slots(slot_a: int, slot_b: int, *, client: Client = spoolman, mr: Clien
             raise SpoolError(f"spool #{spool_id} is already loaded on {elsewhere}. "
                              "One spool cannot be loaded on two printers. Nothing changed")
         spools[int(spool_id)] = spool
-    effective_printer = printer_id or _default_printer_id()
     # (spool now in slot_a, spool now in slot_b) is (id_b, id_a).
     moves = ((slot_a, id_b, old_a), (slot_b, id_a, old_b))
     for new_slot, spool_id, _old in moves:

@@ -552,6 +552,40 @@ class PrimitiveTests(SpoolCase):
         self.assertNotIn("2", slots)
         self.assertEqual(slots["4"]["spoolman_id"], 3)
 
+    def test_swap_slots_refuses_when_spoolman_claims_disagree_with_the_cache(self):
+        # Spoolman now assigns #9 to slot 2 while the cache still says #3:
+        # swapping the cached ids would move a spool nobody picked and
+        # clear #9's legitimate claim, so the swap refuses by name.
+        self.fake.spools[9]["extra"]["ph_slot"] = json.dumps(f"{PRINTER}:2")
+        with self.assertRaises(spool_sync.SpoolError) as raised:
+            spool_sync.swap_slots(2, 4, client=self.fake, mr=fake_mr(),
+                                  state_path=self.state, printer_id=PRINTER)
+        self.assertIn("#3", str(raised.exception))
+        self.assertIn("#9", str(raised.exception))
+        self.assertEqual(json.loads(self.fake.spools[9]["extra"]["ph_slot"]), f"{PRINTER}:2")
+        self.assertEqual(self.cache_slots()["2"]["spoolman_id"], 3)  # nothing changed
+
+    def test_swap_slots_uses_a_claim_the_cache_has_not_caught_up_with(self):
+        self.state = state_file(self.tmp, slots={})
+        result = spool_sync.swap_slots(2, 4, client=self.fake, mr=fake_mr(),
+                                       state_path=self.state, printer_id=PRINTER)
+        self.assertEqual(result["spool_in_b"], 3)
+        self.assertEqual(json.loads(self.fake.spools[3]["extra"]["ph_slot"]),
+                         f"{PRINTER}:4")
+
+    def test_unbind_slot_clears_the_active_spool_reference_and_charging(self):
+        raw = json.loads(self.state.read_text())
+        raw["spool"] = {"spoolman_id": 3, "name": "Pink PLA"}
+        self.state.write_text(json.dumps(raw))
+        active = [3]
+        result = spool_sync.unbind_slot(2, client=self.fake, mr=fake_mr(active),
+                                        state_path=self.state, printer_id=PRINTER)
+        self.assertEqual(result["spool_id"], 3)
+        saved = json.loads(self.state.read_text())
+        self.assertEqual(saved["spool"], {})  # no longer classified as loaded
+        self.assertIsNone(active[0])  # Moonraker charges no one now
+        self.assertIn("charging stopped", result["usage"])
+
 
 # ---------------------------------------------------------------------- routes
 
