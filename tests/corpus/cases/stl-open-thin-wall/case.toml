@@ -22,3 +22,11 @@ gcodes = 1
 supports = false
 slots = 1
 mesh_manifold = false
+
+[model]
+format = "stl"
+
+[[model.part]]
+name = "Part"
+size = [30, 30, 1.0]
+drop_faces = 2

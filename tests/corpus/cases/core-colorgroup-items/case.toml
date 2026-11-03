@@ -34,3 +34,25 @@ colors = { Left = "white", Middle = "black", Right = "pink" }
 gcodes = 1
 supports = false
 slots = 3
+
+[model]
+format = "core-3mf"
+style = "colorgroup"
+
+[[model.part]]
+name = "Left"
+size = [25, 25, 8]
+at = [40, 60]
+color = "#FFFFFF"
+
+[[model.part]]
+name = "Middle"
+size = [25, 25, 8]
+at = [80, 60]
+color = "#000000"
+
+[[model.part]]
+name = "Right"
+size = [25, 25, 8]
+at = [120, 60]
+color = "#FF80C0"

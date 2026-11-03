@@ -21,3 +21,13 @@ source_plates = 0
 gcodes = 1
 supports = false
 slots = 1
+
+[model]
+layout = "loose"
+omit_plate_metadata = true
+
+[[model.part]]
+name = "No plate metadata"
+extruder = 1
+size = [24, 18, 8]
+at = [40, 50]

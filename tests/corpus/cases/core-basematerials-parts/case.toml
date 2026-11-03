@@ -39,3 +39,31 @@ colors = { body = "white", hat = "black", band = "pink", gold = "dark green" }
 gcodes = 1
 supports = false
 slots = 4
+
+[model]
+format = "core-3mf"
+
+[[model.part]]
+name = "body"
+size = [30, 30, 20]
+at = [40, 60]
+color = "#FAF9F7"
+
+[[model.part]]
+name = "hat"
+size = [20, 20, 15]
+at = [80, 60]
+color = "#383845"
+
+[[model.part]]
+name = "band"
+size = [20, 6, 4]
+at = [120, 60]
+color = "#FFB3C4"
+
+[[model.part]]
+name = "gold"
+shape = "cylinder"
+size = [5, 4]
+at = [40, 110]
+color = "#067749"

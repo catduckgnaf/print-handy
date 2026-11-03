@@ -23,3 +23,16 @@ gcodes = 1
 scale = 1.0
 supports = false
 slots = 1
+
+[model]
+layout = "plates"
+
+[[model.part]]
+name = "Rotatable plate"
+extruder = 1
+size = [223, 100, 8]
+at = [0, 0]
+
+[[model.plate]]
+name = "Plate 1"
+parts = [0]

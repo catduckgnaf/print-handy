@@ -21,3 +21,11 @@ gcodes = 1
 supports = false
 slots = 1
 mesh_winding_inconsistencies = 0
+
+[model]
+format = "stl"
+invert = true
+
+[[model.part]]
+name = "Part"
+size = [24, 18, 8]

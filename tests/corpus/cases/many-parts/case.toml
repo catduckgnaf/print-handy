@@ -27,3 +27,54 @@ gcodes = 1
 scale = 1.0
 supports = false
 slots = 1
+
+[model]
+layout = "loose"
+
+[[model.part]]
+name = "Part 1"
+extruder = 1
+size = [10, 10, 5]
+at = [10, 10]
+
+[[model.part]]
+name = "Part 2"
+extruder = 1
+size = [10, 10, 5]
+at = [32, 10]
+
+[[model.part]]
+name = "Part 3"
+extruder = 1
+size = [10, 10, 5]
+at = [54, 10]
+
+[[model.part]]
+name = "Part 4"
+extruder = 1
+size = [10, 10, 5]
+at = [76, 10]
+
+[[model.part]]
+name = "Part 5"
+extruder = 1
+size = [10, 10, 5]
+at = [10, 32]
+
+[[model.part]]
+name = "Part 6"
+extruder = 1
+size = [10, 10, 5]
+at = [32, 32]
+
+[[model.part]]
+name = "Part 7"
+extruder = 1
+size = [10, 10, 5]
+at = [54, 32]
+
+[[model.part]]
+name = "Part 8"
+extruder = 1
+size = [10, 10, 5]
+at = [76, 32]

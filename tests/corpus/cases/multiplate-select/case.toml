@@ -32,3 +32,26 @@ gcodes = 2
 scale = 1.0
 supports = false
 slots = 1
+
+[model]
+layout = "plates"
+
+[[model.part]]
+name = "Plate A"
+extruder = 1
+size = [150, 150, 10]
+at = [0, 0]
+
+[[model.part]]
+name = "Plate B"
+extruder = 1
+size = [150, 150, 10]
+at = [0, 0]
+
+[[model.plate]]
+name = "Plate A"
+parts = [0]
+
+[[model.plate]]
+name = "Plate B"
+parts = [1]
