@@ -903,9 +903,18 @@ def intake_step_components(aid: str, state: dict[str, Any]) -> list[dict[str, An
     return intake_confirm_components(aid, editable=bool(state.get("from_photo")))
 
 
-def bind_insertion_existing(slot: int, spool_id: int, spool_sync) -> str:
-    """Reuse the one slot-binding path; insertion UI never issues a printer command."""
-    result = spool_sync.bind_slot(slot, spool_id, note="Bound from Discord IFS insertion", push_screen_update=False)
+def bind_insertion_existing(slot: int, spool_id: int, spool_sync,
+                            expected_prior_spool_id: int | None = None) -> str:
+    """Reuse the one slot-binding path; insertion UI never issues a printer command.
+
+    ``expected_prior_spool_id`` is the displaced spool the bind confirmation
+    named (#792): bind_slot re-checks the slot's current mapping against it
+    before writing, so a confirmation left open across a rebind cannot move
+    a spool it never named onto the shelf (#515's guard).
+    """
+    result = spool_sync.bind_slot(slot, spool_id, note="Bound from Discord IFS insertion",
+                                  push_screen_update=False,
+                                  expected_prior_spool_id=expected_prior_spool_id)
     record = result["record"]
     grams = f", {record['remaining_grams']:g} g left" if record.get("remaining_grams") is not None else ""
     return f"Slot {slot} → spool #{spool_id} ({record['name']}{grams}). Inventory updated; printer untouched."

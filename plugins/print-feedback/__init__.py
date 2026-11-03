@@ -5727,8 +5727,10 @@ def alert_button_handlers(bot, adapter):
         try:
             from print_handy.hermes import spool_sync
             if pending.get('origin') == 'insertion':
-                result = await asyncio.to_thread(pab.bind_insertion_existing, pending['slot'],
-                                                 pending['spool_id'], spool_sync)
+                result = await asyncio.to_thread(
+                    pab.bind_insertion_existing, pending['slot'], pending['spool_id'], spool_sync,
+                    expected_prior_spool_id=(int(pending['old_spool_id'])
+                                             if pending.get('old_spool_id') else None))
             else:
                 from print_handy.hermes import moonraker_event_listener as listener
                 result = await asyncio.to_thread(_answer_spool_question, listener, spool_sync,

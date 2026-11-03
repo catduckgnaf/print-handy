@@ -10,6 +10,7 @@ picker selection and any bind.
 """
 import asyncio
 import importlib.util
+import json
 from pathlib import Path
 from types import SimpleNamespace as S
 from unittest import mock
@@ -207,7 +208,8 @@ def _insertion_rig(tmp_path, monkeypatch):
     monkeypatch.setattr(spool_sync, "spoolman", fake_spoolman)
     binds = []
     monkeypatch.setattr(pab, "bind_insertion_existing",
-                        lambda slot, spool_id, sync: binds.append((slot, spool_id))
+                        lambda slot, spool_id, sync, **kw: binds.append(
+                            (slot, spool_id, kw.get("expected_prior_spool_id")))
                         or f"Slot {slot} → spool #{spool_id}. Inventory updated; printer untouched.")
     bot = S(listeners={}, add_listener=lambda fn, name: bot.listeners.__setitem__(name, fn))
     plugin.alert_button_handlers(bot, S())
@@ -234,7 +236,9 @@ def test_insertion_select_names_the_exact_spool_and_binds_only_on_confirm(tmp_pa
     confirm = next(cid for cid in _custom_ids(view) if cid.startswith("pbbindconfirm:confirm:"))
     sink.clear()
     asyncio.run(on_interaction(_interaction(sink, confirm)))
-    assert binds == [(2, 7)]
+    # The confirmation named spool #12 as displaced, so the bind carries it
+    # as the expected prior: a rebind since then would refuse, not shelf #12.
+    assert binds == [(2, 7, 12)]
     assert "Slot 2 → spool #7" in sink[-1][1]
 
 
@@ -247,3 +251,47 @@ def test_insertion_bind_confirm_cancel_binds_nothing(tmp_path, monkeypatch):
     asyncio.run(on_interaction(_interaction(sink, cancel)))
     assert sink[-1][1] == "Bind cancelled. Nothing changed."
     assert binds == []
+
+
+def test_bind_insertion_existing_passes_the_expected_prior_to_bind_slot():
+    calls = []
+
+    class FakeSync:
+        @staticmethod
+        def bind_slot(slot, spool_id, **kw):
+            calls.append((slot, spool_id, kw))
+            return {"record": {"name": "Matte White PLA+", "remaining_grams": 400.0}}
+
+    text = pab.bind_insertion_existing(2, 7, FakeSync, expected_prior_spool_id=12)
+    assert calls[0][2]["expected_prior_spool_id"] == 12
+    assert calls[0][2]["push_screen_update"] is False
+    assert "spool #7" in text
+
+
+def test_bind_insertion_existing_stale_confirmation_is_refused_by_bind_slot(tmp_path):
+    # The confirmation named spool #12 as the slot's spool; the slot was
+    # rebound to #9 meanwhile, so the guard refuses and #9 is not shelved.
+    state = {"spool": {}, "filament_slots": {"2": {"spoolman_id": 9, "name": "Black PLA",
+                                                   "material": "PLA", "color": "black",
+                                                   "hex": "161616"}}}
+    path = tmp_path / "printer_hardware.json"
+    path.write_text(json.dumps(state))
+    spools = {7: {"id": 7, "location": "Shelf", "archived": False, "remaining_weight": 400.0,
+                  "filament": {"name": "Matte White", "material": "PLA+", "color_hex": "FFFFFF"}},
+              9: {"id": 9, "location": "IFS Slot 2", "archived": False, "remaining_weight": 90.0,
+                  "filament": {"name": "Black", "material": "PLA", "color_hex": "161616"}}}
+
+    def client(method, path_, body=None):
+        if method == "GET" and path_.startswith("/api/v1/spool/"):
+            return dict(spools[int(path_.rsplit("/", 1)[1])])
+        return {}
+
+    with pytest.raises(spool_sync.SpoolError, match="was expected to hold spool #12"):
+        _bind_with_client(client, path)
+    saved = json.loads(path.read_text())
+    assert saved["filament_slots"]["2"]["spoolman_id"] == 9
+
+
+def _bind_with_client(client, path):
+    return spool_sync.bind_slot(2, 7, client=client, mr=lambda m, p, b=None: {"result": "ok"},
+                                state_path=path, expected_prior_spool_id=12)
