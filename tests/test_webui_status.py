@@ -534,5 +534,45 @@ class PrinterStatusRouteTests(unittest.TestCase):
                 self.assertEqual(code, 404, path)
 
 
+class OverallJobTests(unittest.TestCase):
+    """The status page's job fetch (#813): the default printer's live
+    status, reused from printer_status; anything but an active job is
+    simply no block, and nothing here may raise."""
+
+    def test_an_active_job_is_returned(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = load_settings(tmp)
+            read = lambda adapter, view: {"state": "printing", "filename": "a.gcode",
+                                          "progress": 0.5}
+            job = server._overall_job(data, read=read)
+            self.assertEqual(job["filename"], "a.gcode")
+            self.assertEqual(job["progress"], 0.5)
+
+    def test_a_paused_job_with_a_file_counts_as_active(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = load_settings(tmp)
+            read = lambda adapter, view: {"state": "paused", "filename": "a.gcode"}
+            self.assertIsNotNone(server._overall_job(data, read=read))
+
+    def test_an_idle_printer_has_no_job(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = load_settings(tmp)
+            read = lambda adapter, view: {"state": "idle", "filename": ""}
+            self.assertIsNone(server._overall_job(data, read=read))
+
+    def test_an_unreadable_printer_has_no_job_and_no_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = load_settings(tmp)
+
+            def read(adapter, view):
+                raise RuntimeError("connection refused")
+
+            # printer_status renders the failure as "unavailable": no block.
+            self.assertIsNone(server._overall_job(data, read=read))
+
+    def test_broken_settings_have_no_job_and_no_error(self):
+        self.assertIsNone(server._overall_job({}))
+
+
 if __name__ == "__main__":
     unittest.main()

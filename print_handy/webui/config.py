@@ -124,7 +124,12 @@ def _layers(home, local, environ):
     key = settings._model_key(pick("model"), pick("vendor"))
     model_defaults = printers.MODELS[key].defaults()
     base = copy.deepcopy(settings._merge(model_defaults, home_data))
-    env_data = settings._from_env(base, environ)
+    # The declared roster, resolved exactly as settings.load resolves it:
+    # _from_env needs it to apply indexed PRINT_HANDY__PRINTERS__<ID>__<KEY>
+    # overrides to their entries — without it every such override reads as
+    # "no printer with id ... is declared" and the read raises (#813).
+    declared = settings._merge(home_data, settings._merge(file_data, user_data)).get("printers")
+    env_data = settings._from_env(base, environ, declared)
     return model_defaults, home_data, file_data, user_data, env_data
 
 
@@ -241,6 +246,173 @@ def _backup(target, stamp):
         counter += 1
     shutil.copyfile(target, backup)
     return backup
+
+
+# ------------------------------------------------------- the printer's name
+#
+# The default printer's display name lives in one of two shapes (#813):
+# the legacy ``[printer] name`` — a plain catalog field, written by
+# write_changes above — or a declared ``[[printers]]`` entry's ``name``
+# key. The two shapes must never mix: the settings loader refuses a file
+# that declares a roster alongside the legacy per-printer sections, so a
+# roster entry's name is edited in place, in the one file layer that
+# declares the roster, and only when that layer is the settings file the
+# Web UI writes. The entry's ``id`` is never touched: renaming is a
+# display-name change only (docs/MULTI-PRINTER-DESIGN.md §2.2). Where
+# the name is owned by a layer the Web UI does not write — an indexed
+# environment override, the operator's own settings file, the home
+# configuration — or the settings file is TOML, the name stays read-only
+# with the reason, exactly the discipline the catalog fields follow.
+
+
+@dataclass(frozen=True)
+class PrinterNameState:
+    """Where the default printer's name lives and whether the Web UI may write it."""
+
+    shape: str  # "legacy" | "roster" | "roster_toml" | "environment" | "user_file" | "home"
+    printer_id: str
+    name: str  # the explicit name in the declaring layer ("" when it sets none)
+    env_var: str = ""  # the indexed override variable, when shape is "environment"
+
+
+def _printer_name_env_var(environ, printer_id):
+    """The PRINT_HANDY__PRINTERS__<ID>__NAME variable overriding this entry's
+    name, or "" — parsed with the loader's own rule (the name is lowercased
+    and split on "__"; entry ids are lowercase slugs)."""
+    for raw_name, raw in environ.items():
+        if not raw_name.startswith("PRINT_HANDY__") or not raw:
+            continue
+        parts = raw_name[len("PRINT_HANDY__"):].lower().split("__")
+        if len(parts) == 3 and parts[0] == "printers" and parts[1] == printer_id \
+                and parts[2] == "name":
+            return raw_name
+    return ""
+
+
+def _raw_layer(path):
+    if path is None or not Path(path).is_file():
+        return {}
+    return settings._apply_key_aliases(settings._read(path))
+
+
+def printer_name_state(data, *, home=None, local=None, environ=None):
+    """The PrinterNameState for the default printer of loaded settings ``data``.
+
+    Layer resolution mirrors settings.load: the roster the loader sees is
+    declared by the highest layer carrying a ``printers`` list (the
+    operator's own file over the settings file over the home
+    configuration), and an indexed environment variable overrides any
+    declared entry's name.
+    """
+    environ = os.environ if environ is None else environ
+    printer_id = settings.default_printer_id(data)
+    env_var = _printer_name_env_var(environ, printer_id)
+    if env_var:
+        entry = settings.by_id(printer_id, data)
+        return PrinterNameState("environment", printer_id,
+                                str(entry.get("name") or ""), env_var)
+    file_path = _file_path(local, environ)
+    layers = (("user_file", _raw_layer(settings.user_config_path(environ))),
+              ("file", _raw_layer(file_path)),
+              ("home", _raw_layer(_home_path(home))))
+    for layer_name, layer in layers:
+        entries = layer.get("printers")
+        if not isinstance(entries, list):
+            continue
+        entry = next((item for item in entries
+                      if isinstance(item, dict) and item.get("id") == printer_id), {})
+        name = entry.get("name") if isinstance(entry.get("name"), str) else ""
+        if layer_name == "user_file":
+            return PrinterNameState("user_file", printer_id, name)
+        if layer_name == "home":
+            return PrinterNameState("home", printer_id, name)
+        if file_path is not None and file_path.suffix.lower() == ".toml":
+            return PrinterNameState("roster_toml", printer_id, name)
+        return PrinterNameState("roster", printer_id, name)
+    return PrinterNameState("legacy", printer_id,
+                            str((data.get("printer") or {}).get("name") or ""))
+
+
+def _prepare_printer_name(printer_id, name, *, config_path, home, environ):
+    """(target, validated_text) for a roster-entry rename, or None when the
+    entry already carries ``name``. Raises WebUIConfigError — writing
+    nothing — for every shape the writer refuses. The candidate is run
+    through the real settings loader before anything lands, exactly as
+    write_changes validates, so the post-write file is known to load."""
+    if not isinstance(name, str):
+        raise WebUIConfigError("printer name: the name must be text")
+    name = name.strip()
+    if "\n" in name or "\r" in name:
+        raise WebUIConfigError("printer name: the name must fit on one line")
+    target = Path(config_path) if config_path is not None else settings_file_path(environ)
+    if target.suffix.lower() == ".toml":
+        raise WebUIConfigError(f"{target}: the Web UI writes YAML settings files; "
+                               "point PRINT_HANDY_CONFIG at a .yaml file or edit the TOML file by hand")
+    env_var = _printer_name_env_var(environ, printer_id)
+    if env_var:
+        raise WebUIConfigError(
+            f"the printer name is overridden by the environment (${env_var}); "
+            "change or unset that variable instead — the value was not written to the file")
+    user_path = settings.user_config_path(environ)
+    if user_path is not None and user_path.is_file():
+        if isinstance(_raw_layer(user_path).get("printers"), list):
+            raise WebUIConfigError(
+                f"the printer roster is declared in your own settings file ({user_path}), "
+                "which overrides this one; change the name there — the value was not "
+                "written to the file")
+    current = settings._read(target) if target.is_file() else {}
+    if not isinstance(current, dict):  # pragma: no cover - settings._read enforces this
+        raise WebUIConfigError(f"{target}: top-level config must be a mapping")
+    if not isinstance(current.get("printers"), list):
+        raise WebUIConfigError(f"{target}: no [[printers]] roster is declared in this "
+                               "file, so there is no roster entry name to write")
+    candidate = copy.deepcopy(current)
+    entry = next((item for item in candidate["printers"]
+                  if isinstance(item, dict) and item.get("id") == printer_id), None)
+    if entry is None:
+        raise WebUIConfigError(f"{target}: no [[printers]] entry with id {printer_id!r} "
+                               "is declared in this file")
+    if name:
+        if entry.get("name") == name:
+            return None
+        entry["name"] = name
+    else:
+        if "name" not in entry:
+            return None
+        del entry["name"]  # a blank name clears back to the model's own name
+    text = _validate_candidate(candidate, target, home=home, environ=environ)
+    return target, text
+
+
+def check_printer_name(printer_id, name, *, config_path=None, home=None, environ=None):
+    """Every refusal write_printer_name would raise, without writing:
+    the walkthrough's pre-flight, so a step never half-saves."""
+    environ = os.environ if environ is None else environ
+    _prepare_printer_name(printer_id, name, config_path=config_path,
+                          home=home, environ=environ)
+
+
+def write_printer_name(printer_id, name, *, config_path=None, home=None,
+                       environ=None, timestamp=None):
+    """Set one declared roster entry's display ``name`` in the settings file.
+
+    Surgical: exactly one key of exactly one entry changes; the entry's
+    ``id`` and every other key are untouched, no legacy section is added,
+    and the previous file is kept as a timestamped backup. Returns
+    ``[("printers", printer_id)]`` when a write landed, [] when the entry
+    already carried the name.
+    """
+    environ = os.environ if environ is None else environ
+    prepared = _prepare_printer_name(printer_id, name, config_path=config_path,
+                                     home=home, environ=environ)
+    if prepared is None:
+        return []
+    target, text = prepared
+    target.parent.mkdir(parents=True, exist_ok=True)
+    stamp = timestamp or datetime.now().strftime("%Y%m%d-%H%M%S")
+    _backup(target, stamp)
+    _atomic_write(target, text, 0o644)
+    return [("printers", printer_id)]
 
 
 def write_changes(changes, *, config_path=None, home=None, environ=None, timestamp=None):

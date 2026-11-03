@@ -197,6 +197,7 @@ button:disabled { opacity: 0.55; cursor: default; }
   overflow: hidden; margin: 0.75rem 0 0.25rem;
 }
 .progress > i { display: block; height: 100%; background: var(--color-accent); }
+.job-line { font-weight: 500; margin: 0.75rem 0 0; overflow-wrap: anywhere; }
 ol.steps { display: flex; flex-wrap: wrap; gap: 0.5rem; list-style: none; margin: 1rem 0; padding: 0; font-size: 0.875rem; }
 ol.steps li { padding: 0.3rem 0.75rem; border-radius: var(--radius-card); background: var(--color-surface); color: var(--color-muted); border: 1px solid var(--color-line); }
 ol.steps li.done { background: var(--color-ok-bg); color: var(--color-ok); border-color: transparent; }

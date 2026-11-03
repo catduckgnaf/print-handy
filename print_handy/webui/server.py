@@ -217,14 +217,68 @@ def healthz(data=None, heartbeat=status_module.READ_HEARTBEAT):
     return (200 if ok else 503), body
 
 
+def _overall_job(data, *, read=None):
+    """The default printer's live job for the status page's overall card
+    (#813, second pass): the normalized live status ``printer_status``
+    already serves the API and the Home Assistant integration, fetched
+    for the one default printer.
+
+    Returns the status dict when the printer is printing or paused, or
+    has a job file at all; None otherwise — idle, unavailable, offline,
+    unconfigured. Never raises and never retries: the read carries its
+    own timeout, and any failure simply leaves the card without a job
+    block. ``snapshot()`` is untouched: this is a page-only extra, the
+    /api/status JSON does not gain a live read.
+    """
+    try:
+        printer_id = settings.default_printer_id(data)
+        _code, body = status_module.printer_status(data, printer_id, read=read)
+        live = body.get("status") or {}
+    except Exception:  # a broken roster or read path is "no job block"
+        return None
+    if live.get("state") in ("printing", "paused") or live.get("filename"):
+        return live
+    return None
+
+
+def _job_block(job):
+    """The overall card's job lines, from a normalized live status dict:
+    the file name, a progress bar with its percent, and a muted line of
+    the parts that exist (state, layers, remaining time)."""
+    esc = html.escape
+    parts = []
+    if job.get("filename"):
+        parts.append(f'<p class="job-line">{esc(str(job["filename"]))}</p>')
+    progress = job.get("progress")
+    if isinstance(progress, (int, float)) and not isinstance(progress, bool):
+        percent = min(100, max(0, round(progress * 100)))
+        parts.append(f'<div class="progress"><i style="width: {percent}%"></i></div>')
+    meta = []
+    state = str(job.get("state") or "")
+    if state:
+        meta.append(state.capitalize())
+    if isinstance(progress, (int, float)) and not isinstance(progress, bool):
+        meta.append(f"{round(progress * 100):.0f}% done")
+    layer, total = job.get("layer"), job.get("total_layers")
+    if layer is not None and total is not None:
+        meta.append(f"Layer {layer} of {total}")
+    remaining = job.get("remaining_min")
+    if remaining is not None:
+        meta.append(f"about {remaining} min left")
+    if meta:
+        parts.append(f'<p class="muted">{" · ".join(esc(bit) for bit in meta)}</p>')
+    return "".join(parts)
+
+
 def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
-                       walkthrough_pending=False):
+                       walkthrough_pending=False, job=None):
     """The / page: the snapshot as escaped HTML in the shared shell (#813).
 
-    The overall card on top is derived only from what the snapshot
-    already carries — its ok flag, the doctor rows' warn/fail counts,
-    and the printer's name and connection. The snapshot holds no live
-    job data, so the card names none. ``walkthrough_pending`` adds the
+    The overall card on top is derived from what the snapshot already
+    carries — its ok flag, the doctor rows' warn/fail counts, and the
+    printer's name and connection — plus, when the caller fetched one
+    (``job``, the default printer's normalized live status), the active
+    job's file, progress and layers. ``walkthrough_pending`` adds the
     slim finish-setup banner under the header.
     """
     esc = html.escape
@@ -299,7 +353,8 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
     overall = ('<section class="card"><div class="overall-head">'
                f"<h2>{headline}</h2><span>{' '.join(pills)}</span></div>"
                f'<p class="muted">{esc(snap["printer"]["name"])} · '
-               f'{esc(snap["printer"]["connection"])}</p></section>')
+               f'{esc(snap["printer"]["connection"])}</p>'
+               f'{_job_block(job) if job else ""}</section>')
     banner = ""
     if walkthrough_pending:
         banner = ('<div class="banner"><span>Finish setting up Print Handy — '
@@ -508,7 +563,9 @@ class _Handler(BaseHTTPRequestHandler):
                 snap = self.server.snapshot_func()
                 self._send(200, render_status_html(
                     snap, form_token=self.server.form_token, theme=self._theme(),
-                    walkthrough_pending=pending), "text/html; charset=utf-8")
+                    walkthrough_pending=pending,
+                    job=_overall_job(self.server.settings_data)),
+                    "text/html; charset=utf-8")
             elif path == "/api/status":
                 self._json(200, self.server.snapshot_func())
             elif path.startswith("/api/printers/"):

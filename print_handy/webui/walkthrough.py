@@ -35,12 +35,19 @@ the step is a read-only list of which sites are connected. The Review
 step is likewise read-only: the values currently in effect for the
 fields the walkthrough covers.
 
-The printer's NAME is shown read-only on the Printer step. The catalog
-addresses global settings fields only (the stage 2e decision: the
-roster is read-only in the Web UI, docs/WEBUI.md); a name lives in the
-roster, and building a second roster writer here was explicitly out of
-scope — renaming stays in the settings file or the setup wizard, and
-the step says so.
+The printer's NAME is editable on the Printer step wherever the
+settings model genuinely allows it (#813, second pass). A legacy
+install edits ``[printer] name`` — a catalog field since this pass, so
+/config gained it too. An install with a declared ``[[printers]]``
+roster edits the default entry's ``name`` key in place through
+``config.write_printer_name``: one key of one entry, the ``id``
+untouched (renaming is a display-name change only), and never a legacy
+section alongside the roster — the loader refuses that mixture, so the
+catalog field is not even parsed on a roster install. A name owned by
+a layer the Web UI does not write — an indexed environment override,
+the operator's own settings file, the home configuration — or living
+in a TOML settings file renders disabled or read-only with the reason,
+the same provenance discipline as every other field.
 """
 from __future__ import annotations
 
@@ -90,8 +97,8 @@ STEP_LEADS = {
 # (one printer URL per connection family, the ZMod format only for
 # Flashforge), exactly as on /config.
 STEP_FIELDS = {
-    "printer": ("printer.model", "services.moonraker_url", "services.octoprint_url",
-                "printer.zmod_delivery_format"),
+    "printer": ("printer.name", "printer.model", "services.moonraker_url",
+                "services.octoprint_url", "printer.zmod_delivery_format"),
     "chat": ("bot.platform", "bot.mode", "discord.chat_id", "discord.allowed_user_ids",
              "telegram.chat_id", "telegram.allowed_user_ids", "matrix.homeserver_url",
              "matrix.room_id", "matrix.allowed_user_ids"),
@@ -166,17 +173,65 @@ def _pills(current):
     return '<ol class="steps">' + "".join(items) + "</ol>"
 
 
-def _name_row(data):
-    """The printer's name, read-only: it lives in the roster, which the
-    Web UI does not write (see the module docstring)."""
-    name = str((data.get("printer") or {}).get("name") or "").strip()
-    shown = _esc(name) if name else "(the model's name is used)"
+def _name_block(data, environ, submitted=None):
+    """The Printer step's name control, shaped by where the name lives.
+
+    Legacy installs get nothing here — ``printer.name`` is a catalog
+    field and renders as a normal field row. Every other shape is a
+    roster install: the name is the default entry's ``name`` key, edited
+    in place when the settings file declares the roster, and disabled
+    or read-only with the reason when another layer owns it. A state
+    that cannot even be determined falls back to showing the name,
+    which is the worst case the first pass shipped.
+    """
+    try:
+        state = config_api.printer_name_state(data, environ=environ)
+    except Exception:  # a name we cannot place is shown, never a failed page
+        state = None
+    if state is None or state.shape == "legacy":
+        return ""
+    resolved = str((data.get("printer") or {}).get("name") or "").strip()
+    if state.shape == "roster":
+        posted = (submitted or {}).get("printer_name")
+        value = posted[0] if posted else state.name
+        badge = pages.PROVENANCE_LABELS[config_api.SETTINGS_FILE]
+        return ('<div class="field"><label for="f-printer_name">Printer name '
+                f'<span class="badge">{_esc(badge)}</span></label> '
+                f'<input type="text" id="f-printer_name" name="printer_name" '
+                f'value="{_esc(value)}" placeholder="{_esc(resolved)}">'
+                '<p class="help">The name lives in this printer\'s entry in the '
+                "settings file's printer roster. Renaming changes the display "
+                f"name only — the printer's id ({_esc(state.printer_id)}) does "
+                "not change. Leave it blank to use the model's own name.</p></div>")
+    if state.shape == "environment":
+        badge = pages.PROVENANCE_LABELS[config_api.ENVIRONMENT]
+        return ('<div class="field"><label for="f-printer_name">Printer name '
+                f'<span class="badge">{_esc(badge)}</span></label> '
+                f'<input type="text" id="f-printer_name" value="{_esc(resolved)}" disabled>'
+                '<p class="note">Overridden by the environment '
+                f'(${_esc(state.env_var)}): change or unset that variable '
+                "instead — this field is not written to the settings file.</p></div>")
+    if state.shape == "user_file":
+        badge = pages.PROVENANCE_LABELS[config_api.USER_FILE]
+        return ('<div class="field"><label for="f-printer_name">Printer name '
+                f'<span class="badge">{_esc(badge)}</span></label> '
+                f'<input type="text" id="f-printer_name" value="{_esc(resolved)}" disabled>'
+                '<p class="note">The printer roster is declared in your own '
+                "settings file, which overrides the settings file this page "
+                "writes; change the name there.</p></div>")
+    if state.shape == "roster_toml":
+        note = ("The name lives in the printer roster in the settings file, but "
+                "that file is TOML and the Web UI writes YAML settings files. "
+                "To change it, edit the roster in the settings file or run the "
+                "setup wizard.")
+    else:  # "home"
+        note = ("The name comes from the printer roster in the home "
+                "configuration, which the Web UI does not write. To change it, "
+                "edit the roster there or run the setup wizard.")
+    shown = _esc(resolved) if resolved else "(the model's name is used)"
     return ('<div class="field"><span class="flabel">Printer name</span>'
             f"<p>{shown}</p>"
-            '<p class="help">The name comes from the printer roster in the settings '
-            "file, so the walkthrough shows it rather than editing it. To change "
-            "it, edit the roster in the settings file or run the setup wizard.</p>"
-            "</div>")
+            f'<p class="help">{_esc(note)}</p></div>')
 
 
 def _provider_rows(environ):
@@ -264,10 +319,17 @@ def render_page(data, field_values, *, form_token, theme=shell.DEFAULT_THEME,
                  f'<input type="hidden" name="{pages.CSRF_FIELD}" '
                  f'value="{_esc(form_token)}">'
                  f'<input type="hidden" name="step" value="{_esc(step_id)}">')
-    if step_id == "printer":
-        parts.append(_name_row(data))
+    name_block = _name_block(data, environ, submitted) if step_id == "printer" else ""
+    if name_block:
+        parts.append(name_block)
     if STEP_FIELDS[step_id]:
-        for field_value in _step_values(field_values, step_id):
+        values = _step_values(field_values, step_id)
+        if name_block:
+            # A roster install: printer.name must not render as a catalog
+            # row — its name is the block above, and writing the legacy
+            # key beside a declared roster is the refused mixture.
+            values = [value for value in values if value.field.id != "printer.name"]
+        for field_value in values:
             parts.append(pages._field_row(field_value, data=data, errors=errors,
                                           submitted=submitted))
     elif step_id == "providers":
@@ -311,19 +373,51 @@ def apply_post(data, environ, form, field_values, *, form_token,
     if step_id == "providers":  # Continue: nothing to write on this step
         save_state(data, {**state, "step": index + 1})
         return "redirect", "/walkthrough"
-    changes, submitted, errors = pages.parse_form(
-        form, _step_values(field_values, step_id))
+    # The Printer step's name: on a roster install the catalog's
+    # printer.name is never parsed (writing the legacy key beside a
+    # declared roster is the refused mixture); the entry name travels as
+    # the form's printer_name and is written by its own helper. Only a
+    # positively legacy shape parses the catalog field.
+    name_state = None
+    if step_id == "printer":
+        try:
+            name_state = config_api.printer_name_state(data, environ=environ)
+        except Exception:  # an unplaceable name is never written from here
+            name_state = config_api.PrinterNameState("unknown", "", "")
+    values = _step_values(field_values, step_id)
+    if name_state is not None and name_state.shape != "legacy":
+        values = [value for value in values if value.field.id != "printer.name"]
+    changes, submitted, errors = pages.parse_form(form, values)
     general = None
     if not errors and changes:
         field_errors, general = pages.validate_change_set(changes, environ=environ)
         errors.update(field_errors)
+    name_change = None
+    if not errors and not general and name_state is not None \
+            and name_state.shape == "roster":
+        posted_name = (form.get("printer_name") or [""])[0]
+        if posted_name.strip() != name_state.name:
+            try:  # pre-flight: the step must not half-save
+                config_api.check_printer_name(name_state.printer_id, posted_name,
+                                              environ=environ)
+                name_change = posted_name
+            except config_api.WebUIConfigError as exc:
+                general = str(exc)
     if not errors and not general and changes:
         try:
             config_api.write_changes(
                 {field.id: value for field, value in changes.items()}, environ=environ)
         except config_api.WebUIConfigError as exc:
             errors, general = pages.attribute_error(str(exc), changes, environ=environ)
+    if not errors and not general and name_change is not None:
+        try:
+            config_api.write_printer_name(name_state.printer_id, name_change,
+                                          environ=environ)
+        except config_api.WebUIConfigError as exc:
+            general = str(exc)
     if errors or general:
+        if step_id == "printer" and form.get("printer_name"):
+            submitted = {**submitted, "printer_name": form["printer_name"]}
         return "page", render_page(
             data, field_values, form_token=form_token, theme=theme, environ=environ,
             errors=errors, submitted=submitted, general_error=general,

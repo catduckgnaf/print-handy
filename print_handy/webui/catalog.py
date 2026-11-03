@@ -72,6 +72,7 @@ class Field:
 # timelapse, images, live, slicing, logging, webui (pages.GROUPS
 # carries the titles).
 GROUP_OF = {
+    "printer.name": "printer",
     "printer.model": "printer",
     "printer.slicer": "slicing",
     "printer.zmod_delivery_format": "printer",
@@ -163,7 +164,13 @@ def _field(section, key, label, kind, help, **kwargs):
 
 
 CATALOG = (
-    # Printer (guided setup: model, plus the vendor-offered slicer/delivery sets).
+    # Printer (guided setup: name and model, plus the vendor-offered slicer/delivery sets).
+    _field("printer", "name", "Printer name", "text",
+           "The display name for this printer, used in chat, on the status page and in "
+           "messages. An install with a declared [[printers]] roster keeps the name in "
+           "the roster entry instead — the walkthrough's Printer step edits it there, "
+           "and a save here is refused with the reason rather than mixing the two shapes.",
+           validator="settings printer name type check"),
     _field("printer", "model", "Printer model", "picker",
            "The printer model key; sets every model default for that printer.",
            choices_source=SOURCE_PRINTER_REGISTRY, validator="guided model / settings model check"),

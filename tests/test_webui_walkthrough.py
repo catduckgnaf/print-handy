@@ -14,6 +14,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 from urllib.parse import urlencode
 
 from print_handy import settings
@@ -140,17 +141,39 @@ class WalkthroughServerTests(unittest.TestCase):
 
     # -- the steps ----------------------------------------------------------
 
-    def test_first_step_is_the_printer_with_a_read_only_name(self):
+    def test_first_step_is_the_printer_with_an_editable_name(self):
+        # A legacy install (no declared roster): the name is the catalog's
+        # printer.name field, rendered and posted like every other field.
         with tempfile.TemporaryDirectory() as tmp:
-            _, port, _, _, _ = self.start(tmp, setup_done=True)
+            httpd, port, _, local, environ = self.start(tmp, setup_done=True)
             code, _, body = self.request(port, "GET", "/walkthrough")
             self.assertEqual(code, 200)
             self.assertIn("First boot", body)
             self.assertIn('<li class="current">1. Printer</li>', body)
-            self.assertIn("Printer name", body)  # shown, with no input of its own
-            self.assertNotIn('name="printer.name"', body)
+            self.assertIn('name="printer.name"', body)
             self.assertIn('name="printer.model"', body)
             self.assertIn('name="services.moonraker_url"', body)  # AD5X connects by Moonraker
+            code, headers, _ = self.post_step(
+                port, environ, httpd.form_token, "printer",
+                **{"printer.name": "Bench Printer"})
+            self.assertEqual((code, headers["location"]), (303, "/walkthrough"))
+            reloaded = settings.load(local=local, environ={})
+            self.assertEqual(reloaded["printer"]["name"], "Bench Printer")
+            self.assertEqual(settings.printers(reloaded)[0]["name"], "Bench Printer")
+
+    def test_status_page_shows_the_default_printers_job(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, port, _, _, _ = self.start(tmp, host="127.0.0.1")
+            live = (200, {"ok": True, "id": "ad5x", "status": {
+                "state": "printing", "filename": "cube.gcode", "progress": 0.5,
+                "layer": 4, "total_layers": 9, "remaining_min": 12}})
+            with mock.patch.object(server.status_module, "printer_status",
+                                   return_value=live):
+                code, _, body = self.request(port, "GET", "/")
+            self.assertEqual(code, 200)
+            self.assertIn("cube.gcode", body)
+            self.assertIn("Layer 4 of 9", body)
+            self.assertIn("about 12 min left", body)
 
     def test_resume_opens_the_saved_step(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -365,6 +388,238 @@ class StatusOverallCardTests(unittest.TestCase):
         self.assertNotIn("Finish setting up", server.render_status_html(FAKE_SNAPSHOT))
         body = server.render_status_html(FAKE_SNAPSHOT, walkthrough_pending=True)
         self.assertIn("Finish setting up Print Handy", body)
+
+    def test_an_active_job_renders_its_line_bar_and_layers(self):
+        job = {"state": "printing", "filename": "benchy.gcode", "progress": 0.42,
+               "layer": 3, "total_layers": 10, "remaining_min": 25}
+        body = server.render_status_html(FAKE_SNAPSHOT, job=job)
+        self.assertIn("benchy.gcode", body)
+        self.assertIn('<div class="progress"><i style="width: 42%"></i></div>', body)
+        self.assertIn("Printing · 42% done · Layer 3 of 10 · about 25 min left", body)
+
+    def test_a_job_without_progress_or_layers_omits_those_parts(self):
+        job = {"state": "paused", "filename": "cube.gcode", "progress": None,
+               "layer": None, "total_layers": None, "remaining_min": None}
+        body = server.render_status_html(FAKE_SNAPSHOT, job=job)
+        self.assertIn("cube.gcode", body)
+        self.assertIn("Paused", body)
+        self.assertNotIn('class="progress"', body)
+        self.assertNotIn("Layer ", body)
+        self.assertNotIn("min left", body)
+
+    def test_no_job_no_job_block(self):
+        body = server.render_status_html(FAKE_SNAPSHOT)
+        self.assertNotIn('class="progress"', body)
+        self.assertNotIn('class="job-line"', body)
+
+
+ROSTER_YAML = (
+    "printers:\n"
+    "  - id: garage-ad5x\n"
+    "    name: Garage AD5X\n"
+    "    model: flashforge.ad5x\n"
+    "    moonraker_url: http://192.168.1.61:7125\n")
+
+
+class PrinterNameShapeTests(unittest.TestCase):
+    """The walkthrough Printer step's name, per settings shape (#813)."""
+
+    def start(self, tmp, *, extra="", environ=None, user_text=None):
+        local = Path(tmp) / "local.yaml"
+        local.write_text(f"paths:\n  hermes_home: {tmp}/hermes\n"
+                         "webui:\n  enabled: true\n  host: 127.0.0.1\n  port: 8765\n"
+                         + extra)
+        environ = {"PRINT_HANDY_CONFIG": str(local), **(environ or {})}
+        if user_text is not None:
+            user = Path(tmp) / "user.yaml"
+            user.write_text(user_text)
+            environ["PRINT_HANDY_USER_CONFIG"] = str(user)
+        data = settings.load(local=local, environ=environ)
+        access.save_open(data, True)
+        httpd = server.make_server(data, environ=environ, host="127.0.0.1", port=0,
+                                   snapshot_func=lambda: FAKE_SNAPSHOT)
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(httpd.shutdown)
+        self.addCleanup(httpd.server_close)
+        return httpd, httpd.server_address[1], data, local, environ
+
+    def request(self, port, method, path, body=None, headers=None):
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        try:
+            conn.request(method, path, body=body, headers=headers or {})
+            response = conn.getresponse()
+            return (response.status, {k.lower(): v for k, v in response.getheaders()},
+                    response.read().decode())
+        finally:
+            conn.close()
+
+    def post_printer_step(self, port, environ, csrf, name):
+        pairs = [("step", "printer"), ("action", "continue"), (pages.CSRF_FIELD, csrf)]
+        by_id = {item.id: item for item in config_api.read_fields(environ=environ)}
+        for field_id in walkthrough.STEP_FIELDS["printer"]:
+            item = by_id[field_id]
+            if item.overridden or field_id == "printer.name":
+                continue
+            value = item.value
+            if isinstance(value, (list, tuple)):
+                pairs += [(field_id, str(part)) for part in value]
+            else:
+                pairs.append((field_id, "" if value is None else str(value)))
+        if name is not None:
+            pairs.append(("printer_name", name))
+        return self.request(port, "POST", "/walkthrough",
+                            body=urlencode(pairs), headers=FORM)
+
+    def test_a_roster_name_is_edited_in_place_and_the_id_stays(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd, port, _, local, environ = self.start(tmp, extra=ROSTER_YAML)
+            code, _, body = self.request(port, "GET", "/walkthrough")
+            self.assertEqual(code, 200)
+            self.assertIn('name="printer_name"', body)
+            self.assertIn('value="Garage AD5X"', body)
+            self.assertNotIn('name="printer.name"', body)  # never the legacy key
+            code, headers, _ = self.post_printer_step(
+                port, environ, httpd.form_token, "Workshop AD5X")
+            self.assertEqual((code, headers["location"]), (303, "/walkthrough"))
+            reloaded = settings.load(local=local, environ={})  # the file still loads
+            entry = settings.printers(reloaded)[0]
+            self.assertEqual(entry["name"], "Workshop AD5X")
+            self.assertEqual(entry["id"], "garage-ad5x")  # renaming never moves the id
+            self.assertEqual(entry["model"], "flashforge.ad5x")
+            self.assertEqual(reloaded["services"]["moonraker_url"],
+                             "http://192.168.1.61:7125")
+            raw = settings._read(local)
+            self.assertNotIn("name", raw.get("printer", {}))  # no legacy mixture
+
+    def test_an_env_overridden_roster_name_is_disabled_and_untouched(self):
+        env = {"PRINT_HANDY__PRINTERS__GARAGE-AD5X__NAME": "Env Name"}
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd, port, _, local, environ = self.start(
+                tmp, extra=ROSTER_YAML, environ=env)
+            code, _, body = self.request(port, "GET", "/walkthrough")
+            self.assertEqual(code, 200)
+            self.assertIn("PRINT_HANDY__PRINTERS__GARAGE-AD5X__NAME", body)
+            self.assertNotIn('name="printer_name"', body)  # a disabled input submits nothing
+            code, _, _ = self.post_printer_step(
+                port, environ, httpd.form_token, "Sneaky Rename")
+            self.assertEqual(code, 303)
+            reloaded = settings.load(local=local, environ={})
+            self.assertEqual(settings.printers(reloaded)[0]["name"], "Garage AD5X")
+
+    def test_a_user_file_roster_name_is_disabled_with_its_badge(self):
+        user_roster = ROSTER_YAML.replace("Garage AD5X", "User AD5X")
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd, port, _, local, environ = self.start(tmp, user_text=user_roster)
+            code, _, body = self.request(port, "GET", "/walkthrough")
+            self.assertEqual(code, 200)
+            self.assertIn("your settings file", body)
+            self.assertNotIn('name="printer_name"', body)
+            code, _, _ = self.post_printer_step(
+                port, environ, httpd.form_token, "Sneaky Rename")
+            self.assertEqual(code, 303)
+            reloaded = settings.load(local=local, environ=environ)
+            self.assertEqual(settings.printers(reloaded)[0]["name"], "User AD5X")
+            self.assertNotIn("printers", settings._read(local))
+
+
+class PrinterNameWriterTests(unittest.TestCase):
+    """config.write_printer_name and printer_name_state, file-level (#813)."""
+
+    def write(self, tmp, text, name="local.yaml"):
+        path = Path(tmp) / name
+        path.write_text(text)
+        return path
+
+    def test_rename_loads_after_write_and_keeps_a_backup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            local = self.write(tmp, ROSTER_YAML)
+            changed = config_api.write_printer_name(
+                "garage-ad5x", "Workshop AD5X", config_path=local, environ={})
+            self.assertEqual(changed, [("printers", "garage-ad5x")])
+            data = settings.load(local=local, environ={})
+            entry = settings.printers(data)[0]
+            self.assertEqual((entry["id"], entry["name"]), ("garage-ad5x", "Workshop AD5X"))
+            self.assertTrue(list(Path(tmp).glob("local.yaml.bak-*")))
+
+    def test_a_blank_name_clears_back_to_the_models_own(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            local = self.write(tmp, ROSTER_YAML)
+            config_api.write_printer_name("garage-ad5x", "  ", config_path=local, environ={})
+            raw = settings._read(local)
+            self.assertNotIn("name", raw["printers"][0])
+            data = settings.load(local=local, environ={})
+            self.assertTrue(settings.printers(data)[0]["name"])  # the model's name fills in
+
+    def test_no_change_is_no_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            local = self.write(tmp, ROSTER_YAML)
+            self.assertEqual(config_api.write_printer_name(
+                "garage-ad5x", "Garage AD5X", config_path=local, environ={}), [])
+            self.assertFalse(list(Path(tmp).glob("local.yaml.bak-*")))
+
+    def test_refusals_write_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            legacy = self.write(tmp, "printer:\n  model: flashforge.ad5x\n", "legacy.yaml")
+            with self.assertRaises(config_api.WebUIConfigError):
+                config_api.write_printer_name("printer", "Name",
+                                              config_path=legacy, environ={})
+            local = self.write(tmp, ROSTER_YAML)
+            with self.assertRaises(config_api.WebUIConfigError):  # unknown entry id
+                config_api.write_printer_name("nope", "Name", config_path=local, environ={})
+            with self.assertRaises(config_api.WebUIConfigError):  # environment owns it
+                config_api.write_printer_name(
+                    "garage-ad5x", "Name", config_path=local,
+                    environ={"PRINT_HANDY__PRINTERS__GARAGE-AD5X__NAME": "Env"})
+            user = self.write(tmp, ROSTER_YAML, "user.yaml")
+            with self.assertRaises(config_api.WebUIConfigError):  # the user file declares it
+                config_api.write_printer_name(
+                    "garage-ad5x", "Name", config_path=local,
+                    environ={"PRINT_HANDY_USER_CONFIG": str(user)})
+            for path in (legacy, local):
+                self.assertFalse(list(Path(tmp).glob(path.name + ".bak-*")))
+
+    def test_a_toml_roster_stays_read_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            local = self.write(
+                tmp, '[[printers]]\nid = "garage-ad5x"\nname = "Garage AD5X"\n'
+                     'model = "flashforge.ad5x"\n'
+                     'moonraker_url = "http://192.168.1.61:7125"\n', "local.toml")
+            data = settings.load(local=local, environ={})
+            state = config_api.printer_name_state(data, local=local, environ={})
+            self.assertEqual(state.shape, "roster_toml")
+            with self.assertRaises(config_api.WebUIConfigError):
+                config_api.write_printer_name("garage-ad5x", "Name",
+                                              config_path=local, environ={})
+
+    def test_read_fields_survives_an_indexed_env_override(self):
+        # Regression (#813): _layers resolved the environment without the
+        # declared roster, so every field read raised on installs using
+        # PRINT_HANDY__PRINTERS__<ID>__<KEY> overrides.
+        with tempfile.TemporaryDirectory() as tmp:
+            local = self.write(tmp, ROSTER_YAML)
+            environ = {"PRINT_HANDY_CONFIG": str(local),
+                       "PRINT_HANDY__PRINTERS__GARAGE-AD5X__NAME": "Env Name"}
+            fields = config_api.read_fields(environ=environ)
+            self.assertTrue(fields)
+            state = config_api.printer_name_state(
+                settings.load(local=local, environ=environ), environ=environ)
+            self.assertEqual(state.shape, "environment")
+
+    def test_the_legacy_name_is_a_catalog_field_with_provenance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            local = self.write(tmp, "printer:\n  model: flashforge.ad5x\n")
+            environ = {"PRINT_HANDY_CONFIG": str(local)}
+            item = config_api.read_field("printer.name", environ=environ)
+            self.assertIsNotNone(item)
+            config_api.write_changes({"printer.name": "Bench"}, environ=environ)
+            data = settings.load(local=local, environ={})
+            self.assertEqual(data["printer"]["name"], "Bench")
+            env = {**environ, "PRINT_HANDY__PRINTER__NAME": "Env Bench"}
+            item = config_api.read_field("printer.name", environ=env)
+            self.assertEqual(item.provenance, config_api.ENVIRONMENT)
+            with self.assertRaises(config_api.WebUIConfigError):
+                config_api.write_changes({"printer.name": "Nope"}, environ=env)
 
 
 if __name__ == "__main__":
