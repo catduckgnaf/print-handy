@@ -544,6 +544,42 @@ class BotCore:
             supports_live_stream=bool(getattr(self.adapter, "supports_live_stream", False)))
         self.unmatched = unmatched_text(self.bot_name)
         self.started_at = time.time()
+        self._pending_launch_announced = False
+
+    async def announce_pending_launch(self):
+        """One startup notice for a launch lease a hard kill left behind (#838).
+
+        `launch_state.acquire()` self-settles from Moonraker history when the
+        file did run, but a kill after `lease.submitting()` and before the
+        start reached Moonraker never settles: every start is refused until
+        an operator reconciles it, and until now nothing told them. Post one
+        message naming the file and the reconcile command — once per process,
+        however many startup passes run. Fail-soft: a launch database that
+        cannot be read posts nothing and never blocks startup.
+        """
+        if self._pending_launch_announced:
+            return
+        self._pending_launch_announced = True
+        try:
+            from ..core import launch_state
+            rows = await asyncio.to_thread(launch_state.pending)
+        except Exception:
+            logger.exception("could not check for a pending launch at startup")
+            return
+        if not rows or not self.chat_id:
+            return
+        row = rows[0]
+        file_name = row.get("remote") or row.get("job_json") or "a print file"
+        extra = f" ({len(rows)} launches are held)" if len(rows) > 1 else ""
+        try:
+            await self.adapter.send(
+                chat_id=self.chat_id,
+                content=(f"Print Handy restarted while a print start was in flight: {file_name} "
+                         f"may or may not have started{extra}. Check the printer; if it never "
+                         "printed, run `python3 -m print_handy.core.model_job "
+                         "reconcile-launch --not-started` to release the printer for new prints."))
+        except Exception:
+            logger.exception("could not post the pending-launch notice")
 
     # ------------------------------------------------------------------ routing
 

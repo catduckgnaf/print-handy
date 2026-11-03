@@ -280,15 +280,17 @@ def test_visual_pause_requires_current_matching_print():
     call.assert_called_once_with("/printer/print/pause", method="POST", timeout=15)
 
 
-def test_cancel_after_shutdown_clears_then_finds_job_gone():
-    seq = iter([{"klippy": "shutdown", "state": "paused", "filename": "f.gcode"},
-                {"klippy": "ready", "state": "standby", "filename": ""}])
-    with patch("print_handy.hermes.print_control.status", side_effect=lambda: next(seq)), \
-         patch.object(pab, "clear_shutdown", return_value=(True, "Cleared.")) as clr, \
+def test_cancel_after_shutdown_refuses_instead_of_restarting():
+    """#838 item 9: alert Cancel during a Klipper shutdown no longer runs
+    clear_shutdown (FIRMWARE_RESTART) as a side effect; it refuses and
+    points at /print-reboot. clear_shutdown itself is unchanged."""
+    st = {"klippy": "shutdown", "state": "paused", "filename": "f.gcode"}
+    with patch("print_handy.hermes.print_control.status", return_value=st), \
+         patch.object(pab, "clear_shutdown") as clr, \
          patch("print_handy.hermes.print_stop.cancel") as cancel:
         out = pab.handle_click("cancel", {"filename": "f.gcode"})
-    clr.assert_called_once(); cancel.assert_not_called()
-    assert "Cleared." in out and "already gone" in out
+    clr.assert_not_called(); cancel.assert_not_called()
+    assert "/print-reboot" in out
 
 
 def test_cancel_paused_ready_cancels_same_file_only():

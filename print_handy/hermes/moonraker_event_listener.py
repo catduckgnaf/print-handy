@@ -593,6 +593,44 @@ def recovery_slot(filename):
     return slot, (record or {}).get("spoolman_id")
 
 
+def launch_mapped_slots(filename):
+    """The slots this job was launched on, from its `.launch.json` checkpoint
+    command (T<tool>=<slot> pairs). No printer call; any failure reads as no
+    record, and the caller falls back to its other evidence."""
+    try:
+        from ..core import model_job
+        artifact = Path(model_job.resolve_print_target(filename))
+        data = json.loads(artifact.with_suffix(".launch.json").read_text())
+        command = str((data or {}).get("command") or "")
+    except (Exception, SystemExit):  # resolve_print_target refuses with SystemExit
+        return set()
+    return {int(slot) for slot in re.findall(r"T\d+=(\d+)", command)}
+
+
+def attribute_runout_slot(newly_emptied, empty, mapped, fallback):
+    """Name the slot that ran out when presence alone is ambiguous (#838).
+
+    The tracker already separates slots that became empty after this print
+    started (`emptied`, confirmed loaded→empty transitions since the print
+    began) from slots that merely read empty — a slot empty at print start
+    is in neither set. What classify_runout lacked was using that: it took
+    the presence list wholesale and, with two or more empty, fell back to
+    the job's recorded active slot — during a CHANGE_ZCOLOR, the tool that
+    was just unloaded. So: attribute by newly emptied slots intersected
+    with the job's mapped slots from the launch record; when that yields
+    nothing, presence (likewise narrowed by the mapping) decides only when
+    exactly one candidate remains; otherwise the recorded fallback stands.
+    """
+    newly = sorted(set(newly_emptied) & set(mapped)) if mapped else sorted(set(newly_emptied))
+    if len(newly) == 1:
+        return newly[0]
+    if not newly:
+        present = sorted(set(empty) & set(mapped)) if mapped else sorted(set(empty))
+        if len(present) == 1:
+            return present[0]
+    return fallback
+
+
 def list_spools():
     """Read Spoolman inventory. A failure returns nothing rather than inventing a spool."""
     base = _config.service_url("spoolman_url")
@@ -2902,7 +2940,9 @@ class Listener:
                 log(f"pause slot read failed: {exc!r}")
             empty = self.slot_tracker.empty_slots(slots)
             present = _slot_bools(slots)
-            slot = empty[0] if len(empty) == 1 else recovery_slot(self.filename)[0]
+            slot = attribute_runout_slot(self.slot_tracker.emptied, empty,
+                                         launch_mapped_slots(self.filename),
+                                         recovery_slot(self.filename)[0])
         head_has_filament = await asyncio.to_thread(read_head_sensor)
         if slot is None and head_has_filament is False:
             # The head sensor names no slot; the job's own slot is the one that fed it.
@@ -3679,8 +3719,26 @@ class Listener:
             result = await asyncio.to_thread(spool_sync.reconcile, instance_id, mr=mr)
             for line in spool_sync.reconcile_text(result).splitlines():
                 log(f"spool reconcile: {line}")
+            if result.get("ok"):
+                await self._retry_pending_spool_sync()
         except Exception as exc:
             log(f"spool reconcile skipped: {exc!r}")
+
+    async def _retry_pending_spool_sync(self):
+        """A Spoolman probe just succeeded: retry the running job's pending
+        active-spool sync (#838). At launch, a Spoolman outage records
+        `spoolman_usage_pending` on the job (#387) and nothing read it back,
+        so Moonraker charged the previous print's spool for the whole run.
+        Fail-soft: any error leaves the record and never breaks reconcile."""
+        try:
+            from ..core import model_job
+            filename = (self.last_stats or {}).get("filename") or self.filename
+            if not filename:
+                return
+            if await asyncio.to_thread(model_job.retry_pending_spool_sync, filename):
+                log(f"pending active-spool sync completed for {filename!r}")
+        except Exception as exc:
+            log(f"pending spool sync retry skipped: {exc!r}")
 
     async def forever(self):
         delay = 5

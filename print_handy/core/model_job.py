@@ -3118,12 +3118,8 @@ def _start_family_monitor(watch, adapter, remote, job):
 CONTEXT = Path(os.environ.get("PRINT_HANDY_CONTEXT_PATH", settings.state_dir()/"print_handy_context.json"))
 RECORD_KEYS = ("layer_height","first_layer_height","perimeters","fill_density","fill_pattern","support_material","brim_width","nozzle_diameter","filament_type","temperature","bed_temperature")
 
-def _job_for_gcode(g):
-    """The archived JOB.json that produced G-code g.
-
-    A split job keeps only plate 1 in JOB.json["gcode"]; plates 2..N live in
-    derived_plates and multipart_plan.parts, so match those too (#48).
-    """
+def _job_record_for_gcode(g):
+    """(job, JOB.json path) for the archived job that produced G-code g, else (None, None)."""
     for jp in ARCHIVE.glob("*/JOB.json"):
         try: j=json.loads(jp.read_text())
         except (OSError, ValueError): continue
@@ -3131,8 +3127,50 @@ def _job_for_gcode(g):
         paths=[j.get("gcode")]
         paths+=[r.get("gcode") for r in j.get("derived_plates") or [] if isinstance(r, dict)]
         paths+=[p.get("gcode_path") for p in (j.get("multipart_plan") or {}).get("parts") or [] if isinstance(p, dict)]
-        if any(p and Path(p).resolve()==g for p in paths): return j
-    return None
+        if any(p and Path(p).resolve()==g for p in paths): return j, jp
+    return None, None
+
+
+def _job_for_gcode(g):
+    """The archived JOB.json that produced G-code g.
+
+    A split job keeps only plate 1 in JOB.json["gcode"]; plates 2..N live in
+    derived_plates and multipart_plan.parts, so match those too (#48).
+    """
+    return _job_record_for_gcode(g)[0]
+
+
+def retry_pending_spool_sync(filename):
+    """Retry a running job's launch-time pending active-spool sync (#838).
+
+    At start, a Spoolman outage records `spoolman_usage_pending` on the job
+    and the launch proceeds (#387) — but nothing read it back, so Moonraker's
+    [spoolman] charged the previous print's spool for the whole run. The
+    listener calls this after a successful Spoolman probe: when the current
+    print's job carries an unresolved pending record naming a spool, point
+    the active spool at it now and clear the record. Fail-soft by design:
+    any failure leaves the record untouched and returns False; a multi-slot
+    pending record (spool_id None — the stale-spool clear case) is not
+    retried here, because no single spool is the job's.
+    """
+    try:
+        artifact = Path(resolve_print_target(filename)).expanduser().resolve()
+        job, job_path = _job_record_for_gcode(artifact)
+        pending = (job or {}).get('spoolman_usage_pending')
+        if not isinstance(pending, dict) or not pending.get('spool_id'):
+            return False
+        slot = pending.get('slot')
+        if slot not in (1, 2, 3, 4):
+            return False
+        sync = _sync_active_spool(printer_state.load(), slot)
+        if sync.get('spoolman_pending') or sync.get('spool_id') != pending['spool_id']:
+            return False
+        job.pop('spoolman_usage_pending', None)
+        write_job(job_path.parent, job)
+        return True
+    except (Exception, SystemExit) as exc:  # resolve_print_target refuses with SystemExit
+        logger.warning('pending active-spool retry for %s left in place: %s', filename, exc)
+        return False
 
 
 def copies_supported(job, multi_plate=None):
@@ -6570,21 +6608,31 @@ def _announce_polled_outcome(out):
 CHECKPOINT_NOT_SENT = ("rejected", "not_submitted")  # launch attempts that provably never reached the printer
 
 
-def _require_launch_checkpoint_clear(checkpoint, reprint):
+def _require_launch_checkpoint_clear(checkpoint, reprint, remote=None):
     """`<plate>.launch.json` records one launch attempt (print-again reads it too), so it is never deleted.
 
     An earlier attempt's file must not stop a deliberate reprint (multi-copy plates, "Print again"): the
     operator's new bed-clear approval is exactly that decision, and the printer lease already refused if
     the earlier attempt is still unsettled. It does stop an unapproved replay of the same artifact, and
     an attempt that never reached the printer never blocks anything.
+
+    A checkpoint whose recorded `file` is a DIFFERENT delivery of this plate than the current `remote`
+    (a stale plain-.gcode attempt, this resubmission packaged as .gcode.3mf, or the reverse) does not
+    block either (#838): it describes another artifact, and the printer lease — not this record — is
+    what refuses while an earlier attempt is still unsettled. A checkpoint with no recorded file keeps
+    the old fail-closed reading.
     """
     if not checkpoint.exists():
         return
     try:
-        phase = json.loads(checkpoint.read_text()).get('phase')
+        data = json.loads(checkpoint.read_text())
     except (OSError, ValueError):
-        phase = None
+        data = {}
+    phase = data.get('phase') if isinstance(data, dict) else None
     if phase in CHECKPOINT_NOT_SENT or reprint:
+        return
+    recorded_file = data.get('file') if isinstance(data, dict) else None
+    if remote is not None and recorded_file and recorded_file != remote:
         return
     raise RuntimeError('mapped submission checkpoint exists; reconcile or pass an explicit reprint approval '
                        'instead of replaying')
@@ -6627,6 +6675,13 @@ def _check_mapped_slot_color(slot, tool, live_raw, expected, accepted=frozenset(
     recorded = filament_color.first_hex(expected.get('hex'))
     shown_live = f"#{live}" if live else (str(live_raw).strip() if isinstance(live_raw, str) and live_raw.strip() else 'blank')
     shown_recorded = f"#{recorded}" if recorded else 'no color code'
+    # A blend spool (Spoolman's multi_color_hexes, carried on the slot record)
+    # has no single color: a screen set to ANY of its colors is the same spool,
+    # not a mismatch (#838). Records written before the field existed simply
+    # fall through to the representative hex below, exactly as before.
+    if live and any(filament_color.compare_colors(live, hx) == 'same'
+                    for hx in filament_color.all_hexes(expected.get('multi_color_hexes'))):
+        return
     verdict = filament_color.compare_colors(live, recorded)
     if verdict == 'same':
         return
@@ -6736,7 +6791,7 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
         require_idle()
         if job_path is not None:
             _consume_approval(job_path, job, g, reprint=reprint)
-        _require_launch_checkpoint_clear(checkpoint, reprint)
+        _require_launch_checkpoint_clear(checkpoint, reprint, remote=remote)
         slots_used = sorted(set(mapped.values()))
         if len(slots_used) > 1:
             print('WARNING: MULTI-SLOT JOB: automatic Spoolman usage deduction disabled; aggregate usage cannot be safely apportioned to selected spools.', flush=True)
@@ -6789,9 +6844,16 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
                    ' '.join(f'T{tool}={slot}' for tool, slot in sorted(mapping.items())))
         # One checkpoint per launch attempt: keyed by this lease's token, so a deliberate reprint
         # replaces the earlier attempt's record instead of colliding with it.
+        # The audit trail names BOTH artifacts (#838): `file` is the uploaded remote (the
+        # .gcode.3mf package when ZMod delivery packages it), so gcode_sha256 is the inner
+        # G-code's hash and upload_sha256 the bytes Moonraker actually received. `sha256`
+        # stays as the G-code hash for existing readers (resolve_print_target, /print-again).
         checkpoint_data = {'phase': 'submission_pending', 'command': command, 'sha256': sha,
+                           'gcode_sha256': sha, 'upload_sha256': upload_sha,
                            'file': remote, 'artifact': str(g), 'submission_count': 1,
                            'accepted': False, 'started': False, 'lease_token': lease.token}
+        if delivery:
+            checkpoint_data['delivery_format'] = delivery
         checkpoint.write_text(json.dumps(checkpoint_data, indent=2) + '\n')
         # This path posts its own start card, so the listener must not post a second one
         # when native preparation (heating, leveling) finishes minutes later (2026-10-11 duplicate).
@@ -6830,7 +6892,8 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
         return out
     _timing(job_path, 'start_submitted')
     out = {'accepted': False, 'started': False, 'phase': 'submitted_unconfirmed',
-           'file': remote, 'artifact': str(g), 'sha256': sha, 'mapping': mapping,
+           'file': remote, 'artifact': str(g), 'sha256': sha,
+           'gcode_sha256': sha, 'upload_sha256': upload_sha, 'mapping': mapping,
            'command': command, 'receipt': receipt, 'submission_count': 1, 'print_number': None,
            'lease_token': lease.token}
     try:

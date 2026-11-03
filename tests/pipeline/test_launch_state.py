@@ -610,6 +610,47 @@ def test_mapped_launch_uploads_3mf_package_when_zmod_is_current(mapped, monkeypa
     assert job["delivery_format"]["format"] == "3mf"
 
 
+def test_mapped_3mf_launch_checkpoint_records_both_hashes(mapped, monkeypatch):
+    """#838 item 5: the checkpoint's audit trail names the inner G-code hash AND
+    the uploaded package hash, plus the delivery format — its `file` is the
+    .gcode.3mf remote while the old single `sha256` described the .gcode."""
+    adapter = model_job.printers.current()
+    adapter.config = {"printer": {"zmod_delivery_format": "auto"}}
+    adapter.model.vendor_key = "flashforge"
+    monkeypatch.setattr(model_job, "_zmod_version", lambda st: (1, 7, 5))
+    jp, g = make_job(mapped.root, "a")
+    job = json.loads(jp.read_text())
+    model_job.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1}, job, jp, 0, False)
+    checkpoint = json.loads(g.with_suffix(".launch.json").read_text())
+    upload = next(c.args[0] for c in mapped.run.call_args_list
+                  if len(c.args[0]) >= 4 and c.args[0][1] == "upload")
+    assert checkpoint["file"] == upload[3] and checkpoint["file"].endswith(".gcode.3mf")
+    assert checkpoint["gcode_sha256"] == model_job.file_sha256(g)
+    assert checkpoint["upload_sha256"] == model_job.file_sha256(Path(upload[2]))
+    assert checkpoint["upload_sha256"] != checkpoint["gcode_sha256"]
+    assert checkpoint["delivery_format"]["format"] == "3mf"
+    assert checkpoint["sha256"] == checkpoint["gcode_sha256"]  # the legacy key still reads as before
+
+
+def test_stale_gcode_checkpoint_does_not_block_3mf_resubmission(mapped, monkeypatch):
+    """#838 item 5: an earlier plain-.gcode attempt's checkpoint (a different
+    delivery of the same plate) must not block the .gcode.3mf resubmission."""
+    adapter = model_job.printers.current()
+    adapter.config = {"printer": {"zmod_delivery_format": "auto"}}
+    adapter.model.vendor_key = "flashforge"
+    monkeypatch.setattr(model_job, "_zmod_version", lambda st: (1, 7, 5))
+    jp, g = make_job(mapped.root, "a")
+    job = json.loads(jp.read_text())
+    sha = model_job.file_sha256(g)
+    gcode_remote = model_job.remote_name(g, sha, job)
+    g.with_suffix(".launch.json").write_text(json.dumps(
+        {"phase": "submission_pending", "file": gcode_remote, "sha256": sha}))
+    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 0}, {"0": 1}, job, jp, 0, False)
+    assert out["delivery_format"]["format"] == "3mf"
+    checkpoint = json.loads(g.with_suffix(".launch.json").read_text())
+    assert checkpoint["file"].endswith(".gcode.3mf")
+
+
 def test_mapped_launch_stays_on_plain_gcode_when_version_is_unknown(mapped, monkeypatch):
     """#564 fallback pin: auto + an unreadable ZMod version is today's plain upload."""
     adapter = model_job.printers.current()
