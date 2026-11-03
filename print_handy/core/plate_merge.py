@@ -741,6 +741,16 @@ def full_size_split_possible(source, manifest, bed=None, edge=None, brim_policy=
     return True
 
 
+def _assembly_members(manifest):
+    """{representative object id: [member ids]} for build items holding several objects."""
+    by_item = {}
+    for part in manifest['parts']:
+        item = str(part.get('instance_key', '')).split('/')[0]
+        by_item.setdefault(item, set()).add(str(part['object_id']))
+    return {min(ids, key=int): sorted(ids, key=int) for item, ids in by_item.items()
+            if item and len(ids) > 1}
+
+
 def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=None, edge=None,
          capacity=None, multi_tool=False):
     """Return a merge plan or a split decision with a human reason.
@@ -799,6 +809,18 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
         # The merge exporter cannot place this geometry; say why instead of failing the slice.
         out['reason'] = f'the merge exporter cannot place this geometry ({exc})'
         return out
+    # Objects that share one build item are one assembly: the author seated them
+    # in common coordinates (a black base and its bronze overlay), so they pack and
+    # move as one unit. Packing them as strangers asked for two bodies' worth of
+    # bed and split a panel that fits alone.
+    members = _assembly_members(manifest)
+    assembly_of = {oid: rep for rep, ids in members.items() for oid in ids}
+    if members:
+        grouped = {}
+        for rep, ids in members.items():
+            grouped[rep] = [(min(boxes[i][a][0] for i in ids), max(boxes[i][a][1] for i in ids)) for a in range(3)]
+        boxes = {**{oid: box for oid, box in boxes.items() if oid not in assembly_of}, **grouped}
+        object_ids = sorted(boxes, key=int)
     extents, tall = {}, []
     for oid, box in boxes.items():
         extents[oid] = (box[0][1] - box[0][0], box[1][1] - box[1][0])
@@ -825,7 +847,12 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
             else:
                 placed = loose
     yaw_by_object, yaw_hulls = {}, None
-    if placed is None and rearrange_requested(job):
+    # The hull fallbacks below read one hull per object id and turn objects one
+    # leaf at a time, so they would see only an assembly's representative body
+    # and rotate its members apart. Assemblies get rectangle packing (their
+    # union bounds) only; a source with one that does not fit splits instead.
+    hull_fallbacks = not members
+    if placed is None and hull_fallbacks and rearrange_requested(job):
         # A chosen 100% rearrangement, tried before the (much slower) hull
         # searches below: any object may turn 90 degrees in the bed plane,
         # not only the ones that need a turn to fit alone. Same
@@ -836,7 +863,7 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
         if attempt is not None:
             placed, tower_xy, yaw_by_object, yaw_hulls = attempt
             packing = 'turned'
-    if placed is None:
+    if placed is None and hull_fallbacks:
         # Polygon fallback (#221 P1): rectangle packing failed and at least
         # one object is genuinely non-rectangular, so judge the actual hulls.
         # Translation only, authored yaw; the positions flow into the same
@@ -860,7 +887,7 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
                         tower_xy = None
                     else:
                         placed, packing = loose, 'polygon'
-    if placed is None:
+    if placed is None and hull_fallbacks:
         # Yawed merge fallback (#221 R2b): rectangle and authored hull
         # packing both failed. Pack the hulls with each solo-needing
         # object rotated to its recorded yaw (see _yawed_merge_attempt);
@@ -876,6 +903,9 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
                          + (', even rearranged' if rearrange_requested(job) else ''))
         return out
     shifts, bounds = _shifts(placed, boxes, extents, yaw_by_object, yaw_hulls)
+    for rep, ids in members.items():
+        shifts.update({i: list(shifts[rep]) for i in ids})
+        bounds.update({i: bounds[rep] for i in ids})
     out.update({'mode': 'merge', 'shifts': shifts, 'placed_bounds_mm': bounds, 'slots': used,
                 'packing': packing, 'objects_out': sorted(shifts, key=str)})
     if yaw_by_object:

@@ -856,3 +856,46 @@ def test_plan_multi_tool_allows_mixed_materials_across_toolheads(tmp_path, monke
     assert refused['mode'] == 'split' and 'mixed materials across slots' in refused['reason']
     merged = plate_merge.plan(source, manifest, plates, slots, state, capacity=4, multi_tool=True)
     assert merged['mode'] == 'merge', merged['reason']
+
+
+def _assembly_source(path, size, second=None):
+    """One build item (object 3) made of two bodies in common coordinates, like a base plus its overlay."""
+    def mesh(oid, dims):
+        return f'<object id="{oid}" name="Body {oid}">' + _box(*dims).split('<object id="1">')[1].split('</object>')[0] + '</object>'
+    model = ('<model unit="millimeter"><resources>' + mesh(1, size) + mesh(2, second or size)
+             + '<object id="3" name="Assembly"><components><component objectid="1"/><component objectid="2"/></components></object>'
+             + '</resources><build><item objectid="3"/></build></model>')
+    settings = ('<config><plate><metadata key="plater_id" value="1"/><model_instance><metadata key="object_id" value="3"/></model_instance></plate></config>')
+    with zipfile.ZipFile(path, 'w') as archive:
+        archive.writestr('3D/3dmodel.model', model)
+        archive.writestr('Metadata/model_settings.config', settings)
+        archive.writestr('Metadata/plate_1.png', b'png')
+
+
+def test_assembly_bodies_share_one_build_item_and_one_plate(tmp_path):
+    """Regression: two color bodies of one assembly were packed as strangers and split a panel that fits alone."""
+    source = tmp_path / 'assembly.3mf'
+    _assembly_source(source, (120, 120, 6))  # two such bodies cannot share a 220 mm bed as strangers
+    state = json.loads(STATE.read_text())
+    manifest = source_colors.inventory(source)
+    plates = model_job.plate_manifest(source)['plates']
+    slots = {p['key']: i + 1 for i, p in enumerate(manifest['parts'])}  # two colors, so a tower is reserved
+    verdict = plate_merge.plan(source, manifest, plates, slots, state)
+    assert verdict['mode'] == 'merge', verdict.get('reason')
+    # one assembly: both bodies move by the same shift and share one footprint
+    assert verdict['shifts']['1'] == verdict['shifts']['2']
+    assert verdict['placed_bounds_mm']['1'] == verdict['placed_bounds_mm']['2']
+
+
+def test_assembly_too_big_for_the_bed_never_merges_through_a_hull_fallback(tmp_path):
+    """The hull fallbacks read one body per object id; an assembly must not pass them on its small member alone."""
+    source = tmp_path / 'assembly.3mf'
+    _assembly_source(source, (30, 30, 6), second=(300, 300, 4))  # small representative, oversized second body
+    state = json.loads(STATE.read_text())
+    manifest = source_colors.inventory(source)
+    plates = model_job.plate_manifest(source)['plates']
+    slots = {p['key']: i + 1 for i, p in enumerate(manifest['parts'])}
+    for job in (None, {'full_size_rearrange_plan': True}):
+        verdict = plate_merge.plan(source, manifest, plates, slots, state, job=job)
+        assert verdict['mode'] == 'split', verdict
+        assert 'yaw_by_object' not in verdict
