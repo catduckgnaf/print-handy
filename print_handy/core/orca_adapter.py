@@ -20,6 +20,7 @@ from .compact_geometry import IndexedTriangles
 from . import slice_guard as sg
 from .slice_guard import pre_slice, post_slice
 from .slice_failure import SliceFailure
+from .threemf_canonical import default_core_namespace, require_millimeter
 
 logger = logging.getLogger(__name__)
 
@@ -185,8 +186,7 @@ def _parse_3mf_triangles(source):
                 if fast is not None:
                     tables[name] = fast
                 root = ET.fromstring(data)
-                if root.get('unit', 'millimeter') != 'millimeter':
-                    raise RuntimeError('only millimeter 3MF geometry supported')
+                require_millimeter(root)
                 models[name] = (root, {o.get('id'): o for o in root.findall('c:resources/c:object', NS)})
             return models[name]
         def apply(point, t):
@@ -303,8 +303,7 @@ def _object_triangles(source, object_id):
             name = name.lstrip('/')
             if name not in models:
                 root = ET.fromstring(archive.read(name))
-                if root.get('unit', 'millimeter') != 'millimeter':
-                    raise RuntimeError('only millimeter 3MF geometry supported')
+                require_millimeter(root)
                 objects = {}
                 for resources in children(root, 'resources'):
                     for obj in children(resources, 'object'):
@@ -827,46 +826,6 @@ def _spawn_slicer(command, *, timeout, cwd):
         raise
     finally:
         timer.cancel()
-
-
-_CORE_3MF_NS = 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'
-
-
-def default_core_namespace(model_bytes):
-    """Return a 3MF model part with its core namespace bound to the default namespace (#814).
-
-    Orca and Bambu Studio read 3MF through expat without namespace processing, so they compare raw
-    element names ("model", "build", "item"). A file whose core elements are prefixed (<ns0:model
-    xmlns:ns0="...core/2015/02">) is valid XML but invisible to them: no build item is found. When
-    the root binds the core namespace to a prefix and declares no default namespace, drop that prefix
-    from element tags and declare the core namespace as the default instead. Other namespaces,
-    attributes and every other byte are left as they were; any other input is returned unchanged.
-    Applied only to the private copy handed to the slicer, never to the user's source file.
-    """
-    root = re.search(rb'<(\w+):model\b[^>]*>', model_bytes)
-    if root is None:
-        return model_bytes
-    start = root.group(0)
-    if re.search(rb'\sxmlns\s*=', start):
-        return model_bytes
-    core = re.escape(_CORE_3MF_NS.encode())
-    prefixes = {m.group(1) for m in re.finditer(rb'\sxmlns:(\w+)\s*=\s*(?:"' + core + rb'"|\'' + core + rb'\')', start)}
-    if root.group(1) not in prefixes:
-        return model_bytes
-    out = model_bytes
-    for prefix in prefixes:
-        out = re.sub(rb'(</?)' + re.escape(prefix) + rb':', rb'\1', out)
-    declared = []
-
-    def declaration(match):
-        if match.group(1) not in prefixes:
-            return match.group(0)
-        declared.append(1)
-        return b' xmlns="' + _CORE_3MF_NS.encode() + b'"' if len(declared) == 1 else b''
-
-    head = re.search(rb'<model\b[^>]*>', out)
-    fixed = re.sub(rb'\sxmlns:(\w+)\s*=\s*(?:"[^"]*"|\'[^\']*\')', declaration, head.group(0))
-    return out[:head.start()] + fixed + out[head.end():]
 
 
 def normalize_3mf_core_namespace(path):

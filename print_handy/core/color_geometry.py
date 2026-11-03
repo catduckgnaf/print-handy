@@ -13,6 +13,7 @@ from .. import settings
 from . import source_colors
 from .source_colors import inventory
 from .orca_adapter import _check_rotation, _rotate, digest
+from .threemf_canonical import require_millimeter
 
 CORE = 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'
 IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]
@@ -105,8 +106,7 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
         for name in archive.namelist():
             if name.endswith('.model'):
                 root = ET.fromstring(archive.read(name))
-                if root.get('unit', 'millimeter') != 'millimeter':
-                    raise RuntimeError('only millimeter 3MF geometry supported')
+                require_millimeter(root)
                 models[name] = (root, {n.get('id'): n for n in root if n.tag.split('}')[-1] == 'resources' for n in n if n.tag.split('}')[-1] == 'object'})
         leaves = []
 
@@ -383,8 +383,7 @@ def export_volume_plate(source, target, scale=1.0, rotation=None):
         for name in archive.namelist():
             if name.endswith('.model'):
                 root = ET.fromstring(archive.read(name))
-                if root.get('unit', 'millimeter') != 'millimeter':
-                    raise RuntimeError('only millimeter 3MF geometry supported')
+                require_millimeter(root)
                 models[name] = (root, {n.get('id'): n for r in root if r.tag.split('}')[-1] == 'resources'
                                        for n in r if n.tag.split('}')[-1] == 'object'})
         leaves = []

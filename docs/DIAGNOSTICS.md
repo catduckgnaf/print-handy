@@ -99,7 +99,8 @@ not help), and a `PB_INTAKE_UNKNOWN` reference. The rules now are:
   at its model-site boundaries — a missing, empty or refused site
   credential (MakerWorld, Thingiverse, MyMiniFactory, Cults3D), a site
   robot check, a site's built-in download gap, Spoolman not answering
-  or not configured — and the chat post states that cause in plain
+  or not configured, a 3MF length unit intake cannot convert exactly (#825) —
+  and the chat post states that cause in plain
   words with its remedy (for a token: the site, the credential, and the
   docs/PROJECT-REFERENCE.md section that explains setting it up). The
   wording is built in `diagnostics.py` from the recognized pattern,
