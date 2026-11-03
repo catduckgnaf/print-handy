@@ -30,6 +30,7 @@ print_summary = _external.lazy('discord_print_summary')
 print_next = _external.lazy('print_next')
 from .link_intake import ask, model_link, has_duration_question  # noqa: E402
 from .quantity_selection import quantity_options, parse_quantity  # noqa: E402
+from .threemf_canonical import intake_working_copy  # noqa: E402
 from .background_slice import drop_runner, runner_for, slice_binding  # noqa: E402
 from .slice_recipe import RECIPE_VERSION, binding_sha256  # noqa: E402
 
@@ -1871,6 +1872,7 @@ async def _fetch_parts(adapter, source, key, metadata, timeout, job, parts, fold
             lambda row=row, dest=dest: _with_stop(adapter, source, key, metadata, None,
                                                   asyncio.to_thread(fetch, job, row, dest)))
         await asyncio.to_thread(check_source, path)
+        await asyncio.to_thread(intake_working_copy, path)
         paths.append(Path(path))
     from . import model_job as mj
     unit_q = await asyncio.to_thread(mj.parts_unit_question, job, paths)
@@ -2015,6 +2017,9 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                    asyncio.to_thread(fetch, job, chosen, folder / 'source')))
             job['downloaded_file'] = str(path)
         await asyncio.to_thread(check_source, path)
+        # One canonical form for everything downstream (#814, #825): the audit, colors, fit, layout
+        # and slicer all read this copy. The user's bytes are kept under source/original/.
+        await asyncio.to_thread(intake_working_copy, path)
         if job['site'] == 'upload':
             job['title'] = await asyncio.to_thread(upload_title, path) or job['title']
         job['audit'] = await _with_stop(adapter, source, key, metadata, large_model_notice(path),
