@@ -73,11 +73,12 @@ class FilamentInsertionMonitorTests(unittest.TestCase):
 
     def test_manual_resume_prompt_orders_existing_or_new_and_protects_inventory(self):
         prompt = mel.manual_resume_tracking_message(
-            "job.gcode", slot=1, compatible_spools=[{"id": 23, "remaining_weight": 412}]
+            "job.gcode", slot=1, compatible_spools=[{"id": 23, "remaining_weight": 412,
+                                                     "name": "Matte White", "material": "PLA+"}]
         )
         self.assertIn("job, IFS slot 1", prompt)
         self.assertIn("A) existing Spoolman spool, or B) new spool", prompt)
-        self.assertIn("#23 (412 g remaining)", prompt)
+        self.assertIn("Matte White · PLA+ · #23 · 412 g left", prompt)
         self.assertIn("will not select it automatically", prompt)
         self.assertIn("load it and resume manually at the printer", prompt)
         self.assertIn("clear label photo (preferred)", prompt)

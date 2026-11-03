@@ -405,7 +405,7 @@ def test_runout_new_spool_multi_color_name_keeps_its_palette():
     result = plugin._answer_spool_question(
         listener, runout_sync, context,
         {'status': 'new', 'brand': 'SUNLU', 'material': 'Silk PLA',
-         'color': 'Rose Red Blue Green', 'grams': 1000},
+         'color': 'Rose Red Blue Green', 'grams': 1000, 'color_confirmed': True},
     )
 
     assert 'Created spool #19.' in result

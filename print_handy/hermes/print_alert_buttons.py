@@ -27,6 +27,7 @@ PREFIX = "pbalert"
 RETRY_PREFIX = "pbretry"
 INSERTION_PREFIX = "pbinsert"
 SPOOL_QUESTION_PREFIX = "pbspool"
+BIND_CONFIRM_PREFIX = "pbbindconfirm"
 NEW_SPOOL_PREFIX = "pbnewspool"
 NEW_SPOOL_SELECT_PREFIX = "pbnewspoolselect"
 PLATE_PREFIX = "pbplate"
@@ -464,7 +465,15 @@ def new_spool_slot_options(state: dict[str, Any] | None) -> list[dict[str, str]]
     for slot in (1, 2, 3, 4):
         rec = slots.get(str(slot)) or {}
         sid = rec.get("spoolman_id")
-        detail = f"#{sid} {rec.get('name') or ''}".strip() if sid else "empty"
+        if not sid:
+            detail = "empty"
+        elif rec.get("color") and rec.get("material"):
+            # A fully recorded slot names its spool in the one picker shape.
+            from .discord_print_summary import spool_picker_label
+            detail = spool_picker_label(rec.get("color"), rec.get("material"), sid,
+                                        rec.get("remaining_grams"))
+        else:
+            detail = f"#{sid} {rec.get('name') or ''}".strip()
         options.append({"label": f"Slot {slot}", "value": str(slot),
                         "description": f"Now holds {detail}"[:100]})
     return options
@@ -488,13 +497,34 @@ def insertion_select_options(spools: list[dict[str, Any]], mapped: dict[str, Any
     for spool in sorted((s for s in spools if isinstance(s, dict) and not s.get("archived")
                          and int(s.get("id") or 0) not in excluded_ids), key=score)[:25]:
         filament = spool.get("filament") or {}
-        grams = spool.get("remaining_weight")
-        from .discord_print_summary import filament_label
-        detail = " ".join(part for part in (filament_label(filament.get("name"), filament.get("material")),
-                                               f"{grams:g} g" if isinstance(grams, (int, float)) else "") if part)
-        options.append({"label": f"#{spool.get('id')} {detail}"[:100], "value": str(spool.get("id")),
+        from .discord_print_summary import spool_picker_label
+        label = spool_picker_label(filament.get("name"), filament.get("material"),
+                                   spool.get("id"), spool.get("remaining_weight"))
+        options.append({"label": label[:100], "value": str(spool.get("id")),
                         "description": "Select this shelf spool"})
     return options
+
+
+def bind_confirm_components(aid: str) -> list[dict[str, Any]]:
+    """Confirm / cancel for one picker-chosen bind (#792 part 2).
+
+    A spool picker selection never binds by itself: it lands here, on a
+    message that names the exact spool (the picker label: color, material,
+    number, remaining) and the displaced spool's fate, and only this
+    Confirm press writes anything.
+    """
+    return [{"type": 1, "components": [
+        {"type": 2, "style": 3, "label": "Confirm bind", "custom_id": f"{BIND_CONFIRM_PREFIX}:confirm:{aid}"},
+        {"type": 2, "style": 2, "label": "Cancel", "custom_id": f"{BIND_CONFIRM_PREFIX}:cancel:{aid}"},
+    ]}]
+
+
+def parse_bind_confirm_custom_id(custom_id: str) -> tuple[str, str] | None:
+    """Return ('confirm' | 'cancel', alert id) for bind-confirmation controls, or None."""
+    parts = str(custom_id or "").split(":")
+    if len(parts) == 3 and parts[0] == BIND_CONFIRM_PREFIX and parts[1] in ("confirm", "cancel") and parts[2]:
+        return parts[1], parts[2]
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -533,7 +563,7 @@ _DISPOSITION_ACTIONS = {"disp_shelf": "shelf", "disp_archive": "archive",
 INTAKE_ACTIONS = frozenset(
     [*_MATERIAL_ACTIONS, "mat_other", *_WEIGHT_ACTIONS, "w_custom",
      *_DISPOSITION_ACTIONS, "brand_type", "brand_skip", "photo", "edit",
-     "confirm", "cancel"])
+     "color_ok", "color_fix", "confirm", "cancel"])
 
 
 def parse_intake_custom_id(custom_id: str) -> tuple[str, str] | None:
@@ -584,14 +614,35 @@ def _needs_swatch(state: dict[str, Any]) -> bool:
     return bool(str(state.get("color") or "").strip()) and intake_color(state)[0] is None
 
 
+def _needs_colorcheck(state: dict[str, Any]) -> bool:
+    """True when the color as parsed needs a confirm-or-correct step (#792 part 2).
+
+    A color that parses to multiple colors or carries unrecognized
+    fragment words (filament_color.color_sanity) is not minted on the
+    strength of a picker tap or a label read: the walkthrough names what
+    was understood and the operator confirms it as labeled or types it
+    again. Once confirmed (``color_confirmed``), it is never asked twice.
+    """
+    if state.get("color_confirmed"):
+        return False
+    color = str(state.get("color") or "").strip()
+    if not color:
+        return False
+    from ..core import filament_color
+    return filament_color.color_sanity(color, state.get("material")) is not None
+
+
 def intake_next_step(state: dict[str, Any]) -> str:
     """The step after the next one, unless the color code is still unknown.
 
     When a color name cannot be read (a typed "Galaxy"), the walkthrough
     asks once with swatch buttons — never for a hex — before going on, so a
-    new spool always records a color code.
+    new spool always records a color code. A color whose parse is
+    suspicious (color_sanity) earns the confirm-or-correct step first.
     """
     following = _intake_following_step(state)
+    if following in ("weight", "disposition", "confirm") and _needs_colorcheck(state):
+        return "colorcheck"
     if following in ("weight", "disposition", "confirm") and _needs_swatch(state):
         return "swatch"
     return following
@@ -614,7 +665,7 @@ def _intake_following_step(state: dict[str, Any]) -> str:
         return "color"
     if step == "color":
         return "weight"
-    if step == "swatch":
+    if step in ("swatch", "colorcheck"):
         if state.get("grams") is None:
             return "weight"
         if state.get("origin") == "insertion" and state.get("old_spool_id"):
@@ -650,6 +701,11 @@ def intake_step_text(state: dict[str, Any]) -> str:
         return "**Brand** — pick a known brand, type one, or skip. The spool works the same either way."
     if step == "color":
         return f"**Color / finish** — {state.get('material')}: pick one, or Other to type it exactly as labeled."
+    if step == "colorcheck":
+        from ..core import filament_color
+        sanity = filament_color.color_sanity_text(state.get("color"), state.get("material")) or ""
+        return (f"**Check that color** — {sanity} If that is exactly what the label says, "
+                "confirm it; otherwise type the color again. Nothing is created yet.")
     if step == "swatch":
         return (f"**Color code** — I could not tell the color of “{state.get('color')}” from its name. "
                 "Pick the closest color; it sets the preview color and the printer screen swatch, "
@@ -780,15 +836,21 @@ def intake_brand_options(types: list[dict[str, Any]] | None, material: Any) -> l
 
 
 def _color_label(color: str, material: str) -> str:
-    """Color plus material for display, unless the color already names the material."""
+    """'color · material' for display, unless the color already names the material.
+
+    Every option in the color picker carries the same shape (#792 part 2):
+    known colors and common colors alike, so picking compares like with
+    like instead of mixing bare colors with color + material labels.
+    """
     if not material or material.casefold() in color.casefold():
         return color
-    return f"{color} {material}"
+    return f"{color} · {material}"
 
 
 def intake_color_options(types: list[dict[str, Any]] | None, material: Any) -> list[dict[str, str]]:
     """Colors already known for this material first, then common colors, then Other."""
-    material = str(material or "").casefold()
+    material_text = str(material or "").strip()
+    material = material_text.casefold()
     known = []
     shown_material = {}
     for entry in types or []:
@@ -805,7 +867,7 @@ def intake_color_options(types: list[dict[str, Any]] | None, material: Any) -> l
         if len(options) >= 23:
             break
         if color not in known:
-            options.append({"label": color, "value": color})
+            options.append({"label": _color_label(color, material_text), "value": color})
     options.append({"label": "Other (type it exactly)…", "value": INTAKE_OTHER})
     return options
 
@@ -823,6 +885,13 @@ def intake_step_components(aid: str, state: dict[str, Any]) -> list[dict[str, An
     if step == "color":
         return _select_components(aid, "Choose the color / finish",
                                   intake_color_options(state.get("types"), state.get("material")))
+    if step == "colorcheck":
+        return [{"type": 1, "components": [
+            {"type": 2, "style": 3, "label": "That is exactly as labeled",
+             "custom_id": f"{INTAKE_PREFIX}:color_ok:{aid}"},
+            {"type": 2, "style": 1, "label": "Type the color again",
+             "custom_id": f"{INTAKE_PREFIX}:color_fix:{aid}"},
+            {"type": 2, "style": 2, "label": "Cancel", "custom_id": f"{INTAKE_PREFIX}:cancel:{aid}"}]}]
     if step == "swatch":
         from ..core.filament_color import SWATCHES
         return _select_components(aid, "Choose the closest color",
@@ -834,9 +903,18 @@ def intake_step_components(aid: str, state: dict[str, Any]) -> list[dict[str, An
     return intake_confirm_components(aid, editable=bool(state.get("from_photo")))
 
 
-def bind_insertion_existing(slot: int, spool_id: int, spool_sync) -> str:
-    """Reuse the one slot-binding path; insertion UI never issues a printer command."""
-    result = spool_sync.bind_slot(slot, spool_id, note="Bound from Discord IFS insertion", push_screen_update=False)
+def bind_insertion_existing(slot: int, spool_id: int, spool_sync,
+                            expected_prior_spool_id: int | None = None) -> str:
+    """Reuse the one slot-binding path; insertion UI never issues a printer command.
+
+    ``expected_prior_spool_id`` is the displaced spool the bind confirmation
+    named (#792): bind_slot re-checks the slot's current mapping against it
+    before writing, so a confirmation left open across a rebind cannot move
+    a spool it never named onto the shelf (#515's guard).
+    """
+    result = spool_sync.bind_slot(slot, spool_id, note="Bound from Discord IFS insertion",
+                                  push_screen_update=False,
+                                  expected_prior_spool_id=expected_prior_spool_id)
     record = result["record"]
     grams = f", {record['remaining_grams']:g} g left" if record.get("remaining_grams") is not None else ""
     return f"Slot {slot} → spool #{spool_id} ({record['name']}{grams}). Inventory updated; printer untouched."

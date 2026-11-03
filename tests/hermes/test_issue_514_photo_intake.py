@@ -412,6 +412,12 @@ def test_photo_walkthrough_prefills_and_creates_only_on_confirm(tmp_path, monkey
             await asyncio.sleep(0.05)
         assert channel_sink, "the photo step never posted"
         kind, content, view = channel_sink[-1]
+        # The label-read multi-color parse earns the confirm-or-correct step first (#792 part 2).
+        assert "Check that color" in content and "Rose Red Blue Green" in content
+        color_ok = next(cid for cid in _custom_ids(view) if ":color_ok:" in cid)
+        sink.clear()
+        await on_interaction(_interaction(sink, color_ok, channel))
+        kind, content, view = sink[-1]
         assert "#13" in content  # the replaced spool's disposition is still asked
         depleted = next(cid for cid in _custom_ids(view) if ":disp_depleted:" in cid)
 
@@ -771,6 +777,11 @@ def test_photo_walkthrough_code_route_prefills(tmp_path, monkeypatch):
             await asyncio.sleep(0.05)
         assert channel_sink, "the code route never posted"
         kind, content, view = channel_sink[-1]
+        assert "Check that color" in content  # the code-read multi-color parse is confirmed first
+        color_ok = next(cid for cid in _custom_ids(view) if ":color_ok:" in cid)
+        sink.clear()
+        await on_interaction(_interaction(sink, color_ok, channel))
+        kind, content, view = sink[-1]
         depleted = next(cid for cid in _custom_ids(view) if ":disp_depleted:" in cid)
         sink.clear()
         await on_interaction(_interaction(sink, depleted, channel))

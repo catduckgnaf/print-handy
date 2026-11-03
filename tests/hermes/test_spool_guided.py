@@ -231,7 +231,7 @@ def test_bare_spool_menu_lists():
 
 
 def test_bare_spool_menu_enters_new_flow():
-    answers = ["Add a new spool", "Sunlu PLA+ — Matte White", "1000", "Create spool #20", "Leave it on the shelf"]
+    answers = ["Add a new spool", "Matte White · PLA+ · Sunlu", "1000", "Create spool #20", "Leave it on the shelf"]
     out, adapter, fake = _run("/spool", answers)
     assert any(m == "POST" and p == "/api/v1/spool" for m, p, _b in fake.writes)
     assert "Created spool #20" in adapter.sent[-1]
@@ -321,6 +321,40 @@ def test_guided_new_cancel_at_confirm_writes_nothing():
     assert fake.writes == []
 
 
+def test_guided_new_typed_multi_color_gets_confirm_or_correct():
+    # A typed color that parses to several colors is confirmed as labeled
+    # before anything is created (#792 part 2), naming what was understood.
+    answers = ["New filament type", "PLA", "Rose Red Blue Green", "That is exactly as labeled",
+               "1000", "Create spool #20", "Leave it on the shelf"]
+    out, adapter, fake = _run("/spool new", answers)
+    questions = _questions(adapter)
+    assert any("more than one color" in q and "Rose Red Blue Green" in q for q in questions)
+    filament_posts = [b for m, p, b in fake.writes if m == "POST" and p == "/api/v1/filament"]
+    assert filament_posts and filament_posts[0]["name"] == "Rose Red Blue Green"
+    assert "Created spool #20" in adapter.sent[-1]
+
+
+def test_guided_new_typed_fragment_color_can_be_corrected():
+    answers = ["New filament type", "PLA+", "term No...", "Type it again", "Black",
+               "1000", "Create spool #20", "Leave it on the shelf"]
+    out, adapter, fake = _run("/spool new", answers)
+    questions = _questions(adapter)
+    assert any("term No" in q for q in questions)
+    filament_posts = [b for m, p, b in fake.writes if m == "POST" and p == "/api/v1/filament"]
+    assert filament_posts and filament_posts[0]["name"] == "Black"
+    assert "Created spool #20" in adapter.sent[-1]
+
+
+def test_one_shot_new_with_multi_color_creates_nothing():
+    # The one-shot form has no confirmation step, so a suspicious parse is
+    # refused with what was understood and the guided form named instead.
+    out, adapter, fake = _run("/spool new Sunlu, PLA+, Rose Red Blue Green, 1000", [])
+    assert adapter.clarifies == []
+    assert "more than one color" in adapter.sent[-1]
+    assert "Nothing was created" in adapter.sent[-1] and "`/spool new`" in adapter.sent[-1]
+    assert fake.writes == []
+
+
 def test_guided_new_expire_at_first_question_writes_nothing():
     out, adapter, fake = _run("/spool new", [])
     assert adapter.sent[-1] == "Cancelled. Nothing changed."
@@ -328,7 +362,7 @@ def test_guided_new_expire_at_first_question_writes_nothing():
 
 
 def test_guided_new_then_load_into_empty_slot():
-    answers = ["1", "1000", "Create spool #20", "Load it into a slot", "Slot 1"]
+    answers = ["1", "1000", "Create spool #20", "Load it into a slot", "Slot 1", "Load spool #20"]
     bind = mock.Mock(side_effect=_fake_bind)
     out, adapter, fake = _run("/spool new", answers, bind=bind)
     bind.assert_called_once()
@@ -339,7 +373,7 @@ def test_guided_new_then_load_into_empty_slot():
 
 
 def test_guided_new_then_load_with_depleted_old_spool():
-    answers = ["1", "1000", "Create spool #20", "Load it into a slot", "Slot 2", "Mark it as depleted"]
+    answers = ["1", "1000", "Create spool #20", "Load it into a slot", "Slot 2", "Mark it as depleted", "Load spool #20"]
     bind = mock.Mock(side_effect=_fake_bind)
     out, adapter, fake = _run("/spool new", answers, bind=bind)
     args, kw = bind.call_args
@@ -359,8 +393,9 @@ def test_guided_change_archive():
     assert kw.get("expected_prior_spool_id") == 12  # the spool the confirmation named (#515)
     questions = _questions(adapter)
     assert "Slot 2: #12 Red PETG" in questions[0]
-    assert "#7 Matte White" in questions[1]
+    assert "Matte White · PLA+ · #7 · 400 g left" in questions[1]
     assert "will be archived" in questions[3]
+    assert "Matte White · PLA+ · #7 · 400 g left" in questions[3]  # the exact spool, named
     assert "Spool #12 was archived." in adapter.sent[-1]
 
 
@@ -421,6 +456,9 @@ def test_nl_new_phrases_enter_guided_new(text):
     "I need to change a filament roll",
     "change a filament roll",
     "swap roll",
+    "please swap the roll",
+    "replace a spool",
+    "I want to change the filament",
 ])
 def test_nl_change_phrases_enter_guided_change(text):
     answers = ["Slot 2", "#7 Matte White", "Back on the shelf", "Change slot 2"]
@@ -436,6 +474,9 @@ def test_nl_change_phrases_enter_guided_change(text):
     ("swap the filament", "change"),
     ("I need to change a filament roll", "change"),
     ("change a filament roll", "change"),
+    ("please swap the roll", "change"),
+    ("replace a spool", "change"),
+    ("I want to change the filament", "change"),
     ("the filament is tangled", None),
     ("add new filament to my shopping list", None),
     ("what filament should I buy?", None),
@@ -557,6 +598,6 @@ def test_guided_change_long_shelf_name_resolves_by_full_label(monkeypatch):
     result = asyncio.run(plugin._spool_guided_change(
         FakeAdapter(), source, None, gateway, spool_sync, None, {}))
     shelf_choices = calls[1][1]
-    assert shelf_choices[0] == f"#7 {long_name}"  # registered whole, not [:80]
+    assert shelf_choices[0] == f"{long_name} · PLA+ · #7 · 400 g left"  # registered whole, not [:80]
     assert bound == [(2, 7)]
     assert "not clear" not in result
