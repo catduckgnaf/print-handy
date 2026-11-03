@@ -57,7 +57,7 @@ PENDING = {"spool_id": 11, "slot": 2, "reason": "Spoolman unavailable at print s
            "usage not yet reported", "recorded_at": 0}
 
 
-def _job_with_pending(tmp_path, monkeypatch, pending=PENDING):
+def _job_with_pending(tmp_path, monkeypatch, pending=PENDING, printer_id=None):
     archive = tmp_path / "archive"
     folder = archive / "job-a"
     sliced = folder / "sliced" / "a" / "b"
@@ -67,12 +67,14 @@ def _job_with_pending(tmp_path, monkeypatch, pending=PENDING):
     # The launch record resolve_print_target maps the printer's file name by.
     g.with_suffix(".launch.json").write_text(json.dumps({"file": "plate.gcode", "phase": "executing"}))
     job = {"title": "job a", "gcode": str(g)}
+    if printer_id:
+        job["printer_id"] = printer_id
     if pending is not None:
         job["spoolman_usage_pending"] = dict(pending)
     (folder / "JOB.json").write_text(json.dumps(job))
     monkeypatch.setattr(model_job, "ARCHIVE", archive)
     monkeypatch.setattr(model_job.printer_state, "load",
-                        lambda: {"filament_slots": {"2": {"spoolman_id": 11}}})
+                        lambda printer_id=None: {"filament_slots": {"2": {"spoolman_id": 11}}})
     return folder, g
 
 
@@ -116,6 +118,75 @@ def test_pending_spool_sync_without_a_spool_id_is_not_retried(tmp_path, monkeypa
 def test_pending_spool_sync_for_an_unknown_file_is_a_quiet_no(tmp_path, monkeypatch):
     _job_with_pending(tmp_path, monkeypatch, pending=None)
     assert model_job.retry_pending_spool_sync("never-uploaded.gcode") is False
+
+
+def test_pending_spool_sync_routes_to_the_jobs_roster_printer(tmp_path, monkeypatch):
+    """Multi-printer roster: the retry must load the JOB's printer record —
+    printer_state.load() with no ID reads the legacy/default record, whose
+    Moonraker endpoint belongs to a different printer (Codex P1 on #847)."""
+    folder, _g = _job_with_pending(tmp_path, monkeypatch, printer_id="printer-b")
+    loads = []
+
+    def load(printer_id=None):
+        loads.append(printer_id)
+        return {"filament_slots": {"2": {"spoolman_id": 11}},
+                "moonraker_url": f"http://{printer_id}.example/"}
+    monkeypatch.setattr(model_job.printer_state, "load", load)
+    seen = {}
+
+    def fake_sync(st, slot, printer_id=None):
+        seen.update(st=st, slot=slot, printer_id=printer_id)
+        return {"spool_id": 11, "changed": True}
+    monkeypatch.setattr(model_job, "_sync_active_spool", fake_sync)
+    assert model_job.retry_pending_spool_sync("plate.gcode") is True
+    assert loads == ["printer-b"]
+    assert seen["printer_id"] == "printer-b"
+    assert seen["st"]["moonraker_url"] == "http://printer-b.example/"
+    assert seen["slot"] == 2
+    assert "spoolman_usage_pending" not in json.loads((folder / "JOB.json").read_text())
+
+
+def test_pending_spool_sync_explicit_printer_id_wins_over_the_job_record(tmp_path, monkeypatch):
+    """The listener's own printer identity, when carried in, is the route."""
+    _job_with_pending(tmp_path, monkeypatch, printer_id="printer-a")
+    loads = []
+
+    def load(printer_id=None):
+        loads.append(printer_id)
+        return {"filament_slots": {"2": {"spoolman_id": 11}}}
+    monkeypatch.setattr(model_job.printer_state, "load", load)
+    monkeypatch.setattr(model_job, "_sync_active_spool",
+                        lambda st, slot, printer_id=None: {"spool_id": 11, "changed": True})
+    assert model_job.retry_pending_spool_sync("plate.gcode", printer_id="printer-b") is True
+    assert loads == ["printer-b"]
+
+
+def test_sync_active_spool_reloads_and_saves_the_same_printer_record(monkeypatch):
+    """_sync_active_spool's post-write reload/save must stay on the printer
+    the launch state belongs to, not fall back to the legacy record."""
+    st = {"moonraker_url": "http://printer-b.example/",
+          "filament_slots": {"2": {"spoolman_id": 11, "material": "PLA", "name": "Black PLA"}},
+          "spool": {"spoolman_id": 10}}
+    active = [10]
+
+    def mr(_st, _path, data=None, **_kw):
+        if data is not None:
+            active[0] = data["spool_id"]
+        return {"result": {"spool_id": active[0]}}
+    monkeypatch.setattr(model_job, "_mr", mr)
+    monkeypatch.setattr(model_job.spoolman_client, "get_spool",
+                        lambda sid, base_url=None: {"archived": False,
+                                                    "filament": {"material": "PLA", "name": "Black PLA"}})
+    loads, saves = [], []
+    monkeypatch.setattr(model_job.printer_state, "load",
+                        lambda printer_id=None: loads.append(printer_id) or {"spool": {}})
+    monkeypatch.setattr(model_job.printer_state, "save",
+                        lambda fresh, printer_id=None: saves.append((fresh, printer_id)))
+    result = model_job._sync_active_spool(st, 2, printer_id="printer-b")
+    assert result["spool_id"] == 11
+    assert loads == ["printer-b"]
+    assert len(saves) == 1 and saves[0][1] == "printer-b"
+    assert saves[0][0]["spool"]["spoolman_id"] == 11
 
 
 # ---------------------------------------------------------------- item 10: blend hexes

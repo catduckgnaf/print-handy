@@ -2555,7 +2555,7 @@ def _validate_slot_selection(state, selection):
     return slot
 
 
-def _sync_active_spool(st, slot):
+def _sync_active_spool(st, slot, printer_id=None):
     """Point Moonraker and the hardware record at the launching slot's spool.
 
     Runs only after every launch preflight has passed and before upload.
@@ -2608,7 +2608,9 @@ def _sync_active_spool(st, slot):
         if back != sid:
             raise RuntimeError(f'Moonraker active spool readback {back!r} != #{sid}; nothing uploaded or started')
     recorded = st.get('spool') or {}
-    fresh = printer_state.load()
+    # The reload/save stays on the printer `st` belongs to: with a roster
+    # printer_id the legacy no-ID record is a DIFFERENT printer's (#847).
+    fresh = printer_state.load(printer_id) if printer_id else printer_state.load()
     fresh['spool'] = {'spoolman_id': sid,
                       'name': filament.get('name') or configured.get('name'),
                       'material': filament.get('material') or configured.get('material'),
@@ -2616,7 +2618,10 @@ def _sync_active_spool(st, slot):
                       'density': filament.get('density', recorded.get('density', 1.24))}
     # temps_c belonged to the previous spool: mark it so slicing resolves this one's (#692).
     fresh['temperature_resolution'] = {'source': 'spool changed by launch sync; resolved per slice'}
-    printer_state.save(fresh)
+    if printer_id:
+        printer_state.save(fresh, printer_id)
+    else:
+        printer_state.save(fresh)
     st['spool'] = dict(fresh['spool'])
     print(f'ACTIVE SPOOL SYNCED: #{current} -> #{sid} (slot {slot})', flush=True)
     result = {'spool_id': sid, 'previous': current, 'changed': True}
@@ -3140,7 +3145,7 @@ def _job_for_gcode(g):
     return _job_record_for_gcode(g)[0]
 
 
-def retry_pending_spool_sync(filename):
+def retry_pending_spool_sync(filename, printer_id=None):
     """Retry a running job's launch-time pending active-spool sync (#838).
 
     At start, a Spoolman outage records `spoolman_usage_pending` on the job
@@ -3152,6 +3157,12 @@ def retry_pending_spool_sync(filename):
     any failure leaves the record untouched and returns False; a multi-slot
     pending record (spool_id None — the stale-spool clear case) is not
     retried here, because no single spool is the job's.
+
+    The retry acts on the JOB's printer: an explicit `printer_id` (the
+    calling listener's roster identity) wins, else the job's recorded
+    printer_id. Loading state without an ID reads the legacy/default
+    printer's record, so a non-default printer's retry would otherwise
+    point (or fail on) another printer's Moonraker endpoint (#847).
     """
     try:
         artifact = Path(resolve_print_target(filename)).expanduser().resolve()
@@ -3162,7 +3173,10 @@ def retry_pending_spool_sync(filename):
         slot = pending.get('slot')
         if slot not in (1, 2, 3, 4):
             return False
-        sync = _sync_active_spool(printer_state.load(), slot)
+        routed = printer_id or _recorded_printer_id(job)
+        st = printer_state.load(routed) if routed else printer_state.load()
+        sync = (_sync_active_spool(st, slot, printer_id=routed) if routed
+                else _sync_active_spool(st, slot))
         if sync.get('spoolman_pending') or sync.get('spool_id') != pending['spool_id']:
             return False
         job.pop('spoolman_usage_pending', None)
@@ -6810,7 +6824,9 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
                 except Exception as exc:
                     logger.warning('could not record pending Spoolman usage: %s', exc)
         else:
-            sync = _sync_active_spool(st, slots_used[0])
+            _routed = _recorded_printer_id(job)
+            sync = (_sync_active_spool(st, slots_used[0], printer_id=_routed) if _routed
+                    else _sync_active_spool(st, slots_used[0]))
             if sync.get('spoolman_pending') and job_path is not None:
                 # Usage could not be pointed at this job's spool (#387):
                 # record it as pending in the job record for later

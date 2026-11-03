@@ -9,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace as S
 from unittest import mock
 
+from print_handy.core import model_job
 from print_handy.hermes import moonraker_event_listener as mel
 from print_handy.hermes import print_alert_buttons as pab
 
@@ -72,6 +73,70 @@ class ClassifyRunoutAttributionTests(unittest.IsolatedAsyncioTestCase):
                 mock.patch.object(mel, "launch_mapped_slots", return_value={1, 2}), \
                 mock.patch.object(mel, "log"):
             self.assertEqual(await lis.classify_runout(), (True, 2))
+
+
+# ------------------------------------------------- item 6: pending spool retry freshness
+
+class RetryPendingSpoolSyncTests(unittest.IsolatedAsyncioTestCase):
+    """The listener-side retry must fetch FRESH print_stats before it acts:
+    forever() calls reconcile_spools() before session() populates the
+    filename caches, so at startup they are empty and on reconnect they can
+    name the previous print (Codex P1 on #847)."""
+
+    async def _run(self, lis, fresh=None, fresh_exc=None, instance_id=None):
+        calls = []
+
+        def fake_call(path):
+            assert "print_stats" in path
+            if fresh_exc is not None:
+                raise fresh_exc
+            return {"result": {"status": {"print_stats": fresh or {}}}}
+
+        def fake_retry(filename, printer_id=None):
+            calls.append((filename, printer_id))
+            return True
+
+        import print_handy.listeners as listeners_mod
+        from print_handy.hermes import spool_sync
+        with mock.patch.object(mel.print_control, "_call", side_effect=fake_call), \
+                mock.patch.object(spool_sync, "moonraker_for",
+                                  return_value=lambda method, path: fake_call(path)), \
+                mock.patch.object(model_job, "retry_pending_spool_sync", side_effect=fake_retry), \
+                mock.patch.object(listeners_mod, "instance_printer_id", return_value=instance_id), \
+                mock.patch.object(mel, "log"):
+            await lis._retry_pending_spool_sync()
+        return calls
+
+    async def test_startup_empty_caches_still_retry_the_running_print(self):
+        lis = mel.Listener()
+        lis.filename, lis.last_stats = "", {}
+        calls = await self._run(lis, fresh={"state": "printing", "filename": "plate.gcode"})
+        self.assertEqual(calls, [("plate.gcode", None)])
+
+    async def test_stale_cache_does_not_retry_the_previous_print(self):
+        lis = mel.Listener()
+        lis.filename, lis.last_stats = "old.gcode", {"filename": "old.gcode"}
+        calls = await self._run(lis, fresh={"state": "printing", "filename": "new.gcode"})
+        self.assertEqual(calls, [("new.gcode", None)])
+
+    async def test_no_retry_when_the_fresh_print_is_not_active(self):
+        lis = mel.Listener()
+        lis.filename, lis.last_stats = "old.gcode", {"filename": "old.gcode"}
+        calls = await self._run(lis, fresh={"state": "standby", "filename": "old.gcode"})
+        self.assertEqual(calls, [])
+
+    async def test_no_retry_when_the_fresh_status_cannot_be_read(self):
+        lis = mel.Listener()
+        lis.filename, lis.last_stats = "old.gcode", {"filename": "old.gcode"}
+        calls = await self._run(lis, fresh_exc=OSError("moonraker down"))
+        self.assertEqual(calls, [])
+
+    async def test_paused_print_is_still_active_and_carries_the_printer_id(self):
+        lis = mel.Listener()
+        lis.filename, lis.last_stats = "", {}
+        calls = await self._run(lis, fresh={"state": "paused", "filename": "plate.gcode"},
+                                instance_id="printer-b")
+        self.assertEqual(calls, [("plate.gcode", "printer-b")])
 
 
 # ---------------------------------------------------------------- item 9: cancel in shutdown
