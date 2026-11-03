@@ -78,3 +78,25 @@ def test_the_listener_settles_an_uncertain_lease_when_the_printer_runs_its_file(
     assert launch_state.pending(key) == []
     lease.release()  # the owner's own token-scoped release is a harmless no-op afterwards
     assert launch_state.settle_observed(key, ZMOD_NAME) is None
+
+
+YEAR = 365 * 86400
+HOST_START = 1793715549.0  # the 09:19:09 host time the run really began
+
+
+@pytest.mark.parametrize("offset", [-YEAR, -600, 0, 600])
+@pytest.mark.parametrize("synced_before_read", [False, True])
+def test_settling_never_depends_on_the_printer_clock(monkeypatch, offset, synced_before_read):
+    """Every combination of printer clock error and a clock sync between the run and the
+    history read: the submission's own run settles its lease, an earlier same-file run never does."""
+    from print_handy.core import model_job
+    own = {"job_id": "000063", "filename": ZMOD_NAME, "start_time": HOST_START + offset}
+    earlier = {"job_id": "00005f", "filename": ZMOD_NAME, "start_time": HOST_START - 3 * 86400 + offset}
+    monkeypatch.setattr(model_job, "_mr", lambda st, path, timeout=10: {"result": {"jobs": [own, earlier]}})
+    skew = 0 if synced_before_read else -offset  # host minus printer
+    monkeypatch.setattr(launch_state, "printer_clock_skew", lambda url, timeout=6: skew)
+    monkeypatch.setattr(model_job.time, "time", lambda: HOST_START + 7200)
+    history = model_job._moonraker_started_files({"moonraker_url": "http://m"})
+    assert launch_state.reached_printer(row(), "", history, baseline=BASELINE)
+    assert not launch_state.reached_printer(row(), "", [h for h in history if h[0] == "00005f"],
+                                            baseline=BASELINE)
