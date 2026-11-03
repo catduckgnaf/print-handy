@@ -70,6 +70,7 @@ Do not run both Discord modes with the same token. Installing, enabling services
 - [Multi-printer design](MULTI-PRINTER-DESIGN.md): the #257 Stage 2 design for one instance serving many printers — audit of the one-printer assumptions, config/state/routing decisions, and the staged implementation plan. Design only; not implemented.
 - [Contribution workflow](../CONTRIBUTING.md) and [pull request template](../.github/PULL_REQUEST_TEMPLATE.md).
 - [Release-note guidance](RELEASE-NOTES.md) and [internal release history](INTERNAL_RELEASE_NOTES.md).
+- [Branding kit](BRANDING.md): the pitch, approved copy by length, voice rules, the catduck mascot, colors and assets. Copy from it whenever something describes Print Handy.
 - [Rename migration](RENAME-MIGRATION.md) for older installations.
 - [CAD evaluation](KICAD-EVALUATION.md) and [reuse map](REUSE-MAP.md) for technical background, not promises of shipped capability.
 
