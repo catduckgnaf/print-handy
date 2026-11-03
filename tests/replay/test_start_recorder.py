@@ -153,7 +153,9 @@ def test_an_abandoned_start_records_the_same_outcome_as_with_the_recorder_off(ad
     assert heated, "the recording holds the preparation the printer gave up on"
     summary = start_recorder.summarize(lines)
     assert summary["outcome"] == "abandoned" and summary["first_heater_target_s"] is not None
-    assert summary["lease_phases"] == ["submitting", "released"] and spawned == []
+    assert summary["lease_phases"] == ["submitting", "released"]
+    # The start path can see standby between two polls; the follower then captures the settled frame.
+    assert spawned in ([], [path])
 
 
 @pytest.mark.parametrize("record", [False, True], ids=["off", "on"])
