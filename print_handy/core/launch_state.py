@@ -425,6 +425,32 @@ def resolve(printer, outcome):
     return out
 
 
+def release_abandoned(printer, filename):
+    """Release a submitting/uncertain lease whose start the printer abandoned (#836, #848 review).
+
+    The listener calls this only after the abandoned-start watch saw the printer sit in
+    standby/error with both heaters cold for ABANDONED_START_COLD_S without ever printing the
+    claimed file: the same answer an operator gives with ``reconcile-launch --not-started``,
+    from evidence they would look at. Without it every later start was refused until someone
+    ran that command, which a chat user cannot. Only the lease for that exact file is touched,
+    never a ``leased`` row. Returns the released row, or None.
+    """
+    if not filename:
+        return None
+    printer = printer or settings.default_printer_id()
+    if not os.environ.get("PRINT_HANDY_LAUNCH_DB") and not (settings.printer_state_dir(printer) / "jobs.db").is_file():
+        return None
+    with transaction(printer) as con:
+        row = con.execute("SELECT * FROM leases WHERE printer=?", (printer,)).fetchone()
+        if row is None or row["phase"] == "leased" or not same_remote(filename, row["remote"]):
+            return None
+        if row["phase"] == "submitting" and _owner_alive(row, unknown=False):
+            return None  # print-now is still deciding this start; it settles its own lease
+        con.execute("DELETE FROM leases WHERE printer=? AND token=?", (printer, row["token"]))
+        con.execute("DELETE FROM lease_baselines WHERE printer=?", (printer,))
+    return dict(row, reconciled="not_started", reconciled_at=_now())
+
+
 # A printer clock this far from the host's is "off": history start times can no longer be compared
 # with the lease time directly, and the operator is warned (never blocked).
 CLOCK_SKEW_WARN_S = 300
