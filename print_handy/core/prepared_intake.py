@@ -3102,6 +3102,10 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             receipt.update(start_refusal_detail=str(tail), failure=_start_report(tail).as_dict(),
                            uploaded=(True if _printer_rejected(raw) else False) if raw else None,
                            start_prompt_message_id=start_context.get('start_prompt_message_id', ''))
+        if unknown and 'failure' not in receipt:
+            # A start the printer never confirmed (a failed or unconfirmed upload included) is
+            # classified too, so the receipt says which stage was in doubt (#817).
+            receipt['failure'] = _start_report(tail).as_dict()
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
         warming = ok and print_next.still_preparing(tail)
         # The remote file this start claimed, when warmup is still running. Only a
