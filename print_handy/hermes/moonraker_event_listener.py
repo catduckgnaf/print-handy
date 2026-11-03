@@ -3114,6 +3114,8 @@ class Listener:
         self.state = new_state
         log(f"state {old} -> {new_state} file={self.filename!r} ({reason})")
         _record_transition_markers(old, new_state, self.filename, self.last_stats)
+        if new_state == "printing":
+            await asyncio.to_thread(self._settle_launch_lease)
         if fresh_start:
             # A fresh start (or a print already running when the listener
             # (re)connected): open the #246 stage 2 capture session,
@@ -3523,6 +3525,17 @@ class Listener:
         if task is not None and not task.done():
             return
         self._capture_task = asyncio.create_task(self._capture_due(layer))
+
+    def _settle_launch_lease(self):
+        """The printer runs this file: clear a launch lease left uncertain for it (lost start response)."""
+        from .. import listeners as _listeners
+        try:
+            row = launch_state.settle_observed(_listeners.instance_printer_id(), self.filename)
+            if row:
+                log(f"launch lease settled: the printer reports {self.filename!r}, so the earlier "
+                    f"{row['phase']} start reached it")
+        except Exception as exc:
+            log(f"launch lease settle failed: {exc!r}")
 
     def _sync_printer_clock(self, why):
         try:
