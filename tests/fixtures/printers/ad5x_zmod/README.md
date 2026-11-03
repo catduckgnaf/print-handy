@@ -73,3 +73,8 @@ the recorded slots, saved variables and probe offset, with the printer-wide `tem
 
 To re-record, repeat the read-only requests in the table, then apply the same scrub. Do not run
 anything that changes printer state.
+
+The start transitions (#843: `objects_query.preparing.json`, `objects_query.prep_aborted.json`) are
+recorded by Print Handy itself during a real start with `PRINT_HANDY_RECORD_STARTS=1` and exported
+with `python3 -m print_handy.core.start_recorder export`, which applies the file-name scrub above. See
+[Recording a live start](../../../../docs/ZMOD.md#recording-a-live-start-842-843). Never hand-write one.
