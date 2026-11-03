@@ -1746,6 +1746,12 @@ def clean(filename):
 START_CLAIMS = _config.state_file("PRINT_HANDY_START_CLAIMS", "print_handy_start_claims.json")
 START_CLAIM_TTL_S = float(_LISTENER["start_claim_ttl_s"])
 NATIVE_POLL_SECONDS = float(_LISTENER["ifs_presence_poll_s"])
+# After a failed clock set (no DATE_SET macro, refused, still off) the poll waits this long
+# before trying again, so a printer without the macro is not sent it every minute.
+CLOCK_SYNC_BACKOFF_S = 1800.0
+# How often the listener's poll re-checks the printer's clock for a sync. Connect and Klipper
+# ready (a printer reboot) still sync at once; this only catches a printer that was busy then.
+CLOCK_SYNC_INTERVAL_S = 600.0
 IFS_EDGE_STATE = _config.state_file("IFS_EDGE_STATE", "ifs_presence_edges.json", per_instance=True)
 IFS_PENDING_STATE = _config.state_file("IFS_PENDING_STATE", "ifs_pending_prompts.json", per_instance=True)
 RUNOUT_PAUSE_STATE = _config.state_file("RUNOUT_PAUSE_STATE", "runout_pause.json", per_instance=True)
@@ -2817,6 +2823,8 @@ class Listener:
             lambda: printer_clock.read_clock_skew(_config.moonraker_url(), api_key=announcer.API_KEY))
         self.abandoned_watch = AbandonedStartWatch()  # #836: claimed starts that never print
         self.last_clock_check = 0.0
+        self.clock_sync_retry_at = 0.0
+        self.last_clock_sync = 0.0
         self.last_pause_was_runout = False
         self.pause_context = None
         self.native_error_alerted = load_native_error_alerted()
@@ -3707,12 +3715,23 @@ class Listener:
         self._capture_task = asyncio.create_task(self._capture_due(layer))
 
     def _sync_printer_clock(self, why):
+        """Set the printer's clock from this host's when it is off and the printer is idle.
+
+        Runs at connect, at klippy ready and every CLOCK_SYNC_INTERVAL_S from the poll, so a
+        printer that was busy then, or whose NTP never answered, is corrected once idle (2026-11-03).
+        A failed set backs off CLOCK_SYNC_BACKOFF_S; a busy printer is simply tried again.
+        """
+        if time.monotonic() < self.clock_sync_retry_at:
+            return
         try:
             res = launch_state.sync_printer_clock(_config.cfg()["services"]["moonraker_url"],
                                                   settings.current()["discord"]["timezone"], log=log)
-            if res not in ("ok", "off"):
+            if res.startswith("failed"):
+                self.clock_sync_retry_at = time.monotonic() + CLOCK_SYNC_BACKOFF_S
+            if res not in ("ok", "off", "skipped:printer not idle"):
                 log(f"printer clock sync ({why}): {res}")
         except Exception as exc:
+            self.clock_sync_retry_at = time.monotonic() + CLOCK_SYNC_BACKOFF_S
             log(f"printer clock sync ({why}) failed: {exc!r}")
 
     async def session(self):
@@ -3783,6 +3802,11 @@ class Listener:
                         log(f"spoolman new-spool poll failed: {exc!r}")
                     if time.monotonic() - self.last_clock_check >= printer_clock.CHECK_INTERVAL_S:
                         self.last_clock_check = time.monotonic()
+                        # Fix the clock first, so the watch below warns only about a clock
+                        # Print Handy could not set (busy printer, no DATE_SET, refused).
+                        if time.monotonic() - self.last_clock_sync >= CLOCK_SYNC_INTERVAL_S:
+                            self.last_clock_sync = time.monotonic()
+                            await asyncio.to_thread(self._sync_printer_clock, "poll")
                         try:
                             await self.poll_printer_clock()
                         except Exception as exc:

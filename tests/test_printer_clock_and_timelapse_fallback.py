@@ -239,3 +239,73 @@ def test_sync_can_be_disabled_and_unreadable_is_skipped(monkeypatch):
     monkeypatch.setattr(launch_state, "printer_clock_skew", lambda *a, **k: None)
     assert launch_state.sync_printer_clock("http://p:7125", "America/New_York").startswith("skipped")
     assert calls == []
+
+
+def _zone_env(monkeypatch, skews):
+    monkeypatch.setattr(launch_state, "_CLOCK_ZONE_GAP_S", {})
+    calls = _sync_env(monkeypatch, skew=0)
+    readings = iter(skews)
+    monkeypatch.setattr(launch_state, "printer_clock_skew", lambda *a, **k: next(readings))
+    return calls
+
+
+def test_sync_corrects_for_a_printer_in_another_zone_and_remembers_it(monkeypatch):
+    # 2026-11-03: ZMod's default zone is Asia/Yekaterinburg (UTC+5). DATE_SET reads the stamp
+    # in that zone, so a New York stamp lands the clock 10 h behind; the readback shows a whole
+    # zone gap, and one corrected set fixes it.
+    ten_hours = 10 * 3600
+    calls = _zone_env(monkeypatch, [86400 * 307, ten_hours + 3, 1.0])
+    assert launch_state.sync_printer_clock("http://p:7125", "America/New_York", now=1793667044) == "ok"
+    sent = [c for c in calls if "gcode/script" in c]
+    assert len(sent) == 2
+    assert "2026.11.02-19%3A50%3A44" in sent[0] and "2026.11.03-05%3A50%3A44" in sent[1]
+    # The next sync (after the next power cycle) lands right with one set.
+    calls[:] = []
+    readings = iter([86400 * 307, 1.0])
+    monkeypatch.setattr(launch_state, "printer_clock_skew", lambda *a, **k: next(readings))
+    assert launch_state.sync_printer_clock("http://p:7125", "America/New_York", now=1793667044) == "ok"
+    sent = [c for c in calls if "gcode/script" in c]
+    assert len(sent) == 1 and "2026.11.03-05%3A50%3A44" in sent[0]
+
+
+def test_a_residual_that_is_not_a_zone_gap_is_a_failure_not_a_second_guess(monkeypatch):
+    calls = _zone_env(monkeypatch, [86400 * 307, 4000.0])
+    assert launch_state.sync_printer_clock("http://p:7125", "America/New_York").startswith("failed")
+    assert len([c for c in calls if "gcode/script" in c]) == 1
+    assert launch_state._CLOCK_ZONE_GAP_S == {}
+
+
+def test_listener_retries_a_busy_printer_and_backs_off_after_a_failure(monkeypatch):
+    from print_handy.hermes import moonraker_event_listener as mel
+    listener = mel.Listener()
+    outcomes = iter(["skipped:printer not idle", "failed:HTTPError", "ok"])
+    tried = []
+    monkeypatch.setattr(mel.launch_state, "sync_printer_clock",
+                        lambda *a, **k: tried.append(1) or next(outcomes))
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    clock = [1000.0]
+    monkeypatch.setattr(mel.time, "monotonic", lambda: clock[0])
+    listener._sync_printer_clock("poll")   # busy: no backoff
+    listener._sync_printer_clock("poll")   # failed: backs off
+    listener._sync_printer_clock("poll")   # inside the backoff: not tried
+    assert len(tried) == 2
+    clock[0] += mel.CLOCK_SYNC_BACKOFF_S + 1
+    listener._sync_printer_clock("poll")
+    assert len(tried) == 3
+
+
+def test_zone_gaps_beyond_14_hours_are_corrected(monkeypatch):
+    # Codex on #860: Pacific/Honolulu (UTC-10) against ZMod's default UTC+5 is 15 h apart.
+    calls = _zone_env(monkeypatch, [86400 * 307, 15 * 3600 + 2, 0.5])
+    assert launch_state.sync_printer_clock("http://p:7125", "Pacific/Honolulu", now=1793667044) == "ok"
+    assert len([c for c in calls if "gcode/script" in c]) == 2
+
+
+def test_the_zone_correction_shifts_wall_time_across_a_dst_change(monkeypatch):
+    # Codex on #860: at 2026-03-08T01:00Z New York is 20:00 EST; a UTC+5 printer needs 06:00.
+    # Shifting the instant by 10 h lands after the DST change and sends 07:00 instead.
+    calls = _zone_env(monkeypatch, [86400 * 307, 10 * 3600, 0.5])
+    now = 1772931600.0  # 2026-03-08T01:00:00Z
+    assert launch_state.sync_printer_clock("http://p:7125", "America/New_York", now=now) == "ok"
+    sent = [c for c in calls if "gcode/script" in c]
+    assert "2026.03.07-20%3A00%3A00" in sent[0] and "2026.03.08-06%3A00%3A00" in sent[1]
