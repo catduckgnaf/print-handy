@@ -847,7 +847,12 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
             else:
                 placed = loose
     yaw_by_object, yaw_hulls = {}, None
-    if placed is None and rearrange_requested(job):
+    # The hull fallbacks below read one hull per object id and turn objects one
+    # leaf at a time, so they would see only an assembly's representative body
+    # and rotate its members apart. Assemblies get rectangle packing (their
+    # union bounds) only; a source with one that does not fit splits instead.
+    hull_fallbacks = not members
+    if placed is None and hull_fallbacks and rearrange_requested(job):
         # A chosen 100% rearrangement, tried before the (much slower) hull
         # searches below: any object may turn 90 degrees in the bed plane,
         # not only the ones that need a turn to fit alone. Same
@@ -858,7 +863,7 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
         if attempt is not None:
             placed, tower_xy, yaw_by_object, yaw_hulls = attempt
             packing = 'turned'
-    if placed is None:
+    if placed is None and hull_fallbacks:
         # Polygon fallback (#221 P1): rectangle packing failed and at least
         # one object is genuinely non-rectangular, so judge the actual hulls.
         # Translation only, authored yaw; the positions flow into the same
@@ -882,7 +887,7 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
                         tower_xy = None
                     else:
                         placed, packing = loose, 'polygon'
-    if placed is None:
+    if placed is None and hull_fallbacks:
         # Yawed merge fallback (#221 R2b): rectangle and authored hull
         # packing both failed. Pack the hulls with each solo-needing
         # object rotated to its recorded yaw (see _yawed_merge_attempt);
