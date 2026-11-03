@@ -2692,7 +2692,7 @@ class Listener:
         self.background_tasks = set()  # strong refs: an unreferenced task can be collected mid-run
         self.maintenance_last_check = 0.0
         self.clock_watch = printer_clock.PrinterClockWatch(
-            lambda: printer_clock.read_clock_skew(_config.moonraker_url()))
+            lambda: printer_clock.read_clock_skew(_config.moonraker_url(), api_key=announcer.API_KEY))
         self.last_clock_check = 0.0
         self.last_pause_was_runout = False
         self.pause_context = None
@@ -2769,7 +2769,10 @@ class Listener:
         messages = await asyncio.to_thread(self.clock_watch.poll)
         for message in messages:
             log(f"printer clock watch: {message.splitlines()[0][:160]}")
-            await asyncio.to_thread(post, message)
+            if await asyncio.to_thread(post, message):
+                await asyncio.to_thread(self.clock_watch.delivered, message)
+            else:
+                log("printer clock watch message not delivered; the watch will offer it again")
 
     async def poll_spoolman_new_spools(self):
         """Prompt once per spool created in Spoolman outside Print Handy (#483).

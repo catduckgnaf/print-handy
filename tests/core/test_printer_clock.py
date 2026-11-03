@@ -45,6 +45,14 @@ def watch(skew, clock=None):
     return pc.PrinterClockWatch(reader, clock=clock or FakeClock()), reader
 
 
+def drain(watcher):
+    """Poll and report every offered message delivered, as the listener does on a good post."""
+    messages = watcher.poll()
+    for message in messages:
+        watcher.delivered(message)
+    return messages
+
+
 # --------------------------------------------------------------------- skew text
 
 
@@ -89,6 +97,20 @@ def test_read_clock_skew_from_date_header(monkeypatch):
     assert skew > pc.CLOCK_SKEW_WARN_S  # the rebooted-printer case reads as far behind
 
 
+def test_read_clock_skew_sends_api_key_when_configured(monkeypatch):
+    seen = {}
+
+    def capture(req, timeout=0):
+        seen["key"] = req.get_header("X-api-key")
+        return FakeResponse("Wed, 31 Dec 2025 19:00:00 GMT")
+
+    monkeypatch.setattr(pc.urllib.request, "urlopen", capture)
+    pc.read_clock_skew("http://printer:7125", now=lambda: 0.0, api_key="secret-key")
+    assert seen["key"] == "secret-key"
+    pc.read_clock_skew("http://printer:7125", now=lambda: 0.0)
+    assert seen["key"] is None
+
+
 def test_read_clock_skew_missing_header_is_unknown(monkeypatch):
     monkeypatch.setattr(pc.urllib.request, "urlopen", lambda req, timeout=0: FakeResponse(None))
     assert pc.read_clock_skew("http://printer:7125", now=lambda: 0.0) is None
@@ -111,71 +133,96 @@ def test_read_clock_skew_empty_url_is_unknown():
 
 def test_first_wrong_reading_announces_once():
     w, reader = watch(306 * 86400)
-    messages = w.poll()
+    messages = drain(w)
     assert len(messages) == 1
     assert "has not synced" in messages[0]
     assert "306" in messages[0]
-    assert w.poll() == []  # still wrong, already said: silent
+    assert drain(w) == []  # still wrong, already said: silent
     assert reader.calls == 2  # but it did re-check
 
 
 def test_small_skew_never_announces():
     w, _ = watch(120)  # two minutes: ordinary drift, not a rebooted clock
-    assert w.poll() == []
-    assert w.poll() == []
+    assert drain(w) == []
+    assert drain(w) == []
 
 
 def test_synced_after_wrong_announces_once():
     clock = FakeClock()
     w, reader = watch(306 * 86400, clock)
-    assert len(w.poll()) == 1
+    assert len(drain(w)) == 1
     clock.advance(600)
     reader.skew = 5
-    messages = w.poll()
+    messages = drain(w)
     assert len(messages) == 1
     assert "synced" in messages[0]
-    assert w.poll() == []
+    assert drain(w) == []
 
 
 def test_unknown_readings_neither_announce_nor_clear_wrong_state():
     w, reader = watch(306 * 86400)
-    assert len(w.poll()) == 1
+    assert len(drain(w)) == 1
     reader.skew = None  # printer unreachable mid-episode: not "synced"
-    assert w.poll() == []
+    assert drain(w) == []
     reader.skew = RuntimeError("boom")  # a raising reader is unknown too
-    assert w.poll() == []
+    assert drain(w) == []
     reader.skew = 0  # genuinely synced now
-    assert len(w.poll()) == 1
+    assert len(drain(w)) == 1
 
 
 def test_still_wrong_reminder_fires_once_after_remind_delay():
     clock = FakeClock()
     w, _ = watch(3600, clock)
-    assert len(w.poll()) == 1
+    assert len(drain(w)) == 1
     clock.advance(pc.REMIND_AFTER_S - 1)
-    assert w.poll() == []
+    assert drain(w) == []
     clock.advance(2)
-    messages = w.poll()
+    messages = drain(w)
     assert len(messages) == 1
     assert "still has not synced" in messages[0]
     clock.advance(pc.REMIND_AFTER_S * 2)
-    assert w.poll() == []  # no nagging beyond the one reminder
+    assert drain(w) == []  # no nagging beyond the one reminder
 
 
 def test_ahead_clock_also_announces():
     w, _ = watch(-2 * 86400)
-    messages = w.poll()
+    messages = drain(w)
     assert len(messages) == 1
     assert "ahead" in messages[0]
 
 
 def test_new_wrong_episode_after_sync_announces_again():
     w, reader = watch(86400)
-    assert len(w.poll()) == 1
+    assert len(drain(w)) == 1
     reader.skew = 0
-    assert len(w.poll()) == 1
+    assert len(drain(w)) == 1
     reader.skew = 86400  # rebooted again: a new episode is news again
-    assert len(w.poll()) == 1
+    assert len(drain(w)) == 1
+
+
+def test_undelivered_message_is_reoffered_after_retry_delay():
+    clock = FakeClock()
+    w, _ = watch(306 * 86400, clock)
+    messages = w.poll()  # the caller never reports these delivered (chat outage)
+    assert len(messages) == 1
+    assert w.poll() == []  # offered just now: not due for a retry yet
+    clock.advance(pc.DELIVERY_RETRY_S + 1)
+    assert w.poll() == messages  # the same warning comes back, not lost
+    w.delivered(messages[0])
+    assert w.poll() == []
+
+
+def test_undelivered_recovery_is_reoffered_too():
+    clock = FakeClock()
+    w, reader = watch(306 * 86400, clock)
+    assert len(drain(w)) == 1
+    reader.skew = 0
+    messages = w.poll()
+    assert len(messages) == 1 and "synced" in messages[0]
+    clock.advance(pc.DELIVERY_RETRY_S + 1)
+    assert w.poll() == messages
+    w.delivered(messages[0])
+    assert w.poll() == []
 
 
 # --------------------------------------------------------------------- listener wiring
@@ -200,3 +247,21 @@ def test_listener_poll_posts_watch_messages_once(monkeypatch):
     asyncio.run(listener.poll_printer_clock())
     assert len(posted) == 2
     assert "synced" in posted[1]
+
+
+def test_listener_poll_reposts_when_delivery_fails(monkeypatch):
+    from print_handy.hermes import moonraker_event_listener as mel
+
+    listener = mel.Listener()
+    clock = FakeClock()
+    reader = FakeReader(306 * 86400)
+    listener.clock_watch = pc.PrinterClockWatch(reader, clock=clock)
+    posted = []
+    monkeypatch.setattr(mel, "post", lambda message: posted.append(message) or False)
+
+    asyncio.run(listener.poll_printer_clock())
+    assert len(posted) == 1
+    clock.advance(pc.DELIVERY_RETRY_S + 1)  # chat still down at the retry: offered again
+    asyncio.run(listener.poll_printer_clock())
+    assert len(posted) == 2
+    assert posted[1] == posted[0]

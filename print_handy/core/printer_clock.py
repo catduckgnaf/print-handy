@@ -31,23 +31,31 @@ from email.utils import parsedate_to_datetime
 # launch_state (PR #804, on main) uses for its warning and idle sync.
 CLOCK_SKEW_WARN_S = 300.0
 
-# How often the listener re-checks while it polls, and how long a clock
-# may stay wrong before the single reminder post.
+# How often the listener re-checks while it polls, how long a clock
+# may stay wrong before the single reminder post, and how long an
+# undelivered message waits before poll offers it again (the spoolman
+# watcher's retry interval).
 CHECK_INTERVAL_S = 60.0
 REMIND_AFTER_S = 1800.0
+DELIVERY_RETRY_S = 300.0
 
 
-def read_clock_skew(moonraker_url, timeout=6, now=None):
+def read_clock_skew(moonraker_url, timeout=6, now=None, api_key=None):
     """Seconds the host clock is ahead of the printer's, or None when unknown.
 
     Positive means the printer is behind real time. ``now`` is injectable
-    for tests and defaults to the host wall clock.
+    for tests and defaults to the host wall clock. ``api_key``, when the
+    Moonraker installation is key-protected, is sent as ``X-Api-Key``
+    exactly as the announcer's reads send it; without it a protected
+    Moonraker answers 401 and every check would read as unknown.
     """
     base = str(moonraker_url or "").rstrip("/")
     if not base:
         return None
     try:
         req = urllib.request.Request(base + "/server/info", method="GET")
+        if api_key:
+            req.add_header("X-Api-Key", api_key)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             stamp = resp.headers.get("Date")
         if not stamp:
@@ -115,8 +123,16 @@ class PrinterClockWatch:
     ``skew_reader`` returns seconds the host is ahead of the printer, or
     None when the clock cannot be read; a reader that raises is treated
     the same as returning None. ``clock`` is a monotonic-style seconds
-    callable, injected in tests. ``poll()`` returns the messages to post
-    now (usually none).
+    callable, injected in tests.
+
+    ``poll()`` returns the messages to post now (usually none). A
+    message stays pending until the caller reports it delivered with
+    ``delivered()``: poll offers a pending message again once
+    DELIVERY_RETRY_S has passed since its last offer, so a chat outage
+    at the moment a message is generated delays it instead of losing
+    it — the same acknowledge-on-delivery pattern the spoolman watcher
+    uses. A message already offered and not yet due for a retry is not
+    returned again.
     """
 
     def __init__(self, skew_reader, clock=time.monotonic):
@@ -124,31 +140,43 @@ class PrinterClockWatch:
         self.clock = clock
         self._wrong_since = None
         self._reminded = False
+        self._pending = []  # [{"message": str, "offered_at": float | None}]
+
+    def _queue(self, message):
+        self._pending.append({"message": message, "offered_at": None})
+
+    def delivered(self, message):
+        """Drop a pending message once it has reached the chat."""
+        self._pending = [entry for entry in self._pending if entry["message"] != message]
 
     def poll(self):
         try:
             skew = self.skew_reader()
         except Exception:
             skew = None
-        if skew is None:
+        now = self.clock()
+        if skew is not None:
             # Unknown is not synced and not wrong: hold the episode open
             # so a printer that drops off the network mid-episode does
             # not get a false "synced" when it answers again in range,
-            # and a silent printer never earns a warning either.
-            return []
-        now = self.clock()
-        if abs(skew) < CLOCK_SKEW_WARN_S:
-            if self._wrong_since is None:
-                return []
-            elapsed = now - self._wrong_since
-            self._wrong_since = None
-            self._reminded = False
-            return [synced_message(elapsed)]
-        if self._wrong_since is None:
-            self._wrong_since = now
-            self._reminded = False
-            return [not_synced_message(skew)]
-        if not self._reminded and now - self._wrong_since >= REMIND_AFTER_S:
-            self._reminded = True
-            return [still_wrong_message(skew, now - self._wrong_since)]
-        return []
+            # and a silent printer never earns a warning either. Pending
+            # messages are still re-offered below on their own schedule.
+            if abs(skew) < CLOCK_SKEW_WARN_S:
+                if self._wrong_since is not None:
+                    elapsed = now - self._wrong_since
+                    self._wrong_since = None
+                    self._reminded = False
+                    self._queue(synced_message(elapsed))
+            elif self._wrong_since is None:
+                self._wrong_since = now
+                self._reminded = False
+                self._queue(not_synced_message(skew))
+            elif not self._reminded and now - self._wrong_since >= REMIND_AFTER_S:
+                self._reminded = True
+                self._queue(still_wrong_message(skew, now - self._wrong_since))
+        due = []
+        for entry in self._pending:
+            if entry["offered_at"] is None or now - entry["offered_at"] >= DELIVERY_RETRY_S:
+                entry["offered_at"] = now
+                due.append(entry["message"])
+        return due
