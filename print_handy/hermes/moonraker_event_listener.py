@@ -2625,6 +2625,7 @@ class Listener:
         self.pause_message = ""
         self.ifs_monitor = FilamentInsertionMonitor()
         self.spoolman_watcher = SpoolmanNewSpoolWatcher()
+        self.lane_observer_failure = None
         self.slot_tracker = MidPrintSlotTracker()
         self.visual_watch = VisualPrintWatch()
         # #455: this printer's local-detector temporal escalation state;
@@ -2718,6 +2719,28 @@ class Listener:
                 log(f"spoolman watcher prompted for new spool #{spool.get('id')}")
             else:
                 log(f"spoolman watcher could not deliver the prompt for spool #{spool.get('id')}; will retry")
+
+    async def observe_screen_lanes(self):
+        """Fold spool changes made at the HelixScreen panel into Spoolman, announce once (#791).
+
+        Rides the native-presence poll's cadence. Fail-soft: an unreadable
+        screen or Spoolman changes nothing, and one log line per distinct
+        failure (plus one on recovery) keeps the 15 s cadence from flooding the log.
+        """
+        from . import lane_observer, spool_sync
+        from .. import listeners as _listeners
+        instance_id = _listeners.instance_printer_id()
+        mr = spool_sync.moonraker_for(instance_id) if instance_id else spool_sync.moonraker
+        result = await asyncio.to_thread(lane_observer.observe, instance_id, mr=mr)
+        error = result.get("error")
+        if error and error != self.lane_observer_failure:
+            log(f"lane observer: {error}")
+        elif not error and self.lane_observer_failure:
+            log("lane observer recovered")
+        self.lane_observer_failure = error
+        for line in lane_observer.events_text(result):
+            log(f"lane observer: {line}")
+            await asyncio.to_thread(post, line)
 
     async def nag_if_due(self):
         record = load_runout_pause()
@@ -3499,6 +3522,10 @@ class Listener:
                         await self.poll_spoolman_new_spools()
                     except Exception as exc:
                         log(f"spoolman new-spool poll failed: {exc!r}")
+                    try:
+                        await self.observe_screen_lanes()
+                    except Exception as exc:
+                        log(f"lane observer failed: {exc!r}")
                     try:
                         await self.nag_if_due()
                     except Exception as exc:
