@@ -26,6 +26,15 @@ material_tuning:
   PLA: {flow_ratio: 0.98, max_volumetric_speed: 12.0, min_layer_time: 8.0, outer_wall_speed_max: 60.0}
 layout:
   max_merged_hours: 12
+# Where a ZMod printer's color-change purge goes (docs/SETTINGS.md, "Purge and ZMod plugins").
+# auto reads the printer's use_trash_on_print: 1 purges into the chute (no prime tower), 0 needs
+# the tower. Put overrides in your own settings file so updates never overwrite them.
+purge:
+  mode: auto
+  prime_tower: auto
+  # flush_multiplier: 0.2   (optional; unset leaves the profile's flush volumes unchanged)
+zmod:
+  plugins: auto
 orca:
   command:
   - flatpak

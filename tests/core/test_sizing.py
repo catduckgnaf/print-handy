@@ -80,7 +80,7 @@ class FeatureClearanceTests(unittest.TestCase):
         from print_handy.core import color_geometry, model_job as mj
 
         def fake_export(base):
-            def export(src, out, view, object_ids=None, scale=1.0):
+            def export(src, out, view, object_ids=None, scale=1.0, tower_mm=None):
                 return None, {'parts': [{'bounds_mm': [[0, base * scale], [0, 10], [0, 10]]}]}
             return export
 

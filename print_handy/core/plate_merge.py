@@ -775,7 +775,10 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
     from . import color_geometry
     # Reserve and check room for the tower the slice will actually emit:
     # the configured size raised to the fitted nozzle's tuned width (P2-34).
-    tower_mm = color_geometry.effective_tower_mm((state.get('nozzle') or {}).get('diameter_mm'))
+    # A ZMod printer that purges into its own chute (#832) emits no tower: reserve none.
+    from . import purge
+    tower_mm = purge.tower_mm((state.get('nozzle') or {}).get('diameter_mm'),
+                              purge.resolve(state=state))
     bed = int(bed or state['bed_mm'][0])
     out = {'mode': 'split', 'reason': None, 'plates_in': len(plates),
            'objects_in': sorted({p['object_id'] for p in manifest['parts']}, key=str),
@@ -829,7 +832,7 @@ def plan(source, manifest, plates, slots, state, bed=None, spacing=None, job=Non
     if tall:
         out['reason'] = f'object(s) {",".join(tall)} exceed the printer height'
         return out
-    reserve = (tower_mm + TOWER_CLEARANCE_MM + TOWER_SLACK_MM + edge) if len(used) > 1 else 0.0
+    reserve = (tower_mm + TOWER_CLEARANCE_MM + TOWER_SLACK_MM + edge) if len(used) > 1 and tower_mm else 0.0
     placed = pack(extents, bed, spacing, edge=edge, reserve_y=reserve)
     tower_xy = None
     packing = 'rectangle'

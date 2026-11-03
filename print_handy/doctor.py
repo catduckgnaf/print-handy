@@ -177,6 +177,36 @@ def check_zmod_version(data):
     return "unknown (not reported by Moonraker)"
 
 
+def check_purge(data):
+    """Where each ZMod printer's color-change purge goes, and which ZMod plugins are enabled (#832).
+
+    Re-reads the printer (read-only, short timeouts) and caches the answer; when the printer cannot
+    be read it says so and names what it falls back to. Skips when no roster printer runs ZMod.
+    """
+    from . import printers
+    from .core import purge
+    lines = []
+    for entry in settings.printers(data):
+        view = settings.view_for(entry["id"], data)
+        adapter = printers.get(entry["model"], view)
+        if not getattr(adapter, "has_native_screen", False):
+            continue
+        try:
+            record = purge.refresh({"moonraker_url": view["services"].get("moonraker_url", "")},
+                                   adapter, entry["id"], data)
+        except Exception as exc:
+            record = {"error": str(exc)}
+        row = purge.status_row(entry["id"], data, adapter=adapter)
+        if row is None:
+            continue
+        text = purge.describe(row)
+        if record.get("error"):
+            text += (f"; the printer could not be read now ({record['error']}), so the last reading or "
+                     "today's prime-tower behavior is used")
+        lines.append(f"{entry['id']}: {text}")
+    return " | ".join(lines) or None
+
+
 def check_bot(data):
     """Which runtime talks to Discord, and for the standalone bot, where and for whom."""
     mode = data["bot"]["mode"]
@@ -373,6 +403,7 @@ def run(out=sys.stdout):
     for key in SERVICE_PATHS:
         report(key.replace("_url", ""), check_service, data, key)
     report("zmod version", check_zmod_version, data)
+    report("zmod purge", check_purge, data)
     report("bot mode", check_bot, data)
     report("hermes discord platform", check_hermes_platform, data)
     report("logging", check_logging, data)

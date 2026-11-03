@@ -24,6 +24,10 @@ Schema, validation limits and TOML migration: [CONFIGURATION-YAML.md](CONFIGURAT
 | `prime_tower.part_clearance_mm` | `PRINT_HANDY__PRIME_TOWER__PART_CLEARANCE_MM` | `3.5` *preset* | Prime tower to part clearance |
 | `prime_tower.edge_mm` | `PRINT_HANDY__PRIME_TOWER__EDGE_MM` | `4.0` *preset* | Prime tower to bed edge clearance |
 | `prime_tower.merge_slack_mm` | `PRINT_HANDY__PRIME_TOWER__MERGE_SLACK_MM` | `1.0` *preset* | Extra room kept for the tower when merging |
+| `purge.mode` | `PRINT_HANDY__PURGE__MODE` | `auto` | ZMod color-change purge: `auto` (from the printer's `use_trash_on_print`), `printer_chute`, `prime_tower` or `slicer_chute` (see [Purge and ZMod plugins](#purge-and-zmod-plugins)) |
+| `purge.prime_tower` | `PRINT_HANDY__PURGE__PRIME_TOWER` | `auto` | Slice and reserve room for a prime tower: `auto` (off for `printer_chute`, on otherwise), `on` or `off` |
+| `purge.flush_multiplier` | `PRINT_HANDY__PURGE__FLUSH_MULTIPLIER` | unset | Optional Orca flush volume multiplier (0.05 to 5, QuickSwap recommends about 0.2); unset leaves the profile unchanged |
+| `zmod.plugins` | `PRINT_HANDY__ZMOD__PLUGINS` | `auto` | `auto` detects the printer's enabled ZMod plugins; a list (`quickswap, ifs_jacker`) overrides detection |
 | `printer.firmware` | `PRINT_HANDY__PRINTER__FIRMWARE` | `Klipper` *model* | Firmware label shown in job summaries |
 | `printer.start_macro` | `PRINT_HANDY__PRINTER__START_MACRO` | `PRINT_START` *model* | Klipper start macro for stock Klipper models |
 | `printer.end_macro` | `PRINT_HANDY__PRINTER__END_MACRO` | `PRINT_END` *model* | Klipper end macro for stock Klipper models |
@@ -287,6 +291,31 @@ How `minimum` was measured: real Orca slices through Print Handy's own slice pat
 - **Tower slack (1 mm):** the reserved strip only speeds up packing; every tower position is still searched and proved.
 
 Skirts are off in the shipped profiles. If you enable one, raise the edge keys by the skirt distance plus its loops.
+
+## Purge and ZMod plugins
+
+On a ZMod printer (the AD5X family) the color-change purge is one ZMod setting, `USE_TRASH_ON_PRINT`, and Print Handy follows it:
+
+| Printer value | `purge.mode` | Who purges | Prime tower |
+|---|---|---|---|
+| `1` (ZMod default) | `printer_chute` | the printer, into the chute | none: the slice has no tower and the fit check reserves no room for one |
+| `0` (Nopoop) | `prime_tower` | the slicer, into the tower | yes, as before |
+| `2` (slicer-controlled) | `slicer_chute` | the slicer's filament-change G-code | refused for now: Print Handy has no such profile yet |
+
+- `purge.mode` `auto` reads the value from the printer (Moonraker `save_variables`) at intake and the doctor; `printer_chute`, `prime_tower` or `slicer_chute` fixes it and is honored even when the printer cannot be read.
+- `purge.prime_tower` `auto` means off for `printer_chute` and on for everything else, including a printer whose mode could not be read (the long-standing behavior). `on` and `off` force it.
+- `purge.flush_multiplier` is optional and applies Orca's flush volume multiplier. QuickSwap recommends about `0.2` with very low flush volumes. Unset leaves the profile as it is.
+- `zmod.plugins` `auto` reads the enabled plugins from the printer's `mod_data/plugins.cfg` (falling back to known macro names); a list such as `[quickswap, ifs_jacker]` overrides detection.
+
+Detection is read-only: Print Handy never changes a ZMod setting. If the printer cannot be read, intake and the doctor say so and the old behavior (a prime tower) is kept. Before a multicolor start, a G-code sliced without a prime tower is refused only when the printer positively reports `use_trash_on_print = 0`, where nothing would purge; any other value starts, and an unreadable value adds a note to the start post. QuickSwap with Bambufy or lessWaste is shown as a note in the doctor and the status page, never as a refusal. IFS Jacker is detected; a source with more colors than the 4 slots Print Handy models is refused with a message saying so (full support is a follow-up).
+
+These keys apply to every ZMod printer in the roster (per-printer values are not supported yet), are read only from the settings file or the environment, and are safe to keep in your user settings file (`$PRINT_HANDY_USER_CONFIG`, or `~/.config/print-handy/settings.yaml`), which updates never overwrite:
+
+```yaml
+purge:
+  mode: printer_chute
+  flush_multiplier: 0.2
+```
 
 ## Custom vision endpoint (PRINT_VISION_URL)
 

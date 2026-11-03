@@ -20,6 +20,8 @@ def _slice_four_colors(tmp_path, monkeypatch, nozzle_dia):
 
     from print_handy import printers, settings
     from print_handy.core import printer_state, slice_guard, source_colors
+    # These tests are about the tower's width; a chute-purge printer slices without one (#832), so ask for it.
+    monkeypatch.setitem(settings.current()['purge'], 'prime_tower', 'on')
     monkeypatch.setattr(printer_state, '_get', lambda url, *a, **k: {
         'result': {'status': {'save_variables': {'variables': {'use_trash_on_print': 1, 'display_off': 1}}}}})
     monkeypatch.setattr(orca_adapter, 'pre_slice', lambda **k: slice_guard.Result())
