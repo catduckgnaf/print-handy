@@ -1377,11 +1377,11 @@ def handle_click(action: str, alert: dict[str, Any] | None, *,
                 if send_error is not None:
                     return (f"Pause not confirmed: sending the pause failed ({send_error}), "
                             "and readback still reports printing. The printer did not pause "
-                            "from this tap. A fresh alert with a Pause button follows. "
+                            "from this tap. A fresh alert with a Pause button is posted above. "
                             "Not retrying the send.")
                 return (f"Pause sent, but the printer did not pause: it still reports printing "
                         f"after {pause_wait_s:.0f}s. Check the printer screen. "
-                        "A fresh alert with a Pause button follows. Not retrying.")
+                        "A fresh alert with a Pause button is posted above. Not retrying.")
             if state is None or state == "unknown":
                 _repost_alert("visual", filename, alert,
                               f"Camera check: the pause for {filename} could not be confirmed — "
@@ -1391,12 +1391,12 @@ def handle_click(action: str, alert: dict[str, Any] | None, *,
                     return (f"Pause outcome unknown: sending the pause failed ({send_error}), "
                             "and the printer's status could not be read afterwards, so I "
                             "can't tell whether it paused. Check the printer screen. "
-                            "A fresh alert with a Pause button follows. "
+                            "A fresh alert with a Pause button is posted above. "
                             "The pause was not resent.")
                 return (f"Pause sent, but it could not be confirmed: the printer's status "
                         f"became unreadable during the {pause_wait_s:.0f}s wait, so I can't "
                         "tell whether it paused. Check the printer screen. "
-                        "A fresh alert with a Pause button follows. Not retrying.")
+                        "A fresh alert with a Pause button is posted above. Not retrying.")
             # The job ended (or entered an error state) inside the
             # window: name the actual state; there is nothing left to
             # pause, so no replacement Pause alert is posted.
