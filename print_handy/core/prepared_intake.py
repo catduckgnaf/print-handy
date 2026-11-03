@@ -942,6 +942,18 @@ def _scale_percent_reply(text):
     return None
 
 
+def _scale_fit_offer_reply(text):
+    """Typed answer to the biggest-fit offer: 0 take it, 1 keep the current size, 2 back, else None."""
+    value = ' '.join(str(text or '').casefold().split())
+    if value in {'cancel', 'back', 'never mind', 'nevermind'}:
+        return 2
+    if any(word in value for word in ('scale', 'biggest', 'yes', 'do it')):
+        return 0
+    if any(word in value for word in ('keep', 'stay', 'current', 'no')):
+        return 1
+    return None
+
+
 def fit_question(title, options, rows=None):
     rows = rows if rows is not None else fit_choice_rows(options)
     scales = options.get('scales') or []
@@ -2578,7 +2590,8 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         # 'Scale the model' repeats this question at the new size: the scale is
         # recorded, the background slice restarts for it while the question is
         # on screen, and the operator can say the bed is clear without waiting
-        # for the scaling. The only refusal is a size that does not fit the bed.
+        # for the scaling. The only refusal is a size that does not fit the
+        # bed — and a refused size offers the biggest size that does fit.
         choice = None
         scale_note = ''
         while choice is None:
@@ -2637,11 +2650,55 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                    metadata=metadata)
                 continue
             if capacity_at < 1:
-                await adapter.send(chat_id=source.chat_id,
-                                   content=f'{_pct(new_scale)} does not fit the {_printer_name(latest)} bed, '
-                                           f'so nothing was scaled. The model stays at {_pct(current_scale)}.',
-                                   metadata=metadata)
-                continue
+                # Refused as asked — but offer the biggest size that does fit,
+                # searched under the same layout the probe just refused. A
+                # bigger offer is always worth asking about; a smaller one
+                # only when the current size is itself a split/rearranged
+                # plan rather than a one-plate fit.
+                try:
+                    fit_scale = await _heavy(orca_adapter.largest_fitting_scale, path, state,
+                                             new_scale, **probe_kw)
+                except Exception:
+                    logger.exception('largest fitting scale search failed')
+                    fit_scale = None
+                planned = latest.get('full_size_split_plan') or latest.get('full_size_rearrange_plan')
+                offer = fit_scale is not None and (
+                    fit_scale > current_scale + 0.0005
+                    or (planned and fit_scale < current_scale - 0.0005))
+                if not offer:
+                    note = (' That is the biggest size that fits.' if fit_scale is not None
+                            and abs(fit_scale - current_scale) <= 0.0005 else '')
+                    await adapter.send(chat_id=source.chat_id,
+                                       content=f'{_pct(new_scale)} does not fit the {_printer_name(latest)} bed, '
+                                               f'so nothing was scaled. The model stays at {_pct(current_scale)}.{note}',
+                                       metadata=metadata)
+                    continue
+                picked_fit = await _ask(adapter, source, key,
+                                        f'{_pct(new_scale)} does not fit the {_printer_name(latest)} bed. '
+                                        f'The biggest size that fits is {_pct(fit_scale)}. '
+                                        f'Scale to {_pct(fit_scale)}?',
+                                        [f'Scale to {_pct(fit_scale)}', f'Keep {_pct(current_scale)}',
+                                         'Cancel scaling'],
+                                        timeout, parser=_scale_fit_offer_reply, approval=True)
+                if picked_fit != 0:
+                    continue
+                new_scale = fit_scale
+                try:
+                    capacity_at = await _heavy(orca_adapter.orca_plate_capacity, path, state,
+                                               scale=new_scale, **probe_kw)
+                except Exception:
+                    logger.exception('scale fit check failed')
+                    await adapter.send(chat_id=source.chat_id,
+                                       content=f'I could not check whether {_pct(new_scale)} fits the bed, '
+                                               f'so nothing was scaled. The model stays at {_pct(current_scale)}.',
+                                       metadata=metadata)
+                    continue
+                if capacity_at < 1:
+                    await adapter.send(chat_id=source.chat_id,
+                                       content=f'{_pct(new_scale)} does not fit the {_printer_name(latest)} bed, '
+                                               f'so nothing was scaled. The model stays at {_pct(current_scale)}.',
+                                       metadata=metadata)
+                    continue
             notes = []
             if latest.get('full_size_split_plan') or latest.get('full_size_rearrange_plan'):
                 # Those plans pin the authored layout at 100%. A size verified

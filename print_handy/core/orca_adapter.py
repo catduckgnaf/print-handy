@@ -2159,6 +2159,21 @@ def _confirm_scale(fits, bound, window=0.03):
     return lo / 1000.0
 
 
+def largest_fitting_scale(source, state, ceiling, **probe_kw):
+    """Largest 0.1%-step scale below ``ceiling`` at which one copy fits, or None.
+
+    ``ceiling`` is a size already known not to fit, so it is never re-probed;
+    the search walks down from the largest whole 0.1% step below it. The
+    floor is 50%, the same floor the fit ladder uses. Probe keys (rotation,
+    supports, copy_limit, brim_policy) pass through to orca_plate_capacity,
+    so the answer is for the same layout the caller just refused.
+    """
+    bound = math.floor((float(ceiling) - 1e-9) * 1000) / 1000.0
+    if bound < 0.5:
+        return None
+    return _confirm_scale(lambda s: orca_plate_capacity(source, state, scale=s, **probe_kw) > 0, bound)
+
+
 def scale_label(scale):
     """98.6% / 75% style label: one decimal only when the scale is not a whole percent."""
     pct = round(float(scale) * 100, 1)
