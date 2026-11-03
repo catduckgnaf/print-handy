@@ -259,9 +259,73 @@ def _assemble(frames_dir, target, partial, frames, kbps, max_bytes, preference, 
             partial.unlink(missing_ok=True)
         else:
             continue
+    fitted = _assemble_quality_fallback(frames_dir, target, partial, frames, max_bytes, fps,
+                                        ffmpeg, run, log, validate)
+    if fitted is not None:
+        return fitted
     log(f"timelapse assembly failed for {frames_dir}: no encoder produced a video "
         f"under {max_bytes} bytes")
     return None
+
+
+# Constant quality always lands near the content's real size, unlike a forced bitrate that some
+# encoders overshoot on a short, mostly static capture. Tried in order, then at lower resolution.
+_FALLBACK_CRF = (23, 28, 32)
+_FALLBACK_WIDTHS = (1280, 960, 640)
+
+
+def _assemble_quality_fallback(frames_dir, target, partial, frames, max_bytes, fps,
+                               ffmpeg, run, log, validate):
+    """Last resort: software libx264 at constant quality until the video fits max_bytes."""
+    for width in _FALLBACK_WIDTHS:
+        for crf in _FALLBACK_CRF:
+            try:
+                run([str(ffmpeg), "-y", "-v", "error", "-framerate", str(fps),
+                     "-i", str(Path(frames_dir) / "frame-%06d.jpg"), "-an",
+                     "-vf", f"scale='min({width},iw)':-2", "-c:v", "libx264", "-preset", "medium",
+                     "-crf", str(crf), "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(partial)],
+                    capture_output=True, timeout=1800, check=True)
+            except Exception as exc:
+                log(f"timelapse libx264 fallback (crf {crf}, width {width}) failed: {exc!r}")
+                return None  # software x264 itself is unusable; lower quality will not help
+            if partial.is_file() and 0 < partial.stat().st_size <= max_bytes:
+                if not validate(partial):
+                    log(f"timelapse libx264 fallback (crf {crf}, width {width}) produced an "
+                        "undecodable video; discarding it")
+                    partial.unlink(missing_ok=True)
+                    continue
+                os.replace(partial, target)
+                log(f"timelapse assembled {len(frames)} frame(s) -> {target} "
+                    f"({target.stat().st_size} bytes, libx264 crf {crf}, width {width})")
+                return target
+            partial.unlink(missing_ok=True)
+    return None
+
+
+def archive_local_copy(video, name, *, directory=None, log=None):
+    """Keep a finished timelapse in the mounted local archive, whatever the chat upload does.
+
+    A no-op unless the archive directory exists (the container mounts it at /data/timelapses), so a
+    stock install without the mount behaves as before. Never raises: archiving must not fail a post.
+    """
+    log = log or (lambda message: None)
+    try:
+        root = Path(directory or os.environ.get("PRINT_TIMELAPSE_LOCAL_ARCHIVE_DIR") or "/data/timelapses")
+        if not root.is_dir():
+            return None
+        safe = "".join(c if c.isalnum() or c in "-_." else "-" for c in str(name)).strip("-.") or "timelapse"
+        dest = root / (safe if safe.lower().endswith(".mp4") else safe + ".mp4")
+        if dest.exists():
+            dest = dest.with_name(f"{dest.stem}-{int(Path(video).stat().st_mtime)}{dest.suffix}")
+        tmp = dest.with_name(f".{dest.name}.partial")
+        import shutil
+        shutil.copyfile(video, tmp)
+        os.replace(tmp, dest)
+        log(f"timelapse archived locally -> {dest}")
+        return dest
+    except Exception as exc:
+        log(f"local timelapse archive failed: {exc!r}")
+        return None
 
 
 def _expected_source(data) -> str:
@@ -442,16 +506,21 @@ def captured_video(job_key, *, data=None, max_bytes, log=None, probe=None,
             return validate_video(target, ffmpeg=ffmpeg, min_frames=count) if real else True
 
         if reusable():
+            archive_local_copy(target, directory.name, log=log)
             return target
         with render_lock(target):
             if reusable():  # a concurrent render finished while we waited
+                archive_local_copy(target, directory.name, log=log)
                 return target
             if target.exists():
                 log(f"cached timelapse {target} failed validation; re-rendering")
                 target.unlink(missing_ok=True)
-            return assemble_frames(directory / "frames", target, max_bytes=max_bytes,
+            made = assemble_frames(directory / "frames", target, max_bytes=max_bytes,
                                    preference=capture_preference(data), probe=probe,
                                    ffmpeg=ffmpeg, run=run, log=log)
+            if made is not None:
+                archive_local_copy(made, directory.name, log=log)
+            return made
     except Exception as exc:  # the completion post must never see this fail
         log(f"captured timelapse unavailable for {job_key!r}: {exc!r}")
         return None
