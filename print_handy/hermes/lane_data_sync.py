@@ -29,6 +29,12 @@ Hardening (the drift classes from #791):
   under 0-based keys. Those are not screen lanes — read under the
   screen's 1-based keys they would shift every slot by one — so the
   parser skips records carrying no screen-side field.
+- Because ZMod's keys collide with the screen's at ``lane1``-``lane3``,
+  ZMod deleting its own key (a slot whose type became ``?``) also
+  deletes a screen record (#852). Once that author has been seen, a
+  vanished spool-bearing lane converges to "unloaded" only when the
+  printer's own presence read agrees the slot is empty; see
+  ``LaneDataWatcher._vanished_unload_blocked``.
 - Mid-print changes are noted once and applied only when the print ends,
   through the same deferral posture as ``push_screen``; the one exception
   is a load into a slot with an open runout/swap spool question on a
@@ -313,6 +319,10 @@ class LaneDataWatcher:
     listener's ``load_runout_pause()`` record) or None, and the feed
     function binds a screen-loaded spool into that question's slot and
     resumes usage, returning True when the question was answered.
+    ``presence_fn`` returns the printer's current slot presence,
+    ``{slot: True | False | None}`` (the listener's IFS read), or None when
+    there is no current read; it is consulted only for a vanished lane
+    beside a key-colliding writer (#852).
     """
 
     def __init__(self, state_path, *, mr: Client = None, client: Client = None,
@@ -321,6 +331,7 @@ class LaneDataWatcher:
                  apply_fn: Callable[..., Any] = None,
                  runout_context_fn: Callable[[], dict[str, Any] | None] = None,
                  runout_feed_fn: Callable[..., bool] = None,
+                 presence_fn: Callable[[], dict[int, bool | None] | None] = None,
                  state_file: Path | None = None, pending_file: Path | None = None):
         self.state_path = Path(state_path)
         self.mr = mr or spool_sync.moonraker
@@ -331,11 +342,14 @@ class LaneDataWatcher:
         self.apply_fn = apply_fn
         self.runout_context_fn = runout_context_fn
         self.runout_feed_fn = runout_feed_fn
+        self.presence_fn = presence_fn
         # The hardware record / deferred-screen files the reconcile writes;
         # None keeps spool_sync's own per-printer defaults.
         self.state_file = Path(state_file) if state_file else None
         self.pending_file = Path(pending_file) if pending_file else None
         self._print_state: str | None = None
+        self._presence: dict[int, bool | None] | None = None
+        self._colliding = False
 
     # -- injected helpers ------------------------------------------------
 
@@ -346,6 +360,19 @@ class LaneDataWatcher:
             except Exception:
                 self._print_state = "unknown"
         return self._print_state
+
+    def _slot_presence(self, slot: int) -> bool | None:
+        """The printer's presence for one slot this poll: True, False, or None (unknown)."""
+        if self._presence is None:
+            slots = None
+            if self.presence_fn is not None:
+                try:
+                    slots = self.presence_fn()
+                except Exception:
+                    slots = None
+            self._presence = slots if isinstance(slots, dict) else {}
+        value = self._presence.get(int(slot))
+        return value if isinstance(value, bool) else None
 
     def _lookup_via_list(self, spool_id: int) -> tuple[str, dict[str, Any] | None]:
         """Confirm a spool's fate from a successful spool list.
@@ -407,11 +434,12 @@ class LaneDataWatcher:
         return key
 
     def _drop_noted(self, pending: dict[str, Any], noted: dict[str, Any], slot: int) -> None:
-        """A settled change supersedes an earlier mid-print note for the same slot."""
+        """A settled change supersedes an earlier mid-print or unverified note for the same slot."""
         if noted.pop(str(slot), None) is not None:
             for key in [k for k, entry in pending.items()
                         if isinstance(entry, dict)
-                        and (entry.get("event") or {}).get("kind") == "noted_mid_print"
+                        and (entry.get("event") or {}).get("kind")
+                        in ("noted_mid_print", "unverified_unload")
                         and (entry.get("event") or {}).get("slot") == slot]:
                 del pending[key]
 
@@ -427,17 +455,22 @@ class LaneDataWatcher:
         re-applies.
         """
         self._print_state = None
+        self._presence = None
         raw = spool_sync.read_lane_data(self.mr)
         lanes = parse_lane_data(raw)
         if lanes is None:
             return []  # unknown, never empty: change nothing at all
         state = _read_json(self.state_path)
         fingerprints = {slot: lane_fingerprint(lane) for slot, lane in lanes.items()}
+        foreign = foreign_lane_slots(raw)
+        # Sticky: ZMod deletes its keys as slots go to type "?", so the
+        # evidence can vanish in the very poll that matters (#852).
+        self._colliding = bool(foreign) or state.get("colliding_author") is True
         if not state.get("seeded") or not isinstance(state.get("lanes"), dict):
             _write_json(self.state_path,
                         {"seeded": True,
                          "lanes": {str(slot): fp for slot, fp in sorted(fingerprints.items())},
-                         "pending": {}, "noted": {}})
+                         "pending": {}, "noted": {}, "colliding_author": self._colliding})
             return []
         seen: dict[int, dict[str, Any]] = {}
         for key, value in state["lanes"].items():
@@ -446,10 +479,14 @@ class LaneDataWatcher:
         pending = state.get("pending") if isinstance(state.get("pending"), dict) else {}
         noted = state.get("noted") if isinstance(state.get("noted"), dict) else {}
         dirty = False
-        foreign = foreign_lane_slots(raw)
         for slot in sorted(set(seen) | set(lanes)):
             if slot not in lanes and slot in foreign:
                 continue  # another writer holds the key (#852): unknown, not unloaded
+            if slot in lanes and str(noted.get(str(slot)) or "").startswith("unverified:"):
+                # The record is back: drop the note and any undelivered warning for it, so a
+                # later vanish is named again and an obsolete warning is never retried.
+                self._drop_noted(pending, noted, slot)
+                dirty = True
             old_fp = seen.get(slot)
             lane = lanes.get(slot)
             cur_fp = fingerprints.get(slot)
@@ -478,7 +515,7 @@ class LaneDataWatcher:
                 dirty = True
         updated = {"seeded": True,
                    "lanes": {str(slot): fp for slot, fp in sorted(seen.items())},
-                   "pending": pending, "noted": noted}
+                   "pending": pending, "noted": noted, "colliding_author": self._colliding}
         if dirty or updated != state:
             _write_json(self.state_path, updated)
         return due
@@ -501,6 +538,10 @@ class LaneDataWatcher:
             if not old_fp or old_fp.get("spool_id") is None:
                 adopt()
                 return True  # nothing was recorded loaded: a silent clear
+            if lane is None and self._colliding:
+                blocked = self._vanished_unload_blocked(slot, old_fp, pending, noted)
+                if blocked is not None:
+                    return blocked
             if self._defer_mid_print(slot, action, pending, noted,
                                      f"slot {slot} was unloaded"):
                 return True
@@ -630,6 +671,50 @@ class LaneDataWatcher:
                     "Print Handy's records were updated from Spoolman to match.",
                     action, spool_id=spool_id)
         adopt()
+        return True
+
+    def _vanished_unload_blocked(self, slot: int, old_fp: dict[str, Any],
+                                 pending: dict[str, Any], noted: dict[str, Any]) -> bool | None:
+        """Cross-check a vanished spool-bearing lane against printer presence (#852).
+
+        Called only once a key-colliding writer (ZMod ``orca_lanes``) has
+        been seen in the namespace, and only for a record that disappeared
+        — an explicit empty screen record cannot come from ZMod, so it
+        stays a screen clear. Returns None when the unload may converge as
+        a #791 screen clear (the printer reports the slot empty); otherwise
+        the ``_process_lane`` result, with the baseline left un-adopted so
+        each later poll re-checks:
+
+        - presence says loaded: the absence is the collision, not an
+          unload. Nothing is written; the change is named once as
+          unverified, and converges by itself if the slot later reads empty.
+        - presence unknown (no current read, a failed read, the slot
+          unreported): nothing changes and nothing is said. Waiting for the
+          absence to persist across N polls was rejected: a ZMod delete
+          persists for as long as the slot stays type ``?``, so persistence
+          cannot tell it from a clear. Presence is re-read on every listener
+          tick and a failing read is already logged there, so the next
+          readable answer settles the slot.
+        """
+        present = self._slot_presence(slot)
+        if present is False:
+            return None
+        if present is None:
+            return False
+        marker = f"unverified:{_action_key(None)}"
+        if noted.get(str(slot)) == marker:
+            return False  # already named: stay silent and keep waiting
+        noted[str(slot)] = marker
+        spool_id = old_fp.get("spool_id")
+        self._queue(pending, noted, slot, "unverified_unload",
+                    f"**HelixScreen change not verified:** slot {slot}'s lane record "
+                    f"(spool #{spool_id}) disappeared from Moonraker `lane_data`, but the "
+                    f"printer still reports filament loaded in slot {slot}. ZMod's OrcaSlicer "
+                    "lane sync writes the same namespace and can delete Print Handy's record, "
+                    "so this was not treated as an unload: nothing was changed. If the slot "
+                    "really was emptied, Print Handy unloads it once the printer reports it "
+                    f"empty; to record another spool, use `/spool change {slot} <spool#>`.",
+                    marker, spool_id=spool_id)
         return True
 
     def _defer_mid_print(self, slot: int, action: str, pending: dict[str, Any],

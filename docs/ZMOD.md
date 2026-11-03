@@ -136,12 +136,15 @@ ships in release payloads, not in that repo.
   overwrites Print Handy's slot 2 record; clearing slot 3's type
   deletes key `lane2`). A vanished spool-bearing record is what the
   watcher converges as an unload, so that collision can unload a
-  spool that is still loaded. That needs a converge-side guard
-  (cross-checking presence before an unload converge), which is
-  larger than this PR — it is filed as
-  [issue #852](https://github.com/catduckgnaf/print-handy/issues/852)
-  and must land before Print Handy docs point anyone at a
-  no-HelixScreen install with `orca_lanes` on.
+  spool that is still loaded. The watcher guards that
+  ([issue #852](https://github.com/catduckgnaf/print-handy/issues/852)):
+  once it has seen a key-colliding writer, a vanished spool-bearing
+  record only converges to an unload when the printer's own slot
+  presence (`zmod_color` screenless, native `/detail` otherwise) reads
+  the slot empty. Presence loaded posts one "change not verified" note
+  and changes nothing; unreadable presence changes nothing until a
+  readable poll settles it. HelixScreen installs, where ZMod does not
+  publish, behave as before.
 
 ### `ORCA_FF`: native-screen emulator — verdict: document-only
 
