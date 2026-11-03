@@ -4013,14 +4013,17 @@ def single_color_groups(job, manifest):
     return [{'slot': slot, 'part_keys': keys} for slot, keys in sorted(groups.items(), key=lambda row: row[0])]
 
 
-def refuse_assembly_split(src, manifest, groups, st):
+def refuse_assembly_split(src, manifest, groups, st, verdict=None):
     """Refuse, before any plate is exported, a split that would cut one build object.
 
     The printable flag selects whole build objects, so an assembly (one
     object holding parts of several slots) cannot be divided across the
     per-slot plates; export_single_color_plate would only refuse later with
     an internal-looking error (#820). Raises a classified SliceRefusal that
-    names the model's size against the bed and the way out.
+    names the model's size against the bed and the way out. ``verdict`` is
+    the planner's split verdict (job['plate_merge']); its reason decides
+    whether the message talks about space, materials or the operator's
+    own choice.
     """
     slots_by_object = {}
     for group in groups:
@@ -4041,11 +4044,13 @@ def refuse_assembly_split(src, manifest, groups, st):
         size = None  # the size is a courtesy in the message, never a reason to fail differently
     bed = (st.get('bed_mm') or [None, None])[:2]
     from .slice_refusal import assembly_cannot_split
+    reason = (verdict or {}).get('reason')
     raise assembly_cannot_split(
         len({slot for oid in shared for slot in slots_by_object[oid]}), size,
         bed if all(bed) else None,
-        f"build object(s) {','.join(shared)} hold parts of more than one slot and the colors do not fit "
-        "one plate; an assembly cannot be split per slot. Nothing sliced")
+        f"build object(s) {','.join(shared)} hold parts of more than one slot and the plan was split "
+        f"({reason or 'no reason recorded'}); an assembly cannot be split per slot. Nothing sliced",
+        reason)
 
 
 def _per_part_view(manifest, decisions):
@@ -5292,7 +5297,7 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         groups = single_color_groups(job, manifest)
         if not groups:
             raise RuntimeError('per-part decision did not resolve any single-color plate')
-        refuse_assembly_split(src, manifest, groups, st)
+        refuse_assembly_split(src, manifest, groups, st, job.get('plate_merge'))
         # Every slot group is sliced. The loaded spool is a launch fact, not a
         # reason to drop a plate that already names its own slot.
         from .color_geometry import export_single_color_plate
