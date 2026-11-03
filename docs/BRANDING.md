@@ -16,8 +16,8 @@ experience for everybody else, Bambu included. It lives in the chat app you
 already have open, so "print this" is one pasted link instead of a sit-down
 session with a slicer.
 
-What it is, in facts: drop a model link or file in Discord, Telegram, Matrix
-or the Web UI; Print Handy slices it for your printer, matches your Spoolman
+What it is, in facts: drop a model link or file in Discord, Telegram or
+Matrix (the Web UI covers status, settings and spools); Print Handy slices it for your printer, matches your Spoolman
 spools, asks before anything prints, follows the print, watches the camera for
 spaghetti, posts the timelapse, and roasts your model on the way out. One
 Docker container.
@@ -35,9 +35,9 @@ Copy these as written. Each one is sized for where it goes.
 | Use | Length | Copy |
 |---|---|---|
 | Tagline | 5 words | Bambu Handy for every printer. |
-| Link preview, GitHub repo description | under 160 characters | Bambu Handy for every printer. Drop a model link in Discord, Telegram, Matrix or the Web UI, approve it, walk away. It slices, watches for spaghetti and roasts your model. |
+| Link preview, GitHub repo description | under 160 characters | Bambu Handy for every printer. Drop a model link in Discord, Telegram or Matrix, approve it, walk away. It slices, watches for spaghetti and roasts your model. |
 | Store listing or plugin list, one line | one sentence | Print from your phone on any printer: paste a model link in chat, approve it, and Print Handy slices, prints, watches the camera and roasts your model. |
-| Short paragraph | about 60 words | Print Handy is Bambu Handy for every printer. Paste a MakerWorld or Printables link in Discord, Telegram, Matrix or the Web UI, pick colors with buttons, and approve the sliced job. It matches your Spoolman spools, follows the print, watches the camera for spaghetti, sends the timelapse, and roasts your model choices. One Docker container, nothing prints without your OK. |
+| Short paragraph | about 60 words | Print Handy is Bambu Handy for every printer. Paste a MakerWorld or Printables link in Discord, Telegram or Matrix, pick colors with buttons, and approve the sliced job. It matches your Spoolman spools, follows the print, watches the camera for spaghetti, sends the timelapse, and roasts your model choices. One Docker container, nothing prints without your OK. |
 
 ## Voice
 
@@ -48,7 +48,8 @@ Copy these as written. Each one is sized for where it goes.
 - **Short sentences, concrete nouns.** "Paste a link" beats "leverage our
   intake pipeline".
 - **Every printer, every chat.** Never describe Print Handy as a Discord bot.
-  It is Discord, Telegram, Matrix and a Web UI, on Klipper, Bambu Lab,
+  It takes models in Discord, Telegram and Matrix, with a Web UI for
+  status, settings and spools, on Klipper, Bambu Lab,
   Flashforge, Prusa, Elegoo, Creality, Sovol, Snapmaker, Qidi, Anycubic and
   OctoPrint printers.
 - **Never overclaim.** A printer family that is offline-tested only stays
