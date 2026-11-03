@@ -61,6 +61,17 @@ _config.set_override(TEST_SETTINGS)
 
 
 @pytest.fixture(autouse=True)
+def _offline_purge_detection(monkeypatch):
+    """ZMod purge/plugin detection (#832) never reaches a network in tests: every read fails like an
+    unreachable printer. Tests of the detection itself patch purge._fetch with their own fake."""
+    from print_handy.core import purge
+
+    def offline(url, timeout):
+        raise OSError(f"network disabled in tests: {url}")
+    monkeypatch.setattr(purge, "_fetch", offline)
+
+
+@pytest.fixture(autouse=True)
 def _isolated_launch_state(tmp_path, monkeypatch):
     """Printer leases and consumed approvals live in a per-test database, never the profile's."""
     monkeypatch.setenv("PRINT_HANDY_LAUNCH_DB", str(tmp_path / "print_handy_launches.sqlite3"))

@@ -117,6 +117,11 @@ EXEMPTIONS = {
     ("prime_tower", "merge_slack_mm"): (frozenset({"webui"}), "#657"),
     ("prime_tower", "part_clearance_mm"): (frozenset({"webui"}), "#657"),
     ("prime_tower", "size_mm"): (frozenset({"webui"}), "#657"),
+    # #832: set in the settings file; the Web UI catalog keeps its curated subset.
+    ("purge", "flush_multiplier"): (frozenset({"webui"}), "#832"),
+    ("purge", "mode"): (frozenset({"webui"}), "#832"),
+    ("purge", "prime_tower"): (frozenset({"webui"}), "#832"),
+    ("zmod", "plugins"): (frozenset({"webui"}), "#832"),
     ("printer", "bed_mm"): (frozenset({"webui"}), "#657"),
     ("printer", "end_macro"): (frozenset({"webui"}), "#657"),
     ("printer", "firmware"): (frozenset({"webui"}), "#657"),

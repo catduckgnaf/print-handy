@@ -22,7 +22,7 @@ from typing import NamedTuple
 from urllib.parse import urlsplit
 
 from .. import diagnostics, logs, printers, settings
-from . import _external, delivery, failure_report, owned_worker, plate_merge, split_fit
+from . import _external, delivery, failure_report, owned_worker, plate_merge, purge, split_fit
 
 BED = settings.current()['printer']['bed_mm']
 FILAMENT_SLOTS = settings.current()['printer']['filament_slots']
@@ -2082,6 +2082,11 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                        metadata=metadata)
                     return {'action': 'skip', 'reason': 'inch-confirmed model exceeds printer volume'}
         job_adapter = mj._job_adapter(job)
+        # ZMod purge awareness (#832): re-read the printer's purge mode and plugins (read-only, short
+        # timeouts, never blocks intake), then refuse a source an IFS Jacker printer cannot model yet.
+        if getattr(job_adapter, 'has_native_screen', False):
+            await asyncio.to_thread(purge.refresh_best_effort, state, job_adapter, job.get('printer_id'))
+            purge.require_jacker_capacity(manifest, job_adapter, state)
         selections = [mj.resolve_filament_selection(state, dict(label, slot=int(slot)))
                       for slot, label in sorted(mj.configured_slots(state).items())]
         # A multi_tool printer's positions are toolheads, never slots (#346).
@@ -2207,7 +2212,7 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             # one shared scale, 100% whenever it fits. No per-slot shrink rows.
             title = latest.get('title') or 'This model'
             try:
-                fit = await _heavy(mj.painted_fit_for_job, path, latest['color_decisions'])
+                fit = await _heavy(mj.painted_fit_for_job, path, latest['color_decisions'], state)
             except Exception as exc:
                 fit = {'scale': None, 'error': str(exc)}
             receipt['painted_fit'] = fit

@@ -65,7 +65,7 @@ def test_painted_oversize_fit_accept_does_not_crash(env, monkeypatch):
     monkeypatch.setattr(model_job, 'printables_download', copy_painted)
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 0)
     monkeypatch.setattr(model_job, 'painted_fit_for_job',
-                        lambda path, decisions: {'scale': 0.8, 'plates': 1, 'blocking_plate': None})
+                        lambda path, decisions, state=None: {'scale': 0.8, 'plates': 1, 'blocking_plate': None})
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
               message_id='painted1', text='https://www.printables.com/model/1-ghost')
     adapter = Adapter([0] * 20)  # per-part colors, slot picks, accept the fit, slice and print

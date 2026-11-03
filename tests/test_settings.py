@@ -249,6 +249,8 @@ class OverrideTests(unittest.TestCase):
             "layout": {"spacing", "single_copy_edge_mm", "multi_copy_edge_mm", "arrange_gap_mm", "arrange_edge_mm",
                        "merge_edge_margin_mm", "merge_spacing_mm", "max_merged_hours"},
             "prime_tower": {"size_mm", "part_clearance_mm", "edge_mm", "merge_slack_mm"},
+            "purge": {"mode", "prime_tower"},
+            "zmod": {"plugins"},
             "cold_pull": {"pla_trial", "petg"},
             "orca": {"templates", "command"},
             "bambu": {"command", "lan_host", "lan_serial", "lan_access_code_env", "start_confirm_s"},
