@@ -47,6 +47,11 @@ Hardening + vocabulary pass (post-2.2.1 audit, toward 2.2.2):
   "power supply" == "psu", units such as millimetre/cm/meter == "mm"/"cm"/"m",
   and Commonwealth/British spelling equivalents such as "colour" == "color",
   "grey" == "gray", "aluminium" == "aluminum", "fibre" == "fiber"),
+  the software, sites and brands of the workflow equate spaced and
+  joined ("orca slicer" == "orcaslicer", "bambu lab" == "bambulab",
+  "creality cloud" == "crealitycloud", "mmf" == "myminifactory"), as do
+  slicing and error terms ("tree support" == "treesupport",
+  "thermal runaway" == "thermalrunaway", "heat creep" == "heatcreep"),
   and simple plurals/verb forms fold together ("nozzles" == "nozzle",
   "leveling" == "level", "jammed" == "jam"). This lives only in the
   fuzzy scorer: exact tiers and the exact print-number path are
@@ -229,6 +234,29 @@ _PHRASE_FORMS = {
     ("outer", "wall"): ("outerwall",),
     ("inner", "wall"): ("innerwall",),
     ("step", "loss"): ("steploss",),
+    # Slicing terms
+    ("z", "seam"): ("zseam",),
+    ("tree", "support"): ("treesupport",),
+    ("bed", "leveling"): ("bedleveling",),
+    ("auto", "leveling"): ("autoleveling",),
+    ("direct", "drive"): ("directdrive",),
+    # Error and symptom terms people paste or describe
+    ("thermal", "runaway"): ("thermalrunaway",),
+    ("layer", "shift"): ("layershift",),
+    ("heat", "creep"): ("heatcreep",),
+    ("bed", "adhesion"): ("bedadhesion",),
+    ("shut", "down"): ("shutdown",),
+    # Software, services, model sites and brands typed spaced or joined
+    ("orca", "slicer"): ("orcaslicer",),
+    ("bambu", "studio"): ("bambustudio",),
+    ("bambu", "lab"): ("bambulab",),
+    ("prusa", "slicer"): ("prusaslicer",),
+    ("creality", "print"): ("crealityprint",),
+    ("creality", "cloud"): ("crealitycloud",),
+    ("flash", "print"): ("flashprint",),
+    ("flash", "forge"): ("flashforge",),
+    ("home", "assistant"): ("homeassistant",),
+    ("web", "ui"): ("webui",),
 }
 
 # Single-token equivalents: abbreviations, variable/setting names,
@@ -375,6 +403,22 @@ _TOKEN_FORMS = {
     "polycarbonate": "pc",
     "polypropylene": "pp",
     "polyurethane": "tpu",
+    # Software, services and model sites under their short names
+    "mmf": "myminifactory",
+    "cults": "cults3d",
+    "octo": "octoprint",
+    # Process words the stemmer splits unevenly: its -ing/-ed rules land
+    # on a clipped root ("slicing"/"sliced" -> "slic", "stringing" ->
+    # "string") that the base word never reaches, so the forms are
+    # equated here instead — the mapped value is stemmed like any token.
+    "slicing": "slice",
+    "sliced": "slice",
+    "stringy": "string",
+    "oozing": "ooze",
+    "delaminated": "delamination",
+    "delaminating": "delamination",
+    # Color words with two common forms
+    "golden": "gold",
 }
 
 

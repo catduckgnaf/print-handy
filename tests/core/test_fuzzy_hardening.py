@@ -196,6 +196,32 @@ def test_number_forms_do_not_equate_different_numbers():
     ("favourite", "favorite"),
     ("polyamide", "nylon"),
     ("polycarbonate", "pc"),
+    ("orca slicer", "orcaslicer"),
+    ("bambu studio", "bambustudio"),
+    ("bambu lab", "bambulab"),
+    ("prusa slicer", "prusaslicer"),
+    ("creality cloud", "crealitycloud"),
+    ("flash forge", "flashforge"),
+    ("home assistant", "homeassistant"),
+    ("web ui", "webui"),
+    ("mmf", "myminifactory"),
+    ("cults", "cults3d"),
+    ("octo", "octoprint"),
+    ("z seam", "zseam"),
+    ("tree support", "treesupport"),
+    ("bed leveling", "bedleveling"),
+    ("direct drive", "directdrive"),
+    ("thermal runaway", "thermalrunaway"),
+    ("layer shift", "layershift"),
+    ("heat creep", "heatcreep"),
+    ("bed adhesion", "bedadhesion"),
+    ("shut down", "shutdown"),
+    ("slicing", "slice"),
+    ("sliced", "slice"),
+    ("stringy", "stringing"),
+    ("oozing", "ooze"),
+    ("delaminated", "delamination"),
+    ("golden", "gold"),
     ("boxes", "box"),
     ("warped", "warp"),
     ("leveling", "level"),
@@ -214,6 +240,8 @@ def test_distinct_concepts_are_not_merged():
     assert fuzzy.canonical("nozzle") != fuzzy.canonical("hotend")
     assert fuzzy.canonical("hotend") != fuzzy.canonical("extruder")
     assert fuzzy.canonical("petg") != fuzzy.canonical("pctg")
+    assert fuzzy.canonical("asa") != fuzzy.canonical("abs")
+    assert fuzzy.canonical("tpe") != fuzzy.canonical("tpu")
     # And the abbreviation fold must not rescue the pinned false friend:
     # "temp" (→ temperature) against "temple" scored 80 before, 0 now.
     assert fuzzy.fuzzy_score("temp", "temple") == 0

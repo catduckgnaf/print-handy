@@ -125,21 +125,79 @@ def _whole_name_winner(decision, wholes):
 
 
 # Plain-language task suggestions (#792): common task intents when people phrase jobs in words.
-# Maps regex patterns to canonical command suggestions.
+# Maps regex patterns to canonical command suggestions. A suggestion may carry
+# the matched words into the command via "{q}" (the pattern's named group) —
+# /print-lookup and /print-design take the person's own phrasing as their
+# argument. Table order is priority: specific tasks first, the generic
+# question/error carry-overs last, so a phrase with a real task home never
+# degrades into a lookup.
+_LEAD = r"(?:please\s+)?(?:i\s+(?:need|want)\s+to\s+|(?:can|could|would)\s+you\s+(?:please\s+)?|how\s+(?:do|can)\s+i\s+)?"
+_END = r"\s*[?.!]?\s*$"
 _TASK_INTENT_SUGGESTIONS = (
-    (re.compile(r"^(?:please\s+)?(?:i\s+(?:need|want)\s+to\s+)?(?:change|swap|replace)\s+(?:a\s+|the\s+)?(?:filament|spool|roll)(?:\s+(?:roll|spool))?(?:\s+in\s+slot\s+[1-4])?$", re.I), "/spool"),
-    (re.compile(r"^(?:please\s+)?(?:i\s+(?:need|want)\s+to\s+)?(?:add|create|new)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:filament|spool|roll)$", re.I), "/spool"),
-    (re.compile(r"^(?:please\s+)?(?:what|which)\s+(?:filament|spool|color)s?\s+(?:is|are)\s+loaded$", re.I), "/print-spools"),
-    (re.compile(r"^(?:please\s+)?(?:stop|cancel|abort)\s+(?:the\s+)?(?:current\s+)?print$", re.I), "/print-stop"),
-    (re.compile(r"^(?:please\s+)?pause\s+(?:the\s+)?(?:current\s+)?print$", re.I), "/print-pause"),
-    (re.compile(r"^(?:please\s+)?(?:resume|continue|unpause)\s+(?:the\s+)?(?:current\s+)?print$", re.I), "/print-resume"),
-    (re.compile(r"^(?:please\s+)?(?:restart|reboot)\s+(?:the\s+)?printer$", re.I), "/print-reboot"),
-    (re.compile(r"^(?:please\s+)?(?:do|run)\s+(?:a\s+)?cold\s*pull$", re.I), "/print-coldpull"),
-    (re.compile(r"^(?:please\s+)?(?:what\s+is\s+(?:the\s+)?)?(?:printer|print)\s+status$", re.I), "/print-status"),
-    (re.compile(r"^(?:please\s+)?how\s+is\s+the\s+print\s+doing$", re.I), "/print-status"),
-    (re.compile(r"^(?:please\s+)?(?:is\s+the\s+print\s+(?:still\s+)?running|print\s+progress)$", re.I), "/print-status"),
-    (re.compile(r"^(?:please\s+)?(?:reprint|print\s+(?:it\s+)?again)$", re.I), "/print-again"),
-    (re.compile(r"^(?:please\s+)?(?:run\s+)?(?:bed\s+leveling|bed\s+level|auto\s+bed\s+leveling|calibration)$", re.I), "/print-calibrate"),
+    # Spools: change / add / what is loaded
+    (re.compile(rf"^{_LEAD}(?:change|swap|replace)\s+(?:a\s+|the\s+)?(?:filament|spool|roll)(?:\s+(?:roll|spool))?(?:\s+in\s+slot\s+[1-4])?{_END}", re.I), "/spool"),
+    (re.compile(rf"^{_LEAD}(?:add|create|new)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:filament|spool|roll){_END}", re.I), "/spool"),
+    (re.compile(rf"^(?:please\s+)?(?:what|which)\s+(?:filament|spool|color|colour)s?\s+(?:is|are)\s+loaded{_END}", re.I), "/print-spools"),
+    # Print control
+    (re.compile(rf"^{_LEAD}(?:stop|cancel|abort)\s+(?:the\s+)?(?:current\s+)?print{_END}", re.I), "/print-stop"),
+    (re.compile(rf"^{_LEAD}pause\s+(?:the\s+)?(?:current\s+)?print{_END}", re.I), "/print-pause"),
+    (re.compile(rf"^{_LEAD}(?:resume|continue|unpause)\s+(?:the\s+)?(?:current\s+)?print{_END}", re.I), "/print-resume"),
+    (re.compile(rf"^{_LEAD}(?:restart|reboot)\s+(?:the\s+)?printer{_END}", re.I), "/print-reboot"),
+    (re.compile(rf"^{_LEAD}(?:do|run)\s+(?:a\s+)?cold\s*pull{_END}", re.I), "/print-coldpull"),
+    (re.compile(rf"^{_LEAD}(?:change|swap|replace)\s+(?:the\s+)?nozzle{_END}", re.I), "/nozzle change"),
+    # Status, progress and failure reports
+    (re.compile(rf"^(?:please\s+)?(?:what\s+is\s+(?:the\s+)?)?(?:printer|print)\s+status{_END}", re.I), "/print-status"),
+    (re.compile(rf"^{_LEAD}(?:show|check)\s+(?:me\s+)?(?:the\s+)?(?:printer|print)\s+status{_END}", re.I), "/print-status"),
+    (re.compile(rf"^(?:please\s+)?how\s+is\s+the\s+print\s+doing{_END}", re.I), "/print-status"),
+    (re.compile(rf"^(?:please\s+)?(?:is\s+the\s+print\s+(?:still\s+)?running|print\s+progress){_END}", re.I), "/print-status"),
+    (re.compile(rf"^(?:is\s+the\s+)?(?:print|printer)\s+(?:done|finished|complete|completed){_END}", re.I), "/print-status"),
+    (re.compile(rf"^how\s+long\s+(?:left|to\s+go|until\s+(?:it\s+is|it's|its)\s+done){_END}", re.I), "/print-status"),
+    (re.compile(rf"^when\s+will\s+(?:it|the\s+print|this)\s+(?:finish|be\s+done|be\s+finished){_END}", re.I), "/print-status"),
+    (re.compile(rf"^(?:the\s+|my\s+)?print\s+(?:just\s+)?failed{_END}", re.I), "/print-status"),
+    # Reprint and calibration
+    (re.compile(rf"^{_LEAD}(?:reprint|print\s+(?:it\s+)?again){_END}", re.I), "/print-again"),
+    (re.compile(rf"^{_LEAD}(?:run\s+)?(?:bed\s+leveling|bed\s+level|auto\s+bed\s+leveling|calibration){_END}", re.I), "/print-calibrate"),
+    # Maintenance and firmware
+    (re.compile(rf"^{_LEAD}(?:do|run)\s+(?:the\s+)?maintenance{_END}", re.I), "/print-maintenance"),
+    (re.compile(rf"^(?:what\s+)?maintenance\s+(?:is\s+)?(?:due|needed){_END}", re.I), "/print-maintenance"),
+    (re.compile(rf"^{_LEAD}(?:update|upgrade|check)\s+(?:the\s+)?firmware{_END}", re.I), "/print-firmware"),
+    (re.compile(rf"^(?:is\s+there\s+)?(?:a\s+)?firmware\s+update{_END}", re.I), "/print-firmware"),
+    # Symptoms with a dedicated troubleshooting flow
+    (re.compile(rf"^(?:the\s+|my\s+)?nozzle\s+is\s+clogged{_END}", re.I), "/print-troubleshoot clog"),
+    (re.compile(rf"^clogged\s+nozzle{_END}", re.I), "/print-troubleshoot clog"),
+    (re.compile(rf"^(?:the\s+)?filament\s+is\s+(?:stuck|jammed){_END}", re.I), "/print-troubleshoot clog"),
+    (re.compile(rf"^(?:the\s+|my\s+)?extruder\s+is\s+clicking{_END}", re.I), "/print-troubleshoot clog"),
+    (re.compile(rf"^extruder\s+clicking{_END}", re.I), "/print-troubleshoot clog"),
+    (re.compile(rf"^(?:the\s+)?(?:filament|extruder)\s+(?:won't|wont|not)\s+(?:feed|extrude){_END}", re.I), "/print-troubleshoot clog"),
+    (re.compile(rf"^first\s+layer\s+(?:is\s+)?(?:not\s+sticking|won't\s+stick|wont\s+stick|peeling|coming\s+(?:loose|off)){_END}", re.I), "/print-troubleshoot first-layer"),
+    (re.compile(rf"^(?:the\s+)?prints?\s+(?:won't|wont|not)\s+stick(?:ing)?{_END}", re.I), "/print-troubleshoot first-layer"),
+    (re.compile(rf"^bed\s+adhesion\s+(?:problem|problems|issue|issues|trouble){_END}", re.I), "/print-troubleshoot first-layer"),
+    (re.compile(rf"^spaghetti\s+on\s+(?:the\s+)?bed{_END}", re.I), "/print-troubleshoot first-layer"),
+    (re.compile(rf"^(?:the\s+|my\s+)?print\s+(?:is\s+|turned\s+into\s+|became\s+)?spaghetti{_END}", re.I), "/print-troubleshoot first-layer"),
+    (re.compile(rf"^(?:i\s+have\s+|there\s+is\s+)?heat\s+creep{_END}", re.I), "/print-troubleshoot heat-creep"),
+    (re.compile(rf"^(?:the\s+|my\s+)?bed\s+is\s+(?:not\s+level|unlevel|uneven){_END}", re.I), "/print-troubleshoot bed-level"),
+    (re.compile(rf"^uneven\s+first\s+layer{_END}", re.I), "/print-troubleshoot bed-level"),
+    (re.compile(rf"^first\s+layer\s+is\s+uneven{_END}", re.I), "/print-troubleshoot bed-level"),
+    (re.compile(rf"^(?:i\s+have\s+)?ringing\s+(?:in|on)\s+(?:my\s+|the\s+)?prints?{_END}", re.I), "/print-troubleshoot ringing"),
+    (re.compile(rf"^(?:ringing|ghosting){_END}", re.I), "/print-troubleshoot ringing"),
+    # Shopping: buying filament goes through the spool flows; running low
+    # starts with seeing what is loaded and how much is left.
+    (re.compile(rf"^{_LEAD}(?:buy|order|purchase)\s+(?:more\s+)?(?:filament|spools?|pla|petg|abs|asa|tpu|nylon){_END}", re.I), "/spool"),
+    (re.compile(rf"^(?:i\s+)?(?:need|want)\s+(?:more\s+)?(?:filament|spools?|pla|petg|abs|asa|tpu|nylon){_END}", re.I), "/spool"),
+    (re.compile(rf"^where\s+(?:can|do)\s+i\s+(?:buy|get|order)\s+(?:more\s+)?(?:filament|spools?){_END}", re.I), "/spool"),
+    (re.compile(rf"^(?:i'm\s+|im\s+|we're\s+|we\s+are\s+)?running\s+low\s+on\s+(?:filament|spools?|pla|petg|abs|tpu){_END}", re.I), "/print-spools"),
+    # Model sites
+    (re.compile(rf"^(?:what|which)\s+(?:model\s+)?sites?\s+(?:can|do)\s+you\s+(?:print|download)\s+from{_END}", re.I), "/print-source"),
+    (re.compile(rf"^(?:can|do)\s+you\s+(?:print|download)\s+from\s+(?:printables|thingiverse|makerworld|my\s*mini\s*factory|myminifactory|thangs|nexprint|cults(?:3d)?|creality\s+cloud){_END}", re.I), "/print-source"),
+    # Design requests carry their own words as the prompt
+    (re.compile(rf"^(?:please\s+)?(?:design|model)\s+(?:me\s+)?(?P<q>(?:a|an|the)\s+.+?){_END}", re.I), "/print-design {q}"),
+    # Errors and questions: the lookup takes the person's own words.
+    (re.compile(rf"^(?:please\s+)?what\s+does\s+(?P<q>.+?)\s+mean{_END}", re.I), "/print-lookup {q}"),
+    (re.compile(rf"^(?:please\s+)?what\s+is\s+(?P<q>(?:error|hms)\s+.+?){_END}", re.I), "/print-lookup {q}"),
+    (re.compile(rf"^(?:the\s+)?(?P<q>thermal\s+runaway|heating\s+failed|heater\s+error|temperature\s+error|filament\s+runout|layer\s+shift){_END}", re.I), "/print-lookup {q}"),
+    (re.compile(rf"^(?:i\s+)?(?:got|get|getting|have|keep\s+getting)\s+(?:a\s+|an\s+|the\s+)?(?P<q>.+?\s+error|error){_END}", re.I), "/print-lookup {q}"),
+    (re.compile(rf"^how\s+to\s+(?P<q>.+?){_END}", re.I), "/print-lookup {q}"),
+    (re.compile(rf"^why\s+(?:does|do|did|is|are|won't|wont|can't|cant|doesn't|keeps?)\s+(?P<q>.+?){_END}", re.I), "/print-lookup {q}"),
 )
 
 
@@ -148,8 +206,15 @@ def _task_suggestion(text):
     if not clean or clean.startswith("/"):
         return None
     for pattern, cmd in _TASK_INTENT_SUGGESTIONS:
-        if pattern.match(clean):
-            return cmd
+        match = pattern.match(clean)
+        if not match:
+            continue
+        if "{q}" in cmd:
+            query = " ".join((match.groupdict().get("q") or "").split()).strip(" ?.!")
+            if not query:
+                continue
+            return cmd.replace("{q}", query)
+        return cmd
     return None
 
 
@@ -227,6 +292,38 @@ def agent_unavailable_text():
     """
     return ("The chat agent didn't answer, so nothing happened. "
             "Commands and links still work — post a link or type `/print-help`.")
+
+
+# Explicit AI invocation: "ask ai: …", "hey ai, …", "ai: …". The person
+# named the model lane; the invocation words are not part of the question.
+_AI_INVOCATION = re.compile(
+    r"^(?:please\s+)?(?:(?:ask|use|try|consult|hey)\s+(?:the\s+|your\s+)?ai(?:\s+assistant)?|ai)"
+    r"\s*[:,]?\s+(?P<q>.+)$", re.I)
+
+
+def _ai_invocation(text):
+    """The bare question inside an explicit ask-the-AI message, else None."""
+    clean = " ".join(str(text or "").split()).strip()
+    match = _AI_INVOCATION.match(clean)
+    if not match:
+        return None
+    return match.group("q").strip() or None
+
+
+def ai_not_enabled_text():
+    """The honest reply to an explicit AI invocation when no lane is enabled.
+
+    Not the generic unmatched wording: the person asked for a specific
+    thing, and it is the AI — not their phrasing — that is missing here.
+    """
+    return ("AI chat isn't switched on for this bot, so I can't ask it. "
+            "Commands and links still work — type `/print-help` for everything I can do.")
+
+
+def ai_no_answer_text():
+    """The honest reply when an explicitly invoked AI lane produced no answer."""
+    return ("I asked the AI, but it didn't answer, so nothing happened. "
+            "Commands and links still work — type `/print-help`.")
 
 
 def listed_users(cfg, section="discord"):
@@ -563,12 +660,23 @@ class BotCore:
         Both lanes sit behind the one ``use_llm`` gate, so
         ``discord.chat_llm_enabled=false`` (#466) means no stray-chat
         model call of any kind.
+        An explicit invocation ("ask ai: …") is recognised before the
+        lanes run: the invocation words are stripped and the lanes are
+        asked the bare question. When no lane answers an explicit
+        invocation — or none is enabled at all — the stripped question
+        still gets the deterministic suggestion chance ("ask ai change
+        the filament" on a no-LLM platform is a spool change wearing an
+        invocation), and the terminal reply names the AI instead of the
+        generic unmatched wording: the person asked for a specific
+        thing, and it was the AI, not their phrasing, that was missing.
         """
         source = event.source
         metadata = {"thread_id": source.thread_id} if source.thread_id else None
+        invoke = _ai_invocation(event.text)
+        lane_text = invoke if invoke is not None else event.text
         if allow_llm and self.use_llm and agent.configured(self.cfg):
             try:
-                reply = await asyncio.to_thread(agent.ask, event.text, session_key(source),
+                reply = await asyncio.to_thread(agent.ask, lane_text, session_key(source),
                                                 cfg=self.cfg, opener=self.agent_opener)
             except Exception as exc:
                 logger.warning("agent reply failed, sending the agent-unavailable reply: %r", exc)
@@ -581,7 +689,7 @@ class BotCore:
             return {"action": "skip", "reason": "agent reply"}
         if allow_llm and self.use_llm and llm.configured(self.cfg):
             try:
-                reply, command = await asyncio.to_thread(llm.ask, event.text, self.help, cfg=self.cfg,
+                reply, command = await asyncio.to_thread(llm.ask, lane_text, self.help, cfg=self.cfg,
                                                          opener=self.llm_opener)
             except Exception as exc:
                 logger.warning("LLM reply failed, sending the unmatched reply: %r", exc)
@@ -619,6 +727,23 @@ class BotCore:
             # command but real contenders: offer them as a pick-list
             # rather than guessing or staying silent.
             return await self._offer_suggestion_choice(event, candidates, metadata)
+        if invoke is not None:
+            # An explicit invocation no lane answered: the stripped
+            # question gets the deterministic chance on its own words,
+            # then the AI-specific terminal reply (see the docstring).
+            suggestion = command_suggestion(invoke)
+            if suggestion is not None:
+                return await self._offer_suggestion(event, suggestion, metadata)
+            candidates = command_suggestion_candidates(invoke)
+            if candidates:
+                return await self._offer_suggestion_choice(event, candidates, metadata)
+            if allow_llm and self.use_llm and (agent.configured(self.cfg) or llm.configured(self.cfg)):
+                await self.adapter.send(chat_id=source.chat_id, content=ai_no_answer_text(),
+                                        reply_to=event.message_id, metadata=metadata)
+                return {"action": "skip", "reason": "ai no answer"}
+            await self.adapter.send(chat_id=source.chat_id, content=ai_not_enabled_text(),
+                                    reply_to=event.message_id, metadata=metadata)
+            return {"action": "skip", "reason": "ai not enabled"}
         await self.adapter.send(chat_id=source.chat_id, content=self.unmatched, reply_to=event.message_id,
                                 metadata=metadata)
         return {"action": "skip", "reason": "command list"}
