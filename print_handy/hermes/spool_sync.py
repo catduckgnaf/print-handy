@@ -796,6 +796,188 @@ def bind_slot(slot: int, spool_id: int, *, client: Client = spoolman, mr: Client
             "prior_disposition": prior_disposition}
 
 
+def unbind_slot(slot: int, *, client: Client = spoolman, mr: Client = moonraker,
+                state_path: Path | None = None, pending_path: Path | None = None,
+                printer_id: str | None = None,
+                note: str = "Unbound from the Web UI spools page") -> dict[str, Any]:
+    """Remove the spool in `slot`, everywhere, with Spoolman winning (#789).
+
+    The unassign primitive the chat flows never needed (Discord changes a
+    slot's spool; it never empties one): the spool's ``ph_slot`` claim is
+    cleared and its location set to the shelf — the same two writes
+    bind_slot makes for a replaced spool with the 'shelf' disposition —
+    and the slot's record is removed from the local cache. That is the
+    reconcile-consistent shape: Spoolman (``ph_slot``) is the source of
+    truth, so the next reconcile rebuild keeps the slot empty, and the
+    cache removal happens first so a not-yet-migrated printer's first
+    reconcile cannot resurrect the assignment from the stale cache.
+
+    The spool the slot holds is read from the cache AND from Spoolman's
+    claims for this printer and slot; when they name different spools the
+    unassign refuses and names the conflict (run the sync first) instead
+    of picking one. The active-spool record is left alone, exactly as a
+    reconcile rebuild leaves it when a slot assignment disappears, and
+    Moonraker's usage pointer is untouched — an empty slot has no spool
+    to charge, and repair_usage_spool (via the sync) owns that pointer.
+    """
+    slot = int(slot)
+    if slot not in SLOTS:
+        raise SpoolError(f"slot {slot} is not 1-4")
+    try:
+        state = load_state(state_path, printer_id=printer_id)
+    except FileNotFoundError:
+        state = {"filament_slots": {}}
+    slots = state.setdefault("filament_slots", {})
+    old = slots.get(str(slot)) or {}
+    cached_id = old.get("spoolman_id")
+    effective_printer = printer_id or _default_printer_id()
+    claimed_ids: set[int] = set()
+    spool_row: dict[str, Any] | None = None
+    if effective_printer:
+        try:
+            rows = _call_client(client, "GET", "/api/v1/spool?allow_archived=true", None)
+        except Exception:
+            rows = None
+        if isinstance(rows, list):
+            for row in rows:
+                if isinstance(row, dict) and row.get("id") is not None \
+                        and spool_ph_slot(row) == (effective_printer, slot):
+                    claimed_ids.add(int(row["id"]))
+                    if cached_id is not None and int(row["id"]) == int(cached_id):
+                        spool_row = row
+    named = {int(cached_id)} if cached_id is not None else set()
+    named |= claimed_ids
+    if not named:
+        raise SpoolError(f"slot {slot} has no spool assigned. Nothing changed")
+    if len(named) > 1:
+        ids = " and ".join(f"#{sid}" for sid in sorted(named))
+        raise SpoolError(f"slot {slot} is claimed by spools {ids} — the local record and "
+                         "Spoolman disagree, so nothing was changed. Run the spool sync "
+                         "to name the conflict, fix it, and try again")
+    spool_id = named.pop()
+    if spool_row is None:
+        try:
+            got = client("GET", f"/api/v1/spool/{spool_id}", None)
+        except Exception:
+            got = None
+        spool_row = got if isinstance(got, dict) else {}
+    if spool_row.get("id") is not None:
+        body: dict[str, Any] = {"location": SHELF}
+        if effective_printer and spool_ph_slot(spool_row) == (effective_printer, slot):
+            body["extra"] = {PH_SLOT_FIELD: None}
+        client("PATCH", f"/api/v1/spool/{spool_id}", body)
+    slots.pop(str(slot), None)
+    save_state(state, state_path, printer_id=printer_id)
+    return {"slot": slot, "spool_id": spool_id, "record": old or None,
+            "note": note}
+
+
+def unbind_text(result: dict[str, Any]) -> str:
+    return (f"Slot {result['slot']} no longer holds spool #{result['spool_id']}; "
+            f"spool #{result['spool_id']} is on the shelf.")
+
+
+def swap_slots(slot_a: int, slot_b: int, *, client: Client = spoolman, mr: Client = moonraker,
+               state_path: Path | None = None, pending_path: Path | None = None,
+               printer_id: str | None = None,
+               note: str = "Swapped from the Web UI spools page") -> dict[str, Any]:
+    """Swap the spools in two slots, everywhere, with Spoolman winning (#789).
+
+    Two bind_slot calls cannot do this (each refuses a spool that is
+    already mapped to the other slot), so the swap writes both sides
+    itself in bind_slot's shape: each spool's location and ``ph_slot``
+    claim move to its new slot, stale claims for the two slots are
+    cleared, both cache records are rebuilt from the Spoolman records
+    through _slot_record, and both screens are pushed through
+    push_screen (which defers while printing, as a bind does). One side
+    may be empty: the swap is then a move. Both empty refuses. A spool
+    Spoolman no longer has, or an archived one, refuses by name before
+    any write, as a bind does.
+    """
+    slot_a, slot_b = int(slot_a), int(slot_b)
+    for slot in (slot_a, slot_b):
+        if slot not in SLOTS:
+            raise SpoolError(f"slot {slot} is not 1-4")
+    if slot_a == slot_b:
+        raise SpoolError(f"slot {slot_a} cannot be swapped with itself. Nothing changed")
+    try:
+        state = load_state(state_path, printer_id=printer_id)
+    except FileNotFoundError:
+        state = {"filament_slots": {}}
+    slots = state.setdefault("filament_slots", {})
+    old_a = slots.get(str(slot_a)) or {}
+    old_b = slots.get(str(slot_b)) or {}
+    id_a, id_b = old_a.get("spoolman_id"), old_b.get("spoolman_id")
+    if id_a is None and id_b is None:
+        raise SpoolError(f"slots {slot_a} and {slot_b} are both empty. Nothing changed")
+    spools: dict[int, dict[str, Any]] = {}
+    for spool_id in (id_a, id_b):
+        if spool_id is None:
+            continue
+        spool = client("GET", f"/api/v1/spool/{int(spool_id)}", None)
+        if not isinstance(spool, dict) or spool.get("id") is None:
+            raise SpoolError(f"Spoolman has no spool #{spool_id}")
+        if spool.get("archived"):
+            raise SpoolError(f"spool #{spool_id} is archived (used up); pick a live one")
+        elsewhere = spool_loaded_elsewhere(int(spool_id), state_path=state_path,
+                                           printer_id=printer_id)
+        if elsewhere is not None:
+            raise SpoolError(f"spool #{spool_id} is already loaded on {elsewhere}. "
+                             "One spool cannot be loaded on two printers. Nothing changed")
+        spools[int(spool_id)] = spool
+    effective_printer = printer_id or _default_printer_id()
+    # (spool now in slot_a, spool now in slot_b) is (id_b, id_a).
+    moves = ((slot_a, id_b, old_a), (slot_b, id_a, old_b))
+    for new_slot, spool_id, _old in moves:
+        if spool_id is None:
+            continue
+        client("PATCH", f"/api/v1/spool/{int(spool_id)}", {"location": f"IFS Slot {new_slot}"})
+        if effective_printer:
+            _set_ph_slot(client, int(spool_id), format_ph_slot(effective_printer, new_slot))
+    if effective_printer:
+        for new_slot, spool_id, _old in moves:
+            _clear_ph_slot_claims(client, effective_printer, new_slot,
+                                  keep_spool_id=int(spool_id) if spool_id is not None else None)
+    records: dict[int, dict[str, Any] | None] = {}
+    for new_slot, spool_id, old in moves:
+        if spool_id is None:
+            slots.pop(str(new_slot), None)
+            records[new_slot] = None
+            continue
+        record = _slot_record(new_slot, spools[int(spool_id)], old, note)
+        slots[str(new_slot)] = record
+        records[new_slot] = record
+    save_state(state, state_path, printer_id=printer_id)
+    screens: dict[int, str] = {}
+    for new_slot, record in records.items():
+        if record is None:
+            screens[new_slot] = "not updated: the slot is empty"
+            continue
+        try:
+            if printer_id:
+                screens[new_slot] = push_screen(
+                    new_slot, record["material"], record["hex"], mr=mr,
+                    pending_path=_pending_path(pending_path, printer_id),
+                    adapter=_printer_adapter(printer_id))
+            else:
+                screens[new_slot] = push_screen(new_slot, record["material"], record["hex"],
+                                                mr=mr, pending_path=pending_path)
+        except Exception:
+            screens[new_slot] = "not updated — run `/spool sync` to try again"
+    return {"slot_a": slot_a, "slot_b": slot_b,
+            "spool_in_a": int(id_b) if id_b is not None else None,
+            "spool_in_b": int(id_a) if id_a is not None else None,
+            "records": records, "screens": screens}
+
+
+def swap_text(result: dict[str, Any]) -> str:
+    def held(slot, spool_id):
+        return f"slot {slot} holds spool #{spool_id}" if spool_id is not None \
+            else f"slot {slot} is empty"
+    return (f"Swapped: {held(result['slot_a'], result['spool_in_a'])}; "
+            f"{held(result['slot_b'], result['spool_in_b'])}.")
+
+
 def backfill_slot_colors(*, client: Client = spoolman, mr: Client = moonraker,
                           state_path: Path | None = None,
                           printer_id: str | None = None) -> list[dict[str, Any]]:

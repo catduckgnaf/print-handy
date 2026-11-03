@@ -267,3 +267,26 @@ curl -X POST -H "X-WebUI-Token: $WEBUI_ACCESS_TOKEN" -H "Content-Type: applicati
 ```
 
 Still open from #708: Docker defaults, Bearer auth, extended telemetry, and the camera proxy.
+
+## Spool management (#789)
+
+`GET /api/printers/<id>/spools` is the loaded view as JSON: the printer's slots with their assigned spool (id, name, material, color, remaining weight, and percent left where the spool's starting weight is recorded — never estimated), plus the unassigned spools on the shelf. Assignments are read from the Spoolman `ph_slot` extra field (#798), the reconciled state, with the local slot cache as the fallback; duplicate or archived claims are named in the response's `conflicts` list instead of silently picking a winner. An unknown id is a 404 — every spool operation names its printer, and none falls back to a default printer.
+
+`POST /api/printers/<id>/spools/<action>` makes the changes, through the same operations Discord uses — Spoolman owns spool records, Print Handy owns slot assignment, and no surface keeps a second state store:
+
+| Action | Body | What it does |
+| --- | --- | --- |
+| `assign` | `{"slot": 1, "spool_id": 7}` | Binds the spool to the slot through `spool_sync.bind_slot`; a replaced spool goes back on the shelf. |
+| `swap` | `{"slot_a": 1, "slot_b": 2}` | Swaps the two slots' spools through `spool_sync.swap_slots`; one side may be empty (a move). |
+| `unassign` | `{"slot": 1}` | Empties the slot through `spool_sync.unbind_slot`: the spool's `ph_slot` claim is cleared, its location becomes the shelf, and the local slot record is removed. |
+| `add` | `{"brand": ..., "material": ..., "color": ..., "grams": 1000}` | Creates one spool on the shelf through `spool_sync.create_spool` (the #512 creation path, without the chat walkthrough). |
+| `edit` | `{"spool_id": 7, "remaining_weight": 321}` | Writes the spool's Spoolman record: remaining weight and `archived` on the spool itself; `name`, `material`, `color`/`color_hex` and `brand` on its filament record — the record Spoolman's own UI edits, shared by every spool of that filament type. Only the fields present are written. |
+| `sync` | `{}` | Runs `spool_sync.reconcile` for the printer: Spoolman's assignments rebuild the local slot state and the screens converge. |
+| `purchase/propose` | `{"url": "https://..."}` | The #801 hook: proposes spools from a shop/order link through `purchase_intake.propose_from_link`. Creates nothing. |
+| `purchase/create` | `{"lines": [...]}` | Creates the proposed lines on the shelf through `purchase_intake.create_purchase`, after re-validating them. This is the confirm step; call it only with lines the operator has seen. |
+
+Guard: the POSTs follow the printer controls' posture — the `X-WebUI-Token` header only (a login session never authorizes one), JSON bodies only, and `[webui] controls_enabled` must be true: while it is off every spool POST answers 403 and changes nothing. Refusals are named in the response: an unknown spool or slot, a reconcile conflict, or an archived spool is a 409 with the reason; a malformed body is a 400. Assignment changes during a print behave exactly as they do from Discord — the write is an inventory change whose screen push defers until the print ends; no new mid-print rule is invented here.
+
+The purchase-link actions additionally need an AI route (`PRINT_VISION_URL` or `services.vision_chat_url`), #801's gate: with none configured, `purchase/propose` refuses naming why, and the Spools page shows that reason instead of the form.
+
+`/spools` in the browser lists the configured printers; `/spools/<id>` is that printer's Spools page — the same loaded view and shelf, with assign/swap/unassign/add forms using pickers (no raw ids typed by hand), the Spoolman record edit form, a sync button, and the paste-a-link purchase action with its propose-then-confirm steps. The page's forms post under the same form-token rule as the configuration page.
