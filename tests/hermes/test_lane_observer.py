@@ -16,6 +16,7 @@ class FakeSpoolman:
         self.spools = {int(s["id"]): copy.deepcopy(s) for s in spools}
         self.calls = []
         self.down = False
+        self.reject_ph_slot = False
 
     def __call__(self, method, path, body=None):
         self.calls.append((method, path, copy.deepcopy(body)))
@@ -28,6 +29,8 @@ class FakeSpoolman:
         if method == "GET" and path.startswith("/api/v1/spool/"):
             return copy.deepcopy(self.spools[int(path.rsplit("/", 1)[1])])
         if method == "PATCH" and path.startswith("/api/v1/spool/"):
+            if self.reject_ph_slot and "ph_slot" in (body or {}).get("extra", {}):
+                raise OSError("ph_slot write rejected")
             row = self.spools[int(path.rsplit("/", 1)[1])]
             for key, value in (body or {}).items():
                 if key == "extra":
@@ -219,6 +222,44 @@ def test_spool_assigned_to_another_slot_is_a_conflict(tmp_path):
     _observe(tmp_path, fake, mr, hw)
     mr.lanes["lane2"] = _lane(7)
     assert "assigns to slot 4" in _observe(tmp_path, fake, mr, hw)["events"][0]["text"]
+
+
+def test_unsaved_ph_slot_is_retried_not_marked_observed(tmp_path):
+    fake, mr, hw = _setup(tmp_path)
+    _observe(tmp_path, fake, mr, hw)
+    mr.lanes["lane2"] = _lane(7)
+    fake.reject_ph_slot = True
+    result = _observe(tmp_path, fake, mr, hw)
+    assert [e["kind"] for e in result["events"]] == ["conflict"]
+    assert "did not save" in result["events"][0]["text"]
+    assert _observe(tmp_path, fake, mr, hw)["events"] == []  # a standing failure is not repeated
+    fake.reject_ph_slot = False
+    result = _observe(tmp_path, fake, mr, hw)  # Spoolman recovers: the same change is retried
+    assert [e["kind"] for e in result["events"]] == ["changed"]
+    assert spool_sync.spool_ph_slot(fake.spools[7]) == (PID, 2)
+
+
+def test_spool_assigned_to_another_printer_is_not_taken(tmp_path):
+    fake, mr, hw = _setup(tmp_path)
+    fake.spools[7]["extra"] = {"ph_slot": json.dumps("other:1")}
+    _observe(tmp_path, fake, mr, hw)
+    mr.lanes["lane2"] = _lane(7)
+    result = _observe(tmp_path, fake, mr, hw)
+    assert "slot 1 on printer other" in result["events"][0]["text"]
+    assert fake.writes() == []
+    assert spool_sync.spool_ph_slot(fake.spools[7]) == ("other", 1)
+
+
+def test_lane_first_seen_later_is_seeded_not_swapped(tmp_path):
+    fake, mr, hw = _setup(tmp_path)
+    mr.lanes = {"seated": 2}  # first successful read has no lane records at all
+    assert _observe(tmp_path, fake, mr, hw)["events"] == []
+    mr.lanes = {"lane2": _lane(7, color="#6F4E37")}  # the lane appears holding a different spool
+    result = _observe(tmp_path, fake, mr, hw)
+    assert [e["kind"] for e in result["events"]] == ["conflict"]
+    assert "Spoolman assigns spool #3" in result["events"][0]["text"]
+    assert fake.writes() == []
+    assert spool_sync.spool_ph_slot(fake.spools[3]) == (PID, 2)
 
 
 def test_busy_printer_defers_then_applies_after_the_print(tmp_path):

@@ -124,9 +124,13 @@ def _judge(slot: int, lane: dict[str, Any], by_id: dict[int, dict[str, Any]],
                                                f"has #{spool_hex} for spool {_label(spool)}. Nothing was changed; "
                                                f"clear the lock at the screen or fix the Spoolman color.")
     other = spool_sync.spool_ph_slot(spool)
-    if other is not None and other[0] == pid and other[1] != slot:
-        return f"elsewhere:{sid}", (f"Slot {slot}: the screen links spool {_label(spool)}, which Spoolman "
-                                    f"assigns to slot {other[1]}. Nothing was changed; move one of them.")
+    if other is not None and other != (pid, slot):
+        # Spoolman's assignment is authoritative, including another printer's:
+        # bind_slot only consults that printer's local cache, which may be absent or stale.
+        where = f"slot {other[1]}" if other[0] == pid else f"slot {other[1]} on printer {other[0]}"
+        return f"elsewhere:{sid}:{other[0]}:{other[1]}", (
+            f"Slot {slot}: the screen links spool {_label(spool)}, which Spoolman "
+            f"assigns to {where}. Nothing was changed; move one of them.")
     return "ok", ""
 
 
@@ -165,7 +169,6 @@ def observe(printer_id: str | None = None, *, client: spool_sync.Client = spool_
 
     path = Path(observer_path or OBSERVER_STATE)
     state = _read_json(path)
-    seeded = bool(state.get("seeded"))
     seen = {str(k): v for k, v in (state.get("seen") or {}).items() if isinstance(v, int)}
     announced = {str(k): str(v) for k, v in (state.get("announced") or {}).items()}
 
@@ -193,12 +196,13 @@ def observe(printer_id: str | None = None, *, client: spool_sync.Client = spool_
                 if announced.get(skey) != verdict:
                     result["events"].append({"slot": slot, "kind": "conflict", "text": text})
                 continue
-            changed = seeded and seen.get(skey) != sid
             if sid is None:
                 continue  # _judge already returned a conflict for an unlinked lane
-            if not seeded:
-                # First poll: record what the screen holds without binding, but
-                # name a disagreement with Spoolman once instead of hiding it.
+            changed = seen.get(skey) != sid
+            if skey not in seen:
+                # First sight of THIS lane (not just the first poll): a change needs two
+                # known values to compare, so record what the screen holds without
+                # binding, and name a disagreement with Spoolman once instead of hiding it.
                 seen[skey] = sid
                 key = f"drift:{sid}"
                 live_keys[skey] = key
@@ -231,6 +235,21 @@ def observe(printer_id: str | None = None, *, client: spool_sync.Client = spool_
                         f"Slot {slot}: the screen holds spool {_label(by_id[sid])} but Print Handy "
                         f"could not record it: {exc}")})
                 continue
+            # bind_slot writes ph_slot best effort and still returns on a failed write,
+            # so confirm the authoritative assignment landed before calling it observed.
+            try:
+                landed = spool_sync.spool_ph_slot(
+                    spool_sync._call_client(client, "GET", f"/api/v1/spool/{sid}", None)) == (pid, slot)
+            except Exception:
+                landed = False
+            if not landed:
+                key = f"unsaved:{sid}"
+                live_keys[skey] = key
+                if announced.get(skey) != key:
+                    result["events"].append({"slot": slot, "kind": "conflict", "text": (
+                        f"Slot {slot}: the screen holds spool {_label(by_id[sid])} but Spoolman did not "
+                        f"save the assignment. Print Handy will retry on the next poll.")})
+                continue  # seen stays behind, so the next poll tries again
             seen[skey] = sid
             prior = assigned.get(slot)
             before = f"spool #{prior}" if prior else "no spool"
