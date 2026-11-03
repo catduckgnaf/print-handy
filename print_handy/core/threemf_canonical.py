@@ -229,6 +229,7 @@ def intake_working_copy(path):
     STL files and canonical 3MF files are returned untouched. Returns the same path.
     """
     path = Path(path)
-    if path.suffix.lower() == '.3mf':
+    # A missing file has nothing to canonicalize; the next reader reports it as it always has.
+    if path.suffix.lower() == '.3mf' and path.is_file():
         canonicalize_3mf(path, keep_original=path.parent / 'original' / path.name)
     return path

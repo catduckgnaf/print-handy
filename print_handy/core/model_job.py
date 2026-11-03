@@ -8203,8 +8203,6 @@ def _main():
         if site_mats and st["spool"]["material"] not in site_mats: notes.append(f"site profile material is {', '.join(sorted(site_mats))}; loaded material is {st['spool']['material']}")
         if notes: print("SITE PROFILE NOT REUSED: " + "; ".join(notes) + ". Reslicing geometry to live local state.")
     srcdir=folder/"source"; path=download_for_site(job,chosen,srcdir)
-    from .intake_resources import check_source
-    check_source(path)
     intake_working_copy(path)  # canonical namespace and millimeters for everything below (#814, #825)
     job["selected_source"],job["downloaded_file"],job["audit"]=chosen,str(path),audit(path, printer_model=job.get("printer_model") or printers.current().key); write_job(folder,job)
     print("\nAUDIT: "+json.dumps(job["audit"],indent=2))
