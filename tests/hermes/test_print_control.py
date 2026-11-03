@@ -56,6 +56,22 @@ def test_resume_paused_mismatched_filename():
     assert not ok and "A different print is paused" in msg
 
 
+def test_resume_still_paused_reports_failure_and_sends_one_resume():
+    """#837 (TESTING-AUDIT #4): a resume the printer ignores is not a success.
+
+    The old code returned ok=True on this branch, so callers that trust
+    the boolean reported a resume that never happened.
+    """
+    call = MagicMock(return_value={"result": "ok"})
+    st = MagicMock(return_value=_st())  # paused before the POST and at every readback
+    with patch("print_handy.hermes.print_control._call", call), \
+            patch("print_handy.hermes.print_control.status", st):
+        ok, msg = print_control.resume("foo.gcode", wait_s=0.03, poll_s=0.01)
+    assert ok is False
+    assert "still reports paused" in msg
+    call.assert_called_once_with("/printer/print/resume", method="POST", timeout=15)
+
+
 def test_resume_success_sends_one_resume():
     call = MagicMock(return_value={"result": "ok"})
     st = MagicMock(side_effect=[_st(), _st(state="printing")])

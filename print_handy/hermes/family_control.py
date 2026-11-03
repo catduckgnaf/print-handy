@@ -178,8 +178,10 @@ class FamilyControl:
         if after.get("state") == "printing":
             where = where_text(after)
             return True, f"Resumed. Printer now reports printing{', ' + where if where else ''}."
-        return True, (f"Resume sent, but the printer still reports {after.get('state')} "
-                      f"after {wait_s:.0f}s. Check the printer screen. Not retrying.")
+        # #837 bonus: same contract as print_control.resume — a resume
+        # that never took is a failure, not a success with a caveat.
+        return False, (f"Resume sent, but the printer still reports {after.get('state')} "
+                       f"after {wait_s:.0f}s. Check the printer screen. Not retrying.")
 
     def cancel(self, expected_filename: str = "", wait_s: float = 20,
                poll_s: float = 1.0) -> tuple[bool, str]:
