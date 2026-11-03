@@ -109,6 +109,9 @@ Schema, validation limits and TOML migration: [CONFIGURATION-YAML.md](CONFIGURAT
 | `agent.model` | `PRINT_HANDY__AGENT__MODEL` | empty | Agent model name; optional, unlike `llm.model` — empty omits `model` from the request, for endpoints that are not model-addressable |
 | `agent.api_key_env` | `PRINT_HANDY__AGENT__API_KEY_ENV` | `AGENT_API_KEY` | Name of the environment variable holding the agent endpoint's API key |
 | `agent.timeout_s` | `PRINT_HANDY__AGENT__TIMEOUT_S` | `120` | Agent request timeout; one attempt, no retries. Longer than `llm.timeout_s` because an agent turn does real work |
+| `ai.small` | file only | empty | Optional small AI tier (#818): the print-start roast, the camera and image check and spool label reading. A table with `chat_url`, `model`, `fallback_model`, `fallback_url`, `api_key_env`, `fallback_api_key_env` and `timeout_s`; every key is optional and empty keeps the settings the install already had. See [AI tiers](#ai-tiers) |
+| `ai.chat` | file only | empty | Optional chat AI tier (#818): questions the scripted handlers cannot answer. Same keys as `ai.small`; empty keeps `llm.*` |
+| `ai.heavy` | file only | empty | Optional heavy AI tier (#818): model-file editing and repair, deep image work. Same keys as `ai.small`; empty uses `design.*`, which inherits `llm.*`. Only the route exists today: nothing calls it yet |
 | `design.enabled` | `PRINT_HANDY__DESIGN__ENABLED` | unset (auto) | `/print-design` / `/design` AI design (#388). Unset = auto: on whenever a design/LLM endpoint is configured (like roasts); `false` forces off (the command answers "not set up"); `true` forces on (an unconfigured endpoint is then reported, not silent) |
 | `design.chat_url` | `PRINT_HANDY__DESIGN__CHAT_URL` | empty (inherit) | Design model endpoint; empty uses `llm.chat_url`. Wins in Hermes mode too — the profile's `auxiliary.print_design` block is the fallback only when no endpoint is configured |
 | `design.model` | `PRINT_HANDY__DESIGN__MODEL` | empty (inherit) | Design model name; empty uses `llm.model`. Point this at a stronger model than chat if the endpoint offers one |
@@ -208,6 +211,38 @@ reads these settings directly.
 | AI design (`/print-design`) | `design.chat_url`, else `llm.chat_url` | `design.model`, else `llm.model` | `design.api_key_env`, else `llm.api_key_env` |
 | Camera watchdog, spool label photos | `services.vision_chat_url` | `vision.model` | `CLIPROXY_API_KEY` |
 | Print-start roast | `services.vision_chat_url` | `vision.roast_model` | `CLIPROXY_API_KEY` |
+
+### AI tiers
+
+Three optional tiers let one install use different models for different jobs
+(#818). Nothing ships filled in, and an install that configures none of them
+behaves exactly as before. Each tier is a table under `ai` in the YAML (or
+`[ai.small]` in legacy TOML); the tables are file only.
+
+| Tier | Used for | Default route when the tier is empty |
+| --- | --- | --- |
+| `small` | print-start roast, camera and image check, spool label reading | `services.vision_chat_url`, `vision.model` (`vision.roast_model` for the roast), `CLIPROXY_API_KEY` |
+| `chat` | questions the scripted handlers cannot answer | `llm.*` |
+| `heavy` | model-file editing and repair, deep image work (route only, not used yet) | `design.*`, inheriting `llm.*` |
+
+Keys of a tier table: `chat_url` and `model` (set together), `fallback_model`,
+`fallback_url`, `api_key_env`, `fallback_api_key_env` and `timeout_s`. A value
+you set replaces the default route one field at a time, so `model` alone
+changes only the model. `model` also replaces the roast model for `small`.
+
+- **One retry, on the fallback.** When the primary request fails or times out,
+  the same request is sent once to `fallback_model` on `fallback_url` (the
+  same endpoint when `fallback_url` is empty). If that fails too, the call
+  fails exactly as it would without a fallback. A fallback on another host
+  never receives the primary's key; give it its own through
+  `fallback_api_key_env`.
+- **Who answered is recorded.** The log names the model that served each call.
+- **Keys.** `api_key_env` names an environment variable (or a profile `.env`
+  entry), never the key itself. The `small` tier keeps its rule that a hosted
+  endpoint needs a key and a local or LAN one does not; `chat` and `heavy`
+  send without a key when none is set.
+- **Stray-chat agent lane.** `agent.*` is unchanged and still answers first;
+  it makes one attempt on purpose, so it has no fallback.
 
 Things to know:
 
