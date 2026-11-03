@@ -395,3 +395,20 @@ def test_flex_retry_without_explicit_settings_keeps_the_plain_flex_profile(tmp_p
     retry = captured[1]
     for key, value in adapter.FLEX_PROFILE.items():
         assert retry[key] == value, key
+
+
+def test_missing_bambu_fallback_binary_says_it_is_not_installed(tmp_path, monkeypatch):
+    # taskset exits 127 with "failed to execute <binary>" when the fallback slicer is absent (#814).
+    _allow_post(monkeypatch)
+
+    def run(command, **_kwargs):
+        if 'com.orcaslicer.OrcaSlicer' in command:
+            return type('R', (), {'returncode': 18, 'stdout': '', 'stderr': 'Orca exploded'})()
+        return type('R', (), {'returncode': 127, 'stdout': '',
+                              'stderr': 'taskset: failed to execute /usr/bin/bambu-studio: No such file or directory'})()
+
+    monkeypatch.setattr(adapter, '_spawn_slicer', run)
+    with pytest.raises(adapter.SliceFailure) as caught:
+        adapter.slice_model(_source(tmp_path), tmp_path / 'out', _state())
+    assert 'Bambu Studio fallback slicer is not installed in this image' in str(caught.value)
+    assert 'Orca slicing failed (18)' in str(caught.value)
