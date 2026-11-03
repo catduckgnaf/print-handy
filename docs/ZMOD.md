@@ -393,6 +393,51 @@ that does not answer is unknown, not wrong. Running
 `SET_TIMEZONE ZONE=<your zone>` once in the printer console keeps the
 printer's own local times (screen, logs) in your zone.
 
+## Recording a live start (#842, #843)
+
+The replay tests' start transitions (heating, IFS load, a start that drops back
+to standby) are code someone wrote, not recordings (#843). To record the real
+ones, turn on the start recorder for the #842 checklist run:
+`PRINT_HANDY_RECORD_STARTS=1` in the environment of the process that runs
+`print-now` (Docker: a line in `.env`, or a container variable on Unraid, then
+recreate the container). It is off by default; unset it after the run.
+
+While it is on, every start writes a recording, and nothing about the start
+changes. From immediately before the one `SET_ZCOLOR` POST (or
+`/printer/print/start` on the generic route) a background reader `GET`s
+`/printer/objects/query?print_stats&extruder&heater_bed&zmod_color&idle_timeout&virtual_sdcard&webhooks`
+every 2 s, plus the gcode store, and appends each reply with a monotonic and a
+wall timestamp. It also records the exact start command and its HTTP receipt,
+gcode store lines logged after the #848 pre-POST watermark, the delivery format
+(`.gcode` or `.gcode.3mf`), the ZMod version, the lease phases and the outcome.
+It only reads: it never posts, never runs G-code, and a recording failure never
+reaches the start. `print-now` usually returns while the AD5X is still
+preparing, so the recording is then continued by a small detached process until
+the printer prints this file, abandons the start, reports error or cancelled, or
+15 minutes pass.
+
+Files: `<hermes_home>/state/start-recordings/<UTC stamp>-<file stem>.jsonl`
+(Docker: `/data/hermes/state/start-recordings/`), and `<same>.summary.json`
+with the outcome, the time of the first heater target and of `printing`, any
+`!!` lines and the lease phases. The JSONL holds the printer's address and real
+file names; it is a local record, not a fixture.
+
+For #843, record one start that prints (`preparing`) and one IFS load that
+aborts back to standby (`prep_aborted`), then export each:
+
+```
+python3 -m print_handy.core.start_recorder export <recording>.jsonl --fixture preparing --out tests/fixtures/printers/ad5x_zmod/
+python3 -m print_handy.core.start_recorder export <recording>.jsonl --fixture prep_aborted --out tests/fixtures/printers/ad5x_zmod/
+```
+
+The export writes `objects_query.<fixture>.json`: every polled reply in the
+recorded snapshot's own shape (`{"result": {"eventtime", "status"}}`) with its
+seconds since the POST, under `frames`, and the date, ZMod version and outcome
+under `recorded`. File names are replaced as the fixture README describes, and
+the export refuses a recording whose outcome does not match the fixture name or
+that still holds anything the scrub test forbids. It prints the README table row
+to add. Only export real recordings: #843 forbids hand-written ones.
+
 ## Bundled Spoolman from printer Moonraker (#443)
 
 Print Handy's bundled Spoolman normally lives on loopback inside the

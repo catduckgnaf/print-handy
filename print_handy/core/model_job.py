@@ -23,7 +23,7 @@ from typing import Any, NamedTuple
 
 from .. import firmware_update, printers, settings
 from ..printers.base import MultiColorUnsupported
-from . import _external, filament_color, gcode_3mf, launch_state, printer_state, purge, spoolman_client
+from . import _external, filament_color, gcode_3mf, launch_state, printer_state, purge, spoolman_client, start_recorder
 from .site_accounts import SiteLoginNeeded
 from .threemf_canonical import intake_working_copy
 
@@ -7098,9 +7098,17 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
     # was already there (an unrelated console error a second earlier) is not, and no printer
     # or host clock is ever compared.
     store_watermark = _gcode_store_watermark(st)
+    # #843/#842: opt-in (PRINT_HANDY_RECORD_STARTS=1) read-only recording of the printer from here
+    # until this start settles. A no-op when off; never raises, never delays or posts.
+    recorder = start_recorder.begin(st, remote, command=command, method='SET_ZCOLOR', native=True,
+                                    delivery=delivery, watermark=store_watermark,
+                                    store_after=_entries_after_watermark, baseline=status)
+    recorder.watch_lease(lease)
+    recorder.note('post_sent', path='/printer/gcode/script', command=command)
     try:
         receipt = _mr(st, '/printer/gcode/script', data={'script': command})
     except Exception as exc:
+        recorder.note('receipt', http_status=getattr(exc, 'code', None), error=f'{type(exc).__name__}: {exc}'[:300])
         _timing(job_path, 'start_response_lost', detail=type(exc).__name__)
         # A synchronous POST can time out after Moonraker accepted SET_ZCOLOR. Reconcile by this exact
         # submitted file only (_settle_lost_start); heater targets alone may belong to unrelated work and
@@ -7110,6 +7118,7 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
                                             heaters_were_off=heaters_were_off)
         if out is None:
             _write_checkpoint(checkpoint, {**checkpoint_data, 'phase': 'rejected', 'rejection': rejection})
+            recorder.finish('refused', rejection=rejection)
             raise SystemExit(_rejected_start_message(rejection)) from exc
         if out['accepted']:
             # The POST response was lost: preserve the duplicate guard until
@@ -7121,7 +7130,9 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
                 logger.warning('start record failed after reconciled submission: %s', record_exc)
         _write_checkpoint(checkpoint, out)
         _emit_mapped_outcome(out)
+        recorder.finish(out.get('outcome') or 'unknown', phase=out.get('phase'), message=out.get('message'))
         return out
+    recorder.note('receipt', http_status=200, receipt=receipt)
     # Klipper can answer the POST with HTTP 200 while the macro itself failed: the receipt (or the
     # gcode store readback, past the pre-POST watermark) carries a `!!` line. That is a refusal,
     # not a pending start (#836).
@@ -7137,6 +7148,7 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
         lease.release()
         release_start_announcement(remote)
         _write_checkpoint(checkpoint, {**checkpoint_data, 'phase': 'rejected', 'rejection': receipt_error})
+        recorder.finish('refused', rejection=receipt_error)
         raise SystemExit(_rejected_start_message(receipt_error))
     _timing(job_path, 'start_submitted')
     out = {'accepted': False, 'started': False, 'phase': 'submitted_unconfirmed',
@@ -7145,7 +7157,8 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
            'command': command, 'receipt': receipt, 'submission_count': 1, 'print_number': None,
            'lease_token': lease.token}
     try:
-        return _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_path, delivery)
+        return _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_path, delivery,
+                                     recorder=recorder)
     except Exception as exc:
         # The request is out: a transient 503 or a Klippy restart while reading back is not a traceback
         # and not a refusal. Uncertain, never resubmitted, claim freed for the listener.
@@ -7153,10 +7166,12 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
                                           phase='preparing_or_unresolved', extra=dict(out),
                                           mark='MAPPED START READBACK ')
         _write_checkpoint(checkpoint, out)
+        recorder.finish(out.get('outcome') or 'unknown', phase=out.get('phase'), message=out.get('message'))
         return out
 
 
-def _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_path, delivery):
+def _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_path, delivery,
+                          recorder=start_recorder.NULL):
     """Everything after the one SET_ZCOLOR request was accepted: number, record, wait, classify, settle."""
     # Number at submission, not at "printing": native preparation can outlast the readback
     # and the listener's completion card only reads the registry (2026-10-14: 6 unnumbered).
@@ -7183,6 +7198,7 @@ def _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_pat
         lease.release()
         release_start_announcement(remote)
         _write_checkpoint(checkpoint, {**out, 'phase': 'abandoned', 'rejection': reason})
+        recorder.finish('abandoned', phase='abandoned', moonraker_state=state)
         raise SystemExit(_rejected_start_message(reason))
     readback = None
     try:
@@ -7223,6 +7239,8 @@ def _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_pat
         lease.uncertain(out['message'])  # reconciled when the printer reports this file
         release_start_announcement(remote)  # unannounced: the listener posts the start card
     _emit_mapped_outcome(out)
+    recorder.finish(out.get('outcome') or 'unknown', phase=out.get('phase'),
+                    moonraker_state=out.get('moonraker_state'), message=out.get('message'))
     return out
 
 
@@ -8212,14 +8230,22 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
     # heater was off before it. Read-only; unreadable counts as not proven.
     heaters_were_off = _preparation_evidence(st) is False
     lease.submitting()
+    # #843/#842: the opt-in read-only start recording (PRINT_HANDY_RECORD_STARTS=1); a no-op when off.
+    recorder = start_recorder.begin(st, remote, command=f"print/start {remote}", method="print/start",
+                                    native=False, delivery=delivery)
+    recorder.watch_lease(lease)
     sent = 0
     try:
         for command in adapter.moonraker_start_commands(remote):
-            _mr(st, command["path"], data=command["body"])
+            recorder.note("post_sent", path=command["path"], body=command["body"])
+            receipt = _mr(st, command["path"], data=command["body"])
+            recorder.note("receipt", http_status=200, path=command["path"], receipt=receipt)
             sent += 1
     except BaseException as exc:
+        recorder.note("receipt", http_status=getattr(exc, "code", None), error=f"{type(exc).__name__}: {exc}"[:300])
         if not isinstance(exc, Exception):
             lease.uncertain(f"start request did not complete: {exc!r}")
+            recorder.finish("unknown", phase="interrupted")
             raise
         _timing(job_path, 'start_response_lost', detail=type(exc).__name__)
         # The 30 s POST can time out after Moonraker accepted it, like the mapped native route's:
@@ -8229,6 +8255,7 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
                                             first_command=sent == 0, native=False,
                                             base={"file": remote, "method": "print/start"})
         if out is None:
+            recorder.finish("refused", rejection=rejection)
             raise SystemExit(_rejected_start_message(rejection)) from exc
         if out["accepted"]:
             try:
@@ -8237,21 +8264,29 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
                 print(f"WARNING: print start record failed: {record_exc}")
         print("START SUBMITTED; AWAITING CONFIRMATION " + json.dumps(out), flush=True)
         _emit_start_outcome(out)
+        recorder.finish(out.get("outcome") or "unknown", phase=out.get("phase"))
         return out
     _timing(job_path, 'start_submitted')
     print("START REQUEST ACCEPTED " + json.dumps({"file": remote, "printing_confirmed": False}), flush=True)
     method="print/start"
     try:
         out, readback, state = _confirm_generic_start(st, remote, wait_s, lease)
+    except SystemExit:
+        recorder.finish("failed", phase="failed")  # the printer reported this file's start failed
+        raise
     except Exception as exc:
         # The request is out: a transient 503 or a Klippy restart while reading back is neither a
         # traceback nor a refusal. Uncertain, never resubmitted, claim freed for the listener.
-        return _uncertain_after_submission(lease, remote, exc, method=method)
+        out = _uncertain_after_submission(lease, remote, exc, method=method)
+        recorder.finish("unknown", phase=out.get("phase"), message=out.get("message"))
+        return out
     if out is not None:
         print("START SUBMITTED; AWAITING CONFIRMATION " + json.dumps(out), flush=True)
         _emit_start_outcome(out)
+        recorder.finish(out.get("outcome") or "unknown", phase=out.get("phase"))
         return out
     lease.release()  # printing; the busy printer now refuses another start
+    recorder.finish("printing", phase="executing", moonraker_state=state)
     record_path=None
     try: record_path=record_start(g, remote)
     except Exception as e: print(f"WARNING: print start record failed: {e}")
