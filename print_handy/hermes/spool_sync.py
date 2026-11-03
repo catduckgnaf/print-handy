@@ -65,6 +65,26 @@ def _http(base: str, method: str, path: str, body: Any = None, timeout: float = 
     return json.loads(raw)
 
 
+_SPOOL_GET = re.compile(r"/api/v1/spool/(\d+)")
+
+
+def _unavailable_error(method: str, path: str, exc: Exception) -> SpoolError:
+    """The /spool wording for a Spoolman that did not answer (#839).
+
+    A 404 on a single-spool GET is not an outage: the id is wrong or the
+    spool was deleted, so say that. Everything else names Spoolman, the
+    configured URL, that nothing changed, and the remedy — the raw
+    transport string ("HTTP Error 502: Bad Gateway") named none of those.
+    """
+    match = _SPOOL_GET.fullmatch(path or "")
+    if getattr(exc, "status", None) == 404 and str(method).upper() == "GET" and match:
+        return SpoolError(f"Spoolman has no spool #{match.group(1)}. "
+                          "Check the id with /spool list. Nothing changed")
+    remedy = spoolman_client.UNAVAILABLE_NOTICE.split(". ", 1)[-1]
+    where = f" at {SPOOLMAN}" if SPOOLMAN else ""
+    return SpoolError(f"Spoolman did not answer{where} ({exc}). Nothing changed. {remedy}")
+
+
 def spoolman(method: str, path: str, body: Any = None) -> Any:
     """The /spool command layer's Spoolman transport: the one wrapper (#387).
 
@@ -75,7 +95,7 @@ def spoolman(method: str, path: str, body: Any = None) -> Any:
     try:
         return spoolman_client.request(method, path, body, base_url=SPOOLMAN, timeout=8)
     except spoolman_client.SpoolmanUnavailable as exc:
-        raise SpoolError(str(exc)) from exc
+        raise _unavailable_error(method, path, exc) from exc
 
 
 def moonraker(method: str, path: str, body: Any = None, timeout: float | None = None) -> Any:
@@ -658,7 +678,7 @@ def bind_slot(slot: int, spool_id: int, *, client: Client = spoolman, mr: Client
         raise SpoolError(f"slot {slot} is not 1-4")
     spool = client("GET", f"/api/v1/spool/{int(spool_id)}", None)
     if not isinstance(spool, dict) or spool.get("id") is None:
-        raise SpoolError(f"Spoolman has no spool #{spool_id}")
+        raise SpoolError(f"Spoolman has no spool #{spool_id}. Check the id with /spool list. Nothing changed")
     if spool.get("archived"):
         raise SpoolError(f"spool #{spool_id} is archived (used up); pick a live one")
     state = load_state(state_path, printer_id=printer_id)
@@ -971,7 +991,7 @@ def swap_slots(slot_a: int, slot_b: int, *, client: Client = spoolman, mr: Clien
             continue
         spool = client("GET", f"/api/v1/spool/{int(spool_id)}", None)
         if not isinstance(spool, dict) or spool.get("id") is None:
-            raise SpoolError(f"Spoolman has no spool #{spool_id}")
+            raise SpoolError(f"Spoolman has no spool #{spool_id}. Check the id with /spool list. Nothing changed")
         if spool.get("archived"):
             raise SpoolError(f"spool #{spool_id} is archived (used up); pick a live one")
         elsewhere = spool_loaded_elsewhere(int(spool_id), state_path=state_path,

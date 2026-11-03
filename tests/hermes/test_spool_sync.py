@@ -386,3 +386,73 @@ def test_spool_sync_names_the_stand_in_the_screen_shows(tmp_path):
         lines = _run_sync(tmp_path, mr, path)
     assert lines[0] == "Slot 1: pushed (screen shows ABS for ASA)"
     assert lines[1] == "Slot 2: pushed"
+
+
+# --- #839: /spool Spoolman failure wording ---------------------------------
+
+def _unavailable(status):
+    from print_handy.core import spoolman_client
+    return spoolman_client.SpoolmanUnavailable(
+        "HTTP Error 404: Not Found" if status == 404 else "HTTP Error 502: Bad Gateway",
+        status=status)
+
+
+def _spoolman_down(monkeypatch, exc):
+    from print_handy.core import spoolman_client
+
+    def request(method, path, body=None, **kw):
+        raise exc
+    monkeypatch.setattr(spoolman_client, "request", request)
+    monkeypatch.setattr(spool_sync, "SPOOLMAN", "http://spoolman.test:8000")
+
+
+def test_spoolman_outage_error_names_spoolman_url_and_that_nothing_changed(monkeypatch):
+    _spoolman_down(monkeypatch, _unavailable(502))
+    with pytest.raises(spool_sync.SpoolError) as caught:
+        spool_sync.spoolman("POST", "/api/v1/spool", {"name": "x"})
+    text = str(caught.value)
+    assert text.startswith("Spoolman did not answer at http://spoolman.test:8000")
+    assert "Nothing changed" in text
+    assert "Spoolman service is running" in text and "services.spoolman_url" in text
+    assert text != "HTTP Error 502: Bad Gateway"
+
+
+def test_spoolman_404_on_a_spool_get_says_no_such_spool(monkeypatch):
+    _spoolman_down(monkeypatch, _unavailable(404))
+    with pytest.raises(spool_sync.SpoolError) as caught:
+        spool_sync.spoolman("GET", "/api/v1/spool/99", None)
+    assert str(caught.value) == ("Spoolman has no spool #99. "
+                                 "Check the id with /spool list. Nothing changed")
+
+
+def test_spoolman_404_on_a_write_path_keeps_the_outage_wording(monkeypatch):
+    # Only a single-spool GET maps to "no such spool"; a 404 elsewhere is
+    # still reported as Spoolman not answering usefully, never as a typo'd id.
+    _spoolman_down(monkeypatch, _unavailable(404))
+    with pytest.raises(spool_sync.SpoolError) as caught:
+        spool_sync.spoolman("PATCH", "/api/v1/spool/99", {"location": "Shelf"})
+    assert "did not answer" in str(caught.value)
+
+
+def test_bind_names_a_deleted_spool_instead_of_an_outage(monkeypatch, tmp_path):
+    _spoolman_down(monkeypatch, _unavailable(404))
+    state = tmp_path / "printer_hardware.json"
+    state.write_text(json.dumps({"filament_slots": {}}))
+    with pytest.raises(spool_sync.SpoolError) as caught:
+        spool_sync.bind_slot(1, 99, client=spool_sync.spoolman, mr=mock.Mock(),
+                             state_path=state, push_screen_update=False)
+    assert str(caught.value).startswith("Spoolman has no spool #99.")
+    assert "Nothing changed" in str(caught.value)
+
+
+def test_swap_names_a_deleted_spool_instead_of_an_outage(monkeypatch, tmp_path):
+    _spoolman_down(monkeypatch, _unavailable(404))
+    state = tmp_path / "printer_hardware.json"
+    state.write_text(json.dumps({"filament_slots": {
+        "1": {"spoolman_id": 11, "material": "PLA"},
+        "2": {"spoolman_id": 22, "material": "PLA"}}}))
+    with pytest.raises(spool_sync.SpoolError) as caught:
+        spool_sync.swap_slots(1, 2, client=spool_sync.spoolman, mr=mock.Mock(),
+                              state_path=state)
+    assert "Spoolman has no spool #" in str(caught.value)
+    assert "Nothing changed" in str(caught.value)

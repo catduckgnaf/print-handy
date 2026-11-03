@@ -326,3 +326,21 @@ def test_intake_fit_choice_rows_and_cli_layout_subcommand(tmp_path):
     payload = json.loads(proc.stdout)
     assert payload['result'] == 'geometry_fits_nominal_bed'
     assert (cli_out / 'validation.json').exists()
+
+
+def test_stl_conversion_refusal_names_the_span_and_the_bed(tmp_path):
+    # #839: the old text named neither, so a surfaced refusal could not be acted on.
+    src = tmp_path / "wide.stl"
+    vertices = [(0, 0, 0), (300, 0, 0), (300, 100, 0), (0, 100, 0),
+                (0, 0, 10), (300, 0, 10), (300, 100, 10), (0, 100, 10)]
+    faces = [(0, 1, 2), (0, 2, 3), (4, 6, 5), (4, 7, 6),
+             (0, 4, 5), (0, 5, 1), (1, 5, 6), (1, 6, 2),
+             (2, 6, 7), (2, 7, 3), (3, 7, 4), (3, 4, 0)]
+    src.write_text('solid box\n' + ''.join(
+        'facet normal 0 0 0\nouter loop\n' + ''.join(
+            f'vertex {vertices[i][0]} {vertices[i][1]} {vertices[i][2]}\n' for i in face)
+        + 'endloop\nendfacet\n' for face in faces) + 'endsolid box\n')
+    with pytest.raises(ValueError) as caught:
+        geometry_layout.convert_stl_to_geometry_3mf(src, tmp_path / "out.3mf", center_bed=(220, 220))
+    assert str(caught.value) == ("Assembly spans 300.0 x 100.0 mm; bed is 220 x 220 mm. "
+                                 "No scaling performed.")

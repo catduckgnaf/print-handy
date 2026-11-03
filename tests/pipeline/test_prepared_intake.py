@@ -2236,3 +2236,122 @@ def test_start_question_carries_the_thermal_facts_of_the_sliced_printer(env, mon
 def test_start_question_has_no_thermal_lines_without_a_registered_model(env):
     adapter, result, receipt = run_flow(env, [1, 0, 1, 1])
     assert 'Thermal:' not in adapter.questions[-1]['question']
+
+
+# --- #839: oversize inch answer is a choice, not a cancel -------------------
+
+def _run_oversize_stl_upload(env, monkeypatch, picks, fit_fraction=0.86):
+    from print_handy.core import orca_adapter
+    monkeypatch.setattr(model_job, 'audit', lambda path: {
+        'plates': 1, 'size_x': '9', 'size_y': '9', 'size_z': '9'})
+    monkeypatch.setattr(orca_adapter, 'largest_fitting_fraction',
+                        lambda path, st, factor, **kw: fit_fraction)
+    drop = env.tmp / 'block.stl'
+    _box_stl(drop, 9, 9, 9)
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+              message_id='m-inch-big', text='', media_urls=[str(drop)])
+    adapter = Adapter(picks)
+    result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
+    receipt = json.loads(next(env.root.glob('*.json')).read_text())
+    job = json.loads(Path(receipt['job_json']).read_text())
+    return adapter, result, receipt, job
+
+
+def test_oversize_inch_answer_offers_mm_scale_and_cancel(env, monkeypatch):
+    adapter, result, receipt, job = _run_oversize_stl_upload(env, monkeypatch, [1, 0, 0, 1, 1])
+    question = adapter.questions[1]
+    assert '228.6' in question['question'] and '220 x 220' in question['question']
+    assert question['choices'] == ['Use mm instead', 'Scale to 86%', 'Cancel']
+    # Picking mm re-records the decision; the job was never cancelled.
+    assert job['unit_decision']['units'] == 'mm'
+    assert 'scale' not in job
+    assert receipt['status'] == 'SLICED_NOT_STARTED'
+
+
+def test_oversize_inch_scale_choice_records_the_converted_scale(env, monkeypatch):
+    adapter, result, receipt, job = _run_oversize_stl_upload(env, monkeypatch, [1, 1, 0, 1, 1])
+    assert job['unit_decision']['units'] == 'inch'
+    assert job['scale'] == round(25.4 * 0.86, 6)  # the fitted fraction of the inch size
+    assert receipt['scale'] == job['scale']
+    assert receipt['status'] == 'SLICED_NOT_STARTED'
+
+
+def test_oversize_inch_cancel_is_the_only_cancelling_choice(env, monkeypatch):
+    adapter, result, receipt, job = _run_oversize_stl_upload(env, monkeypatch, [1, 2])
+    assert receipt['status'] == 'CANCELLED_OVERSIZED'
+    assert result['reason'] == 'inch-confirmed model exceeds printer volume'
+    assert any(m == 'Print cancelled. Nothing was sliced, uploaded, or started.' for m in adapter.sent)
+
+
+def test_oversize_inch_without_a_fitting_scale_offers_no_scale_button(env, monkeypatch):
+    adapter, result, receipt, job = _run_oversize_stl_upload(
+        env, monkeypatch, [1, 1], fit_fraction=None)
+    assert adapter.questions[1]['choices'] == ['Use mm instead', 'Cancel']
+    assert receipt['status'] == 'CANCELLED_OVERSIZED'
+
+
+# --- #839: fit failure wording and the spool projection warning -------------
+
+def test_fit_failure_names_the_measured_extent_and_usable_area():
+    job = {'title': 'Widget', 'selected_source': {'title': 'plate one'},
+           'audit': {'mesh_audit': {'dimensions_mm': [250.0, 100.0, 20.0]}}}
+    text = prepared_intake._fit_failure(job, 0)
+    assert '(250 x 100 mm vs usable 204 x 204 mm)' in text
+
+
+def test_fit_failure_without_measurements_keeps_the_plain_text():
+    text = prepared_intake._fit_failure({'title': 'Widget', 'selected_source': {}}, 0)
+    assert 'vs usable' not in text and 'calculated capacity is 0 copy' in text
+
+
+def _projection_mj():
+    def weights(state, ids, fetch):
+        raise RuntimeError('Spoolman did not answer')
+    return S(filament_usage_by_selection=lambda job, manifest: [({'spoolman_id': 5}, None)],
+             intake_spool_weights=weights,
+             intake_spool_projection=lambda *a, **k: [],
+             format_spool_projection=lambda *a, **k: 'projection',
+             _job_adapter=lambda job: S(multi_tool=False))
+
+
+def test_spool_projection_warns_when_spoolman_is_configured_but_down(monkeypatch):
+    from print_handy.core import printer_state
+    monkeypatch.setattr(printer_state, 'spoolman_url', lambda st=None: 'http://spoolman.test:8000')
+    text = asyncio.run(prepared_intake._spool_projection_text(_projection_mj(), {}, {}, {}, 1))
+    assert text.startswith('Filament check skipped: Spoolman didn\'t answer')
+    assert 'print can still start' in text
+
+
+def test_spool_projection_stays_quiet_without_spoolman(monkeypatch):
+    from print_handy.core import printer_state
+    monkeypatch.setattr(printer_state, 'spoolman_url', lambda st=None: '')
+    text = asyncio.run(prepared_intake._spool_projection_text(_projection_mj(), {}, {}, {}, 1))
+    assert text == ''
+
+
+def test_slice_refusal_fix_failure_names_the_slot_and_the_real_remedy(env, monkeypatch):
+    # #839: apply_fix only writes the local slot record, so the old text's
+    # "Set the spool with /spool" named the wrong remedy. The failure post
+    # names the slot and the /spool form that records its spool.
+    from print_handy.core import slice_refusal
+    real_slice = model_job.slice_job
+    calls = []
+
+    def refuse_once(job_path, *args, **kwargs):
+        calls.append(str(job_path))
+        if len(calls) == 1:
+            raise slice_refusal.unconfirmed_slot_color(
+                1, {'spoolman_id': 16, 'material': 'PLA', 'name': 'Matte white PLA', 'hex': 'FFFFFF'},
+                'selected IFS slot 1 is unverified or its material/spool mapping differs')
+        return real_slice(job_path, *args, **kwargs)
+
+    def broken_fix(fix, **kw):
+        raise OSError('state file is read-only')
+    monkeypatch.setattr(model_job, 'slice_job', refuse_once)
+    monkeypatch.setattr(slice_refusal, 'apply_fix', broken_fix)
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 0], mid='refusal-fix-fails')
+    assert result['reason'] == 'slice refusal fix failed'
+    said = '\n'.join(adapter.sent)
+    assert 'slot 1' in said and '`/spool change 1 <spool#>`' in said
+    assert 'Set the spool with `/spool`' not in said
+    assert env.starts == []
