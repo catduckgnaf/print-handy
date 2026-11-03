@@ -496,7 +496,7 @@
     "type": "process",
     "wall_generator": "classic",
     "wall_infill_order": "inner wall/outer wall/infill",
-    "wall_loops": "1",
+    "wall_loops": "2",
     "wipe_speed": "200",
     "wipe_tower_no_sparse_layers": "0",
     "xy_contour_compensation": "0",
