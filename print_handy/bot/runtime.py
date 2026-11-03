@@ -575,9 +575,10 @@ class BotCore:
             await self.adapter.send(
                 chat_id=self.chat_id,
                 content=(f"Print Handy restarted while a print start was in flight: {file_name} "
-                         f"may or may not have started{extra}. Check the printer; if it never "
-                         "printed, run `python3 -m print_handy.core.model_job "
-                         "reconcile-launch --not-started` to release the printer for new prints."))
+                         f"may or may not have started{extra}. New prints wait until it is settled. "
+                         "That happens by itself when the printer shows that file printing, or about "
+                         "a minute after the printer gives up on it. If new prints stay blocked, "
+                         "ask whoever runs Print Handy to settle it on the server."))
         except Exception:
             logger.exception("could not post the pending-launch notice")
 

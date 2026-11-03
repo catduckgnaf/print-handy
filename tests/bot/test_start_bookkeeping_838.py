@@ -33,7 +33,8 @@ def test_pending_launch_posts_one_notice_naming_file_and_command(cfg):
         launch_state.reset_submitted()  # submitting() sets a process global; do not leak it
     notices = [text for text in discord.sent if "widget_abc123.gcode" in text]
     assert len(notices) == 1
-    assert "reconcile-launch --not-started" in notices[0]
+    assert "New prints wait until it is settled" in notices[0]
+    assert "reconcile-launch" not in notices[0] and "python3 -m" not in notices[0]  # chat users have no shell
 
 
 def test_no_pending_launch_posts_nothing(cfg):

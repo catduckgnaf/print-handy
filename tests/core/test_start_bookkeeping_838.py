@@ -88,6 +88,20 @@ def test_pending_spool_sync_retries_and_clears_the_record(tmp_path, monkeypatch)
     assert "spoolman_usage_pending" not in json.loads((folder / "JOB.json").read_text())
 
 
+def test_pending_spool_sync_finds_a_3mf_delivery_by_the_name_zmod_reports(tmp_path, monkeypatch):
+    # #847 review: ZMod reports a .gcode.3mf upload as 3mf_print/X.gcode; the retry passed
+    # that name to resolve_print_target, which returned it unchanged, and never found the job.
+    folder, g = _job_with_pending(tmp_path, monkeypatch)
+    g.with_suffix(".launch.json").write_text(json.dumps({"file": "plate.gcode.3mf", "phase": "executing"}))
+    monkeypatch.setattr(model_job, "_sync_active_spool",
+                        lambda st, slot: {"spool_id": 11, "changed": True})
+    assert model_job.resolve_print_target("3mf_print/plate.gcode") == str(g)
+    assert model_job.retry_pending_spool_sync("3mf_print/plate.gcode") is True
+    assert "spoolman_usage_pending" not in json.loads((folder / "JOB.json").read_text())
+    # A relative path no upload matches is still returned unchanged, as before.
+    assert model_job.resolve_print_target("out/never-uploaded.gcode") == "out/never-uploaded.gcode"
+
+
 def test_pending_spool_sync_leaves_the_record_when_the_retry_fails(tmp_path, monkeypatch):
     folder, _g = _job_with_pending(tmp_path, monkeypatch)
 

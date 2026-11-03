@@ -6982,8 +6982,12 @@ def resolve_print_target(target, archive=None):
     that was uploaded under that name. Never searches outside the archive, never downloads."""
     raw = str(target)
     p = Path(raw).expanduser()
-    if p.is_absolute() or "/" in raw or p.exists():
+    if p.is_absolute() or p.exists():
         return raw
+    # A printer-reported path for an upload resolves too: ZMod reports a 3MF delivery as
+    # 3mf_print/X.gcode (launch_state.same_remote), and the listener passes that name as is
+    # (#847 review: the pending spool retry and runout slot lookup never found the job).
+    reported = "/" in raw
     archive = Path(archive or ARCHIVE)
     for pat in ("*/sliced/*/*/*.launch.json", "*/sliced/*/*/*.upload.json"):
         for rec in sorted(archive.glob(pat), key=lambda x: x.stat().st_mtime, reverse=True):
@@ -6992,10 +6996,13 @@ def resolve_print_target(target, archive=None):
             except (OSError, ValueError):
                 continue
             item = d.get("item") if isinstance(d.get("item"), dict) else {}
-            if raw in (d.get("file"), d.get("remote"), d.get("remote_name"), item.get("path")):
+            names = [n for n in (d.get("file"), d.get("remote"), d.get("remote_name"), item.get("path")) if n]
+            if raw in names or (reported and any(launch_state.same_remote(raw, n) for n in names)):
                 artifact = rec.with_name(rec.name.split(".", 1)[0] + ".gcode")
                 if artifact.is_file():
                     return str(artifact)
+    if reported:
+        return raw  # a relative local path, as before: the caller reports it missing
     raise SystemExit(f"REFUSED: {raw} is a printer file name, not a local path, and no archived job uploaded a "
                      "file with that name. Pass the job's JOB.json instead. Nothing uploaded or started.")
 
