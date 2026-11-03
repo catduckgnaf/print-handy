@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import subprocess
 
 from .. import diagnostics, logs
+from . import failure_report
 
 
 class SliceFailure(RuntimeError):
@@ -17,21 +18,27 @@ class SliceFailure(RuntimeError):
                   'guard': 'configuration', 'output': 'programming',
                   'recipe': 'configuration'}
 
-    def __init__(self, message, *, kind, slicer=None, returncode=None):
+    def __init__(self, message, *, kind, slicer=None, returncode=None, signature=None, detail=''):
         super().__init__(message)
         self.kind = kind if kind in self.CATEGORIES else 'unknown'
         self.slicer = slicer if slicer in ('OrcaSlicer', 'Bambu Studio', 'Flash Studio',
                                           'OrcaSlicer and Bambu Studio') else 'The slicer'
         self.returncode = returncode if type(returncode) is int else None
         self.diagnostic_category = self.CATEGORIES[self.kind]
+        # What the raising boundary read from the slicer's own logs (failure_report.slicer_evidence):
+        # a known signature id, and at most one short safe sentence of the slicer's words (#817).
+        self.signature = signature if signature in failure_report.SIGNATURE_IDS else None
+        self.detail = failure_report.safe_detail(detail)
 
     def as_dict(self):
-        return {'message': str(self), 'kind': self.kind, 'slicer': self.slicer, 'returncode': self.returncode}
+        return {'message': str(self), 'kind': self.kind, 'slicer': self.slicer, 'returncode': self.returncode,
+                'signature': self.signature, 'detail': self.detail}
 
     @classmethod
     def from_dict(cls, data):
         return cls(str(data.get('message') or 'slice failed'),
-                   kind=data.get('kind'), slicer=data.get('slicer'), returncode=data.get('returncode'))
+                   kind=data.get('kind'), slicer=data.get('slicer'), returncode=data.get('returncode'),
+                   signature=data.get('signature'), detail=data.get('detail') or '')
 
 
 @dataclass(frozen=True)
@@ -39,6 +46,8 @@ class Explanation:
     plain: str
     next_step: str
     retryable: bool = False
+    stage: str = 'slice'
+    category: object = None  # a diagnostics.Category when the cause implies one (marker suffix)
 
 
 GUARD_PREFIX = 'Pre-slice guard blocked:'
@@ -69,6 +78,10 @@ def explain(exc):
     if known is not None:
         return Explanation(known.cause, known.remedy,
                            known.category == diagnostics.Category.TRANSIENT)
+    recognized = failure_report.from_signature(getattr(exc, 'signature', None))
+    if recognized is not None:
+        return Explanation(recognized.cause, recognized.recovery, recognized.retryable, recognized.stage,
+                           recognized.category)
     kind = exc.kind if isinstance(exc, SliceFailure) else None
     name = exc.slicer if isinstance(exc, SliceFailure) else 'The slicer'
     error_type = getattr(exc, 'worker_error_type', type(exc).__name__)
@@ -78,7 +91,8 @@ def explain(exc):
                            'You can retry the slice once without printing. If it happens again, ' + BUNDLE, True)
     if kind == 'engine':
         detail = f' (exit code {exc.returncode})' if exc.returncode is not None else ''
-        return Explanation(f'{name} failed or produced no usable G-code{detail}.',
+        said = f' {name} said: "{exc.detail}"' if getattr(exc, 'detail', '') else ''
+        return Explanation(f'{name} failed or produced no usable G-code{detail}.{said}',
                            BUNDLE + ' The saved slicer logs contain its detailed result.')
     if kind == 'conflict':
         return Explanation(f'{name} detected conflicting toolpaths on the plate.',
@@ -111,11 +125,23 @@ def explain(exc):
                        BUNDLE + ' You can also retry the saved model once without printing.', True)
 
 
+def report(exc):
+    """The failure_report.Report for a slice failure, for receipts (stage, cause, recovery)."""
+    plain = getattr(exc, 'plain', None)
+    if isinstance(plain, str) and plain:  # a SliceRefusal carries its own plain-language reason
+        return failure_report.Report('slice', plain, getattr(exc, 'next_step', None) or BUNDLE,
+                                     failure_report.Submitted.NOTHING, False, None)
+    info = explain(exc)
+    return failure_report.Report(info.stage, info.plain, info.next_step, failure_report.Submitted.NOTHING,
+                                 info.retryable, getattr(exc, 'signature', None))
+
+
 def post(exc, *, retry_failed=False):
     info = explain(exc)
-    first = ('The one retry also failed. ' if retry_failed else '') + info.plain
+    first = (('The one retry also failed. ' if retry_failed else '')
+             + f'Stage: {failure_report.STAGES[info.stage]}. ' + info.plain)
     # A second failure never offers another retry, even for a transient cause.
     next_step = BUNDLE if retry_failed and info.retryable else info.next_step
     return diagnostics.plain_post(first,
         not_happened='No G-code was kept, and nothing was uploaded or started.',
-        next_step=next_step, subsystem='slicing', exc=exc)
+        next_step=next_step, subsystem='slicing', exc=exc, category=info.category)

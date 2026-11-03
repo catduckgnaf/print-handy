@@ -6066,7 +6066,7 @@ def alert_button_handlers(bot, adapter):
         raw = intake._raw_preupload_refusal(detail)
         logger.warning('print retry refused detail=%s', intake.logs.redact(raw or detail))
         if intake._safe_preupload_refusal(detail):
-            await interaction.message.edit(content=intake._refusal_text(detail), view=retry_view())
+            await interaction.message.edit(content=intake._launch_refusal_text(detail), view=retry_view())
         else:
             receipt.update(status='START_UNCERTAIN', uploaded=None, started=None,
                            start_refusal_detail=str(detail))
