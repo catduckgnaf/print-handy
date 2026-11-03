@@ -829,6 +829,68 @@ def _spawn_slicer(command, *, timeout, cwd):
         timer.cancel()
 
 
+_CORE_3MF_NS = 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'
+
+
+def default_core_namespace(model_bytes):
+    """Return a 3MF model part with its core namespace bound to the default namespace (#814).
+
+    Orca and Bambu Studio read 3MF through expat without namespace processing, so they compare raw
+    element names ("model", "build", "item"). A file whose core elements are prefixed (<ns0:model
+    xmlns:ns0="...core/2015/02">) is valid XML but invisible to them: no build item is found. When
+    the root binds the core namespace to a prefix and declares no default namespace, drop that prefix
+    from element tags and declare the core namespace as the default instead. Other namespaces,
+    attributes and every other byte are left as they were; any other input is returned unchanged.
+    Applied only to the private copy handed to the slicer, never to the user's source file.
+    """
+    root = re.search(rb'<(\w+):model\b[^>]*>', model_bytes)
+    if root is None:
+        return model_bytes
+    start = root.group(0)
+    if re.search(rb'\sxmlns\s*=', start):
+        return model_bytes
+    core = re.escape(_CORE_3MF_NS.encode())
+    prefixes = {m.group(1) for m in re.finditer(rb'\sxmlns:(\w+)\s*=\s*(?:"' + core + rb'"|\'' + core + rb'\')', start)}
+    if root.group(1) not in prefixes:
+        return model_bytes
+    out = model_bytes
+    for prefix in prefixes:
+        out = re.sub(rb'(</?)' + re.escape(prefix) + rb':', rb'\1', out)
+    declared = []
+
+    def declaration(match):
+        if match.group(1) not in prefixes:
+            return match.group(0)
+        declared.append(1)
+        return b' xmlns="' + _CORE_3MF_NS.encode() + b'"' if len(declared) == 1 else b''
+
+    head = re.search(rb'<model\b[^>]*>', out)
+    fixed = re.sub(rb'\sxmlns:(\w+)\s*=\s*(?:"[^"]*"|\'[^\']*\')', declaration, head.group(0))
+    return out[:head.start()] + fixed + out[head.end():]
+
+
+def normalize_3mf_core_namespace(path):
+    """Rewrite every .model part of the 3MF at path through default_core_namespace, in place.
+
+    Only touches the archive when some part changes; entry order, names and other bytes are kept.
+    """
+    with zipfile.ZipFile(path) as archive:
+        entries = [(info, archive.read(info.filename)) for info in archive.infolist()]
+    changed = False
+    for index, (info, data) in enumerate(entries):
+        if info.filename.lower().endswith('.model'):
+            fixed = default_core_namespace(data)
+            if fixed != data:
+                entries[index] = (info, fixed)
+                changed = True
+    if not changed:
+        return False
+    with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as out:
+        for info, data in entries:
+            out.writestr(info.filename, data)
+    return True
+
+
 _BAMBU_NOT_INSTALLED = ('the Bambu Studio fallback slicer is not installed in this image, '
                         'so there was no second attempt')
 
@@ -1482,6 +1544,9 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         input_path = private
         command[-1] = str(private)
     if input_path.suffix.lower() == '.3mf':
+        # Every 3MF the slicer reads is a private copy here (orca_input.3mf or a derived
+        # geometry.3mf): give prefixed core elements the raw names the slicer expects (#814).
+        normalize_3mf_core_namespace(input_path)
         # Bambu's -1 auto sentinels are invalid in Orca 2.4. Normalize these
         # two known compatibility keys plus foreign motion provenance only on
         # the private working copy, never the original source.

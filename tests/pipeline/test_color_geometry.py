@@ -628,3 +628,37 @@ def test_build_item_edits_see_prefixed_core_items(tmp_path):
     item = ET.fromstring(out).find(f'{{{CORE_NS}}}build/{{{CORE_NS}}}item')
     assert item.get('printable') == '1'
     assert [float(v) for v in item.get('transform').split()][9:] == [55.0, 60.0, 0.0]
+
+
+def test_default_core_namespace_gives_the_slicer_raw_element_names(tmp_path):
+    from print_handy.core.orca_adapter import default_core_namespace, normalize_3mf_core_namespace
+    path = _prefixed_assembly(tmp_path / 'ns0.3mf')
+    with zipfile.ZipFile(path) as archive:
+        original = archive.read('3D/3dmodel.model')
+    fixed = default_core_namespace(original)
+    assert fixed.startswith(b'<?xml version="1.0" encoding="UTF-8"?><model xmlns="' + CORE_NS.encode() + b'"')
+    assert b'ns0' not in fixed
+    root = ET.fromstring(fixed)
+    ns = {'c': CORE_NS}
+    objects = {node.get('id') for node in root.findall('c:resources/c:object', ns)}
+    assert objects == {'1', '2'}
+    assert [i.get('objectid') for i in root.findall('c:build/c:item', ns)] == ['1']
+    # The archive helper rewrites the copy it is given and reports it.
+    assert normalize_3mf_core_namespace(path) is True
+    with zipfile.ZipFile(path) as archive:
+        assert archive.read('3D/3dmodel.model') == fixed
+    assert normalize_3mf_core_namespace(path) is False
+
+
+def test_default_core_namespace_keeps_other_prefixes_and_default_files_byte_identical():
+    from print_handy.core.orca_adapter import default_core_namespace
+    prefixed = (f'<ns0:model xmlns:ns0="{CORE_NS}" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/'
+                'production/2015/06"><ns0:build><ns0:item objectid="1" p:path="/3D/o.model"/></ns0:build></ns0:model>').encode()
+    fixed = default_core_namespace(prefixed)
+    assert b'<model xmlns="' in fixed and b'xmlns:p="' in fixed and b'p:path="/3D/o.model"' in fixed
+    assert b'ns0' not in fixed and b'<build><item objectid="1"' in fixed
+    plain = f'<model xmlns="{CORE_NS}"><build><item objectid="1"/></build></model>'.encode()
+    assert default_core_namespace(plain) is plain
+    # A prefix bound to something else, beside a default core namespace, is not touched.
+    other = f'<model xmlns="{CORE_NS}" xmlns:x="urn:x"><x:a/></model>'.encode()
+    assert default_core_namespace(other) == other
