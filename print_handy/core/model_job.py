@@ -4013,6 +4013,41 @@ def single_color_groups(job, manifest):
     return [{'slot': slot, 'part_keys': keys} for slot, keys in sorted(groups.items(), key=lambda row: row[0])]
 
 
+def refuse_assembly_split(src, manifest, groups, st):
+    """Refuse, before any plate is exported, a split that would cut one build object.
+
+    The printable flag selects whole build objects, so an assembly (one
+    object holding parts of several slots) cannot be divided across the
+    per-slot plates; export_single_color_plate would only refuse later with
+    an internal-looking error (#820). Raises a classified SliceRefusal that
+    names the model's size against the bed and the way out.
+    """
+    slots_by_object = {}
+    for group in groups:
+        keys = set(group['part_keys'])
+        for part in manifest.get('parts') or []:
+            if part['key'] in keys:
+                slots_by_object.setdefault(str(part['object_id']), set()).add(group['slot'])
+    shared = sorted(oid for oid, slots in slots_by_object.items() if len(slots) > 1)
+    if not shared:
+        return
+    size = None
+    try:
+        from .color_geometry import _world_bounds
+        with zipfile.ZipFile(src) as archive:
+            boxes = _world_bounds(archive, set(shared))
+        size = [max(b[axis][1] for b in boxes) - min(b[axis][0] for b in boxes) for axis in range(3)]
+    except Exception:
+        size = None  # the size is a courtesy in the message, never a reason to fail differently
+    bed = (st.get('bed_mm') or [None, None])[:2]
+    from .slice_refusal import assembly_cannot_split
+    raise assembly_cannot_split(
+        len({slot for oid in shared for slot in slots_by_object[oid]}), size,
+        bed if all(bed) else None,
+        f"build object(s) {','.join(shared)} hold parts of more than one slot and the colors do not fit "
+        "one plate; an assembly cannot be split per slot. Nothing sliced")
+
+
 def _per_part_view(manifest, decisions):
     """Exact per-part decisions for the geometry exporters.
 
@@ -5257,6 +5292,7 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         groups = single_color_groups(job, manifest)
         if not groups:
             raise RuntimeError('per-part decision did not resolve any single-color plate')
+        refuse_assembly_split(src, manifest, groups, st)
         # Every slot group is sliced. The loaded spool is a launch fact, not a
         # reason to drop a plate that already names its own slot.
         from .color_geometry import export_single_color_plate
