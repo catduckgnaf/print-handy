@@ -544,7 +544,9 @@ MAPPED_CASES = {
                   False, [], None, "START_REFUSED"),
     "readback_wait_raises": (lambda m: dict(wait=http_error(503, "Service Unavailable")),
                              True, ["uncertain"], "preparing_or_unresolved", "START_PENDING"),
-    "readback_still_heating": (lambda m: dict(heating=True), True, [], "preparing", "STARTED"),
+    # #836: preparation evidence is provisional — the lease stays uncertain until the printer
+    # reports this file printing; it is no longer released on heater targets alone.
+    "readback_still_heating": (lambda m: dict(heating=True), True, ["uncertain"], "preparing", "STARTED"),
     "readback_idle": (lambda m: dict(), True, ["uncertain"], "preparing_or_unresolved", "START_PENDING"),
     "readback_printing": (lambda m: dict(printing=True), True, [], "executing", "STARTED"),
 }
@@ -573,7 +575,9 @@ def test_mapped_native_failure_table(case, mapped, monkeypatch, capsys, patch):
         patch(model_job, "_wait_printing", mock.Mock(side_effect=options["wait"]))
     if options.get("printing"):
         patch(model_job, "_wait_printing", lambda *a, **k: "printing")
-    model_job._preparation_evidence.return_value = bool(options.get("heating"))
+    # #836: heater evidence is read immediately before the POST too, and a timeless mock would
+    # answer that read with the post-POST state. Evidence counts only once the POST has gone out.
+    model_job._preparation_evidence.side_effect = lambda st: bool(posts) and bool(options.get("heating"))
     jp, g = make_job(mapped.root, "a")
     job = json.loads(jp.read_text())
     ok, tail, full = run_cli(monkeypatch, capsys, lambda: model_job.print_mapped_native(
@@ -592,8 +596,12 @@ def test_mapped_native_failure_table(case, mapped, monkeypatch, capsys, patch):
     assert checkpoint["lease_token"]
     if status == "START_REFUSED":
         assert "rejected the start request" in message and checkpoint["phase"] == "rejected"
-    if want_leases == ["uncertain"]:
+    if want_leases == ["uncertain"] and want_phase == "preparing_or_unresolved":
         assert model_job._read_claims() == {}
+    if want_phase == "preparing":
+        # #836: a provisional preparing start was announced by this path, so its claim stays
+        # held for the listener's warmup/abandoned edits; only the lease stays uncertain.
+        assert model_job._read_claims() != {}
 
 
 def want_ok(case):
@@ -616,6 +624,181 @@ def test_item5_mapped_readback_error_is_uncertain_not_a_traceback(mapped, monkey
     text = capsys.readouterr().out
     assert out["phase"] == "preparing_or_unresolved" and "UNCERTAIN: the start was sent" in text
     assert "MAPPED START READBACK" in text and phases() == ["uncertain"] and model_job._read_claims() == {}
+
+
+# --------------------------------------------------------------------------- #836: start truthfulness
+
+def test_836_a_preheat_during_the_upload_refuses_before_sending(mapped, monkeypatch, patch):
+    """The idle guard proved the heaters off before the upload; a preheat landing during the
+    upload (HelixScreen) is caught by the re-read immediately before the POST, and the start
+    is refused unsent instead of being credited with someone else's heater targets."""
+    heated = {"on": False}
+    real_run = mapped.run.side_effect
+
+    def upload_then_preheat(cmd, *args, **kwargs):
+        result = real_run(cmd, *args, **kwargs)
+        if len(cmd) >= 4 and cmd[1] == "upload":
+            heated["on"] = True
+        return result
+    mapped.run.side_effect = upload_then_preheat
+    model_job._preparation_evidence.side_effect = lambda st: heated["on"]
+    jp, g = make_job(mapped.root, "a")
+    with pytest.raises(SystemExit, match="heaters are already on"):
+        model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1},
+                                      json.loads(jp.read_text()), jp, 0, False)
+    assert mapped.scripts == [] and len(uploads(mapped.run)) == 1  # uploaded, but never sent
+    assert phases() == [] and model_job._read_claims() == {}
+    assert json.loads(g.with_suffix(".launch.json").read_text())["phase"] == "not_submitted"
+
+
+def test_836_a_lost_post_is_not_credited_when_the_pre_post_baseline_was_unproven(mapped, patch):
+    """The re-read immediately before the POST could not prove the heaters were off (None), so
+    heater targets after a lost POST response are not this job's evidence: unresolved, not
+    preparing. (Before #836 the mapped path passed heaters_were_off=True unconditionally.)"""
+    original = model_job._mr.side_effect
+    posts = []
+
+    def mr(st, path, data=None, timeout=30):
+        if path == "/printer/gcode/script":
+            posts.append(data["script"])
+            raise TimeoutError("timed out")
+        return original(st, path, data=data, timeout=timeout)
+    model_job._mr.side_effect = mr
+    # Unreadable before the POST (no baseline proven), on after it. The old code never read the
+    # pre-POST baseline and credited the "on" read; the fix passes the real baseline through.
+    model_job._preparation_evidence.side_effect = lambda st: True if posts else None
+    jp, g = make_job(mapped.root, "a")
+    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1},
+                                        json.loads(jp.read_text()), jp, 0, False)
+    assert out["phase"] == "preparing_or_unresolved" and out["accepted"] is False
+    assert phases() == ["uncertain"] and len(posts) == 1
+
+
+def test_836_a_bang_bang_gcode_store_reply_is_a_refusal(mapped, patch):
+    """Klipper answers a failed SET_ZCOLOR with HTTP 200 and a `!!` line in the gcode store.
+    The receipt is inspected: START_REFUSED naming the `!!` text, checkpoint rejected, lease
+    released, exactly one POST."""
+    original = model_job._mr.side_effect
+    posts = []
+
+    def mr(st, path, data=None, timeout=30):
+        if path == "/printer/gcode/script":
+            posts.append(data["script"])
+            return {"result": "ok"}
+        if path.startswith("/server/gcode_store"):
+            # The store only gains the `!!` line once the POST has gone out: the watermark is
+            # captured from the store immediately before the POST, so a stateless store that
+            # always showed the line would (correctly) read as a pre-submission error.
+            entries = [{"message": '!! Unknown command:"SET_ZCOLOR"', "time": time.time()}] if posts else []
+            return {"result": {"gcode_store": entries}}
+        return original(st, path, data=data, timeout=timeout)
+    model_job._mr.side_effect = mr
+    jp, g = make_job(mapped.root, "a")
+    with pytest.raises(SystemExit, match=r"REFUSED: the printer rejected the start request \(!! Unknown command"):
+        model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1},
+                                      json.loads(jp.read_text()), jp, 0, False)
+    assert len(posts) == 1 and phases() == [] and model_job._read_claims() == {}
+    assert json.loads(g.with_suffix(".launch.json").read_text())["phase"] == "rejected"
+
+
+def test_836_a_bang_bang_line_in_the_receipt_itself_is_a_refusal(mapped, patch):
+    """The `!!` line can also ride in the POST receipt itself; no gcode-store read is needed."""
+    original = model_job._mr.side_effect
+    posts = []
+
+    def mr(st, path, data=None, timeout=30):
+        if path == "/printer/gcode/script":
+            posts.append(data["script"])
+            return {"result": '!! Unknown command:"SET_ZCOLOR"'}
+        return original(st, path, data=data, timeout=timeout)
+    model_job._mr.side_effect = mr
+    jp, g = make_job(mapped.root, "a")
+    with pytest.raises(SystemExit, match=r"REFUSED: the printer rejected the start request \(!! Unknown command"):
+        model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1},
+                                      json.loads(jp.read_text()), jp, 0, False)
+    assert len(posts) == 1 and phases() == []
+    assert json.loads(g.with_suffix(".launch.json").read_text())["phase"] == "rejected"
+
+
+def _store_reply(entries):
+    return {"result": {"gcode_store": list(entries)}}
+
+
+def test_848_start_receipt_error_attributes_by_watermark_not_by_clock():
+    """Codex P1 on #848: a `!!` line logged just before the POST (inside the old 5 s window)
+    belongs to an earlier problem and must not refuse this start, and a `!!` line logged after
+    the POST must refuse it even when its timestamp is old (printer/host clock skew). Only the
+    gcode-store watermark captured before the POST separates the two — never a timestamp."""
+    now = time.time()
+    before = {"message": "!! Must home axis first", "time": now - 1}  # 1 s before the send
+    after_skewed = {"message": '!! Unknown command:"SET_ZCOLOR"', "time": now - 3600}  # skewed clock
+    with mock.patch.object(model_job, "_mr", side_effect=[
+            _store_reply([before]), _store_reply([before])]):
+        watermark = model_job._gcode_store_watermark({})
+        assert model_job._start_receipt_error({}, {"result": "ok"}, watermark=watermark) is None
+    with mock.patch.object(model_job, "_mr", side_effect=[
+            _store_reply([before]), _store_reply([before, {"message": "echo: all good", "time": now},
+                                                  after_skewed])]):
+        watermark = model_job._gcode_store_watermark({})
+        assert model_job._start_receipt_error({}, {"result": "ok"}, watermark=watermark) \
+            == '!! Unknown command:"SET_ZCOLOR"'
+    # No watermark (the store was unreadable before the POST): store lines are not attributed
+    # to this submission at all — no evidence, never a refusal.
+    with mock.patch.object(model_job, "_mr", side_effect=OSError("offline")):
+        assert model_job._gcode_store_watermark({}) is None
+    with mock.patch.object(model_job, "_mr", return_value=_store_reply([after_skewed])):
+        assert model_job._start_receipt_error({}, {"result": "ok"}, watermark=None) is None
+    # An unreadable readback store is likewise no evidence.
+    with mock.patch.object(model_job, "_mr", side_effect=[_store_reply([before]), OSError("offline")]):
+        watermark = model_job._gcode_store_watermark({})
+        assert model_job._start_receipt_error({}, {"result": "ok"}, watermark=watermark) is None
+    # A `!!` line in the receipt itself still refuses, watermark or not.
+    with mock.patch.object(model_job, "_mr", side_effect=OSError("offline")):
+        assert model_job._start_receipt_error({}, {"result": '!! Unknown command:"SET_ZCOLOR"'},
+                                              watermark=None) == '!! Unknown command:"SET_ZCOLOR"'
+
+
+def test_848_a_bang_line_logged_just_before_the_post_is_not_this_starts_refusal(mapped, patch):
+    """End to end on the mapped path: an unrelated console error 1 s before the SET_ZCOLOR POST
+    (the old code's 5 s window blamed it) does not refuse a start the printer goes on to print."""
+    store = [{"message": "!! Must home axis first", "time": time.time()}]  # already in the store pre-POST
+    original = model_job._mr.side_effect
+
+    def mr(st, path, data=None, timeout=30):
+        if path.startswith("/server/gcode_store"):
+            return _store_reply(store)
+        return original(st, path, data=data, timeout=timeout)
+    model_job._mr.side_effect = mr
+    patch(model_job, "_wait_printing", lambda *a, **k: "printing")
+    jp, g = make_job(mapped.root, "a")
+    out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1},
+                                        json.loads(jp.read_text()), jp, 0, False)
+    assert out["started"] is True and out["phase"] == "executing"
+    assert len(mapped.scripts) == 1
+
+
+def test_848_a_bang_line_after_the_post_refuses_even_with_a_skewed_old_timestamp(mapped, patch):
+    """The `!!` answer to the POST carries a timestamp an hour before the send (clock skew):
+    the old time filter skipped it and waited out a pending start; the watermark counts it,
+    because it entered the store after the watermark was captured."""
+    store, posts = [], []
+    original = model_job._mr.side_effect
+
+    def mr(st, path, data=None, timeout=30):
+        if path == "/printer/gcode/script":
+            posts.append(data["script"])
+            store.append({"message": '!! Unknown command:"SET_ZCOLOR"', "time": time.time() - 3600})
+            return {"result": "ok"}
+        if path.startswith("/server/gcode_store"):
+            return _store_reply(store)
+        return original(st, path, data=data, timeout=timeout)
+    model_job._mr.side_effect = mr
+    jp, g = make_job(mapped.root, "a")
+    with pytest.raises(SystemExit, match=r"REFUSED: the printer rejected the start request \(!! Unknown command"):
+        model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1},
+                                      json.loads(jp.read_text()), jp, 0, False)
+    assert len(posts) == 1 and phases() == [] and model_job._read_claims() == {}
+    assert json.loads(g.with_suffix(".launch.json").read_text())["phase"] == "rejected"
 
 
 # --------------------------------------------------------------------------- item 3: the checkpoint

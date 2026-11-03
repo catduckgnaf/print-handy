@@ -2145,6 +2145,138 @@ def start_claimed(filename, now=None):
     return start_claim_time(filename, now) is not None
 
 
+def claimed_start_filenames(now=None):
+    """The unexpired claimed start files, as print-now recorded them (the uploaded names)."""
+    now = time.time() if now is None else now
+    try:
+        claims = json.loads(START_CLAIMS.read_text())
+    except (OSError, ValueError):
+        return []
+    if not isinstance(claims, dict):
+        return []
+    return [name for name, ts in claims.items()
+            if isinstance(ts, (int, float)) and 0 <= now - ts < START_CLAIM_TTL_S]
+
+
+def release_start_claim(filename):
+    """Drop this file's start claim (the listener's counterpart of model_job's release).
+
+    Matching follows start_claim_time: print-now claims the uploaded name, the printer
+    reports its own path for the same file."""
+    try:
+        claims = json.loads(START_CLAIMS.read_text())
+    except (OSError, ValueError):
+        return
+    if not isinstance(claims, dict):
+        return
+    from ..core.launch_state import same_remote
+    name = str(filename or "")
+    kept = {key: ts for key, ts in claims.items()
+            if not (key == Path(name).name or same_remote(name, key) or same_remote(Path(name).name, key))}
+    if len(kept) != len(claims):
+        try:
+            tmp = START_CLAIMS.with_suffix(".tmp")
+            tmp.write_text(json.dumps(kept))
+            os.replace(tmp, START_CLAIMS)
+        except OSError:
+            pass
+
+
+# A claimed start that never became a print: print_stats reads standby/error with both heater
+# targets at 0, sustained this long, before the listener calls it abandoned (#836). Shorter
+# cold reads are just the gap between the start card and warmup.
+ABANDONED_START_COLD_S = 60.0
+ABANDONED_START_MESSAGE = ("The printer stopped preparing this job without printing. "
+                           "Check the IFS slot / HelixScreen.")
+
+
+class AbandonedStartWatch:
+    """Tracks claimed starts that have not become prints, one cold window per claimed file.
+
+    Pure observation in, one decision out: `observe` returns True exactly once per claim for
+    a claimed file whose printer reads standby/error with both heater targets at 0 for
+    ABANDONED_START_COLD_S. Each outstanding claim keeps its own window: the poll feeds every
+    claim the same printer read (an empty reported filename matches them all), and one claim's
+    reads must never reset another claim's window (#848 — with a single shared window, two
+    outstanding claims alternately reset each other and neither was ever reported). Any
+    heater target or an unreadable target restarts that claim's window only — neither is
+    evidence a start was abandoned. A printing/paused read retires the claim's window
+    outright: that start took, so its later idle reads are a finished print's story, not an
+    abandoned start's. `retire` drops a claim the poll has released, and `retain` drops
+    windows for claims that are no longer outstanding, so a later claim of the same file
+    always starts a fresh window.
+    """
+
+    def __init__(self):
+        self._claims = {}  # filename -> {"cold_since": float | None, "announced": bool}
+
+    def observe(self, filename, state, extruder_target, bed_target, now=None):
+        if not filename:
+            return False
+        now = time.time() if now is None else now
+        if state in ("printing", "paused"):
+            self._claims.pop(filename, None)  # this claim's start took: retire its window
+            return False
+        claim = self._claims.setdefault(filename, {"cold_since": None, "announced": False})
+        cold = (state in ("standby", "error")
+                and extruder_target is not None and bed_target is not None
+                and float(extruder_target) == 0.0 and float(bed_target) == 0.0)
+        if not cold:
+            claim["cold_since"] = None
+            return False
+        if claim["cold_since"] is None:
+            claim["cold_since"] = now
+            return False
+        if not claim["announced"] and now - claim["cold_since"] >= ABANDONED_START_COLD_S:
+            claim["announced"] = True
+            return True
+        return False
+
+    def retire(self, filename):
+        """Drop one claim's window (it fired, or its claim was released another way)."""
+        self._claims.pop(filename, None)
+
+    def retain(self, filenames):
+        """Drop the windows of files that are no longer outstanding claims."""
+        outstanding = set(filenames)
+        for filename in list(self._claims):
+            if filename not in outstanding:
+                del self._claims[filename]
+
+
+def announce_start_abandoned(filename):
+    """A claimed start never became a print: edit its one start card, never post another.
+
+    Mirrors announce_warmup_done: the recorded start message id is consumed, so the edit
+    happens at most once, and with no recorded id the start post is left as is.
+    """
+    message_id = None
+    channel_id = None
+    try:
+        from . import print_next
+        message_id, channel_id = print_next.take_start_message_target(filename)
+    except Exception as exc:
+        log(f"start message lookup failed file={filename!r}: {exc!r}")
+    if not message_id:
+        log(f"no recorded start message; abandoned start not edited file={filename!r}")
+        return False
+    text = print_summary.format_event("started", filename)
+    line = _objects_line(filename)
+    if line:
+        text += "\n" + line
+    text += "\n" + ABANDONED_START_MESSAGE
+    try:
+        from . import print_alert_buttons as pab
+        if pab.edit_message(_bot_token(), channel_id or announcer.DISCORD_CHAT_ID,
+                            message_id, text):
+            log(f"start message edited (abandoned) id={message_id} file={filename!r}")
+            return True
+    except Exception as exc:
+        log(f"start message edit error id={message_id}: {exc!r}")
+    log(f"start message edit failed id={message_id}; leaving the start post as is")
+    return False
+
+
 def announce_warmup_done(filename):
     """A claimed start already has its one "Print started" post: edit it, never post another.
 
@@ -2686,6 +2818,7 @@ class Listener:
         self.maintenance_last_check = 0.0
         self.clock_watch = printer_clock.PrinterClockWatch(
             lambda: printer_clock.read_clock_skew(_config.moonraker_url(), api_key=announcer.API_KEY))
+        self.abandoned_watch = AbandonedStartWatch()  # #836: claimed starts that never print
         self.last_clock_check = 0.0
         self.clock_sync_retry_at = 0.0
         self.last_pause_was_runout = False
@@ -2767,6 +2900,55 @@ class Listener:
                 await asyncio.to_thread(self.clock_watch.delivered, message)
             else:
                 log("printer clock watch message not delivered; the watch will offer it again")
+
+    async def poll_abandoned_starts(self):
+        """Report a claimed start that never became a print (#836).
+
+        A start the printer accepted can still be abandoned during preparation
+        (heat, IFS load fault, back to standby with cold heaters): the start
+        card would otherwise say "Print started, warming up" forever. For each
+        claimed file, read print_stats and the heater targets; the watch fires
+        once after ABANDONED_START_COLD_S of standby/error with both targets 0,
+        and then the one start card is edited and the claim released. Each
+        outstanding claim is watched with its own cold window (#848), and
+        windows for claims that are no longer outstanding are retired first.
+        Fail-soft like the polls beside it: an unreadable printer changes
+        nothing.
+        """
+        claims = claimed_start_filenames()
+        self.abandoned_watch.retain(claims)
+        for filename in claims:
+            try:
+                reply = await asyncio.to_thread(
+                    print_control._call, "/printer/objects/query?print_stats&extruder&heater_bed")
+                status = (reply.get("result") or {}).get("status") or {}
+            except Exception as exc:
+                log(f"abandoned start poll failed file={filename!r}: {exc!r}")
+                continue
+            stats = status.get("print_stats") or {}
+            reported = stats.get("filename") or ""
+            if reported and not launch_state.same_remote(reported, filename):
+                continue  # the printer is reporting another file; this claim is not its story
+            def target(name):
+                value = (status.get(name) or {}).get("target")
+                return float(value) if isinstance(value, (int, float)) else None
+            if self.abandoned_watch.observe(filename, stats.get("state"),
+                                            target("extruder"), target("heater_bed")):
+                log(f"claimed start never became a print file={filename!r}")
+                await asyncio.to_thread(announce_start_abandoned, filename)
+                await asyncio.to_thread(release_start_claim, filename)
+                self.abandoned_watch.retire(filename)
+                await asyncio.to_thread(self._release_abandoned_lease, filename)
+
+    def _release_abandoned_lease(self, filename):
+        """The printer gave up on this start: free the printer for the next one (#848 review)."""
+        from .. import listeners as _listeners
+        try:
+            row = launch_state.release_abandoned(_listeners.instance_printer_id(), filename)
+            if row:
+                log(f"launch lease released: the printer abandoned {filename!r} without printing")
+        except Exception as exc:
+            log(f"abandoned launch lease release failed file={filename!r}: {exc!r}")
 
     async def poll_spoolman_new_spools(self):
         """Prompt once per spool created in Spoolman outside Print Handy (#483).
@@ -3619,6 +3801,10 @@ class Listener:
                 if time.monotonic() - self.last_native_poll >= NATIVE_POLL_SECONDS:
                     self.last_native_poll = time.monotonic()
                     await self.poll_native_presence()
+                    try:
+                        await self.poll_abandoned_starts()
+                    except Exception as exc:
+                        log(f"abandoned start poll failed: {exc!r}")
                     try:
                         await self.poll_spoolman_new_spools()
                     except Exception as exc:

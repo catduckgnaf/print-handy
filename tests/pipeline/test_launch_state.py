@@ -559,7 +559,9 @@ def test_screenless_set_zcolor_timeout_during_warmup_is_not_a_refusal(mapped, mo
         return original(st, path, data=data, timeout=timeout)
 
     model_job._mr.side_effect = held_open
-    model_job._preparation_evidence.return_value = heating
+    # #836: the mapped path re-reads heater evidence immediately before the POST; that read must
+    # see the heaters as they were before the POST went out (off), not the warmup that follows it.
+    model_job._preparation_evidence.side_effect = lambda st: bool(mapped.scripts) and heating
     out = model_job.print_mapped_native(g, mapped.st, {"display_off": 1}, {"0": 1}, job, jp, 0, False)
     assert len(mapped.scripts) == 1  # never resubmitted
     claims = model_job._read_claims()
