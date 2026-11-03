@@ -332,6 +332,17 @@ the operator can see at a glance what was taken out before attaching it
 to a public issue. The diagnostics bundle's config summary and log
 sections use the same sanitizer and carry the same report.
 
+## Stage, cause and recovery for every model failure (#817)
+
+A model failure posted to chat used to be "stopped before it was ready" or a slicer exit code. Every model failure now comes from one classification, `print_handy/core/failure_report.py`, and says four things:
+
+- **Stage:** where it stopped: intake, parse, repair, color plan, plate plan, slice, upload or launch (`Stage: parse.`).
+- **Cause:** in plain words, written by Print Handy from a recognized pattern. Known slicer signatures include an unreadable 3MF (Orca "can not find object id", "Invalid 3MF format", return code -6), a model outside the build volume, an empty plate, thin features Orca cannot slice, and an out-of-memory slicer.
+- **Recovery:** the one thing to do next.
+- **What was submitted:** "Nothing was uploaded or started." when the failure happened before anything left Print Handy, "The file is on the printer, but nothing is printing." when the printer rejected the start, and "The printer may already have the file or have started it" when the outcome is unknown (an upload or launch that was not confirmed).
+
+The generic "Preparing that model stopped before it was ready." lead is kept only for a failure nothing recognizes, and it still names the stage and the bundle step. A slicer failure with no known signature says what the slicer reported only when that is one short sentence with no path, file name or traceback in it; otherwise nothing from the slicer's text is quoted. The raw logs stay in the archived failure folder (`<hermes_home>/state/slice-failures/<id>/`), and the Web UI status page lists the newest folders under "Recent model failures". Each receipt records the classification under `failure` (stage, cause, recovery, submitted, signature). A corpus guard (`tests/corpus/test_failure_messages.py`) fails if a known-bad corpus model ends in the generic message.
+
 ## Audit inventory (Stage 1)
 
 User-facing failure/warning surfaces, audited against the bar above.

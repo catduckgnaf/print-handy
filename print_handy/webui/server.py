@@ -338,6 +338,17 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
             '<button name="action" value="on" type="submit">Turn on</button> '
             '<button name="action" value="off" type="submit">Turn off</button>'
             "</form>")
+    failures = snap.get("slice_failures") or []
+    failures_table = ""
+    if failures:
+        failures_table = (
+            "<h2>Recent model failures</h2><p>The raw slicer logs of a failed model are kept in these "
+            "folders on the host; a chat failure post names the stage and cause, and these hold the "
+            "detail to attach to a bug report.</p><table><tr><th>folder</th><th>modified</th></tr>"
+            + "".join(f"<tr><td>{esc(row['path'])}</td><td>"
+                      f"{esc(time.strftime('%Y-%m-%d %H:%M', time.localtime(row['modified'])))}</td></tr>"
+                      for row in failures)
+            + "</table>")
     main_rows = "".join(
         f"<tr><th>{esc(label)}</th><td>{esc(str(value))}</td></tr>" for label, value in rows)
     warns = sum(1 for row in snap["doctor"] if row["status"] == "warn")
@@ -365,6 +376,7 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
             + roster_table
             + (f"<h2>Services</h2><table>{services}</table>" if services else "")
             + f"<h2>Doctor checks</h2><table>{doctor}</table>"
+            + failures_table
             + debug_section)
     return shell.page("status", body, path="/", theme=theme, banner=banner)
 
