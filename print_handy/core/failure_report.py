@@ -103,9 +103,44 @@ _SIGNATURES = (
         "Re-export the model as a fresh 3MF (or send the STL) from the program that made it, "
         "then send it again." + _BUNDLE_TAIL),
     _signature_row(
+        "no_volume", "parse",
+        r"no printable volume|zero-volume|empty triangle table|no printable mesh objects",
+        "This file has no solid volume. The mesh is flat, zero-thickness or empty, so there "
+        "is nothing to print.",
+        "Re-export the model as a solid, closed mesh (give it real thickness), then send it again."),
+    _signature_row(
+        "bad_3mf_structure", "parse",
+        r"unresolved 3mf|cyclic 3mf|3mf component cycle|missing 3mf object|ambiguous 3mf object"
+        r"|duplicate (or missing )?3mf|invalid 3mf (plate|build|filament|transform)|3mf metadata"
+        r"|3mf has no plate assignments|plate assignments|3mf object count|3mf plate",
+        "The 3MF file's internal structure is inconsistent (for example a part that refers to "
+        "an object that is missing or loops back on itself), so its parts cannot be told apart.",
+        "Re-export the model as a fresh 3MF (or send the STL) from the program that made it, "
+        "then send it again." + _BUNDLE_TAIL),
+    _signature_row(
+        "unsupported_format", "parse",
+        r"only stl(/| and )3mf|not geometry|requires a 3mf source",
+        "That file is not a model Print Handy can slice. Only STL and 3MF files are supported.",
+        "Send the model as an .stl or .3mf file."),
+    _signature_row(
+        "unclear_units", "intake",
+        r"length units|unrecognized input unit|units must be mm or inch|unit confirmation",
+        "The model's measurement units are missing or unclear, so its real size is not known.",
+        "Send it again and answer the millimeters or inches question, or re-export with units set."),
+    _signature_row(
+        "untuned_nozzle", "intake",
+        r"no tuned profile exists|templates are tuned for",
+        "No tuned slicing profile exists for the selected nozzle size.",
+        "Select a nozzle size with a tuned profile, then send the model again."),
+    _signature_row(
+        "too_complex", "intake",
+        r"safety ceiling|byte ceiling|element count exceeds",
+        "The model is too large or detailed to process safely.",
+        "Simplify or reduce the mesh resolution in your modeling program, then send it again."),
+    _signature_row(
         "outside_bed", "plate plan",
         r"outside (of )?the (print|build) ?(volume|plate|bed|area)"
-        r"|exceeds? the (plate|bed|print volume|build volume)"
+        r"|exceeds? the (plate|bed|print volume|build volume)|exceeds printer volume"
         r"|too (large|big) to fit|(object|model)s? (is|are) (too large|larger than)",
         "The model does not fit inside the printer's build volume at the size and position it "
         "was given.",

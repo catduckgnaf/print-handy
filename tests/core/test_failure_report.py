@@ -27,6 +27,32 @@ def test_known_slicer_signatures(text, code, expected):
     assert failure_report.match_signature(text, code) == expected
 
 
+@pytest.mark.parametrize('text,expected,stage', [
+    ('model has no printable volume (flat or zero-volume mesh)', 'no_volume', 'parse'),
+    ('unresolved 3MF component reference: 3D/a.model object 3', 'bad_3mf_structure', 'parse'),
+    ('cyclic 3MF component reference', 'bad_3mf_structure', 'parse'),
+    ('ambiguous 3MF object has mesh and components', 'bad_3mf_structure', 'parse'),
+    ('only STL/3MF can be sliced; selected source is not geometry', 'unsupported_format', 'parse'),
+    ("Unrecognized/missing length units 'x'; supply --input-unit", 'unclear_units', 'intake'),
+    ('Orca templates are tuned for a 0.4 mm nozzle; no tuned profile exists for 0.6 mm', 'untuned_nozzle', 'intake'),
+    ('3MF vertex count exceeds hard safety ceiling', 'too_complex', 'intake'),
+    ('model 300x300x10 mm exceeds printer volume', 'outside_bed', 'plate plan'),
+])
+def test_typed_intake_refusals_are_classified_not_unknown(text, expected, stage):
+    report = failure_report.describe(RuntimeError(text), 'intake')
+    assert report.signature == expected and report.stage == stage and report.classified
+    post = failure_report.post(RuntimeError(text), 'intake', subsystem='intake',
+                               headline='Preparing that model stopped before it was ready.')
+    assert 'stopped before it was ready' not in post and 'PH_INTAKE_UNKNOWN' not in post
+
+
+def test_zero_volume_corpus_refusal_is_classified():
+    from print_handy.core import model_job
+    post = failure_report.post(model_job.NoPrintableVolume('model has no printable volume (flat or zero-volume mesh)'),
+                               'intake', subsystem='intake', headline='Preparing that model stopped before it was ready.')
+    assert 'Stage: parse.' in post and 'no solid volume' in post and 'solid, closed mesh' in post
+
+
 @pytest.mark.parametrize('text,safe', [
     ('The input model file to the slicer can not be parsed.', True),
     ('Failed slicing the model', True),
