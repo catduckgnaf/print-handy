@@ -20,6 +20,7 @@ from .compact_geometry import IndexedTriangles
 from . import slice_guard as sg
 from .slice_guard import pre_slice, post_slice
 from .slice_failure import SliceFailure
+from .threemf_canonical import default_core_namespace, require_millimeter
 
 logger = logging.getLogger(__name__)
 
@@ -185,8 +186,7 @@ def _parse_3mf_triangles(source):
                 if fast is not None:
                     tables[name] = fast
                 root = ET.fromstring(data)
-                if root.get('unit', 'millimeter') != 'millimeter':
-                    raise RuntimeError('only millimeter 3MF geometry supported')
+                require_millimeter(root)
                 models[name] = (root, {o.get('id'): o for o in root.findall('c:resources/c:object', NS)})
             return models[name]
         def apply(point, t):
@@ -303,8 +303,7 @@ def _object_triangles(source, object_id):
             name = name.lstrip('/')
             if name not in models:
                 root = ET.fromstring(archive.read(name))
-                if root.get('unit', 'millimeter') != 'millimeter':
-                    raise RuntimeError('only millimeter 3MF geometry supported')
+                require_millimeter(root)
                 objects = {}
                 for resources in children(root, 'resources'):
                     for obj in children(resources, 'object'):
@@ -827,6 +826,32 @@ def _spawn_slicer(command, *, timeout, cwd):
         raise
     finally:
         timer.cancel()
+
+
+def normalize_3mf_core_namespace(path):
+    """Rewrite every .model part of the 3MF at path through default_core_namespace, in place.
+
+    Only touches the archive when some part changes; entry order, names and other bytes are kept.
+    """
+    with zipfile.ZipFile(path) as archive:
+        entries = [(info, archive.read(info.filename)) for info in archive.infolist()]
+    changed = False
+    for index, (info, data) in enumerate(entries):
+        if info.filename.lower().endswith('.model'):
+            fixed = default_core_namespace(data)
+            if fixed != data:
+                entries[index] = (info, fixed)
+                changed = True
+    if not changed:
+        return False
+    with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as out:
+        for info, data in entries:
+            out.writestr(info.filename, data)
+    return True
+
+
+_BAMBU_NOT_INSTALLED = ('the Bambu Studio fallback slicer is not installed in this image, '
+                        'so there was no second attempt')
 
 
 def _run_slicer(command, name, folder):
@@ -1494,6 +1519,9 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         input_path = private
         command[-1] = str(private)
     if input_path.suffix.lower() == '.3mf':
+        # Every 3MF the slicer reads is a private copy here (orca_input.3mf or a derived
+        # geometry.3mf): give prefixed core elements the raw names the slicer expects (#814).
+        normalize_3mf_core_namespace(input_path)
         # Bambu's -1 auto sentinels are invalid in Orca 2.4. Normalize these
         # two known compatibility keys plus foreign motion provenance only on
         # the private working copy, never the original source.
@@ -1669,9 +1697,18 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             raise SliceFailure(f'{orca_failure}; {bambu_role} failed to start: {exc}', kind=exc.kind,
                                slicer='Bambu Studio' if primary == 'bambu_studio' else 'OrcaSlicer and Bambu Studio',
                                returncode=exc.returncode) from exc
+        except FileNotFoundError as exc:
+            raise SliceFailure(f'{orca_failure}; {_BAMBU_NOT_INSTALLED}', kind='launch',
+                               slicer='Bambu Studio' if primary == 'bambu_studio' else 'OrcaSlicer and Bambu Studio',
+                               returncode=127) from exc
         except (subprocess.TimeoutExpired, OSError) as exc:
             raise RuntimeError(f'{orca_failure}; {bambu_role} failed to start: {exc}') from exc
         (folder / 'bambu.log').write_text(bambu_result.stdout + bambu_result.stderr)
+        if bambu_result.returncode == 127 and 'failed to execute' in bambu_result.stderr:
+            # taskset (the CPU-budget wrapper) exits 127 when the slicer binary is absent.
+            raise SliceFailure(f'{orca_failure}; {_BAMBU_NOT_INSTALLED}', kind='launch',
+                               slicer='Bambu Studio' if primary == 'bambu_studio' else 'OrcaSlicer and Bambu Studio',
+                               returncode=127)
         if bambu_result.returncode or not output.is_file() or output.stat().st_size == 0:
             if primary == 'bambu_studio':
                 raise SliceFailure(
