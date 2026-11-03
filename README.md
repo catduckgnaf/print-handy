@@ -6,18 +6,28 @@
 
 [![CI](https://github.com/catduckgnaf/print-handy/actions/workflows/ci.yml/badge.svg)](https://github.com/catduckgnaf/print-handy/actions/workflows/ci.yml)
 
-**Prepare and manage 3D prints from Discord, Telegram or Matrix. Just Drop a link or a file, answer a few questions and you are done!**
+**Bambu Handy for every printer.** Paste a model link from your phone into Discord, Telegram, Matrix or the Web UI, tap a few buttons, and go live your life. Print Handy slices it, matches your spools, asks before it prints, watches the camera for spaghetti, sends the timelapse, and roasts your model on the way out.
 
 Current release: **2.2.4**
 
 [Get started](#get-started-with-docker) · [See it in action](#see-it-in-action) · [Documentation](https://catduckgnaf.github.io/print-handy-docs/) · [Contribute](CONTRIBUTING.md) · [Releases](https://github.com/catduckgnaf/print-handy/releases)
+
+## Why this exists
+
+Bambu owners get a slick phone app: find a model, tap print, check on it from anywhere. Everyone else gets a slicer chained to a desktop, a USB stick, and a walk to the garage to see if the first layer stuck.
+
+Print Handy is that phone experience for everybody else, Bambu included. Klipper, Flashforge, Prusa, Elegoo, Creality, Sovol, Snapmaker, Qidi, Anycubic and OctoPrint printers all work. It lives in the chat app you already have open, so "print this" is one pasted link instead of a sit-down session with a slicer.
+
+It is also a little mean. Every print start comes with a one-line roast of your model (another articulated dragon? bold choice), the camera watchdog asks whether that's spaghetti or modern art, and nothing prints until a human says so. Usually you. Possibly someone with better taste.
+
+*Not affiliated with Bambu Lab. We just liked their app enough to want it on every other printer.*
 
 ## How it works
 
 1. **Share a model.** Drop a MakerWorld, Printables, Thingiverse, MyMiniFactory, Creality Cloud, Thangs or Nexprint link in the chat, a direct link to an STL or 3MF file (a Dropbox share link works too), or upload an STL or 3MF file. MakerOnline links are checked for their file inventory only; downloads are not supported. Cults3D links are recognized the same way, but Cults' API exposes listing details only, never the files, so intake names that gap instead.
 2. **Make a few choices.** A model that comes as several files (a box, its lid, a latch) prints as one job; you only pick between versions of a part, such as a lid with or without a logo. Print Handy walks you through colors and filament, how many copies, and — if the model needs it — how it should fit on the bed. Then it slices the model for your printer.
 3. **Check and confirm.** You see the result before anything happens. Only when you approve it does Print Handy send the job to a configured printer.
-4. **Follow along.** Progress, alerts and timelapses come back to the same chat.
+4. **Follow along.** Progress, alerts, the timelapse and a roast of your model choices come back to the same chat.
 
 That's the whole idea: the convenience of printing from chat, with a human — you — making the final call every time.
 
@@ -62,11 +72,11 @@ Everything below is bundled in the one published image — there is nothing else
 | Chat bot | Your interface: links, uploads, guided slicing, spool commands and print confirmation |
 | Printer listener | One per printer, matched to how that printer connects. It follows the print and reports progress, alerts and timelapses to the chat |
 | Spoolman | The filament and spool record keeper, bundled as an API only — Print Handy is its interface, so there is no separate Spoolman web UI to run. Already have your own Spoolman? Point Print Handy at it instead (see below) |
-
-Web UI printer controls (pause, resume, cancel, target temperature; #708) are **off by default**: set `[webui] controls_enabled = true` to arm them. Cancel needs `{"confirm": true}`. See [docs/WEBUI.md](docs/WEBUI.md#printer-controls-708-control-endpoints-phase).
 | OrcaSlicer | The slicer, in stable and preview channels |
 | OpenSCAD | CAD splitting, and the engine behind designing parts in chat |
 | ffmpeg and go2rtc | Timelapse capture and assembly, and the camera fan-out the watchdog and live view share |
+
+Web UI printer controls (pause, resume, cancel, target temperature; #708) are **off by default**: set `[webui] controls_enabled = true` to arm them. Cancel needs `{"confirm": true}`. See [docs/WEBUI.md](docs/WEBUI.md#printer-controls-708-control-endpoints-phase).
 
 If a required part stops, the container stops so Docker can restart it, and the health check covers the bot, the listeners and Spoolman.
 
