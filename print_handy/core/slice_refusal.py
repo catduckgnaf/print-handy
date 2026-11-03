@@ -100,6 +100,56 @@ def slot_mismatch(slot: Any, record: dict[str, Any] | None, wanted: dict[str, An
                         next_step=f"Check what is loaded in slot {slot}, record it with `/spool`, then ask again.")
 
 
+def split_cause(reason: Any) -> str:
+    """Why the planner split, as one of space, materials, separate, resized, other (from its reason text)."""
+    low = str(reason or "").casefold()
+    if "mixed materials" in low:
+        return "materials"
+    if "separate printing" in low or "separately was chosen" in low:
+        return "separate"
+    if "resized per-part" in low:
+        return "resized"
+    if "do not fit" in low or "exceed the printer height" in low:
+        return "space"
+    return "other"
+
+
+def assembly_cannot_split(colors, size_mm, bed_mm, message: str, reason: Any = None) -> SliceRefusal:
+    """An assembly (one build object holding parts of several colors) that has to be split.
+
+    The bodies of an assembly share one coordinate frame, so they cannot be
+    moved onto separate single-color plates (#820). ``reason`` is the
+    planner's own split reason; the wording follows it, so a size problem is
+    only claimed when the planner found one. No one-tap fix: scaling a
+    per-part job slices one plate per color, which an assembly cannot do.
+    """
+    size = ""
+    if size_mm and bed_mm:
+        size = (f" ({' x '.join(f'{float(v):.0f}' for v in size_mm)} mm on a "
+                f"{' x '.join(f'{float(v):.0f}' for v in bed_mm)} mm bed)")
+    head = f"This model is one assembly of {colors} colors{size}."
+    tail = ("An assembly's colors cannot be split onto separate plates because its parts are fixed "
+            "to each other, so I stopped before slicing.")
+    cause = split_cause(reason)
+    one_color = "choose One color for everything to print it in one color"
+    if cause == "space":
+        plain = f"{head} It does not leave room to print all of its colors on one plate. {tail}"
+        step = f"Make the model smaller in your slicer so it leaves room for the color tower, or {one_color}."
+    elif cause == "materials":
+        plain = (f"{head} Its colors are set to materials that cannot print in one job. {tail}")
+        step = f"Use colors from one material family for this model, or {one_color}."
+    elif cause == "separate":
+        plain = f"{head} Printing its parts separately was chosen. {tail}"
+        step = f"Ask for the parts to print together, or {one_color}."
+    elif cause == "resized":
+        plain = f"{head} It was resized, and a resized model prints one plate per color. {tail}"
+        step = f"Print it at its original size so all colors share one plate, or {one_color}."
+    else:
+        plain = f"{head} The planner could not keep all of its colors on one plate. {tail}"
+        step = f"Try a different size or arrangement in your slicer, or {one_color}."
+    return SliceRefusal(message, plain=plain, next_step=step)
+
+
 def apply_fix(fix: dict[str, Any] | None, *, printer_id: str | None = None) -> str:
     """Apply one refusal's fix. Returns a plain line saying what changed.
 

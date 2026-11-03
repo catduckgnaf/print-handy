@@ -628,6 +628,13 @@ def check_expectations(case, run):
         assert run.job["audit"]["mesh_audit"]["manifold"] is want["mesh_manifold"]
     if "mesh_winding_inconsistencies" in want:
         assert run.job["audit"]["mesh_audit"]["winding_inconsistencies"] == want["mesh_winding_inconsistencies"]
+    if "slice_error_contains" in want:
+        assert want["slice_error_contains"] in str(receipt.get("slice_error") or ""), (
+            f"slice error {receipt.get('slice_error')!r}\n{_transcript(run)}")
+    if "says" in want:
+        said = " ".join(run.adapter.sent).casefold()
+        for text in want["says"]:
+            assert text.casefold() in said, f"never told the operator {text!r}\n{_transcript(run)}"
     if want.get("started", True):
         assert len(run.starts) == 1, "the start button path did not run exactly once"
     for row in gcode_checks(run):
