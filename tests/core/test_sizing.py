@@ -107,6 +107,10 @@ class FeatureClearanceTests(unittest.TestCase):
         self.assertNotIn(1.10, probed)  # the refused ceiling is never re-probed
         with patch.object(oa, 'orca_plate_capacity', lambda *a, **kw: 0):
             self.assertIsNone(oa.largest_fitting_scale('src', {}, 1.10))
+        # A fit that only exists just above the 50% floor is still found.
+        with patch.object(oa, 'orca_plate_capacity',
+                          lambda src, state, scale=1.0, **kw: 1 if scale <= 0.505 else 0):
+            self.assertEqual(oa.largest_fitting_scale('src', {}, 1.10), 0.505)
         # Below the 50% floor there is no search at all.
         self.assertIsNone(oa.largest_fitting_scale('src', {}, 0.4))
 

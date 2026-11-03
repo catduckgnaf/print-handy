@@ -443,6 +443,9 @@ def test_scale_typed_replies_resolve_direction_and_percent():
     assert prepared_intake._scale_fit_offer_reply('yes') == 0
     assert prepared_intake._scale_fit_offer_reply('keep 100%') == 1
     assert prepared_intake._scale_fit_offer_reply('no') == 1
+    assert prepared_intake._scale_fit_offer_reply('do not scale') == 1
+    assert prepared_intake._scale_fit_offer_reply("don't scale") == 1
+    assert prepared_intake._scale_fit_offer_reply('no, keep the current scale') == 1
     assert prepared_intake._scale_fit_offer_reply('cancel') == 2
     assert prepared_intake._scale_fit_offer_reply('whatever') is None
 

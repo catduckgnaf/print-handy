@@ -943,14 +943,20 @@ def _scale_percent_reply(text):
 
 
 def _scale_fit_offer_reply(text):
-    """Typed answer to the biggest-fit offer: 0 take it, 1 keep the current size, 2 back, else None."""
-    value = ' '.join(str(text or '').casefold().split())
+    """Typed answer to the biggest-fit offer: 0 take it, 1 keep the current size, 2 back, else None.
+
+    Refusals are read before affirmatives: "do not scale" and "no, keep the
+    current scale" both contain the word "scale" but decline the offer.
+    """
+    value = ' '.join(str(text or '').casefold().split()).strip('.,!')
     if value in {'cancel', 'back', 'never mind', 'nevermind'}:
         return 2
-    if any(word in value for word in ('scale', 'biggest', 'yes', 'do it')):
-        return 0
-    if any(word in value for word in ('keep', 'stay', 'current', 'no')):
+    if (value.startswith('no') or 'keep' in value or 'stay' in value or 'current' in value
+            or 'not scale' in value or "don't scale" in value or 'do not scale' in value):
         return 1
+    if (value in {'yes', 'scale', 'biggest', 'do it', 'ok', 'okay', 'yep'}
+            or value.startswith('scale to') or value.startswith('scale it')):
+        return 0
     return None
 
 
