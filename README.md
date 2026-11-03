@@ -6,17 +6,21 @@
 
 [![CI](https://github.com/catduckgnaf/print-handy/actions/workflows/ci.yml/badge.svg)](https://github.com/catduckgnaf/print-handy/actions/workflows/ci.yml)
 
-**Bambu Handy for every printer.** Paste a model link from your phone into Discord, Telegram or Matrix, tap a few buttons, and go live your life. Print Handy slices it, matches your spools, asks before it prints, watches the camera for spaghetti, sends the timelapse, and roasts your model on the way out.
+**Bambu Handy for every printer, local-first.** I made Print Handy as a local-only solution: it runs on your own machine, talks to your printers on your own network, and keeps your models, spools and print history in your house, not in someone else's cloud. Paste a model link from your phone into Discord, Telegram or Matrix, tap a few buttons, and go live your life. Print Handy slices it, matches your spools, asks before it prints, watches the camera for spaghetti, sends the timelapse, and roasts your model on the way out.
+
+You do not need AI, and you do not need Discord. Every core flow works with no model endpoint at all, and Telegram, Matrix and the local Web UI are there if Discord is not your thing. The AI extras are optional add-ons, never the price of entry.
 
 Current release: **2.2.4**
 
-[Get started](#get-started-with-docker) · [See it in action](#see-it-in-action) · [Documentation](https://catduckgnaf.github.io/print-handy-docs/) · [Contribute](CONTRIBUTING.md) · [Releases](https://github.com/catduckgnaf/print-handy/releases)
+[Get started](#get-started) · [See it in action](#see-it-in-action) · [Documentation](https://catduckgnaf.github.io/print-handy-docs/) · [Contribute](CONTRIBUTING.md) · [Releases](https://github.com/catduckgnaf/print-handy/releases)
 
 ## Why this exists
 
 Bambu owners get a slick phone app: find a model, tap print, check on it from anywhere. Everyone else gets a slicer chained to a desktop, a USB stick, and a walk to the garage to see if the first layer stuck.
 
 Print Handy is that phone experience for everybody else, Bambu included. Klipper, Flashforge, Prusa, Elegoo, Creality, Sovol, Snapmaker, Qidi, Anycubic and OctoPrint printers all work. It lives in the chat app you already have open, so "print this" is one pasted link instead of a sit-down session with a slicer.
+
+**Local-first, on purpose.** Print Handy is one program running on your hardware: the slicer, the spool records, the print history and the camera checks all stay on your network, and your printers are reached at their local addresses. There is no Print Handy account and no Print Handy cloud. A chat platform is just the remote control you pick, and a model endpoint is just an optional extra you can point at a server in your own house. Run it with neither and it still slices, prints, tracks spools and reports back.
 
 It is also a little mean. Every print start comes with a one-line roast of your model (another articulated dragon? bold choice), the camera watchdog asks whether that's spaghetti or modern art, and nothing prints until a human says so. Usually you. Possibly someone with better taste.
 
@@ -59,101 +63,57 @@ These are mockups built from the bot's real message text and buttons, with place
 
 </details>
 
-## Get started with Docker
+## Get started
 
-Docker is the easiest way to run Print Handy: one container does everything, and you start it with one command.
+Setup instructions do not live in this README; they live in the guides, where they can be as detailed as each route needs:
+
+- **Docker** (the easiest route: one container does everything) — the [Docker guide](docs/DOCKER.md). On Unraid, start from `docker/unraid/print-handy.xml`.
+- **No Docker** — the [standalone bot](docs/STANDALONE.md) (Discord, or [Telegram](docs/TELEGRAM-BOT-SETUP.md) or [Matrix](docs/MATRIX-BOT-SETUP.md) instead), or the [Hermes installation](docs/INSTALL.md) for existing Hermes users.
+- **Everything else** — the [documentation home](docs/README.md) indexes every guide, including configuration, multi-printer installs and troubleshooting.
+
+**You need** a 64-bit Debian or Ubuntu machine, or a Raspberry Pi 4 or 5 with 64-bit Raspberry Pi OS, for the Docker route. The image (`ghcr.io/catduckgnaf/print-handy`) is published for `linux/amd64` and `linux/arm64`.
 
 ### What's in the box
 
-Everything below is bundled in the one published image — there is nothing else to install:
+Everything below is bundled in the one published Docker image — there is nothing else to install:
 
 | Part | What it does |
 |---|---|
 | Chat bot | Your interface: links, uploads, guided slicing, spool commands and print confirmation |
 | Printer listener | One per printer, matched to how that printer connects. It follows the print and reports progress, alerts and timelapses to the chat |
-| Spoolman | The filament and spool record keeper, bundled as an API only — Print Handy is its interface, so there is no separate Spoolman web UI to run. Already have your own Spoolman? Point Print Handy at it instead (see below) |
+| Spoolman | The filament and spool record keeper, bundled as an API only — Print Handy is its interface, so there is no separate Spoolman web UI to run. Already have your own Spoolman? The [Docker guide](docs/DOCKER.md) covers pointing Print Handy at it instead |
 | OrcaSlicer | The slicer, in stable and preview channels |
 | OpenSCAD | CAD splitting, and the engine behind designing parts in chat |
 | ffmpeg and go2rtc | Timelapse capture and assembly, and the camera fan-out the watchdog and live view share |
 
-Web UI printer controls (pause, resume, cancel, target temperature; #708) are **off by default**: set `[webui] controls_enabled = true` to arm them. Cancel needs `{"confirm": true}`. See [docs/WEBUI.md](docs/WEBUI.md#printer-controls-708-control-endpoints-phase).
-
 If a required part stops, the container stops so Docker can restart it, and the health check covers the bot, the listeners and Spoolman.
 
-**You need** a 64-bit Debian or Ubuntu machine, or a Raspberry Pi 4 or 5 with 64-bit Raspberry Pi OS. The image (`ghcr.io/catduckgnaf/print-handy`) is published for `linux/amd64` and `linux/arm64`.
+### The one command in this README: the doctor
 
-### Run it
-
-1. Download this repository (or just its `docker-compose.yml` and `.env.example`), and copy `.env.example` to `.env`.
-2. In `.env`, fill in the three things Print Handy cannot guess: your chat platform's bot token and channel (Discord is the default; set `PRINT_HANDY__BOT__PLATFORM` for Telegram or Matrix), and your printer — its model key from [the printer groups below](#is-my-printer-supported) (the [printer support guide](docs/PRINTER-SUPPORT.md) lists the exact keys) and, for a Moonraker printer, its address, for example `PRINT_HANDY__SERVICES__MOONRAKER_URL=http://192.168.1.60:7125`. You can leave the allowed-users list empty — then everyone in the print channel can use the bot.
-3. Use the `docker-compose.yml` from this repository — one service that runs the whole box, with every optional feature commented in. This is what it looks like (trimmed; the file itself has the full comments):
-
-```yaml
-services:
-  combined:
-    image: ${PRINT_HANDY_IMAGE:?Set PRINT_HANDY_IMAGE to a tested image digest or local tag}
-    restart: unless-stopped
-    env_file: [.env]
-    environment:
-      PRINT_HANDY__BOT__MODE: standalone
-      PRINT_HANDY__SERVICES__SPOOLMAN_URL: ${PRINT_HANDY__SERVICES__SPOOLMAN_URL:-http://127.0.0.1:8000}  # the bundled Spoolman
-      # …optional features (camera watch, Web UI, live view) are set here or in .env…
-    volumes:
-      - ${PRINT_HANDY_DATA:-./data}/hermes:/data/hermes
-      - ${PRINT_HANDY_DATA:-./data}/archive:/data/archive
-      - ${PRINT_HANDY_SPOOLMAN_DATA:-./data/spoolman}:/data/spoolman
-    user: "1000:1000"
-    healthcheck:
-      test: [CMD, python3, /usr/local/bin/print-handy-healthcheck]
-```
-
-In `.env`, tell it which image to run and where its data lives:
-
-```ini
-PRINT_HANDY_IMAGE=ghcr.io/catduckgnaf/print-handy:2.2.4
-PRINT_HANDY_DATA=./data
-```
-
-Pinning by digest instead of a tag is recommended for production; the digest for each release is in its release notes, and the [Docker guide](docs/DOCKER.md) shows the exact format. The data folder must be writable by UID 1000; Spoolman data lives in its `spoolman` subfolder unless you set `PRINT_HANDY_SPOOLMAN_DATA`.
-
-4. Start it:
+However you installed it, one check is worth knowing by heart:
 
 ```bash
-docker compose up -d
+python3 -m print_handy.doctor
 ```
 
-5. **Configure it in `.env` and the mounted config, then recreate the container.** The Docker install reads `/app/config/docker.yaml` (the `config/` folder you mounted) plus the `PRINT_HANDY__…` variables in `.env` — it does not read the `config/local.yaml` that guided setup writes, so `/print-handy setup` does not apply here. Set your bot token, printer and channel in `.env` (`.env.example` lists them), adjust the mounted config if you need more, and run `docker compose up -d` again to pick the changes up. Guided setup (`/print-handy setup`) is the fresh-install path for the non-Docker routes below.
-
-That's it. The [Docker guide](docs/DOCKER.md) covers health checks, upgrades, rollback and the full platform matrix.
-
-- **Already run your own Spoolman?** Point `PRINT_HANDY__SERVICES__SPOOLMAN_URL` at it and set `PRINT_HANDY_BUNDLED_SPOOLMAN=false`. Nothing is migrated either way.
-- **On Unraid?** Start from `docker/unraid/print-handy.xml`.
-
-### Prefer not to use Docker?
-
-There are two manual routes, both needing Python 3.11 or newer:
-
-- The [standalone bot](docs/STANDALONE.md) runs on Discord — or on [Telegram](docs/TELEGRAM-BOT-SETUP.md) or [Matrix](docs/MATRIX-BOT-SETUP.md) instead — without Hermes.
-- The [Hermes installation](docs/INSTALL.md) is for existing Hermes users on Discord.
-
-One thing to know either way: slicing needs a compatible OrcaSlicer and the right printer, process and filament profiles. The Docker image bundles its slicers; a Python install alone does not provide one. The [configuration guide](docs/CONFIGURATION-YAML.md) covers the settings file when you need it — guided setup (above) is the friendlier place to start.
+The doctor checks that the machine, the settings, the slicer and the configured services (Moonraker, Spoolman, the bot) are all in shape, and names what is wrong when something is not. It contacts the services you configured, so run it where that is expected. A clean doctor is a healthy install, not proof a print will succeed; the [printer support guide](docs/PRINTER-SUPPORT.md) has the physical checklist for that.
 
 ## Is my printer supported?
 
-Print Handy groups printers by **how they connect**, because that is what decides what it can do with yours. There are 83 registered printer models today; this is the short version, and the full model-by-model list lives in the printer guides.
+Print Handy groups printers by **how they connect**, because that is what decides what it can do with yours. There are 84 registered printer models today; this is the short version, and the full model-by-model list lives in the printer guides.
 
 | Your printer connects by… | What you get | Which printers |
 |---|---|---|
-| **Moonraker (Klipper)** | The full flow: guided slicing, gated print start, progress, alerts and timelapses | Flashforge AD5X, AD5M and Creator 5 family running ZMod; Elegoo Neptune 4 family; Qidi Q1 Pro, X-Plus and X-Max lines; Creality K1 and Ender-3 V3 Klipper line; Anycubic Kobra 2 line on Moonraker-exposed firmware (see the Anycubic doc's stock-firmware caveat); Sovol SV01 through SV08, including the ACE, Plus, Zero, and M1D, on Klipper; Snapmaker U1 tool changer (published-spec support, not verified on hardware). **Any other Klipper printer** can use the generic Klipper profile. See [ZMod](docs/ZMOD.md) · [Elegoo](docs/ELEGOO.md) · [Qidi](docs/QIDI.md) · [Creality](docs/CREALITY.md) · [Anycubic](docs/ANYCUBIC.md) · [Sovol](docs/SOVOL.md) · [Snapmaker](docs/SNAPMAKER.md) |
+| **Moonraker (Klipper)** | The full flow: guided slicing, gated print start, progress, alerts and timelapses | Flashforge AD5X, AD5M, AD5M Pro, Creator 5 and Creator 5 Pro running ZMod; Elegoo Neptune 4 family; Qidi Q1 Pro, X-Plus and X-Max lines; Creality K1 and Ender-3 V3 Klipper line; Anycubic Kobra 2 line on Moonraker-exposed firmware (see the Anycubic doc's stock-firmware caveat); Sovol SV01 through SV08, including the ACE, Plus, Zero, and M1D, on Klipper; Snapmaker U1 tool changer (published-spec support, not verified on hardware). **Any other Klipper printer** can use the generic Klipper profile. See [ZMod](docs/ZMOD.md) · [Elegoo](docs/ELEGOO.md) · [Qidi](docs/QIDI.md) · [Creality](docs/CREALITY.md) · [Anycubic](docs/ANYCUBIC.md) · [Sovol](docs/SOVOL.md) · [Snapmaker](docs/SNAPMAKER.md) |
 | **Bambu Lab LAN** | Slicing, G-code checks and Bambu packaging, with opt-in LAN status, upload and gated print start | A1, A1 mini, P1P, P1S, P2S, X1, X1 Carbon, X1E, H2S, A2L and the dual-nozzle H2D, H2D Pro, H2C and X2D. See [Bambu Lab printers](docs/BAMBU-LAB.md) |
 | **PrusaLink** | Slicing plus opt-in LAN status, upload and gated print start | MK4S, CORE One, XL and MINI+. See [Prusa printers](docs/PRUSA.md) |
-| **Flashforge stock LAN** | Built-in profile over the printer's own LAN API — no Moonraker, no ZMod | AD5X on stock firmware. See [Stock Flashforge printers](docs/FLASHFORGE-STOCK.md) |
+| **Flashforge stock LAN** | Built-in profile over the printer's own LAN API — no Moonraker, no ZMod | Every Flashforge model Print Handy knows is listed here, with the route that actually applies to it: **AD5X** has the built-in stock-firmware profile. **AD5M, AD5M Pro, Creator 5 and Creator 5 Pro** have no stock-firmware profile yet; those printers are supported on ZMod (the Moonraker row above). See [Stock Flashforge printers](docs/FLASHFORGE-STOCK.md) |
 | **Elegoo SDCP** | SDCP LAN, opt-in | Centauri Carbon. See [Elegoo printers](docs/ELEGOO.md) |
 | **OctoPrint (Marlin)** | A generic OctoPrint/Marlin profile, plus built-in presets with real dimensions | Ender-3, Ender-3 Pro, Ender-3 V2 and Ender-3 V3 SE presets, plus Anycubic i3 Mega S, Vyper, Chiron, 4Max Pro 2 and first-generation Kobra presets; Sovol SV01, SV01 Pro, SV02, SV03, SV04, SV05, SV06, and SV06 Plus on stock Marlin. Any other Marlin printer behind OctoPrint uses the generic profile. See [OctoPrint + Marlin](docs/OCTOPRINT-MARLIN.md) · [Sovol](docs/SOVOL.md) |
 
-**Not listed?** A Klipper printer with Moonraker can use `klipper.generic`; a Marlin printer behind OctoPrint can use `octoprint.marlin`. Set your real bed size, height, nozzle and start/end macros first, because the placeholder numbers will not match your machine. Then open a [printer request](https://github.com/catduckgnaf/print-handy/issues/new?template=printer_report.yml).
+**Not listed?** A Klipper printer with Moonraker can use `klipper.generic`; a Marlin printer behind OctoPrint can use `octoprint.marlin`. The [printer support guide](docs/PRINTER-SUPPORT.md) covers how to set one up with your real machine numbers (the placeholder numbers will not match your machine) and how to open a [printer request](https://github.com/catduckgnaf/print-handy/issues/new?template=printer_report.yml).
 
-**How tested is this?** Honestly: apart from one Bambu Lab A1 run, every profile above is covered by offline tests only — a generic profile is not a tuned or physically verified profile for your printer. If you ran the hardware checklist in the [printer support guide](docs/PRINTER-SUPPORT.md) on your printer, file a verification report through the same form and attach a redacted `/print-handy bundle`. Do the physical checks with the bed clear and a hand near the stop button.
+**How tested is this?** Extensively, and the coverage is widest exactly where people print most. The automated suite carries more than 5,800 tests, with dedicated per-family suites, recorded fixtures and golden slicer inputs for the ZMod Flashforge line (the AD5X above all), stock Flashforge, Klipper in general and the Klipper vendor lines (Sovol, Elegoo, Creality, Qidi, Anycubic, Snapmaker), Marlin behind OctoPrint, Bambu Lab LAN, PrusaLink and Elegoo SDCP — plus a shared adapter contract that runs against every registered model, so a new printer inherits hundreds of checks instead of starting from zero. The AD5X on ZMod is also the author's own daily printer, and its tested baseline is written down in the [AD5X best practices](docs/DEVICE-AD5X.md#tested-baseline); a full Bambu Lab A1 print over LAN is recorded too. Two honest limits remain: extensive testing of a family's code path is not the same as your exact model printing on your bench, and a generic profile is not a tuned profile for your printer. If you run the hardware checklist in the [printer support guide](docs/PRINTER-SUPPORT.md) on your printer, file a verification report through the same form; that is how a model graduates from tested to verified on hardware. Do the physical checks with the bed clear and a hand near the stop button.
 
 ## Which chat platform?
 
@@ -161,12 +121,13 @@ The same bot, with the same prompts and safety gates, runs on **Discord, Telegra
 
 - On Discord you can alternatively run Print Handy as a Hermes plugin instead of the standalone bot. Use only one mode with a given bot token.
 - The Telegram and Matrix bots are pure bots with no LLM chat: send a message that isn't a command and you get the command list back. (Their roasts, camera checks and design still work — those use the vision and design endpoints, not chat.)
+- Discord is a choice, not a requirement: the same local-first install serves Telegram or Matrix instead, and the doctor and the local Web UI need no chat platform at all.
 
 ## What you can do
 
 ### With no LLM at all
 
-Everything in this list is plain, deterministic code. No model endpoint is configured, and none is needed:
+Everything in this list is plain, deterministic code, running locally. No model endpoint is configured, and none is needed. This is the default shape of Print Handy, not a reduced mode:
 
 - **Prepare models.** MakerWorld, Printables, Thingiverse, MyMiniFactory, Creality Cloud, Thangs and Nexprint links, direct links to STL/3MF files on any public host, and STL/3MF uploads go through guided choices for colors and filament. MakerOnline links are inventory-only (the bot lists the files and names the download gap). Cults3D links stop with the named gap too — Cults' API never exposes a listing's files.
 - **Slicing that respects geometry.** Every model is measured at full size first. Print Handy never silently shrinks a part: if the author's layout doesn't fit but every part fits one plate at 100% once moved or turned, it is rearranged and you are told so in one line; otherwise you choose — split it across plates at 100%, turn it on the bed or onto another face, or shrink it on purpose. A small STL gets the millimeters-or-inches question shown above, because STL files record no units. Copies are offered only where the G-code will actually contain them, multi-plate plans are tracked as one job, and each slice records its full recipe so a reprint is exact.
@@ -178,7 +139,7 @@ Everything in this list is plain, deterministic code. No model endpoint is confi
 - **Watch the camera live (Discord).** An optional live view inside a Discord voice channel, for checking on a print without leaving the chat. Nothing is recorded.
 - **Get help in chat.** `/print-handy setup` walks a fresh install through setup; `/print-handy add-printer` adds another printer to a running install through the same guided pattern, with a live connection probe before anything is written; `/print-handy debugging` runs read-only, redacted checks; `/print-handy bundle` assembles a diagnostics bundle (secret values are never included) as a local file that only leaves the machine if you choose to attach it. See [guided setup and debugging](docs/GUIDED-SETUP-DEBUGGING.md) and [diagnostics](docs/DIAGNOSTICS.md).
 - **Forgiving about typos.** `/print-lookup` finds "nozzel clog", a mistyped command gets a "Did you mean `/spool list`?" button, and `/print-again` with a half-remembered name offers a pick-list. No model needed, and a suggestion never runs anything on its own. An optional [semantic lookup](docs/SETTINGS.md#semantic-lookup-endpoint-print_fuzzy_url) adds meaning-level matches ("bed won't stick"), runnable on [Cloudflare's free tier](docs/CLOUDFLARE.md).
-- **Use the optional Web UI.** An off-by-default local page for the same install: status and doctor checks, the settings picker, the read-only designs catalog, and a read-only sliced-layer view (colored by extrusion role, one layer at a time). It does not start, pause, or cancel a job. See the [Web UI guide](docs/WEBUI.md).
+- **Use the optional Web UI.** An off-by-default local page for the same install: a first-run walkthrough, status and doctor checks, the settings picker, spool management, the read-only designs catalog, and a read-only sliced-layer view (colored by extrusion role, one layer at a time). Printer controls (pause, resume, cancel, target temperatures) live there too and stay off unless the operator turns them on. See the [Web UI guide](docs/WEBUI.md).
 
 ### With a model endpoint (the LLM features)
 
@@ -196,7 +157,7 @@ Printer-specific capabilities and the full command list are in the [project refe
 Print Handy is careful, but it isn't a guarantee:
 
 - A model that fits in a bounding box is not proof of a printable orientation. Check support needs, bed and brim clearance, profile compatibility and the generated G-code before physical use.
-- Offline tests are not a live hardware test. Keep the confirmation and artifact guards enabled.
+- Tests, however extensive, are not a live hardware test of your printer. Keep the confirmation and artifact guards enabled.
 - A camera alert or classification is not a guarantee of safe unattended printing.
 - Only use models you are allowed to download and process — and never attach private models, credentials or personal printer logs to a public issue without reviewing them first.
 

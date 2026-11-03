@@ -20,9 +20,15 @@ Where this comes from:
 - `printers/registry/<vendor>.toml` (one file per vendor) is the data index of every registered model. `tests/test_knowledge.py::test_printer_registry_matches_code_profiles` fails if an entry drifts from its model.
 - The word `verified` in code is narrower than it sounds. Each sourced value in a vendor's `facts.py` is a `Fact(value, source, verified)` (for example class `Fact` in `print_handy/printers/qidi/facts.py`). `verified=True` means the value was read straight from its source, such as OrcaSlicer's printable area. It does not mean a printer was involved. The temperature ceilings, for instance, are recorded as unverified manufacturer figures.
 - `verified_slicers` on an adapter (`PrinterAdapter` in `base.py`) lists the slicers whose output that printer's G-code guard has been checked against. That is also about files, not hardware.
-- The docs state the hardware position in prose. The Qidi, Creality, Elegoo, Prusa, Snapmaker, ZMod and Bambu Lab guides each say nothing has been tested on that hardware (see [Qidi](QIDI.md), [Snapmaker](SNAPMAKER.md), [ZMod](ZMOD.md), [Bambu Lab](BAMBU-LAB.md)). The one recorded exception is a single Bambu Lab A1 run on 26 Oct 2026: sliced, uploaded over FTPS, started, and the printer reported printing ([A1 walkthrough](BAMBU-A1-DOCKER.md), section 8). A hardware report is what would move a printer from the second level to the third, and the printer's guide is then updated by hand.
+- The docs state the hardware position in prose, per family and per model, in the vendor guides (see [Qidi](QIDI.md), [Snapmaker](SNAPMAKER.md), [ZMod](ZMOD.md), [Bambu Lab](BAMBU-LAB.md)).
 
-A passing offline test is never a hardware test. Keep the confirmation and artifact guards on while you check anything.
+## How extensively is this tested?
+
+Extensively at the code level, and the depth is deliberate. The automated suite carries more than 5,800 tests, including dedicated per-family suites with recorded fixtures and golden slicer inputs for the ZMod Flashforge line (the AD5X above all), stock Flashforge, Klipper in general and the Klipper vendor lines (Sovol, Elegoo, Creality, Qidi, Anycubic, Snapmaker), Marlin behind OctoPrint, Bambu Lab LAN, PrusaLink and Elegoo SDCP. A shared adapter contract runs against every registered model, and registry parity tests fail if a model's documented facts drift from its code profile, so coverage grows with each printer added instead of being re-earned per model.
+
+Live evidence is narrower and is recorded where it exists: the AD5X on ZMod is the author's own daily printer, with a written tested baseline ([AD5X best practices](DEVICE-AD5X.md#tested-baseline)), and a Bambu Lab A1 run on 26 Oct 2026 was sliced, uploaded over FTPS, started, and reported printing by the printer ([A1 walkthrough](BAMBU-A1-DOCKER.md), section 8). A hardware report is what moves a printer from the second level above to the third, and the printer's guide is then updated by hand.
+
+Extensive testing is still not a hardware test of your printer. Keep the confirmation and artifact guards on while you check anything.
 
 ## Your printer is not listed
 

@@ -9,6 +9,20 @@ the two are different printer profiles and never mix.
 |---|---|---|
 | `flashforge_stock.ad5x` | Adventurer 5X (stock firmware) | LAN upload/start implemented; see verification status below |
 
+## Every Flashforge model, and which route applies
+
+So the stock page never reads as if the AD5X were the only Flashforge printer, here is the whole Flashforge line-up with the route that applies to each model today:
+
+| Printer | Stock firmware (this page) | ZMod (Moonraker) |
+|---|---|---|
+| Adventurer 5X (AD5X) | Built-in profile: `flashforge_stock.ad5x` | Built-in profile: `flashforge.ad5x` |
+| Adventurer 5M (AD5M) | No stock profile yet | Built-in profile: `flashforge.ad5m` |
+| Adventurer 5M Pro (AD5M Pro) | No stock profile yet | Built-in profile: `flashforge.ad5m_pro` |
+| Creator 5 | No stock profile yet | Built-in profile: `flashforge.creator5` |
+| Creator 5 Pro | No stock profile yet | Built-in profile: `flashforge.creator5_pro` |
+
+The ZMod profiles are covered in [ZMod printers](ZMOD.md). Nothing on this page claims stock-firmware support for a model without a stock profile.
+
 ## How Print Handy talks to it
 
 - **Transport:** HTTP POSTs to port **8898** on `[flashforge_stock] host`

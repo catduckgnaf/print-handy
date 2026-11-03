@@ -22,6 +22,12 @@ spools, asks before anything prints, follows the print, watches the camera for
 spaghetti, posts the timelapse, and roasts your model on the way out. One
 Docker container.
 
+Local-first is part of the pitch, not a footnote: Print Handy was made as a
+local-only solution that runs on the owner's machine and talks to printers on
+the local network, with no account and no cloud. AI is optional, and Discord
+is optional; neither is needed for the core flows. Say so wherever there is
+room, in those words or close to them.
+
 Always pair the Bambu comparison with the not-affiliated line wherever there is
 room for it:
 
