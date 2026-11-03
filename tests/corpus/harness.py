@@ -413,6 +413,10 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, in_gateway_env=
         # Multicolor summaries probe live ZMod purge settings. This offline corpus models
         # an unavailable reading explicitly, rather than attempting (and swallowing) I/O.
         patch(printer_state, "read_purge_mode", lambda st: None)
+        # ZMod purge/plugin detection (#832) reads the printer at intake; offline it has
+        # nothing to read, exactly like an unreachable printer (today's prime tower).
+        from print_handy.core import purge
+        patch(purge, "refresh_best_effort", lambda *a, **kw: {})
         # The first confirmation card's spool-remap note reads the ZMod version
         # the same fail-soft way (P2-242); model it unavailable too.
         patch(model_job, "_zmod_version", lambda st: None)
