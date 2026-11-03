@@ -2841,7 +2841,8 @@ class Listener:
             LANE_DATA_STATE,
             runout_context_fn=load_runout_pause,
             runout_feed_fn=lambda slot, spool_id, context:
-                feed_screen_runout_load(slot, spool_id, context))
+                feed_screen_runout_load(slot, spool_id, context),
+            presence_fn=self.lane_presence)
         self.slot_tracker = MidPrintSlotTracker()
         self.visual_watch = VisualPrintWatch()
         # #455: this printer's local-detector temporal escalation state;
@@ -2851,6 +2852,7 @@ class Listener:
         self.last_visual_task = None
         self.visual_frames = {}
         self.last_slots = {}
+        self.last_slots_at = None  # monotonic time of the last successful slot read
         self.last_native_poll = 0.0
         self.native_poll_inflight = False
         self.prev_native = None
@@ -2877,6 +2879,23 @@ class Listener:
         self.light_target = None  # #516: resolved Moonraker light object, cached
         self.light_target_resolved = False
         self.light_unresolved_logged = False
+
+    def note_slot_presence(self, slots):
+        """Remember a successful slot presence read and when it was taken."""
+        self.last_slots = slots
+        self.last_slots_at = time.monotonic()
+
+    def lane_presence(self):
+        """This tick's slot presence for the lane_data watcher (#852), or None.
+
+        poll_native_presence reads the slots just before poll_lane_data on
+        the same tick, so a read younger than one poll interval is current;
+        anything older means this tick's read failed (or never ran) and the
+        watcher must treat presence as unknown, not reuse a stale answer.
+        """
+        if self.last_slots_at is None or time.monotonic() - self.last_slots_at >= NATIVE_POLL_SECONDS:
+            return None
+        return self.last_slots
 
     async def read_slots(self):
         """(stock /detail or None, {slot: present}). Screenless ZMod has no stock API; Klipper has the slots."""
@@ -3053,7 +3072,7 @@ class Listener:
         failure = None
         try:
             detail, slots = await self.read_slots()
-            self.last_slots = slots
+            self.note_slot_presence(slots)
             # Screenless ZMod (detail None): the stock firmware is not running, so there is no
             # stock status to watch for screen cancels or screen errors; slot presence still is.
             native = detail.get("status") if detail is not None else None
@@ -3124,7 +3143,7 @@ class Listener:
             slots = self.last_slots
             try:
                 _detail, slots = await self.read_slots()
-                self.last_slots = slots
+                self.note_slot_presence(slots)
                 self.slot_tracker.observe(slots)
             except Exception as exc:
                 log(f"pause slot read failed: {exc!r}")

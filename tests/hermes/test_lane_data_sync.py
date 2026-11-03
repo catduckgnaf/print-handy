@@ -703,12 +703,147 @@ def test_zmod_record_overwriting_a_screen_key_is_unknown_not_an_unload(tmp_path)
     # another writer, not cleared: no unload converge, no Spoolman/screen write.
     client = FakeSpoolman([spool(11, ph_slot="ad5x:1")])
     mr = FakeMoonraker(lanes={})
-    watcher, applied = make_watcher(tmp_path, mr, client)
+    presence = {1: None, 2: None, 3: None, 4: None}
+    watcher, applied = make_watcher(tmp_path, mr, client, presence_fn=lambda: presence)
     seed(watcher, mr, {"lane1": lane(11, slot=1)})
     mr.lanes = {"lane1": {"lane": "1", "material": "PLA", "color": "#FFFFFF", "name": "PLA"}}
     assert watcher.poll() == []
     assert applied == []
-    # When the key is really removed, the unload still converges as before.
+    # The key is then removed. ZMod has been seen writing here, so the
+    # absence alone proves nothing: with presence unknown nothing changes...
     mr.lanes = {}
+    assert watcher.poll() == []
+    assert applied == []
+    # ...and once the printer reports slot 1 empty the unload converges.
+    presence[1] = False
     watcher.poll()
     assert applied == [(1, None)]
+
+
+# ------------------------------------- vanished lanes beside ZMod (#852)
+
+# ZMod's slot 1 record (key lane0) is the evidence a key-colliding author is
+# active; Print Handy's own slot 2 record sits under key lane2, which is also
+# ZMod's slot 3 key. When ZMod's slot 3 type becomes "?", ZMod deletes lane2.
+ZMOD_SLOT1 = {"lane0": {"lane": "0", "material": "PETG", "color": "#161616", "name": "PETG"}}
+
+
+def collided_watcher(tmp_path, presence):
+    """Baseline: slot 2 bound to spool 18 by Print Handy, ZMod publishing beside it."""
+    client = FakeSpoolman([spool(18, ph_slot="ad5x:2")])
+    mr = FakeMoonraker(lanes={})
+    watcher, applied = make_watcher(tmp_path, mr, client, presence_fn=lambda: presence.get("slots"))
+    seed(watcher, mr, {**copy.deepcopy(ZMOD_SLOT1), "lane2": lane(18, slot=2)})
+    return watcher, mr, client, applied
+
+
+def test_vanished_lane_still_loaded_at_the_printer_is_unverified_not_an_unload(tmp_path):
+    # The #852 acceptance shape: the slot 2 record disappears from lane_data
+    # while printer-side presence still reports slot 2 loaded.
+    presence = {"slots": {1: True, 2: True, 3: False, 4: False}}
+    watcher, mr, client, applied = collided_watcher(tmp_path, presence)
+    mr.lanes = copy.deepcopy(ZMOD_SLOT1)  # ZMod deleted key lane2
+    events = watcher.poll()
+    assert [(e["kind"], e["slot"]) for e in events] == [("unverified_unload", 2)]
+    assert "not verified" in events[0]["text"] and "#18" in events[0]["text"]
+    assert "still reports filament" in events[0]["text"]
+    assert applied == []  # no ph_slot clear, no reconcile
+    assert spool_sync.spool_ph_slot(client.spools[18]) == (PID, 2)
+    watcher.delivered(events[0]["key"])
+    assert watcher.poll() == []  # named once, not on every poll
+    assert applied == []
+    # Print Handy rewrites the same record (a rebind): nothing happened, nothing to say.
+    mr.lanes = {**copy.deepcopy(ZMOD_SLOT1), "lane2": lane(18, slot=2)}
+    assert watcher.poll() == []
+    assert applied == []
+
+
+def test_vanished_lane_converges_once_the_printer_reports_the_slot_empty(tmp_path):
+    presence = {"slots": {1: True, 2: True, 3: False, 4: False}}
+    watcher, mr, _client, applied = collided_watcher(tmp_path, presence)
+    mr.lanes = copy.deepcopy(ZMOD_SLOT1)
+    watcher.poll()
+    assert applied == []
+    presence["slots"] = {1: True, 2: False, 3: False, 4: False}  # really emptied
+    events = watcher.poll()
+    assert [(e["kind"], e["slot"]) for e in events] == [("unloaded", 2)]
+    assert applied == [(2, None)]
+
+
+def test_vanished_lane_with_presence_empty_is_a_genuine_clear(tmp_path):
+    # The #791 screen clear, beside ZMod: the printer agrees the slot is empty,
+    # so the unload converges and is announced exactly as before.
+    presence = {"slots": {1: True, 2: False, 3: False, 4: False}}
+    watcher, mr, _client, applied = collided_watcher(tmp_path, presence)
+    mr.lanes = copy.deepcopy(ZMOD_SLOT1)
+    events = watcher.poll()
+    assert [(e["kind"], e["slot"]) for e in events] == [("unloaded", 2)]
+    assert "#18" in events[0]["text"]
+    assert applied == [(2, None)]
+
+
+def test_vanished_lane_with_unreadable_presence_is_unknown(tmp_path):
+    # No presence read (failed, stale, or the slot itself unknown) proves
+    # nothing: the poll neither unloads nor announces, and keeps the baseline
+    # so the next readable answer settles it.
+    for unreadable in (None, {1: True, 2: None, 3: False, 4: False}, {1: True}):
+        presence = {"slots": unreadable}
+        watcher, mr, _client, applied = collided_watcher(tmp_path / str(id(unreadable)), presence)
+        mr.lanes = copy.deepcopy(ZMOD_SLOT1)
+        assert watcher.poll() == []
+        assert watcher.poll() == []
+        assert applied == []
+        presence["slots"] = {1: True, 2: False, 3: False, 4: False}
+        assert [e["kind"] for e in watcher.poll()] == ["unloaded"]
+        assert applied == [(2, None)]
+
+
+def test_presence_function_that_raises_is_unknown(tmp_path):
+    client = FakeSpoolman([spool(18, ph_slot="ad5x:2")])
+    mr = FakeMoonraker(lanes={})
+
+    def broken():
+        raise OSError("printer unreachable")
+
+    watcher, applied = make_watcher(tmp_path, mr, client, presence_fn=broken)
+    seed(watcher, mr, {**copy.deepcopy(ZMOD_SLOT1), "lane2": lane(18, slot=2)})
+    mr.lanes = copy.deepcopy(ZMOD_SLOT1)
+    assert watcher.poll() == []
+    assert applied == []
+
+
+def test_colliding_author_evidence_outlives_zmod_deleting_its_last_key(tmp_path):
+    # ZMod's records can all disappear (every slot "?") in the same poll that
+    # removes Print Handy's record: the collision seen earlier still counts.
+    presence = {"slots": {1: False, 2: True, 3: False, 4: False}}
+    watcher, mr, _client, applied = collided_watcher(tmp_path, presence)
+    mr.lanes = {}
+    events = watcher.poll()
+    assert [e["kind"] for e in events] == ["unverified_unload"]
+    assert applied == []
+
+
+def test_helixscreen_install_clear_is_unchanged_by_presence(tmp_path):
+    # ZMod does not publish when helix = 1, so no colliding author is ever
+    # seen: a vanished lane is the screen's clear and converges as in #791,
+    # whatever the presence read says.
+    client = FakeSpoolman([spool(11, ph_slot="ad5x:1")])
+    mr = FakeMoonraker()
+    watcher, applied = make_watcher(tmp_path, mr, client,
+                                    presence_fn=lambda: {1: True, 2: False, 3: False, 4: False})
+    seed(watcher, mr, {"lane1": lane(11)})
+    mr.lanes = {}
+    events = watcher.poll()
+    assert [(e["kind"], e["slot"]) for e in events] == [("unloaded", 1)]
+    assert applied == [(1, None)]
+
+
+def test_listener_lane_presence_is_this_tick_read_or_unknown(monkeypatch):
+    listener = mel.Listener()
+    assert listener.lane_presence() is None  # never read
+    now = [1000.0]
+    monkeypatch.setattr(mel.time, "monotonic", lambda: now[0])
+    listener.note_slot_presence({1: True, 2: False})
+    assert listener.lane_presence() == {1: True, 2: False}
+    now[0] += mel.NATIVE_POLL_SECONDS  # a tick later, and that tick's read failed
+    assert listener.lane_presence() is None
