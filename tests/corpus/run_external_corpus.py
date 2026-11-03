@@ -14,10 +14,28 @@ from tests.corpus import harness
 GENERIC_CLICKS = [{"question": "Choose the color", "button": "White"},
                   # Explicit monochrome consent for multipart and painted models.
                   {"question": "one color for everything?", "button": "One color for everything"},
-                  # Pick the offered shrink, never silently approve a rotation/support tradeoff.
-                  {"question": "does not fit the bed full size", "button": "Shrink to"},
+                  # STL files carry no units; the corpus models are authored in millimeters.
+                  {"question": "STL files do not record units", "button": "Millimeters"},
+                  # Prefer the offered shrink, then a split onto full-size plates, then a flat turn on the
+                  # bed, then a reorientation (the owner accepts a rotated print, 2026-11-03). Never
+                  # silently approve added supports.
+                  {"question": "does not fit", "button": "Shrink to"},
+                  {"question": "does not fit", "button": "split"},
+                  {"question": "does not fit", "button": "turned"},
+                  {"question": "does not fit", "button": "rotated"},
+                  {"question": "Which plate prints first?", "button": "Plate 1"},
                   {"question": "How many copies", "button": "One copy"},
                   {"question": "·", "button": "Slice and print"}]
+
+
+# Corpus-v1 models whose correct outcome is an intake refusal, keyed by their folder. The
+# release tarball carries no case.toml for them, so the expectation is pinned here.
+PINNED_REFUSALS = {
+    # A 1 KB 3MF that names two objects but carries no mesh. It "sliced" against the fake Orca
+    # until the fit check started reading geometry; refusing it at intake is the right outcome.
+    "031-can-holder--4bd27ac45ab319200fd51a52196f68b19d7061f588491d66f10ba7ba40fd7d74":
+        "no printable geometry",
+}
 
 
 def build_case(model, root):
@@ -35,10 +53,11 @@ def build_case(model, root):
         data = tomllib.loads(case_toml.read_text())
         return S(name=case_dir.name, dir=case_dir, model=model, data=data,
                  clicks=data.get("click", []), expect=data.get("expect", {}))
+    refusal = PINNED_REFUSALS.get(case_dir.name)
     return S(name=case_dir.name, dir=case_dir, model=model,
              data={"description": model.name},
              clicks=GENERIC_CLICKS,
-             expect={"status": "STARTED"})
+             expect={"status": "FAILED", "error_contains": refusal} if refusal else {"status": "STARTED"})
 
 
 def evaluate(case, run):

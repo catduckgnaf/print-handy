@@ -1842,9 +1842,16 @@ def model_info_output(path):
     # Measured from the printable mesh in-process (Orca-only stack; no Prusa).
     # Cutters and modifiers are already excluded by source_triangles.
     from .orca_adapter import source_triangles
-    tris = source_triangles(path)
+    try:
+        tris = source_triangles(path)
+    except RuntimeError as exc:
+        # A file with no mesh at all (objects named, no triangles) is refused at intake like a
+        # flat one (#194), not left to crash the fit check as an unexplained error (2026-11-03).
+        if "no printable triangles" in str(exc):
+            raise NoPrintableVolume(f"model has no printable geometry ({exc})") from exc
+        raise
     if not tris:
-        raise RuntimeError("model has no printable geometry")
+        raise NoPrintableVolume("model has no printable geometry")
     from .mesh_fast import bounds_and_volume
     lo, hi, vol = bounds_and_volume(tris)
     if min(hi[a] - lo[a] for a in range(3)) <= 1e-6 or abs(vol) <= 1e-9:
