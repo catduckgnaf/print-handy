@@ -137,7 +137,7 @@ def test_refused_start_sends_prep_then_precise_failure_no_printing_claim(env, mo
     assert not any(m.startswith('Sliced:') for m in adapter.log)
     assert not any('print started' in m.lower() for m in adapter.log)
     assert adapter.log[2] == (
-        "Didn't start: the printer could not confirm it was ready. Check the printer screen, "
+        "Stage: launch. Didn't start: the printer could not confirm it was ready. Check the printer screen, "
         "resolve any warning, then press Retry."
     )
     assert 'REFUSED:' not in adapter.log[2]
@@ -372,7 +372,7 @@ def test_color_refusal_that_surfaces_keeps_its_retry_text(env, monkeypatch):
     adapter, result, receipt = run_flow(env, [1, 0, 0] + [0] * (prepared_intake.COLOR_CONFIRM_ROUNDS - 1))
     asked = [q for q in adapter.questions if prepared_intake.PRINT_ANYWAY_LABEL in q['choices']]
     assert len(asked) == prepared_intake.COLOR_CONFIRM_ROUNDS - 1
-    assert adapter.log[-1].startswith("Didn't start: printer slot 1 color is #E53935")
+    assert adapter.log[-1].startswith("Stage: launch. Didn't start: printer slot 1 color is #E53935")
     assert adapter.log[-1].endswith('then press Retry.')
 
 

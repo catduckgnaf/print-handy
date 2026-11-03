@@ -1518,8 +1518,8 @@ def _start_report(tail):
 
 
 def _launch_refusal_text(tail):
-    """A confirmed pre-upload refusal as posted in chat: its guidance, then the stage (#817)."""
-    return _refusal_text(tail) + ' Stage: launch.'
+    """A confirmed pre-upload refusal as posted in chat: the stage first, like every failure post, then its guidance (#817)."""
+    return 'Stage: launch. ' + _refusal_text(tail)
 
 
 def start_unknown_message(tail):
@@ -1532,7 +1532,7 @@ def start_unknown_message(tail):
     report = _start_report(tail)
     if report.stage == 'upload':
         return failure_report.plain(report)
-    return START_PENDING_MESSAGE + ' Stage: launch.'
+    return 'Stage: launch. ' + START_PENDING_MESSAGE
 
 
 def plain_start_failure(tail):
