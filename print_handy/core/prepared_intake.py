@@ -915,6 +915,33 @@ def _fit_choice_reply(text, rows):
     return matches[0]
 
 
+SCALE_STEP_PERCENTS = (1, 5, 10)
+SCALE_LABEL = 'Scale the model'
+
+
+def _scale_direction_reply(text):
+    """Typed answer to the scale direction question: 0 bigger, 1 smaller, 2 back, else None."""
+    value = str(text or '').strip().casefold()
+    if value in {'cancel', 'back', 'never mind', 'nevermind'}:
+        return 2
+    if any(word in value for word in ('bigger', 'larger', 'grow', 'up')):
+        return 0
+    if any(word in value for word in ('smaller', 'shrink', 'down')):
+        return 1
+    return None
+
+
+def _scale_percent_reply(text):
+    """Typed answer to the scale amount question: index into SCALE_STEP_PERCENTS, 3 back, else None."""
+    value = str(text or '').strip().casefold().rstrip('%').strip()
+    if value in {'cancel', 'back', 'never mind', 'nevermind'}:
+        return len(SCALE_STEP_PERCENTS)
+    for index, step in enumerate(SCALE_STEP_PERCENTS):
+        if value == str(step):
+            return index
+    return None
+
+
 def fit_question(title, options, rows=None):
     rows = rows if rows is not None else fit_choice_rows(options)
     scales = options.get('scales') or []
@@ -2509,7 +2536,7 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         mj.write_job(folder, latest)
         receipt.update(status='COLORS_SAVED', color_decisions=validated, copies=chosen_quantity)
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
-        # Slice while the confirm question is on screen. Stop and Cancel below discard it,
+        # Slice while the confirm question is on screen. Cancel below discards it,
         # so a job that never asked for G-code keeps none.
         early = runner_for(jp)
         binding = slice_binding(latest, decisions['source_sha256'])
@@ -2535,42 +2562,122 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         cancel_label = 'Cancel print request'
         caveat = (' Parts go on one multicolor bed when they fit; if they must split I will say why and '
                   'let you choose which plate prints first.' if multi and decisions['mode'] == 'per_part' else '')
-        spool_text = await _spool_projection_text(mj, latest, manifest, state, chosen_quantity)
         color_text = _color_guess_text(mj, latest, decisions)
-        if color_text:
-            spool_text = (spool_text + '\n' + color_text) if spool_text else color_text
         source_estimate = _preview_estimate(latest.get('selected_source'))
-        estimate_s = source_estimate[0] * chosen_quantity if source_estimate else None
-        # No source estimate: there is no time to show yet (the post-slice message gives it).
-        estimate_text = '' if estimate_s is None else f"~{mj.human_dur(estimate_s + 300)}"
-        if chosen_quantity and chosen_quantity != 1:
-            estimate_text = ' · '.join(x for x in (f"{chosen_quantity} copies", estimate_text) if x)
         # Post-slice choices come from the printer's vendor profile ([delivery] methods). Printing is
         # offered only where the vendor offers it AND the operator enabled it in [delivery] methods
         # (for Bambu Lab that means the LAN print opt-in; it is never a default there).
         enabled = delivery.methods()
         can_print = delivery.PRINTER in enabled
-        first_labels = [print_label, 'Slice only', 'Stop with colors saved', cancel_label][0 if can_print else 1:]
+        first_labels = [print_label, 'Slice only', SCALE_LABEL, cancel_label][0 if can_print else 1:]
         # The Spoolman remap warning belongs on THIS confirmation too (P2-242):
         # 'Slice and print now' is the choice that starts the print, and it
         # never saw the note only the slice-only flow's second question got.
         from .spool_remap import confirm_note
         remap_note = confirm_note(mj._job_adapter(latest), latest, state)
-        choice = await _ask(adapter, source, key,
-            ' · '.join(x for x in ('Ready to slice', names, estimate_text) if x)
-            + ('\n' + spool_text if spool_text else '') + caveat
-            + ('\n' + remap_note if remap_note else ''),
-            first_labels, timeout,
-            on_shown=early.release.set, approval=True)
-        choice = choice if can_print else choice + 1
-        if choice in (2, 3):
-            await early.discard()  # the early slice was for a job that will not print
-            receipt['status'] = 'CANCELLED' if choice == 3 else 'COLORS_SAVED_STOPPED'
+        # 'Scale the model' repeats this question at the new size: the scale is
+        # recorded, the background slice restarts for it while the question is
+        # on screen, and the operator can say the bed is clear without waiting
+        # for the scaling. The only refusal is a size that does not fit the bed.
+        choice = None
+        scale_note = ''
+        while choice is None:
+            spool_text = await _spool_projection_text(mj, latest, manifest, state, chosen_quantity)
+            if color_text:
+                spool_text = (spool_text + '\n' + color_text) if spool_text else color_text
+            estimate_s = source_estimate[0] * chosen_quantity if source_estimate else None
+            # No source estimate: there is no time to show yet (the post-slice message gives it).
+            estimate_text = '' if estimate_s is None else f"~{mj.human_dur(estimate_s + 300)}"
+            if chosen_quantity and chosen_quantity != 1:
+                estimate_text = ' · '.join(x for x in (f"{chosen_quantity} copies", estimate_text) if x)
+            picked = await _ask(adapter, source, key,
+                ' · '.join(x for x in ('Ready to slice', names, estimate_text) if x)
+                + ('\n' + spool_text if spool_text else '')
+                + ('\n' + scale_note if scale_note else '') + caveat
+                + ('\n' + remap_note if remap_note else ''),
+                first_labels, timeout,
+                on_shown=early.release.set, approval=True)
+            picked = picked if can_print else picked + 1
+            if picked != 2:
+                choice = picked
+                break
+            direction = await _ask(adapter, source, key,
+                                    'Scale the model bigger or smaller?',
+                                    ['Bigger', 'Smaller', 'Cancel scaling'], timeout,
+                                    parser=_scale_direction_reply, approval=True)
+            if direction == 2:
+                continue
+            amount = await _ask(adapter, source, key,
+                                f"How much {'bigger' if direction == 0 else 'smaller'}?",
+                                ['1%', '5%', '10%', 'Cancel scaling'], timeout,
+                                parser=_scale_percent_reply, approval=True)
+            if amount == len(SCALE_STEP_PERCENTS):
+                continue
+            step = SCALE_STEP_PERCENTS[amount]
+            factor = (100 + step) / 100 if direction == 0 else (100 - step) / 100
+            current_scale = float(latest.get('scale') or 1.0)
+            new_scale = round(current_scale * factor, 6)
+            orientation = latest.get('orientation') or {}
+            if orientation.get('rotation'):
+                probe_kw = {'rotation': orientation['rotation'],
+                            'supports': bool(orientation.get('supports')), 'copy_limit': 1,
+                            **({'brim_policy': {'type': 'outer_only',
+                                                'width_mm': orca_adapter.ORIENTATION_BRIM_MM}}
+                               if orientation.get('brim') else {})}
+            else:
+                probe_kw = {'copy_limit': max(1, int(chosen_quantity or 1))}
+            try:
+                capacity_at = await _heavy(orca_adapter.orca_plate_capacity, path, state,
+                                           scale=new_scale, **probe_kw)
+            except Exception:
+                logger.exception('scale fit check failed')
+                await adapter.send(chat_id=source.chat_id,
+                                   content=f'I could not check whether {_pct(new_scale)} fits the bed, '
+                                           f'so nothing was scaled. The model stays at {_pct(current_scale)}.',
+                                   metadata=metadata)
+                continue
+            if capacity_at < 1:
+                await adapter.send(chat_id=source.chat_id,
+                                   content=f'{_pct(new_scale)} does not fit the {_printer_name(latest)} bed, '
+                                           f'so nothing was scaled. The model stays at {_pct(current_scale)}.',
+                                   metadata=metadata)
+                continue
+            notes = []
+            if latest.get('full_size_split_plan') or latest.get('full_size_rearrange_plan'):
+                # Those plans pin the authored layout at 100%. A size verified
+                # to fit one plate no longer needs one; a size that does not
+                # fit one plate was refused above, so the plan is never
+                # silently sliced at a size it was not planned for.
+                latest.pop('full_size_split_plan', None)
+                latest.pop('full_size_rearrange_plan', None)
+                receipt.pop('full_size_split', None)
+                receipt.pop('full_size_rearrange', None)
+                notes.append('At this size it fits one plate, so it prints as one plate.')
+            if capacity_at < chosen_quantity:
+                chosen_quantity = capacity_at
+                notes.append(f'Only {chosen_quantity} {"copy fits" if chosen_quantity == 1 else "copies fit"} '
+                             f'at this size, so the count is now {chosen_quantity}.')
+            latest['scale'] = new_scale
+            latest['copies'] = chosen_quantity
+            mj.write_job(folder, latest)
+            receipt.update(scale=new_scale, copies=chosen_quantity)
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
-            message = ('Cancelled. Nothing was sliced, uploaded, or started.' if choice == 3
-                       else 'Source inspected and colors saved. Stopped before slicing; nothing uploaded or started.')
-            await adapter.send(chat_id=source.chat_id, content=message, metadata=metadata)
-            return {'action': 'skip', 'reason': 'operator cancelled print request' if choice == 3 else 'operator stopped before slicing'}
+            scale_note = (f'Scaled to {_pct(new_scale)} of the authored size.'
+                          + ((' ' + ' '.join(notes)) if notes else ''))
+            binding = slice_binding(latest, decisions['source_sha256'])
+            recipe_sha = binding_sha256(binding)  # the worker refuses to slice any other recipe
+            await early.start(jp, binding, lambda job_path, work, runner, copies=chosen_quantity:
+                              _heavy(mj.slice_job, str(job_path), recipe_sha256=recipe_sha, **(
+                                  {'copies': copies} if copies and int(copies) > 1 else {})))
+            await early.started.wait()  # armed before the repeated question goes up
+        if choice == 3:
+            await early.discard()  # the early slice was for a job that will not print
+            receipt['status'] = 'CANCELLED'
+            receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+            await adapter.send(chat_id=source.chat_id,
+                               content='Cancelled. Nothing was sliced, uploaded, or started.',
+                               metadata=metadata)
+            return {'action': 'skip', 'reason': 'operator cancelled print request'}
         latest = json.loads(jp.read_text())
         if (latest.get('intake_id') != iid or latest.get('color_decisions') != validated
                 or mj.file_sha256(latest['downloaded_file']) != decisions['source_sha256']

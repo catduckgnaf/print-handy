@@ -363,8 +363,13 @@ def test_fit_transform_matches_orca_rotation_and_scale():
     fit = fit_transform({'scale': 0.5, 'rotation': rotation})
     for point in [(1, 2, 3), (10, -4, 0)]:
         assert _apply(fit, point) == pytest.approx(tuple(0.5 * v for v in _rotate(point, rotation)))
+    # Above 100% is an operator-chosen size too (the confirm prompt's Scale
+    # the model button): the same rigid transform applies, only larger.
+    grown = fit_transform({'scale': 1.5, 'rotation': rotation})
+    for point in [(1, 2, 3), (10, -4, 0)]:
+        assert _apply(grown, point) == pytest.approx(tuple(1.5 * v for v in _rotate(point, rotation)))
     with pytest.raises(RuntimeError, match='scale'):
-        fit_transform({'scale': 1.5})
+        fit_transform({'scale': -1})
 
 
 def test_resized_plate_composes_fit_into_selected_items_only(tmp_path):

@@ -46,7 +46,7 @@ def test_linked_profile_is_selected_automatically(env, monkeypatch):
     monkeypatch.setattr(model_job, 'maker_download', download)
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None),
               message_id='profiles', text=URL)
-    adapter = Adapter([1, 0, 2])
+    adapter = Adapter([1, 0, 3])
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
     assert not any('print profiles' in q['question'] for q in adapter.questions)
     assert not any('Selected the profile linked in the URL' in str(m) for m in adapter.sent)

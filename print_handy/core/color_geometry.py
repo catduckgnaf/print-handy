@@ -47,8 +47,8 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
         if not manifest['parts']:
             raise RuntimeError('object subset selects no source parts')
     scale = float(scale) if scale is not None else 1.0
-    if not 0 < scale <= 1:
-        raise RuntimeError('painted export scale must be greater than 0 and no more than 1')
+    if not scale > 0:
+        raise RuntimeError('painted export scale must be greater than 0')
     if decisions.get('source_sha256') != manifest['source_sha256'] or decisions.get('mode') != 'per_part':
         raise RuntimeError('multicolor geometry requires exact-source per_part decisions')
     painted = bool(manifest['painted'])
@@ -372,8 +372,8 @@ def export_volume_plate(source, target, scale=1.0, rotation=None):
     from .orca_adapter import _check_rotation, _rotate
     from . import source_colors
     scale = float(scale) if scale is not None else 1.0
-    if not 0 < scale <= 1:
-        raise ValueError('scale must be greater than 0 and no more than 1')
+    if not scale > 0:
+        raise ValueError('scale must be greater than 0')
     rotation = _check_rotation(rotation)
     manifest = inventory(source)
     kind = {p['instance_key']: (p, p.get('subtype', 'normal_part'))
@@ -607,14 +607,14 @@ def fit_transform(fit):
     fit is {'scale': s, 'rotation': [9 row-major, column-vector convention]},
     the same rotation orca_adapter.export_geometry applies (q = s * R * p).
     In 3MF row-vector form that is A = s * R^T with no translation, so the
-    whole selection turns and shrinks rigidly about one common origin.
+    whole selection turns and scales rigidly about one common origin.
     """
     if not fit:
         return None
     from .orca_adapter import _check_rotation
     scale = float(fit.get('scale') or 1.0)
-    if not 0 < scale <= 1:
-        raise RuntimeError('fit scale must be greater than 0 and no more than 1')
+    if not scale > 0:
+        raise RuntimeError('fit scale must be greater than 0')
     try:
         rotation = _check_rotation(fit.get('rotation')) or [1, 0, 0, 0, 1, 0, 0, 0, 1]
     except ValueError as exc:
