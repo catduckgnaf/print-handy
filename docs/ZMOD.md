@@ -45,6 +45,177 @@ reports it too, on its own `zmod version` row, so the diagnostics bundle
 carries it into bug reports. Print Handy never guesses a version and
 never gates printing on it.
 
+## ZMod parameters evaluated: `ORCA_FF` and `orca_lanes` (#851)
+
+Two parameters ZMod documented on 2026-11-03, after the 1.7.5 release
+above — so neither is in any ZMod version Print Handy has audited, and
+neither has a version floor Print Handy can read yet. Both need the
+native screen off (`DISPLAY_OFF`). The evaluation below is the answer
+to [issue #851](https://github.com/catduckgnaf/print-handy/issues/851):
+reasons why and reasons why not for each, then a verdict, every claim
+tied to the code or the wiki as its source. Print Handy never gates
+printing on a ZMod version, and this evaluation does not change that.
+
+### `orca_lanes`: color sync — verdict: accommodate (parser fix shipped), full adoption deferred
+
+**What it does.** ZMod publishes the IFS slots to the Moonraker
+database so OrcaSlicer's "Sync filament" button can pull filament
+color and type from the printer, whether the printer was added in
+OrcaSlicer as Octo/Klipper (Moonraker) or as FlashForge. It is on by
+default; disable it with `[zmod_color] orca_lanes: False` in
+`mod_data/user.cfg`. ZMod documents it on the AD5X page (the upstream
+docs commit applied the same section to the Creator 5 Pro page too, but
+the lane shape described is the 4-slot IFS one, so how it behaves on a
+toolhead machine is an open question for the live check). If colors are
+managed by HelixScreen (`helix = 1`), ZMod skips publishing regardless
+of the setting, so its data is not overwritten.
+
+Source: [ZMod wiki, AD5X "Filament sync with
+OrcaSlicer"](https://wiki.zmod.link/AD5X/#filament-sync-with-orcaslicer);
+upstream docs commits `4b07865`/`676c925`/`8c20949` (2026-11-03) in
+`ghzserg/zmod`, which contain only documentation — the firmware code
+ships in release payloads, not in that repo.
+
+**Why accommodate it.**
+
+- **A second author was about to land in a namespace Print Handy
+  already reads, and the old parser misread it.** Print Handy's
+  HelixScreen inbound spool sync (#791,
+  `print_handy/hermes/lane_data_sync.py`) watches the Moonraker
+  `lane_data` namespace and converges slot assignment through
+  `spool_sync.reconcile`. ZMod writes that namespace in the AFC /
+  Happy Hare shape: slot 1 is key `lane0`, …, slot 4 is `lane3`, with
+  records like `{"lane": "0", "material": "PETG", "color": "#161616",
+  "name": "PETG"}`. The parser's convention is the screen's: outer key
+  `laneN` is 1-based, inner `lane` is 0-based (pinned by
+  `test_parse_lane_data_outer_key_is_1_based_inner_lane_is_0_based`).
+  Read under the screen's keys, ZMod's slot 2 record (`lane1`) would
+  be attributed to slot 1, its slot 1 record (`lane0`) would be
+  dropped as slot 0, and every slot's data would land one slot off.
+  A test with the exact wiki-documented payload failed against the old
+  parser and passes with the fix.
+- **The fix is small and loses nothing the watcher can act on.** A
+  ZMod record names no spool, so the watcher — which never guesses a
+  spool — could only have produced a wrong-slot "unresolved" prompt
+  from it. `parse_lane_data` now skips records carrying no
+  screen-side field (`spool_id`, `scan_time`/`scanned_at`/`timestamp`,
+  or any `helix_*` key); every screen record in the suite, including
+  the id-less screen lane, still parses exactly as before (4 new
+  tests in `tests/hermes/test_lane_data_sync.py`). On a
+  no-HelixScreen install the watcher becomes inert for ZMod-authored
+  data instead of wrong.
+- **HelixScreen installs are unchanged by construction.** ZMod skips
+  publishing when `helix = 1`, so the maintainer's AD5X — and any
+  HelixScreen install — sees no new author at all.
+
+**Why not adopt it fully.**
+
+- **Print Handy gains nothing functional from it.** The slicer's Sync
+  button is a slicer-side win; it needs nothing from Print Handy to
+  work, and Print Handy has no use for a color/type assignment it
+  cannot tie to a Spoolman spool.
+- **Assignment is not presence, and the watcher must not confuse
+  them.** ZMod's entries carry assignment (color/type), not sensor
+  presence — the wiki says filament presence from the sensors is not
+  taken into account, and the external spool is not published. Print
+  Handy's "physically loaded" calls still come from the other sources
+  they come from today: `zmod_color` presence and the native
+  `/detail` read in `print_handy/core/spool_lifecycle.py`, and the
+  IFS sensors in the listener. Nothing in the watcher treats
+  `lane_data` as presence, and this change keeps it that way.
+- **A slot with type `?` is removed, and a removal must not read as
+  an unload for ZMod-authored lanes.** With the parser fix, removing
+  a ZMod key changes nothing parsed — it reads as no data, never as
+  an unload — which honors the #791 rule "absent data reads as
+  unknown, never as empty" for that author.
+- **The parser fix does not solve the deeper problem, and this PR
+  does not claim it does.** ZMod's 0-based keys overlap Print
+  Handy's and HelixScreen's 1-based keys at `lane1`–`lane3` with
+  different slot meanings, so the writers overwrite and delete each
+  other's records in the shared namespace (ZMod republishing slot 3
+  overwrites Print Handy's slot 2 record; clearing slot 3's type
+  deletes key `lane2`). A vanished spool-bearing record is what the
+  watcher converges as an unload, so that collision can unload a
+  spool that is still loaded. That needs a converge-side guard
+  (cross-checking presence before an unload converge), which is
+  larger than this PR — it is filed as
+  [issue #852](https://github.com/catduckgnaf/print-handy/issues/852)
+  and must land before Print Handy docs point anyone at a
+  no-HelixScreen install with `orca_lanes` on.
+
+### `ORCA_FF`: native-screen emulator — verdict: document-only
+
+**What it does.** With `SAVE_ZMOD_DATA ORCA_FF=1` and a reboot, a
+ZMod printer with the native screen off answers the FlashForge host
+protocol: OrcaSlicer and Flash Studio connect with host type
+`FlashForge`, hostname = printer IP, API key / password `zmod`,
+serial `zmod`, and operators pick spools for colors right in the
+slicer when sending a print instead of the Fluidd menu, while Flash
+Studio gets discovery, file upload, status, and print control. AD5X /
+Creator 5 / Creator 5 Pro only; default off; takes effect after a
+reboot.
+
+Source: [ZMod wiki, Global
+`ORCA_FF`](https://wiki.zmod.link/Global/#orca_ff).
+
+**Why it is worth documenting.**
+
+- **It is a real operator win that needs nothing from Print Handy.**
+  The slicer-side spool choice and Flash Studio control work entirely
+  outside Print Handy; documenting it costs a section and buys
+  operators the knowledge that the option exists and what it changes.
+- **A print sent this way is not invisible to Print Handy.** The
+  Moonraker listener already handles prints it did not start: an
+  unclaimed start (printer screen, other tools) gets exactly one
+  canonical start post, a capture session, light-on, the visual
+  watchdog, runout classification, and the completion announcer
+  (`print_handy/hermes/moonraker_event_listener.py`, `on_status`).
+  An `ORCA_FF` print is, to the listener, a print started by another
+  tool — it gets monitored and reported like a screen-started print.
+
+**Why not incorporate it.**
+
+- **It is a parallel send path that bypasses everything Print Handy
+  exists to do.** A print sent from OrcaSlicer or Flash Studio never
+  passes the confirm flow, the spool checks, the readiness guards, or
+  Print Handy's print accounting. That is an operator choice, not a
+  bug — but there is nothing for Print Handy to adopt here without
+  becoming a second slicer-send path, and the confirm-before-printing
+  posture is the product.
+- **Pointing Print Handy's stock-Flashforge profile at an emulator is
+  a misconfiguration with named early failures, not a supported
+  route.** The stock profile is never auto-selected: it requires the
+  operator to choose `flashforge_stock.ad5x` and to put
+  `AD5X_SERIAL` / `AD5X_CHECK_CODE` in the environment
+  (`print_handy/printers/flashforge_stock/adapter.py`, `client()`),
+  and every refused request surfaces as a named `StockLanError`
+  (`stock LAN /detail refused`, and so on). The emulator's
+  documented credentials are `zmod`/`zmod`, so the common case fails
+  at the credential/detail stage with a named error. A deliberately
+  configured emulator could accept an upload whose start sequence is
+  the slicer's stock-owned one rather than ZMod's — that deserves
+  this warning, not a code guard for a configuration Print Handy
+  never makes on its own.
+- **Print Handy cannot detect it with any mechanism it has today.**
+  Saved ZMod parameters live in `mod_data/variables.cfg` on the
+  printer, and no code in the repo reads that file or runs
+  `GET_ZMOD_DATA` (the console macro that reports saved parameters);
+  the version reads Print Handy does have (Moonraker update status,
+  `/machine/system_info`) say nothing about it. Building a detection
+  path for a document-level concern is not worth it — the doctor
+  says nothing about `ORCA_FF`, and this section is where an
+  operator learns it exists.
+- **Spool choices made in the slicer do not make the next Print
+  Handy print stale beyond what already exists.** Those choices
+  change the printer-side mapping (`zmod_color`), not Spoolman's
+  `ph_slot` assignments; the next Print Handy intake reads loaded
+  spools from Spoolman and the listener rebuilds the slot cache from
+  `ph_slot` at session start (`reconcile_spools`) with a color
+  backfill from `zmod_color` (`backfill_slot_colors`), and `/spool
+  sync` reconciles on demand. That is exactly the exposure a
+  Fluidd-menu change already has — no new stale-state hazard, and
+  no new code to close it.
+
 ## How the models differ
 
 All five models speak the same ZMod language — Moonraker transport and ZMod's
