@@ -639,3 +639,59 @@ def test_failed_assignment_write_keeps_the_old_claim_and_adopts_nothing(tmp_path
     # The previous spool's claim was NOT cleared behind the failed write.
     assert spool_sync.spool_ph_slot(client.spools[11]) == (PID, 1)
     assert spool_sync.spool_ph_slot(client.spools[19]) is None
+
+
+# ------------------------------------------------- ZMod-authored lanes (#851)
+
+# The exact payload shape ZMod's orca_lanes publishing writes (ZMod wiki,
+# AD5X "Filament sync with OrcaSlicer"): keys are 0-based (slot 1 -> lane0),
+# the inner lane is a string, and a record carries only lane/material/color/
+# name - no spool_id, no scan_time, no helix_* keys. Slot 3 has type "?" on
+# the printer, so ZMod removed its key.
+ZMOD_LANES = {
+    "lane0": {"lane": "0", "material": "PETG", "color": "#161616", "name": "PETG"},
+    "lane1": {"lane": "1", "material": "PLA", "color": "#FFFFFF", "name": "PLA"},
+    "lane3": {"lane": "3", "material": "ABS", "color": "#FF0000", "name": "ABS"},
+}
+
+
+def test_parse_lane_data_ignores_zmod_authored_records():
+    # Read under the screen's 1-based keys, lane1 would hand slot 2's PLA to
+    # slot 1 and drop slot 1's PETG entirely: every ZMod lane lands one slot
+    # off. ZMod records name no spool, so the watcher must not act on them.
+    assert lane_data_sync.parse_lane_data(copy.deepcopy(ZMOD_LANES)) == {}
+
+
+def test_parse_lane_data_zmod_records_do_not_shadow_screen_records():
+    mixed = {"lane2": lane(18, slot=2), **copy.deepcopy(ZMOD_LANES)}
+    lanes = lane_data_sync.parse_lane_data(mixed)
+    assert sorted(lanes) == [2]
+    assert lanes[2]["spool_id"] == 18
+
+
+def test_parse_lane_data_screen_record_without_spool_id_still_parses():
+    # An id-less SCREEN lane (scan_time, no spool_id) is the unresolved case
+    # the watcher names in a prompt; only the marker-less ZMod shape is skipped.
+    record = {"lane": 0, "scan_time": 200, "material": "PETG",
+              "color": "FFFFFF", "name": "White PETG"}
+    lanes = lane_data_sync.parse_lane_data({"lane1": record})
+    assert sorted(lanes) == [1]
+    assert lanes[1]["material"] == "PETG"
+
+
+def test_zmod_publish_change_and_removal_make_no_watcher_events(tmp_path):
+    client = FakeSpoolman([spool(11, ph_slot="ad5x:1")])
+    mr = FakeMoonraker(lanes={})
+    watcher, applied = make_watcher(tmp_path, mr, client)
+    seed(watcher, mr, {})
+    mr.lanes = copy.deepcopy(ZMOD_LANES)
+    assert watcher.poll() == []
+    # ZMod republishes only the changed slot: its slot 2 (key lane1) turns PETG.
+    mr.lanes = {**copy.deepcopy(ZMOD_LANES),
+                "lane1": {"lane": "1", "material": "PETG", "color": "#0000FF", "name": "PETG"}}
+    assert watcher.poll() == []
+    # Its slot 2's type becomes "?", so ZMod removes key lane1.
+    mr.lanes = {key: value for key, value in copy.deepcopy(ZMOD_LANES).items()
+                if key != "lane1"}
+    assert watcher.poll() == []
+    assert applied == []
