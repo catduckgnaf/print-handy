@@ -179,14 +179,14 @@
    "wall_s": 0.06
   },
   "islands-144-four-color/hermes": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.18,
    "fit_check_s": 0.01,
-   "wall_s": 0.07
+   "wall_s": 1.0
   },
   "islands-144-four-color/standalone": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.17,
    "fit_check_s": 0.01,
-   "wall_s": 0.08
+   "wall_s": 0.98
   },
   "loose-2c-tight/hermes": {
    "first_prompt_s": 0.01,
@@ -255,14 +255,14 @@
    "wall_s": 0.04
   },
   "parts-512-four-color/hermes": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.68,
    "fit_check_s": 0.01,
-   "wall_s": 0.07
+   "wall_s": 4.74
   },
   "parts-512-four-color/standalone": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.67,
    "fit_check_s": 0.01,
-   "wall_s": 0.08
+   "wall_s": 4.75
   },
   "parts-one-plate/hermes": {
    "first_prompt_s": 0.02,
