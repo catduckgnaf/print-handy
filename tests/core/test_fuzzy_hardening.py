@@ -13,7 +13,7 @@ was developed (numbers in the PR body):
 """
 import pytest
 
-from print_handy.core import fuzzy
+from print_handy.core import fuzzy, fuzzy_vocabulary
 
 
 # ------------------------------------------------------------------- fold
@@ -311,3 +311,119 @@ def test_decide_grid():
     assert (tie.kind, tie.contenders) == ("suggest", ("a", "b"))
     # Ranking is stable: equal scores keep caller order (no coin flips).
     assert fuzzy.decide([(80, "b"), (80, "a")]).contenders == ("b", "a")
+
+
+# --------------------------------------------------- expanded vocabulary (1,000+)
+
+def test_expanded_vocabulary_scale_and_integrity():
+    total_entries = len(fuzzy_vocabulary.PHRASE_FORMS) + len(fuzzy_vocabulary.TOKEN_FORMS)
+    assert total_entries >= 1000, f"Expected at least 1,000 entries, found {total_entries}"
+    # Verify all phrase keys are lowercased tuples of non-empty strings
+    for (w1, w2), targets in fuzzy_vocabulary.PHRASE_FORMS.items():
+        assert w1 == w1.lower() and w1.strip() == w1 and w1
+        assert w2 == w2.lower() and w2.strip() == w2 and w2
+        assert isinstance(targets, tuple) and len(targets) >= 1
+    # Verify all token keys are lowercased strings
+    for k, v in fuzzy_vocabulary.TOKEN_FORMS.items():
+        assert k == k.lower() and k.strip() == k and k
+        assert isinstance(v, str) and v.strip() == v and v
+
+
+@pytest.mark.parametrize("query,target", [
+    # Brands and printer lines
+    ("bamboo lab", "bambu"),
+    ("bambu lab", "bambu"),
+    ("ender3v2", "ender 3 v2"),
+    ("k1max", "k1 max"),
+    ("coreone", "core one"),
+    ("prusaxl", "prusa xl"),
+    ("neptune4pro", "neptune 4 pro"),
+    ("saturn3", "saturn 3"),
+    ("kobra2", "kobra 2"),
+    ("sv08", "sv08"),
+    ("q1pro", "q1 pro"),
+    # Materials and filament brands
+    ("colorfabb", "colorfabb"),
+    ("polyflex", "polyflex"),
+    ("polymax", "polymax"),
+    ("toughpla", "tough pla"),
+    ("silkpla", "silk pla"),
+    ("carbonfiber", "carbon fiber"),
+    # Common mobile autocorrects and fat-finger typos
+    ("rebot", "reboot"),
+    ("restrt", "restart"),
+    ("resum", "resume"),
+    ("cancle", "cancel"),
+    ("pauze", "pause"),
+    ("staus", "status"),
+    ("slise", "slice"),
+    ("halp", "help"),
+    ("camra", "camera"),
+    ("disply", "display"),
+    ("connet", "connect"),
+    # Mechanical and slicing phrases
+    ("all metal", "allmetal"),
+    ("hardened steel", "hardenedsteel"),
+    ("direct drive", "directdrive"),
+    ("anti backlash", "antibacklash"),
+    ("treesupport", "tree support"),
+    ("bed temp", "bedtemperature"),
+    ("infilloverlap", "infill overlap"),
+])
+def test_expanded_vocabulary_matches(query, target):
+    assert fuzzy.fuzzy_score(query, target) >= fuzzy.FUZZY_FLOOR
+
+
+
+# ------------------------------------------- expanded vocabulary: review guards
+
+@pytest.mark.parametrize("query,target", [
+    ("two trees", "2 trees"),
+    ("two trees", "second tree"),
+    ("first layer", "1st layer"),
+])
+def test_vocabulary_never_breaks_number_equivalence(query, target):
+    # A phrase containing a number word, joined before number parsing,
+    # would turn "two trees" into an opaque token that "2 trees" never reaches.
+    assert fuzzy.canonical(query) == fuzzy.canonical(target)
+    assert fuzzy.fuzzy_score(query, target) >= fuzzy.FUZZY_FLOOR
+
+
+def test_no_vocabulary_phrase_contains_a_number_word():
+    for pair in fuzzy_vocabulary.PHRASE_FORMS:
+        assert not set(pair) & set(fuzzy._NUMBER_WORDS), pair
+
+
+def test_every_vocabulary_key_is_reachable_after_norm():
+    # norm() turns '-' and '_' into spaces, so such keys could never match.
+    for key in fuzzy_vocabulary.TOKEN_FORMS:
+        assert fuzzy.norm(key) == key, key
+    for pair in fuzzy_vocabulary.PHRASE_FORMS:
+        assert all(fuzzy.norm(word) == word for word in pair), pair
+
+
+@pytest.mark.parametrize("word,folded,phrase,target", [
+    # Bamboo is a filament and a print subject, not a misspelled Bambu.
+    ("bamboo", "bambu", "bamboo planter", "bambu lab a1"),
+    # Statues are print subjects, not a misspelled status.
+    ("statue", "status", "statue of david", "printer status"),
+])
+def test_common_words_are_not_folded_into_brands_or_commands(word, folded, phrase, target):
+    assert fuzzy.canonical(word) != fuzzy.canonical(folded)
+    assert fuzzy.fuzzy_score(phrase, target) < fuzzy.FUZZY_FLOOR
+
+
+@pytest.mark.parametrize("spaced,joined", [
+    ("thermal runaway", "thermalrunaway"), ("bed adhesion", "bedadhesion"),
+    ("shut down", "shutdown"), ("creality print", "crealityprint"),
+    ("creality cloud", "crealitycloud"), ("flash print", "flashprint"),
+    ("home assistant", "homeassistant"), ("web ui", "webui"),
+])
+def test_compound_phrases_keep_their_joined_form(spaced, joined):
+    assert fuzzy.canonical(spaced) == fuzzy.canonical(joined)
+
+
+def test_sensorless_homing_typo_still_finds_the_archived_print():
+    # Codex on #855: 'sensorless' -> 'sensorless homing' was expanded twice by the windowed
+    # scorer while the target folded to one token, so this archive match fell from 90 to 0.
+    assert fuzzy.windowed_fuzzy_score("sensorless homming", "Sensorless Homing Test") >= 80

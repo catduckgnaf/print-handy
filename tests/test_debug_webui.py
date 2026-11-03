@@ -73,9 +73,19 @@ class DebugWebUITests(unittest.TestCase):
                             headers={"Content-Type": "application/x-www-form-urlencoded"})
 
     def test_post_without_the_form_token_is_refused(self):
-        code, _body = self.post_debug({"action": "on"})
+        code, body = self.post_debug({"action": "on"})
         self.assertEqual(code, 403)
+        # #840: a browser form refusal is a themed page naming the
+        # stale-tab case, not a raw JSON dump.
+        self.assertIn('<header class="site">', body)
+        self.assertIn("out of date (Print Handy restarted)", body)
+        self.assertNotIn('"ok": false', body)
         self.assertIsNone(debug_mode.status(self.data))
+
+    def test_status_page_carries_the_submit_script_and_turn_off_confirm(self):
+        _code, body = self.request("GET", "/")
+        self.assertIn("<script>", body)  # the shell's shared submit script
+        self.assertIn("data-confirm", body)  # on the debug Turn off button
 
     def test_on_then_off_through_the_form(self):
         token = self.form_token()
@@ -96,7 +106,10 @@ class DebugWebUITests(unittest.TestCase):
         token = self.form_token()
         code, body = self.post_debug({"_csrf": token, "action": "on", "minutes": "soon"})
         self.assertEqual(code, 400)
-        self.assertIn("minutes", body)
+        # #840: the status page itself is re-rendered with the error.
+        self.assertIn("minutes must be a whole number", body)
+        self.assertIn('<header class="site">', body)
+        self.assertIn("Debug log mode", body)
         self.assertIsNone(debug_mode.status(self.data))
 
 

@@ -60,12 +60,15 @@ from __future__ import annotations
 
 import html
 import json
+import logging
 from urllib.parse import quote
 
 from .. import settings
 from ..hermes import purchase_intake, spool_sync
 from . import controls as controls_module
 from . import shell
+
+log = logging.getLogger(__name__)
 
 ACTIONS = ("assign", "swap", "unassign", "add", "edit", "sync")
 PURCHASE_ACTIONS = ("purchase/propose", "purchase/create")
@@ -125,9 +128,11 @@ def _call(func, *args, **kwargs):
     except SpoolsError:
         raise
     except Exception as exc:
-        raise SpoolsError(502, f"the spool operation did not complete "
-                               f"({type(exc).__name__}: {exc}). Run the spool sync "
-                               "to converge the slot state.") from None
+        # The exception class/repr is operator noise (#840): it goes to
+        # the log, and the wording the operator sees stays plain.
+        log.warning("spool operation failed: %s: %s", type(exc).__name__, exc)
+        raise SpoolsError(502, "the spool operation did not complete. "
+                               "Run the spool sync to converge the slot state.") from None
 
 
 def _int_field(body, name, *, required=True):
@@ -216,7 +221,9 @@ def spools_view(data, printer_id, *, client=None, state_path=None):
         try:
             rows = client("GET", "/api/v1/spool?allow_archived=true", None)
         except Exception as exc:
-            raise SpoolsError(502, f"Spoolman did not answer ({type(exc).__name__}: {exc}), "
+            log.warning("spool view: Spoolman did not answer: %s: %s",
+                        type(exc).__name__, exc)
+            raise SpoolsError(502, "Spoolman did not answer, "
                                    "so the spool view cannot be built") from None
         if not isinstance(rows, list):
             raise SpoolsError(502, "Spoolman did not answer with a spool list, "
@@ -705,11 +712,30 @@ def _options(items, *, selected=None):
         f'{_esc(label)}</option>' for value, label in items)
 
 
-def _form(form_token, printer_id, action, inner):
-    return (f'<form method="post" action="/spools/{quote(str(printer_id), safe="")}">'
+def _form(form_token, printer_id, action, inner, attrs=""):
+    """One picker form. ``attrs`` carries extra form attributes (the
+    shell script's data-confirm, #840); it is a code-side literal,
+    never operator input."""
+    return (f'<form method="post" action="/spools/{quote(str(printer_id), safe="")}"'
+            f'{" " + attrs if attrs else ""}>'
             f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'
             f'<input type="hidden" name="spool_action" value="{_esc(action)}">'
             f"{inner}</form>")
+
+
+def render_spools_error(printer_id, code, reason, *, theme=shell.DEFAULT_THEME):
+    """The browser error page for a failed spools view (#840): the
+    shell, the plain reason, and the way forward — Configuration for a
+    Spoolman outage (502), the printer picker for anything else. The
+    caller keeps its status code; only the JSON API keeps the
+    ``{ok, reason}`` body for this failure."""
+    if code == 502:
+        hint = ('Check that Spoolman is running and that the Spoolman URL on '
+                '<a href="/config">Configuration</a> is right, then reload.')
+    else:
+        hint = '<a href="/spools">Pick a printer</a>.'
+    return _page(f"spools — {printer_id}",
+                 f'<p class="error">{_esc(reason)}</p><p>{hint}</p>', theme=theme)
 
 
 def render_spools_page(view, *, form_token, notice=None, error=None, proposed=None,
@@ -733,7 +759,7 @@ def render_spools_page(view, *, form_token, notice=None, error=None, proposed=No
         shelf_rows = "".join(
             f"<tr><td>{esc(_picker_label(spool))}</td><td>{esc(_amount_text(spool))}</td></tr>"
             for spool in view["shelf"])
-        parts.append(f"<h2>Shelf</h2><table>{shelf_rows}</table>")
+        parts.append(f'<h2>Shelf</h2><div class="table-scroll"><table>{shelf_rows}</table></div>')
     else:
         parts.append("<h2>Shelf</h2><p>(nothing on the shelf)</p>")
     if view.get("conflicts"):
@@ -762,7 +788,8 @@ def render_spools_page(view, *, form_token, notice=None, error=None, proposed=No
         parts.append(_form(form_token, pid, "swap",
                            f'<label>First slot <select name="slot_a">{_options(loaded_slot_options)}</select></label> '
                            f'<label>Second slot <select name="slot_b">{_options(slot_options)}</select></label> '
-                           '<button type="submit">Swap</button>'))
+                           '<button type="submit">Swap</button>',
+                           attrs='data-confirm="Swap the spools in these two slots?"'))
     else:
         parts.append("<p>No loaded slot to swap yet.</p>")
     parts.append("<h2>Unassign a slot</h2>")
@@ -770,7 +797,9 @@ def render_spools_page(view, *, form_token, notice=None, error=None, proposed=No
         parts.append(_form(form_token, pid, "unassign",
                            f'<label>Slot <select name="slot">{_options(loaded_slot_options)}</select></label> '
                            '<button type="submit">Unassign</button>'
-                           "<p>The spool goes back on the shelf.</p>"))
+                           "<p>The spool goes back on the shelf.</p>",
+                           attrs='data-confirm="Unassign this slot? '
+                                 'Its spool goes back on the shelf."'))
     else:
         parts.append("<p>No slot has a spool to unassign.</p>")
     parts.append("<h2>Add a spool</h2>")
@@ -800,14 +829,14 @@ def render_spools_page(view, *, form_token, notice=None, error=None, proposed=No
         parts.append("<p>There are no spools to edit.</p>")
     parts.append("<h2>Sync</h2>")
     parts.append(_form(form_token, pid, "sync",
-                       '<button type="submit">Sync spools from Spoolman</button>'
+                       '<button type="submit" data-busy="Syncing…">Sync spools from Spoolman</button>'
                        "<p>Reconciles the slot state with Spoolman and the printer, "
                        "the same reconciliation the chat sync runs.</p>"))
     parts.append("<h2>Add spools from a purchase link</h2>")
     if purchase_ready:
         parts.append(_form(form_token, pid, "purchase_propose",
                            '<label>Product or order link <input name="url" size="60"></label> '
-                           '<button type="submit">Read the purchase</button>'
+                           '<button type="submit" data-busy="Reading the purchase…">Read the purchase</button>'
                            "<p>The proposed spools are shown before anything is created.</p>"))
         if proposed is not None:
             lines = "".join(f"<li>{esc(purchase_intake.line_text(line))}</li>"
@@ -817,7 +846,7 @@ def render_spools_page(view, *, form_token, notice=None, error=None, proposed=No
                 f"<p>Here is what was read from that purchase:</p><ul>{lines}</ul>"
                 + _form(form_token, pid, "purchase_create",
                         f'<input type="hidden" name="purchase_lines" value="{hidden}">'
-                        '<button type="submit">Create these spools</button>'
+                        '<button type="submit" data-busy="Creating…">Create these spools</button>'
                         "<p>Nothing is created until you press Create.</p>"))
     else:
         parts.append(f"<p>{esc(NO_AI_REASON)}</p>")
@@ -902,6 +931,7 @@ def form_body(action, form):
 __all__ = [
     "ACTIONS", "NO_AI_REASON", "PURCHASE_ACTIONS", "SpoolsError", "add", "assign",
     "create_purchase_spools", "edit", "form_body", "propose_purchase",
-    "purchase_available", "render_spools_index", "render_spools_page", "spool_action",
-    "spool_summary", "spools_view", "swap", "sync", "unassign",
+    "purchase_available", "render_spools_error", "render_spools_index",
+    "render_spools_page", "spool_action", "spool_summary", "spools_view", "swap",
+    "sync", "unassign",
 ]

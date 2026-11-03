@@ -34,7 +34,9 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import io
 import json
+import logging
 import os
 import re
 import shutil
@@ -43,6 +45,8 @@ import time
 import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
+
+logger = logging.getLogger(__name__)
 
 MAX_SCAD_BYTES = 64 * 1024  # a single-file part design never needs more source than this
 RENDER_TIMEOUT_S = 180
@@ -435,6 +439,158 @@ def scan_scad(source: str) -> None:
                 "Nothing was run")
 
 
+# --------------------------------------------------------------------- parameters (#841)
+
+_PARAM_ASSIGN = re.compile(
+    r"([A-Za-z_$][\w$]*)\s*=\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*;")
+
+
+def _scad_param_spans(source: str):
+    """Top-level numeric assignments as (name, value, value_start, value_end).
+
+    A single pass over the original source that skips comments and string
+    literals (the same lexing rules as :func:`_scad_token_stream`) and only
+    matches at brace/paren/bracket depth zero, so a commented-out or
+    module-local assignment is never a design parameter. The spans index
+    into the original source so a value can be substituted in place.
+    """
+    spans = []
+    i, n = 0, len(source or "")
+    depth = 0
+    while i < n:
+        ch = source[i]
+        nxt = source[i + 1] if i + 1 < n else ""
+        if ch == "/" and nxt == "/":
+            end = source.find("\n", i)
+            i = n if end == -1 else end
+        elif ch == "/" and nxt == "*":
+            end = source.find("*/", i + 2)
+            i = n if end == -1 else end + 2
+        elif ch == '"':
+            i += 1
+            while i < n:
+                if source[i] == "\\":
+                    i += 2
+                elif source[i] == '"':
+                    i += 1
+                    break
+                else:
+                    i += 1
+        elif ch in "{([":
+            depth += 1
+            i += 1
+        elif ch in "})]":
+            depth = max(0, depth - 1)
+            i += 1
+        elif depth == 0 and (ch.isalpha() or ch in "_$"):
+            match = _PARAM_ASSIGN.match(source, i)
+            if match:
+                spans.append((match.group(1), float(match.group(2)),
+                              match.start(2), match.end(2)))
+                i = match.end()
+            else:
+                i += 1
+        else:
+            i += 1
+    return spans
+
+
+def scad_params(source: str) -> dict:
+    """The design's top-level numeric parameters: {name: value}.
+
+    The last assignment wins, matching OpenSCAD's compile-time variables.
+    """
+    return {name: value for name, value, _start, _end in _scad_param_spans(source)}
+
+
+def _format_number(value) -> str:
+    # 12 significant digits: enough for any value a person types, and
+    # never the 6-digit rounding (1234.5678 -> 1234.57) of a bare :g.
+    return f"{float(value):.12g}"
+
+
+def _set_scad_param(source: str, name: str, value) -> str | None:
+    """The source with the (last) top-level assignment to name set to value."""
+    spans = [span for span in _scad_param_spans(source) if span[0] == name]
+    if not spans:
+        return None
+    _name, _old, start, end = spans[-1]
+    return source[:start] + _format_number(value) + source[end:]
+
+
+def param_changes(before: dict, after: dict):
+    """(name, old, new) for every parameter that changed, was added or removed."""
+    changes = []
+    for name in sorted(set(before) | set(after)):
+        old, new = before.get(name), after.get(name)
+        if old != new:
+            changes.append((name, old, new))
+    return changes
+
+
+def format_param_changes(changes) -> list:
+    """The posted diff lines: 'plate_z: 3 → 5' (added/removed named as such)."""
+    lines = []
+    for name, old, new in changes:
+        if old is None:
+            lines.append(f"{name}: (new) → {_format_number(new)}")
+        elif new is None:
+            lines.append(f"{name}: {_format_number(old)} → (removed)")
+        else:
+            lines.append(f"{name}: {_format_number(old)} → {_format_number(new)}")
+    return lines
+
+
+_DET_NAMED = re.compile(
+    r"^\s*(?:make|set)\s+([A-Za-z_$][\w$]*)\s*(?:to|=)\s*"
+    r"(-?\d+(?:\.\d+)?)\s*(?:mm)?\s*[.!]?\s*$", re.I)
+_DET_RELATIVE = re.compile(
+    r"^\s*(?:make\s+it\s+)?(-?\d+(?:\.\d+)?)\s*mm\s+(taller|wider|longer)\b[.!]?\s*$",
+    re.I)
+_RELATIVE_PARAMS = {"taller": "height", "wider": "width", "longer": "length"}
+
+
+def deterministic_param_edit(source, instruction):
+    """A plain parameter edit applied without a model call, or None.
+
+    Handles 'make <name> to <number>' / 'set <name> = <number>' (absolute:
+    the parameter is set to the given value) and
+    '<number> mm taller|wider|longer' (relative: the given amount is
+    added to the parameter's current value, mapped to the
+    height/width/length parameter). Returns (new_source, [(name, old, new)]).
+    Anything else — an unknown or ambiguous parameter name — returns None
+    and the caller runs a normal model turn.
+    """
+    if not source:
+        return None
+    params = scad_params(source)
+    if not params:
+        return None
+    match = _DET_NAMED.match(instruction or "")
+    if match:
+        wanted, value = match.group(1), float(match.group(2))
+        name = wanted if wanted in params else next(
+            (key for key in params if key.casefold() == wanted.casefold()), None)
+        if name is None:
+            return None
+        new_source = _set_scad_param(source, name, value)
+        return new_source, [(name, params[name], value)]
+    match = _DET_RELATIVE.match(instruction or "")
+    if match:
+        delta = float(match.group(1))
+        word = _RELATIVE_PARAMS[match.group(2).casefold()]
+        # Only the exact height/width/length parameter: a name that merely
+        # contains the word ("hole_height") is a feature, not the part's
+        # overall size, so anything else takes the model path.
+        name = next((key for key in params if key.casefold() == word), None)
+        if name is None:
+            return None
+        value = params[name] + delta
+        new_source = _set_scad_param(source, name, value)
+        return new_source, [(name, params[name], value)]
+    return None
+
+
 _SYSTEM_PROMPT = (
     "You are the design engine for a 3D printer helper. Answer with ONE OpenSCAD file and "
     "nothing else: no explanation, no markdown fences. Rules: millimetres; one self-contained "
@@ -527,7 +683,14 @@ def render_scad(scad_path: Path, stl_path: Path, *, timeout_s=RENDER_TIMEOUT_S, 
     if proc.returncode != 0 or "ERROR:" in combined or not stl_path.is_file() \
             or stl_path.stat().st_size < 84:
         lines = [line for line in combined.splitlines() if line.strip()]
-        return False, "\n".join(lines[-6:]) or f"OpenSCAD exited with code {proc.returncode}"
+        tail = lines[-6:]
+        # The first ERROR: line names the actual defect; a long warning tail
+        # can push it out of the last-6 window, and neither the model's
+        # repair prompt nor the user would ever see it (#841 extra).
+        first_error = next((line for line in lines if "ERROR:" in line), None)
+        if first_error and first_error not in tail:
+            tail = [first_error, *tail[-5:]]
+        return False, "\n".join(tail) or f"OpenSCAD exited with code {proc.returncode}"
     return True, ""
 
 
@@ -690,7 +853,7 @@ class DesignEngine:
                    "base_stl": None, "body_file": None, "scad_deps": [],
                    "status": "active", "turns": 0, "created_at": time.time(),
                    "updated_at": time.time(), "scad": None, "stl": None,
-                   "preview": None, "geometry": None}
+                   "preview": None, "preview_error": None, "geometry": None}
         return _save(self.root, session)
 
     def start_edit_session(self, owner_key, chat_id, description, source_path=None, *,
@@ -805,32 +968,101 @@ class DesignEngine:
             info = validate_stl(stl_path)
         except DesignError as exc:
             return None, str(exc)
-        preview_path = None
+        preview_path, preview_error = None, None
         try:
-            preview_path = self._make_preview(session, stl_path, turn)
-        except Exception:
-            preview_path = None  # a failed preview never fails the turn
+            preview_path = self._make_preview(session, stl_path, turn, info)
+        except Exception as exc:
+            # A failed preview never fails the turn, but it is never silent
+            # either (#841): the reason is logged, kept on the session and
+            # returned so the caller can post it next to the dimensions.
+            logger.warning("design preview failed for session %s turn %s: %s",
+                           session["id"], turn, exc)
+            preview_error = str(exc)[:200]
         session["turns"] = turn
         session["scad"] = scad_path.name
         session["stl"] = stl_path.name
         session["preview"] = Path(preview_path).name if preview_path else None
+        session["preview_error"] = preview_error
         session["geometry"] = info
         session["status"] = "active"
         _save(self.root, session)
         return {"session": session, "scad_path": scad_path, "stl_path": stl_path,
-                "preview_path": preview_path, "geometry": info, "scad": source}, ""
+                "preview_path": preview_path, "preview_error": preview_error,
+                "param_changes": [], "geometry": info, "scad": source}, ""
 
-    def _make_preview(self, session, stl_path, turn):
+    def _make_preview(self, session, stl_path, turn, info=None):
         if self.preview is not None:
             return self.preview(stl_path)
         from . import render_preview
         bed = (self.cfg.get("printer") or {}).get("bed_mm")
-        made = render_preview.render(str(stl_path), bed=bed)
-        if not made:
-            return None
-        dest = _session_path(self.root, session["id"]) / f"turn-{turn}.png"
-        shutil.copyfile(made, dest)
+        folder = _session_path(self.root, session["id"])
+        dest = folder / f"turn-{turn}.png"
+        dims = (info or {}).get("dimensions_mm")
+        try:
+            made = render_preview.render_sheet(str(stl_path), bed=bed, dimensions=dims)
+            shutil.copyfile(made, dest)
+        except Exception as exc:
+            logger.warning(
+                "design preview render failed for session %s: %s; "
+                "falling back to the plate rasterizer", session["id"], exc)
+            self._fallback_preview(stl_path, dest, info)
+        if turn > 1:
+            previous = folder / f"turn-{turn - 1}.png"
+            if previous.is_file():
+                return self._comparison_preview(previous, dest, turn)
         return str(dest)
+
+    def _fallback_preview(self, stl_path, dest, info=None):
+        """The dependency-free preview: plate_thumbnail's rasterizer (#841).
+
+        The triangles are placed the way render_preview places the model —
+        centered on the bed, resting on Z0 — and the measured dimensions
+        are drawn on the image, since this sheet carries no OpenSCAD views.
+        """
+        import numpy as np
+        from PIL import Image, ImageDraw
+        from . import plate_thumbnail
+        from .orca_adapter import read_stl_triangles
+        tris = np.asarray(read_stl_triangles(stl_path), dtype=float).reshape(-1, 3, 3)
+        if not len(tris):
+            raise RuntimeError("the rendered STL has no triangles to preview")
+        points = tris.reshape(-1, 3)
+        lo, hi = points.min(axis=0), points.max(axis=0)
+        bed = (self.cfg.get("printer") or {}).get("bed_mm")
+        if bed:
+            shift = [float(bed[0]) / 2 - (lo[0] + hi[0]) / 2,
+                     float(bed[1]) / 2 - (lo[1] + hi[1]) / 2, -lo[2]]
+        else:
+            shift = [-(lo[0] + hi[0]) / 2, -(lo[1] + hi[1]) / 2, -lo[2]]
+        png = plate_thumbnail.render_plate(tris + shift, size=640, bed_mm=bed)
+        image = Image.open(io.BytesIO(png)).convert("RGBA")
+        dims = (info or {}).get("dimensions_mm")
+        if dims:
+            text = " × ".join(f"{float(v):g}" for v in dims) + " mm"
+            draw = ImageDraw.Draw(image, "RGBA")
+            box = draw.textbbox((0, 0), text)
+            draw.rectangle([4, 4, box[2] + 14, box[3] + 12], fill=(0, 0, 0, 170))
+            draw.text((9, 8), text, fill=(255, 255, 255, 255))
+        image.save(dest)
+
+    @staticmethod
+    def _comparison_preview(previous_path, current_path, turn):
+        """Previous turn's sheet beside this turn's, for a before/after look."""
+        from PIL import Image, ImageDraw
+        previous = Image.open(previous_path).convert("RGB")
+        current = Image.open(current_path).convert("RGB")
+        height = max(previous.height, current.height)
+        sheet = Image.new("RGB", (previous.width + current.width, height), (24, 28, 34))
+        sheet.paste(previous, (0, 0))
+        sheet.paste(current, (previous.width, 0))
+        draw = ImageDraw.Draw(sheet, "RGBA")
+        for x, label in ((6, f"Turn {turn - 1}"), (previous.width + 6, f"Turn {turn}")):
+            box = draw.textbbox((0, 0), label)
+            draw.rectangle([x - 2, 4, x + box[2] + 8, box[3] + 12], fill=(0, 0, 0, 170))
+            draw.text((x + 3, 8), label, fill=(255, 255, 255, 255))
+        compare = current_path.with_name(f"turn-{turn}-compare.png")
+        sheet.save(compare)
+        return str(compare)
 
     async def run_turn(self, session, instruction):
         """One design turn: model -> scan -> render -> validate, with bounded repairs.
@@ -843,6 +1075,27 @@ class DesignEngine:
                               "slice it or cancel and start a new design")
         mesh = session.get("edit_mode") == "mesh"
         previous = self.current_body(session) if mesh else self.current_scad(session)
+        # A plain parameter edit ("make plate_z to 5", "make it 5 mm taller")
+        # is applied to the source directly — no model call, so nothing else
+        # in the file can drift (#841 gap 2). Mesh bodies have no parameters
+        # to patch, so they always take the model path.
+        if not mesh and previous:
+            edit = deterministic_param_edit(previous, instruction)
+            if edit is not None:
+                new_source, changes = edit
+                scan_scad(new_source)
+                result, det_error = await asyncio.to_thread(
+                    self._render_and_validate, session, new_source)
+                if result is None:
+                    raise DesignError(
+                        "that parameter change could not be rendered: "
+                        f"{det_error}")
+                result["param_changes"] = changes
+                return result
+        old_params = scad_params(previous) if previous and not mesh else {}
+        # A first turn has no earlier source: every parameter would read as
+        # "(new)", which is noise, not a diff — report changes only after one.
+        had_previous = bool(previous)
         error = None
         attempts = 1 + self.repair_attempts
         last_error = ""
@@ -862,6 +1115,11 @@ class DesignEngine:
             result, last_error = await asyncio.to_thread(
                 self._render_and_validate, session, source)
             if result is not None:
+                if not mesh and had_previous:
+                    # Name what the rewrite actually changed, so a model
+                    # that quietly moved a dimension is visible (#841).
+                    result["param_changes"] = param_changes(
+                        old_params, scad_params(source))
                 return result
             error = last_error
             previous = source
@@ -870,6 +1128,32 @@ class DesignEngine:
         raise DesignError(
             f"OpenSCAD could not render the design after {attempts} attempt(s). "
             f"Last error: {last_error}")
+
+    def baseline_turn(self, session):
+        """Preview a dropped model exactly as it is — no model call (#841 gap 4).
+
+        Mesh sessions render the body ``base();``; SCAD sessions render the
+        dropped source as-is. The result is the ordinary turn result, so the
+        caller posts the same preview card as for a model turn.
+        """
+        if session.get("edit_mode") == "mesh":
+            source = "base();"
+        elif session.get("edit_mode") == "scad":
+            source = self.current_scad(session)
+            if source is None:
+                raise DesignError("the dropped model's source could not be read back")
+            # The dropped source is user-supplied, not model-generated, so
+            # it gets the same sandbox scan run_turn applies before any
+            # render: file-access statements (include/import/use/surface)
+            # must never reach OpenSCAD, absolute paths included.
+            scan_scad(source)
+        else:
+            raise DesignError("a baseline preview needs a dropped model; "
+                              "describe what to make instead")
+        result, error = self._render_and_validate(session, source)
+        if result is None:
+            raise DesignError(f"the dropped model could not be rendered as-is: {error}")
+        return result
 
 
 def summary_text(result) -> str:

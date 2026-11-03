@@ -24,6 +24,11 @@ Hardening (the drift classes from #791):
   named as unresolved in its prompt. No spool is guessed or bound.
 - Unreachable or absent ``lane_data`` reads as unknown: the poll changes
   nothing, not even the watcher state file.
+- The namespace has a second author: ZMod's ``orca_lanes`` publishing
+  (#851) writes minimal records (lane/material/color/name, no spool id)
+  under 0-based keys. Those are not screen lanes — read under the
+  screen's 1-based keys they would shift every slot by one — so the
+  parser skips records carrying no screen-side field.
 - Mid-print changes are noted once and applied only when the print ends,
   through the same deferral posture as ``push_screen``; the one exception
   is a load into a slot with an open runout/swap spool question on a
@@ -125,12 +130,47 @@ def normalize_lane(slot: int, record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# Fields only the screen-side writers (HelixScreen, and Print Handy writing
+# on its behalf) ever put on a lane record. ZMod's own ``orca_lanes``
+# publishing (#851) writes the same namespace in a minimal shape — just
+# lane/material/color/name — under 0-based keys (slot 1 is ``lane0``), so a
+# marker-less record read under the screen's 1-based keys would hand every
+# slot the next slot's data. ZMod records also name no spool, so there is
+# nothing the watcher could converge from them; they are skipped here.
+_SCREEN_MARKERS = ("spool_id", "scan_time", "scanned_at", "timestamp")
+
+
+def _screen_authored(record: dict[str, Any]) -> bool:
+    """True when a lane record carries a field only screen-side writers use."""
+    return any(key in record for key in _SCREEN_MARKERS) or any(
+        isinstance(key, str) and key.startswith("helix_") for key in record)
+
+
+def foreign_lane_slots(value: Any) -> set[int]:
+    """Slots whose ``laneN`` key holds a marker-less (ZMod ``orca_lanes``) record.
+
+    Such a key is occupied by another writer, not cleared: the watcher must
+    read the slot as unknown and change nothing, never as an unload (#852).
+    """
+    if not isinstance(value, dict):
+        return set()
+    slots = set()
+    for key, record in value.items():
+        match = re.fullmatch(r"lane(\d+)", str(key))
+        if match and isinstance(record, dict) and not _screen_authored(record):
+            slots.add(int(match.group(1)))
+    return slots
+
+
 def parse_lane_data(value: Any) -> dict[int, dict[str, Any]] | None:
     """{slot: normalized lane} from a raw ``lane_data`` namespace value, or None when unknown.
 
-    The outer keys are ``laneN`` (1-based); a value that is not a mapping
-    at all is unknown (None), while a mapping with no lane keys is a
-    genuinely empty namespace ({}) — every lane was cleared.
+    The outer keys are ``laneN`` (1-based) for the screen-side writers this
+    watcher converges; marker-less records in ZMod's ``orca_lanes`` shape
+    (#851) are not screen lanes and are skipped (see ``_SCREEN_MARKERS``).
+    A value that is not a mapping at all is unknown (None), while a mapping
+    with no lane keys is a genuinely empty namespace ({}) — every lane was
+    cleared.
     """
     if not isinstance(value, dict):
         return None
@@ -138,6 +178,8 @@ def parse_lane_data(value: Any) -> dict[int, dict[str, Any]] | None:
     for key, record in value.items():
         match = re.fullmatch(r"lane(\d+)", str(key))
         if not match or not isinstance(record, dict):
+            continue
+        if not _screen_authored(record):
             continue
         slot = int(match.group(1))
         if slot in spool_sync.SLOTS:
@@ -385,7 +427,8 @@ class LaneDataWatcher:
         re-applies.
         """
         self._print_state = None
-        lanes = parse_lane_data(spool_sync.read_lane_data(self.mr))
+        raw = spool_sync.read_lane_data(self.mr)
+        lanes = parse_lane_data(raw)
         if lanes is None:
             return []  # unknown, never empty: change nothing at all
         state = _read_json(self.state_path)
@@ -403,7 +446,10 @@ class LaneDataWatcher:
         pending = state.get("pending") if isinstance(state.get("pending"), dict) else {}
         noted = state.get("noted") if isinstance(state.get("noted"), dict) else {}
         dirty = False
+        foreign = foreign_lane_slots(raw)
         for slot in sorted(set(seen) | set(lanes)):
+            if slot not in lanes and slot in foreign:
+                continue  # another writer holds the key (#852): unknown, not unloaded
             old_fp = seen.get(slot)
             lane = lanes.get(slot)
             cur_fp = fingerprints.get(slot)

@@ -2,6 +2,8 @@
 
 [Project overview](../README.md) · [Contributing](../CONTRIBUTING.md)
 
+**Local-first, by design.** Print Handy was made as a local-only solution: it runs on your own machine, reaches your printers at their local addresses, and keeps models, spool records and print history on your network. There is no Print Handy account and no Print Handy cloud. The chat app you pick still carries what you send through it (a model file, a photo, a timelapse) over that provider's servers, like any other message there; Print Handy adds no cloud of its own, and the doctor, the Web UI and a self-hosted Matrix room stay local. You do not need AI — every core flow works with no model endpoint configured — and you do not need Discord: the same bot runs on Telegram or Matrix instead, and the local Web UI covers status, settings and spools on the machine itself. The guides below are written for that shape; anything that reaches outside the house (a model site, an optional cloud model endpoint) says so where it happens.
+
 ## 1. Install one mode
 
 - [Standalone bot](STANDALONE.md): Discord without Hermes or a required LLM; token permissions, configuration, setup checks and systemd services. Needs a [Discord bot](DISCORD-BOT-SETUP.md).
@@ -18,7 +20,7 @@ Do not run both Discord modes with the same token. Installing, enabling services
 
 - [YAML configuration and TOML migration](CONFIGURATION-YAML.md): schema, precedence and safety limits.
 - [Guided setup and debugging in Discord](GUIDED-SETUP-DEBUGGING.md): the `/print-handy setup` checklist (resumable, consent-gated, never collects the token) and the read-only, redacted `/print-handy debugging` checks.
-- [Web UI](WEBUI.md): the optional, off-by-default local page — status and doctor checks, the picker that writes the same YAML settings file, the read-only designs catalog, and a read-only sliced-layer view. It does not start a job.
+- [Web UI](WEBUI.md): the optional, off-by-default local page — first-run walkthrough, status and doctor checks, the picker that writes the same YAML settings file, spool management, the read-only designs catalog, and a read-only sliced-layer view. Printer controls are a separate opt-in and stay off by default.
 - [Live camera in Discord](DISCORD-BOT-SETUP.md#7-live-camera-activity-optional-311): the optional Discord Activity live view (#311) — Developer Portal and named-tunnel setup, allowlist, privacy notes, and the honest verification status (the live spike has not run).
 - [Settings reference](SETTINGS.md): every setting with its YAML key, environment variable and Docker value, plus Docker build arguments and secrets.
 - [Detailed project reference](PROJECT-REFERENCE.md): workflow examples, commands, printer models, spool identity rules, monitoring and updates.
@@ -32,7 +34,7 @@ Do not run both Discord modes with the same token. Installing, enabling services
 - [Best practices on specific devices](DEVICE-BEST-PRACTICES.md): per-printer recommended settings, the order to change them in, and what has been verified on hardware. Starts with [AD5X best practices](DEVICE-AD5X.md): screenless with HelixScreen, ZMod version, Z offset, bed mesh and KAMP, Nopoop purge, QuickSwap order and risks, 3MF delivery.
 - [AD5X integration contract](AD5X-CONTRACT.md): printer-specific behavior and limitations.
 - [ZMod printers](ZMOD.md): all five ZMod models (AD5X, AD5M, AD5M Pro supported; Creator 5 / 5 Pro staged), and how their filament systems differ.
-- [Stock Flashforge printers](FLASHFORGE-STOCK.md): the Adventurer 5X on factory firmware — the LAN HTTP API, IFS prints, the launched-print monitor, and timelapse from the camera source the printer advertises (the AD5X has no built-in camera; read the verification status before expecting a video).
+- [Stock Flashforge printers](FLASHFORGE-STOCK.md): every Flashforge model listed with the route that applies to it — the Adventurer 5X on factory firmware has the built-in stock profile (the LAN HTTP API, IFS prints, the launched-print monitor, and timelapse from the camera source the printer advertises; the AD5X has no built-in camera, so read the verification status before expecting a video), while the AD5M, AD5M Pro, Creator 5 and Creator 5 Pro are ZMod-only today.
 - [OctoPrint/Marlin notes](OCTOPRINT-MARLIN.md): read the integration-specific limits before assuming Moonraker feature parity.
 - [Sovol printers](SOVOL.md): Klipper and Marlin/OctoPrint keys for the SV series, the SV08 family, and the Zero, with the build volume each key uses.
 - [Bambu Lab printers](BAMBU-LAB.md): profiles for every single-nozzle Bambu Lab printer (A1, A1 mini, P1P, P1S, P2S, X1, X1 Carbon, X1E, H2S), generating slicer profiles from your own OrcaSlicer, the G-code guard, opt-in read-only LAN status, unverified values, and the licensing basis awaiting approval.

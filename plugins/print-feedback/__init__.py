@@ -1036,9 +1036,12 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
                         engine.start_edit_session, owner, source.chat_id, description,
                         file_path)
                 note = design.source_note(session)
-                result = await engine.run_turn(
-                    session, instruction or
-                    'Show the model unchanged so I can preview it before asking for changes.')
+                if instruction:
+                    result = await engine.run_turn(session, instruction)
+                else:
+                    # No change asked for: show the dropped model exactly as
+                    # it is, with no model call in between (#841 gap 4).
+                    result = await asyncio.to_thread(engine.baseline_turn, session)
     except design.DesignError as exc:
         await say(f'That design change did not work: {exc} Nothing was sliced or started.')
         return {'action': 'skip', 'reason': 'design turn failed'}
@@ -1051,12 +1054,16 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
     lines = [f"**Design turn {session['turns']}** — {design.summary_text(result)}"]
     if note:
         lines.append(note)
+    changes = design.format_param_changes(result.get('param_changes') or [])
+    if changes:
+        lines.append('Parameters changed: ' + '; '.join(changes))
     lines.append(f"Source: `{result['scad_path'].name}` (the .scad is the design; "
                  'the STL reaches the printer only through the normal intake after you pick Slice it).')
     if result.get('preview_path'):
         lines.append(f"MEDIA:{result['preview_path']}")
     else:
-        lines.append('(No preview could be rendered for this turn.)')
+        reason = result.get('preview_error') or 'renderer unavailable'
+        lines.append(f"(No preview: {reason}. Check the dimensions above before slicing.)")
     await say('\n'.join(lines))
     timeout = (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800)
     answer = await _confirm(adapter, source, metadata, 'print-design',

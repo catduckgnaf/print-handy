@@ -156,8 +156,10 @@ def _resolve(tier, cfg, compat, purpose) -> _Route | None:
     fb_url = str(mine.get("fallback_url") or "").strip()
     if fb_model or fb_url:
         fb_url = fb_url or url
-        # A different host never gets the primary's key.
-        fb_key = key if fb_url == url else _secret(mine.get("fallback_api_key_env"))
+        # An explicitly named fallback key always wins; otherwise the same endpoint reuses the
+        # primary's key, and a different host never gets it.
+        fb_env = str(mine.get("fallback_api_key_env") or "").strip()
+        fb_key = _secret(fb_env) if fb_env else (key if fb_url == url else "")
         fallback = _Leg(fb_url, fb_model or model, fb_key, keyless_ok(fb_url))
     timeout = float(mine.get("timeout_s") or 0) or base.timeout_s or DEFAULT_TIMEOUT_S
     return _Route(tier, primary, fallback, timeout)

@@ -57,7 +57,7 @@
   "initial_layer_line_width": "0.50",
   "internal_solid_infill_line_width": "0.42",
   "support_line_width": "96%",
-  "wall_loops": "1",
+  "wall_loops": "2",
   "print_settings_id": "0.20mm Standard @Flashforge AD5M Pro 0.4 Nozzle",
   "raft_layers": "0",
   "seam_position": "aligned",

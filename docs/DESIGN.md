@@ -12,7 +12,11 @@ dimensions. You then choose:
   approvals as a model link.
 - **Change it** — your next message in the chat is the change ("make the
   holes 5 mm", "add a lip around the edge"); the design is edited and
-  re-rendered. Up to 10 turns per design.
+  re-rendered. Up to 10 turns per design. A plain parameter change —
+  "make plate_z to 5" or "make it 5 mm taller" — is applied to the
+  named variable directly, with no model call, and the reply names the
+  change ("plate_z: 3 → 5"); after a model-written turn the reply lists
+  any parameters the rewrite changed, so silent drift is visible.
 - **Cancel** — the design session ends.
 
 ## Turning it on
@@ -80,6 +84,14 @@ The model writes the part, but it never gets to run anything general:
 - The preview and measurements are of the rendered STL: dimensions, volume,
   shell count and whether the mesh is watertight and manifold. A design
   that renders to nothing is rejected, not posted.
+- The preview is a four-view sheet (iso, front, top, right) with the
+  measured dimensions drawn on it; from the second turn on, the previous
+  turn's sheet is shown beside the new one for comparison. If the OpenSCAD
+  preview render fails, a built-in rasterizer draws the preview instead;
+  if no image can be produced at all, the reply says why ("No preview:
+  …") next to the measured dimensions instead of staying silent.
+- Dropping a model with `/print-design` and no instruction previews the
+  model exactly as dropped — no model call is made for that first look.
 - Mesh edits (below) can only do what a mesh allows; a change that needs the
   original design's parameters is refused in plain words, not faked.
 
