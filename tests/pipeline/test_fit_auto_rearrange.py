@@ -289,6 +289,7 @@ class _EditingAdapter:
 def _run_phases(adapter, monkeypatch, durations):
     clock = _Clock()
     monkeypatch.setattr(prepared_intake, 'FIT_HEARTBEAT_S', 0.01)
+    monkeypatch.setattr(prepared_intake, 'FIT_QUIET_S', 0)
     status = prepared_intake.FitStatus(adapter, S(chat_id='c1', thread_id='t9'), {'thread_id': 't9'}, clock=clock)
 
     async def work(seconds):
@@ -602,7 +603,30 @@ def test_prefetched_fit_check_already_done_posts_nothing(monkeypatch):
     assert adapter.sent == [] and adapter.edits == []
 
 
+def test_a_fit_check_that_settles_within_the_quiet_window_posts_nothing(monkeypatch):
+    # 2026-11-03: a small STL whose probe finished a moment after a quick color answer
+    # still flashed "Checking whether it fits the bed." in the channel.
+    monkeypatch.setattr(prepared_intake, 'FIT_QUIET_S', 5)
+    adapter = _EditingAdapter()
+    status = prepared_intake.FitStatus(adapter, S(chat_id='c1', thread_id='t9'), {'thread_id': 't9'},
+                                       clock=_Clock())
+
+    async def probe():
+        await asyncio.sleep(0.05)
+        return 2
+
+    async def main():
+        task = prepared_intake._prefetch(probe())
+        got = await status.run('checking the layout as the author laid it out', task,
+                               first_text='Checking whether it fits the bed.')
+        await status.finish('fits.')
+        return got
+    assert asyncio.run(main()) == 2
+    assert adapter.sent == [] and adapter.edits == []
+
+
 def test_prefetched_fit_check_still_running_shows_the_usual_status(monkeypatch):
+    monkeypatch.setattr(prepared_intake, 'FIT_QUIET_S', 0.01)
     adapter = _EditingAdapter()
     status = prepared_intake.FitStatus(adapter, S(chat_id='c1', thread_id='t9'), {'thread_id': 't9'},
                                        clock=_Clock())
