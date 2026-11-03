@@ -88,8 +88,9 @@ def _unavailable_error(method: str, path: str, exc: Exception) -> SpoolError:
     if getattr(exc, "status", None) == 404 and str(method).upper() == "GET" and match:
         return SpoolError(f"Spoolman has no spool #{match.group(1)}. "
                           "Check the id with /spool list. Nothing changed")
-    remedy = spoolman_client.UNAVAILABLE_NOTICE.split(". ", 1)[-1]
-    where = f" at {SPOOLMAN}" if SPOOLMAN else ""
+    remedy = "Check that the Spoolman service is running and that services.spoolman_url points at it."
+    # Never post credentials embedded in the URL (user:pass@host) to chat.
+    where = f" at {re.sub(r'//[^/@]*@', '//', str(SPOOLMAN))}" if SPOOLMAN else ""
     if str(method).upper() == "GET":
         return SpoolError(f"Spoolman did not answer{where} ({exc}). Nothing changed. {remedy}")
     return SpoolError(f"Spoolman did not answer{where} ({exc}). This change may have partly "

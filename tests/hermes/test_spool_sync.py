@@ -417,6 +417,17 @@ def test_spoolman_outage_error_names_spoolman_url_and_that_nothing_changed(monke
     assert text != "HTTP Error 502: Bad Gateway"
 
 
+def test_spoolman_outage_error_never_posts_url_credentials(monkeypatch):
+    _spoolman_down(monkeypatch, _unavailable(502))
+    monkeypatch.setattr(spool_sync, "SPOOLMAN", "http://admin:hunter2@spoolman.test:8000")
+    with pytest.raises(spool_sync.SpoolError) as caught:
+        spool_sync.spoolman("GET", "/api/v1/spool", None)
+    text = str(caught.value)
+    assert "hunter2" not in text and "admin" not in text
+    assert "at http://spoolman.test:8000" in text
+    assert "log line" not in text and "PH_SPOOLMAN" not in text  # nothing a chat user can act on
+
+
 def test_spoolman_write_failure_does_not_promise_nothing_changed(monkeypatch):
     # #839 Codex: a failed write may have partly applied before Spoolman
     # stopped answering, so the wording must say so instead of promising
