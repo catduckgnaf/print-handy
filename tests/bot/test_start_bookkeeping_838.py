@@ -41,3 +41,13 @@ def test_no_pending_launch_posts_nothing(cfg):
     discord, core = make(cfg)
     run(core.announce_pending_launch())
     assert discord.sent == []
+
+
+def test_a_leased_row_that_never_submitted_posts_nothing(cfg):
+    discord, core = make(cfg)
+    lease = launch_state.acquire("printer-a", remote="widget_abc123.gcode")  # killed before submitting
+    try:
+        run(core.announce_pending_launch())
+    finally:
+        lease.release()
+    assert discord.sent == []

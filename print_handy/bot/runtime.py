@@ -566,6 +566,9 @@ class BotCore:
         except Exception:
             logger.exception("could not check for a pending launch at startup")
             return
+        # Only a start that may have been sent: a `leased` row never reached the printer and the
+        # next acquire() releases it by itself, so it is no reason to send the operator to a shell.
+        rows = [r for r in rows or () if r.get("phase") in ("submitting", "uncertain")]
         if not rows or not self.chat_id:
             return
         row = rows[0]
