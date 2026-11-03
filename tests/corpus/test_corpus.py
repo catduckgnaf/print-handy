@@ -222,6 +222,30 @@ def test_checked_in_models_match_the_generator(tmp_path, monkeypatch):
         assert (harness.CASES / case.name / "case.toml").read_text(encoding="utf-8") == case.text, case.name
 
 
+def test_gap_pack_specs_write_ids_exactly_as_given_and_grids_expand(tmp_path):
+    """The raw core format keeps a dangling build item and a component cycle (the intake refusal cases), the
+    prefixed namespace and the inch unit; a [[model.grid]] stands for rows x cols parts."""
+    from . import make_models
+    specs = make_models.specs()
+
+    def model_xml(name):
+        make_models.render(specs[name][1], tmp_path / f"{name}.3mf")
+        with zipfile.ZipFile(tmp_path / f"{name}.3mf") as archive:
+            return archive.read("3D/3dmodel.model").decode()
+
+    assert '<item objectid="999"/>' in model_xml("core-dangling-build-item")
+    cyclic = model_xml("core-cyclic-components")
+    assert '<object id="1" type="model"><components><component objectid="2"/>' in cyclic
+    assert '<object id="2" type="model"><components><component objectid="1"/>' in cyclic
+    prefixed = model_xml("core-prefixed-namespace")
+    assert prefixed.count("<ns0:item ") == 1 and "<item" not in prefixed and 'xmlns="' not in prefixed
+    assert 'unit="inch"' in model_xml("core-inch-nested-assembly")
+    for name, count in (("islands-144-four-color", 144), ("parts-512-four-color", 512)):
+        parts = make_models._parts(specs[name][1]["model"])
+        assert len(parts) == len({part["name"] for part in parts}) == count
+        assert {part["extruder"] for part in parts} == {1, 2, 3, 4}
+
+
 def _case_printer(name):
     return harness.load_case(harness.CASES / name).data.get("printer")
 
