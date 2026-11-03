@@ -190,11 +190,12 @@ answered in that window, keeps the boot date for its whole uptime.
 
 So Print Handy is the printer's time source. The Moonraker listener
 compares the printer's clock (the `Date` header Moonraker already sends)
-with the Print Handy host's every minute, and whenever it is five
-minutes or more off and the printer is fully idle (standby, no file, SD
-card not active) it runs `DATE_SET` with the host's time. This happens
-at connect, at Klipper ready and on every minute's check, so a printer
-that was busy at boot is set as soon as it is idle. It never touches a
+with the Print Handy host's, and whenever it is five minutes or more
+off and the printer is fully idle (standby, no file, SD card not active)
+it runs `DATE_SET` with the host's time. This happens at connect, at
+Klipper ready (so right after a printer reboot) and every 10 minutes
+after that, so a printer that was busy at boot is set soon after it is
+idle. It never touches a
 printing or paused printer. `DATE_SET` reads its stamp in the printer's
 own zone (ZMod's `SET_TIMEZONE`, default `Asia/Yekaterinburg`); when the
 readback is off by a whole zone gap, Print Handy sets it once more
