@@ -174,6 +174,17 @@ def explicit(tier, cfg=None) -> bool:
     return bool(str(_tier_settings(tier, cfg).get("chat_url") or "").strip())
 
 
+def overrides_route(tier, cfg=None) -> bool:
+    """Whether [ai.<tier>] changes where or with which key the tier's default route is called.
+
+    True for a chat_url of its own, and also for an api_key_env alone: that
+    supplies the key for the endpoint the tier inherits.
+    """
+    cfg = cfg if cfg is not None else _config.cfg()
+    mine = _tier_settings(tier, cfg)
+    return bool(str(mine.get("chat_url") or "").strip() or str(mine.get("api_key_env") or "").strip())
+
+
 def ready(tier, cfg=None, *, compat=None, purpose="") -> bool:
     """Whether a call would be sent: the tier is configured and its endpoint has its key or needs none."""
     route = _resolve(tier, cfg, compat, purpose)

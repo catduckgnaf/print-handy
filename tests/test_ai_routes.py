@@ -271,3 +271,48 @@ def test_ai_tier_settings_are_validated():
             settings._validate_ai({"ai": {"heavy": bad}})
     with pytest.raises(settings.SettingsError):
         settings._validate_ai({"ai": {"chat": "http://x"}})
+
+
+def test_a_tier_that_only_supplies_a_key_makes_the_inherited_endpoint_ready(monkeypatch):
+    monkeypatch.setenv("TIER_KEY", "tier-secret")
+    config = vw._config.cfg()
+    monkeypatch.setitem(config, "ai", {"chat": {}, "heavy": {}, "small": {"api_key_env": "TIER_KEY"}})
+    monkeypatch.setitem(config["services"], "vision_chat_url", "https://vision.example.com/v1/chat")
+    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
+    assert vw.vision_ready(lambda: "")
+    endpoint = Endpoint(answer='{"verdict": "ok", "reason": "fine"}')
+    patch_urlopen(monkeypatch, endpoint)
+    assert vw.visual_verdict(b"\xff\xd8", "p", chat_url=lambda: "https://vision.example.com/v1/chat",
+                             model="m", api_key=lambda: "", context="") == ("ok", "fine")
+    assert endpoint.requests[0]["auth"] == "Bearer tier-secret"
+    monkeypatch.delenv("TIER_KEY")
+    assert not vw.vision_ready(lambda: "")
+    assert vw.visual_verdict(b"\xff\xd8", "p", chat_url=lambda: "https://vision.example.com/v1/chat",
+                             model="m", api_key=lambda: "", context="") == ("uncertain", "vision key is not configured")
+
+
+def test_a_configured_tier_timeout_beats_the_caller_default_and_the_default_applies_otherwise(monkeypatch):
+    endpoint = Endpoint()
+    config = cfg(ai={"chat": {}, "heavy": {}, "small": {"chat_url": LOCAL_URL, "model": "m", "timeout_s": 9}})
+    ai_routes.call("small", MSG, cfg=config, opener=endpoint, compat=ai_routes.Compat(timeout_s=4))
+    config["ai"]["small"].pop("timeout_s")
+    ai_routes.call("small", MSG, cfg=config, opener=endpoint, compat=ai_routes.Compat(timeout_s=4))
+    assert [r["timeout"] for r in endpoint.requests] == [9, 4]
+
+
+def test_the_roast_and_vision_calls_pass_their_legacy_timeouts_as_defaults(monkeypatch):
+    config = mel._config.cfg()
+    monkeypatch.setitem(config, "ai", {"chat": {}, "heavy": {}, "small": {"chat_url": LOCAL_URL, "model": "m",
+                                                                            "timeout_s": 15}})
+    monkeypatch.setattr(mel, "_profile_env_value", lambda name: "k")
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.delenv("PRINT_VISION_URL", raising=False)
+    endpoint = Endpoint(answer='{"verdict": "ok", "reason": "x"}')
+    patch_urlopen(monkeypatch, endpoint)
+    mel.generate_roast("Stand")
+    vw.visual_verdict(b"\xff\xd8", "p", chat_url=lambda: "", model="m", api_key=lambda: "", context="")
+    assert [r["timeout"] for r in endpoint.requests] == [15, 15]
+    config["ai"]["small"].pop("timeout_s")
+    mel.generate_roast("Stand")
+    vw.visual_verdict(b"\xff\xd8", "p", chat_url=lambda: "", model="m", api_key=lambda: "", context="")
+    assert [r["timeout"] for r in endpoint.requests[2:]] == [4, 60]

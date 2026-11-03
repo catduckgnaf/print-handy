@@ -110,7 +110,7 @@ keyless_ok = ai_routes.keyless_ok
 
 def chat_key_ready(api_key) -> bool:
     """Whether the chat route has what it needs: its key, or a local endpoint."""
-    if ai_routes.explicit("small"):
+    if ai_routes.overrides_route("small"):
         return ai_routes.ready("small")
     if keyless_ok(_config.service_url("vision_chat_url")):
         return True
@@ -128,7 +128,7 @@ def vision_ready(api_key, log=None):
     global _vision_missing_logged
     if os.environ.get("PRINT_VISION_URL"):
         return True
-    if (ai_routes.explicit("small") or _config.service_url("vision_chat_url")) and chat_key_ready(api_key):
+    if (ai_routes.overrides_route("small") or _config.service_url("vision_chat_url")) and chat_key_ready(api_key):
         return True
     if local_vision.detector_ready():
         return True
@@ -174,15 +174,15 @@ def _vision_answer(image, prompt, *, chat_url, model, api_key, context):
         # An unset services.vision_chat_url: [ai.small] may still name the
         # endpoint, and the call reports a missing one itself.
         url = ""
-    if not ai_routes.explicit("small") and not key and not keyless_ok(url):
+    if not ai_routes.overrides_route("small") and not key and not keyless_ok(url):
         # The long-standing rule for the legacy vision settings: no key for a hosted
         # (or unset) endpoint is the missing-key result, before any route lookup.
         raise _VisionKeyMissing("vision key is not configured")
     try:
         content, served_by = ai_routes.call(
             "small", [{"role": "user", "content": context + str(prompt)}], images=[image],
-            compat=ai_routes.Compat(url, model, key), purpose="vision",
-            max_tokens=200, temperature=0, timeout=60)
+            compat=ai_routes.Compat(url, model, key, timeout_s=60), purpose="vision",
+            max_tokens=200, temperature=0)
     except ai_routes.AIKeyMissing as exc:
         raise _VisionKeyMissing("vision key is not configured") from exc
     logger.debug("vision answer served by %s", served_by)
@@ -223,7 +223,7 @@ def _chat_route_configured(api_key):
     caller injects a chat_url built on ``services.vision_chat_url``, so
     the setting is the honest test; a key that cannot even be read counts
     as configured (endpoint semantics win ties)."""
-    if not (ai_routes.explicit("small") or _config.service_url("vision_chat_url")):
+    if not (ai_routes.overrides_route("small") or _config.service_url("vision_chat_url")):
         return False
     try:
         return chat_key_ready(api_key)

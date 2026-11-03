@@ -400,7 +400,7 @@ def generate_roast(title, summary=""):
     # with the vision roast model and CLIPROXY_API_KEY, as before.
     compat = ai_routes.Compat(_config.service_url("vision_chat_url"),
                               str(_config.cfg()["vision"]["roast_model"]),
-                              _profile_env_value("CLIPROXY_API_KEY"))
+                              _profile_env_value("CLIPROXY_API_KEY"), timeout_s=4)
     if not ai_routes.configured("small", compat=compat):
         log("roast skipped: services.vision_chat_url is not configured")
         return ""
@@ -414,7 +414,7 @@ def generate_roast(title, summary=""):
             "small",
             [{"role": "system", "content": f"You are {_config.bot_name()}, a witty 3D printer assistant who gently roasts 3D prints. Give ONE short funny sentence roasting this model. Keep it under 20 words. No quotes, no hashtags, no introductory filler."},
              {"role": "user", "content": prompt}],
-            compat=compat, purpose="roast", max_tokens=50, temperature=0.8, timeout=4)
+            compat=compat, purpose="roast", max_tokens=50, temperature=0.8)
         log(f"roast written by {served_by}")
         return res.strip("\"'").strip()
     except Exception:
