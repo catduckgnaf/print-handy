@@ -7,10 +7,11 @@
     "labels": [
         "dependencies"
     ],
+    "minimumReleaseAge": "3 days",
     "packageRules": [
         {
             "commitMessagePrefix": "ci:",
-            "description": "Group GitHub Actions updates into one PR. Actions stay SHA-pinned with their trailing version comments: config:recommended keeps digest pinning for github-actions, and Renovate updates the digest and the comment together.",
+            "description": "Group GitHub Actions updates into one PR. Renovate updates actions that are already SHA-pinned in place, digest and trailing version comment together; tag-referenced actions (@v7) stay on tags. config:recommended does not add digest pinning.",
             "groupName": "github-actions",
             "matchManagers": [
                 "github-actions"
@@ -31,6 +32,36 @@
             "matchManagers": [
                 "dockerfile"
             ]
+        },
+        {
+            "description": "The python:3.12-slim-trixie job containers in ci.yml hold the supported Python floor on purpose; never bump them.",
+            "matchManagers": [
+                "github-actions"
+            ],
+            "matchDatasources": [
+                "docker"
+            ],
+            "matchPackageNames": [
+                "python"
+            ],
+            "enabled": false
+        },
+        {
+            "description": "runs-on: ubuntu-24.04 is a deliberate runner pin; runner image moves are made by hand.",
+            "matchDatasources": [
+                "github-runners"
+            ],
+            "enabled": false
+        },
+        {
+            "description": "discord.py is capped below 3 on purpose; a major release needs approval on the Dependency Dashboard before any PR opens.",
+            "matchPackageNames": [
+                "discord.py"
+            ],
+            "matchUpdateTypes": [
+                "major"
+            ],
+            "dependencyDashboardApproval": true
         }
     ],
     "prConcurrentLimit": 5,
