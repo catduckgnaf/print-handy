@@ -302,6 +302,7 @@ def test_history_of_an_earlier_run_or_another_file_does_not_settle_the_lease(del
     (row,) = leases()
 
     fake.add_finished_job(row["remote"], started=1.0)  # a reprint of the same file, long before this lease
+    fake.history[0]["job_id"] = "000001"  # it predates the submission, so its job id is older too
     fake.add_finished_job("Some-Other-Part.gcode.3mf")  # another file, after it
     second, _ = make_job(tmp_path, "second", title="Second Part")
     ok, tail = run_print_now(second)
@@ -310,6 +311,27 @@ def test_history_of_an_earlier_run_or_another_file_does_not_settle_the_lease(del
     status, message = intake_outcome(ok, tail)
     assert status == "START_REFUSED" and "an earlier start" in message
     assert len(fake.zcolor()) == 1
+
+
+def test_a_run_stamped_by_a_reset_printer_clock_still_settles_the_lease(delivers_3mf, tmp_path):
+    # 2026-11-03: ZMod reset its clock on power up and stamped the held file's own run with its
+    # build date. Its job id is newer than any the submission saw, so it settles the lease and
+    # the next print starts, with the clock already synced (no skew left to shift by).
+    fake = delivers_3mf
+    fake.script_hook = printer_ignores_start(HOLD_S)
+    first, _ = make_job(tmp_path, "first", title="First Part")
+    run_print_now(first)
+    (row,) = leases()
+
+    fake.add_finished_job(row["remote"], started=1767218054.77)
+    fake.script_hook = printer_starts(after_s=2)
+    second, _ = make_job(tmp_path, "second", title="Second Part")
+    ok, tail = run_print_now(second)
+
+    assert ok, tail
+    assert "LAUNCH RECONCILED" in tail and row["remote"] in tail
+    names = [re.search(r"FILENAME=(\S+)", s).group(1) for s in fake.zcolor()]
+    assert len(names) == 2 and names[0] == row["remote"] and names[1] != row["remote"]
 
 
 # --- #693: a failure before the start request is a refusal, not a start ------------------------------

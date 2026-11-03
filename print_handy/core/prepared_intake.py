@@ -1629,8 +1629,9 @@ def _refusal_text(tail):
     held = re.match(r'REFUSED: an earlier start on this printer is uncertain \(job .*?, file (.+?), since ', raw)
     if held:
         return (f"Didn't start: an earlier start ({held.group(1)}) was never confirmed, so nothing new "
-                "starts until it is settled. It clears by itself once the printer reports that file; "
-                "if it never printed, run `reconcile-launch --not-started`, then press Retry.")
+                "starts until it is settled. That happens by itself when the printer shows that file "
+                "printing (or in its job history), or about a minute after the printer gives up on it; "
+                "then press Retry. If it stays blocked, ask whoever runs Print Handy to settle it on the server.")
     rejected = re.match(r'REFUSED: the printer rejected the start request \((.+?)\)\. ', raw)
     if rejected:
         return (f"Didn't start: the printer rejected the start request ({rejected.group(1)}). "

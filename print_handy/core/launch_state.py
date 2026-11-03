@@ -230,6 +230,21 @@ def history_key(entry):
     return f"pair:{entry[-2]}@{entry[-1]}"
 
 
+def _job_number(job_id):
+    """A Moonraker job id as a number (hex, assigned in increasing order), or None."""
+    try:
+        return int(str(job_id), 16)
+    except (TypeError, ValueError):
+        return None
+
+
+def _newest_baseline_job(baseline):
+    """The highest numeric job id in a pre-submission baseline, or None when it names none."""
+    numbers = [_job_number(key[3:]) for key in baseline if str(key).startswith("id:")]
+    numbers = [n for n in numbers if n is not None]
+    return max(numbers) if numbers else None
+
+
 def reached_printer(row, observed_file=None, started_files=(), baseline=()):
     """Whether a submitting/uncertain lease's exact file reached the printer: it is the current
     file, or the printer's job history shows it starting after the lease was taken.
@@ -241,6 +256,12 @@ def reached_printer(row, observed_file=None, started_files=(), baseline=()):
     can never confirm it — not even a same-name run inside the clock slack, which
     is exactly the cancelled-then-retried case (P1-121). The slack still applies
     to runs that are not in the baseline, including the submission's own.
+
+    A run of this file whose job id is newer than every id in the baseline settles it
+    whatever its start stamp says: Moonraker numbers jobs in order, so that run was
+    created after the submission. This is what settles a ZMod printer whose clock
+    reset to its build date on power up, stamping the run months before the lease,
+    even after the clock was synced again (2026-11-03).
     """
     remote = row["remote"]
     if not remote:
@@ -253,12 +274,18 @@ def reached_printer(row, observed_file=None, started_files=(), baseline=()):
         return False
     try:
         known = set(baseline or ())
+        newest = _newest_baseline_job(known)
         history = started_files() if callable(started_files) else started_files
         for entry in history or ():
             if known and history_key(entry) in known:
                 continue  # already in history before this submission: not its confirmation
             filename, started = entry[-2], entry[-1]
-            if same_remote(filename, remote) and float(started) >= since:
+            if not same_remote(filename, remote):
+                continue
+            if float(started) >= since:
+                return True
+            number = _job_number(entry[0]) if len(entry) >= 3 and entry[0] else None
+            if newest is not None and number is not None and number > newest:
                 return True
     except Exception:
         return False  # unreadable history settles nothing; the lease stays uncertain
@@ -389,6 +416,28 @@ def acquire(printer, *, job_json=None, gcode_sha256=None, remote=None, observed_
         con.execute("DELETE FROM lease_baselines WHERE printer=?", (printer,))
     history_source = started_files if (callable(started_files) or started_files) else None
     return Lease(printer, token, history_source=history_source)
+
+
+def settle_observed(printer, observed_file):
+    """Clear a held submitting/uncertain lease when the printer itself reports running its file.
+
+    The same evidence acquire() accepts (the printer's current file is this upload), applied the
+    moment the listener sees it, so a start whose response was lost never waits for history (and
+    the printer's clock) to settle it. Returns the cleared row, or None when nothing matched.
+    Never creates a database: a printer that never launched has nothing to settle.
+    """
+    if not observed_file:
+        return None
+    printer = printer or settings.default_printer_id()
+    if not os.environ.get("PRINT_HANDY_LAUNCH_DB") and not (settings.printer_state_dir(printer) / "jobs.db").is_file():
+        return None
+    with transaction(printer) as con:
+        row = con.execute("SELECT * FROM leases WHERE printer=?", (printer,)).fetchone()
+        if row is None or row["phase"] == "leased" or not same_remote(observed_file, row["remote"]):
+            return None
+        con.execute("DELETE FROM leases WHERE printer=? AND token=?", (printer, row["token"]))
+        con.execute("DELETE FROM lease_baselines WHERE printer=?", (printer,))
+    return dict(row)
 
 
 def pending(printer=None):
