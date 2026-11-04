@@ -61,17 +61,22 @@ def _adopt_legacy_db(target, printer_id):
         return
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(target.name + ".adopting")
-    shutil.copy2(legacy, tmp)
-    for suffix in ("-wal", "-shm"):
-        sidecar = Path(str(legacy) + suffix)
-        if sidecar.is_file():
-            shutil.copy2(sidecar, Path(str(tmp) + suffix))
+    for stale in (tmp, Path(str(tmp) + "-wal"), Path(str(tmp) + "-shm")):
+        if stale.exists():
+            stale.unlink()  # an interrupted earlier adoption; start clean
+    # SQLite's online backup API yields one consistent snapshot even while a
+    # writer holds the WAL; copying the db and -wal files separately did not.
+    src = sqlite3.connect(f"file:{legacy}?mode=ro", uri=True)
+    try:
+        dst = sqlite3.connect(tmp)
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+    finally:
+        src.close()
+    _rekey_adopted_db(tmp, printer_id)
     os.replace(tmp, target)
-    for suffix in ("-wal", "-shm"):
-        sidecar = Path(str(tmp) + suffix)
-        if sidecar.is_file():
-            os.replace(sidecar, Path(str(target) + suffix))
-    _rekey_adopted_db(target, printer_id)
 
 
 def _rekey_adopted_db(target, printer_id):

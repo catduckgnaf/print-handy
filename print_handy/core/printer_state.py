@@ -715,11 +715,25 @@ def load(printer_id=None):
 def save(st, printer_id=None):
     target = state_path(printer_id)
     target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = str(target) + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(st, f, indent=2)
-        f.write("\n")
-    os.replace(tmp, target)
+    # A unique temp name per writer: a shared "<file>.tmp" let two processes
+    # interleave into one file and rename a corrupt record. Flush + fsync before
+    # the rename so a crash leaves the old record or the whole new one.
+    # (This makes each write atomic; it is not a read-modify-write lock.)
+    import tempfile
+    fd, tmp = tempfile.mkstemp(prefix=target.name + ".", suffix=".tmp", dir=str(target.parent))
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(st, f, indent=2)
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, target)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def _model_nozzle_default(view=None):
