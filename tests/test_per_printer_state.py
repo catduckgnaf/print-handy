@@ -222,7 +222,33 @@ def test_hardware_record_adoption_and_isolation(hardware, tmp_path):
     printer_state.save({"marker": "new"}, DEFAULT_ID)  # new writes go to the per-printer file
     assert printer_state.load(DEFAULT_ID)["marker"] == "new"
     assert json.loads(hardware.read_text())["marker"] == "legacy"  # legacy file left in place
-    assert printer_state.load()["marker"] == "legacy"  # the no-printer path is byte-for-byte the old one
+    # Once the default printer owns a record, the unnamed path follows it: a
+    # write that landed in the stale legacy copy would never be read back.
+    assert printer_state.load()["marker"] == "new"
+    printer_state.save({"marker": "unnamed"})
+    assert printer_state.load(DEFAULT_ID)["marker"] == "unnamed"
+    assert json.loads(hardware.read_text())["marker"] == "legacy"
+
+
+def test_unnamed_path_is_the_legacy_file_until_the_default_printer_has_a_record(hardware):
+    assert printer_state.state_path() == hardware
+
+
+def test_spool_bind_lands_where_the_slicer_reads(tmp_path, monkeypatch):
+    # The 2026-11-04 refusals: a Discord /spool bind (unnamed spool_sync write)
+    # updated the legacy record to PLA+ while the slicer read the default
+    # printer's own record, still PLA, and refused "slot 3 material".
+    legacy = tmp_path / "printer_hardware.json"
+    legacy.write_text(json.dumps({"filament_slots": {"3": {"material": "PLA", "spoolman_id": 20}}}))
+    monkeypatch.setattr(printer_state, "STATE", str(legacy))
+    monkeypatch.setattr(spool_sync, "HARDWARE_STATE", legacy)
+    monkeypatch.delenv("PRINTER_HARDWARE_STATE", raising=False)
+    monkeypatch.setattr(spool_sync._config, "cfg", lambda: {"printers": [{"id": DEFAULT_ID}]})
+    printer_state.save(json.loads(legacy.read_text()), DEFAULT_ID)
+    state = spool_sync.load_state()
+    state["filament_slots"]["3"]["material"] = "PLA+"
+    spool_sync.save_state(state)
+    assert printer_state.load(DEFAULT_ID)["filament_slots"]["3"]["material"] == "PLA+"
 
 
 def test_hardware_record_written_with_the_old_slots_key_is_adopted(hardware):

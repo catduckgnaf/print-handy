@@ -666,6 +666,17 @@ def state_path(printer_id=None):
     same root the legacy record lives in. No printer named: the legacy path.
     """
     if printer_id is None:
+        # Once the default printer has its own record, the legacy file is a
+        # stale copy: an unnamed write landing there would never be read
+        # back (a /spool bind the slicer could not see).
+        try:
+            default_id = settings.default_printer_id()
+        except Exception:
+            default_id = None
+        if default_id:
+            own = Path(STATE).parent / "printers" / default_id / "printer_hardware.json"
+            if own.is_file():
+                return own
         return Path(STATE)
     return Path(STATE).parent / "printers" / printer_id / "printer_hardware.json"
 
