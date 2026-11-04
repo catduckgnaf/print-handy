@@ -583,7 +583,7 @@ def paused_message(filename, runout=False, slot=None, spool_id=None):
 def recovery_slot(filename):
     """The slot and spool this job was using, from the hardware map. No printer call."""
     try:
-        state = filament_color.adopt_renamed_slots_key(json.loads(HARDWARE_STATE.read_text()))
+        state = filament_color.adopt_renamed_slots_key(json.loads(_hardware_file().read_text()))
     except (OSError, ValueError):
         return None, None
     slots = state.get("filament_slots") or {}
@@ -1837,6 +1837,14 @@ NEW_SPOOL_GIVE_UP_S = 24 * 3600.0
 HARDWARE_STATE = _config.state_file("PRINTER_HARDWARE_STATE", "printer_hardware.json")
 
 
+def _hardware_file():
+    """The record the slicer reads: the default printer's own file once it exists."""
+    if os.environ.get("PRINTER_HARDWARE_STATE"):
+        return HARDWARE_STATE
+    from .spool_sync import default_hardware_file
+    return default_hardware_file(HARDWARE_STATE)
+
+
 def read_json_object(path):
     try:
         value = json.loads(path.read_text())
@@ -2815,7 +2823,7 @@ class MidPrintSlotTracker:
 
 def _mapped_spool(slot):
     try:
-        state = filament_color.adopt_renamed_slots_key(json.loads(HARDWARE_STATE.read_text()))
+        state = filament_color.adopt_renamed_slots_key(json.loads(_hardware_file().read_text()))
     except (OSError, ValueError):
         return None
     return ((state.get("filament_slots") or {}).get(str(slot)) or {}).get("spoolman_id")

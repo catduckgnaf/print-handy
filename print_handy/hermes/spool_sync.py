@@ -142,9 +142,29 @@ def _hardware_path(path: Path | None = None, printer_id: str | None = None) -> P
     """
     if path is not None:
         return Path(path)
-    if printer_id is None or os.environ.get("PRINTER_HARDWARE_STATE"):
+    if os.environ.get("PRINTER_HARDWARE_STATE"):
         return Path(HARDWARE_STATE)
+    if printer_id is None:
+        return default_hardware_file(Path(HARDWARE_STATE))
     return Path(HARDWARE_STATE).parent / "printers" / printer_id / "printer_hardware.json"
+
+
+def default_hardware_file(legacy: Path) -> Path:
+    """The default printer's own record when it exists, else the legacy file.
+
+    An unnamed read or write must hit the same file a default-printer read
+    does; otherwise a /spool bind lands in the stale legacy copy and the
+    slicer refuses the job against the old material.
+    """
+    try:
+        default_id = _config.cfg()["printers"][0]["id"]
+    except Exception:
+        default_id = None
+    if default_id:
+        own = Path(legacy).parent / "printers" / str(default_id) / "printer_hardware.json"
+        if own.is_file():
+            return own
+    return Path(legacy)
 
 
 def _hardware_read_path(path: Path | None = None, printer_id: str | None = None) -> Path:
