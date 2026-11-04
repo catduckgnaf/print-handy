@@ -1,0 +1,308 @@
+name: Develop Docker image to GHCR
+
+# Develop is a floating channel built from the `develop` branch. That
+# branch is a standing development branch, not a pointer: this workflow
+# builds whatever commit its tip names when a maintainer dispatches it,
+# exactly as pushed. There is no promote job and no CI-green gate on the
+# commit choice — the build and acceptance legs are the publication
+# gate, exactly as nightly's. The build matrix, acceptance and
+# push-by-digest flow are the release publisher's (docker-publish.yml);
+# only the source and the tag differ. Published tag: `develop`. Release
+# tags and `latest` are never touched by this workflow.
+#
+# There is no publication-pointer branch: nightly's `nightly-published`
+# pointer exists to reconcile its promote job and its schedule, and
+# develop has neither — a dispatch always builds the current tip.
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Push by digest and publish the develop manifests (false builds and validates only)
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-develop
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve the develop branch tip
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      publish: ${{ steps.resolve.outputs.publish }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      # Inputs reach the shell only as environment variables, never interpolated into scripts.
+      PUBLISH_INPUT: ${{ inputs.publish }}
+    steps:
+      - id: resolve
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          develop_sha=""
+          if ! develop_sha=$(gh api "repos/$repo/git/ref/heads/develop" --jq '.object.sha' 2>/dev/null); then
+            develop_sha=""
+          fi
+          [[ "$develop_sha" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "Could not resolve the develop commit (does the develop branch exist?)" >&2
+            exit 1
+          }
+          publish=false
+          if [[ "$PUBLISH_INPUT" == "true" ]]; then
+            publish=true
+          fi
+          {
+            echo "sha=$develop_sha"
+            echo "publish=$publish"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Develop source"
+            echo
+            echo "- Commit: \`$develop_sha\`"
+            echo "- Publish: \`$publish\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build (${{ matrix.arch }})
+    needs: resolve
+    # Native runners only: arm64 builds run on a real arm64 runner, never under
+    # QEMU emulation. One image is published (#353): the full image
+    # (WITH_ORCA=true + WITH_GO2RTC=true) on linux/amd64 and linux/arm64.
+    # Bambu Studio stays out of the published image (WITH_BAMBU=false).
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 350
+    env:
+      IMAGE: ghcr.io/catduckgnaf/print-handy
+      DEVELOP_SHA: ${{ needs.resolve.outputs.sha }}
+      APP_CHANNEL: development
+      # Matrix values reach the shell only as environment variables too.
+      ARCH: ${{ matrix.arch }}
+      RUNNER_LABEL: ${{ matrix.runner }}
+      PLATFORM: ${{ matrix.platform }}
+      WITH_ORCA: "true"
+      WITH_GO2RTC: "true"
+      WITH_BAMBU: "false"
+      SPOOLMAN_MODE: included
+      LOCAL_IMAGE: print-handy-develop-candidate:${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+      - name: Prepare develop evidence
+        run: |
+          set -euo pipefail
+          [[ "$DEVELOP_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "Develop commit must be a full SHA" >&2
+            exit 1
+          }
+          develop_version="develop-$(git log -1 --format=%cs HEAD)-${DEVELOP_SHA:0:7}"
+          echo "DEVELOP_VERSION=$develop_version" >> "$GITHUB_ENV"
+          mkdir -p evidence
+          {
+            echo "source_sha=$DEVELOP_SHA"
+            echo "version=$develop_version"
+            echo "arch=$ARCH platform=$PLATFORM runner=$RUNNER_LABEL"
+            echo "app_channel=$APP_CHANNEL with_orca=$WITH_ORCA with_go2rtc=$WITH_GO2RTC with_bambu=$WITH_BAMBU spoolman=$SPOOLMAN_MODE"
+          } | tee evidence/pins.txt
+      - name: Free runner disk for the slicer build
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h / | tee evidence/disk.txt
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
+        with:
+          # Must be docker-container: the legs push by digest, which the
+          # docker driver does not implement (every leg of nightly run
+          # 40330775729 passed acceptance and then failed at the push step
+          # with exactly that error).
+          driver: docker-container
+      - name: Build image once (no push)
+        run: |
+          set -euo pipefail
+          start=$(date -u +%FT%TZ)
+          docker buildx build --platform "$PLATFORM" --progress=plain --load -t "$LOCAL_IMAGE" \
+            --build-arg "APP_CHANNEL=$APP_CHANNEL" \
+            --build-arg "WITH_ORCA=$WITH_ORCA" \
+            --build-arg "WITH_GO2RTC=$WITH_GO2RTC" \
+            --build-arg "WITH_BAMBU=$WITH_BAMBU" \
+            --label "org.opencontainers.image.source=https://github.com/catduckgnaf/print-handy" \
+            --label "org.opencontainers.image.version=$DEVELOP_VERSION" \
+            --label "org.opencontainers.image.revision=$DEVELOP_SHA" \
+            . 2>&1 | tee evidence/build.log
+          {
+            echo "build_start=$start"
+            echo "build_end=$(date -u +%FT%TZ)"
+            echo "image_id=$(docker image inspect --format '{{.Id}}' "$LOCAL_IMAGE")"
+            docker image inspect --format 'platform={{.Os}}/{{.Architecture}} size={{.Size}}' "$LOCAL_IMAGE"
+          } | tee evidence/identity.txt
+      - name: Headless slice with each bundled Orca channel
+        run: |
+          set -euo pipefail
+          channels="stable preview"
+          for channel in $channels; do
+            docker run --rm --network none --cpus 2 --memory 4g --pids-limit 256 \
+              --cap-drop ALL --security-opt no-new-privileges:true \
+              --tmpfs /data:uid=1000,gid=1000,size=512m \
+              -e "PRINT_HANDY_ORCA_CHANNEL=$channel" \
+              "$LOCAL_IMAGE" python3 /app/docker/slicer-smoke.py \
+              2>&1 | tee "evidence/slicer-$channel.log"
+          done
+      - name: Offline runtime acceptance
+        id: acceptance
+        run: tests/docker/image_acceptance.sh "$LOCAL_IMAGE" "$SPOOLMAN_MODE" evidence/acceptance
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4.7.0
+        if: needs.resolve.outputs.publish == 'true' && steps.acceptance.outcome == 'success'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push accepted image by digest only
+        id: publish
+        if: needs.resolve.outputs.publish == 'true' && steps.acceptance.outcome == 'success'
+        run: |
+          set -euo pipefail
+          # The identical build is pushed by digest only: no tag is pushed from a
+          # build leg. Tags are created later, by the manifest job, from digests.
+          docker buildx build --platform "$PLATFORM" --progress=plain \
+            --output "type=image,name=$IMAGE,push-by-digest=true,name-canonical=true,push=true" \
+            --metadata-file "evidence/metadata-$ARCH.json" \
+            --build-arg "APP_CHANNEL=$APP_CHANNEL" \
+            --build-arg "WITH_ORCA=$WITH_ORCA" \
+            --build-arg "WITH_GO2RTC=$WITH_GO2RTC" \
+            --build-arg "WITH_BAMBU=$WITH_BAMBU" \
+            --label "org.opencontainers.image.source=https://github.com/catduckgnaf/print-handy" \
+            --label "org.opencontainers.image.version=$DEVELOP_VERSION" \
+            --label "org.opencontainers.image.revision=$DEVELOP_SHA" \
+            . 2>&1 | tee evidence/push.log
+          digest=$(python3 -c "import json; print(json.load(open('evidence/metadata-$ARCH.json'))['containerimage.digest'])")
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+            echo "Could not read the pushed image digest" >&2
+            exit 1
+          }
+          # The push above re-ran the build, so prove the pushed image is
+          # the one acceptance ran against before its digest travels on:
+          # the config digest the pushed manifest points at must equal the
+          # accepted local image's ID. (The context can no longer drift
+          # between the two builds either: evidence/ is dockerignored, so
+          # this build saw exactly what the accepted build saw.)
+          accepted_id=$(docker image inspect --format '{{.Id}}' "$LOCAL_IMAGE")
+          # Config digest (classic image store ID) and image-manifest digest (containerd store ID).
+          pushed_ids=$(python3 scripts/pushed_image_ids.py "$IMAGE" "$digest" "$PLATFORM")
+          pushed_config=$(sed -n 1p <<<"$pushed_ids")
+          pushed_manifest=$(sed -n 2p <<<"$pushed_ids")
+          [[ "$pushed_config" == "$accepted_id" || "$pushed_manifest" == "$accepted_id" ]] || {
+            echo "The image at $digest (config $pushed_config, manifest $pushed_manifest) is not the accepted image $LOCAL_IMAGE ($accepted_id); refusing to hand its digest to the manifest job" >&2
+            exit 1
+          }
+          {
+            echo "accepted_image_id=$accepted_id"
+            echo "pushed_config_digest=$pushed_config"
+            echo "pushed_manifest_digest=$pushed_manifest"
+          } | tee evidence/identity-check.txt
+          mkdir -p digest-out
+          printf '%s\n' "$digest" | tee "digest-out/digest-$ARCH.txt" evidence/digest.txt
+          {
+            echo "### GHCR image pushed by digest"
+            echo
+            echo "- Platform: \`$PLATFORM\`"
+            echo "- Digest: \`$IMAGE@$digest\`"
+            echo "- Source revision: \`$DEVELOP_SHA\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload pushed digest for the manifest job
+        if: needs.resolve.outputs.publish == 'true' && steps.publish.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: digest-${{ matrix.arch }}
+          path: digest-out/
+          retention-days: 30
+      - name: Upload build and acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: docker-develop-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}
+          path: evidence/
+          retention-days: 30
+
+  manifest:
+    name: Publish multi-arch manifests
+    # Runs only for a real publication and only when every build leg succeeded;
+    # a leg succeeds only when its own acceptance passed before its digest push.
+    needs: [resolve, build]
+    if: needs.resolve.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      packages: write
+    timeout-minutes: 60
+    env:
+      IMAGE: ghcr.io/catduckgnaf/print-handy
+      DEVELOP_SHA: ${{ needs.resolve.outputs.sha }}
+    steps:
+      - name: Download the pushed per-arch digests
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          pattern: digest-*
+          path: digests
+          merge-multiple: true
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create and push the multi-arch manifests
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          read_digest() {
+            local file="digests/digest-$1.txt"
+            [[ -f "$file" ]] || { echo "missing pushed digest for arch $1" >&2; exit 1; }
+            local digest
+            digest=$(tr -d '[:space:]' < "$file")
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "invalid digest in $file" >&2; exit 1; }
+            printf '%s' "$digest"
+          }
+          full_amd64=$(read_digest amd64)
+          full_arm64=$(read_digest arm64)
+          {
+            echo "full_amd64=$full_amd64"
+            echo "full_arm64=$full_arm64"
+          } | tee evidence/digests.txt
+          # One image (#353): the floating develop tag.
+          # Release tags and latest are owned by docker-publish.yml, never this workflow.
+          docker buildx imagetools create -t "$IMAGE:develop" \
+            "$IMAGE@$full_amd64" "$IMAGE@$full_arm64" 2>&1 | tee evidence/manifest-develop.log
+          {
+            echo "### GHCR multi-arch manifests published"
+            echo
+            for tag in develop; do
+              manifest_digest="sha256:$(docker buildx imagetools inspect --raw "$IMAGE:$tag" | sha256sum | cut -d ' ' -f 1)"
+              echo "- \`$IMAGE:$tag\` manifest digest: \`$manifest_digest\`"
+              echo "$tag=$manifest_digest"
+            done
+            echo "- Source revision: \`$DEVELOP_SHA\`"
+          } | tee evidence/manifests.txt >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload manifest evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: docker-develop-manifests-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/
+          retention-days: 30
