@@ -52,11 +52,13 @@ CONFIRM_FIELD = "confirm"
 # compared against the access token by the server and is never rendered
 # back into any page, logged, or stored.
 LOGIN_TOKEN_FIELD = "token"
+LOGIN_USER_FIELD = "username"
 # First-run setup form fields (POST /setup, #708). Passwords are hashed by
 # webui.access and never rendered back.
 SETUP_CHOICE_FIELD = "choice"
 SETUP_PASSWORD_FIELD = "password"
 SETUP_CONFIRM_FIELD = "password_again"
+SETUP_USER_FIELD = "username"
 SETUP_OPEN_FIELD = "confirm_open"
 # Hidden field on the confirm form listing the field ids the preview
 # parsed; the save POST parses exactly those, no others.
@@ -196,7 +198,8 @@ def _field_row(field_value, *, data, errors, submitted):
     badge = PROVENANCE_LABELS.get(field_value.provenance, field_value.provenance)
     parts = [f'<div class="field" id="row-{_esc(field.id)}">',
              f'<label for="f-{_esc(field.id)}">{_esc(field.label)} '
-             f'<span class="badge">{_esc(badge)}</span></label> ',
+             f'<span class="badge{" warn" if disabled else ""}">'
+             f'{"Locked: " if disabled else ""}{_esc(badge)}</span></label> ',
              _control(field, _current(field, field_value, submitted),
                       data=data, disabled=disabled)]
     error = (errors or {}).get(field.id)
@@ -220,16 +223,23 @@ def _page(title, body, *, theme=shell.DEFAULT_THEME, path="", chrome=True):
     return shell.page(title, body, path=path, theme=theme, chrome=chrome)
 
 
-def render_login_page(error=None, password=False, *, theme=shell.DEFAULT_THEME):
+def render_login_page(error=None, password=False, *, username=False,
+                      theme=shell.DEFAULT_THEME):
     """The GET /login page: a single password field for the access token.
 
     A browser cannot send the ``X-WebUI-Token`` header, so this form is
     how a person signs in: a correct POST /login earns a session cookie
     (see server.py). ``error`` is a fixed message chosen by the server;
     the submitted token is never reflected here. ``password`` is true
-    when the credential is the password chosen on the setup page (#708).
+    when the credential is the password chosen on the setup page (#708);
+    ``username`` adds the username field (#875), named and autocompleted
+    so a browser or password manager can save and fill the pair.
     """
-    if password:
+    if password and username:
+        intro = ('<p>Sign in with the username and password chosen during setup. '
+                 'Your browser can remember them. This browser then stays signed in '
+                 'until the session expires or the server restarts.</p>')
+    elif password:
         intro = ('<p>This Web UI is protected by the password chosen during setup. '
                  'Enter it once and this browser stays signed in until the session '
                  'expires or the server restarts.</p>')
@@ -242,13 +252,45 @@ def render_login_page(error=None, password=False, *, theme=shell.DEFAULT_THEME):
     if error:
         parts.append(f'<p class="error">{_esc(error)}</p>')
     label = "Password" if password else "Access token"
+    user_row = (f'<p><label for="f-{LOGIN_USER_FIELD}">Username</label> '
+                f'<input type="text" id="f-{LOGIN_USER_FIELD}" name="{LOGIN_USER_FIELD}" '
+                'autocomplete="username" autocapitalize="none" spellcheck="false" '
+                'required></p>') if password and username else ""
     parts.append(
-        f'<form method="post" action="/login">'
+        f'<form method="post" action="/login">{user_row}'
         f'<p><label for="f-{LOGIN_TOKEN_FIELD}">{label}</label> '
         f'<input type="password" id="f-{LOGIN_TOKEN_FIELD}" '
         f'name="{LOGIN_TOKEN_FIELD}" autocomplete="current-password" required></p>'
         '<p><button type="submit">Log in</button></p></form>')
     return _page("log in", "".join(parts), theme=theme, path="/login", chrome=False)
+
+
+def login_rows(submitted_username="", *, required=True):
+    """Username, password and confirmation inputs for choosing a login.
+
+    Shared by /setup and the walkthrough's Login step. Standard names and
+    autocomplete hints let a browser or password manager offer to save
+    the pair. Passwords are never echoed back; only the username is.
+
+    ``required`` is the standalone setup page's strictness: a first-run
+    choice must be complete. The walkthrough passes False — its Login
+    step documents leaving the fields empty to keep the current login,
+    and removing the login via its checkbox, both of which browser
+    validation on required fields would refuse before the form is sent."""
+    minimum = access_module.MIN_PASSWORD_LENGTH
+    req = " required" if required else ""
+    return (
+        f'<p><label for="f-{SETUP_USER_FIELD}">Username</label> '
+        f'<input type="text" id="f-{SETUP_USER_FIELD}" name="{SETUP_USER_FIELD}" '
+        f'value="{_esc(submitted_username)}" autocomplete="username" '
+        'autocapitalize="none" spellcheck="false" '
+        f'maxlength="{access_module.MAX_USERNAME_LENGTH}"{req}></p>'
+        f'<p><label for="f-{SETUP_PASSWORD_FIELD}">Password</label> '
+        f'<input type="password" id="f-{SETUP_PASSWORD_FIELD}" name="{SETUP_PASSWORD_FIELD}" '
+        f'autocomplete="new-password" minlength="{minimum}"{req}></p>'
+        f'<p><label for="f-{SETUP_CONFIRM_FIELD}">Password again</label> '
+        f'<input type="password" id="f-{SETUP_CONFIRM_FIELD}" name="{SETUP_CONFIRM_FIELD}" '
+        f'autocomplete="new-password"{req}></p>')
 
 
 def render_setup_page(form_token, error=None, *, theme=shell.DEFAULT_THEME):
@@ -266,18 +308,13 @@ def render_setup_page(form_token, error=None, *, theme=shell.DEFAULT_THEME):
         parts.append(f'<p class="error">{_esc(error)}</p>')
     csrf = f'<input type="hidden" name="{CSRF_FIELD}" value="{_esc(form_token)}">'
     parts.append(
-        '<h2>Set a password (recommended)</h2>'
+        '<h2>Set a username and password (recommended)</h2>'
         '<form method="post" action="/setup">' + csrf +
         f'<input type="hidden" name="{SETUP_CHOICE_FIELD}" value="password">'
-        f'<p><label for="f-{SETUP_PASSWORD_FIELD}">Password</label> '
-        f'<input type="password" id="f-{SETUP_PASSWORD_FIELD}" name="{SETUP_PASSWORD_FIELD}" '
-        f'autocomplete="new-password" minlength="{access_module.MIN_PASSWORD_LENGTH}" required></p>'
-        f'<p><label for="f-{SETUP_CONFIRM_FIELD}">Password again</label> '
-        f'<input type="password" id="f-{SETUP_CONFIRM_FIELD}" name="{SETUP_CONFIRM_FIELD}" '
-        f'autocomplete="new-password" required></p>'
+        + login_rows() +
         '<p>Home Assistant and other tools send this same password as the '
         f'<code>X-WebUI-Token</code> header.</p>'
-        '<p><button type="submit">Save password</button></p></form>')
+        '<p><button type="submit">Save login</button></p></form>')
     parts.append(
         '<h2>Or leave it open</h2>'
         '<form method="post" action="/setup">' + csrf +
@@ -287,9 +324,21 @@ def render_setup_page(form_token, error=None, *, theme=shell.DEFAULT_THEME):
         'network: anyone who can reach this port can use the Web UI.</label></p>'
         '<p><button type="submit">Leave it open</button></p></form>')
     parts.append(
-        '<p>To change this later, delete <code>webui_access.json</code> from the Print Handy '
-        'state folder and restart, or set an access token in the environment.</p>')
+        '<p>To change this later, use <strong>Login</strong> in the setup walkthrough, '
+        'turn off <code>[webui] require_auth</code> to drop the login entirely (for a '
+        'trusted home network), or delete <code>webui_access.json</code> from the Print '
+        'Handy state folder and restart.</p>')
     return _page("setup", "".join(parts), theme=theme, path="/setup", chrome=False)
+
+
+_FIELD_SEARCH = (
+    "<script>(function(){var box=document.getElementById('field-search');if(!box)return;"
+    "box.addEventListener('input',function(){var q=box.value.trim().toLowerCase();"
+    "document.querySelectorAll('.config-group').forEach(function(group){var hits=0;"
+    "group.querySelectorAll('.field').forEach(function(row){"
+    "var show=!q||row.textContent.toLowerCase().indexOf(q)>=0;row.hidden=!show;if(show)hits++;});"
+    "group.hidden=q&&!hits;if(q&&hits)group.open=true;});});})();</script>"
+)
 
 
 def render_config_page(field_values, *, data, form_token, errors=None,
@@ -315,20 +364,32 @@ def render_config_page(field_values, *, data, form_token, errors=None,
     parts.append(f'<form method="post" action="/config/preview">'
                  f'<input type="hidden" name="{CSRF_FIELD}" value="{_esc(form_token)}">')
     known = {name for name, _heading in GROUPS}
-    for name, heading in GROUPS:
-        rows = by_group.get(name)
-        if not rows:
-            continue
-        parts.append(f"<h2>{_esc(heading)}</h2>")
+    sections = [(name, heading, by_group[name]) for name, heading in GROUPS
+                if by_group.get(name)]
+    sections += [(name, name or "Other", rows) for name, rows in by_group.items()
+                 if name not in known]  # a group this page does not know yet
+    # Tabs (#875): one jump link per catalog group, each a deep link
+    # (/config#group-<name>) the walkthrough and error pages can target.
+    parts.insert(0, '<nav class="pills config-tabs" aria-label="Settings sections">'
+                 + "".join(f'<a href="#group-{_esc(name or "other")}">{_esc(heading)}</a>'
+                           for name, heading, _rows in sections)
+                 + '</nav><p><label>Find a setting <input type="search" id="field-search" '
+                 'placeholder="Type to filter every section"></label></p>')
+    for name, heading, rows in sections:
+        parts.append(f'<details class="config-group" id="group-{_esc(name or "other")}" open>'
+                     f"<summary><h2>{_esc(heading)}</h2></summary>")
         parts.extend(_field_row(fv, data=data, errors=errors, submitted=submitted)
                      for fv in rows)
-    for name, rows in by_group.items():  # a group this page does not know yet
-        if name in known:
-            continue
-        parts.append(f"<h2>{_esc(name or 'Other')}</h2>")
-        parts.extend(_field_row(fv, data=data, errors=errors, submitted=submitted)
-                     for fv in rows)
+        parts.append("</details>")
     parts.append('<p><button type="submit">Preview changes</button></p></form>')
+    parts.append(
+        '<h2 id="restart-setup">Setup</h2><form method="post" action="/walkthrough">'
+        f'<input type="hidden" name="{CSRF_FIELD}" value="{_esc(form_token)}">'
+        '<input type="hidden" name="action" value="restart">'
+        '<p>Run the guided setup again from the first step. Nothing is reset: '
+        'every step starts from the current settings.</p>'
+        '<button type="submit">Restart setup</button></form>')
+    parts.append(_FIELD_SEARCH)
     return _page("configuration", "".join(parts), theme=theme, path="/config")
 
 

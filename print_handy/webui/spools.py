@@ -800,12 +800,23 @@ def render_spools_error(printer_id, code, reason, *, theme=shell.DEFAULT_THEME):
 
 
 def render_spools_page(view, *, form_token, notice=None, error=None, proposed=None,
-                       purchase_ready=False, theme=shell.DEFAULT_THEME):
+                       purchase_ready=False, theme=shell.DEFAULT_THEME, printers=None):
     """The per-printer Spools page: the #744 loaded view, the shelf,
-    and the assign/swap/unassign/add/edit/sync forms with pickers."""
+    and the assign/swap/unassign/add/edit/sync forms with pickers.
+
+    ``printers`` (the configured roster) adds a printer switcher when
+    there is more than one printer (#875)."""
     esc = _esc
     pid = view["id"]
     parts = []
+    if printers and len(printers) > 1:
+        links = " ".join(
+            (f'<strong>{esc(entry.get("name") or entry["id"])}</strong>'
+             if str(entry["id"]) == str(pid) else
+             f'<a href="/spools/{quote(str(entry["id"]), safe="")}">'
+             f'{esc(entry.get("name") or entry["id"])}</a>')
+            for entry in printers)
+        parts.append(f'<nav class="switcher" aria-label="Printer">Printer: {links}</nav>')
     if notice:
         parts.append(f'<p class="notice">{esc(notice)}</p>')
     if error:

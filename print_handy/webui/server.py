@@ -118,6 +118,7 @@ from . import controls as controls_module
 from . import designs as designs_module
 from . import layers as layers_module
 from . import pages
+from . import printers_page
 from . import shell
 from . import spools as spools_module
 from . import status as status_module
@@ -325,8 +326,8 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
                 esc(row.get("moonraker_url") or row.get("octoprint_url")
                     or row.get("lan_host") or row.get("link_host") or row.get("host") or ""))
             for row in roster)
-        roster_table = ("<h2>Printers (read-only)</h2><p>The roster is edited in the config "
-                        "file or the setup wizard, not here (stage 2e decision, docs/WEBUI.md).</p>"
+        roster_table = ("<h2>Printers</h2><p>Add a printer or open its spools on the "
+                        '<a href="/printers">Printers page</a>.</p>'
                         '<div class="table-scroll"><table><tr><th>id</th><th>name</th>'
                         "<th>model</th><th>connection</th>"
                         f"<th>channel</th><th>endpoint</th></tr>{body}</table></div>")
@@ -590,8 +591,8 @@ class _Handler(BaseHTTPRequestHandler):
             elif path == "/walkthrough":
                 self._walkthrough_page()
             elif path == "/":
-                pending = walkthrough_module.pending(self.server.settings_data)
-                if pending and self._browser_navigation(path):
+                if (self._browser_navigation(path)
+                        and walkthrough_module.offer_once(self.server.settings_data)):
                     # First run (#813): a browser landing on the status
                     # page goes to the walkthrough until it is done —
                     # the setup gate's discipline, one step later. API
@@ -601,7 +602,7 @@ class _Handler(BaseHTTPRequestHandler):
                 snap = self.server.snapshot_func()
                 self._send(200, render_status_html(
                     snap, form_token=self.server.form_token, theme=self._theme(),
-                    walkthrough_pending=pending,
+                    walkthrough_pending=walkthrough_module.pending(self.server.settings_data),
                     job=_overall_job(self.server.settings_data)),
                     "text/html; charset=utf-8")
             elif path == "/api/status":
@@ -610,8 +611,14 @@ class _Handler(BaseHTTPRequestHandler):
                 self._printer_status_route(path[len("/api/printers/"):])
             elif path == "/spools":
                 entries = settings.printers(self.server.settings_data)
+                if len(entries) == 1:
+                    # One printer: no picker step in the way (#875).
+                    self._redirect("/spools/" + quote(str(entries[0]["id"]), safe=""))
+                    return
                 self._send(200, spools_module.render_spools_index(entries, theme=self._theme()),
                            "text/html; charset=utf-8")
+            elif path == "/printers":
+                self._printers_page()
             elif path.startswith("/spools/"):
                 self._spools_page(unquote(path[len("/spools/"):]))
             elif path == "/config":
@@ -773,6 +780,31 @@ class _Handler(BaseHTTPRequestHandler):
             printer_id, code, reason, theme=self._theme()),
             "text/html; charset=utf-8")
 
+    def _printers_page(self, notice=None, error=None, code=200):
+        """GET /printers: the roster with actions and Add a printer (#875)."""
+        done = (parse_qs(urlparse(self.path).query).get("done") or [""])[0]
+        self._send(code, printers_page.render(
+            settings.printers(self._walkthrough_data()), form_token=self.server.form_token,
+            notice=notice or done or None, error=error, theme=self._theme()),
+            "text/html; charset=utf-8")
+
+    def _printers_post(self):
+        """POST /printers: append one printer through the roster writer."""
+        form, error = self._read_form()
+        if error:
+            self._html_refusal(error[0], error[1], "/printers")
+            return
+        if not self._post_authorized(form):
+            self._html_refusal(403, STALE_FORM_MESSAGE, "/printers")
+            return
+        ok, message = printers_page.add(
+            form, settings.printers(self._walkthrough_data()),
+            environ=self.server.webui_environ)
+        if ok:
+            self._redirect("/printers?done=" + quote(message, safe=""))
+        else:
+            self._printers_page(error=message, code=400)
+
     def _spools_page(self, printer_id):
         """GET /spools/<id>: the per-printer Spools page (#789).
 
@@ -794,7 +826,8 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(200, spools_module.render_spools_page(
             view, form_token=self.server.form_token, theme=self._theme(),
             notice=done or None,
-            purchase_ready=spools_module.purchase_available()),
+            purchase_ready=spools_module.purchase_available(),
+            printers=settings.printers(self.server.settings_data)),
             "text/html; charset=utf-8")
 
     def _spools_page_post(self, printer_id):
@@ -908,6 +941,18 @@ class _Handler(BaseHTTPRequestHandler):
             back = "/"
         self._redirect(back, headers=[("Set-Cookie", shell.theme_cookie_header(theme))])
 
+    def _rotate_form_token(self):
+        """Replace the config form token after an access-rule change.
+
+        Pages served under the old rule handed this token to anyone who
+        could reach the Web UI then, and _post_authorized accepts it on
+        its own — if it survived the change, a retained copy would keep
+        authorizing protected writes under the new rule, including
+        replacing or removing the login that was just set. The browser
+        that made the change is signed in with a session, and every
+        page it loads next carries the new token."""
+        self.server.form_token = secrets.token_urlsafe(32)
+
     # -- first-run walkthrough (#813) -----------------------------------------
     def _walkthrough_data(self):
         """The current effective settings for a walkthrough render or
@@ -944,7 +989,15 @@ class _Handler(BaseHTTPRequestHandler):
             self._walkthrough_data(), self.server.webui_environ, form,
             self._field_values(), form_token=self.server.form_token,
             theme=self._theme())
-        if kind == "redirect":
+        if kind == "access":
+            # The Login step saved a new rule: apply it now, and keep the
+            # person who chose it signed in on this browser.
+            self.server.access = access_module.resolve(
+                self.server.settings_data, self.server.bind_host, self.server.webui_environ)
+            self._rotate_form_token()
+            self._redirect(payload, headers=[self._start_session()]
+                           if self.server.access.required else [])
+        elif kind == "redirect":
             self._redirect(payload)
         else:
             self._send(200, payload, "text/html; charset=utf-8")
@@ -956,11 +1009,15 @@ class _Handler(BaseHTTPRequestHandler):
             self._redirect("/")
             return
         self._send(200, pages.render_login_page(password=self._password_mode(),
+                                                username=self._username_mode(),
                                                 theme=self._theme()),
                    "text/html; charset=utf-8")
 
     def _password_mode(self):
         return self.server.access.mode == access_module.PASSWORD
+
+    def _username_mode(self):
+        return self._password_mode() and bool(self.server.access.username)
 
     def _start_session(self):
         """A new login-session cookie header for this browser."""
@@ -981,12 +1038,15 @@ class _Handler(BaseHTTPRequestHandler):
             self._redirect("/")
             return
         provided = (form.get(pages.LOGIN_TOKEN_FIELD) or [""])[0]
-        # The submitted token is compared, never logged or reflected.
-        if not self.server.access.matches(provided):
-            what = "password" if self._password_mode() else "token"
+        username = (form.get(pages.LOGIN_USER_FIELD) or [""])[0]
+        # The submitted credentials are compared, never logged or reflected.
+        if not self.server.access.matches_login(username, provided):
+            what = ("username or password" if self._username_mode()
+                    else "password" if self._password_mode() else "token")
             self._send(401, pages.render_login_page(
                 error=f"That {what} was not accepted. Try again.",
-                password=self._password_mode(), theme=self._theme()),
+                password=self._password_mode(), username=self._username_mode(),
+                theme=self._theme()),
                 "text/html; charset=utf-8")
             return
         self._redirect("/", headers=[self._start_session()])
@@ -1025,7 +1085,8 @@ class _Handler(BaseHTTPRequestHandler):
                 if choice == "password":
                     access_module.save_password(
                         data, (form.get(pages.SETUP_PASSWORD_FIELD) or [""])[0],
-                        (form.get(pages.SETUP_CONFIRM_FIELD) or [""])[0])
+                        (form.get(pages.SETUP_CONFIRM_FIELD) or [""])[0],
+                        username=(form.get(pages.SETUP_USER_FIELD) or [""])[0])
                 elif choice == "open":
                     access_module.save_open(data, (form.get(pages.SETUP_OPEN_FIELD) or [""])[0] == "yes")
                 else:
@@ -1037,6 +1098,7 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             self.server.access = access_module.resolve(data, self.server.bind_host,
                                                        self.server.webui_environ)
+            self._rotate_form_token()
         # The person who just chose the password is signed in on this browser.
         self._redirect("/", headers=[self._start_session()] if self.server.access.required else [])
 
@@ -1113,6 +1175,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._config_save()
             elif path == "/debug":
                 self._debug_post()
+            elif path == "/printers":
+                self._printers_post()
             elif path.startswith("/spools/"):
                 self._spools_page_post(unquote(path[len("/spools/"):]))
             elif path.startswith("/api/printers/"):

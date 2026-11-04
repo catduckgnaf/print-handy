@@ -734,10 +734,13 @@ class RouteTests(unittest.TestCase):
             httpd = self.start(tmp, spools_view_func=lambda pid: (200, view),
                                spools_action_func=fake_action)
             port = httpd.server_address[1]
-            code, raw = self.request(port, "GET", "/spools",
-                                     headers={server.TOKEN_HEADER: TOKEN})
-            self.assertEqual(code, 200)
-            self.assertIn(PRINTER, raw)
+            # One printer: /spools goes straight to its page (#875).
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+            conn.request("GET", "/spools", headers={server.TOKEN_HEADER: TOKEN})
+            response = conn.getresponse()
+            self.assertEqual(response.status, 303)
+            self.assertEqual(response.getheader("Location"), f"/spools/{PRINTER}")
+            conn.close()
             code, raw = self.request(port, "GET", f"/spools/{PRINTER}",
                                      headers={server.TOKEN_HEADER: TOKEN})
             self.assertEqual(code, 200)

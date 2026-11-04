@@ -64,7 +64,7 @@ def test_roster_rows_carry_no_secret_material(tmp_path):
 
 def test_roster_table_renders_only_for_a_roster(tmp_path):
     html = server.render_status_html(_snapshot(tmp_path, ROSTER))
-    assert "Printers (read-only)" in html
+    assert 'href="/printers"' in html
     assert "garage-a1" in html and "workshop-ad5x" in html
 
     single = _snapshot(tmp_path, "printer:\n  model: flashforge.ad5x\n")

@@ -39,10 +39,11 @@ DEFAULT_THEME = "dark"
 # header picked it up on the rebase rather than inventing it early.)
 NAV = (
     ("/", "Status"),
-    ("/config", "Configuration"),
+    ("/layers", "Layers"),
+    ("/printers", "Printers"),
     ("/spools", "Spools"),
     ("/designs", "Designs"),
-    ("/layers", "Layers"),
+    ("/config", "Settings"),
 )
 
 CSS = """
