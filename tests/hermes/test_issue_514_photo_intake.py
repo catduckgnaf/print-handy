@@ -194,6 +194,7 @@ def test_visual_verdict_still_reads_the_shared_transport(monkeypatch):
 
 def test_photo_button_only_when_offered():
     plain = [b["custom_id"] for row in pab.intake_material_components("aid") for b in row["components"]]
+    assert plain[0].startswith(pab.INTAKE_SELECT_PREFIX)  # the material dropdown
     assert not any(":photo:" in cid for cid in plain)
     offered = [b["custom_id"] for row in pab.intake_material_components("aid", photo=True)
                for b in row["components"]]
@@ -459,7 +460,7 @@ def test_photo_failure_falls_back_to_manual_steps(tmp_path, monkeypatch):
         assert any("couldn't read that label photo" in t for t in texts)
         kind, content, view = channel_sink[-1]
         assert "Material" in content  # the manual walkthrough is re-posted
-        assert any(":mat_" in cid for cid in _custom_ids(view))
+        assert any(cid.startswith(pab.INTAKE_SELECT_PREFIX) for cid in _custom_ids(view))
         assert created == []
 
     asyncio.run(main())
@@ -479,7 +480,7 @@ def test_photo_button_absent_without_a_vision_endpoint(tmp_path, monkeypatch):
     asyncio.run(bot.listeners["on_interaction"](
         _interaction(sink, f"pbinsert:new:{insertion_aid}", _FakeChannel([]))))
     assert not any(":photo:" in cid for cid in _custom_ids(sink[-1][2]))
-    assert any(":mat_0:" in cid for cid in _custom_ids(sink[-1][2]))
+    assert any(cid.startswith(pab.INTAKE_SELECT_PREFIX) for cid in _custom_ids(sink[-1][2]))
 
 
 # ------------------------------------------------- label text matching (OCR route)

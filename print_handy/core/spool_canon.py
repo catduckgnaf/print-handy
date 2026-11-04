@@ -20,6 +20,36 @@ from . import filament_color
 # must still resolve to a known family (printer_state.material_family).
 MATERIALS = ("PLA", "PLA+", "Silk PLA", "Matte PLA", "PETG", "PCTG", "TPU", "ABS", "ASA", "PA", "PC")
 
+# Pickers ask the primary type first, then its subtypes (PLA -> PLA+, Silk PLA,
+# Matte PLA). A primary with one subtype skips the second question. Every
+# subtype is a MATERIALS entry, so a picker can never mint a new material.
+MATERIAL_TREE = {
+    "PLA": ("PLA", "PLA+", "Silk PLA", "Matte PLA"),
+    "PETG": ("PETG",),
+    "PCTG": ("PCTG",),
+    "TPU": ("TPU",),
+    "ABS": ("ABS",),
+    "ASA": ("ASA",),
+    "PA": ("PA",),
+    "PC": ("PC",),
+}
+PRIMARY_LABELS = {"PA": "PA (Nylon)"}
+
+
+def primary_material(value: Any) -> str | None:
+    """The primary type a material belongs to (\"Silk PLA\" -> \"PLA\"), or None."""
+    canon = canonical_material(value)
+    for primary, subtypes in MATERIAL_TREE.items():
+        if canon in subtypes:
+            return primary
+    return None
+
+
+def material_subtypes(primary: Any) -> tuple[str, ...]:
+    """The subtypes offered under one primary type (empty for an unknown one)."""
+    return MATERIAL_TREE.get(str(primary or "").strip().upper(), ())
+
+
 _MATERIAL_ALIASES = {
     "PLA": "PLA", "PLA+": "PLA+", "PLAPLUS": "PLA+", "PLAPRO": "PLA+", "PRO PLA": "PLA+", "PLA PRO": "PLA+",
     "PLA PLUS": "PLA+", "SILK": "Silk PLA", "SILK PLA": "Silk PLA", "PLA SILK": "Silk PLA",

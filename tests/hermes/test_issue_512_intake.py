@@ -35,11 +35,20 @@ def test_intake_parse_and_action_maps():
     assert pab.intake_disposition_for_action("disp_delete") == "delete"
 
 
-def test_intake_material_components_cover_issue_quick_select():
-    labels = [b["label"] for row in pab.intake_material_components("aid") for b in row["components"]]
-    for wanted in ("PLA", "Silk PLA", "PLA+", "PETG", "TPU", "ABS"):
-        assert wanted in labels
-    assert labels[-1] == "Cancel"
+def test_intake_material_is_a_primary_type_dropdown_then_subtypes():
+    rows = pab.intake_material_components("aid")
+    menu = rows[0]["components"][0]
+    assert menu["type"] == 3
+    values = [o["value"] for o in menu["options"]]
+    for wanted in ("PLA", "PETG", "TPU", "ABS"):
+        assert wanted in values
+    assert "Silk PLA" not in values and "PLA+" not in values  # subtypes come next
+    assert values[-1] == pab.INTAKE_OTHER
+    assert rows[-1]["components"][-1]["label"] == "Cancel"
+    subtypes = [o["value"] for o in pab.intake_subtype_options("PLA")]
+    assert subtypes == ["PLA", "PLA+", "Silk PLA", "Matte PLA"]
+    # Old prompts still in Discord keep their mat_N meaning.
+    assert pab.intake_material_for_action("mat_1") == "Silk PLA"
 
 
 def test_intake_preview_names_the_spool_number_immediately():
@@ -304,10 +313,15 @@ def test_walkthrough_clicks_create_and_bind_with_disposition(tmp_path, monkeypat
     asyncio.run(on_interaction(_interaction(sink, f"pbinsert:new:{insertion_aid}")))
     kind, content, view = sink[-1]
     assert "Spool #18" in content and "write #18 on the spool" in content
-    mat = next(cid for cid in _custom_ids(view) if ":mat_1:" in cid)
-
+    # Material is a dropdown: the primary type first, then PLA's subtype.
+    primary = _custom_ids(view)[0]
+    assert primary.startswith("pbintakeselect:")
     sink.clear()
-    asyncio.run(on_interaction(_interaction(sink, mat)))
+    asyncio.run(on_interaction(_interaction(sink, primary, values=["PLA"])))
+    kind, content, view = sink[-1]
+    assert "Which PLA?" in content
+    sink.clear()
+    asyncio.run(on_interaction(_interaction(sink, _custom_ids(view)[0], values=["Silk PLA"])))
     kind, content, view = sink[-1]
     select_id = _custom_ids(view)[0]
     assert select_id.startswith("pbintakeselect:")
@@ -374,8 +388,8 @@ def _walk_to_confirm(tmp_path, monkeypatch):
     sink = []
     insertion_aid = pab.record("insertion", "", slot=2)
     asyncio.run(on_interaction(_interaction(sink, f"pbinsert:new:{insertion_aid}")))
-    mat = next(cid for cid in _custom_ids(sink[-1][2]) if ":mat_1:" in cid)
-    asyncio.run(on_interaction(_interaction(sink, mat)))
+    asyncio.run(on_interaction(_interaction(sink, _custom_ids(sink[-1][2])[0], values=["PLA"])))
+    asyncio.run(on_interaction(_interaction(sink, _custom_ids(sink[-1][2])[0], values=["Silk PLA"])))
     select_id = _custom_ids(sink[-1][2])[0]
     asyncio.run(on_interaction(_interaction(sink, select_id, values=["Rose Red Blue Green"])))
     color_ok = next(cid for cid in _custom_ids(sink[-1][2]) if ":color_ok:" in cid)
@@ -454,6 +468,11 @@ def test_typed_color_in_the_modal_clears_the_picked_swatch(tmp_path, monkeypatch
     modal = next(entry[1] for entry in sink if entry[0] == "modal")
     modal.item._value = "Teal"
     asyncio.run(modal.on_submit(S(response=_FakeResponse(sink))))
+    # Teal is not in the picker, so it is confirmed explicitly first.
+    kind, content, view = sink[-1]
+    assert "New color" in content and "Teal" in content
+    new_ok = next(cid for cid in _custom_ids(view) if ":new_ok:" in cid)
+    asyncio.run(on_interaction(_interaction(sink, new_ok)))
     rows = [r for r in pab._load().values() if isinstance(r, dict) and r.get("kind") == "intake"]
     latest = max(rows, key=lambda r: r.get("at", 0))
     assert latest["color"] == "Teal"

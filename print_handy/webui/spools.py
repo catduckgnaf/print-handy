@@ -374,6 +374,11 @@ def add(data, printer_id, body=None, *, client=None, mr=None,
                                    "Nothing was created.")
         if not material or not color:
             raise SpoolsError(400, "material and color are required. Nothing was created.")
+        from ..core import spool_canon
+        if spool_canon.canonical_material(material) is None:
+            raise SpoolsError(400, f"{material!r} is not a known material (pick one of "
+                                   f"{', '.join(spool_canon.MATERIALS)}). Nothing was created.")
+        material = spool_canon.canonical_material(material)
         hex_code = None
         if body.get("hex"):
             hex_code = spool_sync.screen_hex(body.get("hex"))
@@ -432,6 +437,13 @@ def edit(data, printer_id, body=None, *, client=None, mr=None,
                 text = str(body[key] or "").strip()
                 if not text:
                     raise SpoolsError(400, f"{key} must not be empty. Nothing changed.")
+                if key == "material":
+                    from ..core import spool_canon
+                    canon = spool_canon.canonical_material(text)
+                    if canon is None:
+                        raise SpoolsError(400, f"{text!r} is not a known material (pick one of "
+                                               f"{', '.join(spool_canon.MATERIALS)}). Nothing changed.")
+                    text = canon
                 filament_patch[key] = text
         hex_code = None
         if "color_hex" in body and body["color_hex"] not in (None, ""):
@@ -712,6 +724,55 @@ def _options(items, *, selected=None):
         f'{_esc(label)}</option>' for value, label in items)
 
 
+_OTHER = "__other__"
+_COMMON_COLORS = ("Black", "White", "Gray", "Red", "Orange", "Yellow", "Green", "Blue",
+                  "Purple", "Pink", "Brown", "Beige", "Gold", "Silver", "Transparent")
+
+
+def _material_select(name, *, required, blank=None):
+    """Material picker: primary types as groups, their subtypes inside.
+
+    Only canonical materials can be chosen, so the form can never mint a
+    new material spelling.
+    """
+    from ..core import spool_canon
+    head = f'<option value="">{_esc(blank)}</option>' if blank else ""
+    groups = []
+    for primary, subtypes in spool_canon.MATERIAL_TREE.items():
+        label = spool_canon.PRIMARY_LABELS.get(primary, primary)
+        inner = "".join(f'<option value="{_esc(m)}">{_esc(m if m != primary or len(subtypes) == 1 else m + " (plain)")}</option>'
+                        for m in subtypes)
+        groups.append(f'<optgroup label="{_esc(label)}">{inner}</optgroup>')
+    return (f'<select name="{name}"{" required" if required else ""}>{head}{"".join(groups)}</select>')
+
+
+def _known_select(name, values, *, blank, other_label):
+    """A picker of known values plus an Other that needs a typed value and an explicit yes."""
+    seen, items = set(), []
+    for value in values:
+        text = str(value or "").strip()
+        if text and text.casefold() not in seen:
+            seen.add(text.casefold())
+            items.append((text, text))
+    head = f'<option value="">{_esc(blank)}</option>' if blank is not None else ""
+    return (f'<select name="{name}">{head}{_options(items)}'
+            f'<option value="{_OTHER}">{_esc(other_label)}</option></select>')
+
+
+def _picked(first, name, what):
+    """The picked value, or the typed one when Other was chosen with an explicit yes."""
+    value = first(name)
+    if value != _OTHER:
+        return value
+    typed = first(f"{name}_new")
+    if not typed:
+        raise SpoolsError(400, f"Other {what} was picked but nothing was typed. Nothing changed.")
+    if first("confirm_new") != "true":
+        raise SpoolsError(400, f"“{typed}” is not in the {what} list. Tick “Add new values” "
+                               f"to add it as a new {what}. Nothing changed.")
+    return typed
+
+
 def _form(form_token, printer_id, action, inner, attrs=""):
     """One picker form. ``attrs`` carries extra form attributes (the
     shell script's data-confirm, #840); it is a code-side literal,
@@ -802,22 +863,38 @@ def render_spools_page(view, *, form_token, notice=None, error=None, proposed=No
                                  'Its spool goes back on the shelf."'))
     else:
         parts.append("<p>No slot has a spool to unassign.</p>")
+    from ..core import spool_canon
+    known_brands = sorted({b for b in (s.get("brand") for s in view["spools"])
+                           if spool_canon.canonical_brand(b)}, key=str.casefold)
+    known_colors = sorted({str(s.get("color") or "").strip() for s in view["spools"]} - {""},
+                          key=str.casefold)
+    color_values = [*_COMMON_COLORS, *known_colors]
+    new_fields = ('<label>Other brand <input name="brand_new"></label> '
+                  '<label>Other color <input name="color_new"></label> '
+                  '<label>Add new values <input name="confirm_new" type="checkbox" value="true"></label> ')
     parts.append("<h2>Add a spool</h2>")
     parts.append(_form(form_token, pid, "add",
-                       '<label>Brand <input name="brand"></label> '
-                       '<label>Material <input name="material" required></label> '
-                       '<label>Color <input name="color" required></label> '
+                       f'<label>Material {_material_select("material", required=True)}</label> '
+                       f'<label>Brand {_known_select("brand", known_brands, blank="(no brand)", other_label="Other brand…")}</label> '
+                       f'<label>Color {_known_select("color", color_values, blank=None, other_label="Other color…")}</label> '
+                       + new_fields +
                        '<label>Grams <input name="grams" type="number" step="any" min="1" required></label> '
                        '<label>Color code (hex, optional) <input name="hex"></label> '
-                       '<button type="submit">Add to the shelf</button>'))
+                       '<button type="submit">Add to the shelf</button>'
+                       "<p>Material is picked by type, then kind (PLA, PLA+, Silk, Matte). "
+                       "A brand or color that is not in the list needs Other, the typed value, "
+                       "and the Add new values box ticked.</p>"))
     parts.append("<h2>Edit a spool's Spoolman record</h2>")
     if all_options:
         parts.append(_form(form_token, pid, "edit",
                            f'<label>Spool <select name="spool_id">{_options(all_options)}</select></label> '
-                           '<label>Name (the color name) <input name="name"></label> '
-                           '<label>Material <input name="material"></label> '
+                           f'<label>Color name {_known_select("name", color_values, blank="(unchanged)", other_label="Other color…")}</label> '
+                           f'<label>Material {_material_select("material", required=False, blank="(unchanged)")}</label> '
                            '<label>Color code (hex) <input name="color_hex"></label> '
-                           '<label>Brand <input name="brand"></label> '
+                           f'<label>Brand {_known_select("brand", known_brands, blank="(unchanged)", other_label="Other brand…")}</label> '
+                           '<label>Other color <input name="name_new"></label> '
+                           '<label>Other brand <input name="brand_new"></label> '
+                           '<label>Add new values <input name="confirm_new" type="checkbox" value="true"></label> '
                            '<label>Remaining weight (g) <input name="remaining_weight" type="number" step="any" min="0"></label> '
                            '<label>Archived <input name="archived" type="checkbox" value="true"></label> '
                            '<label>Unarchive <input name="unarchive" type="checkbox" value="true"></label> '
@@ -894,16 +971,18 @@ def form_body(action, form):
     if api_action == "unassign":
         return api_action, {"slot": number("slot", integer=True)}
     if api_action == "add":
-        body = {"brand": first("brand") or None, "material": first("material"),
-                "color": first("color"), "grams": number("grams")}
+        body = {"brand": _picked(first, "brand", "brand") or None, "material": first("material"),
+                "color": _picked(first, "color", "color"), "grams": number("grams")}
         if first("hex"):
             body["hex"] = first("hex")
         return api_action, body
     if api_action == "edit":
         body: dict = {"spool_id": number("spool_id", integer=True)}
-        for name in ("name", "material", "color_hex", "brand"):
-            if first(name):
-                body[name] = first(name)
+        picked = {"name": _picked(first, "name", "color"), "material": first("material"),
+                  "color_hex": first("color_hex"), "brand": _picked(first, "brand", "brand")}
+        for name, value in picked.items():
+            if value:
+                body[name] = value
         if first("remaining_weight"):
             body["remaining_weight"] = number("remaining_weight")
         # The checkbox only submits when ticked, and edit cannot

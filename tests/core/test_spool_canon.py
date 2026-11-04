@@ -137,11 +137,33 @@ def test_walkthrough_typed_answers_are_canonical():
 def test_walkthrough_material_buttons_fit_discord_rows_and_keep_old_indexes():
     from print_handy.hermes import print_alert_buttons as pab
     assert pab.INTAKE_MATERIALS[:6] == ("PLA", "Silk PLA", "PLA+", "PETG", "TPU", "ABS")
-    rows = pab.intake_material_components("a1")
-    assert all(len(r["components"]) <= 5 for r in rows)
-    labels = [b["label"] for r in rows for b in r["components"]]
-    assert all(m in labels for m in pab.INTAKE_MATERIALS)
     assert all(c.canonical_material(m) == m for m in pab.INTAKE_MATERIALS)
+    # Every legacy button material is reachable through primary -> subtype.
+    for m in pab.INTAKE_MATERIALS:
+        assert m in c.material_subtypes(c.primary_material(m))
+
+
+def test_material_tree_covers_every_canonical_material_once():
+    flat = [m for subtypes in c.MATERIAL_TREE.values() for m in subtypes]
+    assert sorted(flat) == sorted(c.MATERIALS) and len(flat) == len(set(flat))
+    assert c.primary_material("pla plus") == "PLA"
+    assert c.primary_material("silk") == "PLA"
+    assert c.primary_material("PET-G") == "PETG"
+    assert c.material_subtypes("pla") == ("PLA", "PLA+", "Silk PLA", "Matte PLA")
+    assert c.material_subtypes("nope") == ()
+
+
+def test_typed_brand_or_color_not_in_picker_needs_explicit_yes():
+    from print_handy.hermes import print_alert_buttons as pab
+    state = {"material": "PLA", "types": [{"brand": "Sunlu", "material": "PLA", "color": "Black"}]}
+    assert not pab.intake_typed_is_new("brand", "sunlu", state)
+    assert pab.intake_typed_is_new("brand", "Polymaker", state)
+    assert not pab.intake_typed_is_new("color", "black", state)
+    assert pab.intake_typed_is_new("color", "Galaxy Teal", state)
+    comps = pab.intake_step_components("a1", {**state, "step": "newcheck", "new_field": "color",
+                                              "new_value": "Galaxy Teal"})
+    ids = [b["custom_id"] for r in comps for b in r["components"]]
+    assert "pbintake:new_ok:a1" in ids and "pbintake:new_fix:a1" in ids
 
 
 def test_brand_picker_skips_placeholders_and_case_duplicates():
