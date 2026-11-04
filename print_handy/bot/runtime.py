@@ -37,7 +37,7 @@ PROFILE = "3dprinting"  # the plugin's handlers only answer events of the print 
 # a household member who was never told about a list learns it exists, never
 # often enough to spam the channel while they keep posting.
 REFUSAL_NOTICE_PERIOD_S = 3600
-APPROVAL_ONLY_NOTICE = "Only the approval user can approve a print. Nothing was changed."
+APPROVAL_ONLY_NOTICE = "Only an approval user can approve a print. Nothing was changed."
 REFUSAL_NOTICE = ("You are not on this bot's allowed list, so I can't act on that. Nothing was changed. "
                   "If you should have access, ask the person who runs Print Handy to add you.")
 # .scad rides along for design edit sessions (#388 Stage 2): prepared intake
@@ -336,9 +336,9 @@ def listed_users(cfg, section="discord"):
 def allowed_users(cfg, section="discord"):
     """Allowed user IDs from a platform's settings section, plus its approver."""
     ids = listed_users(cfg, section)
-    approver = str(cfg[section].get("approval_user_id") or "").strip()
-    if approver and approver not in ids:
-        ids.append(approver)
+    for approver in settings.approver_ids(cfg[section]):
+        if approver not in ids:
+            ids.append(approver)
     return ids
 
 
@@ -499,7 +499,8 @@ class BotCore:
             self.adapter = module.StandaloneAdapter(
                 client, listed_users(self.cfg, access_section),
                 denied=denied_users(self.cfg, access_section),
-                approver=str(section.get("approval_user_id") or "").strip() or None,
+                approver=settings.approver_ids(section) or None,
+                approve_all=bool(section.get("approval_all_users")),
                 upload_max_bytes=section.get("upload_max_bytes") or discord.get("upload_max_bytes"))
         self.chat_id = str(chat_id if chat_id is not None
                            else section.get("chat_id") or (discord.get("chat_id") if not section else "")

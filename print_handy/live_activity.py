@@ -848,9 +848,9 @@ def allowlist_from_settings(data):
 
     discord = data.get("discord", {})
     allowed = settings.user_ids(discord.get("allowed_user_ids"))
-    approval = str(discord.get("approval_user_id") or "").strip()
-    if approval and approval not in allowed:
-        allowed.insert(0, approval)
+    for approval in reversed(settings.approver_ids(discord)):
+        if approval not in allowed:
+            allowed.insert(0, approval)
     return tuple(allowed)
 
 

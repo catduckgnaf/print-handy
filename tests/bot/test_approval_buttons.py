@@ -31,8 +31,8 @@ class OpenAdapter(platform.BasePlatformAdapter):
     supports_buttons = True
     max_buttons = 10
 
-    def __init__(self, allowed=(), *, approver=None, denied=()):
-        super().__init__(allowed, denied=denied, approver=approver)
+    def __init__(self, allowed=(), *, approver=None, denied=(), approve_all=False):
+        super().__init__(allowed, denied=denied, approver=approver, approve_all=approve_all)
         self.clarifies = []
 
     async def send(self, chat_id, content, reply_to=None, metadata=None):
@@ -88,7 +88,7 @@ def test_may_approve_names_the_check():
     adapter = OpenAdapter(approver=APPROVER)
     assert adapter.may_approve_id(APPROVER)
     assert not adapter.may_approve_id(MEMBER)
-    assert adapter.approval_refusal_reason(MEMBER) == "only the approval user may approve prints"
+    assert adapter.approval_refusal_reason(MEMBER) == "only an approval user may approve prints"
     assert adapter.approval_refusal_reason(APPROVER) is None
     assert OpenAdapter().may_approve_id(MEMBER)  # no approver: the general check decides
 
@@ -235,3 +235,26 @@ def test_discord_typed_approval_is_refused_with_a_notice_and_the_prompt_stays_op
             prompts.resolve_gateway_clarify(cid, prompts.CANCELLED)
 
     run(flow())
+
+
+# ---------------------------------------------------------------------- several approvers / approve all
+
+def test_several_approvers_may_all_approve_and_a_member_still_may_not():
+    second = "222222222222222222"
+    adapter = OpenAdapter(approver=[APPROVER, second])
+    assert adapter.may_approve_id(APPROVER) and adapter.may_approve_id(second)
+    assert not adapter.may_approve_id(MEMBER)
+    assert adapter.is_allowed_id(second)  # an approver may always act
+    assert adapter.approval_refusal_reason(second) is None
+
+
+def test_approve_all_lets_any_allowed_user_approve_but_deny_still_wins():
+    adapter = OpenAdapter(approver=APPROVER, approve_all=True, denied=["9"])
+    assert adapter.may_approve_id(MEMBER) and adapter.may_approve_id(APPROVER)
+    assert not adapter.may_approve_id("9")
+
+
+def test_approver_ids_split_on_commas_and_spaces():
+    from print_handy import settings
+    assert settings.approver_ids({"approval_user_id": "1, 2  3,4"}) == ["1", "2", "3", "4"]
+    assert settings.approver_ids({"approval_user_id": ""}) == [] and settings.approver_ids({}) == []

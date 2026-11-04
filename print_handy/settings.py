@@ -1019,12 +1019,20 @@ def _validate_telegram(data):
                             f"(group and channel IDs are negative), got {chat!r}")
     telegram["chat_id"] = chat
     user_ids(telegram.setdefault("allowed_user_ids", ""), "telegram", "Telegram")
-    approver = str(telegram.setdefault("approval_user_id", "") or "").strip()
-    if approver and not approver.isdigit():
-        raise SettingsError(f"[telegram] approval_user_id must be a numeric Telegram user ID, got {approver!r}")
-    telegram["approval_user_id"] = approver
+    approvers = user_ids(telegram.setdefault("approval_user_id", ""), "telegram", "Telegram", key="approval_user_id")
+    telegram["approval_user_id"] = ", ".join(approvers)
     telegram.setdefault("upload_max_bytes", 50_000_000)
     telegram["upload_max_bytes"] = _positive(data, "telegram", "upload_max_bytes", int)
+
+
+def approver_ids(section):
+    """Approval user IDs from a platform settings section (``approval_user_id``).
+
+    The key keeps its single-user name so existing configs and environment
+    overrides work unchanged, but it takes several IDs separated by commas
+    or spaces. An empty or missing value is no approvers.
+    """
+    return [part for part in re.split(r"[\s,]+", str((section or {}).get("approval_user_id") or "").strip()) if part]
 
 
 MATRIX_ID = r"@[A-Za-z0-9._=+/\-]+:[A-Za-z0-9.\-]+(?::[0-9]+)?"
@@ -1062,12 +1070,17 @@ def _validate_matrix(data):
         raise SettingsError(f"[matrix] room_id must be a Matrix room ID starting with '!', got {room!r}")
     matrix["room_id"] = room
     matrix_user_ids(matrix.setdefault("allowed_user_ids", ""))
-    for key in ("approval_user_id", "bot_user_id"):
-        value = str(matrix.setdefault(key, "") or "").strip()
-        if value and not re.fullmatch(MATRIX_ID, value):
-            raise SettingsError(f"[matrix] {key} must be a full Matrix user ID like "
-                                f"'@name:matrix.org', got {value!r}")
-        matrix[key] = value
+    approvers = [part for part in re.split(r"[\s,]+", str(matrix.setdefault("approval_user_id", "") or "").strip()) if part]
+    for part in approvers:
+        if not re.fullmatch(MATRIX_ID, part):
+            raise SettingsError(f"[matrix] approval_user_id must be full Matrix user IDs like "
+                                f"'@name:matrix.org', got {part!r}")
+    matrix["approval_user_id"] = ", ".join(approvers)
+    bot_user = str(matrix.setdefault("bot_user_id", "") or "").strip()
+    if bot_user and not re.fullmatch(MATRIX_ID, bot_user):
+        raise SettingsError(f"[matrix] bot_user_id must be a full Matrix user ID like "
+                            f"'@name:matrix.org', got {bot_user!r}")
+    matrix["bot_user_id"] = bot_user
     matrix.setdefault("upload_max_bytes", 50_000_000)
     matrix["upload_max_bytes"] = _positive(data, "matrix", "upload_max_bytes", int)
 
@@ -1525,6 +1538,13 @@ def _validate_bot(data):
         raise SettingsError(f"[discord] token_env must be an environment variable name, got {discord['token_env']!r}")
     user_ids(discord.setdefault("allowed_user_ids", ""))
     user_ids(discord.setdefault("denied_user_ids", ""), key="denied_user_ids")
+    discord["approval_user_id"] = ", ".join(
+        user_ids(discord.setdefault("approval_user_id", ""), key="approval_user_id"))
+    # Anyone who may act in the print channel may also approve a print. Off by
+    # default: with approval users listed, only they approve.
+    approval_all = discord.setdefault("approval_all_users", False)
+    if not isinstance(approval_all, bool):
+        raise SettingsError(f"[discord] approval_all_users must be true or false, got {approval_all!r}")
     # Discord's chat-LLM switch (#466): on by default, so a configured [llm]
     # words free-text replies on Discord exactly as before. False runs
     # Discord as a pure bot — unmatched text gets the short reply — while

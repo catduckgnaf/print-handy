@@ -266,7 +266,7 @@ class OverrideTests(unittest.TestCase):
                         "daily_reset_hour", "timezone", "bot_name", "question_timeout_s",
                         "safety_confirm_timeout_s", "upload_wait_s", "cold_pull_outcome_s",
                         "token_env", "allowed_user_ids", "denied_user_ids", "chat_llm_enabled",
-                        "clarify_ui"},
+                        "clarify_ui", "approval_all_users"},
             "telegram": {"token_env", "chat_id", "allowed_user_ids", "approval_user_id", "upload_max_bytes"},
             "matrix": {"homeserver_url", "access_token_env", "room_id", "allowed_user_ids",
                        "approval_user_id", "bot_user_id", "upload_max_bytes"},

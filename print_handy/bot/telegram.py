@@ -105,9 +105,9 @@ class StandaloneAdapter(BasePlatformAdapter):
     supports_live_stream = False
     polls_serially = True  # getUpdates loop awaits each update (P1-109)
 
-    def __init__(self, client, allowed, *, denied=(), approver=None, registry=prompts,
+    def __init__(self, client, allowed, *, denied=(), approver=None, approve_all=False, registry=prompts,
                  upload_max_bytes=None, token=None, opener=None):
-        super().__init__(allowed, denied=denied, approver=approver, registry=registry)
+        super().__init__(allowed, denied=denied, approver=approver, approve_all=approve_all, registry=registry)
         self.client = client
         self.upload_max_bytes = int(upload_max_bytes) if upload_max_bytes else 50_000_000
         self.token = token if token is not None else getattr(client, "token", "")

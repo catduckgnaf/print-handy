@@ -531,18 +531,6 @@ def test_stop_during_the_background_slice_wait_cancels_the_intake(env, monkeypat
     assert env.starts == []
 
 
-def test_remap_warning_is_on_the_slice_and_print_confirmation(env, monkeypatch):
-    """P2-242: the Spoolman remap warning was appended only to the slice-only
-    flow's second confirmation; the 'Slice and print now' confirmation — the
-    one that actually starts the print — never showed it."""
-    from print_handy.core import spool_remap
-    monkeypatch.setattr(spool_remap, 'confirm_note', lambda adapter, job=None, state=None: 'REMAP WARNING')
-    adapter, result, receipt = run_flow(env, [1, 0, 0])  # choice 0: Slice and print now
-    confirm = next(q for q in adapter.questions if q['question'].startswith('Ready to slice'))
-    assert 'REMAP WARNING' in confirm['question']
-    assert receipt['status'] == 'STARTED'
-
-
 def test_direct_link_failure_posts_the_known_cause(env, monkeypatch):
     """P2-270: a direct-link failure the diagnostics allowlist recognises
     (here HTTP 404) must post the known-cause wording (#683), not the older

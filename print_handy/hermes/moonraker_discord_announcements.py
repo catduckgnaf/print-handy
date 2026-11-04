@@ -611,6 +611,23 @@ def clear_pending_completion_message(state, message=None):
     _pending_clear(state, "pending_completion_messages", "pending_completion_message", message)
 
 
+def pending_roast_subject(state):
+    """(title, summary) of the pending completion's print, or ("", "")."""
+    value = _pending_get(state, "pending_roast_subjects", "pending_roast_subject")
+    if isinstance(value, dict):
+        return str(value.get("title") or ""), str(value.get("summary") or "")
+    return "", ""
+
+
+def set_pending_roast_subject(state, title, summary=""):
+    _pending_set(state, "pending_roast_subjects", "pending_roast_subject",
+                 {"title": str(title or ""), "summary": str(summary or "")})
+
+
+def clear_pending_roast_subject(state):
+    _pending_clear(state, "pending_roast_subjects", "pending_roast_subject")
+
+
 def pending_timelapse_job_key(state):
     """This printer's pending timelapse job key, or None."""
     return _pending_get(state, "pending_timelapse_job_keys", "pending_timelapse_job_key")
@@ -815,7 +832,7 @@ def main():
             "print_started_at": time.time() if state in ACTIVE_STATES else None,
         }
         for pending_key in ("pending_completion_messages", "pending_timelapse_job_keys",
-                            "pending_timelapse_routings"):
+                            "pending_timelapse_routings", "pending_roast_subjects"):
             if isinstance(previous.get(pending_key), dict) and previous[pending_key]:
                 fresh[pending_key] = previous[pending_key]
         previous = fresh
@@ -843,10 +860,18 @@ def main():
             # records THIS completion's routing from the markers below
             # before the pass ends (P2-146).
             clear_pending_timelapse_routing(previous)
-        # No roast here (#374): the one roast per print belongs to the start
-        # announcement, added when printing begins. Completion never invokes
-        # the roast generator.
+        # The one roast per print belongs to the completion post, added by
+        # the listener when it delivers the post (after any timelapse is
+        # ready). The announcer only records what to roast; it never calls
+        # the roast generator itself.
         message = print_summary.format_event("complete", filename)
+        try:
+            roast_job, _roast_plate = print_summary.find_job(filename)
+            set_pending_roast_subject(
+                previous, (roast_job or {}).get("title") or Path(str(filename or "")).stem,
+                (roast_job or {}).get("summary") or "")
+        except Exception as exc:
+            print(f"Completion roast subject unavailable: {exc}", file=sys.stderr)
         try:
             queue_completion_record(previous, job_key, filename, payload.get("stats") or {})
         except Exception as exc:

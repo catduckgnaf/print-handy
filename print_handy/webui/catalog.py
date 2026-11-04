@@ -84,6 +84,7 @@ GROUP_OF = {
     "discord.allowed_user_ids": "platform",
     "discord.denied_user_ids": "platform",
     "discord.approval_user_id": "platform",
+    "discord.approval_all_users": "platform",
     "discord.timezone": "platform",
     "discord.chat_llm_enabled": "platform",
     "discord.clarify_ui": "platform",
@@ -208,9 +209,14 @@ CATALOG = (
            "Optional deny list: numeric Discord user IDs refused even when listed or the "
            "approval user, separated by commas or spaces.",
            validator="settings.user_ids"),
-    _field("discord", "approval_user_id", "Discord approval user", "text",
-           "Numeric Discord user ID allowed to approve prints; always allowed.",
-           validator="settings approval user check"),
+    _field("discord", "approval_user_id", "Discord approval users", "id_list",
+           "Numeric Discord user IDs allowed to approve prints, separated by commas or spaces. "
+           "Each one is always allowed to use the bot. Add everyone who should be able to approve.",
+           validator="settings.user_ids"),
+    _field("discord", "approval_all_users", "Anyone in the channel can approve", "toggle",
+           "When on, every user allowed to use the bot in the print channel can approve prints, "
+           "and the approval users above are no longer required for that. Off by default.",
+           validator="settings approval check"),
     _field("discord", "timezone", "Timezone", "picker",
            "IANA timezone name used for display and the daily reset.",
            choices_source=SOURCE_TIMEZONES),
@@ -235,9 +241,9 @@ CATALOG = (
     _field("telegram", "allowed_user_ids", "Telegram allowed users", "id_list",
            "Telegram user IDs allowed to use the standalone bot, separated by commas or spaces.",
            validator="settings.user_ids (telegram)"),
-    _field("telegram", "approval_user_id", "Telegram approval user", "text",
-           "Telegram user ID allowed to approve prints; always allowed.",
-           validator="settings telegram check"),
+    _field("telegram", "approval_user_id", "Telegram approval users", "id_list",
+           "Telegram user IDs allowed to approve prints, separated by commas or spaces; always allowed.",
+           validator="settings.user_ids (telegram)"),
     _field("matrix", "homeserver_url", "Matrix homeserver URL", "url",
            "Matrix homeserver base URL, for example https://matrix.org.",
            validator="settings matrix check"),
@@ -248,9 +254,10 @@ CATALOG = (
            "Matrix user IDs allowed to use the standalone bot, full @user:server form, "
            "separated by commas or spaces.",
            validator="settings.matrix_user_ids"),
-    _field("matrix", "approval_user_id", "Matrix approval user", "text",
-           "Matrix user ID allowed to approve prints, full @user:server form; always allowed.",
-           validator="settings matrix check"),
+    _field("matrix", "approval_user_id", "Matrix approval users", "id_list",
+           "Matrix user IDs allowed to approve prints, full @user:server form, separated by "
+           "commas or spaces; always allowed.",
+           validator="settings.matrix_user_ids"),
     # Services (guided setup: Moonraker and Spoolman URLs).
     _field("services", "moonraker_url", "Printer URL", "url",
            "The address Print Handy uses to talk to a Moonraker printer. That can be "

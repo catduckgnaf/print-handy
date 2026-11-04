@@ -52,9 +52,9 @@ class StandaloneAdapter(BasePlatformAdapter):
     supports_live_stream = True
     channel_is_boundary = True
 
-    def __init__(self, client, allowed, *, denied=(), approver=None, registry=prompts,
+    def __init__(self, client, allowed, *, denied=(), approver=None, approve_all=False, registry=prompts,
                  upload_max_bytes=None):
-        super().__init__(allowed, denied=denied, approver=approver, registry=registry)
+        super().__init__(allowed, denied=denied, approver=approver, approve_all=approve_all, registry=registry)
         self.client = client
         # [discord] upload_max_bytes when BotCore builds this adapter; None
         # means the caller sizes uploads from settings itself.

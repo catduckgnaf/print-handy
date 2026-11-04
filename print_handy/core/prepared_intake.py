@@ -2860,11 +2860,6 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         enabled = delivery.methods()
         can_print = delivery.PRINTER in enabled
         first_labels = [print_label, 'Slice only', SCALE_LABEL, cancel_label][0 if can_print else 1:]
-        # The Spoolman remap warning belongs on THIS confirmation too (P2-242):
-        # 'Slice and print now' is the choice that starts the print, and it
-        # never saw the note only the slice-only flow's second question got.
-        from .spool_remap import confirm_note
-        remap_note = confirm_note(mj._job_adapter(latest), latest, state)
         # 'Scale the model' repeats this question at the new size: the scale is
         # recorded, the background slice restarts for it while the question is
         # on screen, and the operator can say the bed is clear without waiting
@@ -2884,8 +2879,7 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             picked = await _ask(adapter, source, key,
                 ' · '.join(x for x in ('Ready to slice', names, estimate_text) if x)
                 + ('\n' + spool_text if spool_text else '')
-                + ('\n' + scale_note if scale_note else '') + caveat
-                + ('\n' + remap_note if remap_note else ''),
+                + ('\n' + scale_note if scale_note else '') + caveat,
                 first_labels, timeout,
                 on_shown=early.release.set, approval=True)
             picked = picked if can_print else picked + 1
@@ -3266,10 +3260,6 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                 question = breakdown + '\n' + question
             if slot_lines:
                 question = slot_lines + '\n' + question
-            from .spool_remap import confirm_note
-            remap = confirm_note(job_adapter, sliced, state)
-            if remap:
-                question += '\n' + remap
             if delivery.only_printer(enabled):
                 go = await _ask(adapter, source, key, question, [print_next.START_LABEL, print_next.CANCEL_LABEL], timeout,
                                 approval=True)

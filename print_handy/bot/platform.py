@@ -196,7 +196,7 @@ class BasePlatformAdapter:
     # list-only rule (an empty list refuses everyone).
     channel_is_boundary = False
 
-    def __init__(self, allowed, *, denied=(), approver=None, registry=prompts):
+    def __init__(self, allowed, *, denied=(), approver=None, approve_all=False, registry=prompts):
         # The mode latches on the raw allow list BEFORE the approver is
         # unioned in: an operator who sets only an approval user has not
         # opted into a whitelist, so channel mode must still apply (#386).
@@ -206,10 +206,14 @@ class BasePlatformAdapter:
         # The approver is ALSO kept apart from the allowed set (P1-93): being
         # allowed to act and being allowed to approve a print are separate
         # checks, and an open channel must not blur them.
-        self.approver = str(approver) if approver else None
+        # ``approver`` is one ID or several (an iterable); ``approve_all``
+        # lifts the approver restriction so anyone allowed to act may approve.
+        if isinstance(approver, (str, int)):
+            approver = [approver]
+        self.approvers = {str(a) for a in (approver or ()) if str(a)}
+        self.approve_all = bool(approve_all)
         self.allowed = {str(u) for u in allowed}
-        if approver:
-            self.allowed.add(str(approver))
+        self.allowed.update(self.approvers)
         self.denied = {str(u) for u in denied}
         self.registry = registry
         self._prompts: dict[str, dict[str, Any]] = {}
@@ -238,15 +242,16 @@ class BasePlatformAdapter:
 
     def may_approve_id(self, user_id):
         """May this user approve a print (P1-93)? Separate from acting: when
-        an approval user is configured, only they approve — however open the
-        channel is for intake. With none configured, approval follows the
+        approval users are configured, only they approve — however open the
+        channel is for intake — unless ``approve_all`` is on, which lets anyone
+        allowed to act approve. With none configured, approval follows the
         general check, as before. Deny beats everything, as everywhere."""
         uid = str(user_id or "")
         if not uid or uid in self.denied:
             return False
-        if self.approver is None:
+        if self.approve_all or not self.approvers:
             return self.is_allowed_id(uid)
-        return uid == self.approver
+        return uid in self.approvers
 
     def approval_refusal_reason(self, user_id):
         """Why ``user_id`` may not approve a print, in log words, or None."""
@@ -256,7 +261,7 @@ class BasePlatformAdapter:
         if not self.is_allowed_id(uid):
             return "user is not on the allowed list"
         if not self.may_approve_id(uid):
-            return "only the approval user may approve prints"
+            return "only an approval user may approve prints"
         return None
 
     def access_description(self):
