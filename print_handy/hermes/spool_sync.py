@@ -1844,6 +1844,35 @@ def create_spool(spec: dict[str, Any], *, client: Client = spoolman) -> dict[str
             "hex": color_hex, "hex_source": color_source}
 
 
+REFILL_SPOOL_COMMENT = "added from Discord: new roll of the same filament after a runout"
+
+
+def fresh_spool_like(spool_id: int, *, client: Client = spoolman) -> dict[str, Any]:
+    """A full new roll of the filament type ``spool_id`` uses (runout "Same type").
+
+    The spool that ran out is empty, so continuing to charge it is wrong; the
+    operator loaded another roll of the same product. Copies the filament type,
+    starting weight and price; leaves the old spool alone (bind_slot depletes it).
+    """
+    old = client("GET", f"/api/v1/spool/{int(spool_id)}", None) or {}
+    filament = old.get("filament") or {}
+    if filament.get("id") is None:
+        raise SpoolError(f"spool #{spool_id} has no filament type to copy; answer New spool instead")
+    grams = old.get("initial_weight") or filament.get("weight")
+    try:
+        grams = float(grams)
+    except (TypeError, ValueError):
+        grams = 0.0
+    if grams <= 0:
+        raise SpoolError(f"spool #{spool_id} has no starting weight to copy; answer New spool instead")
+    body = {"filament_id": filament["id"], "initial_weight": grams, "remaining_weight": grams,
+            "location": SHELF, "comment": REFILL_SPOOL_COMMENT}
+    if old.get("price") is not None:
+        body["price"] = old["price"]
+    created = client("POST", "/api/v1/spool", body)
+    return {"spool_id": created["id"], "filament_id": filament["id"], "grams": grams}
+
+
 def first_hex_of(filament: dict[str, Any] | None) -> str | None:
     """A filament's single color code: color_hex, else its first multi color."""
     filament = filament or {}
