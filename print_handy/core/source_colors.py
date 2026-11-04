@@ -419,8 +419,13 @@ def _attach_part_settings(archive, names, parts, painted):
     for part in parts:
         ancestry = part.get('ancestry') or []
         wrapper = ancestry[0][1] if len(ancestry) > 1 else part.get('object_id')
-        groups.setdefault(str(wrapper), []).append(part)
-    for wrapper, rows in groups.items():
+        # The same object can be placed by several build items (instances);
+        # each instance's rows are matched against the config's volumes
+        # separately, or a two-volume object placed twice would present four
+        # rows against two volumes and lose every volume setting (#876).
+        instance = str(part.get('key') or '').split('/', 1)[0]
+        groups.setdefault((str(wrapper), instance), []).append(part)
+    for (wrapper, _instance), rows in groups.items():
         entry = parsed.get(wrapper)
         if not entry:
             continue
@@ -772,12 +777,17 @@ def canonical_prompts(manifest):
     # changes switch to is a color question in its own right, alongside the
     # part colors. An extruder a part already asks about needs no second row.
     covered = {p.get('source_extruder') for p in manifest['parts']}
+    # Extruders that already have a filament:<ext> question of their own (a
+    # height-change row). A support designation dedups against these only:
+    # its question is keyed the same way and asks for that extruder's spool.
+    filament_rows = set()
     filaments = {f.get('source_extruder'): f for f in manifest.get('filaments') or []}
     for row in manifest.get('layer_changes') or []:
         ext = row.get('source_extruder')
         if not ext or ext in covered:
             continue
         covered.add(ext)
+        filament_rows.add(ext)
         filament = filaments.get(ext) or {}
         color = str(filament.get('color') or row.get('color') or '').strip()
         material = str(filament.get('material') or 'unknown material').strip()
@@ -798,15 +808,18 @@ def canonical_prompts(manifest):
                                  f"{name.title()} ({color}, {material}){where}",
                      'source_extruder': ext})
     # A dedicated support filament (#867): the author named a filament for the
-    # supports (and optionally a second one for the interface layers) that no
-    # part prints with. Like a height-change extruder it is a color question in
-    # its own right, so its spool can be loaded and the supports pointed at it.
+    # supports (and optionally a second one for the interface layers). Like a
+    # height-change extruder it is a color question in its own right, so its
+    # spool can be loaded and the supports pointed at it. It is asked even
+    # when a part prints with the same source extruder: in per-part decisions
+    # that extruder's parts can be split across spools, so no single part
+    # choice names the support spool (#876).
     designated = manifest.get('support_filaments') or {}
     for field, label in (('base', 'support'), ('interface', 'support interface')):
         ext = designated.get(field)
-        if not ext or ext in covered:
+        if not ext or ext in filament_rows:
             continue
-        covered.add(ext)
+        filament_rows.add(ext)
         filament = filaments.get(ext) or {}
         color = str(filament.get('color') or '').strip()
         material = str(filament.get('material') or 'unknown material').strip()

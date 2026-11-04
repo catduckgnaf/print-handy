@@ -111,9 +111,18 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
         paint_table = {n: (choices[f'filament:{n}']['slot'] if identity_tools
                            else slots.index(choices[f'filament:{n}']['slot']) + 1) for n in used}
     else:
+        # A support-designation row (#867) names the supports' spool, not the
+        # part's, so it may differ from the part choices for the same source
+        # extruder. A height-change row for that extruder is not exempt: it
+        # prints the parts themselves (#870).
+        layer_exts = {row.get('source_extruder') for row in manifest.get('layer_changes') or []}
+        designated = manifest.get('support_filaments') or {}
+        support_only = {e for e in (designated.get('base'), designated.get('interface'))
+                        if e and e not in layer_exts}
         for part in manifest['parts']:
             palette = choices.get(f"filament:{part['source_extruder']}")
-            if palette and palette != choices['part:' + part['key']]:
+            if (palette and part['source_extruder'] not in support_only
+                    and palette != choices['part:' + part['key']]):
                 raise RuntimeError('part selection contradicts its source filament selection')
         slots = sorted({choices['part:' + part['key']]['slot'] for part in manifest['parts']})
         # Height-based color changes (#870): the slots their filaments were
@@ -957,11 +966,19 @@ def export_single_color_plate(source, target, decisions, part_keys, bed=BED_MM, 
     # palette row it refers to, or the plate would be labeled for one slot
     # while the decisions say another. Painted part_slots_v1 decisions have
     # no part rows at all (the palette rows are the choices), so there is
-    # nothing a part could contradict there.
+    # nothing a part could contradict there. A support-designation row is
+    # exempt for the same reason as in the multipart exporter (#867): it
+    # names the supports' spool, and on a one-filament plate the supports
+    # print in the plate's filament whatever it says.
+    layer_exts = {row.get('source_extruder') for row in manifest.get('layer_changes') or []}
+    designated = manifest.get('support_filaments') or {}
+    support_only = {e for e in (designated.get('base'), designated.get('interface'))
+                    if e and e not in layer_exts}
     for part in manifest['parts']:
         own = choices.get('part:' + part['key'])
         palette = choices.get(f"filament:{part['source_extruder']}")
-        if own is not None and palette and palette != own:
+        if (own is not None and palette and part['source_extruder'] not in support_only
+                and palette != own):
             raise RuntimeError('part selection contradicts its source filament selection')
     wanted = list(dict.fromkeys(part_keys))
     parts = [part for part in manifest['parts'] if part['key'] in wanted]

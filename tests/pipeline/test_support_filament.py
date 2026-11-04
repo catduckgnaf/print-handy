@@ -158,3 +158,32 @@ def test_support_filament_on_a_creator_toolhead(tmp_path):
         tmp_path, src, state, decisions_for(manifest, state, picks), adapter=adapter)
     assert provenance["tool_mapping"] == {"0": 1, "3": 4}
     assert process["support_filament"] == "4" and process["support_interface_filament"] == "4"
+
+
+def test_support_designated_to_a_part_extruder_is_still_asked_and_pointed(tmp_path):
+    # Regression (Codex, #876): the designation names a source extruder a part
+    # also prints with. The support question is still asked in its own right,
+    # and the pointer follows the support answer — not the part's spool.
+    src = tmp_path / "covered.3mf"
+    palette = [("#FFFFFF", "PLA"), ("#067749", "PLA"), ("#FF0000", "PLA")]
+    write_3mf(src, [("Base", 1, box(30, 30, 10), (60, 60)), ("Cap", 2, box(20, 20, 8), (110, 110))],
+              [("Plate 1", [0, 1])], palette,
+              project_extra={"enable_support": "1", "support_filament": "1",
+                             "support_interface_filament": "0"})
+    state = model_job.printer_state.load()
+    manifest = source_colors.inventory(src)
+    rows = source_colors.canonical_prompts(manifest)
+    support_rows = [r for r in rows if r["key"] == "filament:1" and "support filament" in r["question"]]
+    assert len(support_rows) == 1
+    picks = {}
+    for row in rows:
+        if row["key"] == "filament:1":
+            picks[row["key"]] = 3  # the supports get their own spool, not Base's
+        elif row["source_extruder"] == 1:
+            picks[row["key"]] = 1
+        else:
+            picks[row["key"]] = 2
+    decisions = decisions_for(manifest, state, picks)
+    _provenance, process, filaments = slice_offline(tmp_path, src, state, decisions)
+    assert process["support_filament"] == "3"
+    assert len(filaments) == 3

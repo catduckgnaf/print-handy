@@ -1830,7 +1830,10 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                *(['--clone-objects', str(copies)] if (copies and int(copies) > 1) else []),
                '--allow-newer-file', '--slice', '0', '--outputdir', str(folder), str(input_path)]
     if scale is not None and not mapped_profile:
-        if input_path.suffix.lower() == '.3mf':
+        if input_path.suffix.lower() == '.3mf' and input_path == source:
+            # Only the un-exported source itself is unscaled; a rebuilt
+            # geometry.3mf (cutters / per-part settings) already carries the
+            # scale in its vertices (#876).
             raise ValueError('uniform scale must be applied to exported geometry before slicing a 3MF')
         # Normal 3MF intake (and any rotated input) was already scaled during export.
         # Orca's CLI scale is retained only for direct STL input, where no pre-export occurs.
