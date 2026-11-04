@@ -105,6 +105,19 @@ def test_creator_two_or_three_filaments_load_four_matching_profiles(model_key, p
         assert profile["name"] == f"Hermes toolhead {head} PLA"
 
 
+@pytest.mark.parametrize("model_key", MODELS)
+def test_creator_unused_toolhead_profiles_carry_filament_is_support(model_key, tmp_path, monkeypatch):
+    """#871: a job whose picks leave toolhead 4 unused loads the base template profile in the last
+    --load-filaments position, and Orca rejects the set (-5, "The input preset file is invalid") because
+    that profile carries no filament_is_support — the per-toolhead profiles all set it. Every loaded
+    profile must carry the key, used toolhead or not."""
+    _out, _provenance, _configs, _calls, folder = slice_capture(
+        model_key, four_colour_decisions(tmp_path, [1, 3, 2, 1]), tmp_path, monkeypatch)
+    for tool in range(4):
+        profile = json.loads((folder / f"filament_tool_{tool}.json").read_text())
+        assert profile.get("filament_is_support") == ["0"], f"filament_tool_{tool}.json"
+
+
 # --- 14. height-based colour changes (ChromaCanvas-style layer changes) --------------------------------
 
 LAYER_CHANGES = ('<?xml version="1.0" encoding="utf-8"?>\n<custom_gcodes_per_layer>\n<plate>\n<plate_info id="1"/>\n'
