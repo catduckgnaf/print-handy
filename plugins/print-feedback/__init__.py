@@ -5439,6 +5439,21 @@ def alert_button_handlers(bot, adapter):
                     if not value:
                         await modal_interaction.response.send_message('That answer was empty. Nothing changed — start again from the prompt.', ephemeral=True)
                         return
+                    try:
+                        value = pab.intake_clean_typed(pending['field'], value, new_state)
+                    except ValueError as exc:
+                        await modal_interaction.response.send_message(f'{exc} Nothing changed — start again from the prompt.', ephemeral=True)
+                        return
+                    if pab.intake_typed_is_new(pending['field'], value, new_state):
+                        # Not in the picker: ask explicitly before Spoolman
+                        # gets a brand or color it has never seen.
+                        new_state = {**new_state, 'step': 'newcheck', 'new_field': pending['field'],
+                                     'new_value': value}
+                        aid = await asyncio.to_thread(pab.record, 'intake', '', **new_state)
+                        await modal_interaction.response.send_message(
+                            pab.intake_step_text(new_state),
+                            view=intake_view(pab.intake_step_components(aid, new_state)))
+                        return
                     new_state[pending['field']] = value
                     if pending['field'] == 'color':
                         # A typed color supersedes any swatch picked
@@ -5503,11 +5518,7 @@ def alert_button_handlers(bot, adapter):
         if not alert or alert.get('kind') != 'intake':
             await interaction.response.send_message('That new-spool walkthrough is old or was already answered. Nothing changed.', ephemeral=True)
             return
-        state = {key: alert.get(key) for key in
-                 ('origin', 'slot', 'context', 'step', 'predicted_id', 'prompt_brand', 'types',
-                  'brand', 'material', 'color', 'grams', 'old_spool_id', 'old_remaining', 'disposition',
-                  'photo_offered', 'from_photo', 'photo_route', 'nozzle_temp', 'bed_temp', 'hex',
-                  'color_confirmed')}
+        state = {key: alert.get(key) for key in pab.INTAKE_STATE_KEYS}
         # Claim the step before acting on it: two clicks can both peek the
         # same alert, but only one take() succeeds. Without this check a
         # double confirmation would run intake_finish twice and create/bind
@@ -5537,6 +5548,21 @@ def alert_button_handlers(bot, adapter):
             task = asyncio.create_task(intake_photo_wait(interaction, state))
             _photo_tasks.add(task)
             task.add_done_callback(_photo_tasks.discard)
+            return
+        if action == 'new_ok':
+            # The explicit yes for a brand or color that is not in the picker.
+            field, value = state.get('new_field'), state.get('new_value')
+            state = {**state, field: value, 'new_field': None, 'new_value': None,
+                     'step': 'brand' if field == 'brand' else 'color'}
+            if field == 'color':
+                state.update(hex=None, color_confirmed=False)
+            await intake_advance(interaction, state)
+            return
+        if action == 'new_fix':
+            field = state.get('new_field')
+            await intake_field_modal(interaction, {**state, 'step': 'brand' if field == 'brand' else 'color',
+                                                   'new_field': None, 'new_value': None},
+                                     field, 'Brand' if field == 'brand' else 'Color / finish')
             return
         if action == 'color_ok':
             # The confirm-or-correct step (#792 part 2): the operator
@@ -5581,17 +5607,26 @@ def alert_button_handlers(bot, adapter):
         if not alert or alert.get('kind') != 'intake':
             await interaction.response.send_message('That choice is old or was already used. Nothing changed.', ephemeral=True)
             return
-        state = {key: alert.get(key) for key in
-                 ('origin', 'slot', 'context', 'step', 'predicted_id', 'prompt_brand', 'types',
-                  'brand', 'material', 'color', 'grams', 'old_spool_id', 'old_remaining', 'disposition',
-                  'photo_offered', 'from_photo', 'photo_route', 'nozzle_temp', 'bed_temp', 'hex',
-                  'color_confirmed')}
+        state = {key: alert.get(key) for key in pab.INTAKE_STATE_KEYS}
         value = str((getattr(interaction, 'data', {}) or {}).get('values', [''])[0] or '')
+        step = state.get('step')
+        if step == 'material' and value == pab.INTAKE_OTHER:
+            await intake_field_modal(interaction, state, 'material', 'Material')
+            return
         if value == pab.INTAKE_OTHER:
-            field = 'brand' if state.get('step') == 'brand' else 'color'
+            field = 'brand' if step == 'brand' else 'color'
             await intake_field_modal(interaction, state, field, 'Brand' if field == 'brand' else 'Color / finish')
             return
-        if state.get('step') == 'brand':
+        if step == 'material':
+            subtypes = pab.intake_subtype_options(value)
+            if len(subtypes) > 1:
+                # PLA has kinds: ask which before anything else.
+                await intake_show_step(interaction, {**state, 'primary': value, 'step': 'subtype'})
+                return
+            state['material'] = subtypes[0]['value'] if subtypes else value
+        elif step == 'subtype':
+            state['material'] = value
+        elif step == 'brand':
             state['brand'] = None if value == pab.INTAKE_SKIP else value
         elif state.get('step') == 'swatch':
             state['hex'] = value  # the closest color, picked on a button; never typed hex

@@ -946,3 +946,69 @@ class RouteTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ------------------------------------------------ material and value pickers
+
+class PickerFormTests(unittest.TestCase):
+    """Material is picked as primary type then subtype; a brand or color
+    outside the pickers needs an explicit yes before it reaches Spoolman."""
+
+    VIEW = {"id": PRINTER, "slots": [], "shelf": [], "conflicts": [],
+            "spools": [{"id": 7, "name": "Black PLA", "color": "Black", "material": "PLA",
+                        "brand": "Sunlu", "archived": False, "remaining_weight": 500.0,
+                        "initial_weight": 1000.0, "remaining_percent": 50.0,
+                        "color_hex": None, "location": None},
+                       {"id": 8, "name": "x", "color": "Teal", "material": "PLA",
+                        "brand": "Unknown", "archived": False, "remaining_weight": None,
+                        "initial_weight": None, "remaining_percent": None,
+                        "color_hex": None, "location": None}]}
+
+    @staticmethod
+    def _form(**fields):
+        return {k: [v] for k, v in fields.items()}
+
+    def test_add_form_groups_materials_and_offers_known_values(self):
+        html = spools.render_spools_page(self.VIEW, form_token="t")
+        self.assertIn('<optgroup label="PLA">', html)
+        self.assertIn('<option value="PLA+">PLA+</option>', html)
+        self.assertIn('<option value="Silk PLA">Silk PLA</option>', html)
+        self.assertIn('<option value="Sunlu">Sunlu</option>', html)
+        self.assertNotIn('<option value="Unknown">', html)  # placeholder brand hidden
+        self.assertIn('<option value="Teal">Teal</option>', html)
+        self.assertNotIn('<input name="material"', html)  # no free-text material
+
+    def test_picked_values_pass_straight_through(self):
+        _, body = spools.form_body("add", self._form(material="PLA+", brand="Sunlu",
+                                                  color="Black", grams="1000"))
+        self.assertEqual((body["material"], body["brand"], body["color"]), ("PLA+", "Sunlu", "Black"))
+
+    def test_other_value_needs_the_explicit_yes(self):
+        with self.assertRaises(spools.SpoolsError) as refused:
+            spools.form_body("add", self._form(material="PLA", brand="__other__",
+                                               brand_new="Polymaker", color="Black", grams="1000"))
+        self.assertIn("Add new values", refused.exception.reason)
+        _, body = spools.form_body("add", self._form(material="PLA", brand="__other__",
+                                                  brand_new="Polymaker", confirm_new="true",
+                                                  color="Black", grams="1000"))
+        self.assertEqual(body["brand"], "Polymaker")
+
+    def test_unknown_material_is_refused_by_the_api(self):
+        with mock.patch.object(spools, "_resolve_write", return_value={"id": PRINTER}):
+            code, body = spools.add({}, PRINTER, {"material": "Unobtainium", "color": "Black",
+                                                  "grams": 1000})
+        self.assertEqual(code, 400)
+        self.assertIn("not a known material", body["reason"])
+
+
+class CanonicalVendorTests(SpoolCase):
+    """Review of #879: an existing vendor is matched by canonical brand name."""
+
+    def test_existing_bambu_vendor_is_reused_for_bambu_lab(self):
+        from print_handy.hermes import spool_sync
+        self.fake.vendors[3] = {"id": 3, "name": "Bambu"}
+        before = len(self.fake.vendors)
+        spool_sync.create_spool({"brand": "Bambu Lab", "material": "PLA", "color": "Cobalt Teal",
+                                 "grams": 1000}, client=self.fake)
+        self.assertEqual(len(self.fake.vendors), before)
+        self.assertFalse([c for c in self.fake.calls if c[:2] == ("POST", "/api/v1/vendor")])

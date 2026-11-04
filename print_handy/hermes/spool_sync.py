@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .. import printers
-from ..core import filament_color, spoolman_client
+from ..core import filament_color, spool_canon, spoolman_client
 from . import _config
 
 HARDWARE_STATE = _config.state_file("PRINTER_HARDWARE_STATE", "printer_hardware.json")
@@ -1777,18 +1777,19 @@ def create_spool(spec: dict[str, Any], *, client: Client = spoolman) -> dict[str
     (spec_color); a reused filament type that has none gets it filled in,
     never replaced.
     """
+    # One spelling per material, color and brand, so no entry path mints a
+    # near-duplicate filament type ("pla plus" next to "PLA+", "Black PLA"
+    # next to "Black"). An unknown material is refused, not stored.
+    try:
+        spec = spool_canon.canonical_spec(spec)
+    except spool_canon.SpecError as exc:
+        raise SpoolError(str(exc)) from None
     color_hex, multi_hexes, color_source = spec_color(spec)
     if color_hex:
         spec = {**spec, "hex": color_hex}
     filaments = client("GET", "/api/v1/filament", None) or []
-    match = None
+    match = spool_canon.find_filament(filaments, spec)
     reused = True
-    for f in filaments:
-        if (str(f.get("material") or "").casefold() == spec["material"].casefold()
-                and str(f.get("name") or "").casefold() == spec["color"].casefold()
-                and str((f.get("vendor") or {}).get("name") or "").casefold() == str(spec.get("brand") or "").casefold()):
-            match = f
-            break
     if match is None:
         reused = False
         body = {"name": spec["color"], "material": spec["material"], "diameter": 1.75,
@@ -1807,7 +1808,12 @@ def create_spool(spec: dict[str, Any], *, client: Client = spoolman) -> dict[str
             body["color_hex"] = spec["hex"]
         if spec.get("brand"):
             vendors = client("GET", "/api/v1/vendor", None) or []
-            vendor = next((v for v in vendors if str(v.get("name") or "").casefold() == spec["brand"].casefold()), None)
+            # Compare canonical brand names, so an existing "Bambu" vendor is
+            # reused for "Bambu Lab" rather than split into a second vendor
+            # (review of #879; the same comparison find_filament uses).
+            wanted = (spool_canon.canonical_brand(spec["brand"]) or spec["brand"]).casefold()
+            vendor = next((v for v in vendors
+                           if (spool_canon.canonical_brand(str(v.get("name") or "")) or "").casefold() == wanted), None)
             if vendor is None:
                 vendor = client("POST", "/api/v1/vendor", {"name": spec["brand"]})
             body["vendor_id"] = vendor["id"]

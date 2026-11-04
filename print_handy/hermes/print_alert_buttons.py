@@ -553,11 +553,18 @@ def parse_bind_confirm_custom_id(custom_id: str) -> tuple[str, str] | None:
 
 INTAKE_PREFIX = "pbintake"
 INTAKE_SELECT_PREFIX = "pbintakeselect"
-INTAKE_MATERIALS = ("PLA", "Silk PLA", "PLA+", "PETG", "TPU", "ABS")
+# Append only: custom_ids carry the index, so reordering would remap buttons on live prompts.
+INTAKE_MATERIALS = ("PLA", "Silk PLA", "PLA+", "PETG", "TPU", "ABS", "Matte PLA", "PCTG", "ASA")
 INTAKE_WEIGHTS = (1000, 500, 250)
 INTAKE_COMMON_COLORS = ("Black", "White", "Matte White", "Grey", "Red", "Blue", "Green",
                         "Orange", "Yellow", "Pink", "Purple", "Natural")
 INTAKE_OTHER = "__other__"
+# Every walkthrough field carried from one step to the next (both the button
+# and the dropdown handlers rebuild state from this list).
+INTAKE_STATE_KEYS = ("origin", "slot", "context", "step", "predicted_id", "prompt_brand", "types",
+                     "brand", "material", "color", "grams", "old_spool_id", "old_remaining",
+                     "disposition", "photo_offered", "from_photo", "photo_route", "nozzle_temp",
+                     "bed_temp", "hex", "color_confirmed", "primary", "new_field", "new_value")
 INTAKE_SKIP = "__skip__"
 
 _MATERIAL_ACTIONS = {f"mat_{i}": label for i, label in enumerate(INTAKE_MATERIALS)}
@@ -567,7 +574,7 @@ _DISPOSITION_ACTIONS = {"disp_shelf": "shelf", "disp_archive": "archive",
 INTAKE_ACTIONS = frozenset(
     [*_MATERIAL_ACTIONS, "mat_other", *_WEIGHT_ACTIONS, "w_custom",
      *_DISPOSITION_ACTIONS, "brand_type", "brand_skip", "photo", "edit",
-     "color_ok", "color_fix", "confirm", "cancel"])
+     "color_ok", "color_fix", "new_ok", "new_fix", "confirm", "cancel"])
 
 
 def parse_intake_custom_id(custom_id: str) -> tuple[str, str] | None:
@@ -576,6 +583,30 @@ def parse_intake_custom_id(custom_id: str) -> tuple[str, str] | None:
     if len(parts) == 3 and parts[0] == INTAKE_PREFIX and parts[1] in INTAKE_ACTIONS and parts[2]:
         return parts[1], parts[2]
     return None
+
+
+def intake_clean_typed(field: str, value: str, state: dict[str, Any]) -> str | None:
+    """A typed walkthrough answer in its canonical spelling (core.spool_canon).
+
+    Material must be one on the menu ("pla plus" -> "PLA+"); anything else is
+    refused so a typo never becomes a Spoolman filament type. Brand and color are
+    tidied ("sunlu" -> "SUNLU", "black pla" -> "Black"); a placeholder brand
+    ("unknown", "generic") becomes no brand.
+    """
+    from ..core import spool_canon
+    if field == "material":
+        canon = spool_canon.canonical_material(value)
+        if canon is None:
+            raise ValueError(f"I do not know the material {value!r}. Use one of: {', '.join(spool_canon.MATERIALS)}.")
+        return canon
+    if field == "brand":
+        return spool_canon.canonical_brand(value)
+    if field == "color":
+        color = spool_canon.canonical_color(value, state.get("material"), state.get("brand"))
+        if not re.search(r"[A-Za-z]", color):
+            raise ValueError("A color or finish name is required (e.g. Black, Matte White).")
+        return color
+    return value
 
 
 def intake_material_for_action(action: str) -> str | None:
@@ -663,7 +694,7 @@ def _intake_following_step(state: dict[str, Any]) -> str:
     step = state.get("step")
     if step == "start":
         return "material"
-    if step == "material":
+    if step in ("material", "subtype"):
         return "brand" if state.get("prompt_brand") else "color"
     if step == "brand":
         return "color"
@@ -700,7 +731,13 @@ def intake_step_text(state: dict[str, Any]) -> str:
     slot = state.get("slot")
     if step == "material":
         return (intake_preview_text(state.get("predicted_id"), slot)
-                + "\n\n**Material** — pick one, or Other to type a different material.")
+                + "\n\n**Material** — pick the type (PLA, PETG, ...). PLA asks which kind next.")
+    if step == "subtype":
+        return f"**Which {state.get('primary')}?** — plain, plus, silk or matte. Changeovers treat PLA and PLA+ alike."
+    if step == "newcheck":
+        what = {"brand": "brand", "color": "color"}.get(str(state.get("new_field")), "value")
+        return (f"**New {what}** — “{state.get('new_value')}” is not in the list. Adding it creates a new "
+                f"{what} in Spoolman. Add it exactly as shown, or type it again? Nothing is created yet.")
     if step == "brand":
         return "**Brand** — pick a known brand, type one, or skip. The spool works the same either way."
     if step == "color":
@@ -753,10 +790,36 @@ def intake_step_text(state: dict[str, Any]) -> str:
     return "New spool"
 
 
+def intake_primary_options() -> list[dict[str, str]]:
+    """The material step's dropdown: primary types only (PLA, PETG, ...).
+
+    A primary with subtypes (PLA -> PLA+, Silk PLA, Matte PLA) is narrowed
+    on the next step; Other opens a typed answer that must still name a
+    known material.
+    """
+    from ..core import spool_canon
+    options = []
+    for primary, subtypes in spool_canon.MATERIAL_TREE.items():
+        label = spool_canon.PRIMARY_LABELS.get(primary, primary)
+        hint = ", ".join(subtypes[1:])
+        options.append({"label": label, "value": primary,
+                        **({"description": f"then pick: plain {primary}, {hint}"} if hint else {})})
+    options.append({"label": "Other (type it)…", "value": INTAKE_OTHER})
+    return options
+
+
+def intake_subtype_options(primary: Any) -> list[dict[str, str]]:
+    from ..core import spool_canon
+    return [{"label": s if s != primary else f"{s} (plain)", "value": s}
+            for s in spool_canon.material_subtypes(primary)]
+
+
 def intake_material_components(aid: str, photo: bool = False) -> list[dict[str, Any]]:
-    buttons = [{"type": 2, "style": 1, "label": label, "custom_id": f"{INTAKE_PREFIX}:mat_{i}:{aid}"}
-               for i, label in enumerate(INTAKE_MATERIALS)]
-    last = [{"type": 2, "style": 2, "label": "Other material…", "custom_id": f"{INTAKE_PREFIX}:mat_other:{aid}"}]
+    # Material is a dropdown now (primary type first, subtype next). The old
+    # mat_N buttons are no longer rendered, but _MATERIAL_ACTIONS still
+    # answers them so a prompt posted before this change keeps working.
+    rows = _select_components(aid, "Choose the material type", intake_primary_options())
+    last = []
     if photo:
         # The photo alternative (#514) rides the first step, and only when
         # the caller knows a vision endpoint is available — with no endpoint
@@ -764,9 +827,7 @@ def intake_material_components(aid: str, photo: bool = False) -> list[dict[str, 
         last.append({"type": 2, "style": 1, "label": "Use a photo of the label",
                      "custom_id": f"{INTAKE_PREFIX}:photo:{aid}"})
     last.append({"type": 2, "style": 2, "label": "Cancel", "custom_id": f"{INTAKE_PREFIX}:cancel:{aid}"})
-    return [{"type": 1, "components": buttons[:3]},
-            {"type": 1, "components": buttons[3:]},
-            {"type": 1, "components": last}]
+    return rows + [{"type": 1, "components": last}]
 
 
 def intake_weight_components(aid: str) -> list[dict[str, Any]]:
@@ -819,16 +880,37 @@ def _select_components(aid: str, placeholder: str, options: list[dict[str, str]]
     return [{"type": 1, "components": [
         {"type": 3, "custom_id": f"{INTAKE_SELECT_PREFIX}:{aid}", "placeholder": placeholder,
          "min_values": 1, "max_values": 1,
-         "options": [{"label": o["label"][:100], "value": o["value"][:100]} for o in options[:25]]}]}]
+         "options": [{"label": o["label"][:100], "value": o["value"][:100],
+                      **({"description": o["description"][:100]} if o.get("description") else {})}
+                     for o in options[:25]]}]}]
+
+
+def intake_typed_is_new(field: str, value: Any, state: dict[str, Any]) -> bool:
+    """True when a typed brand or color is not one the pickers offered.
+
+    A value the picker already lists is taken as typed; anything else gets
+    an explicit "add this new one?" step before it can reach Spoolman.
+    """
+    text = str(value or "").strip().casefold()
+    if not text or field not in ("brand", "color"):
+        return False
+    if field == "brand":
+        offered = [o["value"] for o in intake_brand_options(state.get("types"), state.get("material"))]
+    else:
+        offered = [o["value"] for o in intake_color_options(state.get("types"), state.get("material"))]
+    return text not in {str(o).casefold() for o in offered}
 
 
 def intake_brand_options(types: list[dict[str, Any]] | None, material: Any) -> list[dict[str, str]]:
     """Known brands for this material first, then every known brand, then skip/type."""
     material = str(material or "").casefold()
     first, rest = [], []
+    from ..core import spool_canon
     for entry in types or []:
         brand = str(entry.get("brand") or "").strip()
-        if not brand:
+        if not spool_canon.canonical_brand(brand):  # "Unknown" / "Generic" are not brands to offer
+            continue
+        if any(brand.casefold() == b.casefold() for b in first + rest):
             continue
         bucket = first if str(entry.get("material") or "").casefold() == material else rest
         if brand not in bucket:
@@ -881,6 +963,16 @@ def intake_step_components(aid: str, state: dict[str, Any]) -> list[dict[str, An
     step = state.get("step")
     if step == "material":
         return intake_material_components(aid, photo=bool(state.get("photo_offered")))
+    if step == "subtype":
+        return _select_components(aid, f"Which {state.get('primary')}?",
+                                  intake_subtype_options(state.get("primary")))
+    if step == "newcheck":
+        value = str(state.get("new_value") or "")
+        return [{"type": 1, "components": [
+            {"type": 2, "style": 3, "label": f"Yes, add “{value}”"[:80],
+             "custom_id": f"{INTAKE_PREFIX}:new_ok:{aid}"},
+            {"type": 2, "style": 1, "label": "Type it again", "custom_id": f"{INTAKE_PREFIX}:new_fix:{aid}"},
+            {"type": 2, "style": 2, "label": "Cancel", "custom_id": f"{INTAKE_PREFIX}:cancel:{aid}"}]}]
     if step == "brand":
         options = intake_brand_options(state.get("types"), state.get("material"))
         if len(options) > 2:  # at least one real brand is known
