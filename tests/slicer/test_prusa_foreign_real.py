@@ -204,4 +204,6 @@ def test_prusa_derived_plate_slices_as_one_filament():
         assert "Original Prusa" not in text
         assert "; wall_loops = 4" in text
         assert "; support_filament = 0" in text  # one filament on the plate: supports use it
-        assert _tools(text) == {0}
+        # A one-filament AD5X slice issues no toolchange commands at all (the
+        # loaded filament needs none); any other tool would mean a second one.
+        assert _tools(text) <= {0}
