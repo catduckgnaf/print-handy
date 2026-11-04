@@ -460,3 +460,71 @@ def test_reprint_queues_are_isolated_per_printer(tmp_path, monkeypatch):
     assert print_control.cancel_copies(printer_id="printer-b") is True
     assert print_control.pending_copy(printer_id="printer-b") is None
     assert print_control.pending_copy(printer_id="printer-a") is not None
+
+
+# 2026-11-04: three resumes went out while the AD5X head sensor still read
+# empty after a runout; each paused again at once. Resume now checks first.
+_AD5X_OBJECTS = ["toolhead", "extruder", "filament_switch_sensor head_switch_sensor",
+                 "filament_motion_sensor ifs_motion_sensor", "zmod_ifs"]
+
+
+def _sensor_call(head_detected, *, enabled=True, resume_reply=None):
+    def call(path, method="GET", data=None, timeout=10, base=None):
+        if path == "/printer/objects/list":
+            return {"result": {"objects": _AD5X_OBJECTS}}
+        if path.startswith("/printer/objects/query?"):
+            assert "ifs_motion_sensor" not in path  # motion sensors read empty while paused
+            return {"result": {"status": {"filament_switch_sensor head_switch_sensor":
+                                          {"filament_detected": head_detected, "enabled": enabled}}}}
+        if path == "/printer/print/resume":
+            return resume_reply or {"result": "ok"}
+        raise AssertionError(path)
+    return MagicMock(side_effect=call)
+
+
+@pytest.mark.real_head_sensor
+def test_resume_refused_when_head_sensor_reads_empty():
+    call = _sensor_call(False)
+    with patch("print_handy.hermes.print_control._call", call), \
+            patch("print_handy.hermes.print_control.status", return_value=_st()):
+        ok, msg = print_control.resume("foo.gcode")
+    assert ok is False and msg == print_control.HEAD_EMPTY_TEXT
+    assert "/printer/print/resume" not in [c.args[0] for c in call.call_args_list]
+
+
+@pytest.mark.real_head_sensor
+def test_resume_sent_when_head_sensor_reads_loaded():
+    call = _sensor_call(True)
+    st = MagicMock(side_effect=[_st(), _st(state="printing")])
+    with patch("print_handy.hermes.print_control._call", call), \
+            patch("print_handy.hermes.print_control.status", st):
+        ok, _msg = print_control.resume("foo.gcode", wait_s=2, poll_s=0.01)
+    assert ok
+    assert [c.args[0] for c in call.call_args_list].count("/printer/print/resume") == 1
+
+
+@pytest.mark.real_head_sensor
+def test_disabled_head_sensor_does_not_block_resume():
+    call = _sensor_call(False, enabled=False)
+    st = MagicMock(side_effect=[_st(), _st(state="printing")])
+    with patch("print_handy.hermes.print_control._call", call), \
+            patch("print_handy.hermes.print_control.status", st):
+        ok, _msg = print_control.resume("foo.gcode", wait_s=2, poll_s=0.01)
+    assert ok
+
+
+def test_head_switch_sensors_selection():
+    assert print_control.head_switch_sensors(_AD5X_OBJECTS) == ["filament_switch_sensor head_switch_sensor"]
+    assert print_control.head_switch_sensors(["extruder", "filament_switch_sensor runout"]) == \
+        ["filament_switch_sensor runout"]
+    # multi-extruder printer with no head-named sensor: no guess
+    assert print_control.head_switch_sensors(["extruder", "extruder1", "filament_switch_sensor runout"]) == []
+    assert print_control.head_switch_sensors(None) == []
+
+
+def test_active_head_sensors_follow_the_active_extruder():
+    # Review of #878: an idle tool's empty head sensor must not block resume.
+    names = ["filament_switch_sensor head_extruder", "filament_switch_sensor head_extruder1"]
+    assert print_control.active_head_sensors(names, "extruder1") == ["filament_switch_sensor head_extruder1"]
+    assert print_control.active_head_sensors(names, "extruder") == ["filament_switch_sensor head_extruder"]
+    assert print_control.active_head_sensors(names, None) == []

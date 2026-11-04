@@ -68,10 +68,32 @@ class NativeIdleTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, r"native printDuration == 0 \(observed 'not-a-number'\)"):
             require_idle(self.m, n)
 
+    def test_finished_job_states_are_idle_when_cold(self):
+        # 2026-11-04: a cancel left print.state "cancelled" and the next launch
+        # was refused until the printer was rebooted.
+        for state in ("cancelled", "complete"):
+            m = deepcopy(self.m)
+            m["print"]["state"] = state
+            self.assertTrue(require_idle(m, self.n), state)
+            self.assertTrue(require_idle_settled(lambda: m, lambda: self.n, timeout_s=0), state)
+
+    def test_finished_job_state_still_refused_when_hot(self):
+        m = deepcopy(self.m)
+        m["print"]["state"] = "cancelled"
+        m["extruder"]["target"] = 215
+        with self.assertRaisesRegex(RuntimeError, r"extruder\.target == 0"):
+            require_idle(m, self.n)
+
+    def test_error_state_is_not_idle(self):
+        m = deepcopy(self.m)
+        m["print"]["state"] = "error"
+        with self.assertRaises(RuntimeError):
+            require_idle(m, self.n)
+
     def test_rejection_names_moonraker_state_predicate(self):
         m = deepcopy(self.m)
         m['print']['state'] = 'printing'
-        with self.assertRaisesRegex(RuntimeError, r"Moonraker print.state == 'standby' \(observed 'printing'\)"):
+        with self.assertRaisesRegex(RuntimeError, r"Moonraker print.state is standby/complete/cancelled \(observed 'printing'\)"):
             require_idle(m, self.n)
 
     def test_malformed_values_fail_closed_with_diagnostic(self):

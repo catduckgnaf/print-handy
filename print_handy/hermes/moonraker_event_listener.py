@@ -564,13 +564,16 @@ def paused_message(filename, runout=False, slot=None, spool_id=None):
         which = f"IFS slot {slot}" if slot in (1, 2, 3, 4) else "The active slot"
         into = f"IFS slot {slot}" if slot in (1, 2, 3, 4) else "the active slot"
         spool = f" (spool #{spool_id})" if spool_id else ""
+        # The spool question is only opened when a slot is known (open_question), so
+        # promise it only then; otherwise this alert and the follow-up notice contradict.
+        asked = slot in (1, 2, 3, 4)
         extra = (f"Filament runout: {which}{spool} ran out of filament.\n"
                  "To finish this print:\n"
                  f"1. Load the replacement filament into {into} at the printer.\n"
-                 "2. Answer the spool question below (Existing spool or New spool) so the replacement "
-                 "spool is the one registered for that slot — filament usage stays paused for every "
-                 "spool until you answer.\n"
-                 "3. Tap Resume print below (or type /print-resume) once the filament is loaded. "
+                 + ("2. Answer the spool question below (Existing spool or New spool) so the replacement "
+                    "spool is the one registered for that slot — filament usage stays paused for every "
+                    "spool until you answer.\n3. " if asked else "2. ")
+                 + "Tap Resume print below (or type /print-resume) once the filament is loaded. "
                  "The print resumes only when you press it; nothing resumes on its own.")
     else:
         extra = (f"Paused at {where}. " if where else "") + "Fix it at the printer, then tap Resume or Cancel below (or type /print-resume or /print-stop)."
@@ -625,6 +628,11 @@ def attribute_runout_slot(newly_emptied, empty, mapped, fallback):
         present = sorted(set(empty) & set(mapped)) if mapped else sorted(set(empty))
         if len(present) == 1:
             return present[0]
+    if fallback is None and len(mapped or ()) == 1:
+        # No tracker history (a restart mid-print forgets which slots were
+        # loaded) and no saved active slot: a job launched on exactly one
+        # slot can only have run out of that slot.
+        return next(iter(mapped))
     return fallback
 
 
@@ -2688,6 +2696,69 @@ def _slot_bools(slots):
     return out
 
 
+class FailoverChannelWatch:
+    """Notices Zmod Infinity switching the feeding IFS channel mid-print (debounced).
+
+    Infinity mode loads "a similar rod" from another slot when one runs dry, with
+    no pause. Moonraker keeps charging the spool it was pointed at, so usage lands
+    on the empty spool. A channel change only counts once seen on two polls in a row.
+    """
+
+    def __init__(self, stable_samples=2):
+        self.stable_samples = stable_samples
+        self.reset()
+
+    def reset(self):
+        self.channel = None
+        self.candidate = None
+        self.count = 0
+
+    def observe(self, channel):
+        """Returns (old, new) once a different channel is stable, else None."""
+        if channel is None:
+            return None
+        if self.channel is None:
+            self.channel = channel
+            return None
+        if channel == self.channel:
+            self.candidate, self.count = None, 0
+            return None
+        if channel == self.candidate:
+            self.count += 1
+        else:
+            self.candidate, self.count = channel, 1
+        if self.count < self.stable_samples:
+            return None
+        old, self.channel = self.channel, channel
+        self.candidate, self.count = None, 0
+        return old, channel
+
+    def retry(self, change):
+        """Undo a reported change whose usage update failed, so a later poll reports it again.
+
+        The change is only consumed once usage is reconciled (review of #878):
+        a transient Moonraker error must not leave the empty spool charged.
+        """
+        old, new = change
+        if self.channel == new:
+            self.channel, self.candidate, self.count = old, None, 0
+
+
+def failover_usage_target(old_slot, new_slot, charged_spool, mapped):
+    """The spool to point usage at after a failover, or None to leave usage alone.
+
+    Only a single-spool job moves: Moonraker must be charging exactly the old
+    slot's spool. A multi-slot job charges no spool, and channel changes there are
+    ordinary tool changes. The new slot needs its own mapped spool.
+    """
+    old_spool, new_spool = mapped(old_slot), mapped(new_slot)
+    if charged_spool is None or old_spool is None or new_spool is None:
+        return None
+    if int(charged_spool) != int(old_spool) or int(new_spool) == int(old_spool):
+        return None
+    return int(new_spool)
+
+
 class MidPrintSlotTracker:
     """Debounced per-slot presence during a print. Reports emptied and refilled slots."""
 
@@ -2832,6 +2903,22 @@ def zmod_display_off(status):
     return mode if type(mode) is int and mode in (0, 1) else None
 
 
+def zmod_active_channel(status):
+    """The IFS channel Klipper reports as feeding (zmod_ifs.Chan, else zmod_color.channel), or None.
+
+    2026-11-04: a screenless AD5X ran slot 3 dry with no launch record and no saved active slot,
+    and every slot still read loaded (the tail was in the tube), so the runout named no slot.
+    Klipper reported Chan 3 the whole time. Only 1..4 count; 0 means nothing is loaded.
+    """
+    if not isinstance(status, dict):
+        return None
+    for obj, key in (("zmod_ifs", "Chan"), ("zmod_color", "channel")):
+        value = (status.get(obj) or {}).get(key) if isinstance(status.get(obj), dict) else None
+        if type(value) is int and 1 <= value <= 4:
+            return value
+    return None
+
+
 def zmod_slot_presence(status):
     """{slot: bool | None} from Klipper's zmod_color (screenless presence); see
     printers.flashforge.zmod.stock.read_zmod_color_slots, which mapped launch shares."""
@@ -2853,6 +2940,8 @@ class Listener:
                 feed_screen_runout_load(slot, spool_id, context),
             presence_fn=self.lane_presence)
         self.slot_tracker = MidPrintSlotTracker()
+        self.ifs_channel = None
+        self.failover_watch = FailoverChannelWatch()
         self.visual_watch = VisualPrintWatch()
         # #455: this printer's local-detector temporal escalation state;
         # reset wherever visual_watch is (new file, fresh start, print end).
@@ -2910,8 +2999,9 @@ class Listener:
         """(stock /detail or None, {slot: present}). Screenless ZMod has no stock API; Klipper has the slots."""
         from print_handy.core import printer_state
         from print_handy.core import model_job
-        reply = await asyncio.to_thread(print_control._call, "/printer/objects/query?zmod_color&save_variables")
+        reply = await asyncio.to_thread(print_control._call, "/printer/objects/query?zmod_color&zmod_ifs&save_variables")
         status = (reply.get("result") or {}).get("status") or {}
+        self.ifs_channel = zmod_active_channel(status)
         self.display_off = zmod_display_off(status)
         if self.display_off == 1:
             return None, zmod_slot_presence(status)
@@ -2933,7 +3023,7 @@ class Listener:
                 post,
                 f"**Filament check:** the filament for {clean(self.filename or 'this print')} "
                 f"{'ran out' if cause == 'runout' else 'was unloaded and reloaded mid-print'}, "
-                "but this printer has no IFS slot to ask about, so there is no spool "
+                "but no IFS slot could be identified, so there is no spool "
                 "question to answer and filament usage has **not** been paused. If you "
                 "loaded a different spool, point usage at it with `/spool` so the "
                 "amounts stay right.")
@@ -3104,6 +3194,8 @@ class Listener:
                 elif not key and detail is not None and self.native_error_alerted is not None:
                     self.native_error_alerted = None
                     save_native_error_alerted(None)
+                if self.state == "printing":
+                    await self.follow_failover(self.failover_watch.observe(self.ifs_channel))
                 for event, slot in self.slot_tracker.observe(slots):
                     log(f"mid-print slot {slot} {event}")
                     if event == "refilled":
@@ -3138,6 +3230,51 @@ class Listener:
             log("native filament presence poll recovered")
         self.presence_failure = failure
 
+    def failover_retry(self, change):
+        watch = getattr(self, "failover_watch", None)
+        if watch is not None:
+            watch.retry(change)
+
+    @property
+    def failover_failures_posted(self):
+        posted = self.__dict__.get("_failover_failures_posted")
+        if posted is None:
+            posted = self.__dict__["_failover_failures_posted"] = set()
+        return posted
+
+    async def follow_failover(self, change):
+        """Point usage at the replacement spool when Infinity switched channels on a one-spool job."""
+        if not change:
+            return
+        old, new = change
+        from . import spool_sync
+        try:
+            charged = await asyncio.to_thread(spool_sync.active_usage_spool)
+        except Exception as exc:
+            log(f"failover: active spool read failed, retrying on a later poll: {exc!r}")
+            self.failover_retry(change)
+            return
+        target = failover_usage_target(old, new, charged, _mapped_spool)
+        log(f"failover: IFS channel {old}->{new} charged={charged} target={target}")
+        if target is None:
+            return
+        try:
+            await asyncio.to_thread(spool_sync.resume_usage, target)
+        except Exception as exc:
+            log(f"failover: usage repoint failed, retrying on a later poll: {exc!r}")
+            self.failover_retry(change)
+            if change in self.failover_failures_posted:
+                return
+            self.failover_failures_posted.add(change)
+            await asyncio.to_thread(post, (
+                f"**Filament failover:** the printer switched from IFS slot {old} to slot {new} "
+                f"for {clean(self.filename or 'this print')}, but filament usage could not be moved to "
+                f"spool #{target} ({exc}). Spool #{charged} may keep being charged."))
+            return
+        await asyncio.to_thread(post, (
+            f"**Filament failover:** slot {old} ran out and the printer switched to slot {new} on its own. "
+            f"Filament usage now goes to spool #{target} (was #{charged})."))
+
     async def classify_runout(self):
         """Pause cause from the alert text, the head sensor, and a fresh slot read.
 
@@ -3164,6 +3301,9 @@ class Listener:
             slot = attribute_runout_slot(self.slot_tracker.emptied, empty,
                                          launch_mapped_slots(self.filename),
                                          recovery_slot(self.filename)[0])
+            if slot is None:
+                # Nothing else named it: the channel Klipper says is feeding is the one that ran dry.
+                slot = self.ifs_channel
         head_has_filament = await asyncio.to_thread(read_head_sensor)
         if slot is None and head_has_filament is False:
             # The head sensor names no slot; the job's own slot is the one that fed it.
@@ -3399,6 +3539,7 @@ class Listener:
                 self.last_pause_was_runout = False
             else:
                 self.slot_tracker.reset()
+                self.failover_watch.reset()
                 self.visual_watch.reset()
                 self.local_streak.reset()
                 if duplicate_start:
@@ -3516,6 +3657,7 @@ class Listener:
     async def after_print(self, new_state):
         """Screen updates deferred during the print, then the next queued copy prompt."""
         self.slot_tracker.reset()
+        self.failover_watch.reset()
         try:
             from . import spool_sync
             # A listener instance (#336) flushes only its own printer's

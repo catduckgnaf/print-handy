@@ -16,6 +16,12 @@ def _native_zero(value):
     return (not isinstance(value, bool) and isinstance(value, (int, float)) and value == 0)
 
 
+# Klipper keeps print_stats.state at the finished job's outcome (complete or
+# cancelled) until the next print starts; heaters are checked separately, so
+# those count as idle. "error" stays refused: it needs a human first.
+IDLE_PRINT_STATES = frozenset({"standby", "complete", "cancelled"})
+
+
 def _idle_failures(moonraker, native):
     """Return failed idle predicates and observed values, failing closed on malformed data."""
     from ....core.clear_job import IDLE_NATIVE
@@ -27,8 +33,8 @@ def _idle_failures(moonraker, native):
     bed = moonraker.get("bed")
     checks = (
         ("Moonraker webhooks.state == 'ready'", moonraker.get("state"), lambda value: value == "ready"),
-        ("Moonraker print.state == 'standby'", print_stats.get("state") if isinstance(print_stats, dict) else None,
-         lambda value: value == "standby"),
+        ("Moonraker print.state is standby/complete/cancelled", print_stats.get("state") if isinstance(print_stats, dict) else None,
+         lambda value: value in IDLE_PRINT_STATES),
         ("Moonraker extruder.target == 0", extruder.get("target") if isinstance(extruder, dict) else None, _zero),
         ("Moonraker bed.target == 0", bed.get("target") if isinstance(bed, dict) else None, _zero),
         ("native status is ready/cancel/cancelled", native.get("status"), lambda value: value in IDLE_NATIVE),
@@ -66,7 +72,7 @@ def require_idle_screenless(read_moonraker):
     """Idle gate for screenless ZMod (display_off=1), where the stock firmware is not running.
 
     The native predicates have no source there (its /detail API refuses), so
-    every Moonraker predicate must pass: webhooks ready, print standby, both
+    every Moonraker predicate must pass: webhooks ready, print idle, both
     heater targets 0. Nothing is waited out: a screenless cancel leaves no
     native job residue to settle.
     """
@@ -88,7 +94,7 @@ def require_idle_settled(read_moonraker, read_native, timeout_s=90, interval_s=5
         moonraker, native = read_moonraker(), read_native()
         m = moonraker if isinstance(moonraker, dict) else {}
         n = native if isinstance(native, dict) else {}
-        if m.get('state') != 'ready' or (isinstance(m.get('print'), dict) and m['print'].get('state') not in ('standby',)):
+        if m.get('state') != 'ready' or (isinstance(m.get('print'), dict) and m['print'].get('state') not in IDLE_PRINT_STATES):
             raise RuntimeError("REFUSED: idle guard failed: Moonraker reports active execution")
         if n.get('errorCode') not in ('', None):
             raise RuntimeError("REFUSED: idle guard failed: native errorCode is non-empty")

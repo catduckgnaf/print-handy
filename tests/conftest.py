@@ -77,6 +77,20 @@ def _isolated_launch_state(tmp_path, monkeypatch):
     monkeypatch.setenv("PRINT_HANDY_LAUNCH_DB", str(tmp_path / "print_handy_launches.sqlite3"))
 
 
+@pytest.fixture(autouse=True)
+def _head_sensor_unknown(request, monkeypatch):
+    """Resume's toolhead-sensor gate reads 'unknown' (no extra printer calls) unless a test opts in
+    with @pytest.mark.real_head_sensor to exercise the sensor read itself."""
+    if request.node.get_closest_marker("real_head_sensor"):
+        return
+    from print_handy.hermes import print_control
+    monkeypatch.setattr(print_control, "head_filament_loaded", lambda printer_id=None: None)
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "real_head_sensor: run print_control's real toolhead sensor read")
+
+
 class _FakeStartClock:
     """A start-confirmation window that costs no wall time: each sleep advances the clock."""
 

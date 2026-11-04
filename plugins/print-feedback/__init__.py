@@ -2342,16 +2342,25 @@ def _answer_spool_question(listener, spool_sync, context, choice):
     context = current
     slot = context.get('slot')
     prior = context.get('prior_spool_id')
+    created = ''
     if choice['status'] == 'same':
         keep = prior or context.get('suspended_spool_id')
         if not keep:
             raise spool_sync.SpoolError('I do not know which spool was there before; reply with its number')
-        spool_sync.resume_usage(int(keep))
-        listener.clear_runout_pause()
-        return f'Got it, same spool #{keep}. Usage tracking is back on #{keep}.'
+        if context.get('cause') != 'runout':
+            spool_sync.resume_usage(int(keep))
+            listener.clear_runout_pause()
+            return f'Got it, same spool #{keep}. Usage tracking is back on #{keep}.'
+        # A runout's "same" is a new roll of the same product: the old spool is
+        # empty, so charging it on would leave Spoolman wrong. Clone, then bind
+        # below exactly like a New spool answer (the old one goes depleted).
+        if slot not in (1, 2, 3, 4):
+            raise spool_sync.SpoolError('I could not tell which slot changed; use `/spool change <slot> <spool#>`')
+        made = spool_sync.fresh_spool_like(int(keep))
+        choice = {'status': 'existing', 'spool_id': int(made['spool_id'])}
+        created = f"Created spool #{made['spool_id']}, a new {made['grams']:g} g roll like #{keep}. "
     if slot not in (1, 2, 3, 4):
         raise spool_sync.SpoolError('I could not tell which slot changed; use `/spool change <slot> <spool#>`')
-    created = ''
     if choice['status'] == 'new':
         # Parsed-color sanity (#792 part 2): a text answer that parses to
         # multiple colors or a fragment is not minted unconfirmed. The
@@ -5678,7 +5687,12 @@ def alert_button_handlers(bot, adapter):
                                              alert.get('context') or {}, {'status': 'same'})
         except Exception as exc:
             logger.exception('same spool-question answer failed')
-            await interaction.followup.send('Nothing was changed. Check what you entered and try again.', ephemeral=True)
+            # A Same answer creates the fresh roll before binding it: when the
+            # bind fails, name the created spool instead of "nothing changed",
+            # or the retry it invites adds another roll (review of #878).
+            await interaction.followup.send(
+                str(exc) if getattr(exc, 'spool_created', None)
+                else 'Nothing was changed. Check what you entered and try again.', ephemeral=True)
             return
         await interaction.followup.send(result)
 

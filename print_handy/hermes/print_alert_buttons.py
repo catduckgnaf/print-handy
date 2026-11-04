@@ -239,7 +239,8 @@ def insertion_components(aid: str) -> list[dict[str, Any]]:
     ]}]
 
 
-def spool_question_components(aid: str, prior_spool_id: int | None = None) -> list[dict[str, Any]]:
+def spool_question_components(aid: str, prior_spool_id: int | None = None,
+                              cause: str | None = None) -> list[dict[str, Any]]:
     """Answers for a paused runout or swap question.
 
     Same/Existing/New are inventory-only. Cancel print is the one actuating
@@ -248,7 +249,9 @@ def spool_question_components(aid: str, prior_spool_id: int | None = None) -> li
     """
     buttons = []
     if prior_spool_id is not None:
-        buttons.append({"type": 2, "style": 2, "label": "Same spool",
+        # After a runout the old roll is empty: "same" means a fresh roll of it.
+        buttons.append({"type": 2, "style": 2,
+                        "label": "New roll, same filament" if cause == "runout" else "Same spool",
                         "custom_id": f"{SPOOL_QUESTION_PREFIX}:same:{aid}"})
     buttons.extend([
         {"type": 2, "style": 1, "label": "Existing spool",
@@ -361,7 +364,8 @@ def post_spool_question(token: str, channel_id: str, content: str, context: dict
         return None
     aid = record("spool-question", "", context=dict(context or {}), message_id=message_id or "")
     body = json.dumps({"content": content[:1990],
-                       "components": spool_question_components(aid, context.get("prior_spool_id")),
+                       "components": spool_question_components(aid, context.get("prior_spool_id"),
+                                                                 context.get("cause")),
                        "allowed_mentions": {"parse": []}}).encode()
     url = f"{rest.API}/channels/{channel_id}/messages"
     method = "POST"
@@ -1432,7 +1436,7 @@ def handle_click(action: str, alert: dict[str, Any] | None, *,
     st = pc.status()
     if action == "resume":
         ok, msg = pc.resume(filename)
-        if not ok and "still reports paused" in msg:
+        if not ok and ("still reports paused" in msg or msg == pc.HEAD_EMPTY_TEXT):
             # #837: resume was sent but the printer is still paused, and
             # the claimed alert's buttons are gone — re-post the paused
             # alert so the operator still has Resume/Cancel in chat.
