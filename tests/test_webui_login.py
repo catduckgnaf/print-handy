@@ -86,6 +86,22 @@ class LoginTests(unittest.TestCase):
         self.assertEqual(code, 303)
         return session_cookie_pair(headers["set-cookie"])
 
+    def test_repeated_wrong_logins_are_locked_out_even_for_the_right_token(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd, port, _local, _environ = self.start(
+                tmp, environ={"WEBUI_ACCESS_TOKEN": TOKEN})
+            for _ in range(5):
+                code, _h, _b = self.login(port, token=WRONG)
+                self.assertEqual(code, 401)
+            code, headers, _b = self.login(port, token=WRONG)
+            self.assertEqual(code, 429)
+            self.assertGreater(int(headers["retry-after"]), 0)
+            code, _h, _b = self.login(port)  # correct token, still locked
+            self.assertEqual(code, 429)
+            httpd.login_throttle._locked.clear()
+            code, _h, _b = self.login(port)
+            self.assertEqual(code, 303)
+
     # -- the login flow ------------------------------------------------------
 
     def test_browser_navigation_redirects_to_login(self):
@@ -291,3 +307,40 @@ class LoginTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LoginThrottleTests(unittest.TestCase):
+    """Failed-login backoff (promotion audit phase 3): unit level, no server."""
+
+    def make(self):
+        from print_handy.webui.access import LoginThrottle
+        self.now = [0.0]
+        return LoginThrottle(max_failures=3, window_s=100, lockout_s=30,
+                             max_entries=4, clock=lambda: self.now[0])
+
+    def test_locks_after_limit_then_expires(self):
+        t = self.make()
+        for _ in range(2):
+            t.record_failure("a")
+        self.assertEqual(t.retry_after("a"), 0)
+        t.record_failure("a")
+        self.assertGreater(t.retry_after("a"), 0)
+        self.assertEqual(t.retry_after("b"), 0)  # other addresses unaffected
+        self.now[0] = 31
+        self.assertEqual(t.retry_after("a"), 0)
+
+    def test_failures_outside_window_do_not_count(self):
+        t = self.make()
+        t.record_failure("a"); t.record_failure("a")
+        self.now[0] = 200
+        t.record_failure("a")
+        self.assertEqual(t.retry_after("a"), 0)
+
+    def test_success_clears_and_table_is_bounded(self):
+        t = self.make()
+        t.record_failure("a"); t.record_success("a")
+        self.assertEqual(t._failures.get("a"), None)
+        for i in range(50):
+            t.record_failure(f"ip{i}")
+        self.assertLessEqual(len(t._failures), 4)
+
