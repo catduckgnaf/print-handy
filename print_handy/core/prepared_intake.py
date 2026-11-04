@@ -1225,6 +1225,7 @@ async def announce_interrupted(root, adapter, now=None):
         paths = sorted(root.glob('*.json'))
     except OSError:
         return announced
+    stranded = {}  # (chat, thread) -> intake ids; one restart is one notice per conversation
     for path in paths:
         try:
             receipt = json.loads(path.read_text())
@@ -1240,16 +1241,20 @@ async def announce_interrupted(root, adapter, now=None):
             path.write_text(json.dumps(receipt, indent=2) + '\n')
         except OSError:
             continue
-        thread = receipt.get('thread_id')
+        key = (str(receipt['chat_id']), receipt.get('thread_id'))
+        stranded.setdefault(key, []).append(receipt.get('intake_id') or path.stem)
+        announced.append(receipt.get('intake_id') or path.stem)
+    for (chat_id, thread), ids in stranded.items():
+        what = 'that model' if len(ids) == 1 else f'{len(ids)} models'
+        again = 'the link or file' if len(ids) == 1 else 'each link or file'
         try:
             await adapter.send(
-                chat_id=str(receipt['chat_id']), metadata={'thread_id': thread} if thread else None,
-                content='Print Handy restarted while it was preparing that model, so the preparation '
-                        'stopped. No slice was finished, and nothing was uploaded or started. '
-                        'Send the link or file again to start over.')
+                chat_id=chat_id, metadata={'thread_id': thread} if thread else None,
+                content=f'Print Handy restarted while it was preparing {what}, so the preparation '
+                        f'stopped. No slice was finished, and nothing was uploaded or started. '
+                        f'Send {again} again to start over.')
         except Exception:
             logger.warning('could not post the interrupted-intake note', exc_info=True)
-        announced.append(receipt.get('intake_id') or path.stem)
     return announced
 
 

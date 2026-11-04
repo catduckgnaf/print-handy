@@ -67,3 +67,15 @@ def test_only_stranded_receipts_are_announced(tmp_path):
 
 def test_missing_folder_is_fine(tmp_path):
     assert announce(tmp_path / 'absent', Adapter()) == []
+
+
+def test_two_stranded_intakes_in_one_chat_get_one_notice(tmp_path):
+    receipt(tmp_path, 'a')
+    receipt(tmp_path, 'b')
+    receipt(tmp_path, 'c', chat_id='200')
+    adapter = Adapter()
+    assert sorted(announce(tmp_path, adapter)) == ['a', 'b', 'c']
+    by_chat = {chat: text for chat, text, _ in adapter.sent}
+    assert len(adapter.sent) == 2 and set(by_chat) == {'100', '200'}
+    assert '2 models' in by_chat['100'] and 'that model' in by_chat['200']
+    assert announce(tmp_path, adapter) == [] and len(adapter.sent) == 2
