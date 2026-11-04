@@ -430,3 +430,81 @@ class RunoutAlertPromisesOnlyWhatItDelivers(unittest.TestCase):
         self.assertIn("IFS slot 3", text)
         self.assertIn("2. Answer the spool question", text)
         self.assertIn("3. Tap Resume print", text)
+
+
+class ScreenlessChannelNamesTheSlot(ListenerRunoutCase):
+    """2026-11-04: screenless AD5X, no launch record, no saved active slot, every slot still
+    read loaded, head sensor empty. Klipper's zmod_ifs.Chan said 3 the whole time."""
+
+    def test_active_channel_reading(self):
+        self.assertEqual(mel.zmod_active_channel({"zmod_ifs": {"Chan": 3}}), 3)
+        self.assertEqual(mel.zmod_active_channel({"zmod_color": {"channel": 2}}), 2)
+        self.assertEqual(mel.zmod_active_channel({"zmod_ifs": {"Chan": 0}, "zmod_color": {"channel": 4}}), 4)
+        for status in ({"zmod_ifs": {"Chan": 0}}, {"zmod_ifs": {"Chan": 5}}, {"zmod_ifs": {"Chan": True}},
+                       {"zmod_ifs": "x"}, {}, None):
+            self.assertIsNone(mel.zmod_active_channel(status), status)
+
+    async def test_channel_names_the_slot_when_nothing_else_does(self):
+        self.hardware.write_text(json.dumps({"active_slot": None, "filament_slots": {}}))
+        lis = self.listener({1: True, 2: True, 3: True, 4: True}, head=False)
+
+        async def read_slots():
+            lis.ifs_channel = 3
+            return {}, {1: True, 2: True, 3: True, 4: True}
+        lis.read_slots = read_slots
+        self.assertEqual(await lis.classify_runout(), (True, 3))
+
+    async def test_presence_evidence_still_beats_the_channel(self):
+        lis = self.listener({1: True, 2: False}, head=False)
+        lis.slot_tracker.observe({1: True, 2: True})  # slot 2 was loaded when the print started
+
+        async def read_slots():
+            lis.ifs_channel = 1
+            return {}, {1: True, 2: False}
+        lis.read_slots = read_slots
+        self.assertEqual(await lis.classify_runout(), (True, 2))
+
+
+class InfinityFailoverMovesUsage(ListenerRunoutCase):
+    """Zmod Infinity loads a similar spool from another slot with no pause; usage must follow it."""
+
+    def test_watch_debounces_and_reports_a_stable_switch(self):
+        w = mel.FailoverChannelWatch()
+        self.assertIsNone(w.observe(3))
+        self.assertIsNone(w.observe(None))
+        self.assertIsNone(w.observe(2))   # one poll is a blip
+        self.assertIsNone(w.observe(3))
+        self.assertIsNone(w.observe(2))
+        self.assertEqual(w.observe(2), (3, 2))
+        self.assertIsNone(w.observe(2))
+
+    def test_target_only_for_the_charged_single_spool(self):
+        mapped = {1: 16, 2: 19, 3: 20, 4: 12}.get
+        self.assertEqual(mel.failover_usage_target(3, 2, 20, mapped), 19)
+        self.assertIsNone(mel.failover_usage_target(3, 2, None, mapped))   # multi-slot job: no spool charged
+        self.assertIsNone(mel.failover_usage_target(3, 2, 16, mapped))     # charging some other spool
+        self.assertIsNone(mel.failover_usage_target(3, 5, 20, mapped))     # replacement slot unmapped
+        self.assertIsNone(mel.failover_usage_target(3, 2, 20, {3: 20, 2: 20}.get))
+
+    async def test_follow_failover_repoints_usage_and_says_so(self):
+        from print_handy.hermes import spool_sync
+        self.hardware.write_text(json.dumps({"filament_slots": {
+            "2": {"spoolman_id": 19}, "3": {"spoolman_id": 20}}}))
+        lis = self.listener({}, head=None)
+        posts = []
+        with mock.patch.object(spool_sync, "active_usage_spool", return_value=20), \
+             mock.patch.object(spool_sync, "resume_usage") as resume, \
+             mock.patch.object(mel, "post", posts.append):
+            await lis.follow_failover((3, 2))
+        resume.assert_called_once_with(19)
+        self.assertIn("spool #19", posts[0])
+
+    async def test_follow_failover_leaves_a_multi_slot_job_alone(self):
+        from print_handy.hermes import spool_sync
+        lis = self.listener({}, head=None)
+        with mock.patch.object(spool_sync, "active_usage_spool", return_value=None), \
+             mock.patch.object(spool_sync, "resume_usage") as resume, \
+             mock.patch.object(mel, "post") as post:
+            await lis.follow_failover((1, 2))
+        resume.assert_not_called()
+        post.assert_not_called()

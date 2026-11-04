@@ -796,3 +796,15 @@ def test_retire_alerts_legacy_unscoped_alert_retires_for_the_default_printer_onl
         assert pab.retire_alerts("token", "f.gcode", "Closed.", ("paused",),
                                  printer_id="printer-a") == 1
         assert pab.peek(legacy) is None
+
+
+def test_resume_click_with_empty_head_reposts_paused_alert():
+    """2026-11-04: a Resume tap while the head sensor reads empty sends nothing and keeps the buttons."""
+    from print_handy.hermes import print_alert_buttons as pab, print_control as pc
+    alert = {"filename": "foo.gcode"}
+    with patch.object(pc, "status", return_value={"state": "paused", "klippy": "ready", "filename": "foo.gcode"}), \
+         patch.object(pc, "resume", return_value=(False, pc.HEAD_EMPTY_TEXT)), \
+         patch.object(pab, "_repost_alert") as repost:
+        msg = pab.handle_click("resume", alert)
+    assert msg == pc.HEAD_EMPTY_TEXT
+    repost.assert_called_once()

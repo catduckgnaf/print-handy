@@ -1432,7 +1432,7 @@ def handle_click(action: str, alert: dict[str, Any] | None, *,
     st = pc.status()
     if action == "resume":
         ok, msg = pc.resume(filename)
-        if not ok and "still reports paused" in msg:
+        if not ok and ("still reports paused" in msg or msg == pc.HEAD_EMPTY_TEXT):
             # #837: resume was sent but the printer is still paused, and
             # the claimed alert's buttons are gone — re-post the paused
             # alert so the operator still has Resume/Cancel in chat.

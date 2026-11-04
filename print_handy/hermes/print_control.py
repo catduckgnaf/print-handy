@@ -18,6 +18,7 @@ import json
 import os
 import re
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -213,14 +214,67 @@ def not_resumable_text(st: dict[str, Any]) -> str:
     return f"Nothing paused to resume (printer is {st.get('state')}). Nothing sent.\n{INTERRUPTED_HINT}"
 
 
+HEAD_EMPTY_TEXT = (
+    "The toolhead filament sensor still reads empty, so filament has not reached the head. "
+    "Resuming now would only pause again. Feed the filament at the printer until it reaches "
+    "the toolhead, then tap Resume. Nothing sent."
+)
+
+
+def head_switch_sensors(objects: Any) -> list[str]:
+    """Switch sensors that sit at the toolhead: named ``head`` when any are, else all on a one-extruder printer.
+
+    Motion sensors are left out: they read empty whenever filament is not
+    moving, which is always the case while paused.
+    """
+    if not isinstance(objects, list):
+        return []
+    switches = [o for o in objects if isinstance(o, str) and o.startswith("filament_switch_sensor ")]
+    head = [o for o in switches if "head" in o.split(" ", 1)[1].lower()]
+    if head:
+        return head
+    multi = any(isinstance(o, str) and re.fullmatch(r"extruder\d+", o) for o in objects)
+    return [] if multi else switches
+
+
+def head_filament_loaded(printer_id: str | None = None) -> bool | None:
+    """False when an enabled toolhead switch sensor reads empty; True when all read loaded; None when unknown.
+
+    Read only. 2026-11-04: three resumes were sent while the head sensor
+    still read empty after a runout, and each one paused again at once.
+    """
+    try:
+        listing = _send("/printer/objects/list", printer_id=printer_id)
+        names = head_switch_sensors((listing.get("result") or {}).get("objects"))
+        if not names:
+            return None
+        query = "&".join(urllib.parse.quote(n, safe="") for n in names)
+        data = _send(f"/printer/objects/query?{query}", printer_id=printer_id)
+        st = (data.get("result") or {}).get("status") or {}
+    except Exception:
+        return None
+    readings = [s.get("filament_detected") for s in (st.get(n) for n in names)
+                if isinstance(s, dict) and s.get("enabled") is True
+                and isinstance(s.get("filament_detected"), bool)]
+    if not readings:
+        return None
+    return all(readings)
+
+
 def resume(expected_filename: str = "", wait_s: float = 20, poll_s: float = 1.0,
            printer_id: str | None = None) -> tuple[bool, str]:
-    """One Moonraker resume for the confirmed paused file, then read back. Never retried."""
+    """One Moonraker resume for the confirmed paused file, then read back. Never retried.
+
+    Refused without sending when the toolhead filament sensor reads empty.
+    An unreadable sensor does not block the resume.
+    """
     before = status(printer_id)
     if not resumable(before):
         return False, not_resumable_text(before)
     if expected_filename and before["filename"] and before["filename"] != expected_filename:
         return False, "A different print is paused than the one you confirmed. Nothing sent."
+    if head_filament_loaded(printer_id) is False:
+        return False, HEAD_EMPTY_TEXT
     _send("/printer/print/resume", method="POST", timeout=15, printer_id=printer_id)
     deadline = time.monotonic() + wait_s
     after = before
