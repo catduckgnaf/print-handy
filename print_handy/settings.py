@@ -160,6 +160,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("prusa", "link_host"): str, ("prusa", "api_key_env"): str,
                  ("discord", "denied_user_ids"): str,
                  ("discord", "chat_llm_enabled"): bool,
+                 ("discord", "approval_all_users"): bool,
                  ("discord", "clarify_ui"): bool,
                  ("elegoo_sdcp", "host"): str,
                  ("purge", "flush_multiplier"): float}
