@@ -1124,16 +1124,23 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     identity_single = bool(color_decisions and color_decisions.get('mode') == 'single_color'
                            and getattr(printer, 'multi_tool', False)
                            and source.suffix.lower() == '.3mf')
+    # A single-color decision that chose pauses at the height color changes
+    # (#870) slices through the geometry export too: the export writes the
+    # changes as pauses on the one tool, where the plain STL path would drop
+    # them without a word.
+    pause_single = bool(color_decisions and color_decisions.get('mode') == 'single_color'
+                        and color_decisions.get('height_colors') == 'pause'
+                        and source.suffix.lower() == '.3mf')
     if rotation is not None and identity_single and not (preserve_layout or item_shifts):
         # The identity export carries per-object fits only; a whole-model rotation would not reach
         # the per-toolhead geometry, so refuse with the real reason (2.2.5 review).
         raise ValueError('rotation is not supported when a single-color pick slices a 3MF on a multi-tool '
                          "printer's toolhead")
-    if rotation is not None and (preserve_layout or item_shifts or identity_single or
+    if rotation is not None and (preserve_layout or item_shifts or identity_single or pause_single or
                                  (color_decisions and color_decisions.get('mode') == 'per_part')):
         raise ValueError('rotation is only supported for whole-model single-color slicing')
     if fit_by_object is not None and not (color_decisions and color_decisions.get('mode') == 'per_part') \
-            and not identity_single:
+            and not identity_single and not pause_single:
         raise ValueError('fit_by_object is only supported for per-part color decisions')
     folder.mkdir(parents=True, exist_ok=True)
     machine, process, filament = [json.loads((templates / f'{name}.json').read_text()) for name in ('machine', 'process', 'filament')]
@@ -1194,7 +1201,21 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                                                   _per_part_view(inventory(source), color_decisions),
                                                   item_shifts=item_shifts, object_ids=object_ids,
                                                   scale=scale, fit_by_object=fit_by_object,
-                                                  identity_tools=True, tower_mm=tower_mm)
+                                                  identity_tools=True, tower_mm=tower_mm,
+                                                  layer_mode='pause' if pause_single else None)
+        author = author_settings.read(source)
+    elif pause_single:
+        # One extruder, manual swaps: every part on the picked slot, and the
+        # height color changes written as pauses at their heights (#870).
+        from .color_geometry import export_color_geometry
+        from .model_job import _per_part_view
+        input_path = folder / 'geometry.3mf'
+        mapping, geometry = export_color_geometry(source, input_path,
+                                                  _per_part_view(inventory(source), color_decisions),
+                                                  item_shifts=item_shifts, object_ids=object_ids,
+                                                  scale=scale, fit_by_object=fit_by_object,
+                                                  identity_tools=False, tower_mm=tower_mm,
+                                                  layer_mode='pause')
         author = author_settings.read(source)
     elif source.suffix.lower() == '.3mf' and not preserve_layout:
         author = author_settings.read(source)
@@ -1214,6 +1235,18 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             author = author_settings.read(source)
         input_path = source
         geometry = {'policy': 'derived plate; documented translation preserved; no arrange', 'source_sha256': digest(source)}
+    if (color_decisions and color_decisions.get('mode') == 'single_color' and not pause_single
+            and source.suffix.lower() == '.3mf'):
+        # A one-color job on a height-color source drops the changes; the
+        # slice record names them instead of letting them vanish (#870).
+        from . import layer_gcode
+        changes = layer_gcode.tool_changes(layer_gcode.read(source))
+        if changes:
+            heights = ', '.join(f"{row['top_z']:g} mm" if row['top_z'] is not None else 'an unnamed height'
+                                for row in changes)
+            geometry['height_color_changes'] = (
+                f"dropped: {len(changes)} height-based color change(s) at {heights}; "
+                'this job prints in one color')
     if brim_policy is not None:
         geometry['fit_brim_policy'] = json.dumps(brim_policy, sort_keys=True)
     # Preserve author structural intent, not P1S motion/material calibration: the kept keys, enum-checked

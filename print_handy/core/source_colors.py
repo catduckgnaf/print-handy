@@ -376,11 +376,13 @@ def inventory(path):
     if path.suffix.lower() != '.3mf':
         # Non-3MF sources have no palette, but every decision is still bound to the file bytes.
         res = {'source_sha256': __import__('hashlib').sha256(path.read_bytes()).hexdigest(),
-               'parts': [], 'filaments': [], 'painted': False, 'requires_choices': False}
+               'parts': [], 'filaments': [], 'painted': False, 'requires_choices': False,
+               'layer_changes': [], 'layer_extras': []}
         _append_filament_stats(path, res)
         return res
     parts, filaments, painted, cutters = [], [], False, []
     face_colors = False
+    layer_entries = []
     with zipfile.ZipFile(path) as archive:
         names = archive.namelist()
         if 'Metadata/project_settings.config' in names:
@@ -467,10 +469,29 @@ def inventory(path):
             for part in parts:
                 if part.get('source_extruder') is None:
                     part['source_extruder'] = 1
+        # Height-based color changes (#870): per-layer tool changes are colors
+        # in their own right. An extruder they switch to that the palette does
+        # not name joins the palette with the color the entry itself carries,
+        # so the change can be asked about like any other source color.
+        from . import layer_gcode
+        if layer_gcode.MEMBER in names:
+            layer_entries = layer_gcode.parse(archive.read(layer_gcode.MEMBER))
+        known = {f.get('source_extruder') for f in filaments}
+        for row in layer_gcode.tool_changes(layer_entries):
+            ext = row['source_extruder']
+            if ext and ext not in known:
+                known.add(ext)
+                filaments.append({'source_extruder': ext, 'color': row['color'], 'material': None})
+    layer_changes = [{'plate': row['plate'], 'top_z': row['top_z'],
+                      'source_extruder': row['source_extruder'], 'color': row['color']}
+                     for row in layer_gcode.tool_changes(layer_entries)]
+    layer_extras = [{'plate': row['plate'], 'top_z': row['top_z'], 'kind': row['kind']}
+                    for row in layer_entries if row['kind'] != 'tool_change']
     res = {'source_sha256': __import__('hashlib').sha256(path.read_bytes()).hexdigest(),
            'parts': parts, 'cutters': cutters, 'filaments': filaments, 'painted': painted,
            'face_colors_ignored': face_colors,
-           'requires_choices': painted or len(parts) > 1 or len(filaments) > 1}
+           'layer_changes': layer_changes, 'layer_extras': layer_extras,
+           'requires_choices': painted or len(parts) > 1 or len(filaments) > 1 or bool(layer_changes)}
     _append_filament_stats(path, res)
     return res
 
@@ -669,6 +690,35 @@ def canonical_prompts(manifest):
         rows.append({'key': 'part:' + p['key'],
                      'question': f"Choose the color/material for {_prompt_name(p)}{stat_suffix}",
                      'source_extruder': p['source_extruder']})
+    # Height-based color changes (#870): an extruder the per-layer tool
+    # changes switch to is a color question in its own right, alongside the
+    # part colors. An extruder a part already asks about needs no second row.
+    covered = {p.get('source_extruder') for p in manifest['parts']}
+    filaments = {f.get('source_extruder'): f for f in manifest.get('filaments') or []}
+    for row in manifest.get('layer_changes') or []:
+        ext = row.get('source_extruder')
+        if not ext or ext in covered:
+            continue
+        covered.add(ext)
+        filament = filaments.get(ext) or {}
+        color = str(filament.get('color') or row.get('color') or '').strip()
+        material = str(filament.get('material') or 'unknown material').strip()
+        if not color:
+            raise ValueError('Height-based color changes cannot be distinguished by their color/material '
+                             'labels; preparation requires a source with identifiable regions or separate '
+                             'named parts')
+        try:
+            from . import part_translator
+            name = part_translator.named_color(color)
+        except Exception:
+            name = color
+        heights = sorted({r['top_z'] for r in manifest['layer_changes']
+                          if r.get('source_extruder') == ext and r.get('top_z') is not None})
+        where = f" at {' and '.join(f'{z:g} mm' for z in heights)}" if heights else ''
+        rows.append({'key': f'filament:{ext}',
+                     'question': f"Choose the loaded color/material for the height-based color change to "
+                                 f"{name.title()} ({color}, {material}){where}",
+                     'source_extruder': ext})
     if manifest['painted'] and not manifest['parts']:
         palette = manifest['filaments']
         labels = [(str(f.get('color') or '').strip(), str(f.get('material') or 'unknown material').strip())
@@ -715,6 +765,9 @@ def distinct_source_colours(manifest):
     """
     filaments = {f.get('source_extruder'): f for f in manifest.get('filaments') or []}
     used = {p.get('source_extruder') for p in manifest.get('parts') or [] if p.get('source_extruder')}
+    # Height-based color changes print with their extruders too (#870).
+    used |= {row.get('source_extruder') for row in manifest.get('layer_changes') or []
+             if row.get('source_extruder')}
     if manifest.get('painted'):
         used |= {ext for ext in filaments if ext}
     colours = set()
@@ -723,6 +776,26 @@ def distinct_source_colours(manifest):
         colours.add((str(filament.get('color') or '').strip().casefold(),
                      str(filament.get('material') or '').strip().casefold()))
     return colours
+
+
+def layer_change_summary(manifest):
+    """Plain sentence naming a source's height-based color changes (#870):
+    each switch with its height and the color it switches to, from the
+    palette (falling back to the color the entry itself carries)."""
+    filaments = {f.get('source_extruder'): f for f in manifest.get('filaments') or []}
+    bits = []
+    for row in manifest.get('layer_changes') or []:
+        filament = filaments.get(row.get('source_extruder')) or {}
+        color = str(filament.get('color') or row.get('color') or '').strip()
+        try:
+            from . import part_translator
+            name = part_translator.named_color(color).title() if color else ''
+        except Exception:
+            name = color
+        label = name or f"extruder {row.get('source_extruder')}"
+        where = f" at {row['top_z']:g} mm" if row.get('top_z') is not None else ''
+        bits.append(f"to {label}{where}")
+    return 'changes color by height: ' + ', '.join(bits) if bits else ''
 
 
 def _family_key(name):
@@ -817,9 +890,18 @@ def validate_decisions(manifest, decisions, state, resolve):
         raise ValueError('unknown color decision schema')
     mode = decisions.get('mode')
     if mode == 'single_color':
-        return {'source_sha256': manifest['source_sha256'], 'mode': mode,
-                **({'schema': schema} if schema else {}),
-                'selection': resolve(state, decisions.get('selection'))}
+        out = {'source_sha256': manifest['source_sha256'], 'mode': mode,
+               **({'schema': schema} if schema else {}),
+               'selection': resolve(state, decisions.get('selection'))}
+        # A single-color print of a height-color source must say what happens
+        # to the changes (#870): pauses for a manual swap, or one color with
+        # the changes dropped. The choice is recorded, never left silent.
+        height = decisions.get('height_colors')
+        if height is not None:
+            if height not in ('pause', 'one_color'):
+                raise ValueError("height_colors must be 'pause' or 'one_color'")
+            out['height_colors'] = height
+        return out
     if mode != 'per_part':
         raise ValueError('choose single_color explicitly or supply per_part/filament selections')
     expected = {p['key'] for p in (canonical_prompts(manifest) if schema == 'part_slots_v1' else prompts(manifest))}

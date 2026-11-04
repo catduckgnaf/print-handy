@@ -2287,8 +2287,26 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             tally[label] = tally.get(label, 0) + 1
         names = ', '.join(f'{n}× {k}' if n > 1 else k for k, n in tally.items()) or Path(path).name
         saved_decisions = job.get('color_decisions') if job.get('resumed_from') else None
+        # Height-based color changes (#870): colors that arrive by layer, not
+        # by part or paint. On a single-extruder printer they can only print
+        # as pauses for a manual swap, or not at all — the operator chooses,
+        # and the choice is recorded on the decisions, never left silent.
+        layered = bool(manifest.get('layer_changes'))
+        layer_single_choice = None
         if saved_decisions:
             decisions = saved_decisions
+        elif layered and not manifest['painted'] and getattr(job_adapter, 'color_system', None) == 'single':
+            from .source_colors import layer_change_summary
+            count = len(manifest['parts'])
+            prompt = (f"Inspected {count} part{'s' if count != 1 else ''}: {names}. This print "
+                      f"{layer_change_summary(manifest)}. {_printer_name(job)} has one extruder, so those "
+                      'colors cannot print on their own: pause at each change height so you can swap the '
+                      'filament by hand, or print in one color for everything and the height colors are lost.')
+            pick = await _ask(adapter, source, key, prompt,
+                              ['Pause at each color change (swap filament by hand)',
+                               'One color for everything'], timeout)
+            layer_single_choice = 'pause' if pick == 0 else 'one_color'
+            mode = 1
         elif any(row['key'] == 'painted:unknown' for row in questions):
             # Painted source with no readable palette (#717): the regions
             # cannot be told apart, so never ask an unanswerable region
@@ -2298,7 +2316,7 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                       'color regions but no readable color palette, so the regions cannot be kept apart. '
                       'Print it in one color for everything?')
             mode = 1 + await _ask(adapter, source, key, prompt, ['One color for everything'], timeout)
-        elif questions and (len(manifest['parts']) > 1 or manifest['painted']):
+        elif questions and (len(manifest['parts']) > 1 or manifest['painted'] or layered):
             options = ['Keep distinct source regions' if manifest['painted'] else 'Choose colors for these parts',
                        'One color for everything']
             if families:
@@ -2312,6 +2330,13 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                       'Keeping painted regions prints each painted area in the color you pick for it.'
                       if manifest['painted'] else
                       f'{found} Choose colors for these parts or one color for everything?')
+            if layered and not manifest['painted'] and len(manifest['parts']) <= 1:
+                # Nothing but the height changes makes this multicolor: ask
+                # about them by name, not about "these parts".
+                from .source_colors import layer_change_summary
+                options[0] = 'Keep the height-based colors'
+                prompt = (f'{found} This print {layer_change_summary(manifest)}. '
+                          'Keep the height-based colors or use one color for everything?')
             mode = await _ask(adapter, source, key, prompt, options, timeout)
         else:
             mode = 1
@@ -2354,8 +2379,16 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                 # Core face colors print as one color, and the operator is told (#714).
                 from .source_colors import FACE_COLORS_NOTE
                 note = f' {FACE_COLORS_NOTE}' if manifest.get('face_colors_ignored') else ''
-                decisions['selection'] = selections[await _ask(adapter, source, key, f'Choose the color for {names}.{note}'
-                                                               if note else f'Choose the color for {names}', labels, timeout)]
+                ask = f'Choose the color for {names}.{note}' if note else f'Choose the color for {names}'
+                if layer_single_choice == 'pause':
+                    ask = (f'Choose the starting color for {names} '
+                           '(the print pauses at each height color change so you can swap it)')
+                decisions['selection'] = selections[await _ask(adapter, source, key, ask, labels, timeout)]
+            if layered and mode == 1:
+                # Record what happens to the height colors on a one-color
+                # print: pauses the operator chose, or dropped — named here
+                # and in the slice record, never silent (#870).
+                decisions['height_colors'] = layer_single_choice or 'one_color'
         latest = json.loads(jp.read_text())
         if saved_decisions:
             if (latest.get('intake_id') != iid

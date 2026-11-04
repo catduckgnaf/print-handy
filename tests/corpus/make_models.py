@@ -466,7 +466,8 @@ def generate_large_torus(path):
 #
 # Other keys: palette (filament hex colors), support, omit_plate_metadata, extra_empty_plates, [[model.plate]]
 # name + parts (indices), STL flags (binary, invert, lying_solid), part drop_faces and color, core-3mf
-# style and triangle_colors, prusa-mmu-3mf colors. `[[matrix]]` entries (tests/corpus/matrix.toml) expand to
+# style and triangle_colors, prusa-mmu-3mf colors, [[model.layer_change]] top_z + extruder (height-based
+# color changes, written as Metadata/custom_gcode_per_layer.xml). `[[matrix]]` entries (tests/corpus/matrix.toml) expand to
 # whole cases, case.toml included, through tests/corpus/matrix.py.
 
 SOURCE = Path(__file__).resolve().parent  # where the checked in specs are read; HERE is where files are written
@@ -586,8 +587,30 @@ def render(data, target, width=None):
         write_3mf(target, list(zip(names, extruders, meshes, places)), plates, palette,
                   support=model.get("support", False), omit_plate_metadata=model.get("omit_plate_metadata", False),
                   extra_empty_plates=model.get("extra_empty_plates", 0), project_extra=model.get("project"))
+        if model.get("layer_change"):
+            _append_layer_changes(target, model, palette)
     else:
         raise ValueError(f"unknown model format {kind!r}")
+
+
+def _append_layer_changes(path, model, palette):
+    """Add Metadata/custom_gcode_per_layer.xml: [[model.layer_change]] entries
+    (top_z, extruder) as tool changes at layer heights (#870), colored from the
+    palette like a slicer would write them."""
+    lines = ['<?xml version="1.0" encoding="utf-8"?>', '<custom_gcodes_per_layer>', '<plate>',
+             '<plate_info id="1"/>']
+    for change in model["layer_change"]:
+        extruder = int(change["extruder"])
+        color = palette[extruder - 1][0] if 0 < extruder <= len(palette) else ""
+        top_z = change["top_z"]
+        top_z = int(top_z) if float(top_z) == int(float(top_z)) else top_z
+        lines.append(f'<layer top_z="{top_z}" type="2" extruder="{extruder}" color="{color}" '
+                     'extra="" gcode="tool_change"/>')
+    lines += ['<mode value="MultiAsSingle"/>', '</plate>', '</custom_gcodes_per_layer>']
+    info = zipfile.ZipInfo("Metadata/custom_gcode_per_layer.xml", STAMP)
+    info.compress_type = zipfile.ZIP_DEFLATED
+    with zipfile.ZipFile(path, "a") as archive:
+        archive.writestr(info, "\n".join(lines) + "\n")
 
 
 def _render_raw_core(model, target):
