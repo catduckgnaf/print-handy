@@ -549,7 +549,8 @@ def parse_bind_confirm_custom_id(custom_id: str) -> tuple[str, str] | None:
 
 INTAKE_PREFIX = "pbintake"
 INTAKE_SELECT_PREFIX = "pbintakeselect"
-INTAKE_MATERIALS = ("PLA", "Silk PLA", "PLA+", "PETG", "TPU", "ABS")
+# Append only: custom_ids carry the index, so reordering would remap buttons on live prompts.
+INTAKE_MATERIALS = ("PLA", "Silk PLA", "PLA+", "PETG", "TPU", "ABS", "Matte PLA", "PCTG", "ASA")
 INTAKE_WEIGHTS = (1000, 500, 250)
 INTAKE_COMMON_COLORS = ("Black", "White", "Matte White", "Grey", "Red", "Blue", "Green",
                         "Orange", "Yellow", "Pink", "Purple", "Natural")
@@ -572,6 +573,30 @@ def parse_intake_custom_id(custom_id: str) -> tuple[str, str] | None:
     if len(parts) == 3 and parts[0] == INTAKE_PREFIX and parts[1] in INTAKE_ACTIONS and parts[2]:
         return parts[1], parts[2]
     return None
+
+
+def intake_clean_typed(field: str, value: str, state: dict[str, Any]) -> str | None:
+    """A typed walkthrough answer in its canonical spelling (core.spool_canon).
+
+    Material must be one on the menu ("pla plus" -> "PLA+"); anything else is
+    refused so a typo never becomes a Spoolman filament type. Brand and color are
+    tidied ("sunlu" -> "SUNLU", "black pla" -> "Black"); a placeholder brand
+    ("unknown", "generic") becomes no brand.
+    """
+    from ..core import spool_canon
+    if field == "material":
+        canon = spool_canon.canonical_material(value)
+        if canon is None:
+            raise ValueError(f"I do not know the material {value!r}. Use one of: {', '.join(spool_canon.MATERIALS)}.")
+        return canon
+    if field == "brand":
+        return spool_canon.canonical_brand(value)
+    if field == "color":
+        color = spool_canon.canonical_color(value, state.get("material"), state.get("brand"))
+        if not re.search(r"[A-Za-z]", color):
+            raise ValueError("A color or finish name is required (e.g. Black, Matte White).")
+        return color
+    return value
 
 
 def intake_material_for_action(action: str) -> str | None:
@@ -760,8 +785,8 @@ def intake_material_components(aid: str, photo: bool = False) -> list[dict[str, 
         last.append({"type": 2, "style": 1, "label": "Use a photo of the label",
                      "custom_id": f"{INTAKE_PREFIX}:photo:{aid}"})
     last.append({"type": 2, "style": 2, "label": "Cancel", "custom_id": f"{INTAKE_PREFIX}:cancel:{aid}"})
-    return [{"type": 1, "components": buttons[:3]},
-            {"type": 1, "components": buttons[3:]},
+    return [{"type": 1, "components": buttons[:5]},
+            {"type": 1, "components": buttons[5:10]},
             {"type": 1, "components": last}]
 
 
@@ -822,9 +847,12 @@ def intake_brand_options(types: list[dict[str, Any]] | None, material: Any) -> l
     """Known brands for this material first, then every known brand, then skip/type."""
     material = str(material or "").casefold()
     first, rest = [], []
+    from ..core import spool_canon
     for entry in types or []:
         brand = str(entry.get("brand") or "").strip()
-        if not brand:
+        if not spool_canon.canonical_brand(brand):  # "Unknown" / "Generic" are not brands to offer
+            continue
+        if any(brand.casefold() == b.casefold() for b in first + rest):
             continue
         bucket = first if str(entry.get("material") or "").casefold() == material else rest
         if brand not in bucket:

@@ -5430,6 +5430,11 @@ def alert_button_handlers(bot, adapter):
                     if not value:
                         await modal_interaction.response.send_message('That answer was empty. Nothing changed — start again from the prompt.', ephemeral=True)
                         return
+                    try:
+                        value = pab.intake_clean_typed(pending['field'], value, new_state)
+                    except ValueError as exc:
+                        await modal_interaction.response.send_message(f'{exc} Nothing changed — start again from the prompt.', ephemeral=True)
+                        return
                     new_state[pending['field']] = value
                     if pending['field'] == 'color':
                         # A typed color supersedes any swatch picked

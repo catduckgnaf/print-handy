@@ -32,7 +32,7 @@ from pathlib import Path
 import websockets
 
 from .. import __version__, ai_routes, debug_mode, go2rtc, healthcheck, logs, printers, settings
-from ..core import delivery, filament_color, launch_state, printer_clock, spoolman_client
+from ..core import delivery, filament_color, launch_state, printer_clock, spool_canon, spoolman_client
 from . import _config
 from . import moonraker_discord_announcements as announcer
 from . import discord_print_summary as print_summary
@@ -641,16 +641,22 @@ def list_spools():
     return payload
 
 
-def spool_matches_recovery(existing_material, candidate_material, existing_color, candidate_color):
-    """PLA and PLA+ can match, but color/finish must match exactly."""
+def spool_matches_recovery(existing_material, candidate_material, existing_color, candidate_color,
+                           existing_hex=None, candidate_hex=None):
+    """PLA and PLA+ can match; the color must match by name ("Black PLA" == "Black") or by eye
+    (hexes within SAME_DELTA_E: 000000, 161616 and 1A1A1A are one black). Finishes never cross."""
     def normalized(value):
         return " ".join(str(value or "").casefold().split())
 
-    materials = {normalized(existing_material), normalized(candidate_material)}
-    materials_compatible = materials <= {"pla", "pla+"}
-    if not materials_compatible and normalized(existing_material) != normalized(candidate_material):
+    if spool_canon.swap_group(existing_material) is None or spool_canon.swap_group(candidate_material) is None:
+        # A material off the menu only matches its exact self.
+        if normalized(existing_material) != normalized(candidate_material):
+            return False
+        return bool(normalized(existing_color)) and normalized(existing_color) == normalized(candidate_color)
+    if not normalized(existing_color):
         return False
-    return bool(normalized(existing_color)) and normalized(existing_color) == normalized(candidate_color)
+    return spool_canon.changeover_compatible(existing_material, existing_color, existing_hex,
+                                             candidate_material, candidate_color, candidate_hex)
 
 
 def classify_pause(message, where=""):
@@ -842,7 +848,7 @@ def clear_runout_pause(path=None):
         target.unlink()
 
 
-def compatible_offers(spools, material, color):
+def compatible_offers(spools, material, color, color_hex=None):
     """Offer same color/finish PLA or PLA+ spools. Never pick one."""
     offers = []
     for item in spools or []:
@@ -850,7 +856,8 @@ def compatible_offers(spools, material, color):
         if item.get("archived") is True:
             continue
         if spool_matches_recovery(material, filament.get("material") or item.get("material"),
-                                  color, filament.get("name") or item.get("color") or item.get("name")):
+                                  color, filament.get("name") or item.get("color") or item.get("name"),
+                                  color_hex, filament.get("color_hex")):
             offers.append({"id": item.get("id"), "remaining_weight": item.get("remaining_weight"),
                            "name": filament.get("name") or item.get("color") or item.get("name"),
                            "material": filament.get("material") or item.get("material")})
@@ -959,17 +966,15 @@ def apply_runout_choice(state, context, choice, *, client, filaments=None):
     color = str(choice.get("color") or "").strip()
     if grams is None or not material or not color:
         raise ValueError("new spool needs material, color/finish, and full starting grams")
-    match = None
-    for filament in filaments or []:
-        if (str(filament.get("material") or "").casefold() == material.casefold()
-                and str(filament.get("name") or "").casefold() == color.casefold()
-                and str((filament.get("vendor") or {}).get("name") or "").casefold()
-                == str(choice.get("brand") or "").casefold()):
-            match = filament
-            break
+    try:
+        canon = spool_canon.canonical_spec({"material": material, "color": color, "brand": choice.get("brand")})
+    except spool_canon.SpecError as exc:
+        raise ValueError(str(exc)) from None
+    material, color, brand = canon["material"], canon["color"], canon["brand"]
+    match = spool_canon.find_filament(filaments or [], canon)
     if match is None:
         match = client("POST", "/api/v1/filament", {
-            "name": color, "material": material, "vendor_name": choice.get("brand") or None,
+            "name": color, "material": material, "vendor_name": brand,
             "diameter": 1.75, "density": 1.24, "weight": grams,
         })
     created = client("POST", "/api/v1/spool", {

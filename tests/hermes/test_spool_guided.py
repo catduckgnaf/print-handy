@@ -280,14 +280,16 @@ def test_guided_new_new_type_never_asks_hex():
 
 
 def test_guided_new_prompt_brand_on_asks_brand_first():
-    answers = ["New filament type", "Generic", "PETG", "Sky Blue", "500", "Create spool #20",
+    answers = ["New filament type", "sunlu", "PETG", "Sky Blue", "500", "Create spool #20",
                "Leave it on the shelf"]
     with mock.patch.object(plugin, "_prompt_brand", return_value=True):
         out, adapter, fake = _run("/spool add", answers)
     questions = _questions(adapter)
     assert any("brand" in q.lower() for q in questions)
     vendor_posts = [b for m, p, b in fake.writes if m == "POST" and p == "/api/v1/vendor"]
-    assert vendor_posts and vendor_posts[0]["name"] == "Generic"
+    assert vendor_posts == []  # "sunlu" reuses the existing Sunlu vendor, no near-duplicate
+    filament_posts = [b for m, p, b in fake.writes if m == "POST" and p == "/api/v1/filament"]
+    assert filament_posts and filament_posts[0]["vendor_id"] == 1
     assert "Created spool #20" in adapter.sent[-1]
 
 
