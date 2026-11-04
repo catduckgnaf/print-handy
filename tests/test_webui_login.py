@@ -109,7 +109,12 @@ class LoginTests(unittest.TestCase):
                 port, "GET", "/", headers={"Accept": "application/json"})
             self.assertEqual(code, 401)
             self.assertIn("missing or wrong X-WebUI-Token", body)
-            # With the header token, a browser navigation serves the page.
+            # With the header token, a browser navigation is let in: the
+            # first one is offered the walkthrough once (#875), the next
+            # serves the page.
+            code, headers, _body = self.request(
+                port, "GET", "/", headers={**browser, server.TOKEN_HEADER: TOKEN})
+            self.assertEqual((code, headers["location"]), (303, "/walkthrough"))
             code, _headers, _body = self.request(
                 port, "GET", "/", headers={**browser, server.TOKEN_HEADER: TOKEN})
             self.assertEqual(code, 200)

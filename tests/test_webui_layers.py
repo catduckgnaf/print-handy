@@ -45,14 +45,15 @@ def test_roles_colors_and_layer_range():
         assert color in page
     assert 'stroke="#3d8bfd"' in page
     assert "Layer 1 of 2" in page
-    assert "Previous layer" not in page
-    assert "Next layer" in page
+    assert '<a href="?layer=' in page and "Previous layer (this is the first layer)" in page
+    assert '<a href="?layer=1">Next layer</a>' in page
     last = layers.render_plate(parsed, 99, title="swing")
     assert "Layer 2 of 2" in last
-    assert "Next layer" not in last
+    assert "Next layer (this is the last layer)" in last
+    assert ">Next layer</a>" not in last
     assert "Previous layer" in last
     assert layers.clamp_layer(2, -4) == 0
-    assert "Pause" not in page and "Exclude" not in page and "<button" not in page
+    assert "Pause" not in page and "Exclude" not in page and 'method="post"' not in page  # view tools only, no printer controls
     source = Path(layers.__file__).read_text(encoding="utf-8")
     assert "prepared_intake" not in source
     assert "print_control" not in source

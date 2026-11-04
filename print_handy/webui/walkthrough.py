@@ -150,15 +150,38 @@ def save_state(data, state):
 
 
 def pending(data):
-    """True while this install owes the walkthrough: access was resolved
-    through the setup page (the access file exists) and the walkthrough
-    is not done. Any other install never sees it."""
+    """True while this install owes the walkthrough: no ``done`` flag in
+    the state file (#875). How access was resolved no longer matters, so
+    environment-token, loopback and ``require_auth = false`` installs get
+    it too. Skipping records ``done`` plus ``skipped``, so a skip does
+    not nag."""
     try:
-        if not access_module.access_path(data).is_file():
-            return False
+        return not load_state(data).get("done")
     except Exception:  # settings too broken to locate the state folder
         return False
-    return not load_state(data).get("done")
+
+
+def offer_once(data):
+    """True the first time a browser should be sent to the walkthrough.
+
+    The redirect happens once per install; after that the status page's
+    "Finish setup" banner is the only reminder, so an existing install
+    is offered setup once instead of being trapped in it (#875)."""
+    if not pending(data):
+        return False
+    state = load_state(data)
+    if state.get("offered"):
+        return False
+    try:
+        save_state(data, {**state, "offered": True})
+    except OSError:
+        return False
+    return True
+
+
+def restart(data):
+    """Restart setup from the first step (Settings > Restart setup)."""
+    save_state(data, {"step": 0, "offered": True})
 
 
 def _step_index(state):
@@ -428,6 +451,9 @@ def apply_post(data, environ, form, field_values, *, form_token,
                  _step_index(state))
     step_id = STEPS[index][0]
     action = (form.get("action") or ["continue"])[0]
+    if action == "restart":
+        restart(data)
+        return "redirect", "/walkthrough"
     if action == "skip_setup":
         save_state(data, {**state, "step": index, "done": True, "skipped": True})
         return "redirect", "/"

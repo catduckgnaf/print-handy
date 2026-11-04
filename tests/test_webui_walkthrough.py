@@ -119,21 +119,24 @@ class WalkthroughServerTests(unittest.TestCase):
             self.assertEqual(self.request(port, "GET", "/config")[0], 200)
             self.assertEqual(self.request(port, "GET", "/designs")[0], 200)
 
-    def test_no_gate_and_no_banner_without_an_access_file(self):
-        # A loopback install never ran the setup page: no access file,
-        # no walkthrough, whatever the browser asks for.
+    def test_loopback_install_is_offered_the_walkthrough_once(self):
+        # #875: a loopback install never ran the setup page but still owes
+        # the walkthrough. It is offered once; after that only the banner
+        # reminds, so an existing install is never trapped in it.
         with tempfile.TemporaryDirectory() as tmp:
             _, port, _, _, _ = self.start(tmp, host="127.0.0.1")
+            code, headers, _ = self.request(port, "GET", "/", headers=HTML)
+            self.assertEqual((code, headers["location"]), (303, "/walkthrough"))
             code, _, body = self.request(port, "GET", "/", headers=HTML)
             self.assertEqual(code, 200)
-            self.assertNotIn("Finish setting up", body)
-            code, headers, _ = self.request(port, "GET", "/walkthrough")
-            self.assertEqual((code, headers["location"]), (303, "/"))
+            self.assertIn("Finish setting up", body)
+            code, _, _ = self.request(port, "GET", "/walkthrough")
+            self.assertEqual(code, 200)
 
     def test_pending_rule_follows_the_access_file_and_the_done_flag(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, _, data, _, _ = self.start(tmp)
-            self.assertFalse(walkthrough.pending(data))
+            self.assertTrue(walkthrough.pending(data))  # #875: no access file needed
             access.save_open(data, True)
             self.assertTrue(walkthrough.pending(data))
             walkthrough.save_state(data, {"step": 4, "done": True})

@@ -198,7 +198,8 @@ def _field_row(field_value, *, data, errors, submitted):
     badge = PROVENANCE_LABELS.get(field_value.provenance, field_value.provenance)
     parts = [f'<div class="field" id="row-{_esc(field.id)}">',
              f'<label for="f-{_esc(field.id)}">{_esc(field.label)} '
-             f'<span class="badge">{_esc(badge)}</span></label> ',
+             f'<span class="badge{" warn" if disabled else ""}">'
+             f'{"Locked: " if disabled else ""}{_esc(badge)}</span></label> ',
              _control(field, _current(field, field_value, submitted),
                       data=data, disabled=disabled)]
     error = (errors or {}).get(field.id)
@@ -323,6 +324,16 @@ def render_setup_page(form_token, error=None, *, theme=shell.DEFAULT_THEME):
     return _page("setup", "".join(parts), theme=theme, path="/setup", chrome=False)
 
 
+_FIELD_SEARCH = (
+    "<script>(function(){var box=document.getElementById('field-search');if(!box)return;"
+    "box.addEventListener('input',function(){var q=box.value.trim().toLowerCase();"
+    "document.querySelectorAll('.config-group').forEach(function(group){var hits=0;"
+    "group.querySelectorAll('.field').forEach(function(row){"
+    "var show=!q||row.textContent.toLowerCase().indexOf(q)>=0;row.hidden=!show;if(show)hits++;});"
+    "group.hidden=q&&!hits;if(q&&hits)group.open=true;});});})();</script>"
+)
+
+
 def render_config_page(field_values, *, data, form_token, errors=None,
                        submitted=None, notice=None, theme=shell.DEFAULT_THEME):
     """The GET /config form (also the error/notice re-render target)."""
@@ -346,20 +357,32 @@ def render_config_page(field_values, *, data, form_token, errors=None,
     parts.append(f'<form method="post" action="/config/preview">'
                  f'<input type="hidden" name="{CSRF_FIELD}" value="{_esc(form_token)}">')
     known = {name for name, _heading in GROUPS}
-    for name, heading in GROUPS:
-        rows = by_group.get(name)
-        if not rows:
-            continue
-        parts.append(f"<h2>{_esc(heading)}</h2>")
+    sections = [(name, heading, by_group[name]) for name, heading in GROUPS
+                if by_group.get(name)]
+    sections += [(name, name or "Other", rows) for name, rows in by_group.items()
+                 if name not in known]  # a group this page does not know yet
+    # Tabs (#875): one jump link per catalog group, each a deep link
+    # (/config#group-<name>) the walkthrough and error pages can target.
+    parts.insert(0, '<nav class="pills config-tabs" aria-label="Settings sections">'
+                 + "".join(f'<a href="#group-{_esc(name or "other")}">{_esc(heading)}</a>'
+                           for name, heading, _rows in sections)
+                 + '</nav><p><label>Find a setting <input type="search" id="field-search" '
+                 'placeholder="Type to filter every section"></label></p>')
+    for name, heading, rows in sections:
+        parts.append(f'<details class="config-group" id="group-{_esc(name or "other")}" open>'
+                     f"<summary><h2>{_esc(heading)}</h2></summary>")
         parts.extend(_field_row(fv, data=data, errors=errors, submitted=submitted)
                      for fv in rows)
-    for name, rows in by_group.items():  # a group this page does not know yet
-        if name in known:
-            continue
-        parts.append(f"<h2>{_esc(name or 'Other')}</h2>")
-        parts.extend(_field_row(fv, data=data, errors=errors, submitted=submitted)
-                     for fv in rows)
+        parts.append("</details>")
     parts.append('<p><button type="submit">Preview changes</button></p></form>')
+    parts.append(
+        '<h2 id="restart-setup">Setup</h2><form method="post" action="/walkthrough">'
+        f'<input type="hidden" name="{CSRF_FIELD}" value="{_esc(form_token)}">'
+        '<input type="hidden" name="action" value="restart">'
+        '<p>Run the guided setup again from the first step. Nothing is reset: '
+        'every step starts from the current settings.</p>'
+        '<button type="submit">Restart setup</button></form>')
+    parts.append(_FIELD_SEARCH)
     return _page("configuration", "".join(parts), theme=theme, path="/config")
 
 

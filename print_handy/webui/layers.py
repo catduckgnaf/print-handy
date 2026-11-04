@@ -251,7 +251,13 @@ _PAN = (
     "x=drag.ox+(ev.clientX-drag.x)*sx;y=drag.oy+(ev.clientY-drag.y)*sy;"
     "group.setAttribute('transform','translate('+x+' '+y+')');});"
     "function stop(){drag=null;}"
-    "svg.addEventListener('pointerup',stop);svg.addEventListener('pointercancel',stop);})();</script>"
+    "svg.addEventListener('pointerup',stop);svg.addEventListener('pointercancel',stop);"
+    "var k=1;function draw(){group.setAttribute('transform','translate('+x+' '+y+') scale('+k+')');}"
+    "svg.addEventListener('pointermove',function(){if(drag)draw();});"
+    "document.querySelectorAll('[data-zoom]').forEach(function(b){b.addEventListener('click',function(){"
+    "var z=b.getAttribute('data-zoom');if(z==='reset'){k=1;x=0;y=0;}else{k*=parseFloat(z);}draw();});});"
+    "svg.addEventListener('wheel',function(ev){ev.preventDefault();k*=ev.deltaY<0?1.1:0.9;draw();},{passive:false});"
+    "})();</script>"
 )
 
 
@@ -286,8 +292,22 @@ def render_plate(parsed, index, *, title, theme=shell.DEFAULT_THEME) -> str:
     links = []
     if chosen > 0:
         links.append(f'<a href="?layer={chosen - 1}">Previous layer</a>')
+    else:
+        links.append('<span class="note">Previous layer (this is the first layer)</span>')
     if chosen + 1 < count:
         links.append(f'<a href="?layer={chosen + 1}">Next layer</a>')
+    else:
+        links.append('<span class="note">Next layer (this is the last layer)</span>')
+    links.append(
+        '<form method="get" class="layer-jump" style="display:inline">'
+        f'<label>Layer 1 <input type="range" name="layer" min="0" max="{count - 1}" '
+        f'value="{chosen}" aria-valuetext="Layer {chosen + 1} of {count}" '
+        'onchange="this.form.submit()"> '
+        f'{count}</label> <button type="submit">Go</button></form>')
+    links.append('<span class="view-tools">'
+                 '<button type="button" data-zoom="1.25">Zoom in</button> '
+                 '<button type="button" data-zoom="0.8">Zoom out</button> '
+                 '<button type="button" data-zoom="reset">Fit / reset</button></span>')
     legend = " ".join(
         f'<span data-role="{role}" style="color:{COLORS[role]}">{role}</span>'
         for role in ROLES if role in parsed["roles"])
