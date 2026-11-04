@@ -64,6 +64,14 @@ def test_as_pauses_keeps_heights_and_clears_the_payload():
     assert report == {"kept": 2, "dropped": 2, "as_pauses": True}
 
 
+def test_z_scale_moves_the_change_heights_with_the_geometry():
+    data, _report = layer_gcode.remap(XML, {2: 3, 3: 2}, z_scale=0.5)
+    assert sorted(row['top_z'] for row in layer_gcode.parse(data)
+                  if row['kind'] == 'tool_change') == [2.0, 4.0]
+    data, _report = layer_gcode.as_pauses(XML, z_scale=2.0)
+    assert sorted(row['top_z'] for row in layer_gcode.parse(data)) == [8.0, 16.0]
+
+
 def test_read_from_a_3mf(tmp_path):
     path = tmp_path / "x.3mf"
     with zipfile.ZipFile(path, "w") as archive:

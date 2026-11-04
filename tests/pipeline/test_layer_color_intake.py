@@ -142,6 +142,66 @@ def test_cli_gate_accepts_a_recorded_pause_choice(tmp_path):
     assert model_job.intake_color_choices(_ad5m_job(tmp_path, decisions), _single_state()) is True
 
 
+# ------------------------------------------------------- the production slice job honours the choice
+
+def _ad5m_slice_job(tmp_path, source_path, decisions):
+    job = {"downloaded_file": str(source_path), "printer_model": "flashforge.ad5m",
+           "audit": {"plates": 1, "size_x": "20", "size_y": "20", "size_z": "12"}}
+    if decisions is not None:
+        job["color_decisions"] = decisions
+    jp = tmp_path / "JOB.json"
+    jp.write_text(json.dumps(job))
+    return jp
+
+
+def _ad5m_st():
+    st = _single_state()
+    st["bed_mm"] = [220, 220]
+    st["max_print_height_mm"] = 220
+    st["filament_slots"] = {"1": {"color": "white", "material": "PLA", "spoolman_id": 10,
+                                  "hex": "FFFFFF", "physical_color_verified": True}}
+    return st
+
+
+def _pause_decisions(manifest):
+    return {"schema": "part_slots_v1", "mode": "single_color",
+            "source_sha256": manifest["source_sha256"], "height_colors": "pause",
+            "selection": {"slot": 1, "color": "white", "material": "PLA", "spoolman_id": 10}}
+
+
+def test_slice_job_slices_the_pause_choice_on_a_single_extruder(tmp_path, monkeypatch):
+    _use_model(monkeypatch, "flashforge.ad5m")
+    source_path = layered(tmp_path / "chroma.3mf")
+    manifest = source_colors.inventory(source_path)
+    jp = _ad5m_slice_job(tmp_path, source_path, _pause_decisions(manifest))
+    captured = {}
+
+    def fake_slice_model(src, out_dir, st, brim, **kw):
+        captured.update(kw)
+        out = Path(out_dir) / "plate_1.gcode"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("G1 X1 Y1\n")
+        return out, {}, []
+    monkeypatch.setattr(model_job.printer_state, "load", lambda *a, **k: _ad5m_st())
+    monkeypatch.setattr(model_job, "_verify_routed", lambda *a, **k: None)
+    monkeypatch.setattr(orca_adapter, "slice_model", fake_slice_model)
+    model_job.slice_job(jp)
+    # The recorded choice reached the slicer instead of being dropped or refused.
+    assert captured["color_decisions"]["height_colors"] == "pause"
+    assert captured["color_decisions"]["mode"] == "single_color"
+
+
+def test_slice_job_still_refuses_a_height_color_source_with_no_choice(tmp_path, monkeypatch):
+    _use_model(monkeypatch, "flashforge.ad5m")
+    source_path = layered(tmp_path / "chroma.3mf")
+    jp = _ad5m_slice_job(tmp_path, source_path, None)
+    monkeypatch.setattr(model_job.printer_state, "load", lambda *a, **k: _ad5m_st())
+    monkeypatch.setattr(orca_adapter, "slice_model",
+                        lambda *a, **k: pytest.fail("slicer must not run"))
+    with pytest.raises(MultiColorUnsupported):
+        model_job.slice_job(jp)
+
+
 # ---------------------------------------------------------------- slice time: pauses reach Orca
 
 def test_pause_choice_slices_as_pauses_on_one_tool(tmp_path, monkeypatch):

@@ -155,6 +155,19 @@ def test_height_based_colour_changes_are_exported_remapped_to_the_job_tools(tmp_
     assert changes == {"4": "3", "8": "2"}
 
 
+def test_height_based_colour_changes_scale_with_the_geometry(tmp_path):
+    """A resized print keeps its color boundaries at the same relative
+    heights: exporting the 12 mm tower at 50% moves the changes from
+    4/8 mm to 2/4 mm instead of leaving them at the authored heights."""
+    source = layered(tmp_path / "chroma.3mf")
+    target = tmp_path / "geometry.3mf"
+    export_color_geometry(source, target, _layered_decisions(source, [1, 3, 2]), scale=0.5)
+    with zipfile.ZipFile(target) as archive:
+        xml = archive.read("Metadata/custom_gcode_per_layer.xml").decode()
+    changes = dict(re.findall(r'top_z="([\d.]+)"[^>]*extruder="(\d+)"', xml))
+    assert changes == {"2": "3", "4": "2"}
+
+
 def test_height_based_colour_changes_become_pauses_for_a_manual_swap(tmp_path):
     """layer_mode='pause' (a single-extruder job whose operator chose manual
     swaps): every change is written as a pause at the same height."""

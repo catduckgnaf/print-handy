@@ -378,7 +378,7 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
             layer_report = {'kept': 0, 'dropped': len(manifest['layer_changes']),
                             'reason': 'the exported objects are not on a plate the per-layer entries name'}
         elif layer_mode == 'pause':
-            layer_payload, layer_report = layer_gcode.as_pauses(xml)
+            layer_payload, layer_report = layer_gcode.as_pauses(xml, z_scale=scale or 1.0)
         else:
             tool_map = {}
             for row in manifest['layer_changes']:
@@ -395,7 +395,7 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
                 if selection is None:
                     continue
                 tool_map[ext] = selection['slot'] if identity_tools else slots.index(selection['slot']) + 1
-            layer_payload, layer_report = layer_gcode.remap(xml, tool_map)
+            layer_payload, layer_report = layer_gcode.remap(xml, tool_map, z_scale=scale or 1.0)
         if layer_report is not None and not layer_report.get('kept'):
             layer_payload = None
     with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as out:

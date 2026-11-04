@@ -5333,11 +5333,23 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         if multi_plate:
             raise RuntimeError(f'multi-plate 3MF cannot be merged or split: {exc}; no slicing attempted') from exc
         raise
+    # A height-color-only source (#870) is not a multi-color source: its parts
+    # share one extruder and the recorded single-color decision carries the
+    # operator's pause-or-one-color choice, which a single-extruder printer
+    # honours through slice_model's pause path. It is exempt from the generic
+    # refusal and the decisions drop below — but only that decision shape,
+    # and never for multi-plate sources or full-size split plans.
+    recorded = job.get('color_decisions')
+    layered_single = bool(
+        not multi_plate and not job.get('full_size_split_plan')
+        and not manifest.get('painted') and manifest.get('layer_changes')
+        and len({part['source_extruder'] for part in manifest['parts']}) <= 1
+        and isinstance(recorded, dict) and recorded.get('mode') == 'single_color')
     if generic and (multi_plate or manifest['requires_choices'] or job.get('full_size_split_plan')):
         # A multi_tool printer honours multi-colour and multi-plate sources
         # through the identity tool mapping (#346); a full-size split plan is
         # still IFS-shaped and stays refused here.
-        if not multi_tool or job.get('full_size_split_plan'):
+        if (not multi_tool or job.get('full_size_split_plan')) and not layered_single:
             raise MultiColorUnsupported(
                 f"{adapter.label} has a single extruder; multi-plate, multi-part or multi-color sources need a "
                 "multi-slot printer. Slice one single-color plate instead")
@@ -5348,7 +5360,7 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
     write_job(Path(job_path).parent, job)
     _timing(job_path, 'inventory_done')
     job['slice_recipe'] = recipe  # persisted only with the artifact it describes
-    decisions = None if (generic and not multi_tool) else job.get('color_decisions')
+    decisions = None if (generic and not multi_tool and not layered_single) else job.get('color_decisions')
     if decisions is not None:
         decisions = validate_decisions(manifest, decisions, st, resolve_filament_selection)
     if manifest['requires_choices'] and not decisions:

@@ -109,8 +109,13 @@ def tool_change_extruders(entries):
                    if row['source_extruder']})
 
 
-def _rewrite(xml_bytes, convert):
-    """Apply convert(layer_element) -> keep? to every entry; return (bytes, kept, dropped)."""
+def _rewrite(xml_bytes, convert, z_scale=1.0):
+    """Apply convert(layer_element) -> keep? to every entry; return (bytes, kept, dropped).
+
+    A kept entry's top_z is multiplied by z_scale: when the exported geometry
+    is scaled, the change heights scale with it, so a resized print keeps its
+    color boundaries at the same relative heights.
+    """
     root = ET.fromstring(xml_bytes)
     kept = dropped = 0
     for plate in [n for n in root.iter() if n.tag.split('}')[-1] == 'plate'] or [root]:
@@ -118,6 +123,11 @@ def _rewrite(xml_bytes, convert):
             if node.tag.split('}')[-1] != 'layer':
                 continue
             if convert(node):
+                if z_scale != 1.0 and node.get('top_z'):
+                    try:
+                        node.set('top_z', f"{float(node.get('top_z')) * z_scale:g}")
+                    except ValueError:
+                        pass
                 kept += 1
             else:
                 plate.remove(node)
@@ -125,7 +135,7 @@ def _rewrite(xml_bytes, convert):
     return ET.tostring(root, encoding='utf-8', xml_declaration=True), kept, dropped
 
 
-def remap(xml_bytes, tool_map):
+def remap(xml_bytes, tool_map, z_scale=1.0):
     """Rewrite tool-change extruders through {source extruder: job tool (1-based)}.
 
     Entries for an extruder the job does not map are dropped rather than left
@@ -145,12 +155,12 @@ def remap(xml_bytes, tool_map):
             return False
         node.set('extruder', str(tool))
         return True
-    data, kept, dropped = _rewrite(xml_bytes, convert)
+    data, kept, dropped = _rewrite(xml_bytes, convert, z_scale)
     return data, {'kept': kept, 'dropped': dropped,
                   'remapped': {str(src): tool for src, tool in sorted(tool_map.items())}}
 
 
-def as_pauses(xml_bytes):
+def as_pauses(xml_bytes, z_scale=1.0):
     """Turn every tool change into a pause at the same height (single extruder).
 
     PausePrint is type 1 in both the Bambu/Orca and the Prusa dialect, and a
@@ -165,7 +175,7 @@ def as_pauses(xml_bytes):
         node.set('gcode', '')
         node.set('extra', '')
         return True
-    data, kept, dropped = _rewrite(xml_bytes, convert)
+    data, kept, dropped = _rewrite(xml_bytes, convert, z_scale)
     return data, {'kept': kept, 'dropped': dropped, 'as_pauses': True}
 
 
