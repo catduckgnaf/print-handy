@@ -12,11 +12,28 @@ import zipfile
 from .. import settings
 from . import source_colors
 from .source_colors import inventory
-from .orca_adapter import _check_rotation, _rotate, digest
+from .orca_adapter import PROCESS_KEYS, _check_rotation, _rotate, digest
 from .threemf_canonical import require_millimeter
 
 CORE = 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'
 IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]
+
+
+def _kept_part_settings(settings):
+    """The per-volume author settings a rebuilt export may carry (#867): the kept
+    author-intent keys (orca_adapter.PROCESS_KEYS) with values Orca accepts.
+    Everything else about a volume is the job profiles' business; the slicer
+    copy's adoption pass applies the same restriction to authored files."""
+    if not settings:
+        return []
+    from . import author_settings
+    return [(key, settings[key]) for key in sorted(settings)
+            if key in PROCESS_KEYS and not author_settings.invalid_enum(key, settings[key])]
+
+
+def _write_part_settings(pc, settings):
+    for key, value in _kept_part_settings(settings):
+        ET.SubElement(pc, 'metadata', key=key, value=str(value))
 
 
 def export_color_geometry(source, target, decisions, item_shifts=None, object_ids=None, scale=None, fit_by_object=None,
@@ -226,6 +243,7 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
     build = ET.SubElement(model, tag('build'))
     records = []
     part_bounds = []
+    settings_by_mesh = {}
     group_of = {}
     # Group per source build item (not object id: repeated instances of one
     # object stay separate). Parts of one build item share space by design;
@@ -257,6 +275,8 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
             slot = choices['part:' + part['key']]['slot']
             tool = slot - 1 if identity_tools else slots.index(slot)
         mesh_id = str(i)
+        if part.get('settings'):
+            settings_by_mesh[mesh_id] = part['settings']
         group = group_of.get(item_of(part['instance_key']))
         obj = ET.SubElement(resources, tag('object'), id=mesh_id, type='model', name=part['name'])
         new_mesh = copy.deepcopy(mesh)
@@ -290,6 +310,7 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
             pc = ET.SubElement(obj_config, 'part', id=mesh_id, subtype='normal_part')
             ET.SubElement(pc, 'metadata', key='name', value=part['name'])
             ET.SubElement(pc, 'metadata', key='extruder', value=str(tool + 1))
+            _write_part_settings(pc, part.get('settings'))
             instance = ET.SubElement(plate, 'model_instance')
             ET.SubElement(instance, 'metadata', key='object_id', value=mesh_id)
             ET.SubElement(instance, 'metadata', key='instance_id', value='0')
@@ -319,6 +340,8 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
             for a, axis in enumerate(('x', 'y', 'z')):
                 vertex.set(axis, repr(xyz[a]))
         obj.append(new_mesh)
+        if row.get('settings'):
+            settings_by_mesh[cut_id] = row['settings']
         group['cutters'].append((cut_id, row['name'], row['subtype']))
         # The report's part rows carry bounds but cutter rows never did, so
         # the merged-placement proof compared part-only landed bounds
@@ -342,10 +365,12 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
             pc = ET.SubElement(obj_config, 'part', id=mesh_id, subtype='normal_part')
             ET.SubElement(pc, 'metadata', key='name', value=name)
             ET.SubElement(pc, 'metadata', key='extruder', value=str(tool + 1))
+            _write_part_settings(pc, settings_by_mesh.get(mesh_id))
         for cut_id, name, subtype in group['cutters']:
             ET.SubElement(comps, tag('component'), objectid=cut_id)
             pc = ET.SubElement(obj_config, 'part', id=cut_id, subtype=subtype)
             ET.SubElement(pc, 'metadata', key='name', value=name)
+            _write_part_settings(pc, settings_by_mesh.get(cut_id))
         instance = ET.SubElement(plate, 'model_instance')
         ET.SubElement(instance, 'metadata', key='object_id', value=wrapper_id)
         ET.SubElement(instance, 'metadata', key='instance_id', value='0')
@@ -512,9 +537,9 @@ def export_volume_plate(source, target, scale=1.0, rotation=None):
         obj.append(new_mesh)
         counts[subtype] = counts.get(subtype, 0) + 1
         groups.setdefault(item_id, {'name': part.get('object_name') or part['name'], 'vols': []})['vols'].append(
-            (mesh_id, part['name'], subtype))
+            (mesh_id, part['name'], subtype, part.get('settings')))
     for group in groups.values():
-        if not any(sub == 'normal_part' for _, _, sub in group['vols']):
+        if not any(sub == 'normal_part' for _, _, sub, _ in group['vols']):
             raise RuntimeError('object has only negative/modifier volumes')
         wrapper_id = str(next_id)
         next_id += 1
@@ -523,12 +548,13 @@ def export_volume_plate(source, target, scale=1.0, rotation=None):
         obj_config = ET.SubElement(config, 'object', id=wrapper_id)
         ET.SubElement(obj_config, 'metadata', key='name', value=group['name'])
         ET.SubElement(obj_config, 'metadata', key='extruder', value='1')
-        for mesh_id, name, subtype in group['vols']:
+        for mesh_id, name, subtype, settings in group['vols']:
             ET.SubElement(comps, tag('component'), objectid=mesh_id)
             pc = ET.SubElement(obj_config, 'part', id=mesh_id, subtype=subtype)
             ET.SubElement(pc, 'metadata', key='name', value=name)
             if subtype == 'normal_part':
                 ET.SubElement(pc, 'metadata', key='extruder', value='1')
+            _write_part_settings(pc, settings)
         instance = ET.SubElement(plate, 'model_instance')
         ET.SubElement(instance, 'metadata', key='object_id', value=wrapper_id)
         ET.SubElement(instance, 'metadata', key='instance_id', value='0')

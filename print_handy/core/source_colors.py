@@ -369,6 +369,74 @@ def _prusa_palette(config_bytes):
     return palette
 
 
+# Metadata keys that describe a volume itself, never a setting override.
+_STRUCTURAL_META = frozenset(('name', 'extruder', 'matrix', 'source_file', 'source_object_id',
+                              'source_volume_id', 'source_offset_x', 'source_offset_y',
+                              'source_offset_z'))
+
+
+def _attach_part_settings(archive, names, parts, painted):
+    """Carry each part's own author settings onto its inventory row (#867).
+
+    Bambu/Orca model_settings.config metadata beyond the structural keys is the
+    part's settings, keyed by (object, part). A PrusaSlicer Slic3r_PE_model.config
+    names settings per object and per volume: volumes match the object's leaves in
+    component order (volume settings apply only when the counts agree, so a volume
+    is never matched to the wrong mesh), the config's extruder assignment is the
+    part's source extruder (an unpainted file names it nowhere else), and its
+    settings arrive translated to Orca names. A row only gains a 'settings' entry
+    when it carries any.
+    """
+    if 'Metadata/model_settings.config' in names:
+        root = ET.fromstring(archive.read('Metadata/model_settings.config'))
+
+        def meta_of(node):
+            return {m.get('key'): m.get('value') for m in node.findall('metadata')
+                    if m.get('key') is not None and m.get('value') is not None}
+
+        lookup = {}
+        for obj in root.findall('object'):
+            # Object-level metadata is an override for every part of the object;
+            # a part's own entry wins over it, exactly as Orca applies them.
+            object_settings = {k: v for k, v in meta_of(obj).items() if k not in _STRUCTURAL_META}
+            for part in obj.findall('part') or [obj]:
+                settings = {**object_settings,
+                            **{k: v for k, v in meta_of(part).items() if k not in _STRUCTURAL_META}}
+                if settings:
+                    lookup[(obj.get('id'), part.get('id'))] = settings
+        for part in parts:
+            settings = lookup.get((str(part.get('object_id')), str(part.get('part_id'))))
+            if settings:
+                part['settings'] = settings
+        return
+    if 'Metadata/Slic3r_PE_model.config' not in names:
+        return
+    from . import author_settings
+    parsed = author_settings.parse_prusa_model(archive.read('Metadata/Slic3r_PE_model.config'))
+    if not parsed:
+        return
+    groups = {}
+    for part in parts:
+        ancestry = part.get('ancestry') or []
+        wrapper = ancestry[0][1] if len(ancestry) > 1 else part.get('object_id')
+        groups.setdefault(str(wrapper), []).append(part)
+    for wrapper, rows in groups.items():
+        entry = parsed.get(wrapper)
+        if not entry:
+            continue
+        volumes = entry['volumes']
+        matched = len(volumes) == len(rows)
+        for index, part in enumerate(rows):
+            volume = volumes[index] if matched else {}
+            settings = {**entry['settings'], **(volume.get('settings') or {})}
+            if settings:
+                part['settings'] = settings
+            if not painted:
+                extruder = volume.get('extruder') or entry['extruder']
+                if extruder:
+                    part['source_extruder'] = extruder
+
+
 def inventory(path):
     from .intake_resources import check_source
     path = Path(path)
@@ -456,6 +524,7 @@ def inventory(path):
             if covered != {leaf['key'] for leaf in resolved}:
                 raise RuntimeError('3MF metadata parts contradict resolved build inventory')
             parts = mapped
+        _attach_part_settings(archive, names, parts, painted)
         # Negative parts and modifiers are cutters/settings volumes, not printed
         # bodies: never a color question, never a separate printed object.
         _annotate_parts(archive, names, parts, filaments)
@@ -492,6 +561,15 @@ def inventory(path):
            'face_colors_ignored': face_colors,
            'layer_changes': layer_changes, 'layer_extras': layer_extras,
            'requires_choices': painted or len(parts) > 1 or len(filaments) > 1 or bool(layer_changes)}
+    # A dedicated support filament (#867): the author named a filament for the
+    # supports (and optionally another for the interface) that no part prints
+    # with. Recorded only when the designation names a real palette filament.
+    from . import author_settings
+    designation = author_settings.support_designation(path)
+    support = {field: (ext if ext and 1 <= ext <= len(filaments) else None)
+               for field, ext in designation.items()}
+    if support['base'] or support['interface']:
+        res['support_filaments'] = support
     _append_filament_stats(path, res)
     return res
 
@@ -719,6 +797,29 @@ def canonical_prompts(manifest):
                      'question': f"Choose the loaded color/material for the height-based color change to "
                                  f"{name.title()} ({color}, {material}){where}",
                      'source_extruder': ext})
+    # A dedicated support filament (#867): the author named a filament for the
+    # supports (and optionally a second one for the interface layers) that no
+    # part prints with. Like a height-change extruder it is a color question in
+    # its own right, so its spool can be loaded and the supports pointed at it.
+    designated = manifest.get('support_filaments') or {}
+    for field, label in (('base', 'support'), ('interface', 'support interface')):
+        ext = designated.get(field)
+        if not ext or ext in covered:
+            continue
+        covered.add(ext)
+        filament = filaments.get(ext) or {}
+        color = str(filament.get('color') or '').strip()
+        material = str(filament.get('material') or 'unknown material').strip()
+        try:
+            from . import part_translator
+            name = part_translator.named_color(color)
+        except Exception:
+            name = color
+        rows.append({'key': f'filament:{ext}',
+                     'question': f"Choose the loaded color/material for the {label} filament "
+                                 f"{name.title() if name else 'the designated filament'} "
+                                 f"({color or 'unknown color'}, {material})",
+                     'source_extruder': ext})
     if manifest['painted'] and not manifest['parts']:
         palette = manifest['filaments']
         labels = [(str(f.get('color') or '').strip(), str(f.get('material') or 'unknown material').strip())
@@ -768,6 +869,8 @@ def distinct_source_colours(manifest):
     # Height-based color changes print with their extruders too (#870).
     used |= {row.get('source_extruder') for row in manifest.get('layer_changes') or []
              if row.get('source_extruder')}
+    # A designated support filament prints the supports, in its own color (#867).
+    used |= {ext for ext in (manifest.get('support_filaments') or {}).values() if ext}
     if manifest.get('painted'):
         used |= {ext for ext in filaments if ext}
     colours = set()
