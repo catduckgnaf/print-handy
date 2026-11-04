@@ -22,26 +22,6 @@ from . import _config
 from . import discord_print_summary as print_summary
 from . import plan_timelapse
 
-OPENVIKING_URL = _config.service_url("openviking_url")
-
-
-def _profile_env_value(name):
-    """Read ONE key from the profile .env (the systemd unit loads no EnvironmentFile)."""
-    env_path = _config.hermes_home() / ".env"
-    try:
-        for raw in env_path.read_text().splitlines():
-            line = raw.strip()
-            if line.startswith("export "):
-                line = line[7:].lstrip()
-            if line.startswith(f"{name}="):
-                return line.split("=", 1)[1].strip().strip('"').strip("'")
-    except OSError:
-        pass
-    return ""
-
-
-OPENVIKING_API_KEY = os.environ.get("OPENVIKING_API_KEY") or _profile_env_value("OPENVIKING_API_KEY")
-OPENVIKING_VERIFY_TIMEOUT = float(os.environ.get("OPENVIKING_VERIFY_TIMEOUT", "15"))
 DISCORD_CHAT_ID = _config.discord_chat_id()
 
 from .print_records import (
@@ -134,53 +114,6 @@ def _batch_fully_complete(context):
     if plan_id and not plan_is_complete(str(plan_id)):
         return False
     return _queued_jobs() == []
-
-
-def _openviking_request(method, path, payload=None, timeout=10):
-    headers = {"Accept": "application/json"}
-    if OPENVIKING_API_KEY:
-        # OpenViking's authenticated client sends both forms on every request.
-        headers["X-API-Key"] = OPENVIKING_API_KEY
-        headers["Authorization"] = f"Bearer {OPENVIKING_API_KEY}"
-    data = None
-    if payload is not None:
-        headers["Content-Type"] = "application/json"
-        data = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(f"{_config.require(OPENVIKING_URL, 'services.openviking_url')}{path}", data=data, headers=headers, method=method)
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.load(response)
-
-
-def write_and_verify_print_memory(filename, stats, context):
-    """Write the durable print line and require verified memory_diff output."""
-    spool = context.get("active_spool") if isinstance(context, dict) else {}
-    spool = spool if isinstance(spool, dict) else {}
-    filament_data = spool.get("filament") if isinstance(spool.get("filament"), dict) else {}
-    filament = " ".join(str(value).strip() for value in (
-        spool.get("vendor") or filament_data.get("vendor"),
-        spool.get("material") or filament_data.get("material"),
-        spool.get("color") or filament_data.get("color"),
-    ) if value).strip()
-    filament = filament or str(spool.get("name") or "filament not recorded")
-    used = stats.get("filament_used") if isinstance(stats, dict) else None
-    line = f"Print {Path(str(filename)).stem}: success; filament {filament}; used {used if used is not None else 'not recorded'} mm; date {utc_now().split('T', 1)[0]}."
-    sid = f"hermes-remember-print-{hashlib.sha256(line.encode()).hexdigest()[:16]}"
-    try:
-        _openviking_request("POST", f"/api/v1/sessions/{sid}/messages", {"role": "user", "parts": [{"type": "text", "text": line}]})
-        _openviking_request("POST", f"/api/v1/sessions/{sid}/commit", {"keep_recent_count": 0})
-        deadline = time.time() + OPENVIKING_VERIFY_TIMEOUT
-        while time.time() < deadline:
-            listing = _openviking_request("GET", f"/api/v1/fs/ls?uri=viking://user/hermes/sessions/{sid}", timeout=5)
-            if "memory_diff.json" in json.dumps(listing):
-                diff_text = json.dumps(listing)
-                if '"adds": 0' not in diff_text or '"updates": 0' not in diff_text:
-                    return True, line
-                raise RuntimeError("memory_diff.json reported zero adds/updates")
-            time.sleep(0.5)
-        raise RuntimeError("memory_diff.json was not found")
-    except Exception as exc:
-        print(f"Print memory write/verification failed: {exc}", file=sys.stderr)
-        return False, line
 
 
 def get_job():
@@ -906,14 +839,6 @@ def main():
                 print(f"Multipart continuation summary unavailable: {exc}", file=sys.stderr)
         batch_complete = _batch_fully_complete(context)
         previous["batch_complete"] = batch_complete
-        if batch_complete:
-            memory_ok, memory_line = write_and_verify_print_memory(filename, payload.get("stats") or {}, context)
-            previous["memory_verified"] = memory_ok
-            previous["memory_line"] = memory_line
-        else:
-            memory_ok = False
-            previous["memory_verified"] = False
-            previous["memory_line"] = "deferred until the complete batch/job finishes"
         # Keep the completion retryable until the listener confirms Discord delivery.
         set_pending_completion_message(previous, message)
         # Bind the roast subject to this exact completion text, so an older

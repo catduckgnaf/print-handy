@@ -52,7 +52,6 @@ services:
   camera_source: "auto"
   camera_snapshot_url: ""
   spoolman_url: "http://127.0.0.1:8000"
-  openviking_url: ""
   vision_chat_url: ""
   stock_api_port: 8898
 printer:

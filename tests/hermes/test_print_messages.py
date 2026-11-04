@@ -645,7 +645,6 @@ def test_announcer_completion_uses_model_title_not_hash(job, tmp_path, monkeypat
     monkeypatch.setattr(watcher, "_queued_jobs", lambda: [])  # the original asked the live printer's queue
     monkeypatch.setattr(watcher, "get_file_metadata", lambda filename: {"slicer_settings": {"layer_height": 0.2}})
     monkeypatch.setattr(watcher, "get_active_spool", lambda: {})
-    monkeypatch.setattr(watcher, "write_and_verify_print_memory", lambda *args: (True, "memory recorded"))
     monkeypatch.setattr(watcher.time, "time", lambda: 12345.0)
     assert watcher.main() == 0
     capsys.readouterr()
@@ -660,7 +659,6 @@ def test_announcer_completion_uses_model_title_not_hash(job, tmp_path, monkeypat
     state = json.loads((tmp_path / "state.json").read_text())
     # #524: a completion no longer arms any agent-session reset.
     assert "reset_armed_at" not in state
-    assert state["memory_verified"] is True
     assert not HEX.search(posted)
     record = json.loads(next((tmp_path / "Prints").glob("*.json")).read_text())
     assert record["title"] == TITLE and record["status"] == "completed"
@@ -692,7 +690,6 @@ def test_announcer_records_the_roast_subject_and_never_calls_the_generator(job, 
     monkeypatch.setattr(watcher, "_queued_jobs", lambda: [])
     monkeypatch.setattr(watcher, "get_file_metadata", lambda filename: {"slicer_settings": {"layer_height": 0.2}})
     monkeypatch.setattr(watcher, "get_active_spool", lambda: {})
-    monkeypatch.setattr(watcher, "write_and_verify_print_memory", lambda *args: (True, "memory recorded"))
     monkeypatch.setattr(watcher.time, "time", lambda: 12345.0)
     assert watcher.main() == 0
     capsys.readouterr()

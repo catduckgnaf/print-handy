@@ -60,7 +60,7 @@ approvals:
 plugins:
   enabled:
   - print-feedback
-  # Optional external plugins, installed separately (see docs/INSTALL.md): image_gen, openviking.
+  # Optional external plugins, installed separately (see docs/INSTALL.md): image_gen.
   disabled: []
   entries:
     print-feedback:

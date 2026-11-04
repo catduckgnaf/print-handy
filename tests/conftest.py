@@ -42,7 +42,7 @@ def _test_settings():
     data["services"].update(
         moonraker_url="http://printer.test:7125", moonraker_ws_url="ws://printer.test:7125/websocket",
         camera_snapshot_url="http://printer.test/webcam/?action=snapshot", spoolman_url="http://spoolman.test:7912",
-        openviking_url="http://viking.test:1933", vision_chat_url="http://vision.test:8317/v1/chat/completions")
+        vision_chat_url="http://vision.test:8317/v1/chat/completions")
     data["discord"]["chat_id"] = "100000000000000001"
     data["timelapse"].update(archive_host="archive.test", archive_dir="/archive/timelapses")
     # The Moonraker URL above is patched in after the load, so the mode
