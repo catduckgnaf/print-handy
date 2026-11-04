@@ -237,6 +237,21 @@ def head_switch_sensors(objects: Any) -> list[str]:
     return [] if multi else switches
 
 
+def active_head_sensors(names: list[str], active: Any) -> list[str]:
+    """The head sensors that belong to the active extruder on a multi-extruder printer.
+
+    A sensor belongs to a tool when the extruder name is a whole token of its
+    suffix ("head_extruder1" -> extruder1), so "extruder1" never matches the
+    "extruder" tool. An idle tool's empty sensor must not block a resume
+    (review of #878; same rule as moonraker_event_listener.head_sensor_from_status).
+    """
+    if not isinstance(active, str) or not active:
+        return []
+    def tokens(name: str) -> set[str]:
+        return {t for t in re.split(r"[^0-9A-Za-z]+", name.split(" ", 1)[-1].replace("head", " ")) if t}
+    return [n for n in names if active in tokens(n)]
+
+
 def head_filament_loaded(printer_id: str | None = None) -> bool | None:
     """False when an enabled toolhead switch sensor reads empty; True when all read loaded; None when unknown.
 
@@ -245,14 +260,21 @@ def head_filament_loaded(printer_id: str | None = None) -> bool | None:
     """
     try:
         listing = _send("/printer/objects/list", printer_id=printer_id)
-        names = head_switch_sensors((listing.get("result") or {}).get("objects"))
+        objects = (listing.get("result") or {}).get("objects")
+        names = head_switch_sensors(objects)
         if not names:
             return None
-        query = "&".join(urllib.parse.quote(n, safe="") for n in names)
+        multi = isinstance(objects, list) and any(
+            isinstance(o, str) and re.fullmatch(r"extruder\d+", o) for o in objects)
+        query = "&".join(urllib.parse.quote(n, safe="") for n in names + (["toolhead"] if multi else []))
         data = _send(f"/printer/objects/query?{query}", printer_id=printer_id)
         st = (data.get("result") or {}).get("status") or {}
     except Exception:
         return None
+    if multi:
+        names = active_head_sensors(names, (st.get("toolhead") or {}).get("extruder"))
+        if not names:
+            return None  # the active tool's sensor is unknown: do not block on another tool's
     readings = [s.get("filament_detected") for s in (st.get(n) for n in names)
                 if isinstance(s, dict) and s.get("enabled") is True
                 and isinstance(s.get("filament_detected"), bool)]

@@ -2733,6 +2733,16 @@ class FailoverChannelWatch:
         self.candidate, self.count = None, 0
         return old, channel
 
+    def retry(self, change):
+        """Undo a reported change whose usage update failed, so a later poll reports it again.
+
+        The change is only consumed once usage is reconciled (review of #878):
+        a transient Moonraker error must not leave the empty spool charged.
+        """
+        old, new = change
+        if self.channel == new:
+            self.channel, self.candidate, self.count = old, None, 0
+
 
 def failover_usage_target(old_slot, new_slot, charged_spool, mapped):
     """The spool to point usage at after a failover, or None to leave usage alone.
@@ -3220,6 +3230,18 @@ class Listener:
             log("native filament presence poll recovered")
         self.presence_failure = failure
 
+    def failover_retry(self, change):
+        watch = getattr(self, "failover_watch", None)
+        if watch is not None:
+            watch.retry(change)
+
+    @property
+    def failover_failures_posted(self):
+        posted = self.__dict__.get("_failover_failures_posted")
+        if posted is None:
+            posted = self.__dict__["_failover_failures_posted"] = set()
+        return posted
+
     async def follow_failover(self, change):
         """Point usage at the replacement spool when Infinity switched channels on a one-spool job."""
         if not change:
@@ -3229,7 +3251,8 @@ class Listener:
         try:
             charged = await asyncio.to_thread(spool_sync.active_usage_spool)
         except Exception as exc:
-            log(f"failover: active spool read failed: {exc!r}")
+            log(f"failover: active spool read failed, retrying on a later poll: {exc!r}")
+            self.failover_retry(change)
             return
         target = failover_usage_target(old, new, charged, _mapped_spool)
         log(f"failover: IFS channel {old}->{new} charged={charged} target={target}")
@@ -3238,7 +3261,11 @@ class Listener:
         try:
             await asyncio.to_thread(spool_sync.resume_usage, target)
         except Exception as exc:
-            log(f"failover: usage repoint failed: {exc!r}")
+            log(f"failover: usage repoint failed, retrying on a later poll: {exc!r}")
+            self.failover_retry(change)
+            if change in self.failover_failures_posted:
+                return
+            self.failover_failures_posted.add(change)
             await asyncio.to_thread(post, (
                 f"**Filament failover:** the printer switched from IFS slot {old} to slot {new} "
                 f"for {clean(self.filename or 'this print')}, but filament usage could not be moved to "

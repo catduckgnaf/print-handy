@@ -520,3 +520,11 @@ def test_head_switch_sensors_selection():
     # multi-extruder printer with no head-named sensor: no guess
     assert print_control.head_switch_sensors(["extruder", "extruder1", "filament_switch_sensor runout"]) == []
     assert print_control.head_switch_sensors(None) == []
+
+
+def test_active_head_sensors_follow_the_active_extruder():
+    # Review of #878: an idle tool's empty head sensor must not block resume.
+    names = ["filament_switch_sensor head_extruder", "filament_switch_sensor head_extruder1"]
+    assert print_control.active_head_sensors(names, "extruder1") == ["filament_switch_sensor head_extruder1"]
+    assert print_control.active_head_sensors(names, "extruder") == ["filament_switch_sensor head_extruder"]
+    assert print_control.active_head_sensors(names, None) == []

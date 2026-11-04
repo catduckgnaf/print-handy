@@ -5687,7 +5687,12 @@ def alert_button_handlers(bot, adapter):
                                              alert.get('context') or {}, {'status': 'same'})
         except Exception as exc:
             logger.exception('same spool-question answer failed')
-            await interaction.followup.send('Nothing was changed. Check what you entered and try again.', ephemeral=True)
+            # A Same answer creates the fresh roll before binding it: when the
+            # bind fails, name the created spool instead of "nothing changed",
+            # or the retry it invites adds another roll (review of #878).
+            await interaction.followup.send(
+                str(exc) if getattr(exc, 'spool_created', None)
+                else 'Nothing was changed. Check what you entered and try again.', ephemeral=True)
             return
         await interaction.followup.send(result)
 

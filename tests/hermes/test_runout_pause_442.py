@@ -499,6 +499,28 @@ class InfinityFailoverMovesUsage(ListenerRunoutCase):
         resume.assert_called_once_with(19)
         self.assertIn("spool #19", posts[0])
 
+    def test_watch_retry_reports_the_switch_again(self):
+        w = mel.FailoverChannelWatch()
+        w.observe(3)
+        w.observe(2)
+        change = w.observe(2)
+        self.assertEqual(change, (3, 2))
+        w.retry(change)
+        self.assertIsNone(w.observe(2))
+        self.assertEqual(w.observe(2), (3, 2))
+
+    async def test_failed_usage_read_is_retried_not_dropped(self):
+        # Review of #878: a transient error must not consume the switch.
+        from print_handy.hermes import spool_sync
+        lis = self.listener({}, head=None)
+        lis.failover_watch = mel.FailoverChannelWatch()
+        for ch in (3, 2, 2):
+            change = lis.failover_watch.observe(ch)
+        with mock.patch.object(spool_sync, "active_usage_spool", side_effect=OSError("down")), \
+             mock.patch.object(mel, "post"):
+            await lis.follow_failover(change)
+        self.assertEqual(lis.failover_watch.channel, 3)
+
     async def test_follow_failover_leaves_a_multi_slot_job_alone(self):
         from print_handy.hermes import spool_sync
         lis = self.listener({}, head=None)
