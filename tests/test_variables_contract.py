@@ -134,7 +134,6 @@ EXEMPTIONS = {
     ("printer", "vendor"): (frozenset({"webui"}), "#657"),
     ("prusa", "api_key_env"): (frozenset({"webui"}), "#286"),
     ("services", "moonraker_ws_url"): (frozenset({"webui"}), "#657"),
-    ("services", "openviking_url"): (frozenset({"webui"}), "#657"),
     ("services", "stock_api_port"): (frozenset({"webui"}), "#657"),
     ("slicer", "flash_studio_path"): (frozenset({"webui"}), "#657"),
     ("telegram", "token_env"): (frozenset({"webui"}), "#286"),

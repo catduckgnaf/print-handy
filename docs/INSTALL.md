@@ -115,7 +115,7 @@ in `config/after-update.sh`.
 
 ## Optional external plugins
 
-Not shipped here. Install them yourself if you want them: `openviking` (memory), `image_gen`.
+Not shipped here. Install them yourself if you want them: `image_gen`.
 
 ## Migration notes: the default mode is now standalone (#524)
 

@@ -67,7 +67,6 @@ LEGACY_ENV = {
     "MOONRAKER_URL": ("services", "moonraker_url"),
     "MOONRAKER_WS_URL": ("services", "moonraker_ws_url"),
     "SPOOLMAN_URL": ("services", "spoolman_url"),
-    "OPENVIKING_URL": ("services", "openviking_url"),
     "PRINT_VISION_CHAT_URL": ("services", "vision_chat_url"),
     "PRINT_DISCORD_CHAT_ID": ("discord", "chat_id"),
     "DISCORD_UPLOAD_MAX_BYTES": ("discord", "upload_max_bytes"),
@@ -117,6 +116,9 @@ def _apply_key_aliases(layer):
             del values[old_key]  # both spellings in one layer: the current name wins
         else:
             target[new_key] = values.pop(old_key)
+    services = layer.get("services")
+    if isinstance(services, dict):
+        services.pop("openviking_url", None)  # Drop retired configuration without disrupting upgrades.
     return layer
 
 
@@ -368,6 +370,8 @@ def _from_env(home, environ, declared=None):
             section, key = LEGACY_ENV[name]
         else:
             continue
+        if (section, key) == ("services", "openviking_url"):
+            continue  # Ignore old Docker template overrides on upgrade.
         if (section, key) in ENV_LISTS:
             # An empty value changes nothing, like every other Docker feature variable left blank;
             # the list itself is checked by validate() (for [delivery] methods: _validate_vendor_choices).

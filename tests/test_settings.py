@@ -261,7 +261,7 @@ class OverrideTests(unittest.TestCase):
             "paths": {"hermes_home", "archive", "records_vault", "cache", "hermes_bin", "ffmpeg",
                       "hermes_agent", "hermes_restart_helper"},
             "services": {"moonraker_url", "moonraker_ws_url", "camera_snapshot_url", "camera_source",
-                         "spoolman_url", "openviking_url", "vision_chat_url", "stock_api_port"},
+                         "spoolman_url", "vision_chat_url", "stock_api_port"},
             "discord": {"chat_id", "approval_user_id", "upload_max_bytes", "post_print_quiet_s",
                         "daily_reset_hour", "timezone", "bot_name", "question_timeout_s",
                         "safety_confirm_timeout_s", "upload_wait_s", "cold_pull_outcome_s",

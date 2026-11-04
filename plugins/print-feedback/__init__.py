@@ -1424,8 +1424,8 @@ _tool_lock = threading.Lock()
 
 def guard_terminal_loop(tool_name=None, args=None, session_id=None, turn_id=None, **kwargs):
     """Reject repeats and terminal thrashing within one identified user turn."""
-    search_tools = {'search_files', 'web_search', 'viking_search', 'session_search', 'tool_search'}
-    read_tools = {'read_file', 'web_extract', 'viking_read', 'viking_browse', 'browser_exec'}
+    search_tools = {'search_files', 'web_search', 'session_search', 'tool_search'}
+    read_tools = {'read_file', 'web_extract', 'browser_exec'}
     exploration = tool_name in search_tools | read_tools
     if tool_name not in {'terminal', 'write_file', 'patch'} and not exploration:
         return None

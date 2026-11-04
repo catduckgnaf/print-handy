@@ -68,7 +68,6 @@ Schema, validation limits and TOML migration: [CONFIGURATION-YAML.md](CONFIGURAT
 | `services.camera_source` | `PRINT_HANDY__SERVICES__CAMERA_SOURCE` | `auto` | Which camera still images come from (#294): `auto` follows the printer vendor's rule, or pin one source. The pin is honored by the go2rtc fan-out source selection, the camera watchdog's stills and the Bambu camera paths: `moonraker` uses the Moonraker webcam snapshot only, `bambu` the printer's own Bambu camera, `go2rtc` the go2rtc fan-out only (a stream source, not a stills-only URL), and `none` turns camera images off — no stills, no timelapse capture, no fan-out. A path the pin excludes refuses and names the pin instead of silently using another source |
 | `services.camera_snapshot_url` | `PRINT_HANDY__SERVICES__CAMERA_SNAPSHOT_URL` | empty | Camera snapshot URL; derived from the Moonraker host when empty |
 | `services.spoolman_url` | `PRINT_HANDY__SERVICES__SPOOLMAN_URL` | empty | Spoolman URL. The Docker config and Compose default to `http://127.0.0.1:8000`, the bundled Spoolman API in the same container. Set another URL, plus `PRINT_HANDY_BUNDLED_SPOOLMAN=false`, to use an existing external Spoolman instead |
-| `services.openviking_url` | `PRINT_HANDY__SERVICES__OPENVIKING_URL` | empty | Optional OpenViking memory store |
 | `services.vision_chat_url` | `PRINT_HANDY__SERVICES__VISION_CHAT_URL` | empty | OpenAI-compatible endpoint for camera checks and roasts; empty disables both. Needs a vision-capable model. See [Model endpoints](#model-endpoints) |
 | `services.stock_api_port` | `PRINT_HANDY__SERVICES__STOCK_API_PORT` | `8898` | Flashforge stock API port for IFS presence |
 | `services.octoprint_url` | `PRINT_HANDY__SERVICES__OCTOPRINT_URL` | empty | Printer URL for OctoPrint, including Sovol Marlin keys and an OctoPi that is not the printer. API key: `OCTOPRINT_API_KEY` secret |
@@ -487,7 +486,6 @@ Secrets come from the environment only (Docker: `.env`, never committed or share
 | `THANGS_TOKEN` | Thangs downloads: the login token, used when `~/.config/thangs/token` does not exist (a saved file wins) |
 | `NEXPRINT_TOKEN` | Nexprint downloads: the login token, used when `~/.config/nexprint/token` does not exist (a saved file wins) |
 | `MYMINIFACTORY_OAUTH_TOKEN` | MyMiniFactory downloads: the OAuth sign-in's access token, used when `~/.config/myminifactory/oauth_token` does not exist (a saved file wins) |
-| `OPENVIKING_API_KEY` | Key for `services.openviking_url` |
 | `AD5X_SERIAL` | Stock Flashforge printers: the printer serial number for the stock LAN API. Never a setting; set it together with `flashforge_stock.host` |
 | `AD5X_CHECK_CODE` | Stock Flashforge printers: the printer check code for the stock LAN API. Never a setting |
 

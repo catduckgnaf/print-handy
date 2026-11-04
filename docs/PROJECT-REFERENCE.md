@@ -374,7 +374,7 @@ Failures are named in chat with the cause and the remedy: the host could not be 
 | | `archive`, `records_vault`, `cache` | `~/3d-prints`, `~/Documents/3D Printing Records`, `~/.hermes/cache` | Job archive, print records, cache |
 | | `hermes_bin`, `hermes_agent`, `hermes_restart_helper`, `ffmpeg` | | Tool locations |
 | `services` | `moonraker_url`, `moonraker_ws_url`, `camera_snapshot_url` | empty | Printer and camera; websocket is derived when empty |
-| | `spoolman_url`, `openviking_url` | empty | Spoolman and optional memory store |
+| | `spoolman_url` | empty | Spoolman service |
 | | `vision_chat_url` | empty | OpenAI compatible endpoint for vision checks and roasts; empty disables both |
 | | `stock_api_port` | `8898` | Flashforge stock API for IFS presence |
 | `discord` | `chat_id`, `approval_user_id` | empty | Channel and approver IDs |

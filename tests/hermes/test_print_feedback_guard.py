@@ -32,7 +32,6 @@ def test_printer_can_read_edit_and_research_its_stack():
         ('write_file', {'path': 'JOB.json'}),
         ('search_files', {'path': str(_config.hermes_home()), 'target': 'content', 'pattern': 'offset'}),
         ('web_search', {'query': 'ZMod calibration'}),
-        ('viking_search', {'query': 'ghost print'}),
         ('session_search', {'query': 'ghost print'}),
     ]:
         for _ in range(15):

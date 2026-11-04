@@ -144,7 +144,6 @@
       "camera_snapshot_url": "",
       "moonraker_url": "",
       "moonraker_ws_url": "",
-      "openviking_url": "",
       "spoolman_url": "",
       "stock_api_port": 8898,
       "vision_chat_url": ""
@@ -313,7 +312,6 @@
       "camera_snapshot_url": "",
       "moonraker_url": "",
       "moonraker_ws_url": "",
-      "openviking_url": "",
       "spoolman_url": "",
       "stock_api_port": 8898,
       "vision_chat_url": ""
@@ -482,7 +480,6 @@
       "camera_snapshot_url": "",
       "moonraker_url": "",
       "moonraker_ws_url": "",
-      "openviking_url": "",
       "spoolman_url": "",
       "stock_api_port": 8898,
       "vision_chat_url": ""
@@ -651,7 +648,6 @@
       "camera_snapshot_url": "",
       "moonraker_url": "",
       "moonraker_ws_url": "",
-      "openviking_url": "",
       "spoolman_url": "",
       "stock_api_port": 8898,
       "vision_chat_url": ""
