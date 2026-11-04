@@ -340,7 +340,7 @@ def _login_html(data, environ, submitted_username=""):
                   "keeps working for Home Assistant and other tools.")
     else:
         status = "This Web UI is open: anyone on your network can use it."
-    parts = [f'<p>{status}</p>', pages.login_rows(submitted_username)]
+    parts = [f'<p>{status}</p>', pages.login_rows(submitted_username, required=False)]
     if mode != access_module.OPEN:
         parts.append(
             f'<p><input type="checkbox" id="f-{pages.SETUP_OPEN_FIELD}" '

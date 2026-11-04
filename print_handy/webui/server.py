@@ -941,6 +941,18 @@ class _Handler(BaseHTTPRequestHandler):
             back = "/"
         self._redirect(back, headers=[("Set-Cookie", shell.theme_cookie_header(theme))])
 
+    def _rotate_form_token(self):
+        """Replace the config form token after an access-rule change.
+
+        Pages served under the old rule handed this token to anyone who
+        could reach the Web UI then, and _post_authorized accepts it on
+        its own — if it survived the change, a retained copy would keep
+        authorizing protected writes under the new rule, including
+        replacing or removing the login that was just set. The browser
+        that made the change is signed in with a session, and every
+        page it loads next carries the new token."""
+        self.server.form_token = secrets.token_urlsafe(32)
+
     # -- first-run walkthrough (#813) -----------------------------------------
     def _walkthrough_data(self):
         """The current effective settings for a walkthrough render or
@@ -982,6 +994,7 @@ class _Handler(BaseHTTPRequestHandler):
             # person who chose it signed in on this browser.
             self.server.access = access_module.resolve(
                 self.server.settings_data, self.server.bind_host, self.server.webui_environ)
+            self._rotate_form_token()
             self._redirect(payload, headers=[self._start_session()]
                            if self.server.access.required else [])
         elif kind == "redirect":
@@ -1085,6 +1098,7 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             self.server.access = access_module.resolve(data, self.server.bind_host,
                                                        self.server.webui_environ)
+            self._rotate_form_token()
         # The person who just chose the password is signed in on this browser.
         self._redirect("/", headers=[self._start_session()] if self.server.access.required else [])
 

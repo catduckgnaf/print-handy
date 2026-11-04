@@ -195,6 +195,23 @@ class SetupFlowTests(unittest.TestCase):
         # Setup is done: /setup no longer offers a choice.
         self.assertEqual(self.request(port, "GET", "/setup", headers={"Cookie": cookie})[0], 303)
 
+    def test_setup_choice_rotates_the_form_token(self):
+        """#880 review (P1), the setup sibling: completing setup changes
+        the access rule, so the config form token rotates with it — a
+        token from before the change must not authorize writes after."""
+        httpd, port, _ = self.start()
+        before = httpd.form_token
+        code, _, _ = self.post_setup(port, **{pages.CSRF_FIELD: self.form_token(port),
+                                              "choice": "password", "username": USERNAME,
+                                              "password": PASSWORD,
+                                              "password_again": PASSWORD})
+        self.assertEqual(code, 303)
+        self.assertEqual(httpd.access.mode, access.PASSWORD)
+        self.assertNotEqual(httpd.form_token, before)
+        code, _, _ = self.request(port, "POST", "/config/preview", headers=FORM,
+                                  body=urlencode({pages.CSRF_FIELD: before}))
+        self.assertEqual(code, 403)
+
     def test_login_form_asks_for_username_and_password(self):
         httpd, port, _ = self.start()
         self.post_setup(port, **{pages.CSRF_FIELD: self.form_token(port), "choice": "password",

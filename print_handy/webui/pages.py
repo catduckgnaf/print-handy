@@ -265,25 +265,32 @@ def render_login_page(error=None, password=False, *, username=False,
     return _page("log in", "".join(parts), theme=theme, path="/login", chrome=False)
 
 
-def login_rows(submitted_username=""):
+def login_rows(submitted_username="", *, required=True):
     """Username, password and confirmation inputs for choosing a login.
 
     Shared by /setup and the walkthrough's Login step. Standard names and
     autocomplete hints let a browser or password manager offer to save
-    the pair. Passwords are never echoed back; only the username is."""
+    the pair. Passwords are never echoed back; only the username is.
+
+    ``required`` is the standalone setup page's strictness: a first-run
+    choice must be complete. The walkthrough passes False — its Login
+    step documents leaving the fields empty to keep the current login,
+    and removing the login via its checkbox, both of which browser
+    validation on required fields would refuse before the form is sent."""
     minimum = access_module.MIN_PASSWORD_LENGTH
+    req = " required" if required else ""
     return (
         f'<p><label for="f-{SETUP_USER_FIELD}">Username</label> '
         f'<input type="text" id="f-{SETUP_USER_FIELD}" name="{SETUP_USER_FIELD}" '
         f'value="{_esc(submitted_username)}" autocomplete="username" '
         'autocapitalize="none" spellcheck="false" '
-        f'maxlength="{access_module.MAX_USERNAME_LENGTH}" required></p>'
+        f'maxlength="{access_module.MAX_USERNAME_LENGTH}"{req}></p>'
         f'<p><label for="f-{SETUP_PASSWORD_FIELD}">Password</label> '
         f'<input type="password" id="f-{SETUP_PASSWORD_FIELD}" name="{SETUP_PASSWORD_FIELD}" '
-        f'autocomplete="new-password" minlength="{minimum}" required></p>'
+        f'autocomplete="new-password" minlength="{minimum}"{req}></p>'
         f'<p><label for="f-{SETUP_CONFIRM_FIELD}">Password again</label> '
         f'<input type="password" id="f-{SETUP_CONFIRM_FIELD}" name="{SETUP_CONFIRM_FIELD}" '
-        'autocomplete="new-password" required></p>')
+        f'autocomplete="new-password"{req}></p>')
 
 
 def render_setup_page(form_token, error=None, *, theme=shell.DEFAULT_THEME):
