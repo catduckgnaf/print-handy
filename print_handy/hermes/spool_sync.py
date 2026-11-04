@@ -196,11 +196,21 @@ def load_state(path: Path | None = None, *, printer_id: str | None = None) -> di
 
 
 def save_state(state: dict[str, Any], path: Path | None = None, *, printer_id: str | None = None) -> None:
-    target = _hardware_path(path, printer_id)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_suffix(target.suffix + ".tmp")
-    tmp.write_text(json.dumps(state, indent=2) + "\n")
-    os.replace(tmp, target)
+    from ..core import printer_state
+    printer_state.atomic_write_json(_hardware_path(path, printer_id), state)
+
+
+def _hw_locked(fn):
+    """Run a hardware-record read-modify-write under the record's interprocess lock."""
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        from ..core import printer_state
+        target = _hardware_path(kwargs.get("state_path"), kwargs.get("printer_id"))
+        with printer_state.hardware_lock(path=target):
+            return fn(*args, **kwargs)
+    return wrapper
 
 
 def _loaded_spool_ids(state: dict[str, Any]) -> set[int]:
@@ -686,6 +696,7 @@ def _slot_record(slot: int, spool: dict[str, Any], old: dict[str, Any] | None, n
     }
 
 
+@_hw_locked
 def bind_slot(slot: int, spool_id: int, *, client: Client = spoolman, mr: Client = moonraker,
               state_path: Path | None = None, pending_path: Path | None = None,
               prior_disposition: str = "shelf", note: str = "Bound from Discord /spool",
@@ -853,6 +864,7 @@ def bind_slot(slot: int, spool_id: int, *, client: Client = spoolman, mr: Client
             "prior_disposition": prior_disposition}
 
 
+@_hw_locked
 def unbind_slot(slot: int, *, client: Client = spoolman, mr: Client = moonraker,
                 state_path: Path | None = None, pending_path: Path | None = None,
                 printer_id: str | None = None,
@@ -950,6 +962,7 @@ def unbind_text(result: dict[str, Any]) -> str:
             f"spool #{result['spool_id']} is on the shelf.")
 
 
+@_hw_locked
 def swap_slots(slot_a: int, slot_b: int, *, client: Client = spoolman, mr: Client = moonraker,
                state_path: Path | None = None, pending_path: Path | None = None,
                printer_id: str | None = None,
@@ -1089,6 +1102,7 @@ def swap_text(result: dict[str, Any]) -> str:
             f"{held(result['slot_b'], result['spool_in_b'])}.")
 
 
+@_hw_locked
 def backfill_slot_colors(*, client: Client = spoolman, mr: Client = moonraker,
                           state_path: Path | None = None,
                           printer_id: str | None = None) -> list[dict[str, Any]]:
@@ -1244,8 +1258,10 @@ def reconcile(printer_id: str | None = None, *, client: Client = spoolman, mr: C
                                "in flight, so nothing was changed — run it again when the printer is free")
             return result
     try:
-        return _reconcile_locked(pid, result, client=client, mr=mr,
-                                 state_path=state_path, pending_path=pending_path)
+        from ..core import printer_state
+        with printer_state.hardware_lock(path=_hardware_path(state_path, pid)):
+            return _reconcile_locked(pid, result, client=client, mr=mr,
+                                     state_path=state_path, pending_path=pending_path)
     finally:
         if lock is not None:
             try:
