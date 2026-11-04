@@ -3970,6 +3970,20 @@ def intake_color_choices(job_path, state, mode=None, slots=None, interactive=Fal
     # needs slot choices is refused here exactly as it was while the model was "single".
     if not multi_tool and not (adapter.multi_slot and adapter.slots_bound_by_record):
         if manifest['requires_choices']:
+            # Height-based colors alone (#870) are not a slot choice: they
+            # print as pauses for a manual swap or in one color, whichever
+            # the recorded decisions say. Without a recorded choice the job
+            # stops here and names that choice — never a silent one color.
+            layered_only = (bool(manifest.get('layer_changes')) and len(manifest['parts']) <= 1
+                            and not manifest['painted'])
+            if layered_only and job.get('color_decisions'):
+                validate_decisions(manifest, job['color_decisions'], state, resolve_filament_selection)
+                return True
+            if layered_only:
+                raise MultiColorUnsupported(
+                    f"{adapter.label} has a single extruder; this source changes color by height. Choose "
+                    "pauses at each change height (swap the filament by hand) or one color for everything "
+                    "before slicing")
             raise MultiColorUnsupported(
                 f"{adapter.label} has a single extruder; this source has several parts or colors that need a "
                 "slot choice. Slice a single-color model or use a multi-slot printer")
@@ -4136,7 +4150,12 @@ def _part_slots(view, manifest):
                for part in manifest['parts'] if f"filament:{part['source_extruder']}" in choices}
         out.update({key: row['slot'] for key, row in choices.items() if key.startswith('filament:')})
         return out
-    return {part['key']: view['choices']['part:' + part['key']]['slot'] for part in manifest['parts']}
+    out = {part['key']: view['choices']['part:' + part['key']]['slot'] for part in manifest['parts']}
+    # Height-based color changes (#870): their filament choices are colors of
+    # the plate too, so a plate whose parts all share one slot is not a
+    # single-color plate when its layer changes switch to other slots.
+    out.update({key: row['slot'] for key, row in view['choices'].items() if key.startswith('filament:')})
+    return out
 
 
 def _job_fit(job, brim_override):
@@ -5314,11 +5333,23 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         if multi_plate:
             raise RuntimeError(f'multi-plate 3MF cannot be merged or split: {exc}; no slicing attempted') from exc
         raise
+    # A height-color-only source (#870) is not a multi-color source: its parts
+    # share one extruder and the recorded single-color decision carries the
+    # operator's pause-or-one-color choice, which a single-extruder printer
+    # honours through slice_model's pause path. It is exempt from the generic
+    # refusal and the decisions drop below — but only that decision shape,
+    # and never for multi-plate sources or full-size split plans.
+    recorded = job.get('color_decisions')
+    layered_single = bool(
+        not multi_plate and not job.get('full_size_split_plan')
+        and not manifest.get('painted') and manifest.get('layer_changes')
+        and len({part['source_extruder'] for part in manifest['parts']}) <= 1
+        and isinstance(recorded, dict) and recorded.get('mode') == 'single_color')
     if generic and (multi_plate or manifest['requires_choices'] or job.get('full_size_split_plan')):
         # A multi_tool printer honours multi-colour and multi-plate sources
         # through the identity tool mapping (#346); a full-size split plan is
         # still IFS-shaped and stays refused here.
-        if not multi_tool or job.get('full_size_split_plan'):
+        if (not multi_tool or job.get('full_size_split_plan')) and not layered_single:
             raise MultiColorUnsupported(
                 f"{adapter.label} has a single extruder; multi-plate, multi-part or multi-color sources need a "
                 "multi-slot printer. Slice one single-color plate instead")
@@ -5329,7 +5360,7 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
     write_job(Path(job_path).parent, job)
     _timing(job_path, 'inventory_done')
     job['slice_recipe'] = recipe  # persisted only with the artifact it describes
-    decisions = None if (generic and not multi_tool) else job.get('color_decisions')
+    decisions = None if (generic and not multi_tool and not layered_single) else job.get('color_decisions')
     if decisions is not None:
         decisions = validate_decisions(manifest, decisions, st, resolve_filament_selection)
     if manifest['requires_choices'] and not decisions:

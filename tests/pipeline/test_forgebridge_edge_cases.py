@@ -120,13 +120,86 @@ def layered(path):
     return path
 
 
-@pytest.mark.xfail(strict=True, reason="#868 open item: Print Handy does not carry height-based tool changes "
-                   "(Metadata/custom_gcode_per_layer.xml) yet; a one-part model asks one colour and prints in it")
 def test_height_based_colour_changes_are_kept(tmp_path):
     manifest = source_colors.inventory(layered(tmp_path / "chroma.3mf"))
-    # Kept would mean: the filaments the layer changes switch to are asked for, like painted regions.
+    # The filaments the layer changes switch to are asked for, like painted regions.
     asked = {row["key"] for row in source_colors.canonical_prompts(manifest)}
     assert {"filament:2", "filament:3"} <= asked
+    # The inventory names the changes themselves, and counts their colors as
+    # colors the source prints with.
+    assert [(row["top_z"], row["source_extruder"]) for row in manifest["layer_changes"]] == [(4.0, 2), (8.0, 3)]
+    assert len(source_colors.distinct_source_colours(manifest)) == 3
+
+
+def _layered_decisions(source, picks):
+    manifest = source_colors.inventory(source)
+    choices = {row["key"]: slot(n, PALETTE[row["source_extruder"] - 1][0])
+               for row, n in zip(source_colors.canonical_prompts(manifest), picks)}
+    return {"schema": "part_slots_v1", "mode": "per_part", "source_sha256": manifest["source_sha256"],
+            "choices": choices}
+
+
+def test_height_based_colour_changes_are_exported_remapped_to_the_job_tools(tmp_path):
+    """The geometry Print Handy hands Orca carries the changes, with the
+    source extruders remapped through the operator's slot picks: filament 2
+    was picked for slot 3 and filament 3 for slot 2, so the change at 4 mm
+    (source filament 2) must name tool 3 and the one at 8 mm tool 2."""
+    source = layered(tmp_path / "chroma.3mf")
+    target = tmp_path / "geometry.3mf"
+    mapping, report = export_color_geometry(source, target, _layered_decisions(source, [1, 3, 2]))
+    assert mapping == {"0": 1, "1": 2, "2": 3}
+    assert report["layer_changes"]["kept"] == 2
+    with zipfile.ZipFile(target) as archive:
+        xml = archive.read("Metadata/custom_gcode_per_layer.xml").decode()
+    changes = dict(re.findall(r'top_z="(\d+)"[^>]*extruder="(\d+)"', xml))
+    assert changes == {"4": "3", "8": "2"}
+
+
+def test_height_based_colour_changes_scale_with_the_geometry(tmp_path):
+    """A resized print keeps its color boundaries at the same relative
+    heights: exporting the 12 mm tower at 50% moves the changes from
+    4/8 mm to 2/4 mm instead of leaving them at the authored heights."""
+    source = layered(tmp_path / "chroma.3mf")
+    target = tmp_path / "geometry.3mf"
+    export_color_geometry(source, target, _layered_decisions(source, [1, 3, 2]), scale=0.5)
+    with zipfile.ZipFile(target) as archive:
+        xml = archive.read("Metadata/custom_gcode_per_layer.xml").decode()
+    changes = dict(re.findall(r'top_z="([\d.]+)"[^>]*extruder="(\d+)"', xml))
+    assert changes == {"2": "3", "4": "2"}
+
+
+def test_height_based_colour_changes_become_pauses_for_a_manual_swap(tmp_path):
+    """layer_mode='pause' (a single-extruder job whose operator chose manual
+    swaps): every change is written as a pause at the same height."""
+    source = layered(tmp_path / "chroma.3mf")
+    target = tmp_path / "geometry.3mf"
+    _mapping, report = export_color_geometry(source, target, _layered_decisions(source, [1, 1, 1]),
+                                             layer_mode="pause")
+    assert report["layer_changes"]["as_pauses"] is True
+    with zipfile.ZipFile(target) as archive:
+        xml = archive.read("Metadata/custom_gcode_per_layer.xml").decode()
+    entries = re.findall(r"<layer [^>]*>", xml)
+    assert len(entries) == 2
+    assert all('type="1"' in entry and 'gcode=""' in entry for entry in entries)
+    assert [re.search(r'top_z="(\d+)"', entry).group(1) for entry in entries] == ["4", "8"]
+
+
+def test_layer_pauses_and_custom_gcode_are_reported_not_carried(tmp_path):
+    """Pauses and custom G-code in the same XML are out of scope for carrying
+    (#870), but the inventory reports them instead of dropping them quietly."""
+    source = layered(tmp_path / "chroma.3mf")
+    extra = ('<layer top_z="2" type="1" extruder="1" color="" extra="" gcode=""/>\n'
+             '<layer top_z="6" type="5" extruder="1" color="" extra="" gcode="M104 S200"/>\n')
+    with zipfile.ZipFile(source) as archive:
+        entries = {info.filename: archive.read(info) for info in archive.infolist()}
+    entries["Metadata/custom_gcode_per_layer.xml"] = entries[
+        "Metadata/custom_gcode_per_layer.xml"].replace(b'<mode value=', extra.encode() + b'<mode value=')
+    with zipfile.ZipFile(source, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, data in entries.items():
+            archive.writestr(name, data)
+    manifest = source_colors.inventory(source)
+    assert [row["kind"] for row in manifest["layer_extras"]] == ["pause", "custom"]
+    assert len(manifest["layer_changes"]) == 2
 
 
 def test_height_based_colour_changes_never_reach_a_one_filament_plate_as_extra_tools(tmp_path):

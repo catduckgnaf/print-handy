@@ -20,7 +20,7 @@ IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]
 
 
 def export_color_geometry(source, target, decisions, item_shifts=None, object_ids=None, scale=None, fit_by_object=None,
-                          identity_tools=False, tower_mm=None):
+                          identity_tools=False, tower_mm=None, layer_mode=None):
     """object_ids limits export to those build objects (one authored plate);
     scale shrinks the selection uniformly before bed centering.
 
@@ -40,6 +40,8 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
     authored size), an unknown or unexported object, a non-authored
     scale, and any rotation that is not a rigid rotation.
     """
+    if layer_mode not in (None, 'pause'):
+        raise RuntimeError("layer_mode must be None or 'pause'")
     manifest = inventory(source)
     full_parts = manifest['parts']
     if object_ids is not None:
@@ -83,6 +85,12 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
         if missing:
             raise RuntimeError(f'painted source filament(s) {missing} have no slot choice')
         slots = sorted({choices[f'filament:{n}']['slot'] for n in used})
+        # A height-based color change to a filament no triangle paints with
+        # still needs its slot in the tool numbering (#870).
+        for row in manifest.get('layer_changes') or []:
+            sel = choices.get(f"filament:{row.get('source_extruder')}")
+            if sel is not None:
+                slots = sorted(set(slots) | {sel['slot']})
         paint_table = {n: (choices[f'filament:{n}']['slot'] if identity_tools
                            else slots.index(choices[f'filament:{n}']['slot']) + 1) for n in used}
     else:
@@ -91,6 +99,12 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
             if palette and palette != choices['part:' + part['key']]:
                 raise RuntimeError('part selection contradicts its source filament selection')
         slots = sorted({choices['part:' + part['key']]['slot'] for part in manifest['parts']})
+        # Height-based color changes (#870): the slots their filaments were
+        # picked for are tools of this job too, not only the parts' slots.
+        for row in manifest.get('layer_changes') or []:
+            sel = choices.get(f"filament:{row.get('source_extruder')}")
+            if sel is not None:
+                slots = sorted(set(slots) | {sel['slot']})
     if not slots:
         raise RuntimeError('multipart selection requires at least one slot')
     if not identity_tools and len(slots) > 4:
@@ -344,14 +358,58 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
             prev = merged.get(oid)
             merged[oid] = box if prev is None else [(min(prev[a][0], box[a][0]), max(prev[a][1], box[a][1])) for a in range(3)]
         part_bounds = list(merged.values())
+    # Height-based color changes (#870): carry the source's per-layer tool
+    # changes into the exported geometry, remapped onto the job's tools, so
+    # Orca emits them at their heights. In 'pause' mode (a single-extruder job
+    # whose operator chose manual swaps) each change becomes a pause instead.
+    layer_payload, layer_report = None, None
+    if manifest.get('layer_changes'):
+        from . import layer_gcode
+        with zipfile.ZipFile(source) as archive:
+            xml = archive.read(layer_gcode.MEMBER)
+            if object_ids is not None and 'Metadata/model_settings.config' in archive.namelist():
+                plate_id = layer_gcode.plate_id_for_objects(
+                    archive.read('Metadata/model_settings.config'), object_ids)
+                if plate_id is None:
+                    xml = None
+                else:
+                    xml = layer_gcode.for_plate(xml, plate_id)
+        if xml is None:
+            layer_report = {'kept': 0, 'dropped': len(manifest['layer_changes']),
+                            'reason': 'the exported objects are not on a plate the per-layer entries name'}
+        elif layer_mode == 'pause':
+            layer_payload, layer_report = layer_gcode.as_pauses(xml, z_scale=scale or 1.0)
+        else:
+            tool_map = {}
+            for row in manifest['layer_changes']:
+                ext = row.get('source_extruder')
+                if not ext or ext in tool_map:
+                    continue
+                if painted and ext in paint_table:
+                    tool_map[ext] = paint_table[ext]
+                    continue
+                selection = choices.get(f'filament:{ext}')
+                if selection is None:
+                    part = next((p for p in full_parts if p.get('source_extruder') == ext), None)
+                    selection = choices.get('part:' + part['key']) if part else None
+                if selection is None:
+                    continue
+                tool_map[ext] = selection['slot'] if identity_tools else slots.index(selection['slot']) + 1
+            layer_payload, layer_report = layer_gcode.remap(xml, tool_map, z_scale=scale or 1.0)
+        if layer_report is not None and not layer_report.get('kept'):
+            layer_payload = None
     with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as out:
         out.writestr('[Content_Types].xml', '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>')
         out.writestr('_rels/.rels', '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>')
         out.writestr('3D/3dmodel.model', ET.tostring(model, encoding='utf-8', xml_declaration=True))
         out.writestr('Metadata/model_settings.config', ET.tostring(config, encoding='utf-8', xml_declaration=True))
+        if layer_payload is not None:
+            from . import layer_gcode
+            out.writestr(layer_gcode.MEMBER, layer_payload)
     towers = prime_tower_candidates(part_bounds, tower=tower_mm)
     tower = towers[0] if towers else None  # None: a towerless plan (#832)
     return mapping, {'source_sha256': digest(source), 'converted_sha256': digest(target), 'parts': records,
+                     **({'layer_changes': layer_report} if layer_report is not None else {}),
                      **({'cutter_bounds_by_object': cutter_bounds} if cutter_bounds else {}),
                      'build_bounds_mm': bounds, 'translation_mm': delta if item_shifts is None else None, 'merged_placement': item_shifts is not None, 'prime_tower_xy_mm': list(tower) if tower else None,
                      'prime_tower_candidates_mm': [list(t) for t in towers],

@@ -564,8 +564,10 @@ def colors_by_part(run):
     parts = run.job["color_manifest"]["parts"]
     if decisions["mode"] == "single_color":
         return {p["name"]: decisions["selection"]["color"] for p in parts}
+    # Only part choices name a part's color; filament choices (painted regions,
+    # height-based color changes, #870) belong to no single part.
     return {next(p["name"] for p in parts if p["key"] == key.removeprefix("part:")): row["color"]
-            for key, row in decisions["choices"].items()}
+            for key, row in decisions["choices"].items() if key.startswith("part:")}
 
 
 def slice_support_setting(run):
