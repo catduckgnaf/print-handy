@@ -10,12 +10,15 @@ support rules need (painted supports, variable layer height).
 The rules follow ForgeBridge's published foreign-3MF conversion rules (https://forgebridge.app/);
 the key and value tables here are Print Handy's own.
 """
+import json
 import re
 import zipfile
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 PROJECT = 'Metadata/project_settings.config'
 PRUSA_CONFIG = 'Metadata/Slic3r_PE.config'
+PRUSA_MODEL = 'Metadata/Slic3r_PE_model.config'
 
 # PrusaSlicer key -> Orca key for the settings Print Handy keeps (plus the speeds, kept only when
 # lowered). Unmapped Prusa keys are ignored, as before. perimeter_generator is deliberately not
@@ -108,6 +111,114 @@ def read(source):
         if PRUSA_CONFIG in names:
             return _prusa(archive.read(PRUSA_CONFIG))
     return {}
+
+
+def prusa_project(data):
+    """A PrusaSlicer project config (Slic3r_PE.config bytes) translated to Orca names."""
+    return _prusa(data)
+
+
+def parse_prusa_model(data):
+    """Per-object settings from a PrusaSlicer Slic3r_PE_model.config member.
+
+    Shape, from PrusaSlicer's own exports: <config><object id="N"> holds object-level
+    <metadata type="object" key=".." value=".."/> entries and one <volume> per volume in
+    document order, each with <metadata type="volume" .../> entries. 'name' and 'extruder'
+    are structural; every other key is a Prusa config name, translated through PRUSA_KEYS
+    exactly like the project-level config (a key with no translation is dropped).
+    Returns {object_id: {'name', 'extruder', 'settings', 'volumes': [...]}}.
+    """
+    out = {}
+    try:
+        root = ET.fromstring(data)
+    except ET.ParseError:
+        return out
+
+    def entries(node):
+        name = extruder = None
+        settings = {}
+        for meta in node.findall('metadata'):
+            key, value = meta.get('key'), meta.get('value')
+            if key is None or value is None:
+                continue
+            if key == 'name':
+                name = value
+            elif key == 'extruder':
+                try:
+                    extruder = int(value)
+                except ValueError:
+                    extruder = None
+            elif key in PRUSA_KEYS:
+                settings[PRUSA_KEYS[key]] = _PRUSA_VALUES.get(value, value)
+        return name, extruder, settings
+
+    for obj in root.findall('object'):
+        oid = obj.get('id')
+        if oid is None:
+            continue
+        name, extruder, settings = entries(obj)
+        volumes = []
+        for volume in obj.findall('volume'):
+            v_name, v_extruder, v_settings = entries(volume)
+            volumes.append({'name': v_name, 'extruder': v_extruder, 'settings': v_settings})
+        out[str(oid)] = {'name': name, 'extruder': extruder, 'settings': settings, 'volumes': volumes}
+    return out
+
+
+def read_prusa_model(source):
+    """parse_prusa_model for the member of a 3MF source; {} when it carries none."""
+    source = Path(source)
+    if source.suffix.lower() != '.3mf' or not zipfile.is_zipfile(source):
+        return {}
+    with zipfile.ZipFile(source) as archive:
+        if PRUSA_MODEL not in archive.namelist():
+            return {}
+        return parse_prusa_model(archive.read(PRUSA_MODEL))
+
+
+def support_designation(source):
+    """The filament the author designated for supports, as source extruder numbers.
+
+    {'base': int|None, 'interface': int|None}; 0 in a project names the object's own
+    filament, which is no designation. Bambu/Orca projects carry support_filament /
+    support_interface_filament in project_settings.config; PrusaSlicer carries
+    support_material_extruder / support_material_interface_extruder in Slic3r_PE.config.
+    Unparseable or absent values are None; range-checking against the palette is the
+    caller's job (source_colors.inventory).
+    """
+    out = {'base': None, 'interface': None}
+    source = Path(source)
+    if source.suffix.lower() != '.3mf' or not zipfile.is_zipfile(source):
+        return out
+
+    def number(value):
+        try:
+            parsed = int(str(value).strip())
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed > 0 else None
+
+    with zipfile.ZipFile(source) as archive:
+        names = archive.namelist()
+        if PROJECT in names:
+            try:
+                project = json.loads(archive.read(PROJECT))
+            except (ValueError, UnicodeDecodeError):
+                project = {}
+            if isinstance(project, dict):
+                out['base'] = number(project.get('support_filament'))
+                out['interface'] = number(project.get('support_interface_filament'))
+        elif PRUSA_CONFIG in names:
+            values = {}
+            for line in archive.read(PRUSA_CONFIG).decode('utf-8', 'replace').splitlines():
+                line = line.strip()
+                if not line.startswith(';') or '=' not in line:
+                    continue
+                key, _, value = line[1:].partition('=')
+                values[key.strip()] = value.strip()
+            out['base'] = number(values.get('support_material_extruder'))
+            out['interface'] = number(values.get('support_material_interface_extruder'))
+    return out
 
 
 def _speed(value):

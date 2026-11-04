@@ -12,11 +12,28 @@ import zipfile
 from .. import settings
 from . import source_colors
 from .source_colors import inventory
-from .orca_adapter import _check_rotation, _rotate, digest
+from .orca_adapter import PROCESS_KEYS, _check_rotation, _rotate, digest
 from .threemf_canonical import require_millimeter
 
 CORE = 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'
 IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]
+
+
+def _kept_part_settings(settings):
+    """The per-volume author settings a rebuilt export may carry (#867): the kept
+    author-intent keys (orca_adapter.PROCESS_KEYS) with values Orca accepts.
+    Everything else about a volume is the job profiles' business; the slicer
+    copy's adoption pass applies the same restriction to authored files."""
+    if not settings:
+        return []
+    from . import author_settings
+    return [(key, settings[key]) for key in sorted(settings)
+            if key in PROCESS_KEYS and not author_settings.invalid_enum(key, settings[key])]
+
+
+def _write_part_settings(pc, settings):
+    for key, value in _kept_part_settings(settings):
+        ET.SubElement(pc, 'metadata', key=key, value=str(value))
 
 
 def export_color_geometry(source, target, decisions, item_shifts=None, object_ids=None, scale=None, fit_by_object=None,
@@ -94,9 +111,18 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
         paint_table = {n: (choices[f'filament:{n}']['slot'] if identity_tools
                            else slots.index(choices[f'filament:{n}']['slot']) + 1) for n in used}
     else:
+        # A support-designation row (#867) names the supports' spool, not the
+        # part's, so it may differ from the part choices for the same source
+        # extruder. A height-change row for that extruder is not exempt: it
+        # prints the parts themselves (#870).
+        layer_exts = {row.get('source_extruder') for row in manifest.get('layer_changes') or []}
+        designated = manifest.get('support_filaments') or {}
+        support_only = {e for e in (designated.get('base'), designated.get('interface'))
+                        if e and e not in layer_exts}
         for part in manifest['parts']:
             palette = choices.get(f"filament:{part['source_extruder']}")
-            if palette and palette != choices['part:' + part['key']]:
+            if (palette and part['source_extruder'] not in support_only
+                    and palette != choices['part:' + part['key']]):
                 raise RuntimeError('part selection contradicts its source filament selection')
         slots = sorted({choices['part:' + part['key']]['slot'] for part in manifest['parts']})
         # Height-based color changes (#870): the slots their filaments were
@@ -226,6 +252,7 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
     build = ET.SubElement(model, tag('build'))
     records = []
     part_bounds = []
+    settings_by_mesh = {}
     group_of = {}
     # Group per source build item (not object id: repeated instances of one
     # object stay separate). Parts of one build item share space by design;
@@ -257,6 +284,8 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
             slot = choices['part:' + part['key']]['slot']
             tool = slot - 1 if identity_tools else slots.index(slot)
         mesh_id = str(i)
+        if part.get('settings'):
+            settings_by_mesh[mesh_id] = part['settings']
         group = group_of.get(item_of(part['instance_key']))
         obj = ET.SubElement(resources, tag('object'), id=mesh_id, type='model', name=part['name'])
         new_mesh = copy.deepcopy(mesh)
@@ -290,6 +319,7 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
             pc = ET.SubElement(obj_config, 'part', id=mesh_id, subtype='normal_part')
             ET.SubElement(pc, 'metadata', key='name', value=part['name'])
             ET.SubElement(pc, 'metadata', key='extruder', value=str(tool + 1))
+            _write_part_settings(pc, part.get('settings'))
             instance = ET.SubElement(plate, 'model_instance')
             ET.SubElement(instance, 'metadata', key='object_id', value=mesh_id)
             ET.SubElement(instance, 'metadata', key='instance_id', value='0')
@@ -319,6 +349,8 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
             for a, axis in enumerate(('x', 'y', 'z')):
                 vertex.set(axis, repr(xyz[a]))
         obj.append(new_mesh)
+        if row.get('settings'):
+            settings_by_mesh[cut_id] = row['settings']
         group['cutters'].append((cut_id, row['name'], row['subtype']))
         # The report's part rows carry bounds but cutter rows never did, so
         # the merged-placement proof compared part-only landed bounds
@@ -342,10 +374,12 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
             pc = ET.SubElement(obj_config, 'part', id=mesh_id, subtype='normal_part')
             ET.SubElement(pc, 'metadata', key='name', value=name)
             ET.SubElement(pc, 'metadata', key='extruder', value=str(tool + 1))
+            _write_part_settings(pc, settings_by_mesh.get(mesh_id))
         for cut_id, name, subtype in group['cutters']:
             ET.SubElement(comps, tag('component'), objectid=cut_id)
             pc = ET.SubElement(obj_config, 'part', id=cut_id, subtype=subtype)
             ET.SubElement(pc, 'metadata', key='name', value=name)
+            _write_part_settings(pc, settings_by_mesh.get(cut_id))
         instance = ET.SubElement(plate, 'model_instance')
         ET.SubElement(instance, 'metadata', key='object_id', value=wrapper_id)
         ET.SubElement(instance, 'metadata', key='instance_id', value='0')
@@ -512,9 +546,9 @@ def export_volume_plate(source, target, scale=1.0, rotation=None):
         obj.append(new_mesh)
         counts[subtype] = counts.get(subtype, 0) + 1
         groups.setdefault(item_id, {'name': part.get('object_name') or part['name'], 'vols': []})['vols'].append(
-            (mesh_id, part['name'], subtype))
+            (mesh_id, part['name'], subtype, part.get('settings')))
     for group in groups.values():
-        if not any(sub == 'normal_part' for _, _, sub in group['vols']):
+        if not any(sub == 'normal_part' for _, _, sub, _ in group['vols']):
             raise RuntimeError('object has only negative/modifier volumes')
         wrapper_id = str(next_id)
         next_id += 1
@@ -523,12 +557,13 @@ def export_volume_plate(source, target, scale=1.0, rotation=None):
         obj_config = ET.SubElement(config, 'object', id=wrapper_id)
         ET.SubElement(obj_config, 'metadata', key='name', value=group['name'])
         ET.SubElement(obj_config, 'metadata', key='extruder', value='1')
-        for mesh_id, name, subtype in group['vols']:
+        for mesh_id, name, subtype, settings in group['vols']:
             ET.SubElement(comps, tag('component'), objectid=mesh_id)
             pc = ET.SubElement(obj_config, 'part', id=mesh_id, subtype=subtype)
             ET.SubElement(pc, 'metadata', key='name', value=name)
             if subtype == 'normal_part':
                 ET.SubElement(pc, 'metadata', key='extruder', value='1')
+            _write_part_settings(pc, settings)
         instance = ET.SubElement(plate, 'model_instance')
         ET.SubElement(instance, 'metadata', key='object_id', value=wrapper_id)
         ET.SubElement(instance, 'metadata', key='instance_id', value='0')
@@ -931,11 +966,19 @@ def export_single_color_plate(source, target, decisions, part_keys, bed=BED_MM, 
     # palette row it refers to, or the plate would be labeled for one slot
     # while the decisions say another. Painted part_slots_v1 decisions have
     # no part rows at all (the palette rows are the choices), so there is
-    # nothing a part could contradict there.
+    # nothing a part could contradict there. A support-designation row is
+    # exempt for the same reason as in the multipart exporter (#867): it
+    # names the supports' spool, and on a one-filament plate the supports
+    # print in the plate's filament whatever it says.
+    layer_exts = {row.get('source_extruder') for row in manifest.get('layer_changes') or []}
+    designated = manifest.get('support_filaments') or {}
+    support_only = {e for e in (designated.get('base'), designated.get('interface'))
+                    if e and e not in layer_exts}
     for part in manifest['parts']:
         own = choices.get('part:' + part['key'])
         palette = choices.get(f"filament:{part['source_extruder']}")
-        if own is not None and palette and palette != own:
+        if (own is not None and palette and part['source_extruder'] not in support_only
+                and palette != own):
             raise RuntimeError('part selection contradicts its source filament selection')
     wanted = list(dict.fromkeys(part_keys))
     parts = [part for part in manifest['parts'] if part['key'] in wanted]

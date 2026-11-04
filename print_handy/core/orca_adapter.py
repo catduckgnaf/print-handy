@@ -134,11 +134,13 @@ def export_geometry(source, target, scale=1.0, rotation=None, bed=None):
     if not scale > 0:
         raise ValueError('scale must be greater than 0')
     _check_rotation(rotation)
-    if has_cutters(source):
+    if has_cutters(source) or has_part_settings(source):
         # Flattening to STL would either print the cutter as a solid (Orca -101
-        # conflict) or drop it and fill the hole. Keep it as a negative volume.
+        # conflict) or drop it and fill the hole; and per-part author settings
+        # have nowhere to live in an STL. Keep both in a rebuilt 3MF.
         if Path(target).suffix.lower() != '.3mf':
-            raise RuntimeError('source has negative/modifier volumes; export to .3mf, not STL')
+            raise RuntimeError('source has negative/modifier volumes or per-part settings; '
+                               'export to .3mf, not STL')
         from .color_geometry import export_volume_plate
         return export_volume_plate(source, target, scale=scale, rotation=rotation)
     return _place_triangles(_3mf_triangles(source), target, scale, rotation, bed)
@@ -151,6 +153,38 @@ def has_cutters(source):
     from .source_colors import cutter_ids
     with zipfile.ZipFile(source) as archive:
         return bool(cutter_ids(archive))
+
+
+def has_part_settings(source):
+    """True when a 3MF carries per-part author settings a rebuilt export must keep (#867).
+
+    Flattening to STL has nowhere to put them, so such a source takes the 3MF
+    volume-plate export like a cutter source does. Bambu/Orca parts carry them as
+    model_settings.config metadata beyond the structural keys; PrusaSlicer parts
+    carry them in Slic3r_PE_model.config, translated.
+    """
+    source = Path(source)
+    if source.suffix.lower() != '.3mf' or not zipfile.is_zipfile(source):
+        return False
+    with zipfile.ZipFile(source) as archive:
+        names = archive.namelist()
+        if _MODEL_SETTINGS in names:
+            try:
+                root = ET.fromstring(archive.read(_MODEL_SETTINGS))
+            except ET.ParseError:
+                root = None
+            if root is not None:
+                for obj in root.findall('object'):
+                    for node in [obj, *(obj.findall('part') or [])]:
+                        if any(m.get('key') not in _STRUCTURAL_META
+                               and not str(m.get('key')).startswith('source_')
+                               for m in node.findall('metadata')):
+                            return True
+        if author_settings.PRUSA_MODEL in names:
+            parsed = author_settings.parse_prusa_model(archive.read(author_settings.PRUSA_MODEL))
+            return any(entry['settings'] or any(v['settings'] for v in entry['volumes'])
+                       for entry in parsed.values())
+    return False
 
 
 _TRIANGLE_CACHE: dict = {}
@@ -573,7 +607,9 @@ FLEX_PROFILE = {
 
 # Designer intent carried from a 3MF's project settings over the printer template. Support keys: the
 # switch and type, plus where supports go (overhang threshold, style, critical-regions-only, small
-# overhang removal, build-plate-only); support filaments, speeds and Z gaps stay the template's (#275).
+# overhang removal, build-plate-only); speeds and Z gaps stay the template's (#275). The author's
+# support_filament values are not copied either: the job points those keys at the spool intake
+# picked for the project's designated support filament (#867, support_tool_pointers).
 # Seam, wall order, infill angle, surface patterns, ironing and elephant-foot compensation are the
 # designer's too (#868); speeds are kept only where the designer lowered them (author_settings).
 PROCESS_KEYS = ('layer_height', 'initial_layer_print_height', 'wall_loops', 'sparse_infill_density',
@@ -767,13 +803,78 @@ _LAYER_RANGES = 'Metadata/layer_config_ranges.xml'
 _STRUCTURAL_META = frozenset(('name', 'extruder', 'matrix'))
 
 
-def _rewrite_entries(path, entries):
-    """Replace the named members of a private 3MF copy; every other member is copied as is."""
+def _rewrite_entries(path, entries, remove=frozenset()):
+    """Replace the named members of a private 3MF copy and drop the `remove` members;
+    every other member is copied as is. An entry the copy does not have yet is added
+    (the PrusaSlicer conversion writes project_settings.config where none existed)."""
     tmp = Path(path).with_suffix('.sanitizing')
     with zipfile.ZipFile(path) as archive, zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED) as out:
+        existing = set()
         for info in archive.infolist():
+            if info.filename in remove:
+                continue
+            existing.add(info.filename)
             out.writestr(info, entries[info.filename] if info.filename in entries else archive.read(info))
+        for name, data in entries.items():
+            if name not in existing:
+                out.writestr(name, data)
     tmp.replace(path)
+
+
+def _prusa_model_settings(prusa_model, model_data, job):
+    """model_settings.config bytes converted from a PrusaSlicer Slic3r_PE_model.config (#867).
+
+    Volumes become parts in component order, with the mesh object ids the model file
+    declares; a volume count that disagrees with the components leaves every part with
+    the object-level settings only. Per-volume extruders clamp to the job's filament
+    count (a one-filament plate job points every volume at its one filament, the same
+    end state export_single_color_plate writes for Bambu plates). Settings arrive
+    translated to Orca names; the caller's override restriction applies to the result.
+    """
+    parsed = author_settings.parse_prusa_model(prusa_model)
+    if not parsed:
+        return None
+    components = {}
+    if model_data:
+        try:
+            root = ET.fromstring(model_data)
+        except ET.ParseError:
+            root = None
+        if root is not None:
+            for node in root.iter():
+                if node.tag.split('}')[-1] != 'object' or node.get('id') is None:
+                    continue
+                ids = [comp.get('objectid') for holder in node if holder.tag.split('}')[-1] == 'components'
+                       for comp in holder if comp.tag.split('}')[-1] == 'component']
+                if ids:
+                    components[node.get('id')] = ids
+    colors = job.get('filament_colour')
+    filament_count = len(colors) if isinstance(colors, list) and colors else None
+
+    def extruder(value):
+        ext = value or 1
+        return str(min(ext, filament_count) if filament_count else ext)
+
+    config = ET.Element('config')
+    for oid, entry in parsed.items():
+        ids = components.get(oid) or [oid]
+        volumes = entry['volumes']
+        matched = len(volumes) == len(ids)
+        obj_el = ET.SubElement(config, 'object', id=oid)
+        if entry['name']:
+            ET.SubElement(obj_el, 'metadata', key='name', value=entry['name'])
+        ET.SubElement(obj_el, 'metadata', key='extruder', value=extruder(entry['extruder']))
+        for index, pid in enumerate(ids):
+            volume = volumes[index] if matched else {}
+            part_el = ET.SubElement(obj_el, 'part', id=str(pid), subtype='normal_part')
+            name = volume.get('name') or entry['name']
+            if name:
+                ET.SubElement(part_el, 'metadata', key='name', value=name)
+            ET.SubElement(part_el, 'metadata', key='extruder',
+                          value=extruder(volume.get('extruder') or entry['extruder']))
+            for key, value in {**entry['settings'], **(volume.get('settings') or {})}.items():
+                ET.SubElement(part_el, 'metadata', key=key, value=str(value))
+    return ET.tostring(config, encoding='utf-8', xml_declaration=True)
 
 
 def _job_value(key, project_value, job_value):
@@ -818,7 +919,11 @@ def adopt_job_settings(path, job, kept=PROCESS_KEYS):
     job sets none); inherits and different_settings_to_system are cleared, so no setting is treated
     as a user change to re-apply. Object and part overrides in model_settings.config and height-range
     options are limited to the kept author-intent keys, enum-checked like the project's, and a plate
-    keeps no foreign machine or bed setting. Returns {entry or key: [old, new]} for what changed.
+    keeps no foreign machine or bed setting. A PrusaSlicer plate carries its settings in
+    Slic3r_PE.config / Slic3r_PE_model.config instead: the project config is translated and
+    adopted the same way, the per-object config is converted to model_settings.config, and
+    both Prusa members are removed from the copy (#867). Returns {entry or key: [old, new]}
+    for what changed.
     """
     path = Path(path)
     if path.suffix.lower() != '.3mf':
@@ -829,7 +934,21 @@ def adopt_job_settings(path, job, kept=PROCESS_KEYS):
         project = json.loads(archive.read(name)) if name in names else None
         model_settings = archive.read(_MODEL_SETTINGS) if _MODEL_SETTINGS in names else None
         ranges = archive.read(_LAYER_RANGES) if _LAYER_RANGES in names else None
-    changed, entries = {}, {}
+        prusa_config = archive.read(author_settings.PRUSA_CONFIG) \
+            if project is None and author_settings.PRUSA_CONFIG in names else None
+        prusa_model = archive.read(author_settings.PRUSA_MODEL) \
+            if model_settings is None and author_settings.PRUSA_MODEL in names else None
+        model_data = archive.read('3D/3dmodel.model') \
+            if prusa_model is not None and '3D/3dmodel.model' in names else None
+    changed, entries, remove = {}, {}, set()
+    if prusa_config is not None:
+        # A PrusaSlicer plate carries its project settings in Slic3r_PE.config, which Orca
+        # would read with Prusa machine values: translate it and adopt it like any project
+        # config, then drop the Prusa member so only the adopted config reaches Orca (#867).
+        project = author_settings.prusa_project(prusa_config)
+        remove.add(author_settings.PRUSA_CONFIG)
+        changed[author_settings.PRUSA_CONFIG] = ['present',
+                                                 'translated into project_settings.config and removed']
     if project is not None:
         for key in list(project):
             previous = project[key]
@@ -850,7 +969,15 @@ def adopt_job_settings(path, job, kept=PROCESS_KEYS):
             if replacement != previous:
                 project[key] = replacement
                 changed[key] = [previous, replacement]
-        if changed:
+        if prusa_config is not None:
+            # The translation carries none of the machine half a Bambu project would
+            # name (printer model, start G-code, bed type): seed it from the job, so
+            # the adopted config describes the job's printer whole, not by omission.
+            for key, value in job.items():
+                if key not in project and key not in _PRESET_META:
+                    project[key] = value
+                    changed[key] = [None, value]
+        if changed or prusa_config is not None:
             entries[name] = json.dumps(project, indent=4).encode()
     config_keys = set(job) | set(project or {})
     kept = set(kept)
@@ -863,20 +990,64 @@ def adopt_job_settings(path, job, kept=PROCESS_KEYS):
             return author_settings.invalid_enum(key, value)
         return key in config_keys
 
+    if prusa_model is not None:
+        # Per-object settings in PrusaSlicer's own member: convert to the model_settings
+        # Orca reads, with the same override restriction as an authored one (#867).
+        model_settings = _prusa_model_settings(prusa_model, model_data, job)
+        if model_settings is not None:
+            remove.add(author_settings.PRUSA_MODEL)
+            changed[author_settings.PRUSA_MODEL] = ['present',
+                                                    'converted into model_settings.config and removed']
     if model_settings is not None:
         data, dropped = _restrict_overrides(model_settings, b'object', override)
         data, plate_dropped = _restrict_overrides(data, b'plate', lambda key, value: bool(_FOREIGN_KEY.fullmatch(key)))
-        if dropped or plate_dropped:
+        if dropped or plate_dropped or prusa_model is not None:
             entries[_MODEL_SETTINGS] = data
-            changed[_MODEL_SETTINGS] = [sorted(set(dropped + plate_dropped)), None]
+            if dropped or plate_dropped:
+                changed[_MODEL_SETTINGS] = [sorted(set(dropped + plate_dropped)), None]
     if ranges is not None:
         data, dropped = _restrict_overrides(ranges, b'option', override)
         if dropped:
             entries[_LAYER_RANGES] = data
             changed[_LAYER_RANGES] = [sorted(set(dropped)), None]
-    if entries:
-        _rewrite_entries(path, entries)
+    if entries or remove:
+        _rewrite_entries(path, entries, remove)
     return changed
+
+
+def support_tool_pointers(manifest, decisions, mapping, multi_tool):
+    """{support process key: tool index} for a project's designated support filament (#867).
+
+    The author named a filament for the supports (and optionally a second one for the
+    interface layers) that no part prints with; intake asked about it like any other
+    source color, so the decision names a spool for it. A tool the geometry does not
+    use is added to `mapping` so its spool is loaded with the job; on a multi_tool
+    printer the tool is the picked toolhead itself. The caller points the process
+    keys at tool + 1 (Orca numbers filaments from 1; 0 is the object's own).
+    """
+    designated = (manifest or {}).get('support_filaments') or {}
+    if not designated or not decisions or mapping is None:
+        return {}
+    if decisions.get('mode') == 'per_part':
+        choices = decisions.get('choices') or {}
+    else:
+        from .model_job import _per_part_view
+        choices = _per_part_view(manifest, decisions).get('choices') or {}
+    tools = {int(tool): int(slot) for tool, slot in mapping.items()}
+    out = {}
+    for key, field in (('support_filament', 'base'), ('support_interface_filament', 'interface')):
+        ext = designated.get(field)
+        row = choices.get(f'filament:{ext}') if ext else None
+        if not row:
+            continue
+        slot = int(row['slot'])
+        tool = next((t for t, s in tools.items() if s == slot), None)
+        if tool is None:
+            tool = slot - 1 if multi_tool else (max(tools) + 1 if tools else 0)
+            tools[tool] = slot
+            mapping[str(tool)] = slot
+        out[key] = tool
+    return out
 
 
 def clamp_rejected_settings(path, log_text):
@@ -1160,7 +1331,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     geometry = {'policy': 'original STL unchanged', 'source_sha256': digest(source)}
     from .source_colors import inventory, validate_decisions
     from .model_job import resolve_filament_selection
-    color_decisions = (validate_decisions(inventory(source), color_decisions, state, resolve_filament_selection)
+    manifest = inventory(source) if color_decisions else None
+    color_decisions = (validate_decisions(manifest, color_decisions, state, resolve_filament_selection)
                        if color_decisions else None)
     mapping = None
     mapped_profile = False
@@ -1219,7 +1391,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         author = author_settings.read(source)
     elif source.suffix.lower() == '.3mf' and not preserve_layout:
         author = author_settings.read(source)
-        input_path = folder / ('geometry.3mf' if has_cutters(source) else 'geometry.stl')
+        input_path = folder / ('geometry.3mf' if has_cutters(source) or has_part_settings(source)
+                               else 'geometry.stl')
         geometry.update(export_geometry(source, input_path, scale=scale or 1.0, rotation=rotation,
                                         bed=printer.build_volume().bed_mm))
         if scale is not None:
@@ -1478,6 +1651,19 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         filament_template.write_text(json.dumps(
             apply_family_overrides(template_filament, state['spool']['material'], effective_nozzle_temp)[0],
             indent=2) + '\n')
+    # A dedicated support filament (#867): the project named one and intake picked a spool
+    # for it. Load that spool as a tool of the job and point the support keys at it, but
+    # only when this job actually generates supports; with supports off the designation
+    # is moot and the template's own-filament value stands.
+    if manifest is not None and mapping and str(process.get('enable_support')) == '1':
+        pointers = support_tool_pointers(manifest, color_decisions, mapping, multi_tool)
+        for key, tool in pointers.items():
+            process[key] = str(tool + 1)
+        if pointers:
+            geometry['support_filament'] = (
+                'the project named its own support filament; the spool picked for it is loaded '
+                'and the supports print with it (' +
+                ', '.join(f'{key} = filament {tool + 1}' for key, tool in sorted(pointers.items())) + ')')
     # Material-variant process adjustments (#512): a variant like Silk PLA needs slower outer walls than its
     # family's plain profile. The factor scales the process profile's outer-wall speed; the slowest finish
     # among the job's spools decides. A process template that sets none (the Snapmaker U1's) is scaled from
@@ -1644,7 +1830,10 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                *(['--clone-objects', str(copies)] if (copies and int(copies) > 1) else []),
                '--allow-newer-file', '--slice', '0', '--outputdir', str(folder), str(input_path)]
     if scale is not None and not mapped_profile:
-        if input_path.suffix.lower() == '.3mf':
+        if input_path.suffix.lower() == '.3mf' and input_path == source:
+            # Only the un-exported source itself is unscaled; a rebuilt
+            # geometry.3mf (cutters / per-part settings) already carries the
+            # scale in its vertices (#876).
             raise ValueError('uniform scale must be applied to exported geometry before slicing a 3MF')
         # Normal 3MF intake (and any rotated input) was already scaled during export.
         # Orca's CLI scale is retained only for direct STL input, where no pre-export occurs.
