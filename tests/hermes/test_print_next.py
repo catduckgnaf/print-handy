@@ -686,8 +686,7 @@ def test_hook_successful_start_posts_start_announcement(tmp_path):
     suppresses the listener's fallback post; the handler must therefore
     post the canonical start announcement itself. Before the fix a
     successful /print-next start was never announced (P2-56)."""
-    result, adapter, started, rows = run_hook(tmp_path, '/print-next ghost', pick=0,
-                                              plugin_patch={'_listener_roast': lambda job: ''})
+    result, adapter, started, rows = run_hook(tmp_path, '/print-next ghost', pick=0)
     assert started == [rows[1]['gcode']]
     starts = [m['content'] for m in adapter.sent if m['content'].startswith('Print started')]
     assert len(starts) == 1
@@ -700,7 +699,6 @@ def test_hook_warming_start_registers_message_for_listener_edit(tmp_path):
     folder, rows = make_job(tmp_path)
     plans = make_plan(tmp_path, folder, rows)
     mod = load_plugin()
-    mod._listener_roast = lambda job: ''
 
     class IdTransport(Transport):
         async def send(self, chat_id, content, reply_to=None, metadata=None):

@@ -808,9 +808,9 @@ def test_start_still_preparing_posts_one_start_without_roast_and_records_its_id(
     assert print_next.take_start_message('ghost_plate_1_abc.gcode') == f'm{len(adapter.sent)}'
 
 
-def test_start_already_printing_posts_exactly_one_roast_and_records_nothing(env, monkeypatch, tmp_path):
-    """#374: a start that is already printing gets its one roast in the intake's
-    canonical start post, right away — there is no later warmup edit."""
+def test_start_already_printing_posts_no_roast_and_records_nothing(env, monkeypatch, tmp_path):
+    """The one roast per print rides the completion post (#874), so an
+    already-printing start posts its announcement without one."""
     monkeypatch.setattr(print_next, 'START_MESSAGES', tmp_path / 'start_messages.json')
     mel = external('moonraker_event_listener')
     roast_calls = []
@@ -832,16 +832,15 @@ def test_start_already_printing_posts_exactly_one_roast_and_records_nothing(env,
     adapter, result, receipt = run_flow(env, [1, 0, 0])
     assert receipt['status'] == 'STARTED' and len(env.starts) == 1
     starts = [m for m in adapter.sent if m.startswith('Print started')]
-    assert len(starts) == 1 and starts[0].count('One roast for the Ghost Stand') == 1
-    assert len(roast_calls) == 1
+    assert len(starts) == 1 and "One roast for the Ghost Stand" not in starts[0]
+    assert roast_calls == []
     assert print_next.take_start_message('ghost_plate_1_abc.gcode') is None
 
 
-def test_warming_start_on_telegram_posts_its_roast_right_away(env, monkeypatch, tmp_path):
-    """P2-144: the deferred roast is added by editing the start post, and the
-    only edit path for it is Discord (the listener edits via Discord REST).
-    A warming start on Telegram can never be edited, so the roast rides the
-    original post and no message id is recorded for the impossible edit."""
+def test_warming_start_on_telegram_posts_no_roast_and_records_no_edit(env, monkeypatch, tmp_path):
+    """P2-144: only Discord posts can be edited by the listener, so a warming
+    Telegram start records no message id. It still carries no roast: the one
+    roast per print rides the completion post (#874)."""
     monkeypatch.setattr(print_next, 'START_MESSAGES', tmp_path / 'start_messages.json')
     mel = external('moonraker_event_listener')
     roast_calls = []
@@ -868,8 +867,8 @@ def test_warming_start_on_telegram_posts_its_roast_right_away(env, monkeypatch, 
     receipt = json.loads(next(env.root.glob('*.json')).read_text())
     assert receipt['status'] == 'STARTED' and len(env.starts) == 1
     starts = [m for m in adapter.sent if m.startswith('Print started')]
-    assert len(starts) == 1 and starts[0].count('One roast for the Ghost Stand') == 1
-    assert len(roast_calls) == 1
+    assert len(starts) == 1 and "One roast for the Ghost Stand" not in starts[0]
+    assert roast_calls == []
     assert print_next.take_start_message('ghost_plate_1_abc.gcode') is None
 
 

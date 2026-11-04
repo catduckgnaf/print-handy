@@ -1570,15 +1570,6 @@ async def _offer_spool_change(adapter, source, metadata, print_next, target, det
     return await print_next.start({**target, 'accept_spool_change': True})
 
 
-def _listener_roast(job):
-    """Best-effort model roast for a start post, via the listener's generator."""
-    try:
-        from print_handy.hermes import moonraker_event_listener as _mel
-        return _mel.generate_roast((job or {}).get('title') or '', (job or {}).get('summary') or '')
-    except Exception:
-        return ''
-
-
 async def _announce_command_start(send, target, detail, job=None, plate=None, chat_id=None, thread_id=None):
     """Post and register the one start announcement for a command start.
 
@@ -1589,8 +1580,8 @@ async def _announce_command_start(send, target, detail, job=None, plate=None, ch
     handlers posted none, so their starts were never announced (P2-56).
     Post the canonical message here, mirroring the intake: a
     still-preparing start registers its message id so the listener edits
-    this post after warmup (adding the roast then); an already-printing
-    start carries its roast in this post.
+    this post after warmup. Start posts never carry the roast; it belongs to
+    the completion post.
     """
     from print_handy.hermes import discord_print_summary as print_summary
     from print_handy.hermes import print_next
@@ -1598,12 +1589,8 @@ async def _announce_command_start(send, target, detail, job=None, plate=None, ch
         with contextlib.suppress(Exception):
             job, plate = print_summary.find_job(target['gcode'])
     message = print_summary.format_started(job, plate)
+    # No roast here: the one roast per print rides the completion post (#874).
     remote = print_next.started_file(detail) if print_next.still_preparing(detail) else None
-    if remote is None:
-        with contextlib.suppress(Exception):
-            roast = await asyncio.wait_for(asyncio.to_thread(_listener_roast, job), 8)
-            if roast:
-                message += f'\n\n{roast}'
     sent = await send(message)
     message_id = getattr(sent, 'message_id', None) or getattr(sent, 'id', None)
     if remote and message_id:

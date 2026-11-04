@@ -3392,13 +3392,12 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         warming = ok and print_next.still_preparing(tail)
         # The remote file this start claimed, when warmup is still running. Only a
         # warming start with a known file can be edited by the listener later, so
-        # only that start defers its roast (#374).
+        # only that start is recorded for the warmup edit (#374).
         remote = print_next.started_file(tail) if warming else None
         if remote is not None:
-            # The deferred roast is added by EDITING this post, and the only
-            # edit path for it is Discord (the listener edits via Discord
-            # REST). On a transport that cannot be edited that way the roast
-            # would never arrive, so it rides this post now instead (P2-144).
+            # The warmup edit is made by EDITING this post, and the only edit
+            # path is Discord (the listener edits via Discord REST), so other
+            # transports are not recorded for it (P2-144).
             platform = getattr(source, 'platform', None)
             platform_name = str(getattr(platform, 'value', None)
                                 or getattr(adapter, 'name', None) or 'discord')
@@ -3407,19 +3406,9 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         if unknown:
             message = start_unknown_message(tail)
         elif ok or pending:
+            # No roast on the start post: the one roast per print rides the
+            # completion post (#874), which the listener adds there.
             message = print_summary.format_started(exact_job, exact_plate) + later
-            if remote is None:
-                # Already printing (or warmup cannot be tracked for an edit): this
-                # post is the canonical start announcement and carries the one
-                # roast now. A tracked warming start gets no roast here — the
-                # listener adds exactly one when it edits this post on the
-                # warmup-to-printing transition. Refusals below never roast.
-                with contextlib.suppress(Exception):
-                    roast = await asyncio.wait_for(asyncio.to_thread(
-                        _external.load('moonraker_event_listener').generate_roast,
-                        (exact_job or {}).get('title') or '', (exact_job or {}).get('summary') or ''), 8)
-                    if roast:
-                        message += f'\n\n{roast}'
         else:
             message = print_summary.scrub(_launch_refusal_text(tail))
             if _restart_helps(tail):
