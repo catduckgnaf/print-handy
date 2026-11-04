@@ -142,11 +142,12 @@ def test_listener_start_uses_model_title_not_hash(job, monkeypatch):
     assert not HEX.search(text)
 
 
-def test_listener_start_roast_is_appended_after_canonical_details(job, monkeypatch):
-    monkeypatch.setattr(mel, "generate_roast", lambda title: f"Roast for {title}")
+def test_listener_start_post_has_no_roast(job, monkeypatch):
+    """The roast moved to the completion post: the start post never calls the generator."""
+    calls = []
+    monkeypatch.setattr(mel, "generate_roast", lambda *a, **kw: calls.append(a) or "Roast")
     posted = _drive_listener(monkeypatch, job.hashed, ["standby", "printing"])
-    assert len(posted) == 1
-    assert posted[0].endswith(f"\n\nRoast for {TITLE}")
+    assert len(posted) == 1 and "Roast" not in posted[0] and calls == []
 
 
 def test_generate_roast_runs_by_default_and_stops_when_the_switch_is_off(monkeypatch):
@@ -238,17 +239,11 @@ def test_claimed_start_edit_names_the_printing_objects(job, tmp_path, monkeypatc
     assert "Warmup complete, now printing." in edits[0][1]
 
 
-def test_claimed_start_warmup_edit_includes_exactly_one_roast(job, tmp_path, monkeypatch):
-    """#374: the warmup-to-printing edit is the warming start's single roast point.
-
-    The edit keeps the canonical start details, adds the warmup-complete line,
-    and ends with exactly one roast; no second start post is made."""
-    roast_calls = []
-
-    def fake_roast(title, summary=""):
-        roast_calls.append((title, summary))
-        return f"Roast for {title}"
-    monkeypatch.setattr(mel, "generate_roast", fake_roast)
+def test_claimed_start_warmup_edit_has_no_roast(job, tmp_path, monkeypatch):
+    """The warmup-to-printing edit keeps the canonical start details and adds the
+    warmup-complete line; the roast now belongs to the completion post."""
+    calls = []
+    monkeypatch.setattr(mel, "generate_roast", lambda *a, **kw: calls.append(a) or "Roast")
     edits = _claimed_listener(monkeypatch, tmp_path, job)
     posted = _drive_listener(monkeypatch, job.hashed, ["standby", "printing"], claimed=True)
     assert posted == []
@@ -256,28 +251,18 @@ def test_claimed_start_warmup_edit_includes_exactly_one_roast(job, tmp_path, mon
     text = edits[0][1]
     assert TITLE in text and "Parts: Stand" in text and "Approx. finish:" in text
     assert "Warmup complete, now printing." in text
-    assert text.count(f"Roast for {TITLE}") == 1 and text.endswith(f"Roast for {TITLE}")
-    assert len(roast_calls) == 1
+    assert "Roast" not in text and calls == []
 
 
-def test_replayed_claimed_start_generates_no_second_roast(job, tmp_path, monkeypatch):
-    """#374: a reconnect replay of the same claimed transition is deduped before
-    announce_warmup_done runs again — no second edit and no second roast call.
-    The recorded start-message id is also consumed, so a direct replay of the
-    warmup handler itself cannot roast again either."""
-    roast_calls = []
-
-    def fake_roast(title, summary=""):
-        roast_calls.append((title, summary))
-        return f"Roast for {title}"
-    monkeypatch.setattr(mel, "generate_roast", fake_roast)
+def test_replayed_claimed_start_edits_once(job, tmp_path, monkeypatch):
+    """A reconnect replay of the same claimed transition is deduped, and the
+    recorded start-message id is consumed, so the warmup edit happens once."""
     edits = _claimed_listener(monkeypatch, tmp_path, job)
     first = _drive_listener(monkeypatch, job.hashed, ["standby", "printing"], claimed=True)
     replay = _drive_listener(monkeypatch, job.hashed, ["standby", "printing"], claimed=True)
-    assert first == [] and replay == [] and len(edits) == 1 and len(roast_calls) == 1
-    # Direct replay: the one recorded message id was already taken.
+    assert first == [] and replay == [] and len(edits) == 1
     assert mel.announce_warmup_done(job.hashed) is False
-    assert len(edits) == 1 and len(roast_calls) == 1
+    assert len(edits) == 1
 
 
 def test_claimed_start_edit_failure_posts_distinct_short_line(job, tmp_path, monkeypatch):
@@ -681,9 +666,9 @@ def test_announcer_completion_uses_model_title_not_hash(job, tmp_path, monkeypat
     assert record["title"] == TITLE and record["status"] == "completed"
 
 
-def test_announcer_completion_has_no_roast_and_never_calls_the_generator(job, tmp_path, monkeypatch, capsys):
-    """#374: completion announcements carry no roast and do not invoke the
-    roast generator at all — the one roast per print belongs to the start."""
+def test_announcer_records_the_roast_subject_and_never_calls_the_generator(job, tmp_path, monkeypatch, capsys):
+    """The announcer only records what to roast; the listener generates the one
+    roast when it delivers the completion post, after the timelapse."""
     roast_calls = []
 
     def fake_roast(title, summary=""):
@@ -717,6 +702,13 @@ def test_announcer_completion_has_no_roast_and_never_calls_the_generator(job, tm
     assert "Print complete" in posted and TITLE in posted
     assert "Completion roast that must not appear" not in posted
     assert roast_calls == []
+    saved = json.loads(watcher.STATE_PATH.read_text())
+    title, _summary = mel.announcer.pending_roast_subject(saved)
+    assert title == TITLE
+    # Bound to the exact pending completion text, and refused for any other.
+    pending = mel.announcer.pending_completion_message(saved)
+    assert mel.announcer.pending_roast_subject(saved, pending)[0] == TITLE
+    assert mel.announcer.pending_roast_subject(saved, "Print complete: Another")[0] == ""
 
 
 def test_print_record_title_resolves_from_hashed_name(job, monkeypatch):

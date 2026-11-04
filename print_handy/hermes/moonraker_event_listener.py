@@ -436,16 +436,13 @@ def _objects_line(filename, archive=None, context_path=None):
         return ""
 
 
-def start_message_with_roast(filename, archive=None, context_path=None):
-    """Format the canonical start message and append a best-effort model roast."""
+def start_message(filename, archive=None, context_path=None):
+    """Format the canonical start message. The roast lives on the completion post."""
     message = print_summary.format_event("started", filename, archive=archive, context_path=context_path)
     line = _objects_line(filename, archive=archive, context_path=context_path)
     if line:
         message += "\n" + line
-    job, _plate = print_summary.find_job(filename, archive=archive)
-    title = (job or {}).get("title") or Path(str(filename or "")).stem
-    roast = generate_roast(title)
-    return f"{message}\n\n{roast}" if roast else message
+    return message
 
 
 def post_exclude_objects(filename, archive=None, context_path=None):
@@ -1011,12 +1008,35 @@ def manual_resume_tracking_message(filename, slot=None, compatible_spools=None):
     )
 
 
+def _with_completion_roast(message, completion_message):
+    """The completion post with its one roast, placed under the completion text.
+
+    The roast rides the post that carries the timelapse, so it lands after
+    the video is ready rather than on the start post. It goes before any
+    MEDIA: attachment lines, which must stay on their own lines. Best-effort:
+    no recorded title, a disabled switch or a model failure leaves the post
+    exactly as it was.
+    """
+    try:
+        title, summary = announcer.pending_roast_subject(announcer.load_state(), completion_message)
+        if not title or not str(message).startswith(completion_message):
+            return message
+        roast = generate_roast(title, summary)
+    except Exception as exc:
+        log(f"completion roast skipped: {exc!r}")
+        return message
+    if not roast:
+        return message
+    return f"{completion_message}\n\n{roast}{message[len(completion_message):]}"
+
+
 def _post_completion(message, completion_message):
     """Acknowledge only a matching pending notice after transport success."""
-    delivered = post(message)
+    delivered = post(_with_completion_roast(message, completion_message))
     if delivered:
         state = announcer.load_state()
         if announcer.pending_completion_message(state) == completion_message:
+            announcer.clear_pending_roast_subject(state)
             announcer.clear_pending_completion_message(state, completion_message)
             announcer.clear_pending_timelapse_job_key(state)
             announcer.clear_pending_timelapse_routing(state)
@@ -2321,13 +2341,11 @@ def announce_start_abandoned(filename):
 def announce_warmup_done(filename):
     """A claimed start already has its one "Print started" post: edit it, never post another.
 
-    This is the single roast point for a warming start (#374): the intake
-    posted its start message without a roast and recorded its id, and this
-    edit adds the warmup-complete line plus exactly one roast, keeping the
-    canonical start details. The recorded id is consumed, so a replayed
-    transition cannot add a second roast. With no recorded id, or when
-    Discord refuses the edit, the start post is left as is — no second
-    post and no roast is posted elsewhere.
+    The intake posted its start message and recorded its id; this edit adds
+    the warmup-complete line, keeping the canonical start details. The
+    recorded id is consumed, so a replayed transition cannot edit twice.
+    With no recorded id, or when Discord refuses the edit, the start post is
+    left as is — no second post. The roast belongs to the completion post.
     """
     text = print_summary.format_event("started", filename)
     line = _objects_line(filename)
@@ -2336,7 +2354,6 @@ def announce_warmup_done(filename):
     text += "\nWarmup complete, now printing."
     message_id = None
     channel_id = None
-    roast = ""
     try:
         from . import print_next
         message_id, channel_id = print_next.take_start_message_target(filename)
@@ -2346,14 +2363,6 @@ def announce_warmup_done(filename):
         # The intake already posted the one "Print started" message; a second line after it is noise.
         log(f"no recorded start message; warmup done silently file={filename!r}")
         return False
-    try:
-        job, _plate = print_summary.find_job(filename)
-        roast = generate_roast((job or {}).get("title") or Path(str(filename or "")).stem,
-                               (job or {}).get("summary") or "")
-    except Exception:
-        roast = ""
-    if roast:
-        text += f"\n\n{roast}"
     if message_id:
         try:
             from . import print_alert_buttons as pab
@@ -3399,7 +3408,7 @@ class Listener:
                     await asyncio.to_thread(announce_warmup_done, self.filename)
                     await asyncio.to_thread(post_exclude_objects, self.filename)
                 else:
-                    await asyncio.to_thread(post, start_message_with_roast(self.filename))
+                    await asyncio.to_thread(post, start_message(self.filename))
                     await asyncio.to_thread(post_exclude_objects, self.filename)
                 # The live view's auto-start trigger (#311 stage 4):
                 # fail-soft, and a no-op unless auto_start_on_print is on.

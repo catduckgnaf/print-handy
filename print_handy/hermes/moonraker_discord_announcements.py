@@ -611,6 +611,33 @@ def clear_pending_completion_message(state, message=None):
     _pending_clear(state, "pending_completion_messages", "pending_completion_message", message)
 
 
+def pending_roast_subject(state, message=None):
+    """(title, summary) of the pending completion's print, or ("", "").
+
+    With ``message`` the subject is returned only when it was recorded for
+    that exact completion text. A newer completion overwrites the one
+    pending slot while an older delivery thread may still be waiting on its
+    timelapse; that older thread must get no roast rather than the newer
+    print's.
+    """
+    value = _pending_get(state, "pending_roast_subjects", "pending_roast_subject")
+    if not isinstance(value, dict):
+        return "", ""
+    if message is not None and value.get("message") and value.get("message") != message:
+        return "", ""
+    return str(value.get("title") or ""), str(value.get("summary") or "")
+
+
+def set_pending_roast_subject(state, title, summary="", message=""):
+    _pending_set(state, "pending_roast_subjects", "pending_roast_subject",
+                 {"title": str(title or ""), "summary": str(summary or ""),
+                  "message": str(message or "")})
+
+
+def clear_pending_roast_subject(state):
+    _pending_clear(state, "pending_roast_subjects", "pending_roast_subject")
+
+
 def pending_timelapse_job_key(state):
     """This printer's pending timelapse job key, or None."""
     return _pending_get(state, "pending_timelapse_job_keys", "pending_timelapse_job_key")
@@ -815,7 +842,7 @@ def main():
             "print_started_at": time.time() if state in ACTIVE_STATES else None,
         }
         for pending_key in ("pending_completion_messages", "pending_timelapse_job_keys",
-                            "pending_timelapse_routings"):
+                            "pending_timelapse_routings", "pending_roast_subjects"):
             if isinstance(previous.get(pending_key), dict) and previous[pending_key]:
                 fresh[pending_key] = previous[pending_key]
         previous = fresh
@@ -843,10 +870,18 @@ def main():
             # records THIS completion's routing from the markers below
             # before the pass ends (P2-146).
             clear_pending_timelapse_routing(previous)
-        # No roast here (#374): the one roast per print belongs to the start
-        # announcement, added when printing begins. Completion never invokes
-        # the roast generator.
+        # The one roast per print belongs to the completion post, added by
+        # the listener when it delivers the post (after any timelapse is
+        # ready). The announcer only records what to roast; it never calls
+        # the roast generator itself.
         message = print_summary.format_event("complete", filename)
+        try:
+            roast_job, _roast_plate = print_summary.find_job(filename)
+            set_pending_roast_subject(
+                previous, (roast_job or {}).get("title") or Path(str(filename or "")).stem,
+                (roast_job or {}).get("summary") or "")
+        except Exception as exc:
+            print(f"Completion roast subject unavailable: {exc}", file=sys.stderr)
         try:
             queue_completion_record(previous, job_key, filename, payload.get("stats") or {})
         except Exception as exc:
@@ -881,6 +916,12 @@ def main():
             previous["memory_line"] = "deferred until the complete batch/job finishes"
         # Keep the completion retryable until the listener confirms Discord delivery.
         set_pending_completion_message(previous, message)
+        # Bind the roast subject to this exact completion text, so an older
+        # delivery thread cannot pick up a newer print's subject.
+        roast_value = _pending_get(previous, "pending_roast_subjects", "pending_roast_subject")
+        if isinstance(roast_value, dict):
+            roast_value["message"] = message
+            _pending_set(previous, "pending_roast_subjects", "pending_roast_subject", roast_value)
 
     # A cancel or error also finalizes the print record, without an announcement
     # or session cleanup, so every started print ends with a dated outcome.

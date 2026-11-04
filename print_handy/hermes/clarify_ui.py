@@ -187,16 +187,20 @@ class HermesClarifyAdapter:
         """True when ``user_id`` typing would answer a print approval they may not give.
 
         The typed twin of the approval button check (P1-93, 2.2.5 review):
-        with ``[discord] approval_user_id`` set, only that user's reply
-        resolves a prompt marked as an approval; the prompt stays open.
+        with ``[discord] approval_user_id`` set (one ID or several), only those
+        users' replies resolve a prompt marked as an approval; the prompt stays
+        open. ``approval_all_users`` lifts the restriction.
         """
-        approver = str((_config.cfg().get("discord") or {}).get("approval_user_id") or "").strip()
-        if user_id is None or not approver or str(user_id) == approver:
+        from .. import settings as _settings
+        discord = _config.cfg().get("discord") or {}
+        approvers = _settings.approver_ids(discord)
+        if (user_id is None or not approvers or discord.get("approval_all_users") is True
+                or str(user_id) in approvers):
             return False
         cid = self._open_prompt(session_key)
         if cid is None or not getattr(self.registry, "is_approval", prompts.is_approval)(cid):
             return False
-        logger.info("refused typed approval from Discord user %s: only the approval user may approve prints",
+        logger.info("refused typed approval from Discord user %s: only an approval user may approve prints",
                     user_id)
         return True
 

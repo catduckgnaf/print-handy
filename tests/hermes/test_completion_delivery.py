@@ -205,3 +205,61 @@ def test_pending_pass_processes_a_new_completions_markers(monkeypatch, tmp_path)
     assert ("stand.gcode", "Print complete: Stand again") in legs
     # No bare text post of the announcer's message happened in this pass.
     assert posts == []
+
+
+def test_completion_post_carries_exactly_one_roast_before_the_video(monkeypatch, tmp_path):
+    """The roast rides the completion post that carries the timelapse, sits under the
+    completion text, keeps MEDIA: lines on their own lines, and is cleared with the
+    pending notice so a retry or replay cannot roast twice."""
+    announcer = listener.announcer
+    monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "announcement.json")
+    monkeypatch.setattr(listener, "log", lambda text: None)
+    announcer.save_state({"pending_completion_message": "Print complete: Stand"})
+    state = announcer.load_state()
+    announcer.set_pending_roast_subject(state, "Stand", "a stand")
+    announcer.save_state(state)
+    calls = []
+    monkeypatch.setattr(listener, "generate_roast", lambda title, summary="": calls.append((title, summary)) or "Roast for Stand")
+    posted = []
+    monkeypatch.setattr(listener, "post", lambda text: posted.append(text) or True)
+    assert listener._post_completion("Print complete: Stand\nMEDIA:/cache/stand.mp4", "Print complete: Stand")
+    assert posted == ["Print complete: Stand\n\nRoast for Stand\nMEDIA:/cache/stand.mp4"]
+    assert calls == [("Stand", "a stand")]
+    assert announcer.pending_roast_subject(announcer.load_state()) == ("", "")
+    assert listener._post_completion("Print complete: Stand", "Print complete: Stand")
+    assert len(calls) == 1 and posted[1] == "Print complete: Stand"
+
+
+def test_completion_roast_failure_leaves_the_post_untouched(monkeypatch, tmp_path):
+    announcer = listener.announcer
+    monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "announcement.json")
+    monkeypatch.setattr(listener, "log", lambda text: None)
+    announcer.save_state({"pending_completion_message": "Print complete: Stand"})
+    state = announcer.load_state()
+    announcer.set_pending_roast_subject(state, "Stand", "")
+    announcer.save_state(state)
+
+    def boom(*a, **kw):
+        raise RuntimeError("llm down")
+    monkeypatch.setattr(listener, "generate_roast", boom)
+    posted = []
+    monkeypatch.setattr(listener, "post", lambda text: posted.append(text) or True)
+    assert listener._post_completion("Print complete: Stand", "Print complete: Stand")
+    assert posted == ["Print complete: Stand"]
+
+
+def test_overlapping_completions_never_roast_the_wrong_print(monkeypatch, tmp_path):
+    announcer = listener.announcer
+    monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "announcement.json")
+    monkeypatch.setattr(listener, "log", lambda text: None)
+    monkeypatch.setattr(listener, "generate_roast", lambda title, summary="": f"roast of {title}")
+    state = {}
+    announcer.set_pending_completion_message(state, "Print complete: Old")
+    announcer.set_pending_roast_subject(state, "Old", "", "Print complete: Old")
+    announcer.set_pending_completion_message(state, "Print complete: New")
+    announcer.set_pending_roast_subject(state, "New", "", "Print complete: New")
+    announcer.save_state(state)
+    older = listener._with_completion_roast("Print complete: Old", "Print complete: Old")
+    newer = listener._with_completion_roast("Print complete: New", "Print complete: New")
+    assert older == "Print complete: Old"
+    assert newer == "Print complete: New\n\nroast of New"

@@ -307,18 +307,7 @@ Two boundaries to know:
   slot remap rewrites the `.gcode` (mapping metadata and checksum) and the
   result is then packaged like any other job. A file already on the printer
   can still be remapped from the printer's own screen — that is ZMod's
-  domain. A color remap made on the printer after a `.gcode.3mf` starts is
-  not written back to Spoolman. Spoolman keeps the mapping confirmed in
-  chat, and the confirm card says so when this job will be sent as
-  `.gcode.3mf`. A plain `.gcode` card does not get that line. `auto` with
-  an unknown ZMod version stays on `.gcode`, so it does not either. With
-  `auto`, the card reads the ZMod version the way delivery does, so ZMod
-  1.7.5 or newer gets the line. A failed read counts as unknown.
-  No recorded fixture shows Moonraker or Klipper reporting the slot map
-  the job used after start. `zmod_color` is slot presence, and `SET_ZCOLOR`
-  is the start command, not a read-back. This confirm sentence is the whole
-  change. Deduction stays on the mapping confirmed in chat. A missing map
-  is not invented and does not change the start.
+  domain.
 - **Nothing here is live-hardware verified yet.** The format behaviour above
   is pinned by offline tests and ZMod's published documentation; the
   on-printer checks (starting a packaged print on 1.7.5, Fluidd/Mainsail

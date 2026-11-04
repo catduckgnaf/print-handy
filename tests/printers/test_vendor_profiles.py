@@ -30,6 +30,7 @@ def without_added(data):
     data.pop("zmod", None)  # #832's ZMod plugin settings, added after capture
     for key in ("lan_host", "lan_serial", "lan_access_code_env"):  # added by #187, after capture
         data.get("bambu", {}).pop(key, None)
+    data.get("discord", {}).pop("approval_all_users", None)  # added with multiple approval users, after capture
     data.get("bambu", {}).pop("start_confirm_s", None)  # added by #271, after capture
     data.get("bot", {}).pop("platform", None)  # added by #164, after the golden files were captured
     for key in ("auto_light_off_minutes", "light_object"):  # added by #516, after capture

@@ -95,7 +95,8 @@ Developer Portal and replace it locally. Never commit `.env` or `config/local.ya
 | `discord.chat_id` | Only this channel and its threads are served |
 | `discord.allowed_user_ids` | Optional whitelist: numeric user IDs separated by commas or spaces. Empty (the default) lets everyone in the print channel use the bot |
 | `discord.denied_user_ids` | Optional deny list: numeric user IDs separated by commas or spaces. A denied user is refused even when whitelisted or the approval user |
-| `discord.approval_user_id` | Optional approval user: always allowed to act; setting one does not restrict anyone else |
+| `discord.approval_user_id` | Optional approval users: numeric user IDs separated by commas or spaces. Each is always allowed to act; setting them does not restrict anyone else |
+| `discord.approval_all_users` | `true` lets anyone allowed to use the bot approve prints (the Web UI checkbox "Anyone in the channel can approve"). A denied user is still refused. Default `false` |
 | `discord.token_env` | Environment variable name holding the secret, not the token itself |
 | `discord.bot_name` | Name in replies; does not change the Discord account name |
 | `bot.mode` | `standalone` (the default); set `hermes` only for a Hermes-hosted install |
@@ -132,7 +133,7 @@ says so (`access: channel (everyone)`). Two opt-in lists refine that default:
 
 A refusal is never silent: the bot logs the user ID and the reason at INFO and posts one short notice in the
 channel per user per hour ("You are not on this bot's allowed list."). Approvals stay separate:
-`discord.approval_user_id` names who may approve prints and is always allowed to act, but setting one never
+`discord.approval_user_id` names who may approve prints (one ID or several) and each is always allowed to act, but setting one never
 restricts anyone else, and widening intake does not widen the live camera's own allowlist
 (`approval_user_id` plus `allowed_user_ids`, as before).
 

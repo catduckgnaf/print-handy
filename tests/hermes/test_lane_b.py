@@ -24,6 +24,10 @@ def test_completion_without_video_is_one_text_post(monkeypatch):
     monkeypatch.setattr(mel.announcer,"main",lambda: print("TIMELAPSE_POSTPROCESS:job.gcode\nPrint complete: Job"))
     monkeypatch.setattr(mel.announcer,"_timelapse_job_key",lambda token:"job.gcode")
     monkeypatch.setattr(mel.announcer,"archive_completed_timelapse",lambda key:mel.announcer.ArchiveOutcome(mel.announcer.ARCHIVE_NOT_RENDERED))
+    class Inline:
+        def __init__(self,target=None,args=(),**kw): self.target,self.args=target,args
+        def start(self): self.target(*self.args)
+    monkeypatch.setattr(mel.threading,"Thread",Inline)  # the postprocess is a thread; run it inline so the assert is not a race
     mel.run_announcer("mock")
     # Archiving is configured in the test settings and the bounded wait
     # really elapsed, so a missing video is announced in the post instead
