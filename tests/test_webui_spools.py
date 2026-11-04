@@ -999,3 +999,16 @@ class PickerFormTests(unittest.TestCase):
                                                   "grams": 1000})
         self.assertEqual(code, 400)
         self.assertIn("not a known material", body["reason"])
+
+
+class CanonicalVendorTests(SpoolCase):
+    """Review of #879: an existing vendor is matched by canonical brand name."""
+
+    def test_existing_bambu_vendor_is_reused_for_bambu_lab(self):
+        from print_handy.hermes import spool_sync
+        self.fake.vendors[3] = {"id": 3, "name": "Bambu"}
+        before = len(self.fake.vendors)
+        spool_sync.create_spool({"brand": "Bambu Lab", "material": "PLA", "color": "Cobalt Teal",
+                                 "grams": 1000}, client=self.fake)
+        self.assertEqual(len(self.fake.vendors), before)
+        self.assertFalse([c for c in self.fake.calls if c[:2] == ("POST", "/api/v1/vendor")])

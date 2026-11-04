@@ -1808,7 +1808,12 @@ def create_spool(spec: dict[str, Any], *, client: Client = spoolman) -> dict[str
             body["color_hex"] = spec["hex"]
         if spec.get("brand"):
             vendors = client("GET", "/api/v1/vendor", None) or []
-            vendor = next((v for v in vendors if str(v.get("name") or "").casefold() == spec["brand"].casefold()), None)
+            # Compare canonical brand names, so an existing "Bambu" vendor is
+            # reused for "Bambu Lab" rather than split into a second vendor
+            # (review of #879; the same comparison find_filament uses).
+            wanted = (spool_canon.canonical_brand(spec["brand"]) or spec["brand"]).casefold()
+            vendor = next((v for v in vendors
+                           if (spool_canon.canonical_brand(str(v.get("name") or "")) or "").casefold() == wanted), None)
             if vendor is None:
                 vendor = client("POST", "/api/v1/vendor", {"name": spec["brand"]})
             body["vendor_id"] = vendor["id"]
