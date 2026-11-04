@@ -8,16 +8,20 @@ rules, first match wins, keep every existing install exactly as it was:
    opt-out (#704). A token in the environment is ignored, as before.
 2. The access token in the environment variable ``[webui]
    access_token_env`` names — that token is required, as before.
-3. The choice saved by the first-run setup page in the state folder
-   (``ACCESS_FILE``): a hashed password, or an explicit "open".
+3. The choice saved by the setup page or the walkthrough's Login step in
+   the state folder (``ACCESS_FILE``): a username and hashed password, or
+   an explicit "open". A saved login is checked before rule 2 for people
+   signing in (#875); the environment token is still accepted alongside
+   it, so header clients keep working and the token remains a way back
+   in after a forgotten password. A saved "open" does not override a token.
 4. A loopback bind — open (the form token still guards writes), as before.
 5. Otherwise — ``setup``: the Web UI serves only the setup page until the
    operator sets a password or affirmatively leaves it open. Before #708
    this case refused to start at all, so no working install lands here.
 
 The password is stored only as a salted PBKDF2-SHA256 hash; the file is
-written atomically with mode 0600. Deleting it (or setting the
-environment token) is the reset.
+written atomically with mode 0600. Deleting it is the reset; the
+environment token also signs in when the password is forgotten.
 """
 from __future__ import annotations
 
@@ -36,6 +40,7 @@ from .. import settings
 
 ACCESS_FILE = "webui_access.json"
 MIN_PASSWORD_LENGTH = 8
+MAX_USERNAME_LENGTH = 64
 _ITERATIONS = 200_000
 _LOOPBACK_NAMES = frozenset({"localhost"})
 
@@ -68,6 +73,9 @@ class Access:
     _salt: bytes = field(default=b"", repr=False)
     _hash: bytes = field(default=b"", repr=False)
     _iterations: int = _ITERATIONS
+    # The login name chosen on the setup page. Empty for a password saved
+    # before usernames existed: then any name is accepted with the password.
+    username: str = ""
     # Passwords already verified this process, kept as SHA-256 digests so a
     # client polling with the header does not pay PBKDF2 on every request.
     _verified: set = field(default_factory=set, repr=False)
@@ -88,6 +96,8 @@ class Access:
         if self.mode == TOKEN:
             return hmac.compare_digest(provided.encode(), self._token.encode())
         if self.mode == PASSWORD:
+            if self._token and hmac.compare_digest(provided.encode(), self._token.encode()):
+                return True
             quick = hashlib.sha256(provided.encode()).digest()
             if any(hmac.compare_digest(quick, seen) for seen in self._verified):
                 return True
@@ -96,6 +106,25 @@ class Access:
                     self._verified.add(quick)
                 return True
         return False
+
+
+    def matches_login(self, username, provided):
+        """A username and password pair (the login form).
+
+        TOKEN mode has no username, so any name is accepted with the token.
+        The name is compared in constant time and never logged. The
+        environment token, when one is set, is accepted with any name: it
+        is the documented way back in after a forgotten password."""
+        if self._token and provided and hmac.compare_digest(
+                provided.encode(), self._token.encode()):
+            return True
+        if self.mode == PASSWORD and self.username:
+            if not hmac.compare_digest((username or "").strip().casefold().encode(),
+                                       self.username.casefold().encode()):
+                # Still pay for the hash so a wrong name is not faster.
+                self.matches(provided)
+                return False
+        return self.matches(provided)
 
 
 def access_path(data):
@@ -116,7 +145,8 @@ def _read_saved(path):
         try:
             return Access(PASSWORD, _salt=base64.b64decode(saved["salt"]),
                           _hash=base64.b64decode(saved["hash"]),
-                          _iterations=int(saved["iterations"]))
+                          _iterations=int(saved["iterations"]),
+                          username=str(saved.get("username") or "").strip())
         except (KeyError, TypeError, ValueError):
             return None
     return None
@@ -129,9 +159,15 @@ def resolve(data, host, environ=None):
     if not webui.get("require_auth", True):
         return Access(OPEN)
     token = environ.get(webui["access_token_env"]) or ""
+    saved = _read_saved(access_path(data))
+    if saved is not None and saved.mode == PASSWORD:
+        # A login chosen in the Web UI wins over the environment token for
+        # people (#875), and the token keeps working as a credential, so
+        # Home Assistant and other header clients are unaffected.
+        saved._token = token
+        return saved
     if token:
         return Access(TOKEN, _token=token)
-    saved = _read_saved(access_path(data))
     if saved is not None:
         return saved
     if _is_loopback(host):
@@ -154,15 +190,35 @@ def _write(path, payload):
         raise
 
 
-def save_password(data, password, confirm):
-    """Store a new Web UI password (hashed). Raises AccessError when refused."""
+def clean_username(username):
+    """The login name as stored, or AccessError when it cannot be used."""
+    username = (username or "").strip()
+    if not username:
+        raise AccessError("Choose a username.")
+    if len(username) > MAX_USERNAME_LENGTH or ":" in username or any(
+            ch.isspace() or not ch.isprintable() for ch in username):
+        raise AccessError(f"Use a username of up to {MAX_USERNAME_LENGTH} characters "
+                          "with no spaces or colons.")
+    return username
+
+
+def save_password(data, password, confirm, username=None):
+    """Store a new Web UI login (password hashed). Raises AccessError when refused.
+
+    ``username`` is required for a new login; None keeps the old
+    password-only form (any name accepted), which older callers use."""
+    if username is not None:
+        username = clean_username(username)
     if len(password or "") < MIN_PASSWORD_LENGTH:
         raise AccessError(f"Use at least {MIN_PASSWORD_LENGTH} characters.")
     if password != confirm:
         raise AccessError("The two passwords do not match.")
     salt = secrets.token_bytes(16)
+    payload = {"mode": PASSWORD}
+    if username:
+        payload["username"] = username
     _write(access_path(data), {
-        "mode": PASSWORD, "iterations": _ITERATIONS,
+        **payload, "iterations": _ITERATIONS,
         "salt": base64.b64encode(salt).decode(),
         "hash": base64.b64encode(_digest(password, salt, _ITERATIONS)).decode()})
 

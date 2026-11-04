@@ -272,7 +272,7 @@ class WalkthroughServerTests(unittest.TestCase):
     def test_providers_step_lists_sites_and_writes_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
             httpd, port, data, _, environ = self.start(tmp, setup_done=True)
-            walkthrough.save_state(data, {"step": 3})
+            walkthrough.save_state(data, {"step": 4})
             code, _, body = self.request(port, "GET", "/walkthrough")
             self.assertEqual(code, 200)
             self.assertIn("MakerWorld", body)
@@ -281,12 +281,70 @@ class WalkthroughServerTests(unittest.TestCase):
             self.assertNotIn('name="services.', body)  # no fields on this step
             code, headers, _ = self.post_step(port, environ, httpd.form_token, "providers")
             self.assertEqual((code, headers["location"]), (303, "/walkthrough"))
+            self.assertEqual(walkthrough.load_state(data)["step"], 5)
+
+    def login_step(self, port, csrf, **fields):
+        body = urlencode({"step": "login", "action": "continue", pages.CSRF_FIELD: csrf, **fields})
+        return self.request(port, "POST", "/walkthrough", body=body, headers=FORM)
+
+    def test_login_step_sets_a_username_and_password_and_signs_in(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd, port, data, _, _ = self.start(tmp, setup_done=True)
+            walkthrough.save_state(data, {"step": 3})
+            code, _, body = self.request(port, "GET", "/walkthrough")
+            self.assertEqual(code, 200)
+            self.assertIn('autocomplete="username"', body)
+            self.assertIn("This Web UI is open", body)
+            code, headers, _ = self.login_step(port, httpd.form_token, username="catduck",
+                                               password="long enough pw",
+                                               password_again="long enough pw")
+            self.assertEqual((code, headers["location"]), (303, "/walkthrough"))
+            self.assertIn("set-cookie", headers)  # the chooser stays signed in
+            self.assertEqual(httpd.access.mode, access.PASSWORD)
+            self.assertEqual(httpd.access.username, "catduck")
             self.assertEqual(walkthrough.load_state(data)["step"], 4)
+            cookie = headers["set-cookie"].split(";", 1)[0]
+            self.assertEqual(self.request(port, "GET", "/api/status")[0], 401)
+            self.assertEqual(self.request(port, "GET", "/api/status",
+                                          headers={"Cookie": cookie})[0], 200)
+
+    def test_login_step_left_empty_changes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd, port, data, _, _ = self.start(tmp, setup_done=True)
+            walkthrough.save_state(data, {"step": 3})
+            code, headers, _ = self.login_step(port, httpd.form_token)
+            self.assertEqual(code, 303)
+            self.assertNotIn("set-cookie", headers)
+            self.assertEqual(httpd.access.mode, access.OPEN)
+            self.assertEqual(walkthrough.load_state(data)["step"], 4)
+
+    def test_login_step_refuses_mismatched_passwords_and_keeps_the_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd, port, data, _, _ = self.start(tmp, setup_done=True)
+            walkthrough.save_state(data, {"step": 3})
+            code, _, body = self.login_step(port, httpd.form_token, username="catduck",
+                                            password="long enough pw", password_again="other pw!")
+            self.assertEqual(code, 200)
+            self.assertIn("do not match", body)
+            self.assertIn('value="catduck"', body)
+            self.assertNotIn("long enough pw", body)
+            self.assertEqual(httpd.access.mode, access.OPEN)
+            self.assertEqual(walkthrough.load_state(data)["step"], 3)
+
+    def test_login_step_can_remove_a_login(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd, port, data, _, _ = self.start(tmp, setup_done=True)
+            access.save_password(data, "long enough pw", "long enough pw", username="catduck")
+            httpd.access = access.resolve(data, "0.0.0.0", {})
+            walkthrough.save_state(data, {"step": 3})
+            code, _, _ = self.login_step(port, httpd.form_token, confirm_open="yes")
+            self.assertEqual(code, 303)
+            self.assertEqual(httpd.access.mode, access.OPEN)
 
     def test_finish_on_review_marks_done_and_lifts_the_gate(self):
         with tempfile.TemporaryDirectory() as tmp:
             httpd, port, data, _, environ = self.start(tmp, setup_done=True)
-            walkthrough.save_state(data, {"step": 4})
+            walkthrough.save_state(data, {"step": 5})
             code, _, body = self.request(port, "GET", "/walkthrough")
             self.assertEqual(code, 200)
             self.assertIn("Model sites", body)  # the review's summary rows

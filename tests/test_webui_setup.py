@@ -21,6 +21,7 @@ from print_handy.webui import access, pages, server
 
 TOKEN = "env-token-for-setup-tests-123"
 PASSWORD = "correct horse battery"
+USERNAME = "catduck"
 FORM = {"Content-Type": "application/x-www-form-urlencoded"}
 
 
@@ -50,6 +51,43 @@ class ResolveOrderTests(unittest.TestCase):
         self.assertEqual(resolved.mode, access.TOKEN)
         self.assertTrue(resolved.matches(TOKEN))
         self.assertFalse(resolved.matches(TOKEN + "x"))
+
+    def test_username_and_password_must_both_match(self):
+        access.save_password(self.data, PASSWORD, PASSWORD, username=USERNAME)
+        saved = access.access_path(self.data).read_text()
+        self.assertIn(USERNAME, saved)
+        self.assertNotIn(PASSWORD, saved)
+        resolved = access.resolve(self.data, "0.0.0.0", {})
+        self.assertEqual(resolved.username, USERNAME)
+        self.assertTrue(resolved.matches_login(USERNAME, PASSWORD))
+        self.assertTrue(resolved.matches_login(USERNAME.upper(), PASSWORD))
+        self.assertFalse(resolved.matches_login("someone", PASSWORD))
+        self.assertFalse(resolved.matches_login(USERNAME, PASSWORD + "x"))
+
+    def test_a_bad_username_is_refused(self):
+        for bad in ("", "   ", "with space", "a:b", "x" * 65):
+            with self.subTest(username=bad), self.assertRaises(access.AccessError):
+                access.save_password(self.data, PASSWORD, PASSWORD, username=bad)
+
+    def test_a_password_saved_before_usernames_accepts_any_name(self):
+        access.save_password(self.data, PASSWORD, PASSWORD)
+        resolved = access.resolve(self.data, "0.0.0.0", {})
+        self.assertTrue(resolved.matches_login("", PASSWORD))
+        self.assertTrue(resolved.matches_login("anything", PASSWORD))
+
+    def test_a_saved_login_wins_and_the_env_token_still_works(self):
+        access.save_password(self.data, PASSWORD, PASSWORD, username=USERNAME)
+        resolved = access.resolve(self.data, "0.0.0.0", {"WEBUI_ACCESS_TOKEN": TOKEN})
+        self.assertEqual(resolved.mode, access.PASSWORD)
+        self.assertTrue(resolved.matches(PASSWORD))
+        self.assertTrue(resolved.matches(TOKEN))  # Home Assistant's header
+        self.assertTrue(resolved.matches_login("", TOKEN))  # forgotten password
+        self.assertFalse(resolved.matches(TOKEN + "x"))
+
+    def test_require_auth_false_ignores_a_saved_login(self):
+        access.save_password(self.data, PASSWORD, PASSWORD, username=USERNAME)
+        data = load(self.tmp, "  require_auth: false\n")
+        self.assertEqual(access.resolve(data, "0.0.0.0", {}).mode, access.OPEN)
 
     def test_require_auth_false_is_open_and_ignores_a_token_as_before(self):
         data = load(self.tmp, "  require_auth: false\n")
@@ -130,7 +168,7 @@ class SetupFlowTests(unittest.TestCase):
         self.assertIn(self.request(port, "GET", "/healthz")[0], (200, 503))
         code, _, body = self.request(port, "GET", "/setup")
         self.assertEqual(code, 200)
-        self.assertIn("Set a password", body)
+        self.assertIn("Set a username and password", body)
         code, _, _ = self.request(port, "POST", "/config", body="x=1", headers=FORM)
         self.assertEqual(code, 503)
 
@@ -143,7 +181,7 @@ class SetupFlowTests(unittest.TestCase):
     def test_choosing_a_password_signs_in_and_then_requires_it(self):
         httpd, port, _ = self.start()
         code, headers, _ = self.post_setup(port, **{pages.CSRF_FIELD: self.form_token(port),
-                                                     "choice": "password", "password": PASSWORD,
+                                                     "choice": "password", "username": USERNAME, "password": PASSWORD,
                                                      "password_again": PASSWORD})
         self.assertEqual(code, 303)
         cookie = headers["set-cookie"].split(";", 1)[0]
@@ -157,6 +195,32 @@ class SetupFlowTests(unittest.TestCase):
         # Setup is done: /setup no longer offers a choice.
         self.assertEqual(self.request(port, "GET", "/setup", headers={"Cookie": cookie})[0], 303)
 
+    def test_login_form_asks_for_username_and_password(self):
+        httpd, port, _ = self.start()
+        self.post_setup(port, **{pages.CSRF_FIELD: self.form_token(port), "choice": "password",
+                                 "username": USERNAME, "password": PASSWORD,
+                                 "password_again": PASSWORD})
+        _, _, body = self.request(port, "GET", "/login")
+        self.assertIn('autocomplete="username"', body)
+        self.assertIn('autocomplete="current-password"', body)
+        for user, secret, expected in ((USERNAME, PASSWORD, 303), ("nobody", PASSWORD, 401),
+                                       (USERNAME, "wrong password", 401)):
+            with self.subTest(user=user, secret=secret):
+                code, _, body = self.request(
+                    port, "POST", "/login", headers=FORM,
+                    body=urlencode({"username": user, "token": secret}))
+                self.assertEqual(code, expected)
+                self.assertNotIn(secret, body)
+
+    def test_setup_without_a_username_is_refused(self):
+        httpd, port, data = self.start()
+        code, _, body = self.post_setup(port, **{pages.CSRF_FIELD: self.form_token(port),
+                                                 "choice": "password", "password": PASSWORD,
+                                                 "password_again": PASSWORD})
+        self.assertEqual(code, 400)
+        self.assertIn("Choose a username", body)
+        self.assertFalse(access.access_path(data).exists())
+
     def test_setup_token_cannot_write_config_after_a_password_is_set(self):
         # Review finding on #737: /setup is served to anyone before setup, so
         # its token must not authorize /config or /debug writes afterwards.
@@ -164,7 +228,7 @@ class SetupFlowTests(unittest.TestCase):
         setup_token = self.form_token(port)
         self.assertNotEqual(setup_token, httpd.form_token)
         self.post_setup(port, **{pages.CSRF_FIELD: setup_token, "choice": "password",
-                                 "password": PASSWORD, "password_again": PASSWORD})
+                                 "username": USERNAME, "password": PASSWORD, "password_again": PASSWORD})
         for path, body in (("/debug", {"action": "on"}), ("/config/preview", {}), ("/config", {})):
             with self.subTest(path=path):
                 code, _, _ = self.request(port, "POST", path, headers=FORM,
@@ -211,7 +275,7 @@ class SetupFlowTests(unittest.TestCase):
         # Behind a reverse proxy name the password, not the Host, is the guard.
         _, port, _ = self.start()
         self.post_setup(port, **{pages.CSRF_FIELD: self.form_token(port), "choice": "password",
-                                 "password": PASSWORD, "password_again": PASSWORD})
+                                 "username": USERNAME, "password": PASSWORD, "password_again": PASSWORD})
         self.assertEqual(self.request(port, "GET", "/api/status", headers={
             "Host": "print.example.com", server.TOKEN_HEADER: PASSWORD})[0], 200)
 
@@ -225,7 +289,7 @@ class SetupFlowTests(unittest.TestCase):
     def test_bad_password_choice_is_refused_without_saving(self):
         _, port, data = self.start()
         code, _, body = self.post_setup(port, **{pages.CSRF_FIELD: self.form_token(port),
-                                                  "choice": "password", "password": PASSWORD,
+                                                  "choice": "password", "username": USERNAME, "password": PASSWORD,
                                                   "password_again": "different value"})
         self.assertEqual(code, 400)
         self.assertIn("do not match", body)

@@ -944,7 +944,14 @@ class _Handler(BaseHTTPRequestHandler):
             self._walkthrough_data(), self.server.webui_environ, form,
             self._field_values(), form_token=self.server.form_token,
             theme=self._theme())
-        if kind == "redirect":
+        if kind == "access":
+            # The Login step saved a new rule: apply it now, and keep the
+            # person who chose it signed in on this browser.
+            self.server.access = access_module.resolve(
+                self.server.settings_data, self.server.bind_host, self.server.webui_environ)
+            self._redirect(payload, headers=[self._start_session()]
+                           if self.server.access.required else [])
+        elif kind == "redirect":
             self._redirect(payload)
         else:
             self._send(200, payload, "text/html; charset=utf-8")
@@ -956,11 +963,15 @@ class _Handler(BaseHTTPRequestHandler):
             self._redirect("/")
             return
         self._send(200, pages.render_login_page(password=self._password_mode(),
+                                                username=self._username_mode(),
                                                 theme=self._theme()),
                    "text/html; charset=utf-8")
 
     def _password_mode(self):
         return self.server.access.mode == access_module.PASSWORD
+
+    def _username_mode(self):
+        return self._password_mode() and bool(self.server.access.username)
 
     def _start_session(self):
         """A new login-session cookie header for this browser."""
@@ -981,12 +992,15 @@ class _Handler(BaseHTTPRequestHandler):
             self._redirect("/")
             return
         provided = (form.get(pages.LOGIN_TOKEN_FIELD) or [""])[0]
-        # The submitted token is compared, never logged or reflected.
-        if not self.server.access.matches(provided):
-            what = "password" if self._password_mode() else "token"
+        username = (form.get(pages.LOGIN_USER_FIELD) or [""])[0]
+        # The submitted credentials are compared, never logged or reflected.
+        if not self.server.access.matches_login(username, provided):
+            what = ("username or password" if self._username_mode()
+                    else "password" if self._password_mode() else "token")
             self._send(401, pages.render_login_page(
                 error=f"That {what} was not accepted. Try again.",
-                password=self._password_mode(), theme=self._theme()),
+                password=self._password_mode(), username=self._username_mode(),
+                theme=self._theme()),
                 "text/html; charset=utf-8")
             return
         self._redirect("/", headers=[self._start_session()])
@@ -1025,7 +1039,8 @@ class _Handler(BaseHTTPRequestHandler):
                 if choice == "password":
                     access_module.save_password(
                         data, (form.get(pages.SETUP_PASSWORD_FIELD) or [""])[0],
-                        (form.get(pages.SETUP_CONFIRM_FIELD) or [""])[0])
+                        (form.get(pages.SETUP_CONFIRM_FIELD) or [""])[0],
+                        username=(form.get(pages.SETUP_USER_FIELD) or [""])[0])
                 elif choice == "open":
                     access_module.save_open(data, (form.get(pages.SETUP_OPEN_FIELD) or [""])[0] == "yes")
                 else:

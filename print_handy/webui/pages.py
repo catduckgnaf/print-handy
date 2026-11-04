@@ -52,11 +52,13 @@ CONFIRM_FIELD = "confirm"
 # compared against the access token by the server and is never rendered
 # back into any page, logged, or stored.
 LOGIN_TOKEN_FIELD = "token"
+LOGIN_USER_FIELD = "username"
 # First-run setup form fields (POST /setup, #708). Passwords are hashed by
 # webui.access and never rendered back.
 SETUP_CHOICE_FIELD = "choice"
 SETUP_PASSWORD_FIELD = "password"
 SETUP_CONFIRM_FIELD = "password_again"
+SETUP_USER_FIELD = "username"
 SETUP_OPEN_FIELD = "confirm_open"
 # Hidden field on the confirm form listing the field ids the preview
 # parsed; the save POST parses exactly those, no others.
@@ -220,16 +222,23 @@ def _page(title, body, *, theme=shell.DEFAULT_THEME, path="", chrome=True):
     return shell.page(title, body, path=path, theme=theme, chrome=chrome)
 
 
-def render_login_page(error=None, password=False, *, theme=shell.DEFAULT_THEME):
+def render_login_page(error=None, password=False, *, username=False,
+                      theme=shell.DEFAULT_THEME):
     """The GET /login page: a single password field for the access token.
 
     A browser cannot send the ``X-WebUI-Token`` header, so this form is
     how a person signs in: a correct POST /login earns a session cookie
     (see server.py). ``error`` is a fixed message chosen by the server;
     the submitted token is never reflected here. ``password`` is true
-    when the credential is the password chosen on the setup page (#708).
+    when the credential is the password chosen on the setup page (#708);
+    ``username`` adds the username field (#875), named and autocompleted
+    so a browser or password manager can save and fill the pair.
     """
-    if password:
+    if password and username:
+        intro = ('<p>Sign in with the username and password chosen during setup. '
+                 'Your browser can remember them. This browser then stays signed in '
+                 'until the session expires or the server restarts.</p>')
+    elif password:
         intro = ('<p>This Web UI is protected by the password chosen during setup. '
                  'Enter it once and this browser stays signed in until the session '
                  'expires or the server restarts.</p>')
@@ -242,13 +251,38 @@ def render_login_page(error=None, password=False, *, theme=shell.DEFAULT_THEME):
     if error:
         parts.append(f'<p class="error">{_esc(error)}</p>')
     label = "Password" if password else "Access token"
+    user_row = (f'<p><label for="f-{LOGIN_USER_FIELD}">Username</label> '
+                f'<input type="text" id="f-{LOGIN_USER_FIELD}" name="{LOGIN_USER_FIELD}" '
+                'autocomplete="username" autocapitalize="none" spellcheck="false" '
+                'required></p>') if password and username else ""
     parts.append(
-        f'<form method="post" action="/login">'
+        f'<form method="post" action="/login">{user_row}'
         f'<p><label for="f-{LOGIN_TOKEN_FIELD}">{label}</label> '
         f'<input type="password" id="f-{LOGIN_TOKEN_FIELD}" '
         f'name="{LOGIN_TOKEN_FIELD}" autocomplete="current-password" required></p>'
         '<p><button type="submit">Log in</button></p></form>')
     return _page("log in", "".join(parts), theme=theme, path="/login", chrome=False)
+
+
+def login_rows(submitted_username=""):
+    """Username, password and confirmation inputs for choosing a login.
+
+    Shared by /setup and the walkthrough's Login step. Standard names and
+    autocomplete hints let a browser or password manager offer to save
+    the pair. Passwords are never echoed back; only the username is."""
+    minimum = access_module.MIN_PASSWORD_LENGTH
+    return (
+        f'<p><label for="f-{SETUP_USER_FIELD}">Username</label> '
+        f'<input type="text" id="f-{SETUP_USER_FIELD}" name="{SETUP_USER_FIELD}" '
+        f'value="{_esc(submitted_username)}" autocomplete="username" '
+        'autocapitalize="none" spellcheck="false" '
+        f'maxlength="{access_module.MAX_USERNAME_LENGTH}" required></p>'
+        f'<p><label for="f-{SETUP_PASSWORD_FIELD}">Password</label> '
+        f'<input type="password" id="f-{SETUP_PASSWORD_FIELD}" name="{SETUP_PASSWORD_FIELD}" '
+        f'autocomplete="new-password" minlength="{minimum}" required></p>'
+        f'<p><label for="f-{SETUP_CONFIRM_FIELD}">Password again</label> '
+        f'<input type="password" id="f-{SETUP_CONFIRM_FIELD}" name="{SETUP_CONFIRM_FIELD}" '
+        'autocomplete="new-password" required></p>')
 
 
 def render_setup_page(form_token, error=None, *, theme=shell.DEFAULT_THEME):
@@ -266,18 +300,13 @@ def render_setup_page(form_token, error=None, *, theme=shell.DEFAULT_THEME):
         parts.append(f'<p class="error">{_esc(error)}</p>')
     csrf = f'<input type="hidden" name="{CSRF_FIELD}" value="{_esc(form_token)}">'
     parts.append(
-        '<h2>Set a password (recommended)</h2>'
+        '<h2>Set a username and password (recommended)</h2>'
         '<form method="post" action="/setup">' + csrf +
         f'<input type="hidden" name="{SETUP_CHOICE_FIELD}" value="password">'
-        f'<p><label for="f-{SETUP_PASSWORD_FIELD}">Password</label> '
-        f'<input type="password" id="f-{SETUP_PASSWORD_FIELD}" name="{SETUP_PASSWORD_FIELD}" '
-        f'autocomplete="new-password" minlength="{access_module.MIN_PASSWORD_LENGTH}" required></p>'
-        f'<p><label for="f-{SETUP_CONFIRM_FIELD}">Password again</label> '
-        f'<input type="password" id="f-{SETUP_CONFIRM_FIELD}" name="{SETUP_CONFIRM_FIELD}" '
-        f'autocomplete="new-password" required></p>'
+        + login_rows() +
         '<p>Home Assistant and other tools send this same password as the '
         f'<code>X-WebUI-Token</code> header.</p>'
-        '<p><button type="submit">Save password</button></p></form>')
+        '<p><button type="submit">Save login</button></p></form>')
     parts.append(
         '<h2>Or leave it open</h2>'
         '<form method="post" action="/setup">' + csrf +
@@ -287,8 +316,10 @@ def render_setup_page(form_token, error=None, *, theme=shell.DEFAULT_THEME):
         'network: anyone who can reach this port can use the Web UI.</label></p>'
         '<p><button type="submit">Leave it open</button></p></form>')
     parts.append(
-        '<p>To change this later, delete <code>webui_access.json</code> from the Print Handy '
-        'state folder and restart, or set an access token in the environment.</p>')
+        '<p>To change this later, use <strong>Login</strong> in the setup walkthrough, '
+        'turn off <code>[webui] require_auth</code> to drop the login entirely (for a '
+        'trusted home network), or delete <code>webui_access.json</code> from the Print '
+        'Handy state folder and restart.</p>')
     return _page("setup", "".join(parts), theme=theme, path="/setup", chrome=False)
 
 

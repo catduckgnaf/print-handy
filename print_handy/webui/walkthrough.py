@@ -69,6 +69,7 @@ STEPS = (
     ("printer", "Printer"),
     ("chat", "Chat"),
     ("camera", "Camera"),
+    ("login", "Login"),
     ("providers", "Providers"),
     ("review", "Review"),
 )
@@ -82,6 +83,9 @@ STEP_LEADS = {
             "confirmation. Only the chosen platform's fields are shown.",
     "camera": "The camera that watches the printer, and whether finished prints "
               "are recorded as timelapses.",
+    "login": "Who may open this Web UI. Choose a username and password your "
+             "browser can remember, or leave it open on a network you trust. "
+             "Leave the fields empty to keep things as they are.",
     "providers": "Nothing to fill in here. The first time someone drops a link the "
                  "bot cannot download, it asks for that site's token in chat and "
                  "saves it. Printables needs no account.",
@@ -111,6 +115,7 @@ STEP_FIELDS = {
              "matrix.room_id", "matrix.allowed_user_ids"),
     "camera": ("services.camera_source", "services.camera_snapshot_url",
                "timelapse.mode", "timelapse.capture_enabled"),
+    "login": (),
     "providers": (),
     "review": (),
 }
@@ -290,6 +295,60 @@ def _review_html(field_values, data, environ):
     return '<table class="rows">' + "".join(rows) + "</table>"
 
 
+def _login_html(data, environ, submitted_username=""):
+    """The Login step (#875): the current rule and a form to change it."""
+    try:
+        current = access_module.resolve(data, "0.0.0.0", environ)
+    except Exception:  # settings too broken to resolve: show the form only
+        current = None
+    mode = getattr(current, "mode", None)
+    if not data["webui"].get("require_auth", True):
+        status = ("Login is turned off by <code>[webui] require_auth = false</code>: "
+                  "anyone on the network can use this Web UI. A login saved here "
+                  "takes effect only once that setting is back on.")
+    elif mode == access_module.PASSWORD and current.username:
+        status = f"Signed in with the username <strong>{_esc(current.username)}</strong>."
+    elif mode == access_module.PASSWORD:
+        status = ("A password protects this Web UI, with no username yet. Add one "
+                  "below so your browser can save the pair.")
+    elif mode == access_module.TOKEN:
+        status = ("An access token from the environment protects this Web UI. "
+                  "A username and password saved here is easier to type; the token "
+                  "keeps working for Home Assistant and other tools.")
+    else:
+        status = "This Web UI is open: anyone on your network can use it."
+    parts = [f'<p>{status}</p>', pages.login_rows(submitted_username)]
+    if mode != access_module.OPEN:
+        parts.append(
+            f'<p><input type="checkbox" id="f-{pages.SETUP_OPEN_FIELD}" '
+            f'name="{pages.SETUP_OPEN_FIELD}" value="yes"> '
+            f'<label for="f-{pages.SETUP_OPEN_FIELD}">Remove the login: I trust everyone '
+            'on my network.</label></p>')
+    parts.append('<p class="muted">To skip logins for good on a home network, set '
+                 '<code>[webui] require_auth = false</code> in Configuration.</p>')
+    return "".join(parts)
+
+
+def _apply_login(data, form):
+    """Save the Login step. Returns None when nothing changed, "saved"
+    when a new login or the open choice was written; raises AccessError."""
+    def field(name):
+        return (form.get(name) or [""])[0]
+    username, password, confirm = (field(pages.SETUP_USER_FIELD),
+                                   field(pages.SETUP_PASSWORD_FIELD),
+                                   field(pages.SETUP_CONFIRM_FIELD))
+    if field(pages.SETUP_OPEN_FIELD) == "yes":
+        if username or password:
+            raise access_module.AccessError(
+                "Either choose a new login or remove it, not both.")
+        access_module.save_open(data, True)
+        return "saved"
+    if not (username.strip() or password or confirm):
+        return None
+    access_module.save_password(data, password, confirm, username=username)
+    return "saved"
+
+
 def _actions(index, step_id):
     parts = ['<div class="step-actions">']
     if index > 0:
@@ -339,6 +398,8 @@ def render_page(data, field_values, *, form_token, theme=shell.DEFAULT_THEME,
         for field_value in values:
             parts.append(pages._field_row(field_value, data=data, errors=errors,
                                           submitted=submitted))
+    elif step_id == "login":
+        parts.append(_login_html(data, environ, (submitted or {}).get("username", "")))
     elif step_id == "providers":
         parts.append(_providers_html(environ))
     elif step_id == "review":
@@ -355,8 +416,10 @@ def apply_post(data, environ, form, field_values, *, form_token,
                theme=shell.DEFAULT_THEME):
     """Handle one walkthrough POST.
 
-    Returns ``("redirect", location)`` or ``("page", html)`` (the step
-    re-rendered with its errors). The caller has already authorized the
+    Returns ``("redirect", location)``, ``("page", html)`` (the step
+    re-rendered with its errors) or ``("access", location)`` when the Login
+    step saved a new access rule: the server re-resolves access and signs
+    this browser in before redirecting. The caller has already authorized the
     POST and checked the form token, exactly as for /config.
     """
     state = load_state(data)
@@ -377,6 +440,17 @@ def apply_post(data, environ, form, field_values, *, form_token,
     if action == "finish" or step_id == "review":
         save_state(data, {**state, "step": index, "done": True})
         return "redirect", "/"
+    if step_id == "login":
+        try:
+            outcome = _apply_login(data, form)
+        except access_module.AccessError as exc:
+            username = (form.get(pages.SETUP_USER_FIELD) or [""])[0]
+            return "page", render_page(
+                data, field_values, form_token=form_token, theme=theme, environ=environ,
+                submitted={"username": username}, general_error=str(exc),
+                step_index=index)
+        save_state(data, {**state, "step": index + 1})
+        return ("access" if outcome else "redirect"), "/walkthrough"
     if step_id == "providers":  # Continue: nothing to write on this step
         save_state(data, {**state, "step": index + 1})
         return "redirect", "/walkthrough"
