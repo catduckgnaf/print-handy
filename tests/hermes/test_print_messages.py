@@ -702,8 +702,13 @@ def test_announcer_records_the_roast_subject_and_never_calls_the_generator(job, 
     assert "Print complete" in posted and TITLE in posted
     assert "Completion roast that must not appear" not in posted
     assert roast_calls == []
-    title, _summary = mel.announcer.pending_roast_subject(json.loads(watcher.STATE_PATH.read_text()))
+    saved = json.loads(watcher.STATE_PATH.read_text())
+    title, _summary = mel.announcer.pending_roast_subject(saved)
     assert title == TITLE
+    # Bound to the exact pending completion text, and refused for any other.
+    pending = mel.announcer.pending_completion_message(saved)
+    assert mel.announcer.pending_roast_subject(saved, pending)[0] == TITLE
+    assert mel.announcer.pending_roast_subject(saved, "Print complete: Another")[0] == ""
 
 
 def test_print_record_title_resolves_from_hashed_name(job, monkeypatch):

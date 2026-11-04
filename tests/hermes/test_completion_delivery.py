@@ -246,3 +246,20 @@ def test_completion_roast_failure_leaves_the_post_untouched(monkeypatch, tmp_pat
     monkeypatch.setattr(listener, "post", lambda text: posted.append(text) or True)
     assert listener._post_completion("Print complete: Stand", "Print complete: Stand")
     assert posted == ["Print complete: Stand"]
+
+
+def test_overlapping_completions_never_roast_the_wrong_print(monkeypatch, tmp_path):
+    announcer = listener.announcer
+    monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "announcement.json")
+    monkeypatch.setattr(listener, "log", lambda text: None)
+    monkeypatch.setattr(listener, "generate_roast", lambda title, summary="": f"roast of {title}")
+    state = {}
+    announcer.set_pending_completion_message(state, "Print complete: Old")
+    announcer.set_pending_roast_subject(state, "Old", "", "Print complete: Old")
+    announcer.set_pending_completion_message(state, "Print complete: New")
+    announcer.set_pending_roast_subject(state, "New", "", "Print complete: New")
+    announcer.save_state(state)
+    older = listener._with_completion_roast("Print complete: Old", "Print complete: Old")
+    newer = listener._with_completion_roast("Print complete: New", "Print complete: New")
+    assert older == "Print complete: Old"
+    assert newer == "Print complete: New\n\nroast of New"

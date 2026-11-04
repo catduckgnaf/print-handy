@@ -1018,7 +1018,7 @@ def _with_completion_roast(message, completion_message):
     exactly as it was.
     """
     try:
-        title, summary = announcer.pending_roast_subject(announcer.load_state())
+        title, summary = announcer.pending_roast_subject(announcer.load_state(), completion_message)
         if not title or not str(message).startswith(completion_message):
             return message
         roast = generate_roast(title, summary)

@@ -611,17 +611,27 @@ def clear_pending_completion_message(state, message=None):
     _pending_clear(state, "pending_completion_messages", "pending_completion_message", message)
 
 
-def pending_roast_subject(state):
-    """(title, summary) of the pending completion's print, or ("", "")."""
+def pending_roast_subject(state, message=None):
+    """(title, summary) of the pending completion's print, or ("", "").
+
+    With ``message`` the subject is returned only when it was recorded for
+    that exact completion text. A newer completion overwrites the one
+    pending slot while an older delivery thread may still be waiting on its
+    timelapse; that older thread must get no roast rather than the newer
+    print's.
+    """
     value = _pending_get(state, "pending_roast_subjects", "pending_roast_subject")
-    if isinstance(value, dict):
-        return str(value.get("title") or ""), str(value.get("summary") or "")
-    return "", ""
+    if not isinstance(value, dict):
+        return "", ""
+    if message is not None and value.get("message") and value.get("message") != message:
+        return "", ""
+    return str(value.get("title") or ""), str(value.get("summary") or "")
 
 
-def set_pending_roast_subject(state, title, summary=""):
+def set_pending_roast_subject(state, title, summary="", message=""):
     _pending_set(state, "pending_roast_subjects", "pending_roast_subject",
-                 {"title": str(title or ""), "summary": str(summary or "")})
+                 {"title": str(title or ""), "summary": str(summary or ""),
+                  "message": str(message or "")})
 
 
 def clear_pending_roast_subject(state):
@@ -906,6 +916,12 @@ def main():
             previous["memory_line"] = "deferred until the complete batch/job finishes"
         # Keep the completion retryable until the listener confirms Discord delivery.
         set_pending_completion_message(previous, message)
+        # Bind the roast subject to this exact completion text, so an older
+        # delivery thread cannot pick up a newer print's subject.
+        roast_value = _pending_get(previous, "pending_roast_subjects", "pending_roast_subject")
+        if isinstance(roast_value, dict):
+            roast_value["message"] = message
+            _pending_set(previous, "pending_roast_subjects", "pending_roast_subject", roast_value)
 
     # A cancel or error also finalizes the print record, without an announcement
     # or session cleanup, so every started print ends with a dated outcome.
