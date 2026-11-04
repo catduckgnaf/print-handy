@@ -101,6 +101,50 @@ def prusa_shelf_source(path):
     return path
 
 
+TABLE_MODEL_CONFIG = """<?xml version="1.0" encoding="UTF-8"?>
+<config>
+ <object id="1">
+  <metadata type="object" key="name" value="Block"/>
+  <metadata type="object" key="extruder" value="1"/>
+  <metadata type="object" key="perimeters" value="5"/>
+  <volume firstid="0" lastid="11">
+   <metadata type="volume" key="name" value="Block"/>
+   <metadata type="volume" key="extruder" value="1"/>
+  </volume>
+ </object>
+ <object id="2">
+  <metadata type="object" key="name" value="Table"/>
+  <metadata type="object" key="extruder" value="1"/>
+  <metadata type="object" key="perimeters" value="5"/>
+  <volume firstid="0" lastid="23">
+   <metadata type="volume" key="name" value="Table"/>
+   <metadata type="volume" key="extruder" value="1"/>
+  </volume>
+ </object>
+</config>
+"""
+
+
+def prusa_table_source(path):
+    """Two separate objects side by side; the table's top overhangs its leg, so
+    supports generate. Separate objects keep the derived plate's per-part items
+    clear of each other in plan view (the plate export flattens volumes into
+    items; stacked volumes of one object are the whole-model fixture above)."""
+    table = _mesh_xml(_box(30, 20, 3, (60, 55, 12)) + _box(6, 6, 12, (72, 62, 0)))
+    model = ('<?xml version="1.0" encoding="UTF-8"?>'
+             f'<model unit="millimeter" xmlns="{NS}"><resources>'
+             f'<object id="1" name="Block" type="model">{_mesh_xml(_box(16, 16, 6, (20, 60, 0)))}</object>'
+             f'<object id="2" name="Table" type="model">{table}</object>'
+             '</resources><build>'
+             '<item objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>'
+             '<item objectid="2" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>'
+             '</build></model>')
+    _write_package(path, {"3D/3dmodel.model": model,
+                          "Metadata/Slic3r_PE.config": PRUSA_CONFIG,
+                          "Metadata/Slic3r_PE_model.config": TABLE_MODEL_CONFIG})
+    return path
+
+
 def _decisions(manifest, state, picks):
     choices = {}
     for row in source_colors.canonical_prompts(manifest):
@@ -144,7 +188,7 @@ def test_prusa_derived_plate_slices_as_one_filament():
     with tempfile.TemporaryDirectory(dir=WORK) as tmp, \
             mock.patch.object(spoolman_client, "get_spool", return_value=None):
         tmp = Path(tmp)
-        source = prusa_shelf_source(tmp / "shelf.3mf")
+        source = prusa_table_source(tmp / "table.3mf")
         state = json.loads(STATE.read_text())
         manifest = source_colors.inventory(source)
         decisions = _decisions(manifest, state, lambda row: 1)
