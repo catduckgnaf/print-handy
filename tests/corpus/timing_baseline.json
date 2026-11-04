@@ -186,6 +186,18 @@
    "first_prompt_s": 0.01,
    "wall_s": 0.06
   },
+  "height-color-changes/hermes": {
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "wall_s": 0.05,
+   "reason": "New corpus case from #870 (height-based color changes), recorded from PR #872 CI run 41749879241 (artifact discord-timing, median of 3, CI runner)."
+  },
+  "height-color-changes/standalone": {
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "wall_s": 0.04,
+   "reason": "New corpus case from #870 (height-based color changes), recorded from PR #872 CI run 41749879241 (artifact discord-timing, median of 3, CI runner)."
+  },
   "islands-144-four-color/hermes": {
    "first_prompt_s": 0.18,
    "fit_check_s": 0.01,
