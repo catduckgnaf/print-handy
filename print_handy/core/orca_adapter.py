@@ -1544,6 +1544,13 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                              'filament_is_support': ['0']})
             else:
                 data = copy.deepcopy(filament)
+                # The base profile carries no filament_is_support, and Orca
+                # rejects the whole preset set (-5, "The input preset file is
+                # invalid") when the profile missing it lands in the last
+                # --load-filaments position — a job that leaves the highest
+                # toolhead unused (#871). The per-toolhead profiles above all
+                # set it; an unused toolhead's profile must too.
+                data.setdefault('filament_is_support', ['0'])
             path = folder / f'filament_tool_{tool}.json'
             path.write_text(json.dumps(data, indent=2) + '\n')
             filament_paths.append(path)

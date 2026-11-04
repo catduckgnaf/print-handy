@@ -26,6 +26,24 @@ pytestmark = pytest.mark.skipif(not REAL, reason="set PRINT_HANDY_REAL_SLICER=1 
 
 
 @pytest.mark.parametrize("model_key", MODELS)
+def test_creator_job_leaving_head_4_unused_slices(model_key):
+    """#871: picks on heads 1-3 only put the base template profile in the last --load-filaments
+    position; Orca rejected that set (-5) while the profile lacked filament_is_support."""
+    WORK.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=WORK) as tmp, \
+            mock.patch.object(spoolman_client, "get_spool", return_value=None):
+        tmp = Path(tmp)
+        adapter = printers.get(model_key, creator_config(model_key))
+        out, provenance, _configs = orca_adapter.slice_model(
+            CASES / "four-colors-one-plate" / "model.3mf", tmp / "slice", tool_state(), adapter=adapter,
+            color_decisions=four_colour_decisions(tmp, [1, 3, 2, 1]))
+        text = Path(out).read_text(errors="replace")
+        used = {int(m.group(1)) for line in text.splitlines() if (m := re.match(r"\s*T(\d+)\s*(?:;.*)?$", line))}
+        assert {0, 1, 2} <= used, used
+        assert {int(tool) for tool in provenance["tool_mapping"]} == {0, 1, 2}
+
+
+@pytest.mark.parametrize("model_key", MODELS)
 @pytest.mark.parametrize("picks,heads", [([3, 4, 3, 4], {2, 3}), ([1, 3, 4, 1], {0, 2, 3})])
 def test_creator_job_on_heads_3_and_4_slices(model_key, picks, heads):
     WORK.mkdir(exist_ok=True)
