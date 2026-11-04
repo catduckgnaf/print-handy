@@ -32,6 +32,14 @@ class AttributeSlotTests(unittest.TestCase):
     def test_newly_emptied_outside_the_mapping_does_not_attribute(self):
         self.assertEqual(mel.attribute_runout_slot({4}, [4], {1, 2}, fallback=1), 1)
 
+    def test_single_slot_job_names_its_slot_after_a_restart_forgot_the_tracker(self):
+        # Nothing newly emptied, no presence evidence, no saved active slot:
+        # a job launched on exactly one slot ran out of that slot.
+        self.assertEqual(mel.attribute_runout_slot(set(), [], {3}, fallback=None), 3)
+        # Two launched slots stay ambiguous and a saved fallback still wins.
+        self.assertIsNone(mel.attribute_runout_slot(set(), [], {1, 3}, fallback=None))
+        self.assertEqual(mel.attribute_runout_slot(set(), [], {3}, fallback=1), 1)
+
     def test_no_mapping_recorded_uses_newly_emptied_alone(self):
         self.assertEqual(mel.attribute_runout_slot({2}, [1, 2], set(), fallback=1), 2)
 

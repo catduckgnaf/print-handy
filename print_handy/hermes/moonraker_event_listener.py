@@ -564,13 +564,16 @@ def paused_message(filename, runout=False, slot=None, spool_id=None):
         which = f"IFS slot {slot}" if slot in (1, 2, 3, 4) else "The active slot"
         into = f"IFS slot {slot}" if slot in (1, 2, 3, 4) else "the active slot"
         spool = f" (spool #{spool_id})" if spool_id else ""
+        # The spool question is only opened when a slot is known (open_question), so
+        # promise it only then; otherwise this alert and the follow-up notice contradict.
+        asked = slot in (1, 2, 3, 4)
         extra = (f"Filament runout: {which}{spool} ran out of filament.\n"
                  "To finish this print:\n"
                  f"1. Load the replacement filament into {into} at the printer.\n"
-                 "2. Answer the spool question below (Existing spool or New spool) so the replacement "
-                 "spool is the one registered for that slot — filament usage stays paused for every "
-                 "spool until you answer.\n"
-                 "3. Tap Resume print below (or type /print-resume) once the filament is loaded. "
+                 + ("2. Answer the spool question below (Existing spool or New spool) so the replacement "
+                    "spool is the one registered for that slot — filament usage stays paused for every "
+                    "spool until you answer.\n3. " if asked else "2. ")
+                 + "Tap Resume print below (or type /print-resume) once the filament is loaded. "
                  "The print resumes only when you press it; nothing resumes on its own.")
     else:
         extra = (f"Paused at {where}. " if where else "") + "Fix it at the printer, then tap Resume or Cancel below (or type /print-resume or /print-stop)."
@@ -625,6 +628,11 @@ def attribute_runout_slot(newly_emptied, empty, mapped, fallback):
         present = sorted(set(empty) & set(mapped)) if mapped else sorted(set(empty))
         if len(present) == 1:
             return present[0]
+    if fallback is None and len(mapped or ()) == 1:
+        # No tracker history (a restart mid-print forgets which slots were
+        # loaded) and no saved active slot: a job launched on exactly one
+        # slot can only have run out of that slot.
+        return next(iter(mapped))
     return fallback
 
 
@@ -2933,7 +2941,7 @@ class Listener:
                 post,
                 f"**Filament check:** the filament for {clean(self.filename or 'this print')} "
                 f"{'ran out' if cause == 'runout' else 'was unloaded and reloaded mid-print'}, "
-                "but this printer has no IFS slot to ask about, so there is no spool "
+                "but no IFS slot could be identified, so there is no spool "
                 "question to answer and filament usage has **not** been paused. If you "
                 "loaded a different spool, point usage at it with `/spool` so the "
                 "amounts stay right.")

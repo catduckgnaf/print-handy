@@ -416,3 +416,17 @@ class ResumeMachineryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RunoutAlertPromisesOnlyWhatItDelivers(unittest.TestCase):
+    def test_slotless_alert_does_not_promise_a_spool_question(self):
+        text = mel.paused_message("a.gcode", runout=True, slot=None)
+        self.assertNotIn("spool question", text)
+        self.assertIn("1. Load the replacement filament", text)
+        self.assertIn("2. Tap Resume print", text)
+
+    def test_alert_with_a_slot_still_asks_the_spool_question(self):
+        text = mel.paused_message("a.gcode", runout=True, slot=3)
+        self.assertIn("IFS slot 3", text)
+        self.assertIn("2. Answer the spool question", text)
+        self.assertIn("3. Tap Resume print", text)
