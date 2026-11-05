@@ -11,10 +11,16 @@ question = "How many copies"
 button = "One copy"
 
 [[click]]
+question = "will not print cleanly without supports"
+button = "Print without supports"
+
+[[click]]
 question = "·"
 button = "Slice and print"
 
 [expect]
+# Orca reports floating regions here; the operator answered "Print without supports".
+prompts = ["will not print cleanly without supports"]
 status = "STARTED"
 source_kind = ".stl"
 source_size_mm = [30.0, 30.0, 1.0]
