@@ -572,6 +572,34 @@ def transformed_dims(matrix, dims):
     return tuple(round(max(p[a] for p in points) - min(p[a] for p in points), 4) for a in range(3))
 
 
+def mesh_envelope(matrix, triangles):
+    """The axis-aligned size of the mesh's own vertices under `matrix`.
+
+    Rotating a bounding box overstates the result for any angle that is
+    not a quarter turn (a right triangle's box turned 45 degrees is not
+    the triangle turned 45 degrees), so non-quarter rotations measure the
+    vertices. Returns None for an empty mesh."""
+    lows = [math.inf] * 3
+    highs = [-math.inf] * 3
+    for tri in triangles:
+        for point in tri:
+            p = apply_matrix(matrix, point)
+            for a in range(3):
+                if p[a] < lows[a]:
+                    lows[a] = p[a]
+                if p[a] > highs[a]:
+                    highs[a] = p[a]
+    if not math.isfinite(lows[0]):
+        return None
+    return tuple(round(highs[a] - lows[a], 4) for a in range(3))
+
+
+def quarter_turn(matrix):
+    """True when every matrix entry is 0 or +-1: the bounding box rotates
+    exactly, so its corners give the true envelope."""
+    return all(min(abs(v), abs(abs(v) - 1)) < 1e-9 for v in matrix)
+
+
 def finite_triangles(triangles):
     """True when every coordinate of every vertex is finite (#888: a
     geometry edit's result must be watertight AND finite before it is
@@ -628,8 +656,9 @@ def lay_flat_rotation(triangles):
               r2[2] * r3[0] - r2[0] * r3[2],
               r2[0] * r3[1] - r2[1] * r3[0])
         matrix = [r1[0], r1[1], r1[2], r2[0], r2[1], r2[2], r3[0], r3[1], r3[2]]
-    dims = described["dimensions_mm"]
-    return matrix, transformed_dims(matrix, dims)
+    # Measure the rotated vertices, not the rotated bounding box: the box
+    # overstates any face that is not axis-aligned (Codex P2 on #908).
+    return matrix, mesh_envelope(matrix, triangles)
 
 
 # ---------------------------------------------------------------- applying plans to a job
@@ -678,14 +707,26 @@ def enrich_plan(plan, job, source_path=None):
         audit = job.get("audit") or {}
         source_dims = tuple(float(audit[k]) for k in ("size_x", "size_y", "size_z")
                             if audit.get(k) is not None)
-        if len(source_dims) == 3:
-            # The composed matrix maps SOURCE coordinates: measure it
-            # against the authored dims, not the already-rotated ones.
-            envelope = transformed_dims(plan["rotation"], source_dims)
-        elif dims:
-            envelope = transformed_dims(matrix, dims)
-        else:
-            envelope = None
+        envelope = None
+        if source_path is not None:
+            # The composed matrix maps SOURCE coordinates: measure the
+            # rotated mesh itself (Codex P2 on #908); its bounding box
+            # overstates any non-quarter turn.
+            from . import orca_adapter
+            try:
+                envelope = mesh_envelope(plan["rotation"],
+                                         orca_adapter.source_triangles(source_path))
+            except Exception:
+                envelope = None
+        if envelope is None and quarter_turn(plan["rotation"]):
+            # Quarter turns rotate the bounding box exactly.
+            if len(source_dims) == 3:
+                envelope = transformed_dims(plan["rotation"], source_dims)
+            elif dims:
+                envelope = transformed_dims(matrix, dims)
+        if envelope is None and not quarter_turn(plan["rotation"]):
+            raise PlanError("a rotation that is not a quarter turn needs the model file to "
+                            "measure the result, and it is not on disk for this job")
         if envelope is not None:
             # result_dims are the PRINTED dims (for verify_slice's bounds
             # check); envelope_dims are the UNSCALED envelope, which is

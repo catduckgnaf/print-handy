@@ -312,3 +312,44 @@ def test_finite_triangles_scan():
     bad = [[(0.0, 0.0, 0.0), (float("inf"), 0.0, 0.0), (0.0, 1.0, 0.0)]]
     assert ep.finite_triangles(good)
     assert not ep.finite_triangles(bad)
+
+
+def _write_triangle_stl(path):
+    # One right triangle (0,0),(10,0),(0,10) in the XY plane plus a 1 mm
+    # tall copy so the mesh has a Z extent.
+    tris = [((0, 0, 0), (10, 0, 0), (0, 10, 0)), ((0, 0, 1), (10, 0, 1), (0, 10, 1))]
+    lines = ["solid t"]
+    for tri in tris:
+        lines += ["facet normal 0 0 1", "outer loop"]
+        lines += [f"vertex {x} {y} {z}" for x, y, z in tri]
+        lines += ["endloop", "endfacet"]
+    lines.append("endsolid t")
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
+def test_rotate_measures_the_mesh_not_its_bounding_box(tmp_path):
+    # Codex P2 on #908: a 45 degree turn of the right triangle is about
+    # 14.14 x 7.07, while the rotated 10 x 10 box would claim 14.14 x 14.14.
+    stl = _write_triangle_stl(tmp_path / "tri.stl")
+    job = {"audit": {"size_x": 10, "size_y": 10, "size_z": 1}, "scale": 1.0}
+    plan = ep.enrich_plan({"kind": "rotate", "axis": "z", "degrees": 45}, job, stl)
+    x, y, z = plan["envelope_dims"]
+    assert x == pytest.approx(14.1421, abs=1e-3)
+    assert y == pytest.approx(7.0711, abs=1e-3)
+    assert z == pytest.approx(1.0)
+
+
+def test_non_quarter_rotation_without_the_model_file_is_refused():
+    job = {"audit": {"size_x": 10, "size_y": 10, "size_z": 1}, "scale": 1.0}
+    with pytest.raises(ep.PlanError):
+        ep.enrich_plan({"kind": "rotate", "axis": "z", "degrees": 45}, job)
+    # A quarter turn still measures exactly from the bounding box.
+    plan = ep.enrich_plan({"kind": "rotate", "axis": "z", "degrees": 90}, job)
+    assert plan["envelope_dims"] == [10.0, 10.0, 1.0]
+
+
+def test_lay_flat_measures_the_rotated_vertices():
+    tris = [((0, 0, 0), (10, 0, 0), (0, 10, 0))]
+    matrix, dims = ep.lay_flat_rotation(tris)
+    assert dims == ep.mesh_envelope(matrix, tris)
