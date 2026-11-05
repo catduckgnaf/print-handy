@@ -2959,6 +2959,14 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         choice = None
         scale_note = ''
         supports_choice = None
+        # The Ready question is composed from the finished first slice: the
+        # with-supports offer (and the reason shown for it) depends on that
+        # slice's warnings, so a free-running slice is waited out in full.
+        # A capped wait made the offer timing-dependent — a real Orca slice
+        # slower than the cap composed the question without the slicer's
+        # floating-regions finding. A slice a test holds back (release
+        # cleared) is not waited on: it starts when the flow asks to wait
+        # for it after the question, as before.
         if (
             early.running()
             and hasattr(early, 'first_slice_done')
@@ -2966,8 +2974,7 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             and getattr(early, 'release', None) is not None
             and early.release.is_set()
         ):
-            with contextlib.suppress(Exception):
-                await asyncio.wait_for(early.first_slice_done.wait(), timeout=1.5)
+            await early.first_slice_done.wait()
         while choice is None:
             from . import support_clearance, modeled_supports
             clearance = latest.get('support_clearance')
@@ -3052,6 +3059,11 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                 if opt['kind'] == 'sup':
                     supports_choice = True
                     choice = 0
+                    # JOB.json must be stable before the decision is recorded:
+                    # a still-running speculative slice rewrites it and would
+                    # clobber the decision (see BackgroundSlice.settle).
+                    if hasattr(early, 'settle'):
+                        await early.settle()
                     mj.record_support_decision(folder, True)
                     if clearance and support_clearance.risky(clearance):
                         support_clearance.record_clearance_acknowledgement(folder, source_file=path)
@@ -3062,6 +3074,8 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                 elif opt['kind'] == 'nosup':
                     supports_choice = False
                     choice = 0
+                    if hasattr(early, 'settle'):
+                        await early.settle()
                     mj.record_support_decision(folder, False)
                     if clearance and support_clearance.risky(clearance):
                         support_clearance.record_clearance_acknowledgement(folder, source_file=path)
@@ -3071,6 +3085,11 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                     break
                 elif opt['kind'] == 'extend':
                     f = opt['finding']
+                    # Stop the background slices before touching the source or
+                    # JOB.json: a running slice reads the source, and the
+                    # speculative slice's restore would clobber the repair's
+                    # manifest/clearance updates written below.
+                    await early.discard()
                     res = support_clearance.extend_underside(path, gap_mm=f['clearance_mm']['min'])
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                        content=f"Extended underside to touch build plate ({res['modified_vertices']} vertices adjusted). Re-analyzing...")
@@ -3082,16 +3101,20 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                     latest['support_clearance'] = clearance_rep
                     early.clearance = clearance_rep
                     mj.write_job(folder, latest)
-                    await early.discard()
                     binding = slice_binding(latest, new_sha)
                     recipe_sha = binding_sha256(binding)
                     await early.start(jp, binding, lambda job_path, work, runner, copies=chosen_quantity, **kwargs:
                                       _heavy(mj.slice_job, str(job_path), recipe_sha256=kwargs.get('recipe_sha256', recipe_sha), **(
                                           {'copies': copies} if copies and int(copies) > 1 else {})))
                     await early.started.wait()
+                    if (early.running() and not early.first_slice_done.is_set()
+                            and getattr(early, 'release', None) is not None
+                            and early.release.is_set()):
+                        await early.first_slice_done.wait()
                     continue
                 elif opt['kind'] == 'sink':
                     f = opt['finding']
+                    await early.discard()  # see the extend action above
                     res = support_clearance.sink_model(path, dz=f['clearance_mm']['max'])
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                        content=f"Flattened model to plate by sinking {res['sink_mm']} mm. Re-analyzing...")
@@ -3103,13 +3126,16 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                     latest['support_clearance'] = clearance_rep
                     early.clearance = clearance_rep
                     mj.write_job(folder, latest)
-                    await early.discard()
                     binding = slice_binding(latest, new_sha)
                     recipe_sha = binding_sha256(binding)
                     await early.start(jp, binding, lambda job_path, work, runner, copies=chosen_quantity, **kwargs:
                                       _heavy(mj.slice_job, str(job_path), recipe_sha256=kwargs.get('recipe_sha256', recipe_sha), **(
                                           {'copies': copies} if copies and int(copies) > 1 else {})))
                     await early.started.wait()
+                    if (early.running() and not early.first_slice_done.is_set()
+                            and getattr(early, 'release', None) is not None
+                            and early.release.is_set()):
+                        await early.first_slice_done.wait()
                     continue
                 elif opt['kind'] == 'slice_only':
                     choice = 1
@@ -3245,6 +3271,11 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                content='Cancelled. Nothing was sliced, uploaded, or started.',
                                metadata=metadata)
             return {'action': 'skip', 'reason': 'operator cancelled print request'}
+        if is_flagged and hasattr(early, 'settle'):
+            # A flagged menu answered with Slice only reaches this guard with
+            # no recorded decision to settle for; the speculative slice must
+            # still be finished before JOB.json is compared to the binding.
+            await early.settle()
         latest = json.loads(jp.read_text())
         if (latest.get('intake_id') != iid or latest.get('color_decisions') != validated
                 or mj.file_sha256(latest['downloaded_file']) != decisions['source_sha256']

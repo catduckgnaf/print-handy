@@ -186,6 +186,21 @@ class BackgroundSlice:
             updated['support_decision'] = {'supports': default_supports, 'by': 'speculative_intake'}
         target.write_text(json.dumps(updated, indent=2) + "\n")
 
+    async def settle(self):
+        """Wait until the slice task has fully finished, speculative slice included.
+
+        The speculative with-supports slice rewrites JOB.json while it runs
+        (support decision on, then the no-supports snapshot restored at the
+        end), so any intake write or recipe comparison made in that window
+        races it: an operator's recorded decision can be clobbered by the
+        speculative slice_job's own write-back, and the slice-approval guard
+        then refuses the handoff. Callers that record a decision or compare
+        the binding must settle first; afterwards JOB.json is stable.
+        """
+        if self.task is not None:
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.task
+
     async def take(self, binding):
         """Return the finished slice for this binding, or None when there is nothing usable."""
         if binding == self.supports_binding and (self.supports_task is not None or self.supports_result is not None):

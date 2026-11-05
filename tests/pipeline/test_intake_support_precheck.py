@@ -217,6 +217,83 @@ def test_flagged_orca_warning_offers_supports_before_bed_clear(env, monkeypatch)
     assert not any('What should I do?' in q['question'] for q in adapter.questions)
 
 
+def _warning_slice(env, first_delay=0.0, supports_delay=0.0):
+    """Fake slice_job: the no-supports slice reports Orca floating regions.
+
+    The job dict is read when the slice starts and written back when it ends,
+    exactly like the real slice_job; the delays model a slow real slicer.
+    """
+    import time
+
+    def slice_with_warning(job_path, recipe_sha256=None, supports=None, **kwargs):
+        data = json.loads(Path(job_path).read_text())
+        is_sup = bool(supports or (data.get('support_decision') or {}).get('supports'))
+        env.slice_calls.append({'job_path': str(job_path), 'recipe_sha256': recipe_sha256,
+                                'supports': is_sup})
+        time.sleep(supports_delay if is_sup else first_delay)
+        tag = 'supports' if is_sup else 'nosup'
+        gcode = Path(job_path).parent / 'sliced' / f'plate_1_{tag}.gcode'
+        gcode.parent.mkdir(parents=True, exist_ok=True)
+        gcode.write_text(f'; estimated printing time (normal mode) = 1h 0m 0s\n; tag = {tag}\nG1 X1\n')
+        data['derived_plates'] = [{'gcode': str(gcode), 'plate_id': 1, 'slot': 1}]
+        data['gcode'] = str(gcode)
+        if not is_sup:
+            data['provenance'] = {
+                'slice_warnings': {
+                    'support_needed': True,
+                    'objects': ['Body'],
+                    'support_texts': ['object Body has floating regions'],
+                },
+                'supports_on': False,
+                'support_decided': False,
+            }
+        else:
+            data['provenance'] = {
+                'slice_warnings': {'support_needed': False},
+                'supports_on': True,
+                'support_decided': True,
+            }
+        model_job.write_job(Path(job_path).parent, data)
+        return [gcode]
+
+    return slice_with_warning
+
+
+def test_slow_first_slice_warning_still_offers_supports_before_bed_clear(env, monkeypatch):
+    """A first slice slower than a brief wait still flags the Ready question.
+
+    Regression: the Ready question was composed after a 1.5 s wait for the
+    first slice, so a real (slow) Orca slice's floating-regions warning
+    missed the question entirely and the case's pinned prompt never fired
+    (CI: test_discord_flow[witch-ghost-cults3d]).
+    """
+    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env, first_delay=2.0))
+    # picks: one color (1), slot 1 (0), "Slice and print with supports (bed is clear)" (0)
+    adapter, result, receipt = run_flow(env, [1, 0, 0])
+    last_q = adapter.questions[-1]
+    assert last_q['choices'][0] == 'Slice and print with supports (bed is clear)'
+    assert 'floating regions found' in last_q['question']
+    assert receipt['status'] == 'STARTED'
+
+
+def test_slow_speculative_slice_does_not_break_slice_approval(env, monkeypatch):
+    """Choosing without supports while the speculative slice is still running
+    must not trip the source/job approval guard.
+
+    Regression: the speculative with-supports slice writes JOB.json (support
+    decision on) while it runs and its slice_job writes that job back at the
+    end, so an operator answer recorded in that window was clobbered and the
+    approval guard refused the handoff (CI: test_discord_flow[stl-open-thin-wall]).
+    """
+    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env, supports_delay=1.5))
+    # picks: one color (1), slot 1 (0), "Slice and print without supports (bed is clear)" (1)
+    adapter, result, receipt = run_flow(env, [1, 0, 1])
+    assert receipt['status'] == 'STARTED'
+    assert 'plate_1_nosup.gcode' in receipt['bed_clear_approval']['gcode']
+    job = json.loads(Path(receipt['job_json']).read_text())
+    assert job['support_decision']['supports'] is False
+
+
 def test_flagged_v12_fixture_offers_fixes_and_clearance_warnings(env, monkeypatch):
     """V12 fixture triggers clearance warning, fix buttons, and modeled support disclosure."""
     assert V12_FIXTURE.is_file()
