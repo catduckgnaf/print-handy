@@ -42,6 +42,44 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def normalize_utc(value: Any) -> str | None:
+    """Normalize an epoch timestamp, datetime, or ISO string to an ISO-8601 UTC Z string.
+
+    Returns None for empty, invalid, or boolean values. Naive datetimes/strings
+    are assumed to be UTC.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        if value <= 0:
+            return None
+        return datetime.fromtimestamp(value, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            dt = value.replace(tzinfo=timezone.utc)
+        else:
+            dt = value.astimezone(timezone.utc)
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        num = float(s)
+        if num > 0:
+            return datetime.fromtimestamp(num, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        pass
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00").replace("z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (ValueError, OSError):
+        return None
+
+
 TERMINAL_STATUS = {"complete": ("completed", True), "cancelled": ("cancelled", False), "error": ("failed", False), "printing": ("printing", None)}
 
 
@@ -90,9 +128,7 @@ def _first(mapping: Mapping[str, Any], *keys: str) -> Any:
 
 def _iso_from_epoch(value: Any) -> str | None:
     """ISO-Z string for a Moonraker epoch timestamp, or None."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
-        return None
-    return datetime.fromtimestamp(value, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return normalize_utc(value)
 
 
 def load_context(job_key: str, path: Path | None = None) -> dict[str, Any]:
@@ -273,15 +309,16 @@ def build_record_data(
     # history start time — an epoch riding stats — names the same
     # physical print on every call; the per-call completion clock must
     # not mint a second record for a retried completion.
-    started_at = context.get("started_at") or _iso_from_epoch(
-        _first(stats, "start_time", "print_start_time"))
+    raw_started = context.get("started_at") or _first(stats, "start_time", "print_start_time")
+    started_at = normalize_utc(raw_started) or (str(raw_started) if raw_started else None)
+    norm_completed = normalize_utc(completed_at) if completed_at else None
     return {
         "print_number": _valid_print_number(context.get("print_number")) or _registry_print_number(context),
         "status": status,
         "success": success,
         "title": context.get("title") or _resolved_title(filename),
         "started_at": started_at,
-        "completed_at": None if status == "printing" else (completed_at or utc_now()),
+        "completed_at": None if status == "printing" else (norm_completed or completed_at or utc_now()),
         "hardware": context.get("hardware"),
         "estimated_time": context.get("estimated_time"),
         "estimated_filament_g": context.get("estimated_filament_g"),
@@ -321,7 +358,80 @@ def build_record_data(
         # early_layer) and why a print counted as risky.
         "watch_mode": context.get("watch_mode"),
         "watch_risk": context.get("watch_risk"),
+        **_stop_fields(filename, started_at, printer=context.get("printer_id") or context.get("printer")),
     }
+
+
+def _stop_fields(filename: str, started_at: Any = None, printer: str | None = None) -> dict[str, Any]:
+    """stop_reason and stop_capture (the sidecar path) captured when this print stopped.
+
+    A capture older than this print's start belongs to an earlier print of the same file.
+    """
+    try:
+        from . import stop_capture
+        captured = stop_capture.load(filename, printer_id=printer)
+    except Exception:
+        return {}
+    if not captured:
+        return {}
+    if started_at and str(captured.get("first_captured_at") or "") < str(started_at):
+        return {}
+    return {"stop_reason": captured.get("stop_reason") or None,
+            "stop_capture": str(stop_capture.sidecar_path(filename, printer_id=printer))}
+
+
+def _newest_record_path_for_file(filename: str, printer: str | None = None) -> Path | None:
+    """Path of the newest record for a gcode file (same matching as latest_record_for_file)."""
+    exact, base = str(filename or ""), Path(str(filename or "")).name
+    best, best_key = None, (-1, "")
+    try:
+        paths = list(PRINTS_DIR.glob("*.json"))
+    except OSError:
+        return None
+    for path in paths:
+        record = _read_json_record(path)
+        if not record:
+            continue
+        if printer:
+            rec_printer = str(record.get("printer") or "")
+            rec_id = str(record.get("printer_id") or "")
+            if str(printer) not in (rec_printer, rec_id):
+                continue
+        names = {str(record.get("gcode_file") or ""), str(record.get("job_key") or "")} - {""}
+        tier = 1 if exact in names else 0 if base in {Path(n).name for n in names} else -1
+        if tier < 0:
+            continue
+        at = str(record.get("started_at") or record.get("completed_at") or "")
+        if (tier, at) >= best_key:
+            best, best_key = path, (tier, at)
+    return best
+
+
+def attach_stop_reason(filename: str, reason: str, capture_path: str, captured_at: str = "",
+                       printer_id: str | None = None) -> str:
+    """Add the captured stop reason to the newest record for `filename`; return its path or ''.
+
+    An existing reason is kept: the first stop is the one that explains the print. A record
+    that completed before the stop is an earlier print and is left alone; the stopped print's
+    own record, written later, picks the reason up from the sidecar.
+    """
+    path = _newest_record_path_for_file(filename, printer=printer_id)
+    record = _read_json_record(path) if path else None
+    if record is None or path is None:
+        return ""
+    done = str(record.get("completed_at") or "")
+    if captured_at and done and done < captured_at:
+        return ""
+    changed = False
+    if reason and not record.get("stop_reason"):
+        record["stop_reason"] = reason
+        changed = True
+    if capture_path and not record.get("stop_capture"):
+        record["stop_capture"] = capture_path
+        changed = True
+    if changed:
+        _atomic_write(path, json.dumps(record, ensure_ascii=False, indent=2) + "\n")
+    return str(path)
 
 
 # The fields a print record carries, in file order: the lookup schema. One
@@ -338,7 +448,7 @@ _RECORD_FIELDS = (
     "filament_used_mm", "filament_used_g", "print_duration_seconds",
     "slicer_settings", "author_directed_tree_supports", "physical_outcome",
     "follow_up", "multipart_plan_id", "part_id", "moonraker_state",
-    "discord_chat_id", "watch_mode", "watch_risk",
+    "discord_chat_id", "watch_mode", "watch_risk", "stop_reason", "stop_capture",
 )
 
 

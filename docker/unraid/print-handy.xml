@@ -29,7 +29,7 @@
   <DonateText/>
   <DonateLink/>
   <Requires>Appdata paths owned by UID/GID 1000. Existing Spoolman data can be copied into the Spoolman Data path before first start; nothing is migrated automatically.</Requires>
-  <Config Name="State" Target="/data/hermes" Default="/mnt/user/appdata/print-handy/hermes" Mode="rw" Description="Runtime state, prompts, hardware and job records. Back this up." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/print-handy/hermes</Config>
+  <Config Name="State" Target="/data/hermes" Default="/mnt/user/appdata/print-handy/hermes" Mode="rw" Description="Runtime state, prompts, hardware and job records, plus daily app logs in logs/ (kept 14 days, survive container recreate) and stop captures in state/stops/. Back this up." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/print-handy/hermes</Config>
   <Config Name="Archive" Target="/data/archive" Default="/mnt/user/appdata/print-handy/archive" Mode="rw" Description="Sliced jobs and G-code. Back this up." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/print-handy/archive</Config>
   <Config Name="Records" Target="/data/records" Default="/mnt/user/appdata/print-handy/records" Mode="rw" Description="Print records. Back this up." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/print-handy/records</Config>
   <Config Name="Cache" Target="/data/cache" Default="/mnt/user/appdata/print-handy/cache" Mode="rw" Description="Regenerable cache." Type="Path" Display="advanced" Required="true" Mask="false">/mnt/user/appdata/print-handy/cache</Config>

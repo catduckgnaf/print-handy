@@ -27,8 +27,11 @@ def _started_epoch(value):
     if not value:
         return None
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
-    except ValueError:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00").replace("z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp()
+    except (ValueError, OSError):
         return None
 
 

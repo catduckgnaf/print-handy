@@ -26,6 +26,76 @@ env:
   ORCA_RUNTIME_COMMIT: 4337a389125f814785bd83f4ace01da5b6baa80fdcf5a9c81e60dcd03896c067
 
 jobs:
+  edit-corpus-offline:
+    name: Edit corpus offline (shard ${{ matrix.shard }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-test.txt
+      - run: python -m pip install -r requirements-test.txt
+      - name: Run offline edit corpus shard
+        env:
+          PRINT_HANDY_EDIT_CORPUS: '1'
+          PRINT_HANDY_EDIT_SHARD: '${{ matrix.shard }}/3'
+        run: python -m pytest -q -s tests/corpus/edit
+
+  edit-corpus-offline-result:
+    if: always()
+    needs: edit-corpus-offline
+    name: Edit corpus (offline)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: All offline edit corpus shards passed
+        run: test "${{ needs.edit-corpus-offline.result }}" = success
+
+  edit-corpus-real:
+    name: Edit corpus (stable, shard ${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    continue-on-error: true
+    env:
+      ORCA_FLATPAK_APP_ID: com.orcaslicer.OrcaSlicer
+      PRINT_HANDY_REAL_SLICER: "1"
+      PRINT_HANDY_EDIT_CORPUS: "1"
+      PRINT_HANDY_EDIT_SHARD: "${{ matrix.shard }}/3"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-test.txt
+      - run: python -m pip install -r requirements-test.txt
+      - name: Install flatpak and xvfb
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q flatpak xvfb
+      - name: Cache the pinned OrcaSlicer bundle and runtime
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/orcaslicer-v${{ env.ORCA_BUNDLE_VERSION }}.flatpak
+            ~/.local/share/flatpak
+          key: orcaslicer-flatpak-v${{ env.ORCA_BUNDLE_VERSION }}-${{ env.ORCA_RUNTIME_COMMIT }}-${{ runner.os }}-x86_64
+      - name: Install the pinned OrcaSlicer bundle and GNOME runtime
+        run: sh scripts/install-orca-flatpak.sh
+      - name: Run real-Orca edit corpus shard
+        run: xvfb-run -a python -m pytest -v -s tests/corpus/edit
+
   offline-tests:
     # Three shards per Python run in parallel (tests/conftest.py, PRINT_HANDY_TEST_SHARD). The
     # offline-tests-result job reports the per-Python check names branch protection requires.

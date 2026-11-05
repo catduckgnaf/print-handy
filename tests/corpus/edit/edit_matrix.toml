@@ -1,0 +1,87 @@
+# Declarative phrasing and edit matrix for Print Handy edit corpus (#903)
+# Covers unambiguous plans, fuzzy typo variants, ambiguous picks, questions, and negative chat.
+
+[scale]
+unambiguous = [
+  { text = "scale to 50%", kind = "scale_percent", percent = 50 },
+  { text = "shrink this by 20%", kind = "scale_percent", percent = 80 },
+  { text = "make it half the size", kind = "scale_percent", percent = 50 },
+  { text = "scale to 80%", kind = "scale_percent", percent = 80 },
+  { text = "make it 2x bigger", kind = "scale_percent", percent = 200 }
+]
+typos = [
+  { text = "shrnik it by 20%", kind = "scale_percent", percent = 80 },
+  { text = "shrnk this by 20%", kind = "scale_percent", percent = 80 },
+  { text = "scale to 50 %", kind = "scale_percent", percent = 50 }
+]
+picks = [
+  { text = "make it bigger", expected_percents = [110, 125, 150] },
+  { text = "make it smaller", expected_percents = [90, 75, 50] },
+  { text = "shrink it", expected_percents = [90, 75, 50] }
+]
+
+[supports]
+unambiguous = [
+  { text = "add tree supports", kind = "supports", enabled = true, type = "tree" },
+  { text = "add normal supports", kind = "supports", enabled = true, type = "normal" },
+  { text = "no supports", kind = "supports", enabled = false },
+  { text = "remove supports", kind = "supports", enabled = false }
+]
+typos = [
+  { text = "add tree supprots", kind = "supports", enabled = true, type = "tree" },
+  { text = "no supprots", kind = "supports", enabled = false }
+]
+questions = [
+  "does this need supports?",
+  "does this have supports?",
+  "are supports needed?"
+]
+
+[orientation]
+unambiguous = [
+  { text = "rotate 90", kind = "rotate", angle = 90 },
+  { text = "rotate 90 on z", kind = "rotate", angle = 90 },
+  { text = "lay it flat", kind = "lay_flat" },
+  { text = "mirror it", kind = "mirror", axis = "x" }
+]
+typos = [
+  { text = "rotat 90", kind = "rotate", angle = 90 },
+  { text = "lay flatt", kind = "lay_flat" }
+]
+
+[copies]
+unambiguous = [
+  { text = "print 3 copies", kind = "copies", count = 3 },
+  { text = "2 copies", kind = "copies", count = 2 },
+  { text = "1 copy", kind = "copies", count = 1 }
+]
+
+[brim]
+unambiguous = [
+  { text = "brim 5mm", kind = "brim", enabled = true, width_mm = 5.0 },
+  { text = "brim 8", kind = "brim", enabled = true, width_mm = 8.0 },
+  { text = "no brim", kind = "brim", enabled = false }
+]
+
+[process]
+unambiguous = [
+  { text = "layer height 0.12", kind = "layer_height", mm = 0.12 },
+  { text = "0.16 layer height", kind = "layer_height", mm = 0.16 },
+  { text = "infill 25%", kind = "infill", percent = 25.0 },
+  { text = "20% infill", kind = "infill", percent = 20.0 }
+]
+
+[negative]
+phrases = [
+  "hello there",
+  "print this",
+  "looks good",
+  "thank you",
+  "what time is it"
+]
+
+[bounds_errors]
+invalid = [
+  { text = "infill 200%", error_contains = "infill" },
+  { text = "brim 50mm", error_contains = "brim" }
+]

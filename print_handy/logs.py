@@ -31,8 +31,7 @@ from pathlib import Path
 
 LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
 FORMATS = ("text", "json")
-FILE_MAX_BYTES = 5 * 1024 * 1024
-FILE_BACKUPS = 3
+FILE_RETENTION_DAYS = 14
 REDACTED = "***"
 
 _HANDLER_MARK = "_print_handy_handler"
@@ -185,6 +184,107 @@ class JsonFormatter(_Base):
         return json.dumps(_redact_value(payload), default=str, ensure_ascii=False)
 
 
+class DailyFileHandler(logging.Handler):
+    """Append to ``<stem>-YYYY-MM-DD<suffix>`` beside the configured path; keep ``retention_days`` days.
+
+    Every Print Handy process (bot, listener, workers) logs to the same folder, so
+    files are never renamed: rename based rotation in one process would race the
+    others and can delete a file another process just rotated. Each process opens
+    today's file in append mode (whole lines, safe to share), moves to the next
+    day's file at local midnight, and deletes dated files older than the retention.
+    """
+
+    def __init__(self, path: Path, retention_days: int = FILE_RETENTION_DAYS):
+        super().__init__()
+        self.base = Path(path)
+        self.retention_days = max(1, int(retention_days))
+        self._day = ""
+        self._stream = None
+        self._open(self._today())
+
+    @staticmethod
+    def _today() -> str:
+        return datetime.now().strftime("%Y-%m-%d")
+
+    def file_for(self, day: str) -> Path:
+        return self.base.with_name(f"{self.base.stem}-{day}{self.base.suffix or '.log'}")
+
+    def _open(self, day: str) -> None:
+        if self._stream is not None:
+            self._stream.close()
+        self.base.parent.mkdir(parents=True, exist_ok=True)
+        self._stream = open(self.file_for(day), "a", encoding="utf-8")
+        self._day = day
+        prune(self.base, self.retention_days)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            line = self.format(record) + "\n"
+            self.acquire()
+            try:
+                day = self._today()
+                if day != self._day:
+                    self._open(day)
+                self._stream.write(line)
+                self._stream.flush()
+            finally:
+                self.release()
+        except Exception:
+            self.handleError(record)
+
+    def close(self) -> None:
+        self.acquire()
+        try:
+            if self._stream is not None:
+                self._stream.close()
+                self._stream = None
+        finally:
+            self.release()
+        super().close()
+
+
+_DATED = re.compile(r"-(\d{4}-\d{2}-\d{2})$")
+
+
+def dated_files(path: str | Path) -> list[tuple[str, Path]]:
+    """(day, path) for each dated log file of ``path``, oldest first."""
+    base = Path(path).expanduser()
+    suffix = base.suffix or ".log"
+    found = []
+    try:
+        for item in base.parent.glob(f"{base.stem}-*{suffix}"):
+            match = _DATED.search(item.name[:-len(suffix)] if item.name.endswith(suffix) else "")
+            if match and item.name == f"{base.stem}-{match.group(1)}{suffix}":
+                found.append((match.group(1), item))
+    except OSError:
+        return []
+    return sorted(found)
+
+
+def prune(path: str | Path, retention_days: int, today: str | None = None) -> list[Path]:
+    """Delete dated log files older than ``retention_days`` (today counts as day 1)."""
+    today_d = datetime.strptime(today, "%Y-%m-%d").date() if today else datetime.now().date()
+    removed = []
+    for day, item in dated_files(path):
+        try:
+            age = (today_d - datetime.strptime(day, "%Y-%m-%d").date()).days
+        except ValueError:
+            continue
+        if age >= max(1, int(retention_days)):
+            try:
+                item.unlink()
+                removed.append(item)
+            except OSError:
+                pass  # another process got there first, or the folder is read only
+    return removed
+
+
+def current_file(path: str | Path) -> Path:
+    """The file being written now for a configured ``[logging] file`` (the newest dated one)."""
+    files = dated_files(path)
+    return files[-1][1] if files else Path(path).expanduser()
+
+
 def _formatter(kind: str) -> logging.Formatter:
     return JsonFormatter() if kind == "json" else TextFormatter()
 
@@ -203,7 +303,7 @@ def configure(cfg: dict | None = None, *, stream=None) -> logging.Logger:
 
     ``cfg`` is the ``[logging]`` settings section (level, format, file); None reads it from the settings.
     Output goes to ``stream`` (default stderr, which systemd and Docker capture) and, when ``file`` is set,
-    to a rotating file as well.
+    to daily files beside that path as well, kept for ``retention_days`` (default 14).
     """
     cfg = _logging_settings() if cfg is None else cfg
     level = str(cfg.get("level") or "INFO").upper()
@@ -222,9 +322,11 @@ def configure(cfg: dict | None = None, *, stream=None) -> logging.Logger:
     if path:
         target = Path(path).expanduser()
         try:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            handlers.append(logging.handlers.RotatingFileHandler(
-                target, maxBytes=FILE_MAX_BYTES, backupCount=FILE_BACKUPS, encoding="utf-8"))
+            try:
+                keep = int(cfg.get("retention_days") or FILE_RETENTION_DAYS)
+            except (TypeError, ValueError):
+                keep = FILE_RETENTION_DAYS
+            handlers.append(DailyFileHandler(target, keep))
         except OSError as exc:
             print(f"logging: cannot write {target}, logging to stderr only: {exc}", file=sys.stderr)
     for handler in handlers:

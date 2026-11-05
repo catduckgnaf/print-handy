@@ -139,3 +139,7 @@ have supports?". Print Handy runs the normal intake first, then applies
 the edit (with its confirmation and re-slice) or answers the question
 against the job that intake just prepared. Plain intake text such as
 "print this" is not treated as an instruction.
+
+## Edit corpus tests
+
+The edit pipeline is covered by a dedicated 3-shard test suite in `tests/corpus/edit/` and weekly external corpus sweeps in `tests/corpus/run_external_edit_corpus.py`. See [Discord flow corpus in PROJECT-REFERENCE.md](PROJECT-REFERENCE.md#edit-corpus-journeys) for runner details and case authoring conventions.

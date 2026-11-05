@@ -328,6 +328,62 @@ A box that was tracking `:develop` cannot be rolled back to "whatever develop wa
 docker image inspect ghcr.io/catduckgnaf/print-handy:develop --format '{{index .RepoDigests 0}}'
 ```
 
+## Logs and troubleshooting
+
+`docker logs print-handy` only holds what the current container wrote: recreating
+the container (an image switch, an Unraid template edit, an update) throws it
+away. Print Handy therefore also writes its own log to the persistent state
+volume:
+
+- **Where:** `/data/hermes/logs/print-handy-YYYY-MM-DD.log`, one file per day
+  (local time, `TZ`), on the `/data/hermes` mount. On Unraid that is
+  `/mnt/user/appdata/print-handy/hermes/logs/`; with Compose,
+  `${PRINT_HANDY_DATA:-./data}/hermes/logs/`. Every process in the container
+  (bot, listeners, workers) appends to the same daily file. Stdout logging is
+  unchanged, so `docker logs` still works.
+- **Retention:** 14 days by default (today counts as one), set with
+  `logging.retention_days` or `PRINT_HANDY__LOGGING__RETENTION_DAYS`. Older
+  dated files are deleted when a process starts and at each midnight.
+- **Turning it off or moving it:** `PRINT_HANDY__LOGGING__FILE` names the base
+  path (`/data/hermes/logs/print-handy.log` in the image); set it empty for
+  stdout only. See `logging.*` in [SETTINGS.md](SETTINGS.md).
+- **Reading it:** `tail -f /mnt/user/appdata/print-handy/hermes/logs/print-handy-$(date +%F).log`,
+  or `grep -h "stop reason" /mnt/user/appdata/print-handy/hermes/logs/*.log`.
+  `print-handy diagnostics` includes the newest file's tail.
+
+### When a print stops
+
+On a Klipper shutdown, a printer error state or a cancel, Print Handy reads the
+printer right away, before anyone restarts it: Moonraker `printer.info`
+(`state_message`), the webhooks state, the `print_stats` message, the latest
+history job, and a bounded tail of `klippy.log` (or `printer.log`) cut at the
+stop, so a printer that has already restarted does not hand back its new boot.
+Nothing is sent to the printer; these are read-only queries.
+
+The capture is kept in three places, so the reason survives printer and
+container restarts:
+
+- `/data/hermes/state/stops/<file>.json`, written atomically, with each stop
+  event (trigger, time, facts read, log lines kept) and the first real reason.
+- `STOP.json` in the job's archive folder next to `JOB.json`, when that folder
+  is known.
+- `stop_reason` and `stop_capture` in the job's print record under
+  `/data/records/Prints/`.
+
+The reason line is also logged (`stop reason for <file> (<trigger>): ...`).
+
+A stop or cancel post contains, in order: the captured **Stop reason** when
+there is one; where it stopped (layer, progress, nozzle Z); print time and
+filament used; temperatures; the Klipper state and Moonraker job message; for
+an emergency stop, the explained reason and the restart it needs; **Last
+console messages**, without UI prompt traffic (`action:prompt_*`, `RESPOND
+TYPE=command`, ZMod color prompt macros, `echo:` and `M117` text); and
+**Printer warnings before the stop (klippy.log)**, only lines that are real
+warnings or errors (`!!`, Error, Warning, Shutdown, Transition to shutdown,
+Must home, Timer too close and similar) from before the stop, never the
+startup config dump that follows a restart. When there are none it says "no
+printer warnings recorded before the stop".
+
 ## Unraid DockerMan
 
 Use `docker/unraid/print-handy.xml`, replacing the prior three templates. One entry runs all required processes; leave PostArgs empty. The template specifies UID/GID 1000:1000 and five persistent paths under `/mnt/user/appdata/print-handy`. Its `Repository` is the current release's multi-arch index digest, not `:latest` or `:develop`; see [Pinning the image](#pinning-the-image) for the exact edit and the rollback. It publishes no port; add an approved API mapping only as described under Included Spoolman. Image HEALTHCHECK covers the combined runtime.

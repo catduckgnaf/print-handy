@@ -128,3 +128,10 @@ early_interval_s = 120
 # (spaghetti, detached or air) inside the early-layer window send PAUSE through the alert
 # pause path. Env: PRINT_HANDY__VISUAL_WATCH__AUTO_PAUSE_EARLY. It never cancels; the alert keeps its stop and resume buttons. Off by default.
 auto_pause_early = false
+
+[logging]
+# Daily app log files on the state volume, so they survive a container recreate
+# (docker logs does not). Override with PRINT_HANDY__LOGGING__FILE (empty: stderr only)
+# and PRINT_HANDY__LOGGING__RETENTION_DAYS.
+file = "/data/hermes/logs/print-handy.log"
+retention_days = 14
