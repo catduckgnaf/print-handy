@@ -19,9 +19,27 @@ _FIT = re.compile(r"\b(?:will|would|does|can)\s+(?:it|this|that)\s+fit\b|\bfit\s
                   re.IGNORECASE)
 
 
+# A polite request is a command, not a question: "can you add supports",
+# "could you shrink it?", "please add a brim" go to the edit path.
+_EDIT_VERBS = (r"add|remove|delete|drop|shrink|scale|resize|rotate|flip|mirror|make|print|turn|"
+               r"enlarge|grow|reduce|double|halve|change|set|switch|use|put|enable|disable|"
+               r"slice|re-?slice|split|move|lay|cut")
+_POLITE_REQUEST = re.compile(
+    r"^\s*(?:(?:hey|so|ok|okay|um)\W+)?(?:please\W+)?"
+    r"(?:(?:can|could|would|will)\s+(?:you|u|ya)\s+(?:please\s+)?(?:just\s+)?|please\s+)"
+    r"(?:" + _EDIT_VERBS + r")\b",
+    re.IGNORECASE)
+
+
+def is_polite_request(text):
+    return bool(_POLITE_REQUEST.match(str(text or '')))
+
+
 def is_question(text):
     text = str(text or '').strip()
-    return bool(text) and (text.endswith('?') or bool(_QUESTION_START.match(text)))
+    if not text or is_polite_request(text):
+        return False
+    return text.endswith('?') or bool(_QUESTION_START.match(text))
 
 
 def classify(text):

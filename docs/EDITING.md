@@ -126,6 +126,11 @@ A question about the current job is answered, never turned into an edit:
 
 A question in a channel with no current job is left to the chat.
 
+A polite request is a command, not a question. "Can you add supports?",
+"could you shrink it", "please add a brim" and "can you make it smaller"
+go to the edit path and get the usual confirmation; "do I need
+supports?" and "does this need supports?" stay questions.
+
 ## A link or file plus an instruction
 
 A model link or attached file can carry the edit or question in the same

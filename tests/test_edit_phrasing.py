@@ -86,6 +86,41 @@ def test_supports_questions_are_questions_not_edits(text):
     assert mq.classify(text) == "supports"
 
 
+@pytest.mark.parametrize("text,kind", [
+    ("does this need supports", "supports"),
+    ("do I need supports", "supports"),
+    ("do i need supports?", "supports"),
+    ("will it fit", "fit"),
+    ("will it fit?", "fit"),
+    ("how big is it", "size"),
+    ("how big is it?", "size"),
+])
+def test_real_questions_stay_questions(text, kind):
+    assert mq.classify(text) == kind
+
+
+@pytest.mark.parametrize("text", [
+    "can you add supports",
+    "can you add supports?",
+    "could you shrink it",
+    "could you shrink it?",
+    "please add a brim",
+    "please add a brim?",
+    "can you make it smaller",
+    "can u add supports",
+    "would you please scale it to 80%?",
+    "ok can you turn off supports",
+])
+def test_polite_requests_are_commands_not_questions(text):
+    assert mq.classify(text) is None
+    assert not mq.is_question(text)
+
+
+@pytest.mark.parametrize("text", ["can you add supports", "could you shrink it", "can you make it smaller"])
+def test_polite_requests_reach_the_edit_vocabulary(text):
+    assert ep.looks_like_edit(text) or ep.resolve_request(text) is not None
+
+
 @pytest.mark.parametrize("query,word", [
     ("shrnik", "shrink"), ("shirnk", "shrink"), ("smaler", "smaller"),
     ("biger", "bigger"), ("dubble", "double"), ("shrinking", "shrink"),
