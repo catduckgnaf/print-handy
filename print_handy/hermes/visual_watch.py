@@ -291,7 +291,26 @@ def _chat_route_configured(api_key):
         return True
 
 
-def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_streak=None):
+def _local_fallback_verdict(image, streak=None):
+    """The local detector as a backup for a failed endpoint call (#913).
+
+    Used only in early-layer mode, and only when the detector model file is
+    already present: this never downloads, and it does not need
+    ``vision.local_detector_enabled`` (that switch keeps its meaning, the
+    detector as the primary route). Returns None when it cannot stand in.
+    """
+    try:
+        if not local_vision.model_path().is_file():
+            return None
+        verdict, detail = local_vision.local_verdict(image, streak=streak)
+    except Exception as exc:
+        logger.warning("local detector fallback failed: %s: %s", type(exc).__name__, exc)
+        return None
+    return verdict, f"local detector fallback: {detail}"[:300]
+
+
+def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_streak=None,
+                   local_fallback=False):
     """Judge one frame. Returns (verdict, detail).
 
     Route order: PRINT_VISION_URL, then the chat endpoint
@@ -305,6 +324,8 @@ def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_st
 
     ``local_streak`` is the calling print watch's per-print temporal
     escalation state for the local route; the endpoint routes ignore it.
+    ``local_fallback`` (early-layer mode, #913) lets a failed configured
+    endpoint fall back to the local detector when its model is present.
     """
     endpoint = os.environ.get("PRINT_VISION_URL")
     try:
@@ -324,6 +345,15 @@ def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_st
         # in. A configured endpoint that fails does NOT fall through.
         if not endpoint and not _chat_route_configured(api_key):
             local = _local_verdict(image, local_streak)
+            if local is not None:
+                return local
+        elif local_fallback:
+            # #913: in early-layer mode a failed or timed-out endpoint call
+            # falls back to the local detector when its model is present.
+            logger.warning("vision check failed via %s: %s: %s; trying the local detector",
+                           "PRINT_VISION_URL" if endpoint else "services.vision_chat_url",
+                           type(exc).__name__, exc)
+            local = _local_fallback_verdict(image, local_streak)
             if local is not None:
                 return local
         # The returned detail stays generic on purpose (#467: raw error text
