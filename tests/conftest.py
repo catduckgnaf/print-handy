@@ -80,7 +80,7 @@ def _offline_stop_capture(tmp_path, monkeypatch):
     def offline(path, range_bytes=None):
         raise OSError(f"network disabled in tests: {path}")
     monkeypatch.setattr(stop_capture, "_default_fetch", offline)
-    monkeypatch.setattr(stop_capture, "stops_dir", lambda: tmp_path / "stops")
+    monkeypatch.setattr(stop_capture, "stops_dir", lambda printer_id=None: tmp_path / "stops")
     monkeypatch.setattr(stop_capture, "_archive_folder", lambda name: None)
 
 
