@@ -3423,13 +3423,26 @@ class Listener:
         verdict that says the feed is dark gets the dark-camera notice, not an
         alert, and its stillness is not a stall.
         """
+        # Bind this check to the print that produced the frame (Codex, #920):
+        # capture its filename and identity before any await, and discard the
+        # result if a different print has taken over by the time it lands —
+        # a stale verdict must never count toward the new print's streak,
+        # alert as the new print, or send its PAUSE.
+        filename = self.filename
+        identity = None
+        def stale():
+            return self.filename != filename or (identity is not None and self._visual_identity() != identity)
         image = None
         try:
+            identity = self._visual_identity()
             image = await asyncio.to_thread(_camera_snapshot_bytes)
+            if stale():
+                log(f"visual check discarded file={filename!r} reason={reason}: the print changed during capture")
+                return
             if await asyncio.to_thread(_visual_watch.frame_dark, image):
                 await self._dark_frame_check(reason, layer)
                 return
-            prior = self.visual_frames.get(self.filename)
+            prior = self.visual_frames.get(filename)
             changed = None if prior is None else await asyncio.to_thread(_frame_changed, prior, image)
             snapshot_before = self.visual_watch.last_snapshot_layer
             stall = (reason in {"layer_progress", "periodic"} and changed is False
@@ -3442,19 +3455,19 @@ class Listener:
             # A layer-progress probe that is not a stall must not move the
             # periodic clock or replace the baseline frame.
             if reason != "layer_progress":
-                self.visual_frames[self.filename] = image
+                self.visual_frames[filename] = image
                 self.visual_watch.record(layer, time.time(), image)
             # A layer-progress probe that is not a stall adopts the new frame
             # as the baseline without moving the periodic clock.
             if reason == "layer_progress":
-                self.visual_frames[self.filename] = image
+                self.visual_frames[filename] = image
                 self.visual_watch.last_snapshot = image
                 if isinstance(layer, int):
                     self.visual_watch.last_snapshot_layer = max(self.visual_watch.last_snapshot_layer, layer)
                     self.visual_watch.progress_seen_layer = layer
                 self.visual_watch.last_snapshot_layer = max(self.visual_watch.last_snapshot_layer, layer or 0)
                 self.visual_watch.progress_seen_layer = layer or 0
-                log(f"visual check file={self.filename!r} reason={reason} layer={layer} changed={changed} verdict=skipped")
+                log(f"visual check file={filename!r} reason={reason} layer={layer} changed={changed} verdict=skipped")
                 return
             prompt = "Is there plastic on the bed under the nozzle, or is there spaghetti/detachment?"
             early = self.visual_watch.in_early_window(layer)
@@ -3464,6 +3477,10 @@ class Listener:
             except TypeError:
                 verdict, detail = await asyncio.to_thread(
                     _visual_verdict, image, prompt, self.local_streak)
+            if stale():
+                log(f"visual check discarded file={filename!r} reason={reason} verdict={verdict}: "
+                    "the print changed while the verdict was in flight")
+                return
             suspicious = verdict in {"air", "spaghetti", "detached", "uncertain", "no", "unsafe"}
             if verdict == "empty_idle" and self.state == "printing":
                 # #913: print_stats says printing, so an empty bed is not a
@@ -3474,7 +3491,7 @@ class Listener:
                     detail = (detail or "") + " (empty bed again while the printer reports printing)"
                 else:
                     self.visual_watch.note_empty_idle(time.time())
-                    log(f"visual check file={self.filename!r} empty_idle while printing; re-check in "
+                    log(f"visual check file={filename!r} empty_idle while printing; re-check in "
                         f"{_visual_watch.EMPTY_IDLE_RECHECK_S}s")
             streak = self.visual_watch.note_verdict(verdict, layer)
             if reason == "stalled_layers" and changed is False:
@@ -3482,7 +3499,7 @@ class Listener:
                 suspicious = verdict not in VISUAL_HEALTHY_VERDICTS
             if verdict == "uncertain":
                 suspicious = True
-            log(f"visual check file={self.filename!r} reason={reason} layer={layer} changed={changed} verdict={verdict} detail={detail!r}")
+            log(f"visual check file={filename!r} reason={reason} layer={layer} changed={changed} verdict={verdict} detail={detail!r}")
             if _verdict_says_dark(verdict, detail):
                 # A dark feed frame_dark's thresholds let through: a camera
                 # fact, not a print alert. Its stillness is no stall, so
@@ -3490,15 +3507,17 @@ class Listener:
                 if stall:
                     self.visual_watch.alerted_stall_layer = None
                 if prior is None:
-                    self.visual_frames.pop(self.filename, None)
+                    self.visual_frames.pop(filename, None)
                 else:
-                    self.visual_frames[self.filename] = prior
+                    self.visual_frames[filename] = prior
                 await self._dark_frame_check(reason, layer)
                 return
             if suspicious and image is not None:
                 from . import print_alert_buttons as pab
-                if await asyncio.to_thread(pab.visual_muted, self.filename, self._visual_identity()):
-                    log(f"visual alert suppressed for muted print {self.filename!r}")
+                if await asyncio.to_thread(pab.visual_muted, filename, identity):
+                    log(f"visual alert suppressed for muted print {filename!r}")
+                elif stale():
+                    log(f"visual alert discarded file={filename!r} reason={reason}: the print changed before the alert")
                 else:
                     pause_now = (streak >= _visual_watch.AUTO_PAUSE_STREAK and not self.visual_watch.auto_paused
                                  and _visual_watch.watch_settings(_config.cfg())["auto_pause_early"])
@@ -3506,47 +3525,47 @@ class Listener:
                     if pause_now:
                         text += (f"\nAuto-pause (visual_watch.auto_pause_early): {streak} suspicious checks in a row "
                                  "in the early layers, so I am pausing the print. It is not cancelled.")
-                    await asyncio.to_thread(_visual_alert, self.filename, image, text,
-                                            identity=self._visual_identity())
+                    await asyncio.to_thread(_visual_alert, filename, image, text,
+                                            identity=identity)
                     if pause_now:
                         # #913: the only automatic printer action, opt-in, once per print.
                         self.visual_watch.auto_paused = True
-                        log(f"auto-pause early layers file={self.filename!r} layer={layer} streak={streak}: sending PAUSE")
-                        reply = await asyncio.to_thread(_auto_pause_early, self.filename, self._visual_identity())
-                        log(f"auto-pause early layers file={self.filename!r}: {reply}")
+                        log(f"auto-pause early layers file={filename!r} layer={layer} streak={streak}: sending PAUSE")
+                        reply = await asyncio.to_thread(_auto_pause_early, filename, identity)
+                        log(f"auto-pause early layers file={filename!r}: {reply}")
                         await asyncio.to_thread(post, _with_printer_name(
-                            f"Auto-pause: {clean(self.filename)}\n{reply}"))
+                            f"Auto-pause: {clean(filename)}\n{reply}"))
         except Exception as exc:
-            log(f"visual check failed file={self.filename!r} reason={reason}: {exc!r}")
+            log(f"visual check failed file={filename!r} reason={reason}: {exc!r}")
             if image is not None:
                 try:
                     from . import print_alert_buttons as pab
-                    if await asyncio.to_thread(pab.visual_muted, self.filename, self._visual_identity()):
-                        log(f"visual alert suppressed for muted print {self.filename!r}")
+                    if await asyncio.to_thread(pab.visual_muted, filename, identity):
+                        log(f"visual alert suppressed for muted print {filename!r}")
                     else:
                         await asyncio.to_thread(
-                            _visual_alert, self.filename, image,
+                            _visual_alert, filename, image,
                             f"{reason} at layer {layer or 'unknown'}: the vision check could not be completed, "
                             "so treat this as unreviewed and check the print on the printer screen",
-                            identity=self._visual_identity())
+                            identity=identity)
                 except Exception as alert_exc:
-                    log(f"visual alert failed file={self.filename!r}: {alert_exc!r}")
+                    log(f"visual alert failed file={filename!r}: {alert_exc!r}")
             else:
                 # The snapshot itself failed, so there is no image to
                 # attach — but the operator still gets an alert: a dead
                 # camera must not silently leave the print unmonitored.
                 try:
                     from . import print_alert_buttons as pab
-                    if await asyncio.to_thread(pab.visual_muted, self.filename, self._visual_identity()):
-                        log(f"visual alert suppressed for muted print {self.filename!r}")
+                    if await asyncio.to_thread(pab.visual_muted, filename, identity):
+                        log(f"visual alert suppressed for muted print {filename!r}")
                     else:
                         await asyncio.to_thread(
-                            _visual_alert_text, self.filename,
+                            _visual_alert_text, filename,
                             f"{reason} at layer {layer or 'unknown'}: the camera snapshot could not be captured, "
                             "so this print is unmonitored until the camera answers again; check the camera",
-                            identity=self._visual_identity())
+                            identity=identity)
                 except Exception as alert_exc:
-                    log(f"visual alert failed file={self.filename!r}: {alert_exc!r}")
+                    log(f"visual alert failed file={filename!r}: {alert_exc!r}")
 
     async def on_status(self, print_stats, reason):
         self.last_stats.update(print_stats)
@@ -4050,9 +4069,15 @@ class Listener:
             self.visual_watch.early_layers = cfg["early_layers"]
             self.visual_watch.early_interval_s = cfg["early_interval_s"]
             context = print_records.load_context(self.filename) if self.filename else {}
+            # On the generic launch path record_start writes this context
+            # only after the start is confirmed, so it can land after the
+            # first printing event: remember whether a context existed, so
+            # the timer tick can retry the lookup until one does (Codex, #920).
+            self._watch_context_seen = bool(context)
             why = _visual_watch.risky_job(context)
         except Exception as exc:
             log(f"camera watch mode lookup failed file={self.filename!r}: {exc!r}")
+            self._watch_context_seen = False
             why = ""
         mode = _visual_watch.WATCH_MODE_EARLY if why else _visual_watch.WATCH_MODE_NORMAL
         self.visual_watch.set_mode(mode)
@@ -4073,6 +4098,12 @@ class Listener:
         task = self.last_visual_task
         if task is not None and not task.done():
             return None
+        if (self.visual_watch.mode != _visual_watch.WATCH_MODE_EARLY
+                and not getattr(self, "_watch_context_seen", False)):
+            # The start context had not landed when the mode was first
+            # picked; retry until it exists, so a risky print upgrades to
+            # the early-layer schedule instead of staying on normal cadence.
+            self._apply_watch_mode()
         layer = _visual_layer(self.last_stats)
         reason = self.visual_watch.tick(layer, time.time() if now is None else now)
         if reason and _vision_ready():

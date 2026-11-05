@@ -1033,3 +1033,103 @@ def test_transport_and_settings_parity_for_early_layer_and_auto_pause():
     with pytest.raises(settings.SettingsError):
         settings.validate(bad_pause)
 
+
+
+# -- Codex findings on #920: provenance shapes, late context, stale verdicts --
+
+
+def test_risky_job_reads_support_warnings_from_job_provenance():
+    """Support risk lives under provenance, not top-level fields (Codex on #920).
+
+    core/slice_warnings stores warnings as job['provenance']['slice_warnings']
+    with a support_needed flag (and the same on derived plates), and an
+    operator can settle supports through job['orientation']['supports'].
+    risky_job must recognize those real shapes.
+    """
+    from print_handy.hermes import visual_watch as vw
+
+    warned = {"provenance": {"slice_warnings": {"support_needed": True,
+                                                 "support_texts": ["floating regions"]}}}
+    assert vw.risky_job(warned) == "support warning"
+    plated = {"derived_plates": [{"provenance": {"slice_warnings": {"support_needed": True}}}]}
+    assert vw.risky_job(plated) == "support warning"
+    decided = {"orientation": {"rotation": [90, 0, 0], "supports": False}}
+    assert vw.risky_job(decided) == "supports decision"
+    # No warning recorded anywhere: still a normal print.
+    quiet = {"provenance": {"slice_warnings": {"support_needed": False}}}
+    assert vw.risky_job(quiet) == ""
+
+
+def test_watch_mode_upgrades_when_start_context_arrives_late(monkeypatch):
+    """A start context written after the first printing event still upgrades the mode (Codex on #920).
+
+    On the generic Moonraker launch path record_start writes the sidecar only
+    after the start is confirmed, so the listener's first _apply_watch_mode can
+    see no context and pick normal. The timer tick must retry the lookup until
+    a context exists, instead of leaving the risky print unmonitored.
+    """
+    from print_handy.hermes import visual_watch as vw
+
+    contexts = {"late.gcode": {}}
+    monkeypatch.setattr(mel.print_records, "load_context",
+                        lambda filename: contexts.get(filename, {}))
+    monkeypatch.setattr(mel._config, "cfg", lambda: {
+        "visual_watch": {"enabled": True, "sensitivity": 3,
+                         "auto_pause_early": True, "early_layers": 10, "early_interval_s": 120}})
+    monkeypatch.setattr(mel, "log", lambda line: None)
+
+    listener = mel.Listener()
+    listener.filename = "late.gcode"
+    listener.state = "printing"
+    listener.last_stats = {"info": {"current_layer": 3}}
+    assert listener._apply_watch_mode() == vw.WATCH_MODE_NORMAL
+
+    # record_start lands after the start was already observed.
+    contexts["late.gcode"] = {"watch_mode": "early_layer", "watch_risk": "slicer finding"}
+    listener._visual_timer_tick(now=50)
+    assert listener.visual_watch.mode == vw.WATCH_MODE_EARLY
+
+
+def test_stale_verdict_from_previous_print_never_alerts_or_pauses(monkeypatch):
+    """A verdict captured for one print must not act on the next print (Codex P1 on #920).
+
+    While visual_check awaits the vision call, a new print can start: the old
+    verdict must be discarded, not counted toward the new print's streak and
+    never sent as its PAUSE.
+    """
+    import asyncio
+    from print_handy.hermes import visual_watch as vw
+
+    alerts = []
+    pauses = []
+    monkeypatch.setattr(mel, "_camera_snapshot_bytes", lambda: _jpeg())
+    monkeypatch.setattr(mel, "_frame_changed", lambda before, after: False)
+    monkeypatch.setattr(mel, "_visual_alert", lambda filename, image, text, identity=None: alerts.append((filename, text)))
+    monkeypatch.setattr(mel, "_auto_pause_early", lambda filename, identity: pauses.append((filename, identity)) or "Paused")
+    monkeypatch.setattr(mel, "post", lambda msg: True)
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(pab, "visual_muted", lambda filename, identity: False)
+    monkeypatch.setattr(mel._config, "cfg", lambda: {
+        "visual_watch": {"enabled": True, "sensitivity": 3, "auto_pause_early": True,
+                         "early_layers": 10, "early_interval_s": 120}})
+
+    listener = mel.Listener()
+    listener.filename = "old.gcode"
+    listener.state = "printing"
+    listener.visual_watch.set_mode(vw.WATCH_MODE_EARLY)
+
+    def verdict_after_print_changed(*args, **kwargs):
+        # The new print starts while the vision call is in flight: on_status
+        # swaps the filename and resets the watch for the new print.
+        listener.filename = "new.gcode"
+        listener.visual_watch.reset()
+        listener.visual_watch.set_mode(vw.WATCH_MODE_EARLY)
+        return ("spaghetti", "spaghetti found")
+
+    monkeypatch.setattr(mel, "_visual_verdict", verdict_after_print_changed)
+    asyncio.run(listener.visual_check("early_layer", 2))
+
+    assert alerts == []
+    assert pauses == []
+    assert listener.visual_watch.suspicious_streak == 0
+    assert listener.visual_watch.auto_paused is False

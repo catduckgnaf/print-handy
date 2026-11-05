@@ -73,7 +73,9 @@ def risky_job(job):
 
     Reads only recorded facts: #911 findings (``slice_findings`` /
     ``underside_findings``), a recorded "print anyway" override, a support
-    warning shown for the slice, an operator supports decision (#904), and
+    warning shown for the slice (top level or under a provenance's
+    ``slice_warnings`` with ``support_needed``), an operator supports
+    decision (#904, including one settled through ``orientation``), and
     the configurable ``risky`` marker on the job.
     """
     if not isinstance(job, dict):
@@ -90,8 +92,24 @@ def risky_job(job):
     if isinstance(decision, dict) and isinstance(decision.get("supports"), bool):
         return "supports decision"
     warnings = job.get("slice_warnings")
-    if isinstance(warnings, dict) and warnings.get("support"):
+    if isinstance(warnings, dict) and (warnings.get("support") or warnings.get("support_needed")):
         return "support warning"
+    # The shapes core/slice_warnings actually records: warnings live under
+    # each artifact's provenance (the job's, and any derived plate's) with a
+    # support_needed flag, and an operator can settle supports through the
+    # orientation choice that carried the rotation (#904).
+    orientation = job.get("orientation")
+    if (isinstance(orientation, dict) and orientation.get("rotation")
+            and isinstance(orientation.get("supports"), bool)):
+        return "supports decision"
+    provenances = [job.get("provenance")]
+    provenances += [plate.get("provenance") for plate in job.get("derived_plates") or []
+                    if isinstance(plate, dict)]
+    for prov in provenances:
+        if isinstance(prov, dict):
+            found = prov.get("slice_warnings")
+            if isinstance(found, dict) and found.get("support_needed"):
+                return "support warning"
     return ""
 
 
