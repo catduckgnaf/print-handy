@@ -194,6 +194,11 @@ api_key_env = "AGENT_API_KEY"
 timeout_s = 120
 
 [ai]
+# Who may use the AI edit lane (#902): chat user IDs. Empty keeps it open to
+# everyone the gateway already authorizes. edit_requests_per_hour is per user;
+# 0 turns the limit off.
+allowed_users = []
+edit_requests_per_hour = 20
 # Optional AI tiers (#818). Nothing ships filled in: leave a tier empty and it
 # keeps the settings it already used (small: services.vision_chat_url and the
 # [vision] models; chat: [llm]; heavy: [design], which inherits [llm]).

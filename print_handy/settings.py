@@ -1480,6 +1480,17 @@ def _validate_ai(data):
     for the key settings and a positive timeout.
     """
     ai = data.setdefault("ai", {})
+    # Who may use the AI edit lane (#902), and how often. Empty allowed_users keeps the
+    # lane open to every user the gateway already authorizes; 0 requests per hour disables
+    # the limit.
+    allowed = ai.setdefault("allowed_users", [])
+    if not isinstance(allowed, list) or any(isinstance(v, bool) or not isinstance(v, (str, int))
+                                            for v in allowed):
+        raise SettingsError(f"[ai] allowed_users must be a list of user IDs, got {allowed!r}")
+    ai["allowed_users"] = [str(v).strip() for v in allowed if str(v).strip()]
+    per_hour = ai.setdefault("edit_requests_per_hour", 20)
+    if isinstance(per_hour, bool) or not isinstance(per_hour, int) or per_hour < 0:
+        raise SettingsError(f"[ai] edit_requests_per_hour must be a whole number 0 or more, got {per_hour!r}")
     for tier in ("small", "chat", "heavy"):
         values = ai.setdefault(tier, {})
         if not isinstance(values, dict):

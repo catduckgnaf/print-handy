@@ -6573,12 +6573,49 @@ async def _edit_undo(event, gateway, source, adapter, job_path, job):
     return result if isinstance(result, dict) else {'action': 'skip', 'reason': 'edit undone'}
 
 
+_EDIT_AI_CALLS = {}
+_MENTION_RE = re.compile(r'<(?:@[!&]?|#)\d+>|@(?:everyone|here)\b')
+
+
+def _sanitize_mentions(text):
+    """Strip Discord user, role and channel mentions and @everyone/@here (#902)."""
+    return re.sub(r'\s{2,}', ' ', _MENTION_RE.sub('', str(text or ''))).strip()
+
+
+def _edit_ai_allowed(source, now=None):
+    """(allowed, reason) for the AI edit lane: the [ai] allowed_users list and the
+    per-user edit_requests_per_hour limit (#902). A refused request falls back to
+    the vocabulary; nothing is sent to the endpoint."""
+    try:
+        from print_handy import settings
+        ai = settings.current().get('ai') or {}
+    except Exception:
+        ai = {}
+    user = str(getattr(source, 'user_id', '') or '')
+    allowed = [str(v) for v in ai.get('allowed_users') or []]
+    if allowed and user not in allowed:
+        return False, 'not on the AI allowlist'
+    limit = int(ai.get('edit_requests_per_hour', 20) or 0)
+    if limit:
+        now = time.time() if now is None else now
+        recent = [t for t in _EDIT_AI_CALLS.get(user, []) if now - t < 3600]
+        if len(recent) >= limit:
+            _EDIT_AI_CALLS[user] = recent
+            return False, 'AI edit rate limit reached'
+        _EDIT_AI_CALLS[user] = recent + [now]
+    return True, ''
+
+
 async def _edit_ai_reply(cfg, source, prompt):
     """One AI-lane answer for an edit request through the configured
     design/LLM HTTP endpoint. Returns the reply text, or None when no
-    endpoint resolves."""
+    endpoint resolves or the user may not use the AI lane."""
     from print_handy.core import design
     if design.resolve_http_config(cfg) is None:
+        return None
+    allowed, reason = _edit_ai_allowed(source)
+    if not allowed:
+        logger.info('edit AI lane refused for %s: %s', getattr(source, 'user_id', '?'), reason)
         return None
     return await asyncio.to_thread(
         design.http_complete, cfg, [{'role': 'user', 'content': prompt}])
@@ -6719,7 +6756,7 @@ async def edit_dispatch(event, gateway, **kwargs):
         # The vocabulary could not resolve it: the AI lane may propose a
         # plan from the same vocabulary, or route a geometry change.
         cfg = _config.cfg()
-        prompt = edit_plan.ai_prompt(text, job)
+        prompt = edit_plan.ai_prompt(_sanitize_mentions(text), job)
         try:
             reply = await _edit_ai_reply(cfg, source, prompt)
         except Exception as exc:

@@ -371,3 +371,46 @@ def test_question_without_a_job_is_left_to_chat(edit_env):
     for path in edit_env.root.glob("*.json"):
         path.unlink()
     assert run(plugin.edit_dispatch(_event("does this need supports?"), edit_env.gateway)) is None
+
+
+def _ai_settings(monkeypatch, **ai):
+    from print_handy import settings
+    monkeypatch.setattr(settings, "current", lambda: {"ai": ai})
+    monkeypatch.setattr(plugin, "_EDIT_AI_CALLS", {})
+
+
+def test_ai_allowlist_refuses_users_not_listed(monkeypatch):
+    _ai_settings(monkeypatch, allowed_users=["7"], edit_requests_per_hour=0)
+    assert plugin._edit_ai_allowed(S(user_id="7"))[0] is True
+    assert plugin._edit_ai_allowed(S(user_id="42")) == (False, "not on the AI allowlist")
+
+
+def test_empty_allowlist_keeps_the_lane_open(monkeypatch):
+    _ai_settings(monkeypatch, allowed_users=[], edit_requests_per_hour=0)
+    assert plugin._edit_ai_allowed(S(user_id="42"))[0] is True
+
+
+def test_ai_rate_limit_is_per_user_per_hour(monkeypatch):
+    _ai_settings(monkeypatch, allowed_users=[], edit_requests_per_hour=2)
+    assert plugin._edit_ai_allowed(S(user_id="1"), now=0)[0]
+    assert plugin._edit_ai_allowed(S(user_id="1"), now=10)[0]
+    assert plugin._edit_ai_allowed(S(user_id="1"), now=20) == (False, "AI edit rate limit reached")
+    assert plugin._edit_ai_allowed(S(user_id="2"), now=20)[0]
+    assert plugin._edit_ai_allowed(S(user_id="1"), now=3601)[0]
+
+
+def test_refused_user_never_reaches_the_endpoint(edit_env, monkeypatch):
+    from print_handy.core import design
+    _ai_settings(monkeypatch, allowed_users=["7"], edit_requests_per_hour=0)
+    monkeypatch.setattr(design, "resolve_http_config",
+                        lambda cfg: {"chat_url": "http://ai.invalid/v1/chat", "model": "m"})
+    monkeypatch.setattr(design, "http_complete",
+                        lambda cfg, messages: pytest.fail("endpoint called for a refused user"))
+    result = run(plugin.edit_dispatch(_event("strengthen the infill pattern", user_id="42"),
+                                      edit_env.gateway))
+    assert result["reason"] == "edit vocabulary shown"
+
+
+def test_mentions_are_stripped_before_the_ai_prompt():
+    assert plugin._sanitize_mentions("<@123> make it <@&9> stronger @everyone <#55>") \
+        == "make it stronger"
