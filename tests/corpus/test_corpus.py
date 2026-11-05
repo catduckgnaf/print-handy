@@ -171,6 +171,7 @@ def test_discord_flow(case, tmp_path):
         first_slice = next(i for i, event in enumerate(run.events) if event[0] == "slice_start")
         option_prompts = [i for i, event in enumerate(run.events)
                           if event[0] == "prompt" and not _is_slice_confirmation(event[1])
+                          and not harness.is_post_slice_question(event[1])
                           and any(term in event[1].casefold() for term in
                                   ("fit", "orient", "support", "quality", "layer", "material", "filament", "color", "how many copies"))]
         assert all(index < first_slice for index in option_prompts), run.events
@@ -421,6 +422,7 @@ def test_discord_flow_standalone(case, tmp_path):
     first_slice = next(i for i, event in enumerate(run.events) if event[0] == "slice_start")
     option_prompts = [i for i, event in enumerate(run.events)
                       if event[0] == "prompt" and not _is_slice_confirmation(event[1])
+                          and not harness.is_post_slice_question(event[1])
                       and any(term in event[1].casefold() for term in
                               ("fit", "orient", "support", "quality", "layer", "material", "filament", "color", "how many copies"))]
     assert option_prompts and all(i < first_slice for i in option_prompts), run.events

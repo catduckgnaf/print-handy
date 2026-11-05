@@ -36,3 +36,8 @@ format = "stl"
 name = "Part"
 shape = "t"
 size = [60, 12, 40, 6, 30]
+
+[mock_slicer]
+# What real Orca reports for this model with supports off (CI stable tier, PR #904); the mock
+# slicer writes it to result.json so both tiers ask the same support question.
+warnings = ["It seems object stl-needs-supports.stl has a floating cantilever. Please re-orient the object or enable support generation."]

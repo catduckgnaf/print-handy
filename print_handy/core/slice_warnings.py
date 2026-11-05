@@ -163,9 +163,12 @@ def support_finding(job):
     return {'objects': objects, 'texts': texts}
 
 
+QUESTION_PREFIX = 'The slicer says this will not print cleanly without supports'
+
+
 def question(finding):
     names = ', '.join(finding['objects']) or 'part of the model'
-    return ('The slicer says this will not print cleanly without supports: '
+    return (QUESTION_PREFIX + ': '
             f'{names} has floating regions or a cantilever. Supports are off in the file.\n'
             f'> {finding["texts"][0]}\nWhat should I do?')
 
