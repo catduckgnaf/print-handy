@@ -14,6 +14,15 @@ class ImageInventoryWorkflowTest(unittest.TestCase):
         for ref in uses:
             self.assertRegex(ref, r"@[0-9a-f]{40}$", ref)
 
+    def test_trivy_scans_the_sbom_file_not_the_workspace(self):
+        # aquasecurity/trivy-action builds `trivy <scan-type> <scan-ref>` and
+        # `scan-ref` defaults to `.`. `input` only sets TRIVY_INPUT, which the
+        # sbom subcommand does not read, so a scheduled run would scan the
+        # workspace and fail before any report exists.
+        block = WORKFLOW.split("scan-type: sbom", 1)[1].split("format:", 1)[0]
+        self.assertIn("scan-ref: sbom.spdx.json", block)
+        self.assertNotIn("input:", block)
+
     def test_report_only_and_read_only(self):
         self.assertIn('exit-code: "0"', WORKFLOW)
         self.assertIn("contents: read", WORKFLOW)
