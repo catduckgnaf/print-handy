@@ -29,10 +29,11 @@ candidate=${2:?usage: lifecycle_gate.sh PREVIOUS_IMAGE CANDIDATE_IMAGE [OUT_DIR]
 repo=$(cd "$(dirname "$0")/../.." && pwd)
 out=${3:-$(mktemp -d)}
 mkdir -p "$out"
+out=$(cd "$out" && pwd)  # absolute: phases and cleanup run from $work
 run_id="$(date +%s)-$$"
 work=$(mktemp -d)
 failures=0
-projects=()
+projects=()  # one "NAME<TAB>IMAGE<TAB>TREE" entry per started phase, for cleanup
 files=(-f docker-compose.yml -f compose.acceptance.yml)
 
 log() { echo "== $*"; }
@@ -41,11 +42,13 @@ record() {  # record NAME ok|FAIL|info DETAIL; info never fails the gate
     case "$2" in ok|info) ;; *) failures=$((failures + 1)) ;; esac
 }
 cleanup() {
-    local p
-    for p in "${projects[@]}"; do
-        (cd "$work" && docker compose -p "$p" "${files[@]}" logs --no-color > "$out/logs-$p.txt" 2>&1) || true
-        (cd "$work" && docker compose -p "$p" "${files[@]}" down --remove-orphans > /dev/null 2>&1) ||
-            echo "warning: compose down failed for $p" >&2
+    local entry name image tree
+    # Through phase(), so Compose gets the same required variables it was started with.
+    for entry in "${projects[@]}"; do
+        IFS=$'\t' read -r name image tree <<< "$entry"
+        phase "$name" "$image" "$tree" logs --no-color > "$out/logs-ph-life-$name-$run_id.txt" 2>&1 || true
+        phase "$name" "$image" "$tree" down --remove-orphans > /dev/null 2>&1 ||
+            echo "warning: compose down failed for ph-life-$name-$run_id" >&2
     done
     if ! rm -rf "$work" 2> /dev/null; then
         sudo rm -rf "$work" || echo "warning: could not remove $work" >&2
@@ -74,7 +77,7 @@ as_handy() { local image=$1 tree=$2; shift 2
     docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges:true \
         --user 1000:1000 --entrypoint python3 -v "$tree:/tree" -v "$work/backup:/backup" "$image" "$@"; }
 start() {  # start NAME IMAGE TREE: up and healthy, or a recorded failure
-    projects+=("ph-life-$1-$run_id")
+    projects+=("$1"$'\t'"$2"$'\t'"$3")
     if phase "$1" "$2" "$3" up -d --wait --wait-timeout 240 fake-moonraker combined > "$out/up-$1.txt" 2>&1; then
         record "$1:healthy" ok "$(docker image inspect --format '{{.Id}}' "$2" | cut -c1-19)"
         return 0
@@ -186,7 +189,7 @@ start upgrade "$candidate" "$tree" && verify upgrade "$candidate" "$tree"
 stop upgrade "$candidate" "$tree"
 # Informational: the previous image on a tree the candidate has migrated. Rollback never relies
 # on this (it restores the backup below); the line shows whether an in-place downgrade happens to work.
-projects+=("ph-life-inplace-$run_id")
+projects+=("inplace"$'\t'"$previous"$'\t'"$tree")
 if phase inplace "$previous" "$tree" up -d --wait --wait-timeout 240 fake-moonraker combined > "$out/up-inplace.txt" 2>&1; then
     record downgrade:in-place info "previous image healthy on the candidate-migrated tree"
 else

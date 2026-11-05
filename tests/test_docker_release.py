@@ -857,5 +857,54 @@ class AcceptanceFixtureTests(unittest.TestCase):
             with self.subTest(literal=literal):
                 self.assertIn(literal, script)
 
+
+class LifecycleGateCleanupTests(unittest.TestCase):
+    """The gate's EXIT cleanup must collect logs into OUT_DIR and remove every Compose project.
+
+    Runs the real script against a stub docker that behaves like Compose on the one point that
+    matters: without PRINT_HANDY_IMAGE in the environment, every compose call fails. Every phase
+    reports unhealthy, so the script exits early and only cleanup is exercised.
+    """
+
+    STUB = """#!/bin/sh
+echo "$PWD|${PRINT_HANDY_IMAGE:-}|${PRINT_HANDY_DATA:-}|$*" >> "$STUB_LOG"
+case "$1 $2" in
+  "image inspect") echo sha256:0000000000000000000000; exit 0 ;;
+  "compose "*) [ -n "${PRINT_HANDY_IMAGE:-}" ] || { echo "required variable PRINT_HANDY_IMAGE is missing" >&2; exit 1; }
+     case " $* " in *" up "*) exit 1 ;; *" logs "*) echo stub-logs ;; esac ;;
+esac
+exit 0
+"""
+
+    def test_cleanup_logs_into_relative_out_dir_and_downs_every_project(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            bin_dir = tmp / "bin"
+            bin_dir.mkdir()
+            for name, body in (("docker", self.STUB), ("sudo", "#!/bin/sh\nexit 0\n")):
+                (bin_dir / name).write_text(body)
+                (bin_dir / name).chmod(0o755)
+            log = tmp / "docker.log"
+            env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STUB_LOG=str(log), TMPDIR=str(tmp))
+            env.pop("PRINT_HANDY_IMAGE", None)
+            result = subprocess.run(["bash", str(ROOT / "tests" / "docker" / "lifecycle_gate.sh"),
+                                     "prev:tag", "cand:tag", "evidence/lifecycle"],
+                                    cwd=tmp, env=env, capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertNotIn("compose down failed", result.stderr)
+            calls = log.read_text().splitlines()
+            downs = [c for c in calls if " down " in c]
+            self.assertEqual(len(downs), 2, calls)  # fresh and prev were started
+            for call in downs + [c for c in calls if " logs " in c]:
+                _cwd, image, data, _args = call.split("|", 3)
+                self.assertIn(image, ("prev:tag", "cand:tag"), call)
+                self.assertTrue(data, call)
+            out = tmp / "evidence" / "lifecycle"
+            logs = sorted(out.glob("logs-ph-life-*.txt"))
+            self.assertEqual([f.name.split("-")[3] for f in logs], ["fresh", "prev"], logs)
+            for f in logs:
+                self.assertEqual(f.read_text().strip(), "stub-logs")
+
+
 if __name__ == "__main__":
     unittest.main()
