@@ -1039,8 +1039,21 @@ class _Handler(BaseHTTPRequestHandler):
             return
         provided = (form.get(pages.LOGIN_TOKEN_FIELD) or [""])[0]
         username = (form.get(pages.LOGIN_USER_FIELD) or [""])[0]
+        # Failed-login backoff: a locked-out address is refused before any
+        # hashing, so a flood costs the server nothing and guessing stalls.
+        address = self.client_address[0]
+        throttle = self.server.login_throttle
+        wait = throttle.retry_after(address)
+        if wait:
+            self._send(429, pages.render_login_page(
+                error=f"Too many failed attempts. Try again in {wait} seconds.",
+                password=self._password_mode(), username=self._username_mode(),
+                theme=self._theme()),
+                "text/html; charset=utf-8", headers=[("Retry-After", str(wait))])
+            return
         # The submitted credentials are compared, never logged or reflected.
         if not self.server.access.matches_login(username, provided):
+            throttle.record_failure(address)
             what = ("username or password" if self._username_mode()
                     else "password" if self._password_mode() else "token")
             self._send(401, pages.render_login_page(
@@ -1049,6 +1062,7 @@ class _Handler(BaseHTTPRequestHandler):
                 theme=self._theme()),
                 "text/html; charset=utf-8")
             return
+        throttle.record_success(address)
         self._redirect("/", headers=[self._start_session()])
 
     # -- first-run setup (#708) ---------------------------------------------
@@ -1348,6 +1362,7 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     # Browser login sessions: {session id: expiry epoch}. Memory only —
     # a restart signs everyone out; nothing about a session is persisted.
     server.sessions = {}
+    server.login_throttle = access_module.LoginThrottle()
     server.snapshot_func = snapshot_func or (
         lambda: status_module.snapshot(data, environ=environ))
     server.printer_status_func = printer_status_func or (

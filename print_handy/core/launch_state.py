@@ -26,6 +26,7 @@ import os
 import shutil
 import socket
 import sqlite3
+import threading
 import time
 import uuid
 from contextlib import contextmanager
@@ -46,6 +47,40 @@ SCHEMA = (
 )
 
 
+_ADOPT_THREAD_LOCK = threading.Lock()
+
+
+@contextmanager
+def _adoption_lock(target, timeout=30.0):
+    lock_path = target.parent / ".adopt.lock"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + timeout
+    remaining = max(0.0, deadline - time.monotonic())
+    if not _ADOPT_THREAD_LOCK.acquire(timeout=remaining):
+        raise TimeoutError(f"legacy adoption thread lock {lock_path} timed out")
+    try:
+        import fcntl
+        fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(f"legacy adoption lock {lock_path} timed out")
+                    time.sleep(0.02)
+            yield
+        finally:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
+            os.close(fd)
+    finally:
+        _ADOPT_THREAD_LOCK.release()
+
+
 def _adopt_legacy_db(target, printer_id):
     """Copy the legacy single launch database into the default printer's folder, once.
 
@@ -59,19 +94,27 @@ def _adopt_legacy_db(target, printer_id):
     legacy = settings.state_dir() / "print_handy_launches.sqlite3"
     if target.exists() or not legacy.is_file():
         return
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_name(target.name + ".adopting")
-    shutil.copy2(legacy, tmp)
-    for suffix in ("-wal", "-shm"):
-        sidecar = Path(str(legacy) + suffix)
-        if sidecar.is_file():
-            shutil.copy2(sidecar, Path(str(tmp) + suffix))
-    os.replace(tmp, target)
-    for suffix in ("-wal", "-shm"):
-        sidecar = Path(str(tmp) + suffix)
-        if sidecar.is_file():
-            os.replace(sidecar, Path(str(target) + suffix))
-    _rekey_adopted_db(target, printer_id)
+    with _adoption_lock(target):
+        if target.exists() or not legacy.is_file():
+            return
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_name(target.name + ".adopting")
+        for stale in (tmp, Path(str(tmp) + "-wal"), Path(str(tmp) + "-shm")):
+            if stale.exists():
+                stale.unlink()  # an interrupted earlier adoption; start clean
+        # SQLite's online backup API yields one consistent snapshot even while a
+        # writer holds the WAL; copying the db and -wal files separately did not.
+        src = sqlite3.connect(legacy.resolve().as_uri() + "?mode=ro", uri=True)
+        try:
+            dst = sqlite3.connect(tmp)
+            try:
+                src.backup(dst)
+            finally:
+                dst.close()
+        finally:
+            src.close()
+        _rekey_adopted_db(tmp, printer_id)
+        os.replace(tmp, target)
 
 
 def _rekey_adopted_db(target, printer_id):

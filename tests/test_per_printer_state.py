@@ -122,6 +122,9 @@ def state_root(tmp_path, monkeypatch):
     """Launch databases under a temp state root, with no env override."""
     monkeypatch.delenv("PRINT_HANDY_LAUNCH_DB", raising=False)
     monkeypatch.setattr(settings, "state_dir", lambda data=None: tmp_path)
+    # STATE is computed at import; without this, hardware saves in these tests
+    # land in the real profile's state directory.
+    monkeypatch.setattr(printer_state, "STATE", str(tmp_path / "printer_hardware.json"))
     return tmp_path
 
 
@@ -395,3 +398,156 @@ def test_moonrakerctl_env_keeps_the_environment_without_a_printer_url(monkeypatc
     monkeypatch.setenv("MOONRAKER_URL", "http://global-default:7125")
     assert model_job._moonrakerctl_env({})["MOONRAKER_URL"] == "http://global-default:7125"
     assert model_job._moonrakerctl_env({"moonraker_url": "http://b"})["MOONRAKER_URL"] == "http://b"
+
+
+# ------------------------------------------- crash/concurrency integrity (audit P0)
+
+def test_legacy_adoption_is_consistent_while_a_writer_holds_the_wal(state_root, monkeypatch):
+    """Rows committed to the WAL (not yet checkpointed) must survive adoption."""
+    import sqlite3
+    legacy = state_root / "print_handy_launches.sqlite3"
+    monkeypatch.setenv("PRINT_HANDY_LAUNCH_DB", str(legacy))
+    launch_state.acquire(DEFAULT_ID, remote="wal-held.gcode")
+    monkeypatch.delenv("PRINT_HANDY_LAUNCH_DB")
+    holder = sqlite3.connect(legacy)  # keeps the WAL un-checkpointed on disk
+    try:
+        holder.execute("PRAGMA wal_autocheckpoint=0")
+        holder.execute("SELECT count(*) FROM leases").fetchall()
+        path = launch_state.db_path(DEFAULT_ID)
+    finally:
+        holder.close()
+    assert not list(path.parent.glob("jobs.db.adopting*"))
+    [row] = launch_state.pending(DEFAULT_ID)
+    assert row["remote"] == "wal-held.gcode"
+
+
+def test_interrupted_adoption_leftovers_do_not_poison_the_retry(state_root, monkeypatch):
+    legacy = state_root / "print_handy_launches.sqlite3"
+    monkeypatch.setenv("PRINT_HANDY_LAUNCH_DB", str(legacy))
+    launch_state.acquire(DEFAULT_ID, remote="held.gcode")
+    monkeypatch.delenv("PRINT_HANDY_LAUNCH_DB")
+    target = state_root / "printers" / DEFAULT_ID / "jobs.db"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    (target.parent / "jobs.db.adopting").write_bytes(b"garbage from a killed run")
+    (target.parent / "jobs.db.adopting-wal").write_bytes(b"junk")
+    assert launch_state.db_path(DEFAULT_ID) == target
+    [row] = launch_state.pending(DEFAULT_ID)
+    assert row["remote"] == "held.gcode"
+
+
+def test_hardware_save_uses_unique_temp_files_and_leaves_none_behind(state_root):
+    import threading
+    names = []
+    real_replace = printer_state.os.replace
+
+    def spy(src, dst):
+        names.append(str(src))
+        return real_replace(src, dst)
+
+    with mock.patch.object(printer_state.os, "replace", spy):
+        threads = [threading.Thread(target=printer_state.save, args=({"n": i}, DEFAULT_ID))
+                   for i in range(8)]
+        [t.start() for t in threads]
+        [t.join() for t in threads]
+    assert len(set(names)) == len(names) == 8  # no shared "<file>.tmp"
+    folder = printer_state.state_path(DEFAULT_ID).parent
+    assert not list(folder.glob("*.tmp"))
+    assert json.loads(printer_state.state_path(DEFAULT_ID).read_text())["n"] in range(8)
+
+
+def test_failed_hardware_save_keeps_the_old_record_and_removes_its_temp(state_root):
+    printer_state.save({"n": "old"}, DEFAULT_ID)
+    with mock.patch.object(printer_state.json, "dump", side_effect=OSError("disk full")):
+        with pytest.raises(OSError):
+            printer_state.save({"n": "new"}, DEFAULT_ID)
+    folder = printer_state.state_path(DEFAULT_ID).parent
+    assert json.loads(printer_state.state_path(DEFAULT_ID).read_text()) == {"n": "old"}
+    assert not list(folder.glob("*.tmp"))
+
+
+# --- hardware record read-modify-write lock (single-source plan) -------------
+
+def _lock_worker(root, n):
+    import json, sys
+    from pathlib import Path
+    from print_handy.core import printer_state as ps
+    ps.STATE = Path(root) / "printer_hardware.json"
+    for _ in range(n):
+        ps.update(lambda st: st.__setitem__("count", st.get("count", 0) + 1), "p1")
+
+
+def test_concurrent_processes_do_not_lose_updates(tmp_path, monkeypatch):
+    import multiprocessing as mp, json
+    from print_handy.core import printer_state as ps
+    monkeypatch.setattr(ps, "STATE", tmp_path / "printer_hardware.json")
+    ps.save({"count": 0}, "p1")
+    ctx = mp.get_context("fork")
+    procs = [ctx.Process(target=_lock_worker, args=(str(tmp_path), 25)) for _ in range(4)]
+    [p.start() for p in procs]
+    [p.join(60) for p in procs]
+    assert all(p.exitcode == 0 for p in procs)
+    assert ps.load("p1")["count"] == 100
+
+
+def test_hardware_lock_is_reentrant_and_times_out(tmp_path, monkeypatch):
+    import fcntl, os, pytest
+    from print_handy.core import printer_state as ps
+    monkeypatch.setattr(ps, "STATE", tmp_path / "printer_hardware.json")
+    with ps.hardware_lock("p1"):
+        with ps.hardware_lock("p1"):
+            pass
+    target = ps.state_path("p1")
+    fd = os.open(str(target) + ".lock", os.O_RDWR | os.O_CREAT)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    try:
+        with pytest.raises(TimeoutError):
+            with ps.hardware_lock("p1", timeout=0.2):
+                pass
+    finally:
+        os.close(fd)
+
+
+def _adopt_worker(root):
+    import os
+    from pathlib import Path
+    from print_handy import settings
+    from print_handy.core import launch_state
+    settings.state_dir = lambda data=None: Path(root)
+    return str(launch_state.db_path(DEFAULT_ID))
+
+
+def test_concurrent_legacy_adoption_is_serialized(tmp_path, monkeypatch):
+    import multiprocessing as mp
+    legacy = tmp_path / "print_handy_launches.sqlite3"
+    monkeypatch.setenv("PRINT_HANDY_LAUNCH_DB", str(legacy))
+    launch_state.acquire(DEFAULT_ID, remote="concurrent.gcode")
+    monkeypatch.delenv("PRINT_HANDY_LAUNCH_DB")
+    monkeypatch.setattr(settings, "state_dir", lambda data=None: tmp_path)
+
+    ctx = mp.get_context("fork")
+    procs = [ctx.Process(target=_adopt_worker, args=(str(tmp_path),)) for _ in range(4)]
+    [p.start() for p in procs]
+    [p.join(30) for p in procs]
+    assert all(p.exitcode == 0 for p in procs)
+
+    path = launch_state.db_path(DEFAULT_ID)
+    assert path.exists()
+    assert not list(path.parent.glob("jobs.db.adopting*"))
+    [row] = launch_state.pending(DEFAULT_ID)
+    assert row["remote"] == "concurrent.gcode"
+
+
+def test_legacy_adoption_survives_uri_special_characters_in_path(tmp_path, monkeypatch):
+    special_dir = tmp_path / "home#printer?state"
+    special_dir.mkdir(parents=True)
+    legacy = special_dir / "print_handy_launches.sqlite3"
+    monkeypatch.setenv("PRINT_HANDY_LAUNCH_DB", str(legacy))
+    launch_state.acquire(DEFAULT_ID, remote="special-chars.gcode")
+    monkeypatch.delenv("PRINT_HANDY_LAUNCH_DB")
+    monkeypatch.setattr(settings, "state_dir", lambda data=None: special_dir)
+
+    path = launch_state.db_path(DEFAULT_ID)
+    assert path.exists()
+    assert not list(path.parent.glob("jobs.db.adopting*"))
+    [row] = launch_state.pending(DEFAULT_ID)
+    assert row["remote"] == "special-chars.gcode"
