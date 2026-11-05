@@ -2369,3 +2369,76 @@ def test_slice_refusal_fix_failure_names_the_slot_and_the_real_remedy(env, monke
     assert 'slot 1' in said and '`/spool change 1 <spool#>`' in said
     assert 'Set the spool with `/spool`' not in said
     assert env.starts == []
+
+
+def test_before_start_hook_runs_before_the_start_choice(env):
+    """#903 / Codex P1 on #908: an edit carried beside the link applies to the
+    prepared job before any slice is armed or the start choice is offered."""
+    seen = []
+
+    async def hook(job_path, job):
+        seen.append(Path(job_path).is_file())
+        return {'action': 'skip', 'reason': 'edit took over'}
+
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='hook',
+              text='https://www.printables.com/model/1-ghost shrink this by 20%')
+    adapter = Adapter([1, 0])
+    result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1,
+                                                      before_start=hook))
+    assert seen == [True]
+    assert result == {'action': 'skip', 'reason': 'edit took over'}
+    assert not any(q['question'].startswith('Ready to slice') for q in adapter.questions)
+    assert env.sliced == [] and env.starts == []
+    receipt = json.loads(next(env.root.glob('*.json')).read_text())
+    assert receipt['status'] == 'EDITED' and not receipt['started']
+
+
+def test_before_start_hook_returning_none_continues_the_intake(env):
+    async def hook(job_path, job):
+        return None
+
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='hook2',
+              text='https://www.printables.com/model/1-ghost')
+    adapter = Adapter([1, 0, 3])
+    asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1,
+                                             before_start=hook))
+    assert any(q['question'].startswith('Ready to slice') for q in adapter.questions)
+
+
+def test_resumed_job_fit_probe_forwards_resumed_transforms(env, monkeypatch):
+    from print_handy.core import orca_adapter
+    calls = []
+
+    def fake_capacity(path, st, **kw):
+        calls.append(kw)
+        return 2
+
+    monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', fake_capacity)
+    import zipfile
+    dummy_file = env.tmp / 'ghost.3mf'
+    with zipfile.ZipFile(dummy_file, 'w') as z:
+        z.writestr('[Content_Types].xml', '<Types/>')
+        z.writestr('3D/3dmodel.model', '<model/>')
+    from print_handy.core import model_job as mj
+    sha = mj.file_sha256(dummy_file)
+    monkeypatch.setattr(mj, 'audit', lambda p: {'plates': 1, 'color_manifest': {'source_sha256': mj.file_sha256(p), 'plates': 1}})
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='res1',
+              text='https://www.printables.com/model/1-ghost')
+    resumed = {
+        'site': 'printables',
+        'downloaded_file': str(dummy_file),
+        'title': 'Ghost',
+        'slug': 'ghost',
+        'intake_id': 'saved_iid',
+        'resumed_from': 'saved_iid',
+        'sources': [{'name': 'ghost.3mf', 'path': str(dummy_file)}],
+        'selected_source': {'name': 'ghost.3mf', 'path': str(dummy_file)},
+        'audit': {'size_x': 50, 'size_y': 50, 'size_z': 50, 'color_manifest': {'source_sha256': sha, 'plates': 1}},
+        'scale': 0.8,
+        'orientation': {'rotation': [0, 0, 45], 'supports': True},
+        'copies': 4,
+    }
+    adapter = Adapter([3])  # Cancel at ready question
+    asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1, reuse=resumed))
+    assert any(c.get('scale') == 0.8 and c.get('rotation') == [0, 0, 45] and c.get('supports') is True and c.get('copy_limit') == 16 for c in calls)
+
