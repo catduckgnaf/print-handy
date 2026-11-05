@@ -211,9 +211,31 @@ class LoginTests(unittest.TestCase):
             self.assertEqual(code, 303)
             self.assertEqual(headers["location"], "/login")
             self.assertIn("Max-Age=0", headers["set-cookie"])
+            self.assertNotIn("Secure", headers["set-cookie"])
             code, _headers, _body = self.request(
                 port, "GET", "/", headers={"Cookie": cookie})
             self.assertEqual(code, 401)
+
+    def test_session_cookie_omits_secure_unless_cookie_secure(self):
+        """Plain HTTP is the default, so the session cookie is not Secure
+        unless [webui] cookie_secure is set. The flag covers login and logout."""
+        with tempfile.TemporaryDirectory() as tmp:
+            _httpd, port, _local, _environ = self.start(
+                tmp, environ={"WEBUI_ACCESS_TOKEN": TOKEN})
+            _code, headers, _body = self.login(port)
+            self.assertNotIn("Secure", headers["set-cookie"])
+        with tempfile.TemporaryDirectory() as tmp:
+            _httpd, port, _local, _environ = self.start(
+                tmp, extra="  cookie_secure: true\n",
+                environ={"WEBUI_ACCESS_TOKEN": TOKEN})
+            _code, headers, _body = self.login(port)
+            self.assertIn("; Secure", headers["set-cookie"])
+            cookie = session_cookie_pair(headers["set-cookie"])
+            code, headers, _body = self.request(
+                port, "POST", "/logout", body="", headers={"Cookie": cookie})
+            self.assertEqual(code, 303)
+            self.assertIn("; Secure", headers["set-cookie"])
+            self.assertIn("Max-Age=0", headers["set-cookie"])
 
     def test_healthz_stays_unauthenticated(self):
         record = {"heartbeat_at": time.time(), "pid": os.getpid(),
