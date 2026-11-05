@@ -17,7 +17,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 REGISTER = Path("tests/strict_xfail_register.json")
-PY_NODE = re.compile(r"^tests/.+\.py::[^:]+(?:::[^:]+)?$")
+PY_NODE = re.compile(r"^tests/.+\.py::[^:]+(?:::[^:]+)*$")
 CORPUS_NODE = re.compile(r"^corpus:[A-Za-z0-9._-]+$")
 REASON = re.compile(r"^[^\n]{8,240}$")
 
@@ -77,8 +77,10 @@ def python_sites(root):
 
         def visit(node, class_name=""):
             if isinstance(node, ast.ClassDef):
+                node_id = f"{rel}::{class_name}::{node.name}" if class_name else f"{rel}::{node.name}"
+                sites.extend(_decorator_sites(node.decorator_list, node_id))
                 for child in node.body:
-                    visit(child, node.name)
+                    visit(child, f"{class_name}::{node.name}" if class_name else node.name)
                 return
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
                 node_id = f"{rel}::{class_name}::{node.name}" if class_name else f"{rel}::{node.name}"

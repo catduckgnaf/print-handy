@@ -94,6 +94,33 @@ class RegisterTests(unittest.TestCase):
             errors = checker.check(root, date(2026, 11, 4))
         self.assertEqual(["strict xfail has no register entry: tests/test_sample.py::test_cases"], errors)
 
+    def test_a_class_mark_is_a_strict_xfail(self):
+        text = textwrap.dedent("""\
+            import pytest
+            @pytest.mark.xfail(strict=True, reason="entire class fails")
+            class TestSample:
+                def test_one(self):
+                    assert False
+            """)
+        with self.temporary() as directory:
+            root = self.write_tree(directory, [], text)
+            errors = checker.check(root, date(2026, 11, 4))
+        self.assertEqual(["strict xfail has no register entry: tests/test_sample.py::TestSample"], errors)
+
+    def test_a_registered_class_mark_passes(self):
+        entry = {"node_id": "tests/test_sample.py::TestSample", "owner": "print-handy",
+                 "expiry": "2026-12-01", "reason": "Entire class is an open defect."}
+        text = textwrap.dedent("""\
+            import pytest
+            @pytest.mark.xfail(strict=True, reason="entire class fails")
+            class TestSample:
+                def test_one(self):
+                    assert False
+            """)
+        with self.temporary() as directory:
+            root = self.write_tree(directory, [entry], text)
+            self.assertEqual([], checker.check(root, date(2026, 11, 4)))
+
     def temporary(self):
         return tempfile.TemporaryDirectory()
 
