@@ -341,6 +341,8 @@ Once the bot is running, this is the whole conversation for one print. Every ste
 
 ![Paused post and runout spool question](https://raw.githubusercontent.com/catduckgnaf/print-handy/main/assets/screenshots/discord-06-pause-and-runout.png)
 
+**Emergency stop.** The stop post has one button, "Restart printer & end job". It runs the same firmware restart as `/print-reboot` (no motion or heat), then cancels the stopped job if it is still loaded, and posts a maintenance reminder. An emergency stop cannot be resumed, and Cancel print is not offered because it cannot clear a controller shutdown.
+
 **A spool added directly in Spoolman** gets a one-time prompt to load it.
 
 ![New spool prompt and load flow](https://raw.githubusercontent.com/catduckgnaf/print-handy/main/assets/screenshots/discord-07-new-spool.png)

@@ -6306,7 +6306,8 @@ def alert_button_handlers(bot, adapter):
         action, aid = parsed
         alert = await asyncio.to_thread(pab.take, aid)
         label = {'resume': 'Resume', 'pause': 'Pause', 'acknowledge': "It's fine",
-                 'mute': "Stop asking for this print"}.get(action, 'Cancel')
+                 'mute': "Stop asking for this print",
+                 'recover': pab.RECOVER_LABEL}.get(action, 'Cancel')
         await interaction.response.send_message(
             f"{getattr(interaction.user, 'display_name', 'Someone')} tapped {label}. Checking the printer first.")
         try:
