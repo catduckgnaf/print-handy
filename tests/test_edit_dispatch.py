@@ -312,3 +312,62 @@ def test_copies_refused_for_a_multipart_job(edit_env):
     result = run(plugin.edit_dispatch(_event("print 3 copies"), edit_env.gateway))
     assert result["reason"] == "edit copies refused for multi-part job"
     assert not edit_env.confirms and not edit_env.reentered
+
+
+def _mark_unsupported_slice(edit_env, model=None):
+    job = json.loads(edit_env.job_path.read_text())
+    job["provenance"] = {"supports_on": False, "slice_warnings": {
+        "support_needed": True, "objects": ["BLACK BODY"],
+        "support_texts": ["Floating regions detected"]}}
+    if model is not None:
+        job["downloaded_file"] = str(model)
+    edit_env.job_path.write_text(json.dumps(job))
+
+
+def test_supports_question_is_answered_not_turned_into_an_edit(edit_env):
+    """'does this need supports?' resolves to a supports plan in the vocabulary;
+    the question lane must answer it instead of re-slicing."""
+    _mark_unsupported_slice(edit_env)
+    edit_env.answers = ["Print without supports"]
+    result = run(plugin.edit_dispatch(_event("does this need supports?"), edit_env.gateway))
+    assert result["reason"] == "question answered: print without supports"
+    question, choices = edit_env.confirms[0]
+    assert "Supports are off for this slice." in question
+    assert "> Floating regions detected" in question
+    assert choices == ["Re-slice with supports", "Print without supports"]
+    assert json.loads(edit_env.job_path.read_text())["support_decision"]["supports"] is False
+    assert not edit_env.reentered and not edit_env.probes
+
+
+def test_supports_question_reslices_with_supports_on_request(edit_env):
+    _mark_unsupported_slice(edit_env)
+    edit_env.answers = ["Re-slice with supports"]
+    result = run(plugin.edit_dispatch(_event("Do I need supports for this?"), edit_env.gateway))
+    assert result["reason"] == "question answered: re-slice with supports"
+    assert edit_env.reentered[0]["support_decision"]["supports"] is True
+
+
+def test_supports_question_reports_modeled_supports(edit_env):
+    from pathlib import Path
+    fixture = Path(__file__).parent / "fixtures" / "modeled_supports_shelf.3mf"
+    _mark_unsupported_slice(edit_env, fixture)
+    edit_env.answers = ["Print without supports"]
+    run(plugin.edit_dispatch(_event("does it need supports?"), edit_env.gateway))
+    question = edit_env.confirms[0][0]
+    assert "This file has modeled supports" in question
+    assert "0.20 mm below" in question and "0.22 mm below" in question
+
+
+def test_size_and_fit_questions_are_answered(edit_env):
+    run(plugin.edit_dispatch(_event("how big is it?"), edit_env.gateway))
+    run(plugin.edit_dispatch(_event("will it fit on the bed?"), edit_env.gateway))
+    sent = edit_env.adapter.sent
+    assert any("40.0 x 20.0 x 10.0 mm" in m for m in sent)
+    assert any(m.startswith("Yes.") for m in sent)
+    assert not edit_env.confirms and not edit_env.reentered
+
+
+def test_question_without_a_job_is_left_to_chat(edit_env):
+    for path in edit_env.root.glob("*.json"):
+        path.unlink()
+    assert run(plugin.edit_dispatch(_event("does this need supports?"), edit_env.gateway)) is None

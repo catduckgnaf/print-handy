@@ -1,0 +1,123 @@
+"""Questions about the current model job, answered instead of turned into edits (#903).
+
+Detection runs before edit-plan resolution, so "does this need supports?" gets an
+answer from the job's own slice result and mesh, never an action. Answers are
+deterministic: slice provenance, the #904 slicer warnings, modeled-support
+measurement (print_handy.core.modeled_supports), job dimensions and the bed size.
+"""
+
+import re
+
+_QUESTION_START = re.compile(
+    r"^\s*(?:(?:hey|so|ok|okay|um)\W+)?"
+    r"(?:does|do|did|is|are|has|have|will|would|can|could|should|how|what|which)\b",
+    re.IGNORECASE)
+_SUPPORTS = re.compile(r"\bsup+[oe]?r?ts?\b|\bsupport", re.IGNORECASE)
+_SIZE = re.compile(r"\bhow\s+(?:big|large|tall|wide|small)\b|\bwhat\s+(?:size|dimensions?)\b"
+                   r"|\bdimensions?\b", re.IGNORECASE)
+_FIT = re.compile(r"\b(?:will|would|does|can)\s+(?:it|this|that)\s+fit\b|\bfit\s+on\s+the\s+bed\b",
+                  re.IGNORECASE)
+
+
+def is_question(text):
+    text = str(text or '').strip()
+    return bool(text) and (text.endswith('?') or bool(_QUESTION_START.match(text)))
+
+
+def classify(text):
+    """'supports', 'size', 'fit', or None for anything that is not a model question."""
+    if not is_question(text):
+        return None
+    if _SUPPORTS.search(text):
+        return 'supports'
+    if _FIT.search(text):
+        return 'fit'
+    if _SIZE.search(text):
+        return 'size'
+    return None
+
+
+def _provenances(job):
+    rows = [job.get('provenance')] + [p.get('provenance') for p in job.get('derived_plates') or []
+                                      if isinstance(p, dict)]
+    return [p for p in rows if isinstance(p, dict)]
+
+
+def supports_answer(job, source=None):
+    """(text, offer) for a supports question. ``offer`` is True when the
+    Re-slice with supports / Print without choice should be offered."""
+    from print_handy.core import modeled_supports
+    provs = _provenances(job)
+    sliced_on = [p.get('supports_on') for p in provs if 'supports_on' in p]
+    warnings = []
+    for prov in provs:
+        found = prov.get('slice_warnings') or {}
+        if found.get('support_needed'):
+            warnings += [t for t in found.get('support_texts') or [] if t not in warnings]
+    lines = []
+    if not sliced_on:
+        lines.append('This job has not been sliced yet, so I have no slicer result for supports.')
+    elif any(sliced_on):
+        lines.append('Supports are on for this slice.')
+    else:
+        lines.append('Supports are off for this slice.')
+    if warnings:
+        lines.append('The slicer reported floating regions or a cantilever:')
+        lines += [f'> {text}' for text in warnings[:3]]
+    elif sliced_on:
+        lines.append('The slicer reported no floating regions or cantilevers.')
+    lines += modeled_supports.safe_describe(source)
+    decision = job.get('support_decision')
+    if isinstance(decision, dict):
+        lines.append('Decision already recorded: print '
+                     + ('with' if decision.get('supports') else 'without') + ' supports.')
+    offer = bool(warnings) and not any(sliced_on)
+    return '\n'.join(lines), offer
+
+
+def _dims(job):
+    audit = job.get('audit') or {}
+    try:
+        dims = [float(audit[k]) for k in ('size_x', 'size_y', 'size_z')]
+    except (KeyError, TypeError, ValueError):
+        dims = None
+    if dims is None:
+        raw = job.get('dimensions_mm') or (job.get('audit') or {}).get('dimensions_mm') or ()
+        try:
+            dims = [float(v) for v in raw][:3]
+        except (TypeError, ValueError):
+            return None
+    scale = job.get('scale') or 1.0
+    try:
+        scale = float(scale)
+    except (TypeError, ValueError):
+        scale = 1.0
+    if not audit.get('scaled') and scale != 1.0:
+        dims = [v * scale for v in dims]
+    return dims if len(dims) == 3 else None
+
+
+def size_answer(job):
+    dims = _dims(job)
+    if dims is None:
+        return 'I do not have measured dimensions for this job yet.'
+    x, y, z = dims
+    return f'The model is {x:.1f} x {y:.1f} x {z:.1f} mm (X x Y x Z).'
+
+
+def fit_answer(job, bed_mm):
+    dims = _dims(job)
+    if dims is None:
+        return 'I do not have measured dimensions for this job yet, so I cannot check the fit.'
+    try:
+        bx, by = float(bed_mm[0]), float(bed_mm[1])
+        bz = float(bed_mm[2]) if len(bed_mm) > 2 else None
+    except (TypeError, ValueError, IndexError):
+        return size_answer(job) + ' I could not read the bed size.'
+    x, y, z = dims
+    flat = (x <= bx and y <= by) or (x <= by and y <= bx)
+    tall = bz is None or z <= bz
+    bed = f'{bx:g} x {by:g}' + (f' x {bz:g}' if bz else '') + ' mm'
+    if flat and tall:
+        return f'Yes. The model is {x:.1f} x {y:.1f} x {z:.1f} mm and the bed is {bed}.'
+    return f'No. The model is {x:.1f} x {y:.1f} x {z:.1f} mm and the bed is {bed}.'

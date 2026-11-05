@@ -6422,6 +6422,51 @@ def _edit_probe(job, plan):
         shutil.rmtree(scratch, ignore_errors=True)
 
 
+async def _edit_question(event, gateway, source, adapter, kind):
+    """Answer a question about the current job (#903) from its slice result and
+    mesh; a supports question on an unsupported slice offers the #904 choice."""
+    from print_handy.core import model_questions
+    from print_handy.core import model_job as mj
+    from print_handy.core.prepared_intake import PRINT_NO_SUPPORTS_LABEL, RESLICE_SUPPORTS_LABEL
+    metadata = {'thread_id': source.thread_id} if source.thread_id else None
+
+    async def say(content):
+        await adapter.send(chat_id=source.chat_id, metadata=metadata, content=content)
+
+    found = _edit_current_job(_state_dir() / 'model-link-intakes', source)
+    if found is None:
+        return None  # no job here: the question is not about a model, leave it to chat
+    _receipt, job_path, job = found
+    if kind == 'size':
+        await say(model_questions.size_answer(job))
+        return {'action': 'skip', 'reason': 'question answered: size'}
+    if kind == 'fit':
+        from print_handy import settings
+        await say(model_questions.fit_answer(job, settings.current()['printer']['bed_mm']))
+        return {'action': 'skip', 'reason': 'question answered: fit'}
+    model = job.get('downloaded_file')
+    answer, offer = model_questions.supports_answer(job, model if model and Path(model).is_file() else None)
+    if not offer:
+        await say(answer)
+        return {'action': 'skip', 'reason': 'question answered: supports'}
+    timeout = (_config.question_timeout_s() if globals().get('_config') else 1800)
+    pick = await _confirm(adapter, source, metadata, 'model-question', answer + '\nWhat should I do?',
+                          [RESLICE_SUPPORTS_LABEL, PRINT_NO_SUPPORTS_LABEL], timeout,
+                          live_key=gateway._session_key_for_source(source))
+    if pick == RESLICE_SUPPORTS_LABEL:
+        mj.record_support_decision(job_path.parent, True)
+        job = json.loads(job_path.read_text())
+        await say('Re-slicing with supports.')
+        await _edit_reenter(event, gateway, source, adapter, job)
+        return {'action': 'skip', 'reason': 'question answered: re-slice with supports'}
+    if pick == PRINT_NO_SUPPORTS_LABEL:
+        mj.record_support_decision(job_path.parent, False)
+        await say('Recorded: print without supports. The slice is unchanged.')
+        return {'action': 'skip', 'reason': 'question answered: print without supports'}
+    await say('No change made.')
+    return {'action': 'skip', 'reason': 'question answered: no choice'}
+
+
 async def _edit_reenter(event, gateway, source, adapter, job):
     """Re-enter the intake flow with the edited job as a resume: the flow
     re-slices it, shows the new summary and preview, and asks every
@@ -6430,7 +6475,7 @@ async def _edit_reenter(event, gateway, source, adapter, job):
     from print_handy.core.prepared_intake import prepare_link, resume_job
     resume = resume_job(job)
     for field in ('scale', 'copies', 'orientation', 'fit_brim_policy', 'edit_settings',
-                  'edits', 'printer_id', 'unit_decision'):
+                  'edits', 'printer_id', 'unit_decision', 'support_decision'):
         if job.get(field) is not None:
             resume[field] = job[field]
     root = _state_dir() / 'model-link-intakes'
@@ -6621,6 +6666,10 @@ async def edit_dispatch(event, gateway, **kwargs):
     if model_link(text) or model_file(event):
         return None  # a fresh intake owns links and files
     undo = bool(_EDIT_UNDO_RE.match(text.strip()))
+    from print_handy.core import model_questions
+    question_kind = None if undo else model_questions.classify(text)
+    if question_kind is not None:
+        return await _edit_question(event, gateway, source, adapter, question_kind)
     resolve_error = None
     try:
         resolved = None if undo else edit_plan.resolve_request(text)
