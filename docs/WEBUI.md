@@ -20,6 +20,7 @@ The YAML file remains the only source of truth. The Web UI does not keep a secon
 | `GET /api/status` | The same status snapshot as JSON |
 | `GET /api/printers/<id>/status` | One roster printer's live status as JSON: its identity plus the adapter's normalized status (`state`, `filename`, `progress`, temperatures, and any target/ETA/layer fields that printer's adapter reports). An unknown id is a 404; a printer that cannot be reached answers with `state: "unavailable"` instead of an error |
 | `GET /healthz` | The standalone bot heartbeat verdict: `200` when it passes, `503` when it does not |
+| `GET /readyz` | Per-component readiness as JSON: `spoolman`, `slicer` and one `printers.<id>` row each, plus `ready`. `200` when no component is known to be down, `503` when one is. Same access token as `/api/status` |
 | `GET /designs` | The read-only designs catalog (#388): AI design sessions on disk, newest first |
 | `GET /designs/<id>` | One design session: its final `.scad` source and file downloads |
 | `GET /designs/<id>/<scad\|stl\|preview>` | That session's `.scad`, final `.stl`, or preview PNG download |
@@ -63,6 +64,8 @@ For external consumers (the Home Assistant integration, dashboards), `GET /api/p
 The Web UI doctor rows reuse the local doctor checks — settings, printer model, Orca templates, core modules, hardware record, Orca CLI, configured Moonraker and Spoolman services, bot mode, and stray state files. Two command-line doctor checks are deliberately not run by the page: Discord login and the shared-token comparison. Both need the bot token, and the login check can make a live network call; run `python3 -m print_handy.doctor` when you want those checks.
 
 `/healthz` is narrower than the status page. It evaluates the bot heartbeat only: a `503` can mean the bot heartbeat is missing or stale while the Web UI itself is still serving. The Docker healthcheck therefore treats either a `200` or a `503` answer from `/healthz` as proof that the Web UI is serving, while the separate bot row owns the heartbeat verdict. An unreachable Web UI, an unresolved configuration, or any other HTTP status makes the Web UI healthcheck row fail.
+
+`/readyz` (also the `components` block of `/api/status`) splits readiness so one dependency cannot mask another. `spoolman` is the same probe as the Spoolman row. `slicer` checks that the configured primary slicer executable (`[slicer] flash_studio_path`, else the `[orca]` or `[bambu]` command for `[printer] slicer`, with `PRINT_HANDY_ORCA_CMD` overriding the `[orca]` command exactly as it does for slicing) resolves on `PATH`; it is not run, so `python3 -m print_handy.doctor` remains the full slicer check. Each `printers.<id>` row comes from that printer's own listener heartbeat: `true` when the listener reports the printer connected, `false` when the listener is running but the printer is not, and `null` (unknown) when there is no listener or it is down. Nothing is sent to any printer. Unknown and not configured rows do not fail `ready`. `/readyz` builds only these rows, without the doctor checks, so polling it never launches the slicer. `/healthz` and the Docker healthcheck stay liveness only, so an offline printer never makes the container unhealthy or triggers a restart.
 
 ## Enable it on a native or manual install
 

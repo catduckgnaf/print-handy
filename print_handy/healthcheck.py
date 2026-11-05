@@ -153,6 +153,37 @@ def check(data=None, now=None, printer_id=None):
         return False, "listener heartbeat missing, unreadable or invalid"
 
 
+def printer_reachability(data=None, printer_id=None, now=None):
+    """(ok, reason) for whether a printer's listener reaches its printer.
+
+    Read from the listener's own heartbeat only: no network probe and
+    nothing sent to the printer. Kept apart from check() on purpose: a
+    live listener with an offline printer is a healthy process (restarting
+    it cannot fix the printer) but not a reachable printer, and the two
+    must not mask each other. ok is None when reachability is unknown —
+    no listener exists for the connection, or the listener itself is not
+    healthy (then check()'s reason says why).
+    """
+    resolved = resolve_printer_id(data, printer_id)
+    domain = listener_domain(data, resolved)
+    if domain is None or not domain.implemented:
+        return None, (f"unknown: no listener for connection "
+                      f"{listener_connection(data, resolved)!r} reports it")
+    alive, reason = check(data, now=now, printer_id=resolved)
+    if not alive:
+        return None, f"unknown: {reason}"
+    try:
+        record = json.loads(heartbeat_path(data, resolved).read_text())
+    except (OSError, ValueError):
+        return None, "unknown: listener heartbeat unreadable"
+    connected = record.get("printer_connected", record.get("moonraker_connected"))
+    if connected is None:
+        return None, "unknown: the listener heartbeat does not report the printer connection"
+    if connected:
+        return True, "listener connected to the printer"
+    return False, "listener running, printer not connected"
+
+
 def listener_statuses(data=None):
     """Per-printer listener health over the roster (#336).
 

@@ -271,7 +271,21 @@ def snapshot(data=None, *, environ=None, heartbeat=READ_HEARTBEAT, probe=None, c
         "doctor": rows,
         "slice_failures": _slice_failures_section(data),
         "ok": ok,
+        "components": components(data, {"spoolman": spoolman}, environ=environ),
     }
+
+
+def readiness(data=None, *, environ=None, probe=None):
+    """The /readyz body: per-component readiness without the doctor rows.
+
+    Builds only what components() needs (the bounded Spoolman probe, the
+    slicer executable lookup and the listener heartbeats), so polling it
+    never runs the slicer or the doctor's service and printer checks.
+    """
+    environ = os.environ if environ is None else environ
+    data = settings.load(environ=environ) if data is None else data
+    spoolman = _spoolman_section(data, environ, probe or probe_spoolman)
+    return components(data, {"spoolman": spoolman}, environ=environ)
 
 
 def _slice_failures_section(data):
@@ -321,6 +335,85 @@ def _roster_section(data):
             row["purge"] = purge.status_row(entry["id"], data)
         rows.append(row)
     return rows
+
+
+# The [printer] slicer value -> the settings section whose command runs it.
+_SLICER_COMMANDS = {"orca": "orca", "bambu_studio": "bambu"}
+
+
+def slicer_status(data, environ=None):
+    """Whether the default printer's primary slicer can be started here.
+
+    Read-only and cheap: the configured executable (``[slicer]
+    flash_studio_path`` when set, else the ``[orca]``/``[bambu]`` command
+    for the ``[printer] slicer`` choice) must resolve to an executable
+    file. For Orca, ``PRINT_HANDY_ORCA_CMD`` wins over ``[orca] command``,
+    as it does for slicing (core.orca_adapter._orca_command; the container
+    entrypoint sets it for the selected channel). The slicer is not run — ``python3 -m print_handy.doctor`` runs
+    ``--help`` when an operator wants that proof — so a resolvable but
+    broken binary still reads ok here. Never raises.
+    """
+    import shutil
+    try:
+        flash = ((data.get("slicer") or {}).get("flash_studio_path") or "").strip()
+        if flash:
+            name, command = "flash_studio", [flash]
+        else:
+            vendor = printers.MODELS[data["printer"]["model"]].vendor
+            name = data["printer"].get("slicer") or (vendor.slicers[0] if vendor else "orca")
+            section = _SLICER_COMMANDS.get(name, "orca")
+            override = (os.environ if environ is None else environ).get("PRINT_HANDY_ORCA_CMD")
+            if section == "orca" and override:
+                command = [override]
+            else:
+                command = list((data.get(section) or {}).get("command") or [])
+        if not command:
+            return {"slicer": name, "ok": False, "detail": "no command configured"}
+        found = shutil.which(os.path.expanduser(command[0]))
+        if not found:
+            return {"slicer": name, "ok": False,
+                    "detail": f"{command[0]} is not an executable on PATH"}
+        return {"slicer": name, "ok": True, "detail": f"{found} is executable (not run)"}
+    except Exception as exc:  # a settings problem is a row, never a broken page
+        return {"slicer": None, "ok": False, "detail": f"could not resolve: {exc}"}
+
+
+def printer_reachability(data):
+    """{printer_id: {"ok": bool | None, "detail": str}} over the roster.
+
+    From each listener's own heartbeat (healthcheck.printer_reachability):
+    nothing is sent to any printer. ok None means unknown — no listener
+    for that connection, or the listener is down (its own row says why).
+    """
+    rows = {}
+    try:
+        entries = settings.printers(data)
+    except Exception as exc:
+        return {"": {"ok": None, "detail": f"roster unresolved: {exc}"}}
+    for entry in entries:
+        try:
+            ok, detail = healthcheck.printer_reachability(data, printer_id=entry["id"])
+        except Exception as exc:
+            ok, detail = None, f"unknown: {exc}"
+        rows[entry["id"]] = {"ok": ok, "detail": detail}
+    return rows
+
+
+def components(data, snap, *, slicer=None, reach=None, environ=None):
+    """Per-component readiness (P1 health split): Spoolman, slicer and
+    each printer reported on their own, so one cannot mask another.
+
+    ``ready`` is False when any component is known to be down; unknown
+    (None) and not configured do not fail it. The container liveness
+    probe (/healthz) is unaffected: it answers whether the process is
+    alive, this answers whether each dependency is usable.
+    """
+    spoolman = {"ok": snap["spoolman"]["ok"], "detail": snap["spoolman"]["detail"]}
+    slicer = slicer_status(data, environ) if slicer is None else slicer
+    reach = printer_reachability(data) if reach is None else reach
+    rows = [spoolman["ok"], slicer["ok"], *(row["ok"] for row in reach.values())]
+    return {"spoolman": spoolman, "slicer": slicer, "printers": reach,
+            "ready": all(ok is not False for ok in rows)}
 
 
 def snapshot_json(**kwargs):
