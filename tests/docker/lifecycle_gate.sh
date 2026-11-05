@@ -16,9 +16,9 @@
 #   downgrade the pre-upgrade backup restored into a new tree, previous image on it: healthy,
 #             seeds intact. This is the rollback path; no automatic database downgrade exists.
 #
-# The backup is taken with every container stopped: each SQLite file is copied with the SQLite
-# backup API, stale -wal/-shm files are dropped, PRAGMA integrity_check must answer ok, and a
-# SHA-256 manifest is written. Every phase runs as its own Compose project on an internal
+# The backup (tests/docker/lifecycle_backup.py) is taken with every container stopped: each
+# SQLite file is copied with the SQLite backup API, stale -wal/-shm files are dropped, PRAGMA
+# integrity_check must answer ok, and a SHA-256 manifest is written. Every phase runs as its own Compose project on an internal
 # network with no route out, with dummy secrets and a fake Moonraker. No Discord, printer, Home
 # Assistant, household Spoolman or production data tree is touched, and no host port is used.
 # Results: OUT_DIR/results.txt plus logs.
@@ -57,7 +57,7 @@ cleanup() {
 trap cleanup EXIT
 
 cp "$repo/docker-compose.yml" "$repo/tests/docker/compose.acceptance.yml" "$work/"
-mkdir -p "$work/fixture" && cp "$repo/tests/docker/fake_moonraker.py" "$work/fixture/"
+mkdir -p "$work/fixture" && cp "$repo/tests/docker/fake_moonraker.py" "$repo/tests/docker/lifecycle_backup.py" "$work/fixture/"
 sed -e "s#^DISCORD_BOT_TOKEN=.*#DISCORD_BOT_TOKEN=#" \
     -e "s#^PRINT_HANDY__DISCORD__CHAT_ID=.*#PRINT_HANDY__DISCORD__CHAT_ID=100000000000000001#" \
     -e "s#^PRINT_HANDY__DISCORD__ALLOWED_USER_IDS=.*#PRINT_HANDY__DISCORD__ALLOWED_USER_IDS=200000000000000002#" \
@@ -75,7 +75,8 @@ new_tree() {  # new_tree DIR: an empty data tree owned by the image's uid 1000
 # as_handy IMAGE TREE CMD...: a one-shot, no-network helper container on a stopped tree.
 as_handy() { local image=$1 tree=$2; shift 2
     docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges:true \
-        --user 1000:1000 --entrypoint python3 -v "$tree:/tree" -v "$work/backup:/backup" "$image" "$@"; }
+        --user 1000:1000 --entrypoint python3 -v "$tree:/tree" -v "$work/backup:/backup" \
+        -v "$work/fixture:/fixture:ro" "$image" "$@"; }
 start() {  # start NAME IMAGE TREE: up and healthy, or a recorded failure
     projects+=("$1"$'\t'"$2"$'\t'"$3")
     if phase "$1" "$2" "$3" up -d --wait --wait-timeout 240 fake-moonraker combined > "$out/up-$1.txt" 2>&1; then
@@ -158,27 +159,7 @@ stop prev "$previous" "$tree"
 log "backup: SQLite backup API, integrity_check, SHA-256 manifest (containers stopped)"
 mkdir -p "$work/backup"
 chown 1000:1000 "$work/backup" 2> /dev/null || sudo chown 1000:1000 "$work/backup"
-if detail=$(as_handy "$candidate" "$tree" -c "
-import hashlib, os, shutil, sqlite3
-src, dst = '/tree', '/backup/tree'
-shutil.copytree(src, dst, ignore=shutil.ignore_patterns('*.db-wal', '*.db-shm'))
-dbs, lines = 0, []
-for root, _, names in os.walk(src):
-    for name in names:
-        if name.endswith('.db'):
-            rel = os.path.relpath(os.path.join(root, name), src)
-            os.remove(os.path.join(dst, rel))
-            with sqlite3.connect(os.path.join(src, rel)) as a, sqlite3.connect(os.path.join(dst, rel)) as b:
-                a.backup(b)
-                assert b.execute('PRAGMA integrity_check').fetchone()[0] == 'ok', rel
-            dbs += 1
-for root, _, names in os.walk(dst):
-    for name in sorted(names):
-        path = os.path.join(root, name)
-        lines.append(hashlib.sha256(open(path, 'rb').read()).hexdigest() + '  ' + os.path.relpath(path, dst))
-open('/backup/SHA256SUMS', 'w').write('\n'.join(sorted(lines, key=lambda l: l[66:])) + '\n')
-assert dbs >= 2, f'expected the launch DB and spoolman.db, found {dbs}'
-print(f'{dbs} SQLite files integrity ok; {len(lines)} files in manifest')" 2>&1); then
+if detail=$(as_handy "$candidate" "$tree" /fixture/lifecycle_backup.py backup /tree /backup 2>&1); then
     record backup:verified ok "$detail"
     cp "$work/backup/SHA256SUMS" "$out/backup-SHA256SUMS.txt" 2> /dev/null || true
 else
@@ -198,13 +179,7 @@ fi
 stop inplace "$previous" "$tree"
 
 restore_into() {  # restore_into DIR: the pre-upgrade backup into a new tree, manifest checked
-    as_handy "$candidate" "$1" -c "
-import hashlib, os, shutil
-shutil.copytree('/backup/tree', '/tree', dirs_exist_ok=True)
-for line in open('/backup/SHA256SUMS'):
-    digest, rel = line.rstrip('\n').split('  ', 1)
-    assert hashlib.sha256(open(os.path.join('/tree', rel), 'rb').read()).hexdigest() == digest, rel
-print('restored and matched the manifest')"
+    as_handy "$candidate" "$1" /fixture/lifecycle_backup.py restore /backup /tree
 }
 for step in restore downgrade; do
     log "$step: pre-upgrade backup restored into a new tree"

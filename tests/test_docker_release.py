@@ -12,7 +12,9 @@ import json
 import os
 import re
 import shlex
+import sqlite3
 import subprocess
+import sys
 import tempfile
 import tomllib
 import unittest
@@ -848,8 +850,11 @@ class AcceptanceFixtureTests(unittest.TestCase):
         # Helper containers have no network; Compose phases use the internal acceptance network.
         self.assertIn("--network none", script)
         self.assertIn("compose.acceptance.yml", script)
-        self.assertIn("PRAGMA integrity_check", script)
-        self.assertIn("SHA256SUMS", script)
+        helper = (ROOT / "tests" / "docker" / "lifecycle_backup.py").read_text()
+        self.assertIn("lifecycle_backup.py backup /tree /backup", script)
+        self.assertIn("lifecycle_backup.py restore /backup /tree", script)
+        self.assertIn("PRAGMA integrity_check", helper)
+        self.assertIn("SHA256SUMS", helper)
         # Every transition runs, each with its own health and data checks.
         for literal in ("start fresh", "fresh:schema", "upgrade:seeded", "backup:verified",
                         "start upgrade", "for step in restore downgrade", "image=$previous",
@@ -904,6 +909,44 @@ exit 0
             self.assertEqual([f.name.split("-")[3] for f in logs], ["fresh", "prev"], logs)
             for f in logs:
                 self.assertEqual(f.read_text().strip(), "stub-logs")
+
+
+class LifecycleBackupTests(unittest.TestCase):
+    """The gate's backup must produce a manifest its own restore can match, WAL databases included."""
+
+    def test_wal_database_backup_restores_against_its_manifest(self):
+        sys.path.insert(0, str(ROOT / "tests" / "docker"))
+        try:
+            import lifecycle_backup
+        finally:
+            sys.path.pop(0)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            src = tmp / "tree"
+            (src / "spoolman").mkdir(parents=True)
+            (src / "hermes").mkdir()
+            (src / "hermes" / "marker.txt").write_text("seed")
+            for db in (src / "spoolman" / "spoolman.db", src / "hermes" / "launch.db"):
+                con = sqlite3.connect(db)
+                con.execute("PRAGMA journal_mode=WAL")
+                con.execute("CREATE TABLE t (v TEXT)")
+                con.execute("INSERT INTO t VALUES ('kept')")
+                con.commit()
+                con.close()
+            backup_dir = tmp / "backup"
+            backup_dir.mkdir()
+            dbs, files = lifecycle_backup.backup(str(src), str(backup_dir))
+            self.assertEqual((dbs, files), (2, 3))
+            manifest = (backup_dir / "SHA256SUMS").read_text()
+            self.assertNotRegex(manifest, r"-(wal|shm)$|-(wal|shm)\n")
+            self.assertEqual(sorted(p.name for p in (backup_dir / "tree").rglob("*") if p.is_file()),
+                             ["launch.db", "marker.txt", "spoolman.db"])
+            dst = tmp / "restored"
+            dst.mkdir()
+            self.assertEqual(lifecycle_backup.restore(str(backup_dir), str(dst)), 3)
+            con = sqlite3.connect(dst / "spoolman" / "spoolman.db")
+            self.assertEqual(con.execute("SELECT v FROM t").fetchall(), [("kept",)])
+            con.close()
 
 
 if __name__ == "__main__":
