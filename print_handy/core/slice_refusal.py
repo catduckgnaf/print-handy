@@ -160,23 +160,24 @@ def apply_fix(fix: dict[str, Any] | None, *, printer_id: str | None = None) -> s
     if not fix or fix.get("kind") != "confirm_slot_color":
         raise ValueError("no fix to apply")
     from . import printer_state
-    state = printer_state.load(printer_id) if printer_id else printer_state.load()
-    slot = str(fix["slot"])
-    record = (state.get("filament_slots") or {}).get(slot)
-    if not isinstance(record, dict):
-        raise ValueError(f"slot {slot} is not in the hardware record")
-    hx = filament_color.normalize_hex(fix.get("hex")) or filament_color.NEUTRAL_DEFAULT
-    if (not filament_color.normalize_hex(record.get("hex"))
-            or record.get("hex_source") in filament_color.DERIVED_SOURCES):
-        # Only an empty code or this module's own guess is replaced; a hex
-        # the operator, Spoolman or the printer supplied stays.
-        record["hex"] = hx
-        record["hex_source"] = "operator"
-    record["physical_color_verified"] = True
-    if printer_id:
-        printer_state.save(state, printer_id)
-    else:
-        printer_state.save(state)
+    with printer_state.hardware_lock(printer_id or None):
+        state = printer_state.load(printer_id) if printer_id else printer_state.load()
+        slot = str(fix["slot"])
+        record = (state.get("filament_slots") or {}).get(slot)
+        if not isinstance(record, dict):
+            raise ValueError(f"slot {slot} is not in the hardware record")
+        hx = filament_color.normalize_hex(fix.get("hex")) or filament_color.NEUTRAL_DEFAULT
+        if (not filament_color.normalize_hex(record.get("hex"))
+                or record.get("hex_source") in filament_color.DERIVED_SOURCES):
+            # Only an empty code or this module's own guess is replaced; a hex
+            # the operator, Spoolman or the printer supplied stays.
+            record["hex"] = hx
+            record["hex_source"] = "operator"
+        record["physical_color_verified"] = True
+        if printer_id:
+            printer_state.save(state, printer_id)
+        else:
+            printer_state.save(state)
     return f"Slot {slot} color confirmed as #{record['hex'].lstrip('#').upper()}."
 
 
