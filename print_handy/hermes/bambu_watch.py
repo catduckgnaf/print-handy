@@ -49,7 +49,7 @@ from .. import logs
 from . import _config
 from . import discord_print_summary as print_summary
 from . import local_vision
-from . import stock_watch, timelapse_capture
+from . import stock_watch, timelapse_capture, timelapse_encode
 from . import visual_watch as _vw
 
 WATCH_PROMPT = "Is there plastic on the bed under the nozzle, or is there spaghetti/detachment?"
@@ -80,7 +80,7 @@ def _default_encode(session):
 
     raw = stock_watch.encode_frames(session.frames_dir, session.directory / "timelapse.mp4")
     try:
-        return mel.platform_sized_video(raw)
+        return stock_watch.delivery_video(mel.platform_sized_video(raw), session.filename, session)
     except Exception as exc:
         log(f"bambu timelapse sizing failed for {session.filename!r}: {exc!r}")
         return None
@@ -394,6 +394,7 @@ class BambuPrintMonitor:
             log(f"bambu completion image unavailable for {self.filename!r}: {exc!r}")
             path = None
         if video is not None:
+            text = timelapse_encode.caption_with_number(text, None, self.filename)
             message = text
             if path is not None:
                 message += f"\n{path}\nMEDIA:{path}"

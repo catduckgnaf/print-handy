@@ -1485,6 +1485,7 @@ def _timelapse_post(job_key, completion_message):
             # The captured video is already assembled under the platform
             # cap by timelapse_encode; it skips the archive + shrink the
             # printer-rendered path needs.
+            completion_message = timelapse_encode.caption_with_number(completion_message, job_key)
             message = f"{completion_message}\nMEDIA:{captured}"
             short = _vertical_short_attachment(captured, job_key)
             if short is not None:
@@ -3942,6 +3943,36 @@ class Listener:
             return
         self._capture_task = asyncio.create_task(self._capture_due(layer))
 
+    def _capture_timer_tick(self):
+        """One interval-capture beat: ask for a frame when a timed trigger is live.
+
+        Status events only carry the layer signal (print_stats changes once
+        per layer), so an interval or both trigger needs its own beat (#906).
+        Scheduling is single-flight and runs off the receive loop. Inert while
+        paused or idle, without a session, and for the layer trigger.
+        """
+        session = self.capture_session
+        if session is None or self.state != "printing":
+            return False
+        if getattr(session.trigger, "name", "interval") not in ("interval", "both"):
+            return False
+        self._schedule_capture(_visual_layer(self.last_stats))
+        return True
+
+    async def _capture_timer(self, sleep=None):
+        """Run capture beats every capture_interval_s until cancelled (disconnect)."""
+        sleep = sleep or asyncio.sleep
+        while True:
+            try:
+                interval = timelapse_capture.capture_settings(_config.cfg())["capture_interval_s"]
+            except Exception:
+                interval = timelapse_capture.DEFAULTS["capture_interval_s"]
+            await sleep(max(0.5, interval))
+            try:
+                self._capture_timer_tick()
+            except Exception as exc:
+                log(f"timelapse capture timer failed: {exc!r}")
+
     def _settle_launch_lease(self):
         """The printer runs this file: clear a launch lease left uncertain for it (lost start response)."""
         from .. import listeners as _listeners
@@ -3980,6 +4011,14 @@ class Listener:
             await ws.send(SUBSCRIBE)
             await asyncio.to_thread(self._sync_printer_clock, "connect")
             last_tick = time.monotonic()
+            capture_timer = asyncio.create_task(self._capture_timer())
+            try:
+                await self._receive_loop(ws, last_tick)
+            finally:
+                capture_timer.cancel()
+
+    async def _receive_loop(self, ws, last_tick):
+        if True:
             while True:
                 try:
                     raw = await asyncio.wait_for(ws.recv(), timeout=30)

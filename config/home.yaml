@@ -307,6 +307,14 @@ timelapse:
   capture_interval_s: 5.0
   # Per-job storage caps for captured frames; 0 disables that cap. Capture
   # stops at a cap and the frames already taken are kept for the encode.
+  # Playback length (#906): fps is chosen from the frame count and target_length_s,
+  # clamped to min_fps..max_fps; beyond the clamp frames are decimated (too long) or
+  # held (shorter than min_length_s). hold_last_frame_s keeps the final frame on screen.
+  target_length_s: 20
+  min_fps: 10
+  max_fps: 60
+  min_length_s: 5
+  hold_last_frame_s: 1
   capture_max_frames: 3600
   capture_max_bytes: 536870912
   # Encoder preference for the Stage 3 encode (auto | vaapi | nvenc | qsv |

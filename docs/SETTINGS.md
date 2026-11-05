@@ -161,6 +161,11 @@ Schema, validation limits and TOML migration: [CONFIGURATION-YAML.md](CONFIGURAT
 | `timelapse.capture_source_url` | `PRINT_HANDY__TIMELAPSE__CAPTURE_SOURCE_URL` | empty | RTSP stream URL (`rtsp://` or `rtsps://`) or a go2rtc `ffmpeg:` source. go2rtc ingests it. Empty derives the camera from `services.camera_snapshot_url` / the Moonraker webcam |
 | `timelapse.capture_trigger` | `PRINT_HANDY__TIMELAPSE__CAPTURE_TRIGGER` | `interval` | Stage 2 frame capture trigger (#246): `interval` (a frame every `capture_interval_s`), `layer` (a frame on each Moonraker layer change) or `both` |
 | `timelapse.capture_interval_s` | `PRINT_HANDY__TIMELAPSE__CAPTURE_INTERVAL_S` | `5.0` | Seconds between captured frames for the interval trigger (above 0, at most 3600) |
+| `timelapse.target_length_s` | `PRINT_HANDY__TIMELAPSE__TARGET_LENGTH_S` | `20` | Length the finished timelapse aims for, in seconds (above 0, at most 3600) (#906) |
+| `timelapse.min_fps` | `PRINT_HANDY__TIMELAPSE__MIN_FPS` | `10` | Lowest playback fps; a longer result is decimated to the target length (#906) |
+| `timelapse.max_fps` | `PRINT_HANDY__TIMELAPSE__MAX_FPS` | `60` | Highest playback fps (at least `min_fps`); a shorter result is held to `min_length_s` (#906) |
+| `timelapse.min_length_s` | `PRINT_HANDY__TIMELAPSE__MIN_LENGTH_S` | `5` | Shortest finished timelapse in seconds; very short captures hold frames to reach it (0 = off) (#906) |
+| `timelapse.hold_last_frame_s` | `PRINT_HANDY__TIMELAPSE__HOLD_LAST_FRAME_S` | `1` | Seconds the last frame is held at the end (0 = off) (#906) |
 | `timelapse.capture_max_frames` | `PRINT_HANDY__TIMELAPSE__CAPTURE_MAX_FRAMES` | `3600` | Per-job cap on captured frames; capture stops at the cap and keeps the frames already taken. `0` disables the cap |
 | `timelapse.capture_max_bytes` | `PRINT_HANDY__TIMELAPSE__CAPTURE_MAX_BYTES` | `536870912` | Per-job cap on captured frame bytes; capture stops at the cap and keeps the frames already taken. `0` disables the cap |
 | `timelapse.capture_encoder` | `PRINT_HANDY__TIMELAPSE__CAPTURE_ENCODER` | `auto` | Encoder preference for the Stage 3 assembly encode (#246): `auto` (VAAPI → NVENC → QSV → CPU), `vaapi`, `nvenc`, `qsv` or `cpu`. A failing or unavailable hardware encoder falls back to CPU; GPU paths are not verified on real hardware |

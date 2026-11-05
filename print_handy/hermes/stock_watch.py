@@ -68,7 +68,7 @@ def log(line):
     logger.info("%s", logs.redact(str(line)))
 
 
-def encode_frames(frames_dir, target, *, fps=TIMELAPSE_FPS, ffmpeg_bin=None, encoder=None, run=None):
+def encode_frames(frames_dir, target, *, fps=None, ffmpeg_bin=None, encoder=None, run=None):
     """Encode one session's frames (frame-%06d.jpg) to an H.264 MP4 at target.
 
     ffmpeg is the encoder — the codec choice comes from the same
@@ -84,6 +84,14 @@ def encode_frames(frames_dir, target, *, fps=TIMELAPSE_FPS, ffmpeg_bin=None, enc
     run = run or subprocess.run
     target = Path(target)
     partial = target.with_name(f".{target.name}.partial.mp4")
+    if fps is None:  # #906: bounded playback length for every backend
+        from . import timelapse_encode
+        settings = timelapse_encode.playback_settings()
+        if settings:
+            with timelapse_encode.playback_frames(frames_dir, settings) as (planned, planned_fps, _n):
+                return encode_frames(planned, target, fps=planned_fps, ffmpeg_bin=ffmpeg_bin,
+                                     encoder=encoder, run=run)
+        fps = TIMELAPSE_FPS
     pattern = str(Path(frames_dir) / "frame-%06d.jpg")
 
     def attempt(choice):
@@ -107,6 +115,31 @@ def encode_frames(frames_dir, target, *, fps=TIMELAPSE_FPS, ffmpeg_bin=None, enc
     return target
 
 
+def delivery_video(video, filename, session=None):
+    """Name an encoded timelapse from the print record and archive a copy (#906).
+
+    Shared by the Bambu, Elegoo and Prusa watchers so every backend delivers the same
+    ``<start>-<model>-print-<n>.mp4``. Never raises; returns the original on any failure.
+    """
+    try:
+        from . import timelapse_encode
+        fallback = Path(session.directory).name if session is not None else Path(video).stem
+        name = timelapse_encode.delivery_name(None, fallback, filename)
+        timelapse_encode.archive_local_copy(video, name, log=log)
+        return timelapse_encode.named_copy(video, name)
+    except Exception:
+        return video
+
+
+def _caption_number(text, filename):
+    """Add the print number to a timelapse caption (#906). Never raises."""
+    try:
+        from . import timelapse_encode
+        return timelapse_encode.caption_with_number(text, None, filename)
+    except Exception:
+        return text
+
+
 def _default_encode(session):
     """Encode a stopped session's frames and size the result for delivery.
 
@@ -119,7 +152,7 @@ def _default_encode(session):
 
     raw = encode_frames(session.frames_dir, session.directory / "timelapse.mp4")
     try:
-        return mel.platform_sized_video(raw)
+        return delivery_video(mel.platform_sized_video(raw), session.filename, session)
     except Exception as exc:
         log(f"stock timelapse sizing failed for {session.filename!r}: {exc!r}")
         return None
@@ -273,6 +306,7 @@ class StockPrintMonitor:
                 log(f"stock timelapse for {self.filename!r} has no frames "
                     f"({session.failures} failed fetch(es)); posting the completion without it")
         if video is not None:
+            text = _caption_number(text, self.filename)
             try:
                 # The production sender reports a refusal as a False
                 # return, not an exception (the P2-169/P2-173 contract):

@@ -58,6 +58,8 @@ def without_added(data):
     for key in ("capture_trigger", "capture_interval_s", "capture_max_frames",
                 "capture_max_bytes", "capture_encoder"):  # added by #246 stage 2, after capture
         data.get("timelapse", {}).pop(key, None)
+    for key in ("target_length_s", "min_fps", "max_fps", "min_length_s", "hold_last_frame_s"):
+        data.get("timelapse", {}).pop(key, None)  # added by #906, after capture
     data.get("timelapse", {}).pop("encoder", None)  # added by #314, after capture
     data.get("discord", {}).pop("denied_user_ids", None)  # added by #386, after capture
     data.get("discord", {}).pop("chat_llm_enabled", None)  # added by #466, after capture

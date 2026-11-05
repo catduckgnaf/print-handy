@@ -204,8 +204,173 @@ def _encode_frames_once(frames_dir, partial, kbps, vendor, *, fps, ffmpeg, run):
         capture_output=True, timeout=1800, check=True)
 
 
+# -- bounded playback length (#906) ---------------------------------------------------------------
+# Frames per second is chosen from the frame count and a target length, clamped to
+# [min_fps, max_fps]. When the clamp still leaves the video longer than the target the frames are
+# decimated (evenly spaced); when it leaves it shorter than min_length_s they are held (each shown
+# for several output frames). PLAYBACK_FPS stays the fallback when no valid settings are given.
+PLAYBACK_DEFAULTS = {"target_length_s": 20.0, "min_fps": 10.0, "max_fps": 60.0,
+                     "min_length_s": 5.0, "hold_last_frame_s": 1.0}
+
+
+def playback_settings(data=None):
+    """The [timelapse] playback knobs as numbers, or None when they are unusable (fallback)."""
+    try:
+        data = _config.cfg() if data is None else data
+        timelapse = data.get("timelapse", {}) if isinstance(data, dict) else {}
+        out = {}
+        for key, default in PLAYBACK_DEFAULTS.items():
+            value = timelapse.get(key, default)
+            out[key] = float(default if value is None else value)
+        if out["target_length_s"] <= 0 or out["min_fps"] <= 0 or out["max_fps"] < out["min_fps"] \
+                or out["min_length_s"] < 0 or out["hold_last_frame_s"] < 0:
+            return None
+        return out
+    except Exception:
+        return None
+
+
+def plan_playback(frame_count, settings=None):
+    """(fps, indices) for frame_count captured frames; indices pick frames in output order.
+
+    Duplicated indices are holds; a shorter list than frame_count is a decimation. With no valid
+    settings the plan is the legacy one: every frame once at PLAYBACK_FPS.
+    """
+    n = int(frame_count)
+    if n <= 0:
+        return PLAYBACK_FPS, []
+    if not settings:
+        return PLAYBACK_FPS, list(range(n))
+    target = float(settings["target_length_s"])
+    fps = min(max(n / target, settings["min_fps"]), settings["max_fps"])
+    fps_int = max(1, int(round(fps)))
+    out_frames = n
+    if n / fps_int > target:  # still too long at the clamp: decimate
+        out_frames = max(1, int(target * fps_int))
+    elif n / fps_int < settings["min_length_s"]:  # too short at the clamp: hold
+        out_frames = max(n, int(round(settings["min_length_s"] * fps_int)))
+    if out_frames == n:
+        indices = list(range(n))
+    elif out_frames < n:  # decimate across both endpoints so the last captured frame is kept
+        indices = [0] if out_frames == 1 else [i * (n - 1) // (out_frames - 1) for i in range(out_frames)]
+        indices[-1] = n - 1
+    else:  # hold: spread the extra output frames evenly
+        indices = [min(n - 1, i * n // out_frames) for i in range(out_frames)]
+    indices += [indices[-1]] * int(round(settings["hold_last_frame_s"] * fps_int))
+    return fps_int, indices
+
+
+def expected_playback_frames(count, data=None) -> int:
+    """Frames the assembled video holds for ``count`` captured frames (at least 1)."""
+    return max(1, len(plan_playback(count, playback_settings(data))[1]))
+
+
+@contextlib.contextmanager
+def playback_frames(frames_dir, settings=None):
+    """Yield (directory, fps, count) of the frames to encode, per plan_playback.
+
+    An identity plan yields the capture directory itself (no copy); otherwise a temporary
+    directory of symlinks named frame-%06d.jpg in playback order.
+    """
+    frames = sorted(Path(frames_dir).glob("frame-*.jpg"))
+    fps, indices = plan_playback(len(frames), settings)
+    if indices == list(range(len(frames))):
+        yield Path(frames_dir), fps, len(frames)
+        return
+    with tempfile.TemporaryDirectory(prefix="playback-", dir=str(Path(frames_dir).parent)) as tmp:
+        for number, index in enumerate(indices, start=1):
+            os.symlink(frames[index].resolve(), Path(tmp) / f"frame-{number:06d}.jpg")
+        yield Path(tmp), fps, len(indices)
+
+
+def _record_for(job_key, filename=None) -> dict:
+    """The print record naming this job: finished by job key first, then by gcode file."""
+    from . import print_records
+    record = print_records.latest_completed_record(job_key) if job_key else {}
+    if not record and (filename or job_key):
+        record = print_records.latest_record_for_file(filename or job_key)
+    return record or {}
+
+
+def delivery_name(job_key, fallback, filename=None) -> str:
+    """The user-facing name: ``<YYYYMMDD-HHMM>-<model>-print-<n>`` from the print record (#906).
+
+    Start time first (display timezone), then the model name, then the record number. Never
+    carries the gcode hash, is filesystem safe and length bounded. Falls back to ``fallback``
+    (the capture directory name) when no completed record names the job. Never raises.
+    """
+    try:
+        from datetime import datetime
+        from . import print_records
+        record = _record_for(job_key, filename)
+        number = record.get("print_number")
+        title = str(record.get("title") or "").strip()
+        started = str(record.get("started_at") or record.get("completed_at") or "")
+        if not (title or isinstance(number, int)):
+            return str(fallback)
+        parts = []
+        if started:
+            when = datetime.fromisoformat(started.replace("Z", "+00:00"))
+            parts.append(when.astimezone(_config.tz()).strftime("%Y%m%d-%H%M"))
+        if title:
+            parts.append(_safe_part(title)[:60])
+        if isinstance(number, int) and not isinstance(number, bool) and number > 0:
+            parts.append(f"print-{number}")
+        name = "-".join(p for p in parts if p)
+        return name[:100].strip("-.") or str(fallback)
+    except Exception:
+        return str(fallback)
+
+
+def _safe_part(text) -> str:
+    return "-".join("".join(c if c.isalnum() or c in "-_" else "-" for c in str(text)).split("-")).strip("-")
+
+
+def archive_name(job_key, fallback, filename=None) -> str:
+    """Kept for callers of the #906 first cut: the same record-based delivery name."""
+    return delivery_name(job_key, fallback, filename)
+
+
+def named_copy(video, name):
+    """Hard link (or copy) video as ``<name>.mp4`` beside it so the chat attachment carries it.
+
+    Returns the named path, or the original video when naming fails. Never raises.
+    """
+    try:
+        video = Path(video)
+        safe = _safe_part(name) or "timelapse"
+        dest = video.with_name(safe if safe.lower().endswith(".mp4") else safe + ".mp4")
+        if dest == video:
+            return video
+        if dest.exists():
+            dest.unlink()
+        try:
+            os.link(video, dest)
+        except OSError:
+            import shutil
+            shutil.copyfile(video, dest)
+        return dest
+    except Exception:
+        return Path(video)
+
+
+def caption_with_number(text, job_key, filename=None) -> str:
+    """Add the print number to a post caption when the record has one and the text lacks it."""
+    try:
+        if "Print #" in text:
+            return text
+        record = _record_for(job_key, filename)
+        number = record.get("print_number")
+        if isinstance(number, int) and not isinstance(number, bool) and number > 0:
+            return f"{text}\nPrint #{number}"
+    except Exception:
+        pass
+    return text
+
+
 def assemble_frames(frames_dir, target, *, max_bytes, preference="auto", fps=PLAYBACK_FPS,
-                    probe=None, ffmpeg=None, run=None, log=None, validate=None) -> Path | None:
+                    probe=None, ffmpeg=None, run=None, log=None, validate=None,
+                    playback=None) -> Path | None:
     """Assemble frames into target under max_bytes, or None on total failure.
 
     Candidates run in selection order; each gets the two-attempt
@@ -222,6 +387,11 @@ def assemble_frames(frames_dir, target, *, max_bytes, preference="auto", fps=PLA
     frames = sorted(frames_dir.glob("frame-*.jpg")) if frames_dir.is_dir() else []
     if not frames:
         return None
+    if playback:  # #906: bounded playback length; PLAYBACK_FPS stays the no-settings fallback
+        with playback_frames(frames_dir, playback) as (planned_dir, planned_fps, _count):
+            return assemble_frames(planned_dir, target, max_bytes=max_bytes, preference=preference,
+                                   fps=planned_fps, probe=probe, ffmpeg=ffmpeg, run=run, log=log,
+                                   validate=validate)
     duration = max(1.0, len(frames) / float(fps or PLAYBACK_FPS))
     kbps = max(200, int(max_bytes * 8 * 0.90 / duration / 1000))
     if validate is None:
@@ -472,6 +642,13 @@ def dark_capture(job_key, *, data=None, root=None) -> dict | None:
     return manifest if dark_manifest(_directory) else None
 
 
+def _deliver(video, job_key, directory, log, filename=None):
+    """Archive the video under its record based name and return the named attachment path."""
+    name = delivery_name(job_key, directory.name, filename)
+    archive_local_copy(video, name, log=log)
+    return named_copy(video, name)
+
+
 def captured_video(job_key, *, data=None, max_bytes, log=None, probe=None,
                    ffmpeg=None, run=None) -> Path | None:
     """The assembled in-container timelapse for a job, or None. Never raises.
@@ -497,30 +674,29 @@ def captured_video(job_key, *, data=None, max_bytes, log=None, probe=None,
         target = directory / "timelapse.mp4"
         real = run is None
         count = len(list((directory / "frames").glob("frame-*.jpg")))
+        # Playback may decimate or hold, so the video holds the planned frame count, not the capture's.
+        expected = expected_playback_frames(count, data)
 
         def reusable() -> bool:
             if not (target.is_file() and 0 < target.stat().st_size <= max_bytes):
                 return False
             # A cached video is only reused when it still fully decodes:
             # an earlier colliding render may have left a stream-less file.
-            return validate_video(target, ffmpeg=ffmpeg, min_frames=count) if real else True
+            return validate_video(target, ffmpeg=ffmpeg, min_frames=expected) if real else True
 
         if reusable():
-            archive_local_copy(target, directory.name, log=log)
-            return target
+            return _deliver(target, job_key, directory, log)
         with render_lock(target):
             if reusable():  # a concurrent render finished while we waited
-                archive_local_copy(target, directory.name, log=log)
-                return target
+                return _deliver(target, job_key, directory, log)
             if target.exists():
                 log(f"cached timelapse {target} failed validation; re-rendering")
                 target.unlink(missing_ok=True)
             made = assemble_frames(directory / "frames", target, max_bytes=max_bytes,
                                    preference=capture_preference(data), probe=probe,
-                                   ffmpeg=ffmpeg, run=run, log=log)
-            if made is not None:
-                archive_local_copy(made, directory.name, log=log)
-            return made
+                                   ffmpeg=ffmpeg, run=run, log=log,
+                                   playback=playback_settings(data))
+            return _deliver(made, job_key, directory, log) if made is not None else None
     except Exception as exc:  # the completion post must never see this fail
         log(f"captured timelapse unavailable for {job_key!r}: {exc!r}")
         return None

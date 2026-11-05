@@ -661,6 +661,36 @@ class ListenerCaptureHookTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(ticks, [1, 3])
             listener._capture_end("complete")
 
+    async def test_interval_timer_captures_without_status_events(self):
+        """#906: the interval trigger beats on its own clock, not only on layer events."""
+        self.install_config(capture_enabled=True, capture_trigger="interval",
+                            capture_interval_s=5.0)
+        listener = mel.Listener()
+        slept = []
+        with mock.patch.object(timelapse_capture, "fetch_frame", return_value=JPEG):
+            await self.drive_start(listener)
+            session = listener.capture_session
+            clock = [1000.0]
+            session._now = lambda: clock[0]
+
+            async def fake_sleep(seconds):
+                slept.append(seconds)
+                clock[0] += seconds
+                task = listener._capture_task
+                if task is not None:
+                    await task
+                if len(slept) >= 3:
+                    raise asyncio.CancelledError
+
+            with self.assertRaises(asyncio.CancelledError):
+                await listener._capture_timer(sleep=fake_sleep)
+            await listener._capture_task
+            self.assertEqual(slept, [5.0, 5.0, 5.0])
+            self.assertEqual(session.frame_count, 2)  # no status event ever arrived
+            listener.state = "paused"
+            self.assertFalse(listener._capture_timer_tick())
+            listener._capture_end("complete")
+
     async def test_a_new_print_replaces_a_capture_a_missed_end_left_open(self):
         self.install_config(capture_enabled=True)
         listener = mel.Listener()
