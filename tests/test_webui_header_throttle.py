@@ -75,5 +75,23 @@ class PasswordGuidanceTests(unittest.TestCase):
         self.assertTrue(access.access_path(self.data).exists())
 
 
+class ThrottleTableBoundTests(unittest.TestCase):
+    """The shared throttle's tables stay capped no matter how many
+    distinct addresses spray failures (Codex review on this PR): with a
+    fixed clock, lockouts never expire, so only the entry cap can bound
+    the lockout table."""
+
+    def test_lockout_and_failure_tables_stay_bounded(self):
+        throttle = access.LoginThrottle(max_entries=8, clock=lambda: 1000.0)
+        for i in range(64):
+            address = f"2001:db8::{i:x}"
+            for _ in range(throttle.max_failures):
+                throttle.record_failure(address)
+            self.assertLessEqual(len(throttle._locked), 8)
+            self.assertLessEqual(len(throttle._failures), 8)
+        # The most recent attackers are the ones still locked out.
+        self.assertEqual(throttle.retry_after("2001:db8::3f"), throttle.lockout_s + 1)
+
+
 if __name__ == "__main__":
     unittest.main()
