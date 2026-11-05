@@ -14,6 +14,7 @@ from types import SimpleNamespace as S
 
 import pytest
 
+from print_handy.bot import edit_chat
 from print_handy.core import edit_plan as ep
 from print_handy.core import model_job as mj
 
@@ -91,7 +92,7 @@ def edit_env(tmp_path, monkeypatch, request):
         return env.probe_result
 
     env.probe_result = (True, ["ok: support toolpaths — 12 support feature lines"])
-    monkeypatch.setattr(plugin, "_edit_probe", fake_probe)
+    monkeypatch.setattr(edit_chat, "_edit_probe", fake_probe)
 
     async def fake_reenter(event, gateway, source, adapter, job):
         env.reentered.append(job)
@@ -111,7 +112,7 @@ def edit_env(tmp_path, monkeypatch, request):
             {"chat_id": "c", "thread_id": None, "job_json": str(new_path), "status": "SLICED"}))
         return {"action": "skip", "reason": "reentered"}
 
-    monkeypatch.setattr(plugin, "_edit_reenter", fake_reenter)
+    monkeypatch.setattr(edit_chat, "_edit_reenter", fake_reenter)
     return env
 
 
@@ -165,7 +166,7 @@ def test_reentry_failure_restores_the_original_job(edit_env, monkeypatch):
     async def failing_reenter(event, gateway, source, adapter, job):
         raise RuntimeError("intake blew up")
 
-    monkeypatch.setattr(plugin, "_edit_reenter", failing_reenter)
+    monkeypatch.setattr(edit_chat, "_edit_reenter", failing_reenter)
     before = json.loads(edit_env.job_path.read_text())
     result = run(plugin.edit_dispatch(_event("add tree supports"), edit_env.gateway))
     assert result["reason"] == "edit re-entry failed"
@@ -376,27 +377,28 @@ def test_question_without_a_job_is_left_to_chat(edit_env):
 def _ai_settings(monkeypatch, **ai):
     from print_handy import settings
     monkeypatch.setattr(settings, "current", lambda: {"ai": ai})
-    monkeypatch.setattr(plugin, "_EDIT_AI_CALLS", {})
+    monkeypatch.setattr(edit_chat, "_EDIT_AI_CALLS", {})
+    monkeypatch.setattr(edit_chat, "_EDIT_MEMORY", {})
 
 
 def test_ai_allowlist_refuses_users_not_listed(monkeypatch):
     _ai_settings(monkeypatch, allowed_users=["7"], edit_requests_per_hour=0)
-    assert plugin._edit_ai_allowed(S(user_id="7"))[0] is True
-    assert plugin._edit_ai_allowed(S(user_id="42")) == (False, "not on the AI allowlist")
+    assert edit_chat._edit_ai_allowed(S(user_id="7"))[0] is True
+    assert edit_chat._edit_ai_allowed(S(user_id="42")) == (False, "not on the AI allowlist")
 
 
 def test_empty_allowlist_keeps_the_lane_open(monkeypatch):
     _ai_settings(monkeypatch, allowed_users=[], edit_requests_per_hour=0)
-    assert plugin._edit_ai_allowed(S(user_id="42"))[0] is True
+    assert edit_chat._edit_ai_allowed(S(user_id="42"))[0] is True
 
 
 def test_ai_rate_limit_is_per_user_per_hour(monkeypatch):
     _ai_settings(monkeypatch, allowed_users=[], edit_requests_per_hour=2)
-    assert plugin._edit_ai_allowed(S(user_id="1"), now=0)[0]
-    assert plugin._edit_ai_allowed(S(user_id="1"), now=10)[0]
-    assert plugin._edit_ai_allowed(S(user_id="1"), now=20) == (False, "AI edit rate limit reached")
-    assert plugin._edit_ai_allowed(S(user_id="2"), now=20)[0]
-    assert plugin._edit_ai_allowed(S(user_id="1"), now=3601)[0]
+    assert edit_chat._edit_ai_allowed(S(user_id="1"), now=0)[0]
+    assert edit_chat._edit_ai_allowed(S(user_id="1"), now=10)[0]
+    assert edit_chat._edit_ai_allowed(S(user_id="1"), now=20) == (False, "AI edit rate limit reached")
+    assert edit_chat._edit_ai_allowed(S(user_id="2"), now=20)[0]
+    assert edit_chat._edit_ai_allowed(S(user_id="1"), now=3601)[0]
 
 
 def test_refused_user_never_reaches_the_endpoint(edit_env, monkeypatch):
@@ -412,5 +414,88 @@ def test_refused_user_never_reaches_the_endpoint(edit_env, monkeypatch):
 
 
 def test_mentions_are_stripped_before_the_ai_prompt():
-    assert plugin._sanitize_mentions("<@123> make it <@&9> stronger @everyone <#55>") \
+    assert edit_chat._sanitize_mentions("<@123> make it <@&9> stronger @everyone <#55>") \
         == "make it stronger"
+
+
+def test_ai_lane_remembers_a_short_per_user_conversation(monkeypatch):
+    from print_handy.core import design
+    _ai_settings(monkeypatch, allowed_users=[], edit_requests_per_hour=0)
+    seen = []
+    monkeypatch.setattr(design, "resolve_http_config", lambda cfg: {"chat_url": "http://x", "model": "m"})
+    monkeypatch.setattr(design, "http_complete",
+                        lambda cfg, messages: seen.append(list(messages)) or f"reply {len(seen)}")
+    a = S(user_id="1", chat_id="c", thread_id=None)
+    b = S(user_id="2", chat_id="c", thread_id=None)
+    assert run(edit_chat._edit_ai_reply({}, a, "first")) == "reply 1"
+    assert run(edit_chat._edit_ai_reply({}, a, "second")) == "reply 2"
+    assert [m["content"] for m in seen[1]] == ["first", "reply 1", "second"]
+    run(edit_chat._edit_ai_reply({}, b, "other user"))
+    assert [m["content"] for m in seen[2]] == ["other user"]
+    for i in range(10):
+        run(edit_chat._edit_ai_reply({}, a, f"n{i}"))
+    assert len(seen[-1]) <= edit_chat.MEMORY_TURNS * 2 + 1
+
+
+def test_memory_expires(monkeypatch):
+    monkeypatch.setattr(edit_chat, "_EDIT_MEMORY", {})
+    key = ("c", None, "1")
+    edit_chat._remember(key, "q", "a", now=0)
+    assert edit_chat._recall(key, now=60)
+    assert edit_chat._recall(key, now=edit_chat.MEMORY_TTL_S + 1) == []
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("https://www.printables.com/model/1-x shrink this by 20%", "shrink this by 20%"),
+    ("https://www.printables.com/model/1-x does this have supports?", "does this have supports?"),
+    ("https://www.printables.com/model/1-x", None),
+    ("https://www.printables.com/model/1-x print this", None),
+])
+def test_instruction_beside_a_link(text, expected):
+    assert edit_chat.instruction_after_model(text, "https://www.printables.com/model/1-x") == expected
+
+
+def test_link_plus_instruction_runs_intake_then_the_edit(edit_env, monkeypatch):
+    """"<printables link> shrink this by 20%": intake first, then the edit
+    plan applies to the job the intake just prepared."""
+    import print_handy.core.prepared_intake as pi
+    calls = []
+
+    async def fake_intake(event, adapter, state, root, reuse=None, **kw):
+        calls.append(("intake", event.text))
+        return {"action": "skip", "reason": "intake done"}
+
+    monkeypatch.setattr(pi, "prepare_link", fake_intake)
+    monkeypatch.setattr(plugin, "_routed_printer_id", lambda s, g: None)
+    monkeypatch.setattr(plugin, "_undecided_printer_ids", lambda s, g: [])
+    from print_handy.core import printer_state
+    monkeypatch.setattr(printer_state, "load", lambda **kw: {})
+    from print_handy.bot import recent_links
+    monkeypatch.setattr(recent_links, "remember", lambda *a, **k: None)
+    link = "https://www.printables.com/model/12345-bracket"
+    result = run(plugin.model_link_dispatch(_event(f"{link} shrink this by 20%"), edit_env.gateway))
+    assert calls == [("intake", f"{link} shrink this by 20%")]
+    assert edit_env.confirms and "80%" in edit_env.confirms[0][0]
+    assert edit_env.reentered and edit_env.reentered[0]["scale"] == pytest.approx(0.8)
+    assert result["reason"] != "intake done"
+
+
+def test_file_plus_question_answers_after_intake(edit_env, monkeypatch):
+    """"<3mf attachment> does this have supports?" is answered from the new job."""
+    import print_handy.core.prepared_intake as pi
+
+    async def fake_intake(event, adapter, state, root, reuse=None, **kw):
+        return {"action": "skip", "reason": "intake done"}
+
+    monkeypatch.setattr(pi, "prepare_link", fake_intake)
+    monkeypatch.setattr(pi, "model_file", lambda event: "/tmp/x.3mf" if getattr(event, "media_urls", None) else None)
+    monkeypatch.setattr(plugin, "_routed_printer_id", lambda s, g: None)
+    monkeypatch.setattr(plugin, "_undecided_printer_ids", lambda s, g: [])
+    from print_handy.core import printer_state
+    monkeypatch.setattr(printer_state, "load", lambda **kw: {})
+    edit_env.answers = ["Print without"]
+    event = _event("does this have supports?")
+    event.media_urls = ["/tmp/x.3mf"]
+    event.media_types = ["model/3mf"]
+    run(plugin.model_link_dispatch(event, edit_env.gateway))
+    assert any("support" in (m or "").lower() for m in edit_env.adapter.sent + [q for q, _ in edit_env.confirms])

@@ -19,8 +19,14 @@ Say any of these about the current job in the channel (or thread):
   around Z.
 - **Lay flat:** "lay flat", "flat side down", "largest face down" — the
   model is set on its largest face.
-- **Scale:** "scale to 80%", "make it 50 mm wide" (or "tall" by axis:
-  "scale to 40 mm on Z"; plain "to 50 mm" scales the largest side).
+- **Scale:** "scale to 80%", "make it 80%", "make it 50 mm wide" (or
+  "tall" by axis: "scale to 40 mm on Z"; plain "to 50 mm" scales the
+  largest side).
+- **Relative size:** "shrink it by 20%", "20% smaller", "10% bigger",
+  "make it half the size", "double it". These compose with the current
+  scale: a job already at 80% that is shrunk by 20% goes to 64%. "Shrink
+  this" or "make it bigger" with no amount gets a pick list of amounts.
+  Size verbs tolerate typos ("shrnik it by 20%").
 - **Mirror:** "mirror it", "flip it on Y".
 - **Copies:** "print 3 copies", "two copies" — single-plate,
   single-color jobs only, and only as many as fit the bed.
@@ -54,6 +60,10 @@ to everyone the gateway already authorizes), and
 a rolling hour. A refused request, or one sent with no AI configured at
 all, gets the vocabulary list above; nothing reaches the endpoint. Discord
 mentions are stripped from the request before it is sent.
+
+The AI lane keeps a short memory per user and channel: the last three
+exchanges, forgotten after 30 minutes or a restart, so a follow-up such
+as "thicker than that" has context. It is held in memory only.
 
 Model names, filenames and 3MF metadata are passed to the AI as quoted
 data, never as instructions, and the reply is only ever parsed as a
@@ -116,3 +126,11 @@ A question about the current job is answered, never turned into an edit:
 
 A question in a channel with no current job is left to the chat.
 
+## A link or file plus an instruction
+
+A model link or attached file can carry the edit or question in the same
+message: "<printables link> shrink this by 20%" or a 3MF with "does this
+have supports?". Print Handy runs the normal intake first, then applies
+the edit (with its confirmation and re-slice) or answers the question
+against the job that intake just prepared. Plain intake text such as
+"print this" is not treated as an instruction.
