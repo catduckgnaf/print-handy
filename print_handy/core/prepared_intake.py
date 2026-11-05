@@ -2051,7 +2051,8 @@ async def _fetch_parts(adapter, source, key, metadata, timeout, job, parts, fold
     return Path(combined['path'])
 
 
-async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, printer_id=None):
+async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
+                       before_start=None):
     from . import model_job as mj
     from .source_colors import inventory, canonical_prompts, grouped_prompts, validate_decisions
     source = event.source
@@ -2841,6 +2842,20 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         mj.write_job(folder, latest)
         receipt.update(status='COLORS_SAVED', color_decisions=validated, copies=chosen_quantity)
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+        if before_start is not None:
+            # An edit carried beside the link or file ("<link> shrink this by
+            # 20%", #903) applies to the prepared job BEFORE any slice is armed
+            # or a start is offered. When the edit takes over (it re-enters the
+            # flow with the edited job), this intake ends here.
+            handed = None
+            try:
+                handed = await before_start(jp, latest)
+            except Exception:
+                logger.exception('instruction before start failed; continuing the intake unchanged')
+            if isinstance(handed, dict):
+                receipt.update(status='EDITED', sliced=False, uploaded=False, started=False)
+                receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                return handed
         # Slice while the confirm question is on screen. Cancel below discards it,
         # so a job that never asked for G-code keeps none.
         early = runner_for(jp)

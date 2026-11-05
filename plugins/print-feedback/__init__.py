@@ -5079,8 +5079,14 @@ async def model_link_dispatch(event, gateway, **kwargs):
     try:
         # The intake channel's printer owns the job end to end (#335): its
         # state record feeds the flow and its id is stamped on the job.
+        # A link or file plus an instruction in one message (#903): an edit
+        # applies inside the intake, after the job is prepared and before any
+        # slice is armed or a start is offered; a question is answered after.
+        instruction = None if reuse is not None else _model_instruction(text, linked)
+        edit_hook = _instruction_edit_hook(event, gateway, source, adapter, instruction)
         result = await collect_link(event, adapter, printer_state.load(**_pkw(pid)), root,
-                                    reuse=reuse, **_pkw(pid))
+                                    reuse=reuse, **_pkw(pid),
+                                    **({'before_start': edit_hook} if edit_hook else {}))
     except PromptCancelled:
         await adapter.send(chat_id=source.chat_id,
             content='Cancelled. Nothing sliced, nothing uploaded, nothing started. '
@@ -5096,10 +5102,9 @@ async def model_link_dispatch(event, gateway, **kwargs):
         except Exception:
             logger.exception('New model intake failure delivery also failed')
         return {'action': 'skip', 'reason': 'new model intake unavailable; no start authorized'}
-    # A link or file plus an edit or question in one message (#903): the
-    # intake prepared the new job above; the instruction now applies to it.
-    instruction = None if reuse is not None else _model_instruction(text, linked)
-    if instruction:
+    # A question beside the model is answered from the job the intake just
+    # prepared; edits were applied inside the intake (edit_hook above).
+    if instruction and edit_hook is None:
         from print_handy.bot import edit_chat
         try:
             follow = await edit_chat.follow_up(event, gateway, source, adapter, instruction,
@@ -5110,6 +5115,19 @@ async def model_link_dispatch(event, gateway, **kwargs):
         if isinstance(follow, dict):
             return follow
     return result
+
+
+def _instruction_edit_hook(event, gateway, source, adapter, instruction):
+    """The intake hook that applies an edit carried beside a model link or
+    file before the start choice exists, or None for no edit (#903)."""
+    if not instruction:
+        return None
+    from print_handy.core import model_questions
+    if model_questions.classify(instruction) is not None:
+        return None
+    from print_handy.bot import edit_chat
+    return edit_chat.before_start_hook(event, gateway, source, adapter, instruction,
+                                       host=_EditHost())
 
 
 def _model_instruction(text, url):

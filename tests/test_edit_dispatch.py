@@ -461,8 +461,14 @@ def test_link_plus_instruction_runs_intake_then_the_edit(edit_env, monkeypatch):
     import print_handy.core.prepared_intake as pi
     calls = []
 
-    async def fake_intake(event, adapter, state, root, reuse=None, **kw):
+    async def fake_intake(event, adapter, state, root, reuse=None, before_start=None, **kw):
+        # The real flow: the job is prepared, then the edit hook runs, and
+        # only an intake the hook did not take over goes on to the start choice.
         calls.append(("intake", event.text))
+        handed = await before_start(edit_env.job_path, json.loads(edit_env.job_path.read_text()))
+        if isinstance(handed, dict):
+            return handed
+        calls.append(("start offered", None))
         return {"action": "skip", "reason": "intake done"}
 
     monkeypatch.setattr(pi, "prepare_link", fake_intake)
@@ -474,10 +480,39 @@ def test_link_plus_instruction_runs_intake_then_the_edit(edit_env, monkeypatch):
     monkeypatch.setattr(recent_links, "remember", lambda *a, **k: None)
     link = "https://www.printables.com/model/12345-bracket"
     result = run(plugin.model_link_dispatch(_event(f"{link} shrink this by 20%"), edit_env.gateway))
+    # Codex P1 on #908: the edit applies before the start choice is offered,
+    # so the start never comes up for the unedited job.
     assert calls == [("intake", f"{link} shrink this by 20%")]
     assert edit_env.confirms and "80%" in edit_env.confirms[0][0]
     assert edit_env.reentered and edit_env.reentered[0]["scale"] == pytest.approx(0.8)
-    assert result["reason"] != "intake done"
+    assert result["reason"] == "reentered"
+
+
+def test_link_plus_declined_edit_continues_the_intake(edit_env, monkeypatch):
+    """A declined edit leaves the prepared job unchanged and the intake goes on."""
+    import print_handy.core.prepared_intake as pi
+    calls = []
+
+    async def fake_intake(event, adapter, state, root, reuse=None, before_start=None, **kw):
+        handed = await before_start(edit_env.job_path, json.loads(edit_env.job_path.read_text()))
+        if isinstance(handed, dict):
+            return handed
+        calls.append("start offered")
+        return {"action": "skip", "reason": "intake done"}
+
+    monkeypatch.setattr(pi, "prepare_link", fake_intake)
+    monkeypatch.setattr(plugin, "_routed_printer_id", lambda s, g: None)
+    monkeypatch.setattr(plugin, "_undecided_printer_ids", lambda s, g: [])
+    from print_handy.core import printer_state
+    monkeypatch.setattr(printer_state, "load", lambda **kw: {})
+    from print_handy.bot import recent_links
+    monkeypatch.setattr(recent_links, "remember", lambda *a, **k: None)
+    edit_env.answers = ["Cancel"]
+    link = "https://www.printables.com/model/12345-bracket"
+    result = run(plugin.model_link_dispatch(_event(f"{link} shrink this by 20%"), edit_env.gateway))
+    assert calls == ["start offered"] and result["reason"] == "intake done"
+    assert not edit_env.reentered
+    assert not json.loads(edit_env.job_path.read_text()).get("edits")
 
 
 def test_file_plus_question_answers_after_intake(edit_env, monkeypatch):

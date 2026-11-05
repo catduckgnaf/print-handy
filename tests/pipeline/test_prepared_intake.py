@@ -2369,3 +2369,37 @@ def test_slice_refusal_fix_failure_names_the_slot_and_the_real_remedy(env, monke
     assert 'slot 1' in said and '`/spool change 1 <spool#>`' in said
     assert 'Set the spool with `/spool`' not in said
     assert env.starts == []
+
+
+def test_before_start_hook_runs_before_the_start_choice(env):
+    """#903 / Codex P1 on #908: an edit carried beside the link applies to the
+    prepared job before any slice is armed or the start choice is offered."""
+    seen = []
+
+    async def hook(job_path, job):
+        seen.append(Path(job_path).is_file())
+        return {'action': 'skip', 'reason': 'edit took over'}
+
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='hook',
+              text='https://www.printables.com/model/1-ghost shrink this by 20%')
+    adapter = Adapter([1, 0])
+    result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1,
+                                                      before_start=hook))
+    assert seen == [True]
+    assert result == {'action': 'skip', 'reason': 'edit took over'}
+    assert not any(q['question'].startswith('Ready to slice') for q in adapter.questions)
+    assert env.sliced == [] and env.starts == []
+    receipt = json.loads(next(env.root.glob('*.json')).read_text())
+    assert receipt['status'] == 'EDITED' and not receipt['started']
+
+
+def test_before_start_hook_returning_none_continues_the_intake(env):
+    async def hook(job_path, job):
+        return None
+
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='hook2',
+              text='https://www.printables.com/model/1-ghost')
+    adapter = Adapter([1, 0, 3])
+    asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1,
+                                             before_start=hook))
+    assert any(q['question'].startswith('Ready to slice') for q in adapter.questions)

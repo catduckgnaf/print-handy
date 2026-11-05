@@ -81,7 +81,7 @@ def _edit_current_job(root, source):
                 (str(source_thread) if source_thread else None):
             continue
         if receipt.get('status') in ('CANCELLED', 'CANCELLED_OVERSIZED', 'EXPIRED',
-                                     'DECLINED_REPRINT', 'INTERRUPTED'):
+                                     'DECLINED_REPRINT', 'INTERRUPTED', 'EDITED'):
             continue
         job_json = receipt.get('job_json')
         if not job_json or not Path(job_json).is_file():
@@ -449,6 +449,30 @@ def instruction_after_model(text, url=None):
     except edit_plan.PlanError:
         return rest
     return rest if edit_plan.looks_like_edit(rest) else None
+
+
+def before_start_hook(event, gateway, source, adapter, instruction, *, host):
+    """An intake hook (prepare_link ``before_start``) that applies an edit
+    carried beside a model link or file to the job the intake just
+    prepared, before any slice is armed or a start is offered (#903).
+
+    Returns the edit's result when the edit was applied (the edit re-entered
+    the flow with the edited job, so the first intake ends), or None to let
+    the intake continue unchanged (edit declined, unresolved or refused)."""
+    async def hook(job_path, _job):
+        before = _edit_count(job_path)
+        result = await follow_up(event, gateway, source, adapter, instruction, host=host)
+        if _edit_count(job_path) > before and isinstance(result, dict):
+            return result
+        return None
+    return hook
+
+
+def _edit_count(job_path):
+    try:
+        return len(json.loads(Path(job_path).read_text()).get('edits') or [])
+    except (OSError, ValueError, AttributeError):
+        return 0
 
 
 async def _follow_up(event, gateway, source, adapter, instruction):
