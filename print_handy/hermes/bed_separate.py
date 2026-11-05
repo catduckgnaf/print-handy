@@ -67,6 +67,15 @@ def supports_live_move(connection: str | None) -> bool:
     return str(connection or "").casefold() == "moonraker"
 
 
+def printer_connection(printer_id: str | None = None) -> str | None:
+    """The configured connection kind for a printer; ``None`` when it cannot be read."""
+    try:
+        from . import print_control as pc
+        return pc._adapter_for(printer_id).connection
+    except Exception:
+        return None
+
+
 # Which part moves in Z, from the printer registry (knowledge/printers): the
 # kinematics label, with a per-model override for CoreXY machines whose gantry
 # moves in Z (Voron 2.4 style). The live move is the same in every case
@@ -225,11 +234,7 @@ def separate(*, confirmed_at: float, distance_mm: float | None = None,
         return False, (f"Refused: {distance:g} mm is outside {MIN_SEPARATE_MM:g}-{MAX_SEPARATE_MM:g} mm. "
                        "Nothing sent.")
     if connection is None:
-        try:
-            from . import print_control as pc
-            connection = pc._adapter_for(printer_id).connection
-        except Exception:
-            connection = None
+        connection = printer_connection(printer_id)
     if not supports_live_move(connection):
         return False, manual_instructions(distance, "This printer is not on a Moonraker/Klipper connection.")
     if not _fresh_confirmation(confirmed_at):

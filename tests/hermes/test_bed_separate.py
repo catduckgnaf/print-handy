@@ -236,22 +236,45 @@ def _gateway(adapter):
              _session_key_for_source=lambda s: "session-key")
 
 
-def _dispatch(state, answer):
+def _dispatch(state, answer, connection="moonraker", status_error=None):
     adapter = Adapter()
     confirm = mock.AsyncMock(return_value=answer)
     separate = mock.Mock(return_value=(True, "Opened the gap by 20 mm."))
+    status = mock.Mock(return_value={"state": state}, side_effect=status_error)
     with mock.patch.object(plugin, "_routed_printer_id", return_value="ad5x"), \
-            mock.patch.object(pc, "status", return_value={"state": state}), \
+            mock.patch.object(pc, "status", status), \
             mock.patch.object(plugin, "_confirm", confirm), \
+            mock.patch.object(bs, "printer_connection", return_value=connection), \
             mock.patch.object(bs, "printer_motion", return_value="bed_down"), \
             mock.patch.object(bs, "separate", separate):
         out = asyncio.run(plugin.bed_down_dispatch(_event(), _gateway(adapter)))
-    return out, adapter, confirm, separate
+    return out, adapter, confirm, separate, status
+
+
+@pytest.mark.parametrize("connection", ["bambu", "prusalink", "flashforge", "sdcp", None])
+def test_dispatch_gives_instructions_without_querying_moonraker_on_other_families(connection):
+    out, adapter, confirm, separate, status = _dispatch("standby", plugin.BED_DOWN_LABEL, connection=connection)
+    assert out == {"action": "skip", "reason": "deterministic bed down handled"}
+    status.assert_not_called()
+    confirm.assert_not_called()
+    separate.assert_not_called()
+    assert "Nothing was sent to the printer" in adapter.sent[-1]
+    assert "Do not home Z" in adapter.sent[-1]
+
+
+def test_dispatch_status_read_failure_gives_instructions_and_sends_nothing():
+    out, adapter, confirm, separate, status = _dispatch(
+        "standby", plugin.BED_DOWN_LABEL, status_error=ConnectionError("moonraker down"))
+    status.assert_called_once()
+    confirm.assert_not_called()
+    separate.assert_not_called()
+    assert "couldn't read the printer state" in adapter.sent[-1]
+    assert "Nothing was sent to the printer" in adapter.sent[-1]
 
 
 @pytest.mark.parametrize("state", ["printing", "paused"])
 def test_dispatch_refuses_during_a_print_without_asking(state):
-    out, adapter, confirm, separate = _dispatch(state, plugin.BED_DOWN_LABEL)
+    out, adapter, confirm, separate, _ = _dispatch(state, plugin.BED_DOWN_LABEL)
     assert out == {"action": "skip", "reason": "deterministic bed down handled"}
     confirm.assert_not_called()
     separate.assert_not_called()
@@ -259,7 +282,7 @@ def test_dispatch_refuses_during_a_print_without_asking(state):
 
 
 def test_dispatch_asks_first_then_moves_once():
-    out, adapter, confirm, separate = _dispatch("standby", plugin.BED_DOWN_LABEL)
+    out, adapter, confirm, separate, _ = _dispatch("standby", plugin.BED_DOWN_LABEL)
     question = confirm.call_args.args[4]
     assert "moves the bed down" in question and "no homing and no heat" in question
     separate.assert_called_once()
@@ -268,7 +291,7 @@ def test_dispatch_asks_first_then_moves_once():
 
 
 def test_dispatch_cancel_sends_nothing():
-    _, adapter, _, separate = _dispatch("standby", plugin.CANCEL_BED_DOWN_LABEL)
+    _, adapter, _, separate, _ = _dispatch("standby", plugin.CANCEL_BED_DOWN_LABEL)
     separate.assert_not_called()
     assert adapter.sent[-1] == "Not moved. Nothing sent."
 

@@ -4899,9 +4899,22 @@ async def bed_down_dispatch(event, gateway, **kwargs):
             _scoped = globals().get('_live_key_for')
             if _scoped is not None:
                 live_key = _scoped(source, gateway, chosen)
-        st = await asyncio.to_thread(pc.status, **_pkw(pid))
-        state = st.get('state')
-        if state in {'printing', 'paused'}:
+        connection = await asyncio.to_thread(bs.printer_connection, pid)
+        st = None
+        if bs.supports_live_move(connection):
+            try:
+                st = await asyncio.to_thread(pc.status, **_pkw(pid))
+            except Exception:
+                logger.warning('print-bed-down: status read failed', exc_info=True)
+                st = None
+        state = st.get('state') if isinstance(st, dict) else None
+        if not bs.supports_live_move(connection):
+            message = bs.manual_instructions(
+                bs.separate_mm(), 'This printer is not on a Moonraker/Klipper connection.')
+        elif st is None:
+            message = bs.manual_instructions(
+                bs.separate_mm(), "I couldn't read the printer state, so nothing moves.")
+        elif state in {'printing', 'paused'}:
             message = (f"Refused: the printer is {state}. Separating the bed and nozzle is only offered "
                        "when the printer is idle or stopped. Nothing sent.")
         else:
