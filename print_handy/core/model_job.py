@@ -4236,7 +4236,14 @@ def _job_fit(job, brim_override):
             brim_override = job['fit_brim_policy'].get('width_mm', 0)
         return None, decided, brim_override
     fit = {'scale': float(scale) if scale is not None else 1.0, 'rotation': rotation}
-    supports = bool(orientation.get('supports')) if rotation else decided
+    if rotation:
+        # A rotation that carries no supports value leaves the choice
+        # unresolved (#916): bool(None) here forced supports off on every
+        # per-plate slice and marked the question decided.
+        _orient_supports = orientation.get('supports')
+        supports = _orient_supports if isinstance(_orient_supports, bool) else decided
+    else:
+        supports = decided
     if brim_override is None and job.get('fit_brim_policy'):
         brim_override = job['fit_brim_policy'].get('width_mm', 0)
     if rotation and brim_override is None and orientation.get('brim'):
@@ -5679,7 +5686,17 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
     if adapter.key != printers.current().key:
         scale_kw['adapter'] = adapter
     if rotation:
-        scale_kw.update(rotation=rotation, supports=bool(orientation.get("supports")))
+        scale_kw.update(rotation=rotation)
+        # Only a supports value the orientation actually carries is a
+        # choice (#916): a rotate/lay-flat edit adds a rotation without
+        # one, and bool() turned that absence into supports=False plus a
+        # support_decided=True provenance, suppressing the support
+        # question. _support_kw preserves an existing orientation choice,
+        # the operator's support decision and a chat edit's choice, and
+        # leaves the choice unresolved when none of them exists.
+        _orient_supports = orientation.get("supports")
+        scale_kw.update(_support_kw(job, _orient_supports
+                                    if isinstance(_orient_supports, bool) else None))
     else:
         scale_kw.update(_support_kw(job))  # the operator's choice, not the author's enable_support
     # Chat edit plans (#903): a standalone supports choice has no other

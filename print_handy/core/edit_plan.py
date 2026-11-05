@@ -671,7 +671,52 @@ def lay_flat_rotation(triangles):
 
 # ---------------------------------------------------------------- applying plans to a job
 
-EDITABLE_FIELDS = ("scale", "copies", "orientation", "fit_brim_policy", "edit_settings", "support_decision")
+EDITABLE_FIELDS = ("scale", "copies", "orientation", "fit_brim_policy", "edit_settings",
+                   "support_decision", "unit_provenance", "auto_scale")
+
+
+INCH_TO_MM = 25.4
+
+
+def _source_suffix(job):
+    selected = job.get("selected_source")
+    name = str(job.get("downloaded_file")
+               or (selected.get("name") if isinstance(selected, dict) else "") or "")
+    return name.rsplit(".", 1)[-1].lower() if "." in name else ""
+
+
+def _pending_unit_factor(job):
+    """The confirmed inch conversion slice_job will apply to this job, or
+    None when no conversion is pending (#916).
+
+    A small STL confirmed as inches carries the 25.4 conversion in
+    ``unit_decision`` / ``unit_provenance`` / ``auto_scale``, not in
+    ``job["scale"]``; slice_job applies it at slice time only while no
+    explicit scale is recorded. An explicit scale settles the size, so a
+    job that already has one has nothing pending, and a combined 3MF has
+    the conversion baked into its geometry already."""
+    if job.get("scale") is not None:
+        return None
+    suffix = _source_suffix(job)
+    if suffix and suffix != "stl":
+        return None
+    auto = job.get("auto_scale")
+    if isinstance(auto, dict) and auto.get("factor"):
+        return float(auto["factor"])
+    for record in (job.get("unit_provenance"), job.get("unit_decision")):
+        if isinstance(record, dict) \
+                and str(record.get("units") or "").strip().lower() in ("inch", "inches", "in"):
+            return float(record.get("factor") or INCH_TO_MM)
+    return None
+
+
+def effective_scale(job):
+    """The job's total printed scale: its explicit scale when it has one,
+    otherwise the pending confirmed unit conversion, otherwise 1."""
+    if job.get("scale") is not None:
+        return float(job["scale"])
+    factor = _pending_unit_factor(job)
+    return factor if factor is not None else 1.0
 
 
 def snapshot(job):
@@ -707,7 +752,11 @@ def enrich_plan(plan, job, source_path=None):
     plan = dict(plan)
     dims = job_dims(job)
     kind = plan["kind"]
-    current_scale = float(job.get("scale") or 1.0)
+    # The printed size is source dims x the EFFECTIVE scale, which folds
+    # in a confirmed inch conversion that has not reached job["scale"]
+    # yet (#916); using job["scale"] alone measured an inch job at its
+    # authored millimeter numbers.
+    current_scale = effective_scale(job)
     if kind == "rotate":
         matrix = rotation_matrix(plan["axis"], plan["degrees"])
         existing = (job.get("orientation") or {}).get("rotation")
@@ -762,9 +811,9 @@ def enrich_plan(plan, job, source_path=None):
             raise PlanError("the job record has no dimensions to scale against")
         axis = plan.get("axis")
         # The target is the final printed size: measure against the
-        # current printed dims (source dims x the job's current scale).
+        # current printed dims (source dims x the effective scale).
         base = (dims[AXES.index(axis)] if axis in AXES else max(dims)) \
-            * float(job.get("scale") or 1.0)
+            * current_scale
         percent = plan["mm"] / base * 100
         if not SCALE_MIN_PERCENT <= percent <= SCALE_MAX_PERCENT:
             raise PlanError(f"scaling the {base:g} mm side to {plan['mm']:g} mm is "
@@ -783,7 +832,7 @@ def enrich_plan(plan, job, source_path=None):
         if dims:
             # This edit multiplies the job's total scale by percent/100, so
             # the printed size becomes source dims x new total scale.
-            total = float(job.get("scale") or 1.0) * plan["percent"] / 100
+            total = current_scale * plan["percent"] / 100
             plan["result_dims"] = [round(d * total, 4) for d in dims]
     return plan
 
@@ -811,7 +860,28 @@ def apply_plan(job, plan):
     elif kind == "mirror":
         orientation["mirror"] = plan["mirror"]
     elif kind in ("scale_percent", "scale_to_mm"):
-        job["scale"] = round(float(job.get("scale") or 1.0) * plan["percent"] / 100, 6)
+        # Fold a pending confirmed unit conversion into the scale being
+        # written (#916): the explicit scale takes precedence over the
+        # unit decision at slice time, so writing only the relative
+        # change (0.8 for an 80% edit) would silently drop a 25.4 inch
+        # conversion. Once folded, the scale IS the size instruction —
+        # record it the way slice_job records an explicit scale, so no
+        # later edit applies the conversion a second time.
+        folded = _pending_unit_factor(job)
+        job["scale"] = round(effective_scale(job) * plan["percent"] / 100, 6)
+        if folded is not None:
+            original = None
+            for record in (job.get("unit_provenance"), job.get("unit_decision"),
+                           job.get("auto_scale")):
+                if isinstance(record, dict) and record.get("original_mm"):
+                    original = [float(v) for v in record["original_mm"]]
+                    break
+            if original is None:
+                dims = job_dims(job)
+                original = [float(v) for v in dims] if dims else []
+            job["unit_provenance"] = {"units": None, "source": "explicit_scale",
+                                       "original_mm": original, "factor": job["scale"]}
+            job.pop("auto_scale", None)
     elif kind == "copies":
         job["copies"] = plan["count"]
     elif kind == "brim":
