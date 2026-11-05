@@ -362,3 +362,5 @@ maintenance:
   quick_hours: 25
   full_hours: 75
   full_days: 30
+  # /print-bed-down (prepare to clean): mm the bed and nozzle move apart, 1 to 50.
+  bed_separate_mm: 20

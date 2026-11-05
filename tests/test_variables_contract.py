@@ -101,6 +101,7 @@ EXEMPTIONS = {
     ("llm", "timeout_s"): (frozenset({"webui"}), "#657"),
     ("logging", "file"): (frozenset({"webui"}), "#657"),
     ("logging", "levels"): (frozenset({"webui"}), "#657"),
+    ("maintenance", "bed_separate_mm"): (frozenset({"webui"}), "#657"),
     ("maintenance", "full_days"): (frozenset({"webui"}), "#657"),
     ("maintenance", "full_hours"): (frozenset({"webui"}), "#657"),
     ("maintenance", "quick_hours"): (frozenset({"webui"}), "#657"),

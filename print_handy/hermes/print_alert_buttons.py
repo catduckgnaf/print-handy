@@ -32,6 +32,11 @@ NEW_SPOOL_PREFIX = "pbnewspool"
 NEW_SPOOL_SELECT_PREFIX = "pbnewspoolselect"
 PLATE_PREFIX = "pbplate"
 CONFIRM_LABEL = "Confirm bed is clear & print"
+RECOVER_LABEL = "Restart printer & end job"
+MAINTENANCE_FOLLOW_UP = ("The stopped print is cleared. Check the filament path and consider a "
+                         "maintenance quick check before the next print. To clean the nozzle or "
+                         "free the part, use `/print-bed-down` (Prepare to clean: separate bed and "
+                         "nozzle). It asks first and never homes or heats.")
 TTL = 24 * 3600
 _LOCK = threading.Lock()
 
@@ -223,6 +228,12 @@ def components(aid: str, kind: str) -> list[dict[str, Any]]:
         # The dark-camera notice (#476) carries no print-action buttons at
         # all — only the mute, so a dead camera cannot nag for a whole print.
         return [{"type": 1, "components": [_mute_button(aid)]}]
+    if kind == "shutdown":
+        # An emergency stop cannot be resumed, and Cancel refuses during a
+        # controller shutdown (#838), so the only button is the one action the
+        # handler performs: the /print-reboot clear, then cancel any loaded job.
+        return [{"type": 1, "components": [
+            {"type": 2, "style": 4, "label": RECOVER_LABEL, "custom_id": f"{PREFIX}:recover:{aid}"}]}]
     buttons = []
     if kind == "paused":
         buttons.append({"type": 2, "style": 3, "label": "Resume print", "custom_id": f"{PREFIX}:resume:{aid}"})
@@ -1257,7 +1268,7 @@ def post_visual_dark_notice(token: str, channel_id: str, content: str, filename:
 
 def parse_custom_id(custom_id: str) -> tuple[str, str] | None:
     parts = str(custom_id or "").split(":")
-    if len(parts) == 3 and parts[0] == PREFIX and parts[1] in ("resume", "cancel", "pause", "acknowledge", "mute"):
+    if len(parts) == 3 and parts[0] == PREFIX and parts[1] in ("resume", "cancel", "pause", "acknowledge", "mute", "recover"):
         return parts[1], parts[2]
     return None
 
@@ -1406,6 +1417,62 @@ def _poll_for_paused(pc: Any, wait_s: float, poll_s: float) -> dict[str, Any] | 
     return last
 
 
+def recover_from_stop(filename: str, printer_id: str | None = None, *, wait_s: float = 60,
+                      poll_s: float = 2.0) -> str:
+    """The shutdown stop button: the /print-reboot clear (one firmware restart), then cancel a still-loaded job.
+
+    Reuses clear_shutdown, the implementation /print-reboot runs for an
+    emergency stop, and print_stop.cancel for the job. Re-reads state first;
+    never retries; no motion, no heat.
+    """
+    from . import print_control as pc
+    from . import print_stop
+    kw = {"printer_id": printer_id} if printer_id else {}
+    try:
+        st = pc.status(**kw)
+    except Exception as exc:
+        return f"Not cleared: I could not read the printer ({exc}). Nothing sent."
+    lines = []
+    if st.get("klippy") == "shutdown":
+        ok, msg = clear_shutdown(wait_s, poll_s, **kw)
+        lines.append(msg)
+        if not ok:
+            return "\n".join(lines)
+        try:
+            st = pc.status(**kw)
+        except Exception as exc:
+            lines.append(f"Could not re-read the printer afterwards ({exc}). No cancel sent.")
+            return "\n".join(lines)
+    elif st.get("klippy") != "ready":
+        return f"The printer's controller is {st.get('klippy')}, not in an emergency stop. Nothing sent."
+    cleared = False
+    if st.get("state") in print_stop.ACTIVE:
+        if filename and st.get("filename") and st["filename"] != filename:
+            lines.append("A different print is loaded now than the one in this alert. Not cancelling it.")
+        else:
+            ended, text = print_stop.cancel(st.get("filename") or filename, printer_id=printer_id)
+            lines.append(text)
+            # cancel() returns True when the command was sent, including when the
+            # printer is still printing or paused, or the outcome is unknown.
+            # Confirm a terminal state by one more read before claiming the job
+            # ended (Codex review of #909). A failed re-read keeps the cancel
+            # text and withholds the clearance line.
+            if ended:
+                try:
+                    after = pc.status(**kw)
+                except Exception:
+                    after = None
+                cleared = bool(after) and after.get("state") not in print_stop.ACTIVE
+            else:
+                cleared = False
+    else:
+        lines.append(f"The stopped job is already gone (printer is {st.get('state')}).")
+        cleared = True
+    if cleared:
+        lines.append(MAINTENANCE_FOLLOW_UP)
+    return "\n".join(lines)
+
+
 def handle_click(action: str, alert: dict[str, Any] | None, *,
                  pause_wait_s: float = 15, pause_poll_s: float = 1.0) -> str:
     """Run one button action. Always re-reads state first; never retries."""
@@ -1525,6 +1592,10 @@ def handle_click(action: str, alert: dict[str, Any] | None, *,
         if action == "cancel":
             return control.cancel(filename)[1]
         return "That alert action is not recognized. Nothing sent."
+    if action == "recover":
+        if alert.get("kind") != "shutdown":
+            return "That alert action is not recognized. Nothing sent."
+        return recover_from_stop(filename)
     st = pc.status()
     if action == "resume":
         ok, msg = pc.resume(filename)

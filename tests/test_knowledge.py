@@ -34,7 +34,7 @@ def registry():
 # --------------------------------------------------------------------- registries
 
 def test_registries_load_and_validate(registry):
-    assert len(registry.flows) == 5
+    assert len(registry.flows) == 6
     assert len(registry.symptoms) >= 5
     assert {e.firmware for e in registry.firmware_entries} == {"zmod", "klipper", "marlin", "prusa"}
 
@@ -465,7 +465,7 @@ def test_flow_unknown_answer_rejected():
 
 
 def test_every_flow_completes_by_always_taking_the_first_option():
-    for flow_id in ("first-layer", "clog", "heat-creep", "bed-level", "ringing"):
+    for flow_id in ("first-layer", "clog", "heat-creep", "bed-level", "ringing", "prepare-to-clean"):
         session = knowledge.start_flow(flow_id)
         for _ in range(40):
             step = session.step()
@@ -606,7 +606,7 @@ def test_troubleshoot_dispatch_lists_flows_without_an_argument():
     adapter = FakeAdapter()
     out = asyncio.run(plugin.troubleshoot_dispatch(_event("/print-troubleshoot"), _gateway(adapter)))
     assert out["reason"] == "troubleshoot usage shown"
-    for flow_id in ("first-layer", "clog", "heat-creep", "bed-level", "ringing"):
+    for flow_id in ("first-layer", "clog", "heat-creep", "bed-level", "ringing", "prepare-to-clean"):
         assert f"/print-troubleshoot {flow_id}" in adapter.sent[-1]
     assert adapter.clarified == []
 

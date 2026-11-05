@@ -315,8 +315,9 @@ def shutdown_alert_text(filename, state_message=None):
         state_message = pab.shutdown_message()
     return ("**Printer firmware stopped.**\n" + print_summary.format_event("error", filename)
             + "\n**Why:** " + pab.explain(state_message)
-            + "\nAn emergency stop can't be resumed. Clear the bed, then tap Cancel print "
-              "(it clears the stop and ends the job, no motion), or start over with /print-again.")
+            + "\nAn emergency stop can't be resumed. Only tap the button after the bed and nozzle are clear: "
+              "it restarts the printer's controller once (no motion or heat), then ends the stopped job "
+              "for good. Or start over with /print-again.")
 
 
 def post_cancel_report(filename):
