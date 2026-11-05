@@ -1854,6 +1854,11 @@ def model_info_output(path):
         raise NoPrintableVolume("model has no printable geometry")
     from .mesh_fast import bounds_and_volume
     lo, hi, vol = bounds_and_volume(tris)
+    if not all(math.isfinite(float(v)) for v in (*lo, *hi, vol)):
+        # NaN/inf coordinates poison every extent, volume and fit check downstream; refuse at the
+        # boundary with a message the operator can act on.
+        raise NoPrintableVolume("model contains non-finite (NaN or infinite) coordinates; "
+                                "re-export it from your CAD or slicer tool")
     if min(hi[a] - lo[a] for a in range(3)) <= 1e-6 or abs(vol) <= 1e-9:
         # Flat or zero-volume mesh (#194): nothing for a slicer to fill, so refuse before
         # any plate is offered rather than slicing empty layers and starting a print.
