@@ -460,3 +460,19 @@ def test_failed_hardware_save_keeps_the_old_record_and_removes_its_temp(state_ro
     folder = printer_state.state_path(DEFAULT_ID).parent
     assert json.loads(printer_state.state_path(DEFAULT_ID).read_text()) == {"n": "old"}
     assert not list(folder.glob("*.tmp"))
+
+
+def test_legacy_adoption_survives_uri_special_characters_in_path(tmp_path, monkeypatch):
+    special_dir = tmp_path / "home#printer?state"
+    special_dir.mkdir(parents=True)
+    legacy = special_dir / "print_handy_launches.sqlite3"
+    monkeypatch.setenv("PRINT_HANDY_LAUNCH_DB", str(legacy))
+    launch_state.acquire(DEFAULT_ID, remote="special-chars.gcode")
+    monkeypatch.delenv("PRINT_HANDY_LAUNCH_DB")
+    monkeypatch.setattr(settings, "state_dir", lambda data=None: special_dir)
+
+    path = launch_state.db_path(DEFAULT_ID)
+    assert path.exists()
+    assert not list(path.parent.glob("jobs.db.adopting*"))
+    [row] = launch_state.pending(DEFAULT_ID)
+    assert row["remote"] == "special-chars.gcode"

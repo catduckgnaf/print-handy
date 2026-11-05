@@ -66,7 +66,7 @@ def _adopt_legacy_db(target, printer_id):
             stale.unlink()  # an interrupted earlier adoption; start clean
     # SQLite's online backup API yields one consistent snapshot even while a
     # writer holds the WAL; copying the db and -wal files separately did not.
-    src = sqlite3.connect(f"file:{legacy}?mode=ro", uri=True)
+    src = sqlite3.connect(legacy.resolve().as_uri() + "?mode=ro", uri=True)
     try:
         dst = sqlite3.connect(tmp)
         try:
