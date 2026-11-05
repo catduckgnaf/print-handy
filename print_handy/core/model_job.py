@@ -1854,6 +1854,11 @@ def model_info_output(path):
         raise NoPrintableVolume("model has no printable geometry")
     from .mesh_fast import bounds_and_volume
     lo, hi, vol = bounds_and_volume(tris)
+    if not all(math.isfinite(float(v)) for v in (*lo, *hi, vol)):
+        # NaN/inf coordinates poison every extent, volume and fit check downstream; refuse at the
+        # boundary with a message the operator can act on.
+        raise NoPrintableVolume("model contains non-finite (NaN or infinite) coordinates; "
+                                "re-export it from your CAD or slicer tool")
     if min(hi[a] - lo[a] for a in range(3)) <= 1e-6 or abs(vol) <= 1e-9:
         # Flat or zero-volume mesh (#194): nothing for a slicer to fill, so refuse before
         # any plate is offered rather than slicing empty layers and starting a print.
@@ -2617,18 +2622,19 @@ def _sync_active_spool(st, slot, printer_id=None):
     recorded = st.get('spool') or {}
     # The reload/save stays on the printer `st` belongs to: with a roster
     # printer_id the legacy no-ID record is a DIFFERENT printer's (#847).
-    fresh = printer_state.load(printer_id) if printer_id else printer_state.load()
-    fresh['spool'] = {'spoolman_id': sid,
-                      'name': filament.get('name') or configured.get('name'),
-                      'material': filament.get('material') or configured.get('material'),
-                      'diameter_mm': filament.get('diameter', recorded.get('diameter_mm', 1.75)),
-                      'density': filament.get('density', recorded.get('density', 1.24))}
-    # temps_c belonged to the previous spool: mark it so slicing resolves this one's (#692).
-    fresh['temperature_resolution'] = {'source': 'spool changed by launch sync; resolved per slice'}
-    if printer_id:
-        printer_state.save(fresh, printer_id)
-    else:
-        printer_state.save(fresh)
+    with printer_state.hardware_lock(printer_id or None):
+        fresh = printer_state.load(printer_id) if printer_id else printer_state.load()
+        fresh['spool'] = {'spoolman_id': sid,
+                          'name': filament.get('name') or configured.get('name'),
+                          'material': filament.get('material') or configured.get('material'),
+                          'diameter_mm': filament.get('diameter', recorded.get('diameter_mm', 1.75)),
+                          'density': filament.get('density', recorded.get('density', 1.24))}
+        # temps_c belonged to the previous spool: mark it so slicing resolves this one's (#692).
+        fresh['temperature_resolution'] = {'source': 'spool changed by launch sync; resolved per slice'}
+        if printer_id:
+            printer_state.save(fresh, printer_id)
+        else:
+            printer_state.save(fresh)
     st['spool'] = dict(fresh['spool'])
     print(f'ACTIVE SPOOL SYNCED: #{current} -> #{sid} (slot {slot})', flush=True)
     result = {'spool_id': sid, 'previous': current, 'changed': True}

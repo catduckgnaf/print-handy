@@ -441,16 +441,17 @@ def record_confirmed(printer_id, model_key, accepted, *, today=None):
     if not clean:
         return 0
     from . import printer_state
-    record = printer_state.load(printer_id)
-    block = record.get("thermal_install")
-    if not isinstance(block, dict) or block.get("model") != model_key or not isinstance(block.get("facts"), dict):
-        block = {"model": model_key, "facts": {}}
-    source = SOURCE.format(date=(today or datetime.date.today()).isoformat())
-    for item in clean:
-        block["facts"][item["field"]] = {"value": item["value"], "provenance": PROVENANCE,
-                                         "source": source, "evidence": str(item.get("evidence") or "")}
-    record["thermal_install"] = block
-    printer_state.save(record, printer_id)
+    with printer_state.hardware_lock(printer_id):
+        record = printer_state.load(printer_id)
+        block = record.get("thermal_install")
+        if not isinstance(block, dict) or block.get("model") != model_key or not isinstance(block.get("facts"), dict):
+            block = {"model": model_key, "facts": {}}
+        source = SOURCE.format(date=(today or datetime.date.today()).isoformat())
+        for item in clean:
+            block["facts"][item["field"]] = {"value": item["value"], "provenance": PROVENANCE,
+                                             "source": source, "evidence": str(item.get("evidence") or "")}
+        record["thermal_install"] = block
+        printer_state.save(record, printer_id)
     return len(clean)
 
 
