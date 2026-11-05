@@ -39,6 +39,12 @@ def _no_live_network(monkeypatch):
     """
     real_cc, real_connect = socket.create_connection, socket.socket.connect
 
+    # The real senders use urllib, which honors proxy variables; keep loopback direct.
+    for name in ("no_proxy", "NO_PROXY"):
+        monkeypatch.setenv(name, LOOPBACK)
+    for name in ("http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY"):
+        monkeypatch.delenv(name, raising=False)
+
     def check(host):
         if host != LOOPBACK:
             raise AssertionError(f"test tried to reach {host!r}; only {LOOPBACK} is allowed")
@@ -124,8 +130,11 @@ def listener(monkeypatch):
     return lst
 
 
-async def run_forever_until(lst, server, monkeypatch, want_connections, delays):
-    """Run Listener.forever() against the fake until it has connected want_connections times."""
+async def run_forever_until(lst, server, monkeypatch, done, delays):
+    """Run Listener.forever() against the fake until done(server, delays) is true.
+
+    done must test what the client has consumed (listener state, subscribes the server received),
+    never just what the server sent."""
     real_sleep = asyncio.sleep
 
     async def fast_sleep(seconds, *a, **k):
@@ -138,14 +147,14 @@ async def run_forever_until(lst, server, monkeypatch, want_connections, delays):
     task = asyncio.create_task(lst.forever())
     try:
         async with asyncio.timeout(15):
-            while server.connections < want_connections or not server.ready.is_set():
+            while not done(server, delays):
                 await real_sleep(0.02)
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
 
 
-def drive_moonraker(lst, monkeypatch, behaviors, want_connections):
+def drive_moonraker(lst, monkeypatch, behaviors, done):
     fake = FakeMoonraker(behaviors)
     delays = []
     fake.ready = None  # created inside the loop below
@@ -155,37 +164,41 @@ def drive_moonraker(lst, monkeypatch, behaviors, want_connections):
         async with serve(fake.handler, "127.0.0.2", 0) as server:
             port = server.sockets[0].getsockname()[1]
             monkeypatch.setattr(mel, "WS_URL", f"ws://127.0.0.2:{port}/websocket")
-            await run_forever_until(lst, fake, monkeypatch, want_connections, delays)
+            await run_forever_until(lst, fake, monkeypatch, done, delays)
     asyncio.run(flow())
     return fake, delays
 
 
 def test_listener_reconnects_and_resubscribes_after_the_server_drops(listener, monkeypatch):
-    fake, delays = drive_moonraker(listener, monkeypatch, ["drop", "drop", "idle"], 3)
+    fake, delays = drive_moonraker(listener, monkeypatch, ["drop", "drop", "idle"],
+                                  lambda f, d: f.subscribes >= 3 and listener.state == "standby")
     assert fake.connections >= 3 and fake.subscribes >= 3  # every reconnect subscribed again
     assert delays[:2] == [5, 10]  # back-off doubles from five seconds
     assert listener.state == "standby"  # the third session's subscribe reply landed
 
 
 def test_back_off_is_capped_and_never_gives_up(listener, monkeypatch):
-    fake, delays = drive_moonraker(listener, monkeypatch, ["drop"] * 7 + ["idle"], 8)
+    fake, delays = drive_moonraker(listener, monkeypatch, ["drop"] * 7 + ["idle"],
+                                  lambda f, d: f.subscribes >= 8 and len(d) >= 7)
     assert delays[:7] == [5, 10, 20, 40, 80, 120, 120]
     assert fake.connections >= 8
 
 
 def test_a_refused_subscribe_does_not_end_the_session(listener, monkeypatch):
-    fake, delays = drive_moonraker(listener, monkeypatch, ["refuse"], 1)
+    fake, delays = drive_moonraker(listener, monkeypatch, ["refuse"], lambda f, d: f.ready.is_set())
     assert fake.connections == 1 and delays == []  # Klippy not ready is logged, not a reconnect
 
 
 def test_a_malformed_frame_drops_the_session_and_reconnects(listener, monkeypatch):
-    fake, delays = drive_moonraker(listener, monkeypatch, ["garbage", "idle"], 2)
+    fake, delays = drive_moonraker(listener, monkeypatch, ["garbage", "idle"],
+                                  lambda f, d: f.subscribes >= 2 and listener.state == "standby")
     assert fake.connections >= 2 and delays[:1] == [5]
     assert listener.state == "standby"
 
 
 def test_klippy_ready_resubscribes_on_the_same_connection(listener, monkeypatch):
-    fake, delays = drive_moonraker(listener, monkeypatch, ["ready_again"], 1)
+    fake, delays = drive_moonraker(listener, monkeypatch, ["ready_again"],
+                                  lambda f, d: f.subscribes >= 2 and listener.state == "standby")
     assert fake.connections == 1 and delays == []
     assert fake.subscribes == 2  # the first subscribe plus the one after notify_klippy_ready
 
