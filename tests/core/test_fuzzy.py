@@ -66,7 +66,9 @@ def test_coverage_guard_rejects_one_shared_word_false_friends():
 def test_windowed_score_finds_a_partial_title():
     # Long print titles (stage 2): the query names part of the title, and a
     # typo in it. Whole-string scores 52 here; the "desk stand" window is 90.
-    assert fuzzy.windowed_fuzzy_score("desk stadn", "G4 Instant Desk Stand") == 90
+    # "stadn" is one transposition from "stand": phase-2 typo tolerance
+    # corrects it against the target's own words, so the window is exact.
+    assert fuzzy.windowed_fuzzy_score("desk stadn", "G4 Instant Desk Stand") == 99
     # A missing space is a window-size difference, not a different query.
     assert fuzzy.windowed_fuzzy_score("deskstand", "G4 Instant Desk Stand") >= 85
     # Windows do not rescue unrelated text.
