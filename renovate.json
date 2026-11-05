@@ -8,6 +8,7 @@
         "dependencies"
     ],
     "minimumReleaseAge": "3 days",
+    "dependencyDashboard": true,
     "packageRules": [
         {
             "commitMessagePrefix": "ci:",
