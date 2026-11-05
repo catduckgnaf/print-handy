@@ -191,6 +191,7 @@ def test_provenance_and_undo_round_trip():
     record = ep.record_edit(job, {"kind": "supports", "enabled": True, "type": "tree"},
                             actor="discord:42", lane="fuzzy", source_sha256="a" * 64)
     ep.apply_plan(job, record["plan"])
+    assert job.get("support_decision", {}).get("supports") is True
     ep.finish_edit_record(job, verification=["ok: support toolpaths"], output_sha256="b" * 64)
     assert job["edits"][0]["actor"] == "discord:42"
     assert job["edits"][0]["lane"] == "fuzzy"
@@ -199,6 +200,7 @@ def test_provenance_and_undo_round_trip():
     undone = ep.undo_last_edit(job, actor="discord:42")
     assert undone["plan"]["kind"] == "supports"
     assert job.get("edit_settings") in (None, {})
+    assert job.get("support_decision") in (None, {})
     assert ep.supports_override(job) is None
     assert job["edits"][-1]["plan"]["kind"] == "undo"
     assert ep.undo_last_edit(job, actor="discord:42") is None  # nothing left to undo

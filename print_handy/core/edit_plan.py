@@ -663,7 +663,7 @@ def lay_flat_rotation(triangles):
 
 # ---------------------------------------------------------------- applying plans to a job
 
-EDITABLE_FIELDS = ("scale", "copies", "orientation", "fit_brim_policy", "edit_settings")
+EDITABLE_FIELDS = ("scale", "copies", "orientation", "fit_brim_policy", "edit_settings", "support_decision")
 
 
 def snapshot(job):
@@ -792,6 +792,8 @@ def apply_plan(job, plan):
         settings_now["supports"] = {"enabled": plan["enabled"],
                                     "type": plan.get("type"),
                                     "plate_only": plan.get("plate_only")}
+        job["support_decision"] = {"supports": bool(plan["enabled"]), "by": "edit_plan",
+                                   "at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
     elif kind in ("rotate", "lay_flat"):
         orientation["rotation"] = plan["rotation"]
         if plan.get("envelope_dims"):
