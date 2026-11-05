@@ -2083,15 +2083,29 @@ _GCODE_SUPPORTED = {"G0", "G00", "G1", "G01"}
 _GCODE_FORBIDDEN = {"G28", "G53", "FORCE_MOVE", "MANUAL_STEPPER", "STEPPER_BUZZ", "SET_KINEMATIC_POSITION"}
 
 
+_GCODE_XYZ_RE_I = re.compile(r'([XYZ])\s*(' + NUMBER + r')', re.I)
+_FAST_COMMANDS = frozenset({"G0", "G00", "G1", "G01", "G90", "G91", "G92"})
+
+
 def gcode_motion_bounds(text):
-    """Return fail-closed XYZ bounds for ordinary slicer G-code."""
+    """Return fail-closed XYZ bounds for ordinary slicer G-code.
+
+    Same single finditer pass and same outcomes as the original scan
+    (#925), with the per-line overhead cut: the command is uppercased only
+    when it is not already a common uppercase spelling, the axis scan runs
+    case-insensitively over the line's words instead of over an uppercased
+    copy of them, and the position/bounds state lives in locals instead of
+    dicts. Every refusal keeps its original message and line number.
+    """
     absolute = True
-    position = {axis: float("nan") for axis in "XYZ"}
-    low = {axis: float("inf") for axis in "XYZ"}
-    high = {axis: float("-inf") for axis in "XYZ"}
+    pos_x = pos_y = pos_z = float("nan")
+    low_x = low_y = low_z = float("inf")
+    high_x = high_y = high_z = float("-inf")
     recognized = 0
     for match in _GCODE_LINE_RE.finditer(text):
-        command = match.group(1).upper()
+        command = match.group(1)
+        if command not in _FAST_COMMANDS:
+            command = command.upper()
         if command == "G90":
             absolute = True
         elif command == "G91":
@@ -2107,29 +2121,55 @@ def gcode_motion_bounds(text):
                 lineno = text.count("\n", 0, match.start()) + 1
                 raise RuntimeError(f"line {lineno}: G92 changes XYZ coordinates; bounds are ambiguous")
         elif command in _GCODE_SUPPORTED:
-            words = match.group(2).upper()
             found = False
-            for xyz_match in _GCODE_XYZ_RE.finditer(words):
+            for xyz_match in _GCODE_XYZ_RE_I.finditer(match.group(2)):
                 axis, number = xyz_match.groups()
                 found = True
                 value = float(number)
-                if absolute:
-                    position[axis] = value
+                if axis == "X" or axis == "x":
+                    if absolute:
+                        pos_x = value
+                    else:
+                        if pos_x != pos_x:
+                            lineno = text.count("\n", 0, match.start()) + 1
+                            raise RuntimeError(f"line {lineno}: relative X motion before an absolute X position")
+                        pos_x += value
+                    if pos_x < low_x:
+                        low_x = pos_x
+                    if pos_x > high_x:
+                        high_x = pos_x
+                elif axis == "Y" or axis == "y":
+                    if absolute:
+                        pos_y = value
+                    else:
+                        if pos_y != pos_y:
+                            lineno = text.count("\n", 0, match.start()) + 1
+                            raise RuntimeError(f"line {lineno}: relative Y motion before an absolute Y position")
+                        pos_y += value
+                    if pos_y < low_y:
+                        low_y = pos_y
+                    if pos_y > high_y:
+                        high_y = pos_y
                 else:
-                    if position[axis] != position[axis]:
-                        lineno = text.count("\n", 0, match.start()) + 1
-                        raise RuntimeError(f"line {lineno}: relative {axis} motion before an absolute {axis} position")
-                    position[axis] += value
-                low[axis] = min(low[axis], position[axis])
-                high[axis] = max(high[axis], position[axis])
+                    if absolute:
+                        pos_z = value
+                    else:
+                        if pos_z != pos_z:
+                            lineno = text.count("\n", 0, match.start()) + 1
+                            raise RuntimeError(f"line {lineno}: relative Z motion before an absolute Z position")
+                        pos_z += value
+                    if pos_z < low_z:
+                        low_z = pos_z
+                    if pos_z > high_z:
+                        high_z = pos_z
             if found:
                 recognized += 1
     if not recognized:
         raise RuntimeError("no bounded XYZ motion found")
-    missing = [axis for axis in "XYZ" if low[axis] == float("inf")]
+    missing = [axis for axis, low in (("X", low_x), ("Y", low_y), ("Z", low_z)) if low == float("inf")]
     if missing:
         raise RuntimeError("missing bounded motion for axis " + ", ".join(missing))
-    return {axis.lower(): (low[axis], high[axis]) for axis in "XYZ"}
+    return {"x": (low_x, high_x), "y": (low_y, high_y), "z": (low_z, high_z)}
 
 
 BOUNDS_CACHE = Path(os.environ.get("PRINT_HANDY_BOUNDS_CACHE", settings.state_dir()/"gcode-bounds-cache"))
@@ -2330,12 +2370,26 @@ def _native():
 
 
 _TOOL_LINE_RE = re.compile(r"T(\d+)(?:\s*;.*)?")
+# First characters a stripped bare-Tn line can hide behind (#925): 'T', or
+# whitespace strip() removes that splitlines() does not treat as a boundary.
+_TOOL_CANDIDATES = frozenset('T \t\x1f\xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005'
+                             '\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000')
 
 
 def _gcode_tools(text):
-    """Tool indexes a G-code selects with a bare Tn line."""
-    return {int(m.group(1)) for line in text.splitlines()
-            if (m := _TOOL_LINE_RE.fullmatch(line.strip()))}
+    """Tool indexes a G-code selects with a bare Tn line.
+
+    One streaming pass (#925): candidate lines still go through the exact
+    same strip + fullmatch as the original scan; the motion/comment bulk
+    of the plate is skipped with one first-character lookup per line.
+    """
+    tools = set()
+    add = tools.add
+    fullmatch = _TOOL_LINE_RE.fullmatch
+    for line in text.splitlines():
+        if line[:1] in _TOOL_CANDIDATES and (m := fullmatch(line.strip())):
+            add(int(m.group(1)))
+    return tools
 
 
 def _refuse_multicolor(text):
@@ -3095,6 +3149,40 @@ def _recorded_temperatures(job, gcode_path):
     return temps if isinstance(temps, dict) else None
 
 
+def _already_verified_artifact(job, gcode_path):
+    """True only when this job already verified these exact bytes (#925).
+
+    The binding is the slice-time record: ``gcode_verified`` must be true
+    and the artifact's current SHA-256 must equal the bound
+    ``artifact_binding.gcode_sha256`` — the plain digest for a single
+    artifact, or this plate's entry of the per-plate digest map for a
+    split job. Anything else (no job, no binding, an unverified job, a
+    malformed binding, a changed file) is not evidence and returns False,
+    so the caller runs the full verification exactly as before.
+    """
+    if not isinstance(job, dict) or job.get('gcode_verified') is not True:
+        return False
+    binding = job.get('artifact_binding')
+    if not isinstance(binding, dict):
+        return False
+    stored = binding.get('gcode_sha256')
+    if isinstance(stored, dict):
+        stored = None
+        target = str(gcode_path)
+        for row in job.get('derived_plates') or []:
+            if isinstance(row, dict) and str(row.get('gcode')) == target:
+                key = str(row.get('binding_key') or row.get('slot'))
+                digest = binding['gcode_sha256'].get(key)
+                stored = digest if isinstance(digest, str) else None
+                break
+    if not isinstance(stored, str) or not stored:
+        return False
+    try:
+        return file_sha256(gcode_path) == stored
+    except OSError:
+        return False
+
+
 def _verify_routed(gcode_path, adapter, state, printer_id, job=None):
     """verify_gcode for a launch path that already resolved its printer.
 
@@ -3103,7 +3191,20 @@ def _verify_routed(gcode_path, adapter, state, printer_id, job=None):
     as before, against the configured printer. A job's recorded slice
     temperatures ride along so the verify checks the artifact against
     what it was sliced at (P2-275).
+
+    #925: when the job already verified this exact artifact (see
+    _already_verified_artifact), the G-code body is not re-parsed for the
+    offline bounds/tool checks — slicing ran them on these bytes seconds
+    earlier, and the launch paths around this call keep their own live
+    guards (idle/mesh/readiness checks, require_current_artifact's recipe
+    and binding re-checks, the embedded tool-map read). A SHA mismatch or
+    a missing verified flag falls back to the full verification below.
+    The result mirrors the offline shape verify_gcode returns for the
+    offline/LAN families, with skipped_reparse naming what was skipped.
     """
+    if _already_verified_artifact(job, gcode_path):
+        connection = getattr(adapter, 'connection', None) or 'offline'
+        return {'offline': True, 'connection': connection, 'skipped_reparse': True}
     recorded = _recorded_temperatures(job, gcode_path)
     kw = {'recorded_temps': recorded} if recorded else {}
     if printer_id:
