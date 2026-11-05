@@ -437,9 +437,19 @@ class UnraidTemplateTests(unittest.TestCase):
         self.assertEqual(["CMD", *shlex.split(health)], self.service["healthcheck"]["test"])
         publish = (ROOT / ".github" / "workflows" / "docker-publish.yml").read_text()
         image = re.search(r"(?m)^      IMAGE: (ghcr\.io/[^\s]+)$", publish)
-        self.assertIsNotNone(image)
+        if image is None:
+            self.fail("docker-publish.yml has no IMAGE")
+        image_name = image.group(1)
         self.assertIn("docker buildx imagetools create -t \"$IMAGE:latest\"", publish)
-        self.assertEqual(UNRAID.findtext("Repository"), f"{image.group(1)}:latest")
+        # The publisher still moves :latest. The template must not: DockerMan
+        # treats Repository as the image to pull, and a moving tag is how an
+        # install drifts. Pin the multi-arch index digest (name@sha256:...).
+        repository = UNRAID.findtext("Repository") or ""
+        self.assertTrue(repository.startswith(f"{image_name}@sha256:"))
+        self.assertRegex(repository, r"@sha256:[0-9a-f]{64}$")
+        self.assertNotIn(":latest", repository)
+        self.assertNotIn(":develop", repository)
+        self.assertNotIn(":nightly", repository)
         self.assertEqual(UNRAID.findtext("Privileged"), "false")
         # The bundled Spoolman API stays on loopback by default: Compose
         # publishes no port at all (both mappings below are commented

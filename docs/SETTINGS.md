@@ -436,7 +436,7 @@ These configure the Compose deployment, not Print Handy itself. Set them in `.en
 
 | Variable | Default | What it does |
 |---|---|---|
-| `PRINT_HANDY_IMAGE` | none, required | Image the combined container runs: a locally built tag or a tested immutable digest. No published image exists yet |
+| `PRINT_HANDY_IMAGE` | none, required | Image the combined container runs. Set a tested immutable digest (`ghcr.io/catduckgnaf/print-handy@sha256:...`), not `:latest`, `:develop` or `:nightly`. The current release digest is in [Pinning the image](DOCKER.md#pinning-the-image). |
 | `PRINT_HANDY_DATA` | `./data` | Host folder holding the `hermes`, `archive`, `records` and `cache` volumes |
 | `PRINT_HANDY_SPOOLMAN_DATA` | `./data/spoolman` | Host folder for the bundled Spoolman database, config, logs and backups |
 | `PRINT_HANDY_CONFIG` | `/app/config/docker.yaml` | Settings file Print Handy reads (YAML, or legacy `.toml`) |

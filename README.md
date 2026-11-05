@@ -67,7 +67,7 @@ These are mockups built from the bot's real message text and buttons, with place
 
 Setup instructions do not live in this README; they live in the guides, where they can be as detailed as each route needs:
 
-- **Docker** (the easiest route: one container does everything) — the [Docker guide](docs/DOCKER.md). On Unraid, start from `docker/unraid/print-handy.xml`.
+- **Docker** (the easiest route: one container does everything) — the [Docker guide](docs/DOCKER.md). Pin the image by its digest, not `:latest` or `:develop`; the guide has the current digest and the rollback. On Unraid, start from `docker/unraid/print-handy.xml`.
 - **No Docker** — the [standalone bot](docs/STANDALONE.md) (Discord, or [Telegram](docs/TELEGRAM-BOT-SETUP.md) or [Matrix](docs/MATRIX-BOT-SETUP.md) instead), or the [Hermes installation](docs/INSTALL.md) for existing Hermes users.
 - **Everything else** — the [documentation home](docs/README.md) indexes every guide, including configuration, multi-printer installs and troubleshooting.
 
