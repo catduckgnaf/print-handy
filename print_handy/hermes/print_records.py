@@ -143,6 +143,35 @@ def latest_completed_record(job_key: str) -> dict[str, Any]:
     return best
 
 
+def latest_record_for_file(filename: str) -> dict[str, Any]:
+    """The newest record (finished or in progress) for a gcode file name, or {} (#906).
+
+    Backends without a Moonraker job key (Bambu, Elegoo) name their delivered timelapse from
+    this. Matches the record's gcode_file or job_key by exact value or base name.
+    """
+    if not filename:
+        return {}
+    wanted = {str(filename), Path(str(filename)).name}
+    best: dict[str, Any] = {}
+    best_at = ""
+    try:
+        paths = list(PRINTS_DIR.glob("*.json"))
+    except OSError:
+        return {}
+    for path in paths:
+        record = _read_json_record(path)
+        if not record:
+            continue
+        names = {str(record.get("gcode_file") or ""), str(record.get("job_key") or "")}
+        names |= {Path(n).name for n in names if n}
+        if not (wanted & names):
+            continue
+        at = str(record.get("started_at") or record.get("completed_at") or "")
+        if not best or at >= best_at:
+            best, best_at = record, at
+    return best
+
+
 def _valid_print_number(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
 

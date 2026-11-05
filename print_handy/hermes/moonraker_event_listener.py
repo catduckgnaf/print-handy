@@ -1485,6 +1485,7 @@ def _timelapse_post(job_key, completion_message):
             # The captured video is already assembled under the platform
             # cap by timelapse_encode; it skips the archive + shrink the
             # printer-rendered path needs.
+            completion_message = timelapse_encode.caption_with_number(completion_message, job_key)
             message = f"{completion_message}\nMEDIA:{captured}"
             short = _vertical_short_attachment(captured, job_key)
             if short is not None:

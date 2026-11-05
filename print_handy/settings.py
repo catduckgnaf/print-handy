@@ -1213,6 +1213,19 @@ def _validate_timelapse(data):
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:
             raise SettingsError(
                 f"[timelapse] {key} must be a whole number, 0 or more (0 disables the cap), got {value!r}")
+    # #906: bounded playback length. Seconds and frames per second, all above 0 (hold may be 0).
+    for key, default in (("target_length_s", 20), ("min_fps", 10), ("max_fps", 60),
+                         ("min_length_s", 5), ("hold_last_frame_s", 1)):
+        value = timelapse.setdefault(key, default)
+        floor_ok = value >= 0 if key in ("hold_last_frame_s", "min_length_s") else value > 0
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not floor_ok or value > 3600:
+            raise SettingsError(f"[timelapse] {key} must be a number of "
+                                f"{'frames per second' if key.endswith('fps') else 'seconds'} "
+                                f"(above 0{', 0 allowed' if key in ('hold_last_frame_s', 'min_length_s') else ''}"
+                                f", at most 3600), got {value!r}")
+    if timelapse["max_fps"] < timelapse["min_fps"]:
+        raise SettingsError("[timelapse] max_fps must be at least min_fps, got "
+                            f"min_fps={timelapse['min_fps']!r} max_fps={timelapse['max_fps']!r}")
     raw_encoder = timelapse.setdefault("encoder", "cpu")
     encoder = str(raw_encoder or "").strip().lower()
     if encoder not in TIMELAPSE_ENCODERS:
