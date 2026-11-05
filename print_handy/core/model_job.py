@@ -3262,6 +3262,15 @@ def record_start(gcode_path, moonraker_name=None, started_at=None):
         # so the completion record is marked pending instead of silently
         # attributing the usage to whatever spool answers then (P2-155).
         ctx['spoolman_usage_pending'] = job['spoolman_usage_pending']
+    # #913: risky prints get the early-layer camera watch; the listener reads
+    # this back from the context sidecar and the record keeps it.
+    try:
+        why = _external.load("visual_watch").risky_job(job)
+    except Exception:
+        why = ""
+    ctx['watch_mode'] = 'early_layer' if why else 'normal'
+    if why:
+        ctx['watch_risk'] = why
     ctx["record_path"]=print_records.write_start_record(ctx)
     record_path=ctx["record_path"]
     try: side=json.loads(CONTEXT.read_text())

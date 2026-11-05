@@ -2533,17 +2533,36 @@ def _camera_snapshot_bytes():
 _VISION_CONTEXT = "Printer: Flashforge AD5X, enclosed, smooth PEI plate. Reply JSON verdict ok|air|spaghetti|detached|empty_idle|uncertain. "
 
 
-def _visual_verdict(image, prompt, streak=None):
+# The camera-watch timer beat (#913): fine enough for the 60 s empty-bed
+# re-check and the 120 s early-layer interval, cheap when nothing is due.
+VISUAL_TIMER_S = 15
+
+
+def _visual_verdict(image, prompt, streak=None, local_fallback=False):
     """The shared verdict call (visual_watch.visual_verdict) with this listener's values.
 
     ``streak`` is the print watch's per-print local-detector escalation
     state (#455); only visual_check passes it — the auto light-off idle
-    checks judge single frames, so they leave it None.
+    checks judge single frames, so they leave it None. ``local_fallback``
+    is true inside a risky print's early-layer window (#913): a failed
+    endpoint then falls back to the local detector when its model exists.
     """
     return _visual_watch.visual_verdict(
         image, prompt, chat_url=_vision_chat_url, model=_VISION_MODEL,
         api_key=lambda: _profile_env_value("CLIPROXY_API_KEY"), context=_VISION_CONTEXT,
-        local_streak=streak)
+        local_streak=streak, local_fallback=local_fallback)
+
+
+def _auto_pause_early(filename, identity):
+    """Send PAUSE through the alert pause path (#837) for the early-layer auto-pause (#913).
+
+    The same code the camera alert's Pause button runs: status readback,
+    a same-file check, one /printer/print/pause, then a paused readback.
+    It never cancels. Returns the pause path's reply text.
+    """
+    from . import print_alert_buttons as pab
+    alert = {"kind": "visual", "filename": filename, "identity": identity}
+    return pab.handle_click("pause", alert)
 
 
 def _vision_ready():
@@ -3420,8 +3439,21 @@ class Listener:
                 log(f"visual check file={self.filename!r} reason={reason} layer={layer} changed={changed} verdict=skipped")
                 return
             prompt = "Is there plastic on the bed under the nozzle, or is there spaghetti/detachment?"
-            verdict, detail = await asyncio.to_thread(_visual_verdict, image, prompt, self.local_streak)
+            early = self.visual_watch.in_early_window(layer)
+            verdict, detail = await asyncio.to_thread(_visual_verdict, image, prompt, self.local_streak, early)
             suspicious = verdict in {"air", "spaghetti", "detached", "uncertain", "no", "unsafe"}
+            if verdict == "empty_idle" and self.state == "printing":
+                # #913: print_stats says printing, so an empty bed is not a
+                # healthy answer. Re-check within 60 s; a second empty-bed
+                # verdict on that re-check alerts.
+                if reason == "empty_idle_recheck":
+                    suspicious = True
+                    detail = (detail or "") + " (empty bed again while the printer reports printing)"
+                else:
+                    self.visual_watch.note_empty_idle(time.time())
+                    log(f"visual check file={self.filename!r} empty_idle while printing; re-check in "
+                        f"{_visual_watch.EMPTY_IDLE_RECHECK_S}s")
+            streak = self.visual_watch.note_verdict(verdict, layer)
             if reason == "stalled_layers" and changed is False:
                 # A healthy vision verdict outranks the pixel diff.
                 suspicious = verdict not in VISUAL_HEALTHY_VERDICTS
@@ -3445,9 +3477,22 @@ class Listener:
                 if await asyncio.to_thread(pab.visual_muted, self.filename, self._visual_identity()):
                     log(f"visual alert suppressed for muted print {self.filename!r}")
                 else:
-                    await asyncio.to_thread(_visual_alert, self.filename, image,
-                                            f"{reason} at layer {layer or 'unknown'}: {verdict}; {detail or 'visual check needs operator review'}",
+                    pause_now = (streak >= _visual_watch.AUTO_PAUSE_STREAK and not self.visual_watch.auto_paused
+                                 and _visual_watch.watch_settings(_config.cfg())["auto_pause_early"])
+                    text = f"{reason} at layer {layer or 'unknown'}: {verdict}; {detail or 'visual check needs operator review'}"
+                    if pause_now:
+                        text += (f"\nAuto-pause (visual_watch.auto_pause_early): {streak} suspicious checks in a row "
+                                 "in the early layers, so I am pausing the print. It is not cancelled.")
+                    await asyncio.to_thread(_visual_alert, self.filename, image, text,
                                             identity=self._visual_identity())
+                    if pause_now:
+                        # #913: the only automatic printer action, opt-in, once per print.
+                        self.visual_watch.auto_paused = True
+                        log(f"auto-pause early layers file={self.filename!r} layer={layer} streak={streak}: sending PAUSE")
+                        reply = await asyncio.to_thread(_auto_pause_early, self.filename, self._visual_identity())
+                        log(f"auto-pause early layers file={self.filename!r}: {reply}")
+                        await asyncio.to_thread(post, _with_printer_name(
+                            f"Auto-pause: {clean(self.filename)}\n{reply}"))
         except Exception as exc:
             log(f"visual check failed file={self.filename!r} reason={reason}: {exc!r}")
             if image is not None:
@@ -3538,6 +3583,10 @@ class Listener:
             # replacing any session a missed end left open. A resume keeps
             # the session the pause left open.
             self._capture_begin(identity)
+            # #913: pick this print's watch schedule before the first check.
+            self.visual_watch.reset()
+            self.local_streak.reset()
+            self._apply_watch_mode()
             # #516: auto light-on at a fresh print start (a resume is not
             # a start; the light never went off during a pause).
             await self.light_print_started()
@@ -3557,6 +3606,7 @@ class Listener:
                 self.failover_watch.reset()
                 self.visual_watch.reset()
                 self.local_streak.reset()
+                self._apply_watch_mode()
                 if duplicate_start:
                     log(f"start already announced; no second start post: {self.filename!r}")
                 elif start_claimed(self.filename):
@@ -3960,6 +4010,58 @@ class Listener:
         self._schedule_capture(_visual_layer(self.last_stats))
         return True
 
+    def _apply_watch_mode(self):
+        """Set the camera watch schedule for the current print from its start context (#913).
+
+        A risky print (visual_watch.risky_job: a slicer finding, a print
+        anyway override, a supports decision, or the risky marker) gets the
+        early-layer mode; every other print keeps the normal schedule.
+        """
+        try:
+            cfg = _visual_watch.watch_settings(_config.cfg())
+            self.visual_watch.early_layers = cfg["early_layers"]
+            self.visual_watch.early_interval_s = cfg["early_interval_s"]
+            context = print_records.load_context(self.filename) if self.filename else {}
+            why = _visual_watch.risky_job(context)
+        except Exception as exc:
+            log(f"camera watch mode lookup failed file={self.filename!r}: {exc!r}")
+            why = ""
+        mode = _visual_watch.WATCH_MODE_EARLY if why else _visual_watch.WATCH_MODE_NORMAL
+        self.visual_watch.set_mode(mode)
+        if why:
+            log(f"camera watch mode=early_layer file={self.filename!r} ({why}): every layer for "
+                f"{self.visual_watch.early_layers} layers, at least every {self.visual_watch.early_interval_s}s")
+        return mode
+
+    def _visual_timer_tick(self, now=None):
+        """One camera-watch beat, independent of layer events (#913).
+
+        Moonraker sends print_stats only when a field changes, so a long
+        layer produced no event and no periodic check (V12: 49 minutes).
+        Single-flight: a check still running skips this beat.
+        """
+        if self.state != "printing" or not _config.cfg()["visual_watch"]["enabled"]:
+            return None
+        task = self.last_visual_task
+        if task is not None and not task.done():
+            return None
+        layer = _visual_layer(self.last_stats)
+        reason = self.visual_watch.tick(layer, time.time() if now is None else now)
+        if reason and _vision_ready():
+            self.last_visual_task = asyncio.create_task(self.visual_check(reason, layer))
+            return reason
+        return None
+
+    async def _visual_timer(self, sleep=None):
+        """Run camera-watch beats every VISUAL_TIMER_S until cancelled (disconnect)."""
+        sleep = sleep or asyncio.sleep
+        while True:
+            await sleep(VISUAL_TIMER_S)
+            try:
+                self._visual_timer_tick()
+            except Exception as exc:
+                log(f"camera watch timer failed: {exc!r}")
+
     async def _capture_timer(self, sleep=None):
         """Run capture beats every capture_interval_s until cancelled (disconnect)."""
         sleep = sleep or asyncio.sleep
@@ -4013,10 +4115,12 @@ class Listener:
             await asyncio.to_thread(self._sync_printer_clock, "connect")
             last_tick = time.monotonic()
             capture_timer = asyncio.create_task(self._capture_timer())
+            visual_timer = asyncio.create_task(self._visual_timer())
             try:
                 await self._receive_loop(ws, last_tick)
             finally:
                 capture_timer.cancel()
+                visual_timer.cancel()
 
     async def _receive_loop(self, ws, last_tick):
         if True:
