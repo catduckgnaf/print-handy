@@ -193,8 +193,126 @@ from .fuzzy_vocabulary import (  # noqa: F401
     PHRASE_FORMS,
     TOKEN_FORMS,
     PHRASE_FORMS as _PHRASE_FORMS,
+    REAL_WORDS,
     TOKEN_FORMS as _TOKEN_FORMS,
+    TYPO_FORMS,
+    TYPO_PHRASES,
 )
+
+
+# ------------------------------------------------------------ misspellings
+
+def typo_tokens(tokens):
+    """Apply the curated misspelling tables to already-``norm``ed tokens.
+
+    ``TYPO_PHRASES`` fixes a space typed in the wrong place ("youa bout"),
+    then ``TYPO_FORMS`` maps each known misspelling to its word (a value
+    may be two words: "alot" is "a lot"). Unknown tokens pass through.
+    """
+    out = []
+    i = 0
+    while i < len(tokens):
+        pair = tuple(tokens[i:i + 2])
+        if pair in TYPO_PHRASES:
+            out.extend(TYPO_PHRASES[pair])
+            i += 2
+            continue
+        out.extend(TYPO_FORMS.get(tokens[i], tokens[i]).split())
+        i += 1
+    return out
+
+
+def typo_fold(text):
+    """``norm`` plus the curated misspelling table, as one string ("shrnik it" -> "shrink it")."""
+    return " ".join(typo_tokens(norm(text).split()))
+
+
+def edit_distance(a, b, limit):
+    """Damerau-Levenshtein (optimal string alignment) distance, or ``limit + 1`` past ``limit``.
+
+    A swap of two neighbouring letters is one edit, so "shrnik" is one
+    edit from "shrink". Rows stop early once every cell exceeds the limit.
+    """
+    if a == b:
+        return 0
+    if abs(len(a) - len(b)) > limit:
+        return limit + 1
+    prev2 = None
+    prev = list(range(len(b) + 1))
+    for i in range(1, len(a) + 1):
+        cur = [i] + [0] * len(b)
+        for j in range(1, len(b) + 1):
+            cost = 0 if a[i - 1] == b[j - 1] else 1
+            cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
+            if (prev2 is not None and i > 1 and j > 1
+                    and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]):
+                cur[j] = min(cur[j], prev2[j - 2] + 1)
+        if min(cur) > limit:
+            return limit + 1
+        prev2, prev = prev, cur
+    return prev[-1]
+
+
+def typo_limit(token):
+    """Edits tolerated for one token: none up to 4 letters, 1 for 5 to 7, 2 for 8 or more."""
+    if len(token) <= 4:
+        return 0
+    return 1 if len(token) <= 7 else 2
+
+
+def _correctable(token):
+    """Only plain words are corrected: numbers, units, ids, URLs and mentions pass through."""
+    return (token.isalpha() and token.isascii() and token not in REAL_WORDS
+            and typo_limit(token) > 0)
+
+
+def correct_token(token, vocabulary):
+    """The one vocabulary word ``token`` is a bounded misspelling of, else ``token``.
+
+    The first letter must match, the distance must be within
+    ``typo_limit``, and the nearest word must be unique: two vocabulary
+    words at the same distance are a genuine ambiguity, so the token is
+    left alone and the caller's normal scoring (and pick list) decides.
+    """
+    if token in vocabulary or not _correctable(token):
+        return token
+    limit = typo_limit(token)
+    best, best_distance, tied = None, limit + 1, False
+    for word in vocabulary:
+        if not word or word[0] != token[0] or not word.isalpha():
+            continue
+        distance = edit_distance(token, word, limit)
+        if distance < best_distance:
+            best, best_distance, tied = word, distance, False
+        elif distance == best_distance and word != best:
+            tied = True
+    if best is None or tied:
+        return token
+    return best
+
+
+def correct_tokens(tokens, vocabulary):
+    """``correct_token`` over a token list (vocabulary is any container of words)."""
+    vocabulary = set(vocabulary)
+    return [correct_token(token, vocabulary) for token in tokens]
+
+
+def correct_typos(text, vocabulary):
+    """Text with misspelled words fixed against ``vocabulary``, for keyword routers.
+
+    Folds with ``norm`` and the curated table first, then corrects each
+    remaining word with ``correct_token``. Apostrophes are kept inside
+    words ("won't") so routers that match them still can.
+    """
+    words = []
+    for raw in str(text or "").split():
+        core = raw.casefold().strip(".,!?;:\"()[]")
+        if not core or not re.fullmatch(r"[a-z']+", core):
+            words.append(raw)
+            continue
+        folded = typo_tokens([core]) if "'" not in core else [core]
+        words.extend(correct_tokens(folded, vocabulary) if "'" not in core else folded)
+    return " ".join(words)
 
 
 
@@ -236,7 +354,7 @@ def canonical(text):
     remaining tokens are stemmed. Used only inside fuzzy scoring —
     callers' exact tiers never see this form.
     """
-    tokens = norm(text).split()
+    tokens = typo_tokens(norm(text).split())
     # A number word joined to the word it counts ("firstlayer",
     # "twentyone") splits back apart so the phrase parser below can
     # read it; both sides fold identically, so this only equates the
@@ -352,6 +470,11 @@ def fuzzy_score(query, target) -> int:
     alters a score the plain pass produced.
     """
     q, t = canonical(query), canonical(target)
+    if q and t:
+        # Bounded typo tolerance against this target's own words: a
+        # misspelled query word becomes the target word it is clearly a
+        # misspelling of, never a different valid word (see correct_token).
+        q = " ".join(correct_tokens(q.split(), t.split()))
     score = _score_folded(q, t)
     if score or not q or not t:
         return score
