@@ -293,7 +293,7 @@ class TimerStopTests(unittest.IsolatedAsyncioTestCase):
 class SettingsValidationTests(unittest.TestCase):
     def validated(self, **timelapse):
         from print_handy import settings
-        data = {"timelapse": {"capture_interval_s": 5.0, **timelapse}}
+        data = {"services": {}, "timelapse": {"capture_interval_s": 5.0, **timelapse}}
         settings._validate_timelapse(data)
         return data["timelapse"]
 

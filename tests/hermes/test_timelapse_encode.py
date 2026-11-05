@@ -605,7 +605,8 @@ def test_concurrent_renders_of_one_job_leave_a_decodable_video(tmp_path):
     [t.start() for t in threads]
     [t.join() for t in threads]
     target = directory / "timelapse.mp4"
-    assert results == [target] * 3
+    # The delivered file is the record named copy beside the cached render (#906).
+    assert all(r.parent == directory and r.read_bytes() == target.read_bytes() for r in results)
     assert timelapse_encode.validate_video(target, min_frames=count)
     assert not list(directory.glob(".timelapse.mp4.*partial.mp4"))
 
@@ -620,7 +621,8 @@ def test_corrupt_cached_video_is_rerendered_not_attached(tmp_path):
     target = directory / "timelapse.mp4"
     target.write_bytes(b"\x00\x00\x00\x18ftypisom" + b"\x00" * 8_000)  # streamless, like the live file
     out = timelapse_encode.captured_video("job:8", data=capture_data(tmp_path), max_bytes=9_500_000)
-    assert out == target and timelapse_encode.validate_video(target, min_frames=count)
+    assert out.parent == directory and out.read_bytes() == target.read_bytes()
+    assert timelapse_encode.validate_video(target, min_frames=count)
 
 
 def test_undecodable_encoder_output_is_discarded(tmp_path):
