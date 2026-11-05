@@ -320,11 +320,22 @@ def shutdown_alert_text(filename, state_message=None):
               "for good. Or start over with /print-again.")
 
 
+def capture_stop(filename, trigger):
+    """Read and store why the print stopped, before anything restarts the printer. Never raises."""
+    try:
+        from . import stop_capture
+        return stop_capture.capture(filename, trigger, log=log).get("stop_reason") or ""
+    except Exception as exc:
+        log(f"stop capture failed ({trigger}): {exc!r}")
+        return ""
+
+
 def post_cancel_report(filename):
     """Full Klipper report on any cancel; falls back to the short summary if the report fails."""
+    reason = capture_stop(filename, "cancel")
     try:
         from . import klipper_report
-        text = print_summary.format_event("cancelled", filename) + "\n" + klipper_report.report(filename)
+        text = print_summary.format_event("cancelled", filename) + "\n" + klipper_report.report(filename, reason)
     except Exception as exc:
         log(f"klipper report failed: {exc!r}")
         text = print_summary.format_event("cancelled", filename)
@@ -365,7 +376,8 @@ def screen_cancel_reboot(filename, *, status_reader=None, rebooter=None, clearer
 
 
 def post_shutdown_alert(filename):
-    return post_alert(shutdown_alert_text(filename), "shutdown", filename)
+    reason = capture_stop(filename, "shutdown")
+    return post_alert(shutdown_alert_text(filename, reason or None), "shutdown", filename)
 
 
 def _profile_env_value(name):
@@ -3601,6 +3613,8 @@ class Listener:
                 if new_state == "cancelled" and not klipper_report.cancelled_by_bot():
                     self.start_screen_cancel_reboot("moonraker cancelled")
             elif new_state != "complete":
+                if new_state == "error":
+                    await asyncio.to_thread(capture_stop, self.filename, "error")
                 await asyncio.to_thread(post, print_summary.format_event(new_state, self.filename))
         ended = new_state in ("complete", "cancelled", "error", "standby") and old in ("printing", "paused")
         if ended:

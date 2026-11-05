@@ -229,7 +229,7 @@ def build(filename: str, status: dict[str, Any], store: list[dict[str, Any]], lo
     return text if len(text) <= 1990 else text[:1950].rsplit("\n", 1)[0] + "\n(report trimmed)\n```"
 
 
-def report(filename: str) -> str:
+def report(filename: str, stop_reason: str = "") -> str:
     """Collect everything live and build the text. Each source fails independently."""
     status: dict[str, Any] = {}
     store: list[dict[str, Any]] = []
@@ -254,7 +254,7 @@ def report(filename: str) -> str:
             tail = resp.read().decode("utf-8", "replace")
     except Exception:
         pass
-    text = build(filename, status, store, tail, by_bot=cancelled_by_bot(), job=job)
+    text = build(filename, status, store, tail, by_bot=cancelled_by_bot(), job=job, stop_reason=stop_reason)
     if not status:
         text += "\n(Couldn't read live printer state; report is partial.)"
     return text

@@ -317,7 +317,74 @@ def build_record_data(
         "discord_chat_id": str(context.get("discord_chat_id") or DEFAULT_CHAT_ID),
         "moonraker_state": native,
         "job_key": context.get("job_key"),
+        **_stop_fields(filename, started_at),
     }
+
+
+def _stop_fields(filename: str, started_at: Any = None) -> dict[str, Any]:
+    """stop_reason and stop_capture (the sidecar path) captured when this print stopped.
+
+    A capture older than this print's start belongs to an earlier print of the same file.
+    """
+    try:
+        from . import stop_capture
+        captured = stop_capture.load(filename)
+    except Exception:
+        return {}
+    if not captured:
+        return {}
+    if started_at and str(captured.get("first_captured_at") or "") < str(started_at):
+        return {}
+    return {"stop_reason": captured.get("stop_reason") or None,
+            "stop_capture": str(stop_capture.sidecar_path(filename))}
+
+
+def _newest_record_path_for_file(filename: str) -> Path | None:
+    """Path of the newest record for a gcode file (same matching as latest_record_for_file)."""
+    exact, base = str(filename or ""), Path(str(filename or "")).name
+    best, best_key = None, (-1, "")
+    try:
+        paths = list(PRINTS_DIR.glob("*.json"))
+    except OSError:
+        return None
+    for path in paths:
+        record = _read_json_record(path)
+        if not record:
+            continue
+        names = {str(record.get("gcode_file") or ""), str(record.get("job_key") or "")} - {""}
+        tier = 1 if exact in names else 0 if base in {Path(n).name for n in names} else -1
+        if tier < 0:
+            continue
+        at = str(record.get("started_at") or record.get("completed_at") or "")
+        if (tier, at) >= best_key:
+            best, best_key = path, (tier, at)
+    return best
+
+
+def attach_stop_reason(filename: str, reason: str, capture_path: str, captured_at: str = "") -> str:
+    """Add the captured stop reason to the newest record for `filename`; return its path or ''.
+
+    An existing reason is kept: the first stop is the one that explains the print. A record
+    that completed before the stop is an earlier print and is left alone; the stopped print's
+    own record, written later, picks the reason up from the sidecar.
+    """
+    path = _newest_record_path_for_file(filename)
+    record = _read_json_record(path) if path else None
+    if record is None or path is None:
+        return ""
+    done = str(record.get("completed_at") or "")
+    if captured_at and done and done < captured_at:
+        return ""
+    changed = False
+    if reason and not record.get("stop_reason"):
+        record["stop_reason"] = reason
+        changed = True
+    if capture_path and not record.get("stop_capture"):
+        record["stop_capture"] = capture_path
+        changed = True
+    if changed:
+        _atomic_write(path, json.dumps(record, ensure_ascii=False, indent=2) + "\n")
+    return str(path)
 
 
 # The fields a print record carries, in file order: the lookup schema. One
@@ -334,7 +401,7 @@ _RECORD_FIELDS = (
     "filament_used_mm", "filament_used_g", "print_duration_seconds",
     "slicer_settings", "author_directed_tree_supports", "physical_outcome",
     "follow_up", "multipart_plan_id", "part_id", "moonraker_state",
-    "discord_chat_id",
+    "discord_chat_id", "stop_reason", "stop_capture",
 )
 
 

@@ -72,6 +72,19 @@ def _offline_purge_detection(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _offline_stop_capture(tmp_path, monkeypatch):
+    """Stop-reason capture never reaches a printer in tests and writes to the test's own dir.
+    Tests of the capture itself pass their own fake fetch."""
+    from print_handy.hermes import stop_capture
+
+    def offline(path, range_bytes=None):
+        raise OSError(f"network disabled in tests: {path}")
+    monkeypatch.setattr(stop_capture, "_default_fetch", offline)
+    monkeypatch.setattr(stop_capture, "stops_dir", lambda: tmp_path / "stops")
+    monkeypatch.setattr(stop_capture, "_archive_folder", lambda name: None)
+
+
+@pytest.fixture(autouse=True)
 def _isolated_launch_state(tmp_path, monkeypatch):
     """Printer leases and consumed approvals live in a per-test database, never the profile's."""
     monkeypatch.setenv("PRINT_HANDY_LAUNCH_DB", str(tmp_path / "print_handy_launches.sqlite3"))
