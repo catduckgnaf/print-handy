@@ -1,0 +1,267 @@
+{
+ "_doc": "Runner noise of ci.yml slicer-timing-real, written by python3 -m tests.corpus.timing_variance from green main CI artifacts and reviewed by hand. test_timing_gate.py keeps the real-Orca leg reporting-only unless leave_one_out_at_baseline shows zero failing pairings.",
+ "baseline_limits": {
+  "slack_s": 1.0,
+  "tolerance": 0.1
+ },
+ "checked_in_baseline_failing_runs": 0,
+ "leave_one_out_at_baseline": {
+  "failing_pairings": 1838,
+  "pairings": 8190,
+  "slack_s": 1.0,
+  "tolerance": 0.1,
+  "worst_over_limit_s": 3.75
+ },
+ "leave_one_out_grid": [
+  {
+   "failing_pairings": 2354,
+   "pairings": 8190,
+   "slack_s": 0.5,
+   "tolerance": 0.1,
+   "worst_over_limit_s": 4.25
+  },
+  {
+   "failing_pairings": 1838,
+   "pairings": 8190,
+   "slack_s": 1.0,
+   "tolerance": 0.1,
+   "worst_over_limit_s": 3.75
+  },
+  {
+   "failing_pairings": 1366,
+   "pairings": 8190,
+   "slack_s": 1.5,
+   "tolerance": 0.1,
+   "worst_over_limit_s": 3.25
+  },
+  {
+   "failing_pairings": 1024,
+   "pairings": 8190,
+   "slack_s": 2.0,
+   "tolerance": 0.1,
+   "worst_over_limit_s": 2.75
+  },
+  {
+   "failing_pairings": 859,
+   "pairings": 8190,
+   "slack_s": 2.5,
+   "tolerance": 0.1,
+   "worst_over_limit_s": 2.25
+  },
+  {
+   "failing_pairings": 454,
+   "pairings": 8190,
+   "slack_s": 3.0,
+   "tolerance": 0.1,
+   "worst_over_limit_s": 1.75
+  },
+  {
+   "failing_pairings": 2047,
+   "pairings": 8190,
+   "slack_s": 0.5,
+   "tolerance": 0.15,
+   "worst_over_limit_s": 3.92
+  },
+  {
+   "failing_pairings": 1460,
+   "pairings": 8190,
+   "slack_s": 1.0,
+   "tolerance": 0.15,
+   "worst_over_limit_s": 3.42
+  },
+  {
+   "failing_pairings": 1085,
+   "pairings": 8190,
+   "slack_s": 1.5,
+   "tolerance": 0.15,
+   "worst_over_limit_s": 2.92
+  },
+  {
+   "failing_pairings": 916,
+   "pairings": 8190,
+   "slack_s": 2.0,
+   "tolerance": 0.15,
+   "worst_over_limit_s": 2.42
+  },
+  {
+   "failing_pairings": 595,
+   "pairings": 8190,
+   "slack_s": 2.5,
+   "tolerance": 0.15,
+   "worst_over_limit_s": 1.92
+  },
+  {
+   "failing_pairings": 206,
+   "pairings": 8190,
+   "slack_s": 3.0,
+   "tolerance": 0.15,
+   "worst_over_limit_s": 1.42
+  },
+  {
+   "failing_pairings": 1608,
+   "pairings": 8190,
+   "slack_s": 0.5,
+   "tolerance": 0.2,
+   "worst_over_limit_s": 3.59
+  },
+  {
+   "failing_pairings": 1189,
+   "pairings": 8190,
+   "slack_s": 1.0,
+   "tolerance": 0.2,
+   "worst_over_limit_s": 3.09
+  },
+  {
+   "failing_pairings": 963,
+   "pairings": 8190,
+   "slack_s": 1.5,
+   "tolerance": 0.2,
+   "worst_over_limit_s": 2.59
+  },
+  {
+   "failing_pairings": 739,
+   "pairings": 8190,
+   "slack_s": 2.0,
+   "tolerance": 0.2,
+   "worst_over_limit_s": 2.09
+  },
+  {
+   "failing_pairings": 322,
+   "pairings": 8190,
+   "slack_s": 2.5,
+   "tolerance": 0.2,
+   "worst_over_limit_s": 1.59
+  },
+  {
+   "failing_pairings": 74,
+   "pairings": 8190,
+   "slack_s": 3.0,
+   "tolerance": 0.2,
+   "worst_over_limit_s": 1.09
+  }
+ ],
+ "runs": 91,
+ "source": "91 green push runs of ci.yml on main, run ids 41372854407 to 41950941018 (2026-11-02 01:33 UTC to 2026-11-05 01:50 UTC; head 1fa86092), artifact slicer-timing-real, median of 3 repeats each",
+ "spread": {
+  "plates-multicolor/hermes first_prompt_s": {
+   "cv": 0.157,
+   "max": 0.081,
+   "median": 0.063,
+   "min": 0.043,
+   "n": 91,
+   "p95": 0.073
+  },
+  "plates-multicolor/hermes fit_check_s": {
+   "cv": 0.2,
+   "max": 0.01,
+   "median": 0.007,
+   "min": 0.004,
+   "n": 91,
+   "p95": 0.009
+  },
+  "plates-multicolor/hermes wall_s": {
+   "cv": 0.167,
+   "max": 2.13,
+   "median": 1.926,
+   "min": 1.121,
+   "n": 91,
+   "p95": 2.016
+  },
+  "rotation-fit/hermes first_prompt_s": {
+   "cv": 0.143,
+   "max": 0.014,
+   "median": 0.011,
+   "min": 0.007,
+   "n": 91,
+   "p95": 0.013
+  },
+  "rotation-fit/hermes fit_check_s": {
+   "cv": 0.158,
+   "max": 4.604,
+   "median": 3.825,
+   "min": 2.478,
+   "n": 91,
+   "p95": 4.517
+  },
+  "rotation-fit/hermes wall_s": {
+   "cv": 0.166,
+   "max": 9.666,
+   "median": 8.472,
+   "min": 5.305,
+   "n": 91,
+   "p95": 9.419
+  },
+  "single-part/hermes first_prompt_s": {
+   "cv": 0.143,
+   "max": 0.014,
+   "median": 0.011,
+   "min": 0.007,
+   "n": 91,
+   "p95": 0.012
+  },
+  "single-part/hermes fit_check_s": {
+   "cv": 0.136,
+   "max": 6.218,
+   "median": 5.504,
+   "min": 3.747,
+   "n": 91,
+   "p95": 6.049
+  },
+  "single-part/hermes wall_s": {
+   "cv": 0.139,
+   "max": 6.962,
+   "median": 6.197,
+   "min": 4.187,
+   "n": 91,
+   "p95": 6.744
+  },
+  "stl-single-part/hermes first_prompt_s": {
+   "cv": 0.149,
+   "max": 0.01,
+   "median": 0.008,
+   "min": 0.005,
+   "n": 91,
+   "p95": 0.009
+  },
+  "stl-single-part/hermes fit_check_s": {
+   "cv": 0.136,
+   "max": 6.25,
+   "median": 5.504,
+   "min": 3.752,
+   "n": 91,
+   "p95": 6.046
+  },
+  "stl-single-part/hermes wall_s": {
+   "cv": 0.138,
+   "max": 6.996,
+   "median": 6.179,
+   "min": 4.177,
+   "n": 91,
+   "p95": 6.754
+  },
+  "witch-ghost-cults3d/hermes first_prompt_s": {
+   "cv": 0.163,
+   "max": 0.463,
+   "median": 0.398,
+   "min": 0.237,
+   "n": 91,
+   "p95": 0.436
+  },
+  "witch-ghost-cults3d/hermes fit_check_s": {
+   "cv": 0.142,
+   "max": 7.398,
+   "median": 6.602,
+   "min": 4.369,
+   "n": 91,
+   "p95": 7.112
+  },
+  "witch-ghost-cults3d/hermes wall_s": {
+   "cv": 0.152,
+   "max": 11.989,
+   "median": 10.498,
+   "min": 6.58,
+   "n": 91,
+   "p95": 11.314
+  }
+ }
+}
