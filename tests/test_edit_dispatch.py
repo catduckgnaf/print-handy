@@ -258,32 +258,39 @@ def test_ai_unavailable_shows_the_vocabulary(edit_env, monkeypatch):
     assert any("add supports" in text for text in edit_env.adapter.sent)
 
 
-def test_identity_layer_gates_the_ai_lane(edit_env, monkeypatch):
-    from print_handy.bot import agent as agent_lane
-    edit_env.cfg["agent"] = {
-        "identities": {"op": {"chat_url": "http://agent.invalid/v1/chat/completions",
-                              "api_key_env": "OP_KEY", "model": "", "timeout_s": 5}},
-        "users": {"42": "op"}, "allowlist": [], "fallback_identity": ""}
+def test_ai_lane_uses_the_design_endpoint(edit_env, monkeypatch):
+    from print_handy.core import design
     calls = []
+    monkeypatch.setattr(design, "resolve_http_config",
+                        lambda cfg: {"chat_url": "http://ai.invalid/v1/chat", "model": "m",
+                                     "api_key_env": "", "timeout_s": 5})
 
-    def fake_ask(identity, text, conversation_id):
-        calls.append((identity.name, text))
+    def fake_complete(cfg, messages):
+        calls.append(messages)
         return '{"kind": "infill", "percent": 33}'
 
-    monkeypatch.setattr(agent_lane, "ask_as", fake_ask)
+    monkeypatch.setattr(design, "http_complete", fake_complete)
     result = run(plugin.edit_dispatch(_event("strengthen the infill pattern", user_id="42"),
                                       edit_env.gateway))
     assert result["reason"] == "reentered"
-    assert calls and calls[0][0] == "op"
+    assert len(calls) == 1 and calls[0][0]["role"] == "user"
+    assert "strengthen the infill pattern" in calls[0][0]["content"]
     assert edit_env.reentered[0]["edits"][-1]["lane"] == "ai"
 
-    # A user outside the identity layer gets no AI call at all.
-    calls.clear()
-    edit_env.adapter.sent.clear()
-    result = run(plugin.edit_dispatch(_event("strengthen the infill pattern", user_id="99"),
-                                      edit_env.gateway))
+
+def test_ai_endpoint_failure_falls_back_to_the_vocabulary(edit_env, monkeypatch):
+    from print_handy.core import design
+    monkeypatch.setattr(design, "resolve_http_config",
+                        lambda cfg: {"chat_url": "http://ai.invalid/v1/chat", "model": "m",
+                                     "api_key_env": "", "timeout_s": 5})
+
+    def broken(cfg, messages):
+        raise OSError("endpoint unreachable")
+
+    monkeypatch.setattr(design, "http_complete", broken)
+    result = run(plugin.edit_dispatch(_event("strengthen the infill pattern"), edit_env.gateway))
     assert result["reason"] == "edit vocabulary shown"
-    assert not calls
+    assert not edit_env.reentered
 
 
 def test_geometry_route_refused_for_a_multipart_model(edit_env, monkeypatch):
