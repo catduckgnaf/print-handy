@@ -44,7 +44,10 @@ A reference code (marker) is `PH_<SUBSYSTEM>_<CATEGORY>`: the subsystem
 says which part of Print Handy failed, and the category says what kind of
 failure it was — see the taxonomy table above for what each category
 means and the remedy shape it carries. A code in a chat post appears as
-the last line, `Reference: PH_...`; in logs it rides in brackets on the
+the last line, as a link to the code's own catalog section below
+(`Reference: [PH_...](https://catduckgnaf.github.io/print-handy-docs/diagnostics#ph-...)`;
+see [Error code catalog](#error-code-catalog-one-linked-section-per-code-924));
+in logs it rides in brackets on the
 failure's WARNING line. Codes are how a support conversation starts:
 search the code in this repo's issues, or quote it in a new report with
 the diagnostics bundle.
@@ -85,6 +88,369 @@ report's code here to find the code current versions emit:
 | `PB_DEBUG_UNKNOWN` | `PH_DEBUG_UNKNOWN` |
 | `PB_LOGGING_CONFIGURATION` | `PH_LOGGING_CONFIGURATION` |
 | `PB_LISTENER_TRANSIENT` | `PH_LISTENER_TRANSIENT` |
+
+## Error code catalog: one linked section per code (#924)
+
+Since #924, the `Reference:` line at the end of a chat failure post is a
+link: `Reference: [PH_INTAKE_CONFIGURATION](https://catduckgnaf.github.io/print-handy-docs/diagnostics#ph-intake-configuration)`.
+Clicking the code opens this page at the code's own section, with its
+cause and recovery steps. A failure that `failure_report.py` classifies
+to a known signature links the more specific signature code instead
+(for example `PH_PARSE_BAD_3MF_STRUCTURE`), because that section names
+the exact problem rather than the general category.
+
+The rules that keep the links honest:
+
+- **Slug rule.** A code's anchor is the code lowercased with every
+  underscore turned into a hyphen: `PH_INTAKE_CONFIGURATION` lives at
+  `#ph-intake-configuration`. Every catalog heading below carries that
+  anchor explicitly, so the rule holds regardless of how the docs
+  engine slugifies heading text.
+- **Registry.** The codes that exist are registered in code, in one
+  place per family: `print_handy.diagnostics.ERROR_CODES` for marker
+  codes and `print_handy.core.failure_report.SIGNATURE_CODES` for
+  signature codes. Each registry entry builds its link from the single
+  base URL in `print_handy.diagnostics` (`DOCS_BASE_URL`), so no file
+  hardcodes its own copy of the address.
+- **Drift test.** `tests/test_error_code_docs.py` parses this page and
+  asserts the registry and the catalog match both ways: every
+  registered code has a section at its anchor, and every catalog
+  section is a registered code. A code added without a section — or a
+  section added without a code — fails CI.
+- **Fallback.** A marker built from a subsystem/category pair that is
+  not in the registry (a combination no current boundary emits) still
+  prints its code as a link, to the [Reference codes](#reference-codes)
+  section above, instead of pointing at an anchor that does not exist.
+- **What did not change.** Log lines keep the bare bracket token
+  (`[PH_SPOOLMAN_TRANSIENT]`) so existing log searches and alerts keep
+  working, and structured receipts keep the machine-readable values
+  they always carried (the `failure` record's `signature` id, stage,
+  cause and recovery). Only the human-facing `Reference:` tails in chat
+  posts, operator messages, the Discord startup exits and the doctor
+  rows gained links. Doctor rows and the startup exits are plain text,
+  so there the code is followed by the plain URL in parentheses rather
+  than Markdown link syntax. On Telegram and Matrix, which carry these
+  posts as plain text by design, the raw text still contains the full
+  URL and the code, and clients make the URL openable; on Discord the
+  Markdown link renders as a clickable code.
+
+### Marker codes: Discord startup
+
+#### PH_DISCORD_CONFIGURATION {#ph-discord-configuration}
+
+**What failed:** Discord refused the bot token, or the Message Content
+privileged intent is off for the bot. The bot exits instead of
+retrying — retrying cannot fix either cause.
+**What to do:** check that the token in the environment variable named
+by `discord.token_env` is the current bot token, and turn on the
+Message Content intent in the Discord developer portal (Bot >
+Privileged Gateway Intents). Then restart the bot.
+
+#### PH_DISCORD_TRANSIENT {#ph-discord-transient}
+
+**What failed:** a Discord login at startup failed transiently (a
+network or gateway hiccup) and was retried with backoff; this marker
+rides the final `DISCORD_STARTUP_RETRY` log line when the retries run
+out.
+**What to do:** wait a moment and restart; if it keeps happening,
+check the network path to Discord and Discord's own status. The
+container restart policy is the outer backstop.
+
+### Marker codes: Spoolman
+
+#### PH_SPOOLMAN_CONFIGURATION {#ph-spoolman-configuration}
+
+**What failed:** Spoolman is not configured — `services.spoolman_url`
+is empty — so filament tracking could not talk to it.
+**What to do:** set `services.spoolman_url` to your Spoolman service,
+then try again. Prints are not blocked by this; tracking is skipped
+until Spoolman answers.
+
+#### PH_SPOOLMAN_TRANSIENT {#ph-spoolman-transient}
+
+**What failed:** Spoolman did not answer (the service is down, or the
+network path to it hiccuped).
+**What to do:** check that the Spoolman service is running and that
+`services.spoolman_url` points at it, then try again.
+
+#### PH_SPOOLMAN_UNKNOWN {#ph-spoolman-unknown}
+
+**What failed:** talking to Spoolman failed in a way Print Handy does
+not recognize as a configuration or network problem.
+**What to do:** check the Spoolman service's own log next to Print
+Handy's log line carrying this code; if you report it, include the
+code and a diagnostics bundle (`/print-handy bundle`).
+
+### Marker codes: intake
+
+#### PH_INTAKE_CONFIGURATION {#ph-intake-configuration}
+
+**What failed:** preparing a model from a link or file stopped on a
+problem intake can name — a missing or refused model-site credential,
+a 3MF length unit that cannot be converted exactly, an unconfirmed
+filament choice, and similar operator-fixable causes. Where a more
+specific signature code exists (below), the post links that instead.
+**What to do:** follow the fix the post names (for a credential, the
+post names the site, the credential and the docs section that explains
+setting it up), then send the link or file again. Resending unchanged
+cannot help a configuration failure.
+
+#### PH_INTAKE_TRANSIENT {#ph-intake-transient}
+
+**What failed:** preparing a model was interrupted by network weather
+— a host that could not be looked up or reached, a timeout, or a
+temporary refusal (HTTP 429/5xx).
+**What to do:** wait a moment and send the link or file again; if it
+keeps happening, check the network connection.
+
+#### PH_INTAKE_PROGRAMMING {#ph-intake-programming}
+
+**What failed:** intake hit what looks like a Print Handy bug — for
+example, a model whose colors cannot be split into single-color
+plates.
+**What to do:** this is not something a setting fixes. Run
+`/print-handy bundle` and file a report with this code and the bundle.
+
+#### PH_INTAKE_UNKNOWN {#ph-intake-unknown}
+
+**What failed:** preparing a model failed and Print Handy has no
+specific explanation for it yet. Nothing was sliced, uploaded or
+started.
+**What to do:** run `/print-handy bundle` and share the bundle with
+this code so the failure can be looked into. Do not just resend the
+same link repeatedly — an unknown failure is rarely fixed by a retry.
+
+### Marker codes: slicing
+
+#### PH_SLICING_CONFIGURATION {#ph-slicing-configuration}
+
+**What failed:** slicing was refused or stopped on a deterministic
+check — an unconfirmed loaded spool, a job or setting that changed
+after the slice was requested, a safety guard, or another named
+configuration problem. This is the code a `SliceRefusal` carries, and
+it is never reported as `*_UNKNOWN`.
+**What to do:** follow the fix the post names (where a safe fix
+exists, it is offered as a button and applied before the one
+re-slice). Re-slicing with nothing changed gives the same refusal.
+
+#### PH_SLICING_TRANSIENT {#ph-slicing-transient}
+
+**What failed:** the slicer hit a transient failure, such as exceeding
+its time limit.
+**What to do:** the post offers one retry of the slice without
+printing. If the retry also fails, run `/print-handy bundle` and
+share the bundle with this code.
+
+#### PH_SLICING_PROGRAMMING {#ph-slicing-programming}
+
+**What failed:** slicing hit an internal Print Handy error, or the
+slicer produced G-code whose generator could not be verified.
+**What to do:** run `/print-handy bundle` and file a report with this
+code and the bundle; the saved slicer logs in the failure folder hold
+the detail.
+
+#### PH_SLICING_UNKNOWN {#ph-slicing-unknown}
+
+**What failed:** the slice failed and Print Handy could not identify
+the cause. No G-code was kept, and nothing was uploaded or started.
+**What to do:** you can retry the saved model once without printing;
+if it fails again, run `/print-handy bundle` and share the bundle
+with this code.
+
+### Marker codes: printer actions
+
+#### PH_PRINTER_CONFIGURATION {#ph-printer-configuration}
+
+**What failed:** a printer-bound action from chat (stop, resume, next
+plate, print again, restart, and similar) stopped on a configuration
+problem — for example a calibration authority mismatch, where the
+confirmed Z offset belongs to a different screen mode than the one
+the printer is using.
+**What to do:** follow the step the post names (for a calibration
+mismatch, confirm the current offset with `/calibration`), then try
+the action again.
+
+#### PH_PRINTER_TRANSIENT {#ph-printer-transient}
+
+**What failed:** the printer or its listener did not answer in time
+for a printer-bound action.
+**What to do:** check the printer and its screen before retrying —
+the post says what did and did not happen, and an action whose
+outcome is unconfirmed must not be repeated blindly.
+
+#### PH_PRINTER_HARDWARE {#ph-printer-hardware}
+
+**What failed:** the printer or a physical subsystem did not do what
+was asked. This code is in the catalog deliberately: no automatic
+classifier assigns the `hardware` category today, but a boundary that
+knows a failure is physical can pass the category explicitly, and
+that post must land on a real section.
+**What to do:** check the printer and its connection. No print was
+started by the message that carries this code.
+
+#### PH_PRINTER_PROGRAMMING {#ph-printer-programming}
+
+**What failed:** a printer-bound action hit what looks like a Print
+Handy bug.
+**What to do:** check the printer screen so you know its real state,
+then run `/print-handy bundle` and file a report with this code and
+the bundle.
+
+#### PH_PRINTER_UNKNOWN {#ph-printer-unknown}
+
+**What failed:** a printer-bound action failed and Print Handy has
+no specific explanation for it.
+**What to do:** check the printer screen before doing anything else
+(the action may or may not have taken effect), then run
+`/print-handy bundle` and share the bundle with this code.
+
+### Marker codes: debug mode, logging, listeners
+
+#### PH_DEBUG_CONFIGURATION {#ph-debug-configuration}
+
+**What failed:** this is the standing marker of debug log mode — it
+rides the "debug mode is ON" status line while a session is live,
+and names debug-mode state problems.
+**What to do:** while a session is live, no action is needed; turn
+the mode off with `/print-handy debug off` when the problem is
+reproduced, which exports the sanitized session log. See
+[Debug log mode](#debug-log-mode-and-sanitized-exports-478).
+
+#### PH_DEBUG_TRANSIENT {#ph-debug-transient}
+
+**What failed:** a debug-mode operation, such as building the
+sanitized export when the mode is turned off, hit a transient
+failure.
+**What to do:** debug mode stays on and the capture is kept. Try
+`/print-handy debug off` again; on the host,
+`python3 -m print_handy.debug_mode off` does the same thing.
+
+#### PH_DEBUG_PROGRAMMING {#ph-debug-programming}
+
+**What failed:** debug mode hit what looks like a Print Handy bug.
+**What to do:** the capture is kept. File a report with this code
+and, if an export can be built, the sanitized export.
+
+#### PH_DEBUG_UNKNOWN {#ph-debug-unknown}
+
+**What failed:** a debug-mode operation failed in a way Print Handy
+does not recognize — the operator message after a failed debug log
+export carries this code.
+**What to do:** debug mode is still on and the capture is kept. Try
+`/print-handy debug off` again, or on the host run
+`python3 -m print_handy.debug_mode off`. If you report it, include
+this code.
+
+#### PH_LOGGING_CONFIGURATION {#ph-logging-configuration}
+
+**What failed:** the folder of the configured `[logging] file` does
+not exist or is not writable, so the log file is not being written
+(the doctor's `logging` row fails with this code; at runtime the
+logger silently falls back to stderr, which is why the doctor checks
+it loudly).
+**What to do:** create the folder or fix its permissions, or change
+`[logging] file` to a writable path, then re-run
+`python3 -m print_handy.doctor`.
+
+#### PH_LISTENER_TRANSIENT {#ph-listener-transient}
+
+**What failed:** a required printer listener's heartbeat is unhealthy
+— stale, carrying the wrong identity, or not answering (the doctor's
+`listener heartbeats` warning row carries this code).
+**What to do:** check that printer's listener is running; inside the
+container it restarts on its own. The row is a warning, not a doctor
+failure — the container healthcheck owns failing on a dead listener.
+
+### Signature codes: parse
+
+A signature code means `failure_report.py` recognized the failure's
+pattern in the slicer's or intake's evidence. The post's cause and
+recovery text comes from the same classification; this catalog is the
+long-form version of each one.
+
+#### PH_PARSE_MODEL_UNREADABLE {#ph-parse-model-unreadable}
+
+**What failed:** the slicer could not read this 3MF file. Its model
+data is damaged or laid out in a way the slicer does not understand
+(the slicer reported an unreadable object, an invalid 3MF, or its
+parse failure code).
+**What to do:** re-export the model as a fresh 3MF (or send the STL)
+from the program that made it, then send it again. If it fails again,
+run `/print-handy bundle` and share the bundle.
+
+#### PH_PARSE_NO_VOLUME {#ph-parse-no-volume}
+
+**What failed:** this file has no solid volume. The mesh is flat,
+zero-thickness or empty, so there is nothing to print.
+**What to do:** re-export the model as a solid, closed mesh (give it
+real thickness), then send it again.
+
+#### PH_PARSE_BAD_3MF_STRUCTURE {#ph-parse-bad-3mf-structure}
+
+**What failed:** the 3MF file's internal structure is inconsistent —
+for example a part that refers to an object that is missing or loops
+back on itself — so its parts cannot be told apart.
+**What to do:** re-export the model as a fresh 3MF (or send the STL)
+from the program that made it, then send it again. If it fails again,
+run `/print-handy bundle` and share the bundle.
+
+#### PH_PARSE_UNSUPPORTED_FORMAT {#ph-parse-unsupported-format}
+
+**What failed:** that file is not a model Print Handy can slice.
+Only STL and 3MF files are supported.
+**What to do:** send the model as an `.stl` or `.3mf` file.
+
+### Signature codes: intake
+
+#### PH_INTAKE_UNCLEAR_UNITS {#ph-intake-unclear-units}
+
+**What failed:** the model's measurement units are missing or
+unclear, so its real size is not known.
+**What to do:** send it again and answer the millimeters or inches
+question, or re-export the model with its units set.
+
+#### PH_INTAKE_UNTUNED_NOZZLE {#ph-intake-untuned-nozzle}
+
+**What failed:** no tuned slicing profile exists for the selected
+nozzle size.
+**What to do:** select a nozzle size with a tuned profile, then send
+the model again.
+
+#### PH_INTAKE_TOO_COMPLEX {#ph-intake-too-complex}
+
+**What failed:** the model is too large or detailed to process
+safely — it passes a safety ceiling on size or element count.
+**What to do:** simplify or reduce the mesh resolution in your
+modeling program, then send it again.
+
+### Signature codes: plate plan and slice
+
+#### PH_PLATE_PLAN_OUTSIDE_BED {#ph-plate-plan-outside-bed}
+
+**What failed:** the model does not fit inside the printer's build
+volume at the size and position it was given.
+**What to do:** pick a smaller size when asked, scale the model
+down, or send a smaller model.
+
+#### PH_PLATE_PLAN_EMPTY_PLATE {#ph-plate-plan-empty-plate}
+
+**What failed:** the slicer found nothing to print on the plate. The
+model is empty, hidden, or sits outside the bed.
+**What to do:** check that the model has solid geometry and is not
+off the plate, then send it again.
+
+#### PH_SLICE_THIN_FEATURES {#ph-slice-thin-features}
+
+**What failed:** the slicer could not build toolpaths for part of
+the model, usually features thinner than one nozzle line.
+**What to do:** thicken the thin walls or fine details in the model,
+or send a different version.
+
+#### PH_SLICE_OUT_OF_MEMORY {#ph-slice-out-of-memory}
+
+**What failed:** the slicer ran out of memory on this model.
+**What to do:** free memory on the host or send a simpler,
+lower-resolution model, then retry once.
 
 ## Readable errors: the real cause, and `PH_` not `PB_` (#590)
 
@@ -334,7 +700,7 @@ sections use the same sanitizer and carry the same report.
 
 ## Stage, cause and recovery for every model failure (#817)
 
-A model failure posted to chat used to be "stopped before it was ready" or a slicer exit code. Every model failure now comes from one classification, `print_handy/core/failure_report.py`, and says four things:
+A model failure posted to chat used to be "stopped before it was ready" or a slicer exit code. Every model failure now comes from one classification, `print_handy/core/failure_report.py`, and says four things. Since #924, a failure this classification recognizes also links its specific signature code (for example `PH_PARSE_BAD_3MF_STRUCTURE`) on the post's `Reference:` line instead of only the general subsystem marker — see the signature sections of the [Error code catalog](#error-code-catalog-one-linked-section-per-code-924):
 
 - **Stage:** where it stopped: intake, parse, repair, color plan, plate plan, slice, upload or launch (`Stage: parse.`).
 - **Cause:** in plain words, written by Print Handy from a recognized pattern. Known slicer signatures include an unreadable 3MF (Orca "can not find object id", "Invalid 3MF format", return code -6), a model outside the build volume, an empty plate, thin features Orca cannot slice, and an out-of-memory slicer.
