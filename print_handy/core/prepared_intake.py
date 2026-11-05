@@ -2960,6 +2960,15 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         choice = None
         scale_note = ''
         supports_choice = None
+        if (
+            early.running()
+            and hasattr(early, 'first_slice_done')
+            and not early.first_slice_done.is_set()
+            and getattr(early, 'release', None) is not None
+            and early.release.is_set()
+        ):
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(early.first_slice_done.wait(), timeout=1.5)
         while choice is None:
             from . import support_clearance, modeled_supports
             clearance = latest.get('support_clearance')

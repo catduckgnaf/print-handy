@@ -74,25 +74,8 @@ def env(tmp_path, monkeypatch):
     src = source(tmp_path)
     _orig_with_stop = prepared_intake._with_stop
     from print_handy.core import background_slice
-    _orig_init = background_slice.BackgroundSlice.__init__
-
-    def _held_init(self):
-        _orig_init(self)
-        self.release.clear()
-    monkeypatch.setattr(background_slice.BackgroundSlice, '__init__', _held_init)
-
-    _orig_ask = prepared_intake._ask
-
-    async def _ask_without_release(*args, on_shown=None, **kw):
-        if isinstance(getattr(on_shown, '__self__', None), asyncio.Event):
-            on_shown = None
-        return await _orig_ask(*args, on_shown=on_shown, **kw)
-    monkeypatch.setattr(prepared_intake, '_ask', _ask_without_release)
 
     async def _logged_with_stop(adapter, source_, key, metadata, text, work, **kw):
-        if text and text.startswith('Waiting for the background slice'):
-            for runner in background_slice._RUNNERS.values():
-                runner.release.set()
         if kw.get('allow_stop') and text and isinstance(getattr(adapter, 'log', None), list) and hasattr(adapter, 'picks'):
             adapter.log.append(text)
         return await _orig_with_stop(adapter, source_, key, metadata, text, work, **kw)
@@ -252,7 +235,7 @@ def test_flagged_v12_fixture_offers_fixes_and_clearance_warnings(env, monkeypatc
 
     # Disclosure in question text
     q_text = last_q['question']
-    assert 'bridges a 0.40 mm gap to the build plate across 9493 mm2' in q_text
+    assert 'bridges a 0.4 mm gap to the build plate across 9493 mm2' in q_text
     assert 'modeled supports touch only 1.8%' in q_text
 
     # Approval and receipt

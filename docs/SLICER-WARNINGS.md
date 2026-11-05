@@ -4,15 +4,16 @@
 
 After every successful Orca slice, Print Handy reads the slicer's `result.json` (`warnings[]` and `sliced_plates[].warning_message`) and sorts each warning.
 
-## Support finding (asks a question)
+## Support finding and intake pre-check
 
-A floating cantilever, floating regions, or "enable support generation" warning means the model needs supports. If the slice ran with supports off and no one has decided supports for this job, Print Handy pauses before bed-clear, upload and start and asks, naming the objects the slicer flagged:
+Print Handy performs speculative background slicing and geometry clearance analysis from intake. When OrcaSlicer detects floating regions or cantilevers, or when geometry analysis detects insufficient support clearance (under 1.0 mm gap across 500 mm2 or more, or along a narrow span) or ineffective modeled supports, the summary before bed-clear presents the choices directly:
 
-- **Re-slice with supports**: slices again with the printer profile's auto tree supports.
-- **Print without supports**: continues with the slice as it is.
-- **Cancel**: nothing is uploaded or started.
+- **Slice and print with supports (recommended)**: uses the printer profile's auto tree supports.
+- **Slice and print without supports**: prints the un-supported slice as authored.
+- **Extend underside to plate**: for low-gap undersides, extends downward vertices to the build plate so the gap is eliminated while preserving materials and colors.
+- **Flatten (sink) to plate**: sinks the model through the plate by the gap height.
 
-The choice is saved on the job (`support_decision` in `JOB.json`), so retries and reprints do not ask again. An author's `enable_support = 0` inside the 3MF is not a decision. An explicit operator "no supports" is never overridden. This is a question, never a block.
+Both slice variants run speculatively in the background when flagged. Because the operator makes the choice before confirming the bed is clear, the print starts immediately with the chosen slice and no second question interrupts the start. The post-slice dialog remains only as a fallback for un-prechecked cache misses and never asks twice for the same recipe.
 
 ## Every other warning (information only)
 

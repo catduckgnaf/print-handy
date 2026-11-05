@@ -58,6 +58,7 @@ class BackgroundSlice:
         self.finding = None
         self.clearance = None
         self.started = asyncio.Event()
+        self.first_slice_done = asyncio.Event()
         self.release = asyncio.Event()
         self.release.set()  # open unless a test holds the slice until the question is on screen
 
@@ -94,6 +95,7 @@ class BackgroundSlice:
         self.flagged = False
         self.finding = None
         self.clearance = None
+        self.first_slice_done = asyncio.Event()
         self.task = asyncio.get_running_loop().create_task(self._run(slice_func))
 
     async def _run(self, slice_func):
@@ -114,6 +116,7 @@ class BackgroundSlice:
             return
         finally:
             self.finished_at = time.time()
+            self.first_slice_done.set()
 
         job_data = _read_job(self.job_path)
         if job_data is None:
@@ -131,6 +134,7 @@ class BackgroundSlice:
         self.flagged = is_flagged
         self.finding = finding
         self.clearance = clearance
+        self.first_slice_done.set()
 
         if is_flagged:
             try:
