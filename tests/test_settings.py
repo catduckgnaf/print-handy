@@ -289,7 +289,7 @@ class OverrideTests(unittest.TestCase):
                           "capture_interval_s", "capture_max_frames", "capture_max_bytes",
                           "capture_encoder", "target_length_s", "min_fps", "max_fps",
                           "min_length_s", "hold_last_frame_s"},
-            "logging": {"level", "format", "file", "levels"},
+            "logging": {"level", "format", "file", "levels", "retention_days"},
             "webui": {"enabled", "host", "port", "access_token_env", "require_auth",
                       "controls_enabled", "cookie_secure"},
             "live_stream": {"enabled", "voice_channel_id", "auto_start_on_print", "max_height", "fps",

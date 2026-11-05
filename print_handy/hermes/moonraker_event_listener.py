@@ -335,7 +335,11 @@ def post_cancel_report(filename):
     reason = capture_stop(filename, "cancel")
     try:
         from . import klipper_report
-        text = print_summary.format_event("cancelled", filename) + "\n" + klipper_report.report(filename, reason)
+        try:
+            report_text = klipper_report.report(filename, reason)
+        except TypeError:
+            report_text = klipper_report.report(filename)
+        text = print_summary.format_event("cancelled", filename) + "\n" + report_text
     except Exception as exc:
         log(f"klipper report failed: {exc!r}")
         text = print_summary.format_event("cancelled", filename)
