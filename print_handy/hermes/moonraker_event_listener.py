@@ -3521,6 +3521,12 @@ class Listener:
                 else:
                     pause_now = (streak >= _visual_watch.AUTO_PAUSE_STREAK and not self.visual_watch.auto_paused
                                  and _visual_watch.watch_settings(_config.cfg())["auto_pause_early"])
+                    if pause_now:
+                        # Reserve the once-per-print pause before yielding
+                        # (Codex, #920): overlapping checks must not both
+                        # observe auto_paused == False while an alert is in
+                        # flight and each send their own PAUSE.
+                        self.visual_watch.auto_paused = True
                     text = f"{reason} at layer {layer or 'unknown'}: {verdict}; {detail or 'visual check needs operator review'}"
                     if pause_now:
                         text += (f"\nAuto-pause (visual_watch.auto_pause_early): {streak} suspicious checks in a row "
@@ -3528,8 +3534,8 @@ class Listener:
                     await asyncio.to_thread(_visual_alert, filename, image, text,
                                             identity=identity)
                     if pause_now:
-                        # #913: the only automatic printer action, opt-in, once per print.
-                        self.visual_watch.auto_paused = True
+                        # #913: the only automatic printer action, opt-in, once per print
+                        # (reserved above, before the alert await).
                         log(f"auto-pause early layers file={filename!r} layer={layer} streak={streak}: sending PAUSE")
                         reply = await asyncio.to_thread(_auto_pause_early, filename, identity)
                         log(f"auto-pause early layers file={filename!r}: {reply}")

@@ -432,8 +432,15 @@ class VisualPrintWatch:
                 and 1 <= layer <= self.early_layers)
 
     def note_empty_idle(self, now):
-        """An empty-bed verdict while printing: re-check soon (#913)."""
-        self.recheck_at = now + EMPTY_IDLE_RECHECK_S
+        """An empty-bed verdict while printing: re-check soon (#913).
+
+        Only the first pending verdict sets the deadline: early layers can
+        take less than the recheck interval, and letting every repeat push
+        the deadline out would postpone the recheck (and its alert) for as
+        long as the bed keeps reading empty (Codex, #920).
+        """
+        if not self.recheck_at:
+            self.recheck_at = now + EMPTY_IDLE_RECHECK_S
 
     def note_verdict(self, verdict, layer):
         """Track consecutive auto-pause verdicts inside the early window.

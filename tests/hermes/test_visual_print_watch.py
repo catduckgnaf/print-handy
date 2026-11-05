@@ -1133,3 +1133,66 @@ def test_stale_verdict_from_previous_print_never_alerts_or_pauses(monkeypatch):
     assert pauses == []
     assert listener.visual_watch.suspicious_streak == 0
     assert listener.visual_watch.auto_paused is False
+
+
+def test_empty_idle_recheck_keeps_the_earliest_deadline():
+    """Repeated empty_idle verdicts must not postpone the recheck (Codex re-review on #920).
+
+    Early layers can take less than 60 s each; if every empty-bed result
+    pushed the deadline out another 60 s, the timer would never reach
+    empty_idle_recheck and the promised alert would never fire.
+    """
+    watch = mel.VisualPrintWatch(sensitivity=3)
+    watch.note_empty_idle(100)
+    assert watch.recheck_at == 160
+    watch.note_empty_idle(130)
+    assert watch.recheck_at == 160
+    assert watch.tick(1, 160) == "empty_idle_recheck"
+    # The fired recheck clears the deadline, so a later empty-bed verdict
+    # schedules a fresh one.
+    watch.note_empty_idle(200)
+    assert watch.recheck_at == 260
+
+
+def test_concurrent_suspicious_checks_pause_only_once(monkeypatch):
+    """Overlapping checks must not each send the auto-pause (Codex re-review on #920).
+
+    Due layer checks are scheduled without waiting for the previous check, so
+    two suspicious checks can sit in the alert block at once. The once-per-
+    print reservation must happen before the alert await, not after it.
+    """
+    import asyncio
+    import time
+    from print_handy.hermes import visual_watch as vw
+
+    alerts = []
+    pauses = []
+
+    def slow_alert(filename, image, text, identity=None):
+        time.sleep(0.3)
+        alerts.append(text)
+
+    monkeypatch.setattr(mel, "_camera_snapshot_bytes", lambda: _jpeg())
+    monkeypatch.setattr(mel, "_frame_changed", lambda before, after: False)
+    monkeypatch.setattr(mel, "_visual_alert", slow_alert)
+    monkeypatch.setattr(mel, "_auto_pause_early", lambda filename, identity: pauses.append(filename) or "Paused")
+    monkeypatch.setattr(mel, "post", lambda msg: True)
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(pab, "visual_muted", lambda filename, identity: False)
+    monkeypatch.setattr(mel._config, "cfg", lambda: {
+        "visual_watch": {"enabled": True, "sensitivity": 3, "auto_pause_early": True,
+                         "early_layers": 10, "early_interval_s": 120}})
+    monkeypatch.setattr(mel, "_visual_verdict", lambda *args, **kwargs: ("spaghetti", "spaghetti found"))
+
+    listener = mel.Listener()
+    listener.filename = "race.gcode"
+    listener.state = "printing"
+    listener.visual_watch.set_mode(vw.WATCH_MODE_EARLY)
+
+    async def run():
+        await asyncio.gather(*(listener.visual_check("early_layer", layer) for layer in (2, 3, 4)))
+
+    asyncio.run(run())
+    assert len(alerts) == 3
+    assert pauses == ["race.gcode"]
+    assert listener.visual_watch.auto_paused is True
