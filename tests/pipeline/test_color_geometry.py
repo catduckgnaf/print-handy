@@ -767,3 +767,150 @@ def test_slice_job_splits_a_one_color_painted_model_per_plate(tmp_path, monkeypa
     assert 'refused_plates' not in saved
     assert [(row['plate_id'], row['slot'], row['part_keys']) for row in saved['derived_plates']] == [
         (1, 1, ['1:1']), (2, 1, ['2:1'])]
+
+
+# ---------------------------------------------------------------------- #912
+
+def _items_source(path, items, objects=None, settings_config=True):
+    """Mesh objects, each placed by its own build item: (object_id, (x, y, z)).
+
+    Default objects: 1 = 40x40x10 body, 2 = inlay seated 0.02 mm above it."""
+    objects = objects or {'1': ('BODY', _box(40, 40, 10)), '2': ('INLAY', _box(20, 20, 2, (10, 10, 10.02)))}
+    resources = ''.join(f'<object id="{oid}" name="{name}" type="model">{_mesh_xml(tris)}</object>'
+                        for oid, (name, tris) in objects.items())
+    build = ''.join(f'<item objectid="{oid}" transform="1 0 0 0 1 0 0 0 1 {x} {y} {z}" printable="1"/>'
+                    for oid, x, y, z in items)
+    settings = ''.join(f'<object id="{oid}"><metadata key="name" value="{name}"/>'
+                       f'<metadata key="extruder" value="{1 if oid == "1" else 2}"/></object>'
+                       for oid, (name, _t) in objects.items())
+    with zipfile.ZipFile(path, 'w') as z:
+        z.writestr('[Content_Types].xml', '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>')
+        z.writestr('_rels/.rels', '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>')
+        z.writestr('3D/3dmodel.model', '<?xml version="1.0" encoding="UTF-8"?>'
+                   f'<model unit="millimeter" xmlns="{CORE_NS}"><resources>{resources}</resources>'
+                   f'<build>{build}</build></model>')
+        if settings_config:
+            z.writestr('Metadata/model_settings.config', f'<config>{settings}</config>')
+    return path
+
+
+def _export_items(tmp_path, items, objects=None, tower_mm=None, settings_config=True):
+    from .test_plate_merge import _two_slot_decisions
+    src = _items_source(tmp_path / 'items.3mf', items, objects, settings_config)
+    manifest = source_colors.inventory(src)
+    _mapping, report = export_color_geometry(src, tmp_path / 'out.3mf', _two_slot_decisions(manifest),
+                                             tower_mm=tower_mm)
+    with zipfile.ZipFile(tmp_path / 'out.3mf') as z:
+        model = ET.fromstring(z.read('3D/3dmodel.model'))
+        config = ET.fromstring(z.read('Metadata/model_settings.config'))
+    return report, model, config
+
+
+def _plate_objects(model):
+    return model.findall(f'.//{{{CORE_NS}}}build/{{{CORE_NS}}}item')
+
+
+def _tool_of_parts(config):
+    return {part.find("metadata[@key='name']").get('value'): part.find("metadata[@key='extruder']").get('value')
+            for part in config.iter('part')}
+
+
+def test_interlocking_separate_build_items_export_as_one_assembly(tmp_path):
+    report, model, config = _export_items(tmp_path, [('1', 20, 20, 0), ('2', 20, 20, 0)])
+    assert len(_plate_objects(model)) == 1
+    assert len(config.findall('object')) == 1
+    assert _tool_of_parts(config) == {'BODY': '1', 'INLAY': '2'}  # per-part extruders survive
+    assert len(report['parts']) == 2
+
+
+def test_non_touching_separate_build_items_stay_separate_objects(tmp_path):
+    report, model, config = _export_items(tmp_path, [('1', 20, 20, 0), ('2', 120, 120, 0)])
+    assert len(_plate_objects(model)) == 2
+    assert len(config.findall('object')) == 2
+
+
+def test_repeated_instances_of_one_object_stay_separate(tmp_path):
+    _report, model, config = _export_items(tmp_path, [('1', 20, 20, 0), ('1', 100, 20, 0), ('1', 20, 100, 0)],
+                                         {'1': ('BODY', _box(40, 40, 10))}, settings_config=False)
+    assert len(_plate_objects(model)) == 3
+    assert len(config.findall('object')) == 3
+
+
+def test_a_touching_chain_of_items_is_one_assembly_and_the_rest_stay_apart(tmp_path):
+    # BODY at 20, INLAY on it, a second INLAY touching only the first inlay's footprint edge, and a far body.
+    _report, model, config = _export_items(
+        tmp_path, [('1', 20, 20, 0), ('2', 20, 20, 0), ('2', 50, 20, 0), ('1', 150, 150, 0)])
+    # the third item (x 60..80) touches the body's edge region (20..60) only through the 1 mm tolerance.
+    assert len(_plate_objects(model)) == 2
+
+
+def test_tower_clears_the_whole_merged_group(tmp_path):
+    report, _model, _config = _export_items(tmp_path, [('1', 20, 20, 0), ('2', 20, 20, 0)], tower_mm=60)
+    tower = report['prime_tower_xy_mm']
+    assert tower is not None
+    boxes = [p['bounds_mm'] for p in report['parts']]
+    x0, x1 = min(b[0][0] for b in boxes), max(b[0][1] for b in boxes)
+    y0, y1 = min(b[1][0] for b in boxes), max(b[1][1] for b in boxes)
+    clear_x = tower[0] >= x1 or tower[0] + 60 <= x0
+    clear_y = tower[1] >= y1 or tower[1] + 60 <= y0
+    assert clear_x or clear_y
+    for candidate in report['prime_tower_candidates_mm']:
+        assert candidate[0] >= x1 or candidate[0] + 60 <= x0 or candidate[1] >= y1 or candidate[1] + 60 <= y0
+
+
+def test_single_item_multi_part_export_is_unchanged(tmp_path):
+    src = _cutter_source(tmp_path / 'cutter.3mf')
+    from .test_plate_merge import _two_slot_decisions
+    manifest = source_colors.inventory(src)
+    export_color_geometry(src, tmp_path / 'out.3mf', _two_slot_decisions(manifest))
+    with zipfile.ZipFile(tmp_path / 'out.3mf') as z:
+        model = ET.fromstring(z.read('3D/3dmodel.model'))
+    assert len(_plate_objects(model)) == 1
+
+
+def _cut_recess_and_plug_source(path):
+    """Item 1: a body with a negative-volume recess. Item 2: a separate plug seated in that recess."""
+    settings_xml = ('<?xml version="1.0" encoding="UTF-8"?><config><object id="1">'
+                    '<metadata key="name" value="BODY"/><metadata key="extruder" value="1"/>'
+                    '<part id="10" subtype="normal_part"/><part id="11" subtype="negative_volume"/>'
+                    '</object><object id="2"><metadata key="name" value="PLUG"/>'
+                    '<metadata key="extruder" value="2"/></object></config>')
+    model = ('<?xml version="1.0" encoding="UTF-8"?>'
+             f'<model unit="millimeter" xmlns="{CORE_NS}"><resources>'
+             f'<object id="10" name="main" type="model">{_mesh_xml(_box(40, 40, 10))}</object>'
+             f'<object id="11" name="recess" type="model">{_mesh_xml(_box(10, 10, 6, (15, 15, 5)))}</object>'
+             '<object id="1" name="BODY" type="model"><components>'
+             '<component objectid="10" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>'
+             '<component objectid="11" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>'
+             '</components></object>'
+             f'<object id="2" name="PLUG" type="model">{_mesh_xml(_box(9.6, 9.6, 5, (15.2, 15.2, 5.02)))}</object>'
+             '</resources><build>'
+             '<item objectid="1" transform="1 0 0 0 1 0 0 0 1 20 20 0" printable="1"/>'
+             '<item objectid="2" transform="1 0 0 0 1 0 0 0 1 20 20 0" printable="1"/>'
+             '</build></model>')
+    with zipfile.ZipFile(path, 'w') as z:
+        z.writestr('[Content_Types].xml', '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>')
+        z.writestr('_rels/.rels', '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>')
+        z.writestr('3D/3dmodel.model', model)
+        z.writestr('Metadata/model_settings.config', settings_xml)
+    return path
+
+
+def test_cutter_bearing_item_is_not_merged_with_an_overlapping_item(tmp_path):
+    """A negative volume is object-scoped: merging the plug into the body's object would cut the plug."""
+    from .test_plate_merge import _two_slot_decisions
+    src = _cut_recess_and_plug_source(tmp_path / 'recess.3mf')
+    manifest = source_colors.inventory(src)
+    assert manifest['cutters'], 'the fixture must really carry a cutter'
+    export_color_geometry(src, tmp_path / 'out.3mf', _two_slot_decisions(manifest))
+    with zipfile.ZipFile(tmp_path / 'out.3mf') as z:
+        model = ET.fromstring(z.read('3D/3dmodel.model'))
+        config = ET.fromstring(z.read('Metadata/model_settings.config'))
+    assert len(_plate_objects(model)) == 2
+    objects = config.findall('object')
+    assert len(objects) == 2
+    owner_of_cutter = [o for o in objects
+                       if any(p.get('subtype') == 'negative_volume' for p in o.iter('part'))]
+    assert len(owner_of_cutter) == 1
+    names = {p.find("metadata[@key='name']").get('value') for p in owner_of_cutter[0].iter('part')}
+    assert 'PLUG' not in names

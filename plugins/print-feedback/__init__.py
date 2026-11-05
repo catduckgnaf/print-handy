@@ -5166,8 +5166,14 @@ async def model_link_dispatch(event, gateway, **kwargs):
     try:
         # The intake channel's printer owns the job end to end (#335): its
         # state record feeds the flow and its id is stamped on the job.
-        return await collect_link(event, adapter, printer_state.load(**_pkw(pid)), root,
-                                  reuse=reuse, **_pkw(pid))
+        # A link or file plus an instruction in one message (#903): an edit
+        # applies inside the intake, after the job is prepared and before any
+        # slice is armed or a start is offered; a question is answered after.
+        instruction = None if reuse is not None else _model_instruction(text, linked)
+        edit_hook = _instruction_edit_hook(event, gateway, source, adapter, instruction)
+        result = await collect_link(event, adapter, printer_state.load(**_pkw(pid)), root,
+                                    reuse=reuse, **_pkw(pid),
+                                    **({'before_start': edit_hook} if edit_hook else {}))
     except PromptCancelled:
         await adapter.send(chat_id=source.chat_id,
             content='Cancelled. Nothing sliced, nothing uploaded, nothing started. '
@@ -5183,6 +5189,40 @@ async def model_link_dispatch(event, gateway, **kwargs):
         except Exception:
             logger.exception('New model intake failure delivery also failed')
         return {'action': 'skip', 'reason': 'new model intake unavailable; no start authorized'}
+    # A question beside the model is answered from the job the intake just
+    # prepared; edits were applied inside the intake (edit_hook above).
+    if instruction and edit_hook is None:
+        from print_handy.bot import edit_chat
+        try:
+            follow = await edit_chat.follow_up(event, gateway, source, adapter, instruction,
+                                               host=_EditHost())
+        except Exception:
+            logger.exception('instruction beside the model failed')
+            follow = None
+        if isinstance(follow, dict):
+            return follow
+    return result
+
+
+def _instruction_edit_hook(event, gateway, source, adapter, instruction):
+    """The intake hook that applies an edit carried beside a model link or
+    file before the start choice exists, or None for no edit (#903)."""
+    if not instruction:
+        return None
+    from print_handy.core import model_questions
+    if model_questions.classify(instruction) is not None:
+        return None
+    from print_handy.bot import edit_chat
+    return edit_chat.before_start_hook(event, gateway, source, adapter, instruction,
+                                       host=_EditHost())
+
+
+def _model_instruction(text, url):
+    from print_handy.bot import edit_chat
+    try:
+        return edit_chat.instruction_after_model(text, url)
+    except Exception:
+        return None
 
 
 
@@ -6411,6 +6451,25 @@ def alert_button_handlers(bot, adapter):
     bot.add_listener(on_interaction, 'on_interaction')
 
 
+# ------------------------------------------------------------------ chat model edits (#903)
+# The edit flow lives in print_handy/bot/edit_chat.py; this is its
+# registration. The host gives it this module's helpers at call time, so a
+# test that patches a helper here is seen there too.
+
+
+class _EditHost:
+    def __getattr__(self, name):
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(name) from None
+
+
+async def edit_dispatch(event, gateway, **kwargs):
+    from print_handy.bot import edit_chat
+    return await edit_chat.edit_dispatch(event, gateway, host=_EditHost(), **kwargs)
+
+
 # The pre_gateway_dispatch handlers in registration order — the same order
 # the standalone Router runs them. register() installs this list (with the
 # typed-answer swap when the own renderer is on) and records the effective
@@ -6437,6 +6496,7 @@ _DISPATCH_HOOKS = (
     print_stop_dispatch,
     print_resume_dispatch,
     print_again_dispatch,
+    edit_dispatch,
     loaded_spools_dispatch,
     purchase_dispatch,
     spool_dispatch,
