@@ -218,7 +218,8 @@ CANCEL_WORDS = {'cancel', 'stop', 'nevermind', 'never mind', 'abort'}
 
 def _typed_choice(text, choices):
     """Map clear plain-language intent to a visible button, or None to keep asking."""
-    value = str(text or '').strip().casefold()
+    from .fuzzy_vocabulary import TYPO_FORMS
+    value = ' '.join(TYPO_FORMS.get(word, word) for word in str(text or '').strip().casefold().split())
     if not value:
         return None
     if value in CANCEL_WORDS:

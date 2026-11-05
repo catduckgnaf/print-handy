@@ -901,9 +901,15 @@ def fit_hint(rows):
     return FIT_HINT_PREFIX + ' / '.join(words) + '.'
 
 
+def _typo_words(value):
+    """Fold known misspellings word by word ("shrnik" -> "shrink"), keeping everything else as typed."""
+    from .fuzzy_vocabulary import TYPO_FORMS
+    return ' '.join(TYPO_FORMS.get(word, word) for word in value.split())
+
+
 def _fit_choice_reply(text, rows):
     """Resolve typed fit intent only when it names one available action."""
-    value = str(text or '').strip().casefold()
+    value = _typo_words(str(text or '').strip().casefold())
     if value in {'rearrange', 'rearrange 1 plate', 'rearrange plate', 'pack'}:
         matches = [i for i, row in enumerate(rows) if row['kind'] == 'rearrange']
     elif value in {'split', 'separate', 'split plates'}:
@@ -940,7 +946,7 @@ SCALE_LABEL = 'Scale the model'
 
 def _scale_direction_reply(text):
     """Typed answer to the scale direction question: 0 bigger, 1 smaller, 2 back, else None."""
-    value = str(text or '').strip().casefold()
+    value = _typo_words(str(text or '').strip().casefold())
     if value in {'cancel', 'back', 'never mind', 'nevermind'}:
         return 2
     if any(word in value for word in ('bigger', 'larger', 'grow', 'up')):
@@ -1069,7 +1075,7 @@ def _painted_no_fit_detail(fit, state):
 
 def _unit_oversize_reply(text, rows):
     """Typed answers for the oversize-inch question: mm, scale (or its percent), or cancel."""
-    value = str(text or '').strip().casefold()
+    value = _typo_words(str(text or '').strip().casefold())
     if value in {'mm', 'millimeter', 'millimeters', 'use mm', 'use mm instead', 'millimeters instead'}:
         matches = [i for i, row in enumerate(rows) if row['kind'] == 'mm']
     elif value in {'scale', 'shrink', 'smaller', 'scale it', 'scale to fit'}:
