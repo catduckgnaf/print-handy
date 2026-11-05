@@ -303,9 +303,9 @@ agent:
       chat_url: http://hermes-host:8642/p/guest/v1/chat/completions
       api_key_env: GUEST_AGENT_KEY
   users:
-    "123456789012345678": operator
+    "100000000000000001": operator
   allowlist:
-    - "234567890123456789"
+    - "200000000000000002"
   fallback_identity: guest
 ```
 
