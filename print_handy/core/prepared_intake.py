@@ -2051,7 +2051,8 @@ async def _fetch_parts(adapter, source, key, metadata, timeout, job, parts, fold
     return Path(combined['path'])
 
 
-async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, printer_id=None):
+async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
+                       before_start=None):
     from . import model_job as mj
     from .source_colors import inventory, canonical_prompts, grouped_prompts, validate_decisions
     source = event.source
@@ -2202,8 +2203,30 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         # The author-layout fit probe needs only the file and the printer state, never the unit or
         # color answers, so start it now and let it run while the operator answers (#734). It is
         # awaited at the fit check below, which then usually has nothing left to wait for.
+        # A resumed job (e.g. chat edit or undo re-entering, #903) uses its resumed
+        # transforms so copy capacity reflects the edited model rather than clamping
+        # to the authored size.
         from . import orca_adapter
-        fit_probe = _prefetch(_heavy(orca_adapter.orca_plate_capacity, path, state))
+        fit_kw = {}
+        if job.get('resumed_from'):
+            if job.get('scale') is not None:
+                try:
+                    fit_kw['scale'] = float(job['scale'])
+                except (TypeError, ValueError):
+                    pass
+            orientation = job.get('orientation') or {}
+            if orientation.get('rotation') is not None:
+                fit_kw['rotation'] = orientation['rotation']
+            if orientation.get('supports') is not None:
+                fit_kw['supports'] = bool(orientation['supports'])
+            if job.get('fit_brim_policy'):
+                fit_kw['brim_policy'] = job['fit_brim_policy']
+            if job.get('copies'):
+                try:
+                    fit_kw['copy_limit'] = max(16, int(job['copies']))
+                except (TypeError, ValueError):
+                    pass
+        fit_probe = _prefetch(_heavy(orca_adapter.orca_plate_capacity, path, state, **fit_kw))
         unit_q = mj.unit_question(job)
         if unit_q is not None:
             # STL records no units and this part is small enough to be either
@@ -2812,7 +2835,13 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                        'plate in one color right now.', metadata=metadata)
         quantities = orca_adapter.quantity_buttons(capacity)
         chosen_quantity = 1
-        if len(quantities) > 1:
+        # A resumed job that already carries a count — a chat edit or undo
+        # re-entering the flow (#903) — keeps it (bounded by what fits)
+        # instead of being asked again and silently reset to 1.
+        preset_copies = bool(latest.get('resumed_from') and latest.get('copies'))
+        if preset_copies:
+            chosen_quantity = max(1, min(int(latest['copies']), capacity))
+        if len(quantities) > 1 and not preset_copies:
             quantity_choices = quantity_options(capacity)
             qty_labels = [label for label, _ in quantity_choices]
             qty_prompt = (f"How many copies? This plate fits up to {capacity}. Tap a button "
@@ -2835,6 +2864,20 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         mj.write_job(folder, latest)
         receipt.update(status='COLORS_SAVED', color_decisions=validated, copies=chosen_quantity)
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+        if before_start is not None:
+            # An edit carried beside the link or file ("<link> shrink this by
+            # 20%", #903) applies to the prepared job BEFORE any slice is armed
+            # or a start is offered. When the edit takes over (it re-enters the
+            # flow with the edited job), this intake ends here.
+            handed = None
+            try:
+                handed = await before_start(jp, latest)
+            except Exception:
+                logger.exception('instruction before start failed; continuing the intake unchanged')
+            if isinstance(handed, dict):
+                receipt.update(status='EDITED', sliced=False, uploaded=False, started=False)
+                receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                return handed
         # Slice while the confirm question is on screen. Cancel below discards it,
         # so a job that never asked for G-code keeps none.
         early = runner_for(jp)
@@ -3178,7 +3221,8 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         # (bed-clear, upload, start). Only this finding asks; other warnings are information.
         finding = slice_warnings.support_finding(sliced)
         if finding is not None:
-            pick = await _ask(adapter, source, key, slice_warnings.question(finding),
+            pick = await _ask(adapter, source, key,
+                              slice_warnings.question(finding, sliced.get('downloaded_file')),
                               [RESLICE_SUPPORTS_LABEL, PRINT_NO_SUPPORTS_LABEL, print_next.CANCEL_LABEL], timeout,
                               approval=True)  # only print approvers may waive or answer a safety finding
             receipt['support_decision'] = {'finding': finding, 'choice': pick}

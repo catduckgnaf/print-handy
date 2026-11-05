@@ -166,11 +166,17 @@ def support_finding(job):
 QUESTION_PREFIX = 'The slicer says this will not print cleanly without supports'
 
 
-def question(finding):
+def question(finding, source=None):
+    """The support question text. With the model ``source`` path, a file that ships modeled
+    supports (an object named support/supports) also gets their measured gap and contact
+    area, from the mesh (print_handy.core.modeled_supports), never from AI."""
     names = ', '.join(finding['objects']) or 'part of the model'
+    from print_handy.core import modeled_supports
+    modeled = modeled_supports.safe_describe(source)
+    modeled_text = ('\n'.join(modeled) + '\n') if modeled else ''
     return (QUESTION_PREFIX + ': '
             f'{names} has floating regions or a cantilever. Supports are off in the file.\n'
-            f'> {finding["texts"][0]}\nWhat should I do?')
+            f'> {finding["texts"][0]}\n{modeled_text}What should I do?')
 
 
 def info_lines(job):
