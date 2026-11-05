@@ -141,25 +141,23 @@ class WorkflowTests(unittest.TestCase):
         runs = [step.get("run", "") for step in job["steps"]]
         self.assertTrue(any("check_us_spelling.py" in run for run in runs))
 
-    def test_description_edits_rerun_only_the_spelling_job(self):
-        # P2-237: the spelling job scans the PR description, but the
-        # workflow never fired on description edits, so a wording fix in
-        # the body left the stale failure standing until the next push.
+    def test_ci_does_not_trigger_on_description_edits(self):
+        # A PR body edit must not start a CI run: its required checks would all
+        # report skipped on the newer run and branch protection would block a
+        # head that already passed. Contribution checks owns body edits.
         workflow = yaml.load(WORKFLOW_PATH.read_text(), Loader=yaml.BaseLoader)
         types = workflow["on"]["pull_request"]["types"]
-        self.assertIn("edited", types)
-        self.assertIn("opened", types)
-        self.assertIn("synchronize", types)
+        self.assertNotIn("edited", types)
+        for expected in ("opened", "synchronize", "reopened", "ready_for_review"):
+            self.assertIn(expected, types)
         for name, job in workflow["jobs"].items():
             with self.subTest(job=name):
-                if name == "spelling":
-                    self.assertNotIn("if", job)
-                elif name.endswith("-result"):
-                    # Shard result jobs gate required checks; without always() a failed shard would
-                    # skip them, and a skipped required check counts as passing.
-                    self.assertEqual("always() && github.event.action != 'edited'", job.get("if"))
-                else:
-                    self.assertEqual("github.event.action != 'edited'", job.get("if"))
+                self.assertNotIn("edited", job.get("if", ""))
+
+    def test_contribution_checks_still_run_on_description_edits(self):
+        path = WORKFLOW_PATH.parent / "contribution.yml"
+        workflow = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+        self.assertIn("edited", workflow["on"]["pull_request"]["types"])
 
 
 if __name__ == "__main__":
