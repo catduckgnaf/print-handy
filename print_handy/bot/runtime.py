@@ -167,8 +167,9 @@ _TASK_INTENT_SUGGESTIONS = (
     # Reprint and calibration
     (re.compile(rf"^{_LEAD}(?:reprint|print\s+(?:it\s+)?again){_END}", re.I), "/print-again"),
     (re.compile(rf"^{_LEAD}(?:run\s+)?(?:bed\s+leveling|bed\s+level|auto\s+bed\s+leveling|calibration){_END}", re.I), "/print-calibrate"),
+    (re.compile(rf"^{_LEAD}(?:calibrate|level)\s+(?:the\s+)?bed{_END}", re.I), "/print-calibrate"),
     # Maintenance and firmware
-    (re.compile(rf"^{_LEAD}(?:do|run)\s+(?:the\s+)?maintenance{_END}", re.I), "/print-maintenance"),
+    (re.compile(rf"^{_LEAD}(?:do|run)\s+(?:the\s+|some\s+)?maintenance{_END}", re.I), "/print-maintenance"),
     (re.compile(rf"^(?:what\s+)?maintenance\s+(?:is\s+)?(?:due|needed){_END}", re.I), "/print-maintenance"),
     (re.compile(rf"^{_LEAD}(?:update|upgrade|check)\s+(?:the\s+)?firmware{_END}", re.I), "/print-firmware"),
     (re.compile(rf"^(?:is\s+there\s+)?(?:a\s+)?firmware\s+update{_END}", re.I), "/print-firmware"),
@@ -211,10 +212,40 @@ _TASK_INTENT_SUGGESTIONS = (
 )
 
 
+_INTENT_REGEX_JUNK = {"please", "the", "and", "from", "for", "you", "can", "what", "which", "where"}
+
+
+def _intent_vocabulary():
+    """Every literal word the task-intent patterns match, for typo correction."""
+    words = set()
+    for pattern, _cmd in _TASK_INTENT_SUGGESTIONS:
+        source = re.sub(r"\\[a-zA-Z]", " ", pattern.pattern)
+        words.update(w.casefold() for w in re.findall(r"[A-Za-z]{5,}", source))
+    return frozenset(words - _INTENT_REGEX_JUNK)
+
+
+_INTENT_VOCABULARY = _intent_vocabulary()
+
+
 def _task_suggestion(text):
     clean = " ".join(str(text or "").split()).strip()
     if not clean or clean.startswith("/"):
         return None
+    found = _match_task_intent(clean)
+    if found:
+        return found
+    # Phase-2 typo tolerance: fix misspelled intent words ("do some
+    # maintance", "seperate the bed and nozzle") and try again. The result is
+    # still only a suggestion the user confirms; nothing runs from it.
+    corrected = fuzzy.correct_typos(clean, _INTENT_VOCABULARY)
+    if corrected.casefold() != clean.casefold():
+        found = _match_task_intent(corrected)
+        if found:
+            return found
+    return _bed_down_fuzzy(clean)
+
+
+def _match_task_intent(clean):
     for pattern, cmd in _TASK_INTENT_SUGGESTIONS:
         match = pattern.match(clean)
         if not match:
@@ -225,7 +256,7 @@ def _task_suggestion(text):
                 continue
             return cmd.replace("{q}", query)
         return cmd
-    return _bed_down_fuzzy(clean)
+    return None
 
 
 # Typo forms of the prepare-to-clean request ("rest the bed", "seperate the
