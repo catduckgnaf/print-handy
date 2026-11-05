@@ -401,17 +401,81 @@ def _core_text(text):
 _NEGATION = {"no", "not", "without", "remove", "off", "never"}
 
 
+_SHRINK_WORDS = ("shrink", "smaller", "small", "reduce", "decrease", "tiny", "down")
+_GROW_WORDS = ("bigger", "big", "larger", "enlarge", "grow", "increase", "up")
+_HALF_WORDS = ("half", "halve")
+_DOUBLE_WORDS = ("double", "twice")
+_SIZE_CONTEXT = re.compile(r"\b(make|scale|size|resiz\w*|set)\b")
+_OTHER_KIND = re.compile(r"\b(infill|layer|brim|support\w*|cop(?:y|ies)|rotat\w*|degrees?|mirror|flip)\b")
+# Offered when a direction has no amount ("shrink this"): a pick list, never an action.
+RELATIVE_PICKS = {"down": (90, 75, 50), "up": (110, 125, 150)}
+
+
+def _relative_scale(text):
+    """Relative sizing: ("plan", plan), ("pick", [plans]) or None.
+
+    Every result is a scale_percent plan, which composes against the
+    job's current scale (apply_plan multiplies). "shrink it by 20%" and
+    "make it 20% smaller" are 80%; "enlarge it by 50%" is 150%; "shrink
+    it to 80%" and "make it 80%" are 80%; "half the size" is 50% and
+    "double" or "twice as big" 200%. A direction with no amount offers
+    RELATIVE_PICKS. Typos in the direction word are tolerated through
+    fuzzy.token_match ("shrnik", "smaler", "dubble").
+    """
+    folded = text.casefold()
+    if _OTHER_KIND.search(folded):
+        return None  # "infill 20%", "rotate it up": not a size request
+    percent = _percent(folded)
+    words = re.sub(r"\d+(?:\.\d+)?\s*(?:%|percent|per cent)", " ", folded)
+    if fuzzy.token_match(words, _DOUBLE_WORDS)[1]:
+        return "plan", validate_plan({"kind": "scale_percent", "percent": 200})
+    if fuzzy.token_match(words, _HALF_WORDS)[1]:
+        return "plan", validate_plan({"kind": "scale_percent", "percent": 50})
+    down = fuzzy.token_match(words, _SHRINK_WORDS)
+    up = fuzzy.token_match(words, _GROW_WORDS)
+    if down[0] == up[0]:
+        direction = None  # neither, or a tie such as "shrink or enlarge"
+    else:
+        direction = "down" if down[0] > up[0] else "up"
+    # "up"/"down" alone are directions only next to a size verb.
+    if direction and (down if direction == "down" else up)[1] in ("up", "down") \
+            and not _SIZE_CONTEXT.search(folded):
+        direction = None
+    if percent is not None:
+        absolute = re.search(r"\bto\s+\d+(?:\.\d+)?\s*(?:%|percent|per cent)", folded)
+        if direction and not absolute:
+            value = 100 - percent if direction == "down" else 100 + percent
+        elif direction or _SIZE_CONTEXT.search(folded) or absolute:
+            value = percent
+        else:
+            return None
+        if value <= 0:
+            return None
+        try:
+            return "plan", validate_plan({"kind": "scale_percent", "percent": value})
+        except PlanError:
+            return None
+    if direction and _mm_value(folded) is None:
+        return "pick", [validate_plan({"kind": "scale_percent", "percent": p})
+                        for p in RELATIVE_PICKS[direction]]
+    return None
+
+
 def resolve_request(text):
     """Resolve one chat request against the deterministic vocabulary.
 
     Returns ("plan", plan) for a clear resolution, ("pick", [plans]) for
     a grey-zone/contested one (fuzzy 65–84 or near-tied contenders — a
     pick list, never an action), or None when nothing matches. Every
-    returned plan has passed validate_plan.
+    returned plan has passed validate_plan. Relative sizing ("shrink
+    this by 20%", "half the size") is resolved first; see _relative_scale.
     """
     cleaned = _strip_polite(text)
     if not cleaned:
         return None
+    relative = _relative_scale(cleaned)
+    if relative is not None:
+        return relative
     args = _extract_args(cleaned)
     core = _core_text(cleaned)
     query_negated = bool(_NEGATION & set(core.split()))
@@ -448,7 +512,7 @@ def resolve_request(text):
 
 _EDIT_INTENT = re.compile(
     r"\b(support|brim|rotate|rotation|scale|resiz|mirror|flip|infill|layer height|copies|"
-    r"lay flat|flat side|edit|change|adjust|bigger|smaller|larger|wider brim|tree)\b")
+    r"lay flat|flat side|edit|change|adjust|bigger|smaller|larger|shrink|enlarge|half|double|wider brim|tree)\b")
 
 
 def looks_like_edit(text):
