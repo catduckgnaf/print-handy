@@ -95,6 +95,30 @@ class Box2D:
         return None
 
 
+def _connected_components(edges, num_nodes):
+    """Pure-Python connected components over an edge list without scipy/networkx."""
+    adj_map = collections.defaultdict(list)
+    for edge in edges:
+        u, v = int(edge[0]), int(edge[1])
+        adj_map[u].append(v)
+        adj_map[v].append(u)
+    visited = set()
+    components = []
+    for i in range(num_nodes):
+        if i not in visited:
+            comp = []
+            queue = [i]
+            visited.add(i)
+            for node in queue:
+                comp.append(node)
+                for neighbor in adj_map[node]:
+                    if neighbor not in visited:
+                        visited.add(neighbor)
+                        queue.append(neighbor)
+            components.append(comp)
+    return components
+
+
 def flat_surface_groups(objects, sign):
     """Find horizontal flat surface components grouped by (object_index, z_height)."""
     groups = collections.defaultdict(list)
@@ -110,7 +134,7 @@ def flat_surface_groups(objects, sign):
         for z, f_ids in by_z.items():
             sub_faces = m.faces[f_ids]
             adj = trimesh.graph.face_adjacency(faces=sub_faces)
-            components = trimesh.graph.connected_components(adj, nodes=np.arange(len(sub_faces)))
+            components = _connected_components(adj, len(sub_faces))
             for comp in components:
                 comp_faces = sub_faces[comp]
                 comp_verts = m.vertices[comp_faces.flatten()]
