@@ -390,7 +390,7 @@ async def _edit_geometry_route(event, gateway, source, adapter, job, instruction
         await say('That change needs the design model, and no design endpoint is configured '
                   '— see docs/DESIGN.md. Nothing was changed.')
         return {'action': 'skip', 'reason': 'geometry edit: no design endpoint'}
-    engine = design.DesignEngine((cfg.get('paths') or {}).get('cache') or (_h()._hermes_home() / 'cache'),
+    engine = design.DesignEngine((cfg.get('paths') or {}).get('cache') or _h()._config.cache_dir(),
                                  complete, cfg=cfg)
     owner = f"{source.chat_id}:{source.thread_id or ''}:{getattr(source, 'user_id', '')}"
     try:
