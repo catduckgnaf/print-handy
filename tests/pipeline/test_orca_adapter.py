@@ -431,3 +431,26 @@ def test_missing_bambu_fallback_keeps_why_orca_failed(tmp_path, monkeypatch):
     with pytest.raises(adapter.SliceFailure) as caught:
         adapter.slice_model(_source(tmp_path), out, _state())
     assert caught.value.signature == 'model_unreadable'
+
+
+def test_orca_geometry_conflict_is_classified_with_object_names_when_no_fallback(tmp_path, monkeypatch):
+    # #912: an -101 with named objects must not read as "Bambu Studio not installed".
+    _allow_post(monkeypatch)
+
+    def run(command, **kwargs):
+        if 'com.orcaslicer.OrcaSlicer' in command:
+            out = Path(command[command.index('--outputdir') + 1])
+            (out / 'result.json').write_text(json.dumps({
+                'return_code': -101, 'error_string': 'G-code conflicts detected after slicing.'}))
+            (out / '00000.log').write_text('gcode path conflicts found between BRONZE DETAILS and BLACK BODY.\n')
+            return type('R', (), {'returncode': 1, 'stdout': '', 'stderr': ''})()
+        return type('R', (), {'returncode': 127, 'stdout': '',
+                              'stderr': 'taskset: failed to execute /usr/bin/bambu-studio: No such file or directory'})()
+
+    monkeypatch.setattr(adapter, '_spawn_slicer', run)
+    with pytest.raises(adapter.SliceFailure) as caught:
+        adapter.slice_model(_source(tmp_path), tmp_path / 'out', _state())
+    assert caught.value.kind == 'conflict'
+    assert 'geometry conflict' in str(caught.value)
+    assert 'conflicting objects: BRONZE DETAILS and BLACK BODY' in str(caught.value)
+    assert 'not installed' not in str(caught.value)
