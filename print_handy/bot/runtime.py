@@ -27,7 +27,7 @@ from types import SimpleNamespace
 from .. import settings
 from ..core import fuzzy, prompts
 from ..hermes import _config
-from . import agent, agent_identity, commands, llm, platform, rest, routing
+from . import agent, commands, llm, platform, rest, routing
 from .router import Router
 
 logger = logging.getLogger(__name__)
@@ -375,29 +375,19 @@ def session_key(source):
 
 
 def make_source(user_id, chat_id, thread_id=None, is_bot=False, platform_name="discord",
-                printer_id=None, shared_printer_ids=None, is_dm=False):
+                printer_id=None, shared_printer_ids=None):
     # printer_id is the roster printer this source's channel routes to (#335);
     # None means the configured single/default printer, as before routing existed.
     # shared_printer_ids is set instead when the channel is shared (#536): the
     # message is served but no printer is decided — printer-bound handlers ask,
     # and a shared channel never falls through to the default printer.
-    # is_dm marks a direct message (#902): the agent lane ignores DMs unless
-    # [agent] dm_enabled is on.
     return SimpleNamespace(platform=SimpleNamespace(value=str(platform_name)), profile=PROFILE,
                            user_id=str(user_id),
                            chat_id=str(chat_id), thread_id=str(thread_id) if thread_id else None,
-                           is_bot=bool(is_bot), profile_route_rejected=False, is_dm=bool(is_dm),
+                           is_bot=bool(is_bot), profile_route_rejected=False,
                            printer_id=str(printer_id) if printer_id else None,
                            shared_printer_ids=tuple(str(pid) for pid in shared_printer_ids)
                            if shared_printer_ids else None)
-
-
-def _channel_is_dm(channel):
-    """Duck-typed DM detection: a Discord DM/group-DM channel has a
-    recipient and no guild; other platforms' channel objects simply do
-    not look like one."""
-    return getattr(channel, "recipient", None) is not None \
-        or type(channel).__name__ in ("DMChannel", "GroupChannel")
 
 
 def make_event(source, text, message_id, media_urls=(), metadata=None):
@@ -542,10 +532,6 @@ class BotCore:
         self.llm_opener = llm_opener
         self.agent_opener = agent_opener
         self.agent_unavailable = agent_unavailable_text()
-        # The agent lane's conversation/rate state (#902): per-user
-        # conversation ids with the configured idle reset, and the
-        # per-user rate limit. Built from this core's config once.
-        self.agent_state = agent_identity.LaneState(self.cfg)
         self._refusal_notices: dict[str, float] = {}  # user_id -> last notice time (#386)
         # Did-you-mean waits running off the message path on serial-polling
         # platforms (P1-109): the tasks are tracked so they are never
@@ -637,9 +623,9 @@ class BotCore:
         chat_id, thread_id = channel_scope(message.channel)
         routed, printer_id = self.printer_for_chat(chat_id)
         if not routed:
-            return await self._lane_door(message, author)
+            return None
         source = make_source(author.id, chat_id, thread_id, platform_name=self.platform_name,
-                             printer_id=printer_id, is_dm=_channel_is_dm(message.channel),
+                             printer_id=printer_id,
                              shared_printer_ids=self.shared_ids_for_chat(chat_id))
         if not self.gateway._is_user_authorized_for_source(source):
             # In the print channel but refused by an access list: never
@@ -650,43 +636,6 @@ class BotCore:
         media = await self.save_attachments(message)
         event = make_event(source, getattr(message, "content", ""), message.id, media)
         return await self.process(event)
-
-    async def _lane_door(self, message, author):
-        """DMs and @mentions outside the routed channels (#902).
-
-        Both are off by default (``[agent] dm_enabled`` /
-        ``mention_enabled``). When one is on, the message reaches ONLY
-        the stray-chat fallback — never the router, so no scripted
-        handler, print gate or printer routing can engage from a DM or a
-        foreign channel — and only for a user the adapter's access lists
-        accept at all. Inside the fallback the agent lane still applies
-        its identity rules; a ``lane_only`` event never re-dispatches an
-        LLM-named command and never gets the did-you-mean prompt.
-        """
-        agent_cfg = self.cfg.get("agent") or {}
-        channel = message.channel
-        dm = _channel_is_dm(channel)
-        content = str(getattr(message, "content", "") or "")
-        mention = False
-        if not dm and agent_cfg.get("mention_enabled"):
-            me = getattr(getattr(self.client, "user", None), "id", None)
-            if me is not None:
-                mention = (any(getattr(m, "id", None) == me
-                               for m in (getattr(message, "mentions", None) or ()))
-                           or f"<@{me}>" in content or f"<@!{me}>" in content)
-        if dm and not agent_cfg.get("dm_enabled"):
-            return None
-        if not dm and not mention:
-            return None
-        if not self.use_llm or not (agent.configured(self.cfg) or llm.configured(self.cfg)):
-            return None
-        is_allowed = getattr(self.adapter, "is_allowed_id", None)
-        if is_allowed is None or not is_allowed(str(author.id)):
-            return None
-        source = make_source(author.id, str(getattr(channel, "id", "")), None,
-                             platform_name=self.platform_name, is_dm=dm)
-        event = make_event(source, content, message.id, metadata={"lane_only": True})
-        return await self.fallback(event)
 
     async def _note_refusal(self, source):
         """Log a list refusal at INFO and tell the channel, once per user per period (#386)."""
@@ -728,65 +677,6 @@ class BotCore:
             return None
         return await self.fallback(event, allow_llm=allow_llm, _llm_replied=_llm_replied)
 
-    async def _agent_lane(self, event, lane_text, metadata):
-        """The stray-chat agent lane under the #902 identity layer.
-
-        Returns a result dict when the lane handled the message, or None
-        when this user gets no agent call (no identity, a DM with DMs
-        off, or an agent failure with the [llm] tier configured) — the
-        caller then continues to the [llm] tier, exactly the behavior
-        users outside the identity layer keep.
-
-        With an identity: the per-user rate limit applies first (one
-        notice per window, the rest drop silently); the message goes to
-        the identity's own endpoint with its own key and the per-user
-        conversation id; the reply is sanitized so it can never ping
-        anyone. A failed call posts the one agent-unavailable line, then
-        falls back to the [llm] tier when one is configured (#902), else
-        ends the message as before.
-        """
-        source = event.source
-        agent_cfg = self.cfg.get("agent") or {}
-        if agent_identity.is_dm(source) and not agent_cfg.get("dm_enabled", False):
-            return None
-        identity = agent_identity.resolve(self.cfg, platform_name_of(source), source.user_id)
-        if identity is None:
-            return None
-        state = self.agent_state
-        verdict = state.limiter.check(state.conversation_key(
-            identity, platform_name_of(source), source.chat_id, source.user_id))
-        if verdict != "ok":
-            if verdict == "notice":
-                await self.adapter.send(
-                    chat_id=source.chat_id,
-                    content=("You're asking the chat agent faster than it can answer — "
-                             "give it a minute, then try again."),
-                    reply_to=event.message_id, metadata=metadata)
-            return {"action": "skip", "reason": "agent rate limited"}
-        conversation = state.conversations.conversation_id(state.conversation_key(
-            identity, platform_name_of(source), source.chat_id, source.user_id))
-        try:
-            reply = await asyncio.to_thread(agent.ask_as, identity, lane_text, conversation,
-                                            opener=self.agent_opener)
-        except Exception as exc:
-            logger.warning("agent reply failed (identity %s), sending the agent-unavailable "
-                           "reply: %r", identity.name, exc)
-            await self.adapter.send(chat_id=source.chat_id, content=self.agent_unavailable,
-                                    reply_to=event.message_id, metadata=metadata)
-            if llm.configured(self.cfg):
-                return None  # one failure line, then the [llm] tier tries (#902)
-            return {"action": "skip", "reason": "agent unavailable"}
-        agent_identity.log_served(identity, platform_name_of(source), source.chat_id, source.user_id)
-        send_metadata = metadata
-        if agent_cfg.get("thread_replies") and not (metadata or {}).get("thread_id"):
-            send_metadata = {**(metadata or {}), "thread_name": "Agent reply"}
-        # The endpoint's text is untrusted (#532): it may name a local file, never attach one.
-        # It is also sanitized (#902): an agent reply can never ping anyone.
-        await self.adapter.send(chat_id=source.chat_id,
-                                content=rest.inert_media(agent_identity.sanitize_reply(reply)),
-                                reply_to=event.message_id, metadata=send_metadata)
-        return {"action": "skip", "reason": "agent reply"}
-
     async def fallback(self, event, *, allow_llm=True, _llm_replied=False):
         """No handler took it: a model lane tries first (#437), the short unmatched reply is last.
 
@@ -825,13 +715,19 @@ class BotCore:
         metadata = {"thread_id": source.thread_id} if source.thread_id else None
         invoke = _ai_invocation(event.text)
         lane_text = invoke if invoke is not None else event.text
-        # A lane-door event (#902: a DM or a foreign-channel mention) is
-        # conversational only: no command re-dispatch, no did-you-mean.
-        lane_only = bool((getattr(event, "metadata", None) or {}).get("lane_only"))
         if allow_llm and self.use_llm and agent.configured(self.cfg):
-            outcome = await self._agent_lane(event, lane_text, metadata)
-            if outcome is not None:
-                return outcome
+            try:
+                reply = await asyncio.to_thread(agent.ask, lane_text, session_key(source),
+                                                cfg=self.cfg, opener=self.agent_opener)
+            except Exception as exc:
+                logger.warning("agent reply failed, sending the agent-unavailable reply: %r", exc)
+                await self.adapter.send(chat_id=source.chat_id, content=self.agent_unavailable,
+                                        reply_to=event.message_id, metadata=metadata)
+                return {"action": "skip", "reason": "agent unavailable"}
+            # The endpoint's text is untrusted (#532): it may name a local file, never attach one.
+            await self.adapter.send(chat_id=source.chat_id, content=rest.inert_media(reply),
+                                    reply_to=event.message_id, metadata=metadata)
+            return {"action": "skip", "reason": "agent reply"}
         if allow_llm and self.use_llm and llm.configured(self.cfg):
             try:
                 reply, command = await asyncio.to_thread(llm.ask, lane_text, self.help, cfg=self.cfg,
@@ -839,8 +735,6 @@ class BotCore:
             except Exception as exc:
                 logger.warning("LLM reply failed, sending the unmatched reply: %r", exc)
             else:
-                if command and lane_only:
-                    command = None  # a lane-door event never runs a command (#902)
                 if command:
                     # A named command is dispatched before any reply is
                     # sent when the command's own output IS the help text:
@@ -857,10 +751,6 @@ class BotCore:
                     await self.adapter.send(chat_id=source.chat_id, content=rest.inert_media(reply),
                                             reply_to=event.message_id, metadata=metadata)
                     return {"action": "skip", "reason": "llm reply"}
-        if lane_only:
-            await self.adapter.send(chat_id=source.chat_id, content=self.unmatched,
-                                    reply_to=event.message_id, metadata=metadata)
-            return {"action": "skip", "reason": "lane only"}
         if _llm_replied:
             # The LLM already answered this message and its named command
             # fell through: a solved reply stands alone, no help after it.

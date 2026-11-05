@@ -113,15 +113,6 @@ Schema, validation limits and TOML migration: [CONFIGURATION-YAML.md](CONFIGURAT
 | `agent.model` | `PRINT_HANDY__AGENT__MODEL` | empty | Agent model name; optional, unlike `llm.model` — empty omits `model` from the request, for endpoints that are not model-addressable |
 | `agent.api_key_env` | `PRINT_HANDY__AGENT__API_KEY_ENV` | `AGENT_API_KEY` | Name of the environment variable holding the agent endpoint's API key |
 | `agent.timeout_s` | `PRINT_HANDY__AGENT__TIMEOUT_S` | `120` | Agent request timeout; one attempt, no retries. Longer than `llm.timeout_s` because an agent turn does real work |
-| `agent.identities` | file only | empty | Per-user agent identities (#902): a table mapping a name to its own endpoint table (`chat_url`, `model`, `api_key_env`, `timeout_s`) — e.g. one Hermes profile per person, each with its own profile-scoped key. With any identity-layer key set, the lane fails closed: only mapped and allowlisted users get an agent call. See [Agent lane identities](#agent-lane-identities) |
-| `agent.users` | file only | empty | Chat user ID → identity name. A key is a bare user ID (any platform) or `platform:user-id` (e.g. `discord:123456`); Telegram and Matrix IDs use the same shape |
-| `agent.allowlist` | file only | empty | User IDs (same key shapes as `agent.users`) that may use the lane as the fallback identity |
-| `agent.fallback_identity` | `PRINT_HANDY__AGENT__FALLBACK_IDENTITY` | empty | The identity allowlisted users run as — meant to be a least-privilege profile. Empty with no legacy `agent.chat_url` means allowlisted users get no agent call |
-| `agent.idle_timeout_s` | `PRINT_HANDY__AGENT__IDLE_TIMEOUT_S` | `1800` | Conversation idle reset: a user's agent conversation id rotates after this many seconds without a message (default 30 minutes) |
-| `agent.rate_limit_per_minute` | `PRINT_HANDY__AGENT__RATE_LIMIT_PER_MINUTE` | `10` | Per-user stray-chat agent rate limit; excess messages drop with one notice per window |
-| `agent.thread_replies` | `PRINT_HANDY__AGENT__THREAD_REPLIES` | `false` | Post agent replies in a thread anchored at the user's message, where the platform adapter supports it (the standalone Discord adapter does) |
-| `agent.dm_enabled` | `PRINT_HANDY__AGENT__DM_ENABLED` | `false` | Let direct messages reach the stray-chat lanes. Off: DMs never reach them. Lane-door messages are conversational only — no scripted handler or print gate can engage from a DM |
-| `agent.mention_enabled` | `PRINT_HANDY__AGENT__MENTION_ENABLED` | `false` | Let messages that @mention the bot outside its print channels reach the stray-chat lanes, with the same conversational-only limit as DMs |
 | `ai.small` | file only | empty | Optional small AI tier (#818): the print-start roast, the camera and image check and spool label reading. A table with `chat_url`, `model`, `fallback_model`, `fallback_url`, `api_key_env`, `fallback_api_key_env` and `timeout_s`; every key is optional and empty keeps the settings the install already had. See [AI tiers](#ai-tiers) |
 | `ai.chat` | file only | empty | Optional chat AI tier (#818): questions the scripted handlers cannot answer. Same keys as `ai.small`; empty keeps `llm.*` |
 | `ai.heavy` | file only | empty | Optional heavy AI tier (#818): model-file editing and repair, deep image work. Same keys as `ai.small`; empty uses `design.*`, which inherits `llm.*`. Only the route exists today: nothing calls it yet |
@@ -281,88 +272,6 @@ Things to know:
   `https://api.openai.com/v1/chat/completions`.
 - Running all of this on Cloudflare's free tier is covered in
   [Cloudflare](CLOUDFLARE.md).
-
-### Agent lane identities
-
-The stray-chat agent lane (`agent.*`) can run each user as their own
-**identity** (#902), the model Discord Assist uses for Home Assistant:
-Print Handy answers a user's free text through an agent only when it
-knows which identity to run the request as.
-
-- A **mapped** user (`agent.users`) runs as their identity's endpoint,
-  with that identity's own key (`api_key_env` per identity — never a
-  shared root key).
-- An **allowlisted** user (`agent.allowlist`) runs as
-  `agent.fallback_identity`, meant to be a least-privilege profile.
-- **Everyone else gets no agent call.** They keep the `[llm]` tier if
-  configured, else the short not-understood reply. Scripted handlers,
-  buttons and confirmation gates are unchanged for everyone.
-
-```yaml
-agent:
-  identities:
-    operator:
-      chat_url: http://hermes-host:8642/p/operator/v1/chat/completions
-      api_key_env: OPERATOR_AGENT_KEY
-    guest:
-      chat_url: http://hermes-host:8642/p/guest/v1/chat/completions
-      api_key_env: GUEST_AGENT_KEY
-  users:
-    "100000000000000001": operator
-  allowlist:
-    - "200000000000000002"
-  fallback_identity: guest
-```
-
-The tables are file-only and are validated at load: an unknown identity
-name or a malformed endpoint fails the settings check instead of the
-first message. User keys are a bare ID (any platform) or
-`platform:user-id`; Telegram and Matrix IDs use the same shape when
-their lanes grow agent support. With **no** identity-layer keys set, the
-single `agent.chat_url` keeps working exactly as before and is treated
-as a fallback identity shared by every authorized channel user —
-`bot check` says so and recommends a user map.
-
-Each identity carries a per-user, per-channel conversation: the bot
-sends a stable conversation id (OpenAI `user` field and the
-`X-Print-Handy-Session` header) that rotates after
-`agent.idle_timeout_s` idle (default 30 minutes). Replies are posted as
-text only, sanitized so they can never ping `@everyone`, a role or a
-user, split within platform limits, and rate-limited per user
-(`agent.rate_limit_per_minute`). An unreachable or unauthorized endpoint
-produces one failure line, then the `[llm]` tier answers if configured.
-
-`bot check` reports the lane state, the mapped/allowlisted counts, the
-fallback identity, an auth-checked reachability verdict per identity
-(200 vs 401 vs unreachable — keys are never printed), and a loud
-capability warning when a Hermes profile reachable by the fallback
-identity exposes terminal, file, code execution, cron, delegation or
-kanban tools on its `api_server` platform. The Web UI status page shows
-the same summary as its agent lane row, and the logs record which
-identity served each message (never the message content). With the lane
-enabled but nobody authorized, both `bot check` and the Web UI show a
-clear "nobody is authorized" warning.
-
-**Minimal Hermes setup** for a safe fallback profile: create a
-dedicated profile, give it an explicit toolset allowlist for the API
-server platform, and a profile-scoped key — never the root key:
-
-```yaml
-# profiles/guest/config.yaml on the Hermes host
-platform_toolsets:
-  api_server: [web]
-```
-
-```bash
-# profiles/guest/.env on the Hermes host
-API_SERVER_KEY=<that profile's own key>
-```
-
-Then point the guest identity at `http://<host>:8642/p/guest/v1/chat/completions`
-with `api_key_env` naming the environment variable that holds that
-profile's key on the Print Handy side. A profile with no explicit
-`platform_toolsets.api_server` allowlist defaults to every toolset in
-Hermes — that is the state the capability warning exists to catch.
 
 ## Part spacing presets
 

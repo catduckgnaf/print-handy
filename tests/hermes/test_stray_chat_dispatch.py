@@ -117,10 +117,7 @@ def test_switch_off_still_answers_help_words_with_the_command_list():
 
 # ---------------------------------------------------------------- the agent lane
 
-def test_agent_lane_answers_first_and_carries_the_conversation_id():
-    """#902: the session header is the per-user conversation id (stable
-    inside the idle window), also sent as the OpenAI ``user`` field —
-    not the gateway's live session key."""
+def test_agent_lane_answers_first_and_keys_the_session_by_the_live_key():
     adapter = Adapter()
     endpoint = FakeEndpoint(agent_content="The agent says hi.")
     with mock.patch("urllib.request.urlopen", endpoint):
@@ -131,9 +128,7 @@ def test_agent_lane_answers_first_and_carries_the_conversation_id():
     assert len(endpoint.requests) == 1
     request = endpoint.requests[0]
     assert request["url"] == AGENT_URL
-    conversation = request["headers"]["x-print-handy-session"]
-    assert conversation and conversation != SESSION_KEY
-    assert request["body"]["user"] == conversation
+    assert request["headers"]["x-print-handy-session"] == SESSION_KEY
     assert request["body"]["messages"] == [{"role": "user", "content": "hello printer"}]
     assert "model" not in request["body"]
 
@@ -246,76 +241,3 @@ def test_empty_text_is_not_claimed():
     result = run_hook(make_event("   "), make_gateway(adapter), cfg_for(chat=False))
     assert result is None
     assert adapter.sent == []
-
-
-# ---------------------------------------------------------------- the identity layer (#902)
-
-OP_URL = "http://agent.test/p/operator/v1/chat/completions"
-GUEST_URL = "http://agent.test/p/guest/v1/chat/completions"
-
-
-def identity_cfg():
-    cfg = cfg_for(llm_url=LLM_URL)
-    cfg["agent"] = {
-        "chat_url": "", "model": "", "api_key_env": "AGENT_API_KEY", "timeout_s": 120,
-        "identities": {
-            "operator": {"chat_url": OP_URL, "api_key_env": "OP_KEY", "model": "", "timeout_s": 120},
-            "guest": {"chat_url": GUEST_URL, "api_key_env": "GUEST_KEY", "model": "", "timeout_s": 120},
-        },
-        "users": {"7": "operator"}, "allowlist": ["8"], "fallback_identity": "guest",
-        "idle_timeout_s": 1800, "rate_limit_per_minute": 10,
-        "thread_replies": False, "dm_enabled": False, "mention_enabled": False,
-    }
-    return cfg
-
-
-class ByUrl:
-    def __init__(self, contents):
-        self.contents = contents
-        self.requests = []
-
-    def __call__(self, req, timeout=None):
-        self.requests.append({"url": req.full_url, "body": json.loads(req.data),
-                              "headers": {k.lower(): v for k, v in req.header_items()}})
-        content = self.contents[req.full_url]
-        return io.BytesIO(json.dumps({"choices": [{"message": {"content": content}}]}).encode())
-
-
-def test_identity_layer_mapped_user_runs_as_their_identity(monkeypatch):
-    monkeypatch.setenv("OP_KEY", "op-secret")
-    adapter = Adapter()
-    endpoint = ByUrl({OP_URL: "operator voice", GUEST_URL: "guest voice",
-                      LLM_URL: json.dumps({"reply": "llm voice", "command": None})})
-    with mock.patch("urllib.request.urlopen", endpoint):
-        result = run_hook(make_event(), make_gateway(adapter), identity_cfg())
-    assert result == {"action": "skip", "reason": "agent reply"}
-    assert [s["content"] for s in adapter.sent] == ["operator voice"]
-    (request,) = endpoint.requests
-    assert request["url"] == OP_URL
-    assert request["headers"]["authorization"] == "Bearer op-secret"
-
-
-def test_identity_layer_stranger_gets_no_agent_call_and_the_llm_answers():
-    adapter = Adapter()
-    endpoint = ByUrl({OP_URL: "operator voice", GUEST_URL: "guest voice",
-                      LLM_URL: json.dumps({"reply": "llm voice", "command": None})})
-    event = make_event()
-    event.source.user_id = "404"  # neither mapped nor allowlisted
-    with mock.patch("urllib.request.urlopen", endpoint):
-        result = run_hook(event, make_gateway(adapter), identity_cfg())
-    assert result == {"action": "skip", "reason": "llm reply"}
-    assert [s["content"] for s in adapter.sent] == ["llm voice"]
-    assert [r["url"] for r in endpoint.requests] == [LLM_URL]  # no agent URL was ever hit
-
-
-def test_identity_layer_allowlisted_user_runs_as_the_fallback():
-    adapter = Adapter()
-    endpoint = ByUrl({OP_URL: "operator voice", GUEST_URL: "guest voice",
-                      LLM_URL: json.dumps({"reply": "llm voice", "command": None})})
-    event = make_event()
-    event.source.user_id = "8"
-    with mock.patch("urllib.request.urlopen", endpoint):
-        result = run_hook(event, make_gateway(adapter), identity_cfg())
-    assert result == {"action": "skip", "reason": "agent reply"}
-    assert [r["url"] for r in endpoint.requests] == [GUEST_URL]
-    assert [s["content"] for s in adapter.sent] == ["guest voice"]

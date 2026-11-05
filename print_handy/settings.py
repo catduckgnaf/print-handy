@@ -149,12 +149,6 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("design", "timeout_s"): int, ("design", "repair_attempts"): int,
                  ("agent", "chat_url"): str, ("agent", "model"): str,
                  ("agent", "api_key_env"): str, ("agent", "timeout_s"): int,
-                 ("agent", "fallback_identity"): str,
-                 ("agent", "idle_timeout_s"): int,
-                 ("agent", "rate_limit_per_minute"): int,
-                 ("agent", "thread_replies"): bool,
-                 ("agent", "dm_enabled"): bool,
-                 ("agent", "mention_enabled"): bool,
                  ("timelapse", "mode"): str, ("timelapse", "encoder"): str,
                  ("services", "camera_source"): str,
                  ("live_stream", "enabled"): bool, ("live_stream", "voice_channel_id"): str,
@@ -1622,86 +1616,6 @@ def _validate_bot(data):
         raise SettingsError(f"[agent] chat_url must be a URL, got {agent['chat_url']!r}")
     agent.setdefault("timeout_s", 120)
     agent["timeout_s"] = _positive(data, "agent", "timeout_s")
-    _validate_agent_identities(data, agent)
-
-
-# The keys of one [agent.identities.<name>] table (#902); the identity layer
-# is file only, like the [ai] tiers, so these are not in OPTIONAL_KEYS.
-AGENT_IDENTITY_KEYS = ("chat_url", "model", "api_key_env", "timeout_s")
-
-
-def _validate_agent_identities(data, agent):
-    """The [agent] identity layer (#902): per-user identities, fail closed.
-
-    ``identities`` maps a name to its own endpoint table, ``users`` maps a
-    chat user ID (or ``platform:user-id``) to an identity name, and
-    ``allowlist`` user IDs fall back to ``fallback_identity``. The tables
-    are validated here so a typo fails at load, not on the first message:
-    known keys only, URL endpoints, environment variable names for keys,
-    and every referenced identity must exist.
-    """
-    identities = agent.setdefault("identities", {})
-    if not isinstance(identities, dict):
-        raise SettingsError(f"[agent] identities must be a table of endpoint tables, got {identities!r}")
-    for name, values in identities.items():
-        if not isinstance(name, str) or not name.strip():
-            raise SettingsError(f"[agent] identity names must be non-empty text, got {name!r}")
-        if not isinstance(values, dict):
-            raise SettingsError(f"[agent.identities] {name} must be a table, got {values!r}")
-        unknown = sorted(set(values) - set(AGENT_IDENTITY_KEYS))
-        if unknown:
-            raise SettingsError(f"[agent.identities.{name}] unknown setting {', '.join(unknown)} "
-                                f"(known: {', '.join(AGENT_IDENTITY_KEYS)})")
-        url = str(values.get("chat_url") or "").strip()
-        if not url.startswith(("http://", "https://")):
-            raise SettingsError(f"[agent.identities.{name}] chat_url must be a URL, got {url!r}")
-        values["chat_url"] = url
-        for key in ("model", "api_key_env"):
-            value = values.get(key, "")
-            if value is None:
-                value = ""
-            if not isinstance(value, str):
-                raise SettingsError(f"[agent.identities.{name}] {key} must be text, got {value!r}")
-            values[key] = value.strip()
-        key_env = values.get("api_key_env") or ""
-        if key_env and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key_env):
-            raise SettingsError(f"[agent.identities.{name}] api_key_env must be an environment "
-                                f"variable name, got {key_env!r}")
-        timeout = values.get("timeout_s", 120)
-        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
-            raise SettingsError(f"[agent.identities.{name}] timeout_s must be a positive number "
-                                f"of seconds, got {timeout!r}")
-        values["timeout_s"] = timeout
-    users = agent.setdefault("users", {})
-    if not isinstance(users, dict):
-        raise SettingsError(f"[agent] users must be a table of user ID to identity name, got {users!r}")
-    for user_id, identity in users.items():
-        if not isinstance(user_id, (str, int)) or not str(user_id).strip():
-            raise SettingsError(f"[agent.users] user IDs must be non-empty, got {user_id!r}")
-        if not isinstance(identity, str) or identity not in identities:
-            raise SettingsError(f"[agent.users] {user_id!r} names identity {identity!r}, which is "
-                                f"not defined in [agent.identities]")
-    agent["users"] = {str(user_id).strip(): identity for user_id, identity in users.items()}
-    allowlist = agent.setdefault("allowlist", [])
-    if not isinstance(allowlist, list) or not all(
-            isinstance(entry, (str, int)) and str(entry).strip() for entry in allowlist):
-        raise SettingsError(f"[agent] allowlist must be a list of user IDs, got {allowlist!r}")
-    agent["allowlist"] = [str(entry).strip() for entry in allowlist]
-    fallback = agent.setdefault("fallback_identity", "")
-    if not isinstance(fallback, str):
-        raise SettingsError(f"[agent] fallback_identity must be an identity name, got {fallback!r}")
-    fallback = fallback.strip()
-    if fallback and fallback not in identities:
-        raise SettingsError(f"[agent] fallback_identity {fallback!r} is not defined in [agent.identities]")
-    agent["fallback_identity"] = fallback
-    agent.setdefault("idle_timeout_s", 1800)
-    agent["idle_timeout_s"] = _positive(data, "agent", "idle_timeout_s", int)
-    agent.setdefault("rate_limit_per_minute", 10)
-    agent["rate_limit_per_minute"] = _positive(data, "agent", "rate_limit_per_minute", int)
-    for key in ("thread_replies", "dm_enabled", "mention_enabled"):
-        value = agent.setdefault(key, False)
-        if not isinstance(value, bool):
-            raise SettingsError(f"[agent] {key} must be true or false, got {value!r}")
 
 
 def _validate_purge(data):

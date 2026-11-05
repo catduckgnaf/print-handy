@@ -58,12 +58,6 @@ ROOT = settings.ROOT
 EXEMPTIONS = {
     ("agent", "api_key_env"): (frozenset({"webui"}), "#286"),
     ("agent", "timeout_s"): (frozenset({"webui"}), "#657"),
-    # The agent identity tables (#902) are file-only, like the AI tier
-    # tables below: a user map is set in the settings file, not from a
-    # page click; the Web UI status page shows the resulting lane summary.
-    ("agent", "allowlist"): (frozenset({"webui"}), "#902"),
-    ("agent", "identities"): (frozenset({"webui"}), "#902"),
-    ("agent", "users"): (frozenset({"webui"}), "#902"),
     # The AI tier tables (#818) are file-only: model routes and key names
     # are set in the settings file, not from a page click.
     ("ai", "chat"): (frozenset({"webui"}), "#818"),

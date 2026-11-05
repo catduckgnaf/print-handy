@@ -201,14 +201,6 @@ def doctor_checks(data):
         report(key.replace("_url", ""), doctor.check_service, data, key)
     report("zmod version", doctor.check_zmod_version, data)
     report("bot mode", doctor.check_bot, data)
-    try:
-        from ..bot import agent_identity
-        lane_detail, lane_warning = agent_identity.status_summary(data)
-    except Exception as exc:  # a lane problem is a warning row, never a failed snapshot
-        lane_detail, lane_warning = "could not check the agent lane", str(exc)
-    rows.append({"label": "agent lane",
-                 "status": "warn" if lane_warning else "ok",
-                 "detail": f"WARNING: {lane_warning} — {lane_detail}" if lane_warning else lane_detail})
     report("hermes discord platform", doctor.check_hermes_platform, data)
     report("logging", doctor.check_logging, data)
     try:

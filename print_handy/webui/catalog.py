@@ -118,12 +118,6 @@ GROUP_OF = {
     "design.model": "endpoints",
     "agent.chat_url": "endpoints",
     "agent.model": "endpoints",
-    "agent.fallback_identity": "endpoints",
-    "agent.idle_timeout_s": "endpoints",
-    "agent.rate_limit_per_minute": "endpoints",
-    "agent.thread_replies": "endpoints",
-    "agent.dm_enabled": "endpoints",
-    "agent.mention_enabled": "endpoints",
     "services.camera_source": "images",
     "services.camera_snapshot_url": "images",
     "timelapse.capture_source_url": "images",
@@ -367,27 +361,6 @@ CATALOG = (
            validator="settings agent check"),
     _field("agent", "model", "Agent model", "text",
            "Model the agent endpoint uses."),
-    # The identity layer's scalar switches (#902). The identities, users
-    # and allowlist tables themselves are file-only, like the [ai] tiers:
-    # they are edited in the config file, and bot check reports them.
-    _field("agent", "fallback_identity", "Agent fallback identity", "text",
-           "Identity allowlisted users run as (least privilege) when the "
-           "[agent] identity layer is configured in the config file; empty "
-           "falls back to the shared endpoint above."),
-    _field("agent", "idle_timeout_s", "Agent conversation idle timeout (seconds)", "number",
-           "A user's agent conversation id rotates after this long without "
-           "a message, so the agent drops stale context."),
-    _field("agent", "rate_limit_per_minute", "Agent rate limit (per user, per minute)", "number",
-           "Stray-chat agent calls allowed per user per minute; excess "
-           "messages drop with one notice."),
-    _field("agent", "thread_replies", "Agent replies in threads", "toggle",
-           "Post agent replies in a thread anchored at the user's message, "
-           "where the platform adapter supports it."),
-    _field("agent", "dm_enabled", "Agent lane in direct messages", "toggle",
-           "Let direct messages reach the agent lane. Off: DMs never do."),
-    _field("agent", "mention_enabled", "Agent lane on @mentions", "toggle",
-           "Let messages that @mention the bot outside its print channels "
-           "reach the agent lane. Off: they are ignored."),
     # Images (the camera source type, the snapshot URL and the vision
     # endpoint the watchdog uses; visual_watch itself is the next group.
     # API keys stay in the environment: vision_chat_url names no secret,

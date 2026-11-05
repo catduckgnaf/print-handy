@@ -14,56 +14,6 @@ from .. import __version__, ai_routes, logs, settings
 logger = logging.getLogger(__name__)
 
 
-def agent_identity_rows(cfg, probe_fn=None):
-    """The #902 identity-layer rows for bot check.
-
-    A legacy config (single shared endpoint, no identity layer) gets one
-    deprecation row: that endpoint is a fallback identity every authorized
-    channel user shares. An identity-layer config gets the counts and the
-    fallback identity, a failing row when nobody is authorized, one
-    auth-checked reachability row per identity (the probe sends the key
-    as a bearer header and never prints it), and the Hermes capability
-    warning for dangerous ``api_server`` toolsets a fallback-reachable
-    profile exposes.
-    """
-    from . import agent_identity
-    if not agent_identity.layer_active(cfg):
-        return [("agent identities", True,
-                 "legacy single endpoint: treated as the fallback identity for every authorized "
-                 "channel user — anyone in the channel drives the one agent. Add "
-                 "[agent.identities] and [agent.users] to give each user their own identity (#902)")]
-    rows = []
-    found = agent_identity.identities(cfg)
-    mapped, allowlisted = agent_identity.authorized_counts(cfg)
-    fallback = agent_identity.fallback_identity(cfg)
-    rows.append(("agent identities", True,
-                 f"{len(found)} endpoint(s) ({', '.join(sorted(found))}); {mapped} mapped user(s), "
-                 f"{allowlisted} allowlisted; fallback identity: "
-                 f"{fallback.name if fallback else 'none'}"))
-    if agent_identity.nobody_authorized(cfg):
-        rows.append(("agent authorization", False,
-                     "nobody is authorized: the lane is enabled but no user maps to an identity "
-                     "and no allowlisted user has a fallback identity, so stray chat gets no agent "
-                     "call — add [agent.users], or [agent.allowlist] with a fallback_identity"))
-    probe_fn = probe_fn or agent_identity.probe
-    for identity in found.values():
-        verdict, detail = probe_fn(identity)
-        rows.append((f"agent identity {identity.name}", verdict == "ok", detail))
-        level, cap_detail, _dangerous = agent_identity.capability_report(identity, cfg)
-        if level == "unknown":
-            continue
-        guest = fallback is not None and identity.name == fallback.name
-        if level == "warn" and guest:
-            rows.append((f"agent capability {identity.name}", False,
-                         f"WARNING: {cap_detail} — and the fallback identity reaches this "
-                         "profile, so allowlisted users can use those tools through stray chat. "
-                         "Restrict platform_toolsets.api_server on that Hermes profile "
-                         "(see the agent lane section of docs/DISCORD-BOT-SETUP.md)"))
-        else:
-            rows.append((f"agent capability {identity.name}", level == "ok", cap_detail))
-    return rows
-
-
 def checks(cfg):
     """[(label, ok, detail)]. Offline: nothing here contacts the chat platform."""
     from ..hermes import _config
@@ -210,22 +160,12 @@ def checks(cfg):
         add("agent", True, "off (discord.chat_llm_enabled is false: no stray-chat model call "
                            "of any kind, the agent lane included)")
     elif agent.configured(cfg):
-        from . import agent_identity
-        if agent_identity.layer_active(cfg):
-            mapped, allowlisted = agent_identity.authorized_counts(cfg)
-            add("agent", True, f"identity layer on: {mapped} mapped, {allowlisted} "
-                               f"allowlisted user(s); everyone else gets no agent call (#902)")
-        else:
-            from urllib.parse import urlparse
-            agent_cfg = cfg.get("agent") or {}
-            host = urlparse(str(agent_cfg.get("chat_url") or "")).hostname or agent_cfg.get("chat_url")
-            model = str(agent_cfg.get("model") or "").strip()
-            add("agent", True, f"{model} at {host}" if model else
-                f"endpoint at {host} (no model set; the endpoint chooses)")
-        # The identity layer (#902): who may use the lane, as what, and
-        # whether each identity's endpoint actually answers its key.
-        for label, ok, detail in agent_identity_rows(cfg):
-            add(label, ok, detail)
+        from urllib.parse import urlparse
+        agent_cfg = cfg.get("agent") or {}
+        host = urlparse(str(agent_cfg.get("chat_url") or "")).hostname or agent_cfg.get("chat_url")
+        model = str(agent_cfg.get("model") or "").strip()
+        add("agent", True, f"{model} at {host}" if model else
+            f"endpoint at {host} (no model set; the endpoint chooses)")
     else:
         add("agent", True, "not configured (set [agent] chat_url to let an agent endpoint "
                            "answer stray chat; unmatched messages use the llm row above)")

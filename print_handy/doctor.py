@@ -255,19 +255,6 @@ def check_hermes_platform(data):
     return f"no explicit discord platform disable in {path}"
 
 
-def check_agent_lane(data):
-    """The stray-chat agent lane's identity state (#902): lane state,
-    mapped/allowlisted counts, the fallback identity, and — spelled as a
-    WARNING in the row — the nobody-authorized state and any dangerous
-    Hermes api_server toolsets the fallback identity can reach. Offline:
-    endpoint reachability is bot check's probe, not the doctor's."""
-    from .bot import agent_identity
-    detail, warning = agent_identity.status_summary(data)
-    if warning:
-        return f"{detail} — WARNING: {warning}"
-    return detail
-
-
 def check_logging(data):
     """The [logging] setup (#390 stage 5): a configured log file must be writable.
 
@@ -418,7 +405,6 @@ def run(out=sys.stdout):
     report("zmod version", check_zmod_version, data)
     report("zmod purge", check_purge, data)
     report("bot mode", check_bot, data)
-    report("agent lane", check_agent_lane, data)
     report("hermes discord platform", check_hermes_platform, data)
     report("logging", check_logging, data)
     if data["bot"]["mode"] == "standalone":

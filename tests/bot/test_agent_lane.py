@@ -78,12 +78,7 @@ def exploding(name):
 def test_agent_settings_defaults():
     data = settings.load(local=False, environ={})
     assert data["agent"] == {"chat_url": "", "model": "", "api_key_env": "AGENT_API_KEY",
-                             "timeout_s": 120,
-                             # The #902 identity layer, all inert by default.
-                             "identities": {}, "users": {}, "allowlist": [],
-                             "fallback_identity": "", "idle_timeout_s": 1800,
-                             "rate_limit_per_minute": 10, "thread_replies": False,
-                             "dm_enabled": False, "mention_enabled": False}
+                             "timeout_s": 120}
     assert agent.configured(data) is False
 
 
@@ -141,21 +136,15 @@ def test_agent_ask_raises_on_empty_reply(agent_cfg):
 # ---------------------------------------------------------------------- BotCore wiring
 
 
-def test_agent_reply_is_posted_as_is_with_a_stable_conversation_id(agent_cfg):
-    """#902 supersedes the #524 live-session-key header: the lane now
-    carries a per-user conversation id (the OpenAI ``user`` field and the
-    session header agree), stable across messages inside the idle
-    window, so the endpoint keeps per-user context."""
+def test_agent_reply_is_posted_as_is_with_the_live_session_key(agent_cfg):
     opener = FakeAgent("All quiet — the last print finished cleanly.")
     discord, core = make(agent_cfg, agent_opener=opener)
     out = asyncio.run(core.handle_message(discord.message("how did the print go?")))
     assert out == {"action": "skip", "reason": "agent reply"}
     assert discord.sent == ["All quiet — the last print finished cleanly."]
-    asyncio.run(core.handle_message(discord.message("and the one before that?")))
-    first, second = opener.requests
-    conversation = first["headers"]["x-print-handy-session"]
-    assert conversation and conversation == second["headers"]["x-print-handy-session"]
-    assert first["body"]["user"] == conversation
+    (request,) = opener.requests
+    expected = runtime.session_key(runtime.make_source(discord.operator.id, discord.channel.id))
+    assert request["headers"]["x-print-handy-session"] == expected
     assert core.status(True)["agent"] is True
 
 
@@ -200,9 +189,7 @@ def test_agent_lane_wins_over_llm_when_both_are_configured(agent_cfg):
     assert len(agent_opener.requests) == 1 and llm_opener.requests == []
 
 
-def test_agent_endpoint_down_posts_the_honest_line_then_falls_back_to_the_llm(agent_cfg):
-    """#902 supersedes the #524 no-lane-swap rule: an unreachable agent
-    produces one clear failure line, then the [llm] tier answers."""
+def test_agent_endpoint_down_posts_the_honest_line_and_skips_the_llm(agent_cfg):
     agent_cfg["llm"].update(chat_url=LLM_URL, model="small-model")
     llm_opener = FakeLLM("llm words")
 
@@ -211,20 +198,10 @@ def test_agent_endpoint_down_posts_the_honest_line_then_falls_back_to_the_llm(ag
 
     discord, core = make(agent_cfg, agent_opener=broken, llm_opener=llm_opener)
     out = asyncio.run(core.handle_message(discord.message("hello?")))
-    assert out == {"action": "skip", "reason": "llm reply"}
-    assert discord.sent == [core.agent_unavailable, "llm words"]
-    assert core.agent_unavailable.startswith("The chat agent didn't answer")
-    assert len(llm_opener.requests) == 1
-
-
-def test_agent_endpoint_down_without_an_llm_still_ends_on_the_honest_line(agent_cfg):
-    def broken(req, timeout=None):
-        raise OSError("agent down")
-
-    discord, core = make(agent_cfg, agent_opener=broken)
-    out = asyncio.run(core.handle_message(discord.message("hello?")))
     assert out == {"action": "skip", "reason": "agent unavailable"}
     assert discord.sent == [core.agent_unavailable]
+    assert core.agent_unavailable.startswith("The chat agent didn't answer")
+    assert llm_opener.requests == []  # agent-first means agent-first: no silent lane swap
 
 
 def test_agent_empty_reply_posts_the_honest_line(agent_cfg):

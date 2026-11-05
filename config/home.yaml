@@ -157,30 +157,6 @@ agent:
   model: ''
   api_key_env: AGENT_API_KEY
   timeout_s: 120
-  # Per-user identity layer (#902, the Discord Assist model). File only:
-  # identities maps a name to its own endpoint and key env var; users maps
-  # a chat user ID (or platform:user-id, e.g. discord:123456) to an
-  # identity; allowlist user IDs use fallback_identity. With any of these
-  # set, everyone else gets NO agent call (they keep the [llm] tier or the
-  # not-understood reply). Empty: the single chat_url above stays the
-  # shared fallback identity for every authorized channel user.
-  identities: {}
-  users: {}
-  allowlist: []
-  fallback_identity: ""
-  # Conversation idle reset: a user's agent conversation id rotates after
-  # this many seconds without a message.
-  idle_timeout_s: 1800
-  # Per-user stray-chat agent rate limit (messages per minute).
-  rate_limit_per_minute: 10
-  # Reply in a thread anchored at the user's message (where the platform
-  # adapter supports it).
-  thread_replies: false
-  # Answer direct messages through the agent lane. Off: DMs never reach it.
-  dm_enabled: false
-  # In Hermes mode, also claim Discord messages that mention the bot
-  # outside its print channels for the agent lane.
-  mention_enabled: false
 ai:
   # Optional AI tiers (#818). Nothing ships filled in: leave a tier empty and
   # it keeps the settings it already used (small: services.vision_chat_url and

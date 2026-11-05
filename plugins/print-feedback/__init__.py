@@ -1185,12 +1185,8 @@ async def stray_chat_dispatch(event, gateway, **kwargs):
       lane, in both switch states);
     * switch off: the short not-understood reply — no stray-chat model call
       of any kind, and the profile agent never sees the text;
-    * a configured [agent] endpoint answers first, under the #902 identity
-      layer (bot/agent_identity.py): a mapped user runs as their identity,
-      an allowlisted user as the fallback identity, and everyone else gets
-      no agent call at all and continues to the [llm] tier below; a failed
-      call posts the honest agent-unavailable line, then falls back to the
-      [llm] tier when one is configured;
+    * a configured [agent] endpoint answers first; a failed call posts the
+      honest agent-unavailable line instead of the not-understood reply;
     * else a configured [llm] answers: its reply posts, and a command it
       names is re-run through the dispatch handlers below, as a typed
       command would be — the agent lane's replies never gain that channel;
@@ -1237,39 +1233,18 @@ async def stray_chat_dispatch(event, gateway, **kwargs):
         await _stray_chat_post(adapter, source, message_id, unmatched_text(bot_name))
         return {'action': 'skip', 'reason': 'chat llm disabled'}
     if agent_lane.configured(cfg):
-        from print_handy.bot import agent_identity
-        agent_cfg = cfg.get('agent') or {}
-        identity = None
-        if not (agent_identity.is_dm(source) and not agent_cfg.get('dm_enabled')):
-            identity = agent_identity.resolve(cfg, 'discord', getattr(source, 'user_id', None))
-        if identity is not None:
-            state = agent_identity.lane_state(cfg)
-            lane_key = state.conversation_key(identity, 'discord', source.chat_id,
-                                              getattr(source, 'user_id', None))
-            verdict = state.limiter.check(lane_key)
-            if verdict != 'ok':
-                if verdict == 'notice':
-                    await _stray_chat_post(
-                        adapter, source, message_id,
-                        "You're asking the chat agent faster than it can answer — "
-                        "give it a minute, then try again.")
-                return {'action': 'skip', 'reason': 'agent rate limited'}
-            conversation = state.conversations.conversation_id(lane_key)
-            try:
-                reply = await asyncio.to_thread(agent_lane.ask_as, identity, text, conversation)
-            except Exception as exc:
-                logger.warning('agent reply failed (identity %s), sending the '
-                               'agent-unavailable reply: %r', identity.name, exc)
-                await _stray_chat_post(adapter, source, message_id, agent_unavailable_text())
-                if not llm_lane.configured(cfg):
-                    return {'action': 'skip', 'reason': 'agent unavailable'}
-                # One failure line, then the [llm] tier below tries (#902).
-            else:
-                agent_identity.log_served(identity, 'discord', source.chat_id,
-                                          getattr(source, 'user_id', None))
-                await _stray_chat_post(adapter, source, message_id,
-                                       agent_identity.sanitize_reply(reply))
-                return {'action': 'skip', 'reason': 'agent reply'}
+        try:
+            live_key = gateway._session_key_for_source(source)
+        except Exception:
+            live_key = session_key(source)
+        try:
+            reply = await asyncio.to_thread(agent_lane.ask, text, live_key, cfg=cfg)
+        except Exception as exc:
+            logger.warning('agent reply failed, sending the agent-unavailable reply: %r', exc)
+            await _stray_chat_post(adapter, source, message_id, agent_unavailable_text())
+            return {'action': 'skip', 'reason': 'agent unavailable'}
+        await _stray_chat_post(adapter, source, message_id, reply)
+        return {'action': 'skip', 'reason': 'agent reply'}
     if llm_lane.configured(cfg):
         help_text = bot_commands.help_text(bot_name)
         try:
@@ -6554,27 +6529,11 @@ async def _edit_undo(event, gateway, source, adapter, job_path, job):
 
 
 async def _edit_ai_reply(cfg, source, prompt):
-    """One AI-lane answer for an edit request, following the #902
-    identity layer when it is active. Returns the reply text, or None
-    when no AI lane may serve this user."""
-    from print_handy.bot import agent_identity
-    if agent_identity.layer_active(cfg):
-        identity = agent_identity.resolve(cfg, _platform_value(source) or 'discord',
-                                          getattr(source, 'user_id', None))
-        if identity is None:
-            return None
-        from print_handy.bot import agent as agent_lane
-        state = agent_identity.lane_state(cfg)
-        key = state.conversation_key(identity, _platform_value(source) or 'discord',
-                                     source.chat_id, getattr(source, 'user_id', None))
-        reply = await asyncio.to_thread(agent_lane.ask_as, identity, prompt,
-                                        state.conversations.conversation_id(key))
-        agent_identity.log_served(identity, _platform_value(source) or 'discord',
-                                  source.chat_id, getattr(source, 'user_id', None))
-        return reply
+    """One AI-lane answer for an edit request through the configured
+    design/LLM HTTP endpoint. Returns the reply text, or None when no
+    endpoint resolves."""
     from print_handy.core import design
-    resolved = design.resolve_http_config(cfg)
-    if resolved is None:
+    if design.resolve_http_config(cfg) is None:
         return None
     return await asyncio.to_thread(
         design.http_complete, cfg, [{'role': 'user', 'content': prompt}])
