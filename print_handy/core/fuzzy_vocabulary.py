@@ -1063,3 +1063,76 @@ TOKEN_FORMS: dict[str, str] = {
     'zhop': 'zhop',
     'zlift': 'zhop',
 }
+
+
+# Real misspellings (fuzzy phase 2). Curated from the operator's own chat
+# history (aggregate misspelling -> correction pairs only, never message
+# text) plus common 3D-printing typos. Applied in ``fuzzy.canonical`` before
+# TOKEN_FORMS, so both sides of every comparison see the intended word.
+# Entries here are words edit distance alone gets wrong or cannot reach
+# (short tokens, multi-word splits, or two near vocabulary words).
+TYPO_FORMS: dict[str, str] = {
+    'alot': 'a lot',
+    'brimm': 'brim',
+    'calibarte': 'calibrate',
+    'canceled': 'cancel',
+    'callibrate': 'calibrate',
+    'callibration': 'calibration',
+    'cance': 'cancel',
+    'dept': 'debt',
+    'enviroment': 'environment',
+    'envirement': 'environment',
+    'extuder': 'extruder',
+    'filame': 'filament',
+    'filamant': 'filament',
+    'filement': 'filament',
+    'filiment': 'filament',
+    'flament': 'filament',
+    'incase': 'in case',
+    'levelling': 'leveling',
+    'maintance': 'maintenance',
+    'maintainance': 'maintenance',
+    'maintenence': 'maintenance',
+    'nozzel': 'nozzle',
+    'nozzl': 'nozzle',
+    'printe': 'print',
+    'priht': 'print',
+    'propbably': 'probably',
+    'purg': 'purge',
+    'restar': 'restart',
+    'resum': 'resume',
+    'retracion': 'retraction',
+    'scal': 'scale',
+    'separat': 'separate',
+    'seperate': 'separate',
+    'seperated': 'separated',
+    'shrnik': 'shrink',
+    'spegetti': 'spaghetti',
+    'spagetti': 'spaghetti',
+    'stopp': 'stop',
+    'suport': 'support',
+    'supporte': 'support',
+    'supprot': 'support',
+    'supprots': 'supports',
+    'tempature': 'temperature',
+}
+
+# Two-word misspellings: a space typed one letter early ("youa bout").
+TYPO_PHRASES: dict[tuple[str, str], tuple[str, ...]] = {
+    ('youa', 'bout'): ('you', 'about'),
+}
+
+# Real English words that sit one or two edits from a vocabulary word.
+# Bounded edit-distance correction never rewrites them: they mean what they
+# say ("later" is not "layer", "stale" is not "scale").
+REAL_WORDS: frozenset[str] = frozenset({
+    'stale', 'later', 'head', 'point', 'step', 'shrine', 'restriction',
+    'warning', 'pure', 'spook', 'micro', 'calibre', 'fitment', 'stats',
+    'states', 'parse', 'slower', 'lower', 'trim', 'brim', 'lever', 'laser',
+    'header', 'heater', 'printer', 'prints', 'printed', 'pointer', 'reaction',
+    'refraction', 'redaction', 'extension', 'excursion', 'firmament', 'nuzzle',
+    'celebrate', 'celibate', 'chance', 'charge', 'cancer', 'debut', 'debit',
+    'clear', 'cleat', 'paint', 'purse', 'puree', 'probable', 'provable',
+    'reside', 'repaint', 'reorient', 'support', 'supports', 'separate',
+    'shrink', 'scale', 'stop', 'stopped', 'restart', 'resume', 'rebuilt',
+})

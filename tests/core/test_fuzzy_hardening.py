@@ -66,7 +66,9 @@ def test_window_pass_is_capped_for_very_long_queries():
 
 def test_window_pass_still_applies_within_the_caps():
     # The existing behaviour for ordinary titles is untouched by the caps.
-    assert fuzzy.windowed_fuzzy_score("desk stadn", "G4 Instant Desk Stand") == 90
+    # "stadn" is one transposition from "stand": phase-2 typo tolerance
+    # corrects it against the target's own words, so the window is exact.
+    assert fuzzy.windowed_fuzzy_score("desk stadn", "G4 Instant Desk Stand") == 99
 
 
 # ------------------------------------------------------- canonical: numbers
