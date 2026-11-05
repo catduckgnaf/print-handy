@@ -42,6 +42,44 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def normalize_utc(value: Any) -> str | None:
+    """Normalize an epoch timestamp, datetime, or ISO string to an ISO-8601 UTC Z string.
+
+    Returns None for empty, invalid, or boolean values. Naive datetimes/strings
+    are assumed to be UTC.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        if value <= 0:
+            return None
+        return datetime.fromtimestamp(value, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            dt = value.replace(tzinfo=timezone.utc)
+        else:
+            dt = value.astimezone(timezone.utc)
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        num = float(s)
+        if num > 0:
+            return datetime.fromtimestamp(num, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        pass
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00").replace("z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (ValueError, OSError):
+        return None
+
+
 TERMINAL_STATUS = {"complete": ("completed", True), "cancelled": ("cancelled", False), "error": ("failed", False), "printing": ("printing", None)}
 
 
@@ -90,9 +128,7 @@ def _first(mapping: Mapping[str, Any], *keys: str) -> Any:
 
 def _iso_from_epoch(value: Any) -> str | None:
     """ISO-Z string for a Moonraker epoch timestamp, or None."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
-        return None
-    return datetime.fromtimestamp(value, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return normalize_utc(value)
 
 
 def load_context(job_key: str, path: Path | None = None) -> dict[str, Any]:
@@ -273,15 +309,16 @@ def build_record_data(
     # history start time — an epoch riding stats — names the same
     # physical print on every call; the per-call completion clock must
     # not mint a second record for a retried completion.
-    started_at = context.get("started_at") or _iso_from_epoch(
-        _first(stats, "start_time", "print_start_time"))
+    raw_started = context.get("started_at") or _first(stats, "start_time", "print_start_time")
+    started_at = normalize_utc(raw_started) or (str(raw_started) if raw_started else None)
+    norm_completed = normalize_utc(completed_at) if completed_at else None
     return {
         "print_number": _valid_print_number(context.get("print_number")) or _registry_print_number(context),
         "status": status,
         "success": success,
         "title": context.get("title") or _resolved_title(filename),
         "started_at": started_at,
-        "completed_at": None if status == "printing" else (completed_at or utc_now()),
+        "completed_at": None if status == "printing" else (norm_completed or completed_at or utc_now()),
         "hardware": context.get("hardware"),
         "estimated_time": context.get("estimated_time"),
         "estimated_filament_g": context.get("estimated_filament_g"),
