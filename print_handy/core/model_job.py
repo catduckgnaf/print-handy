@@ -6143,7 +6143,7 @@ def job_card(job, remote, gcode_text=""):
     return {"title": job.get("title") or Path(str(remote)).stem, "file": remote,
             "copies": int(job.get("copies") or 1), "spools": spools,
             "filament_g": round(grams, 1) if grams is not None else None,
-            "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
+            "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
 
 
 def _publish_job_card(st, job, remote, gcode_text=""):

@@ -320,11 +320,27 @@ def shutdown_alert_text(filename, state_message=None):
               "for good. Or start over with /print-again.")
 
 
-def post_cancel_report(filename):
+def capture_stop(filename, trigger):
+    """Read and store why the print stopped, before anything restarts the printer. Never raises."""
+    try:
+        from . import stop_capture
+        return stop_capture.capture(filename, trigger, log=log).get("stop_reason") or ""
+    except Exception as exc:
+        log(f"stop capture failed ({trigger}): {exc!r}")
+        return ""
+
+
+def post_cancel_report(filename, reason=None):
     """Full Klipper report on any cancel; falls back to the short summary if the report fails."""
+    if reason is None:
+        reason = capture_stop(filename, "cancel")
     try:
         from . import klipper_report
-        text = print_summary.format_event("cancelled", filename) + "\n" + klipper_report.report(filename)
+        try:
+            report_text = klipper_report.report(filename, reason)
+        except TypeError:
+            report_text = klipper_report.report(filename)
+        text = print_summary.format_event("cancelled", filename) + "\n" + report_text
     except Exception as exc:
         log(f"klipper report failed: {exc!r}")
         text = print_summary.format_event("cancelled", filename)
@@ -365,7 +381,8 @@ def screen_cancel_reboot(filename, *, status_reader=None, rebooter=None, clearer
 
 
 def post_shutdown_alert(filename):
-    return post_alert(shutdown_alert_text(filename), "shutdown", filename)
+    reason = capture_stop(filename, "shutdown")
+    return post_alert(shutdown_alert_text(filename, reason or None), "shutdown", filename)
 
 
 def _profile_env_value(name):
@@ -3196,7 +3213,8 @@ class Listener:
             if native_screen_cancel(self.prev_native, native):
                 # Klipper shut down mid print, so Moonraker never sees the screen cancel. The stock firmware does.
                 if (await asyncio.to_thread(print_control.status)).get("klippy") == "shutdown":
-                    await asyncio.to_thread(post_cancel_report, self.filename)
+                    reason = await asyncio.to_thread(capture_stop, self.filename, "cancel")
+                    await asyncio.to_thread(post_cancel_report, self.filename, reason)
                     self.start_screen_cancel_reboot(f"native {self.prev_native}->{native} during emergency stop")
             self.prev_native = native
             if self.state in ("printing", "paused"):
@@ -3594,13 +3612,18 @@ class Listener:
             if effective == "cancelled":
                 # One post: post_cancel_report leads with the cancelled summary and
                 # falls back to it alone, so a separate ack read as a duplicate.
-                task = asyncio.create_task(asyncio.to_thread(post_cancel_report, self.filename))
+                # Finish stop capture before starting the screen-cancel reboot so Moonraker
+                # state and log tails are read before Klipper restarts.
+                reason = await asyncio.to_thread(capture_stop, self.filename, "cancel")
+                task = asyncio.create_task(asyncio.to_thread(post_cancel_report, self.filename, reason))
                 self.background_tasks.add(task)
                 task.add_done_callback(self.background_tasks.discard)
                 from . import klipper_report
                 if new_state == "cancelled" and not klipper_report.cancelled_by_bot():
                     self.start_screen_cancel_reboot("moonraker cancelled")
             elif new_state != "complete":
+                if new_state == "error":
+                    await asyncio.to_thread(capture_stop, self.filename, "error")
                 await asyncio.to_thread(post, print_summary.format_event(new_state, self.filename))
         ended = new_state in ("complete", "cancelled", "error", "standby") and old in ("printing", "paused")
         if ended:

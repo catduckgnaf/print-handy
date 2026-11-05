@@ -306,6 +306,7 @@ logging:
   level: INFO
   format: text
   file: ''
+  retention_days: 14
   # Per-subsystem verbosity (#390): logger name -> level, e.g.
   # levels: { "print_handy.core.orca_adapter": "DEBUG" }
   levels: {}

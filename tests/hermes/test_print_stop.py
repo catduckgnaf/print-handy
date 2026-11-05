@@ -71,7 +71,7 @@ def test_listener_cancel_posts_one_message_without_waiting_for_diagnostics(monke
     diagnostic_started = threading.Event()
     release_diagnostic = threading.Event()
 
-    def slow_report(filename):
+    def slow_report(filename, reason=None):
         diagnostic_started.set()
         assert release_diagnostic.wait(timeout=2)
         return True
@@ -89,7 +89,7 @@ def test_listener_cancel_posts_one_message_without_waiting_for_diagnostics(monke
                 await asyncio.gather(*list(lis.background_tasks))
 
         asyncio.run(exercise())
-    report.assert_called_once_with("a.gcode")
+    report.assert_called_once_with("a.gcode", mock.ANY)
 
 
 def test_listener_cancel_does_not_auto_restart_firmware(monkeypatch):

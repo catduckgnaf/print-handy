@@ -148,6 +148,7 @@ GROUP_OF = {
     "timelapse.ssh_key": "timelapse",
     "logging.level": "logging",
     "logging.format": "logging",
+    "logging.retention_days": "logging",
     "webui.enabled": "webui",
     "webui.host": "webui",
     "webui.port": "webui",
@@ -505,6 +506,10 @@ CATALOG = (
     _field("logging", "format", "Log format", "picker",
            "text is one readable line per event; json is one JSON object per line.",
            choices=tuple(settings.LOG_FORMATS)),
+    _field("logging", "retention_days", "Log retention", "number",
+           "Days of daily log files kept when a log file is set (the Docker image keeps "
+           "them under /data/hermes/logs); older files are deleted.",
+           validator="settings type check", minimum=1),
     # The Web UI itself. access_token_env is deliberately not editable here:
     # no *_env key is in the catalog (see the module docstring).
     _field("webui", "enabled", "Web UI", "toggle",

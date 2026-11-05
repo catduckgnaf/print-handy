@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-mkdir -p "${HOME:-/data}/hermes/state" "${HOME:-/data}/archive" "${HOME:-/data}/records" "${HOME:-/data}/cache"
+mkdir -p "${HOME:-/data}/hermes/state" "${HOME:-/data}/hermes/logs" "${HOME:-/data}/archive" "${HOME:-/data}/records" "${HOME:-/data}/cache"
 # Container timezone: TZ names an IANA zone (image default America/New_York).
 # Consumers read TZ directly, so there is nothing to relink here — the
 # entrypoint runs unprivileged and cannot rewrite /etc/localtime, which the

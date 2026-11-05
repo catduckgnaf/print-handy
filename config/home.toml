@@ -333,8 +333,11 @@ capture_encoder = "auto"
 level = "INFO"
 # text: one readable line per event. json: one JSON object per line, for log shippers.
 format = "text"
-# Also write a rotating log file here (5 MiB, 3 backups). Empty logs to stderr only (journald or docker logs).
+# Also write daily log files beside this path (print-handy.log becomes print-handy-YYYY-MM-DD.log).
+# Empty logs to stderr only (journald or docker logs). The Docker image sets /data/hermes/logs/print-handy.log.
 file = ""
+# Days of daily log files to keep (today counts as one); older ones are deleted.
+retention_days = 14
 # Per-subsystem verbosity (#390): logger name -> level, e.g.
 # levels = { "print_handy.core.orca_adapter" = "DEBUG" }
 levels = {}

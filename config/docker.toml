@@ -119,3 +119,10 @@ port = 0
 # 450 seconds for levels 1 to 5.
 sensitivity = 3
 enabled = true
+
+[logging]
+# Daily app log files on the state volume, so they survive a container recreate
+# (docker logs does not). Override with PRINT_HANDY__LOGGING__FILE (empty: stderr only)
+# and PRINT_HANDY__LOGGING__RETENTION_DAYS.
+file = "/data/hermes/logs/print-handy.log"
+retention_days = 14

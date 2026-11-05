@@ -29,7 +29,7 @@ def _drive(monkeypatch, transitions):
     async def _no_reminder():
         return None
     monkeypatch.setattr(mel, "maintenance_cancel_reminder", _no_reminder)
-    monkeypatch.setattr(klipper_report, "report", lambda filename: "Klipper report stub")
+    monkeypatch.setattr(klipper_report, "report", lambda filename, *a, **kw: "Klipper report stub")
     monkeypatch.setattr(klipper_report, "cancelled_by_bot", lambda: True)
     monkeypatch.setattr(pab, "retire_alerts",
                         lambda token, filename, note, kinds=("paused",), headline=None:
