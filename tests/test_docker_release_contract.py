@@ -294,7 +294,8 @@ class DockerReleaseContract(unittest.TestCase):
         self.assertEqual(env["WITH_BAMBU"], "false")
         build = next(step for step in job["steps"] if step.get("name") == "Build (no push)")
         self.assertIn('--platform "$PLATFORM"', build["run"])
-        self.assertIn("image_acceptance.sh", job["steps"][-2]["run"])
+        self.assertIn("image_acceptance.sh", job["steps"][-3]["run"])
+        self.assertIn("lifecycle_gate.sh", job["steps"][-2]["run"])
         smoke = next(step for step in job["steps"]
                      if step.get("name") == "Headless slice with each bundled Orca channel")
         # The published image always bundles Orca, so the smoke is unconditional.
@@ -325,7 +326,13 @@ class DockerReleaseContract(unittest.TestCase):
         acceptance = next(i for i, step in enumerate(steps) if step.get("id") == "acceptance")
         publish = next(i for i, step in enumerate(steps) if step.get("id") == "publish")
         self.assertLess(acceptance, publish)
-        publish_gate = "inputs.publish && steps.acceptance.outcome == 'success'"
+        lifecycle = next(i for i, step in enumerate(steps) if step.get("id") == "lifecycle")
+        self.assertLess(acceptance, lifecycle)
+        self.assertLess(lifecycle, publish)
+        self.assertIn("lifecycle_gate.sh", steps[lifecycle]["run"])
+        self.assertNotIn("docker push", steps[lifecycle]["run"])
+        publish_gate = ("inputs.publish && steps.acceptance.outcome == 'success'"
+                        " && steps.lifecycle.outcome == 'success'")
         self.assertEqual(steps[publish]["if"], publish_gate)
         login = next(step for step in steps
                      if step.get("uses", "").startswith("docker/login-action@"))

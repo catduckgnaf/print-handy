@@ -152,15 +152,23 @@ jobs:
       - name: Offline runtime acceptance
         id: acceptance
         run: tests/docker/image_acceptance.sh "$LOCAL_IMAGE" "$SPOOLMAN_MODE" evidence/acceptance
+      - name: Release lifecycle gate (fresh install, upgrade, restore, downgrade)
+        id: lifecycle
+        run: |
+          set -euo pipefail
+          # Upgrade from and downgrade to the release users run today (:latest), pulled
+          # read-only. A failure here fails the leg, so the push steps below never run.
+          docker pull --platform "$PLATFORM" ghcr.io/catduckgnaf/print-handy:latest
+          tests/docker/lifecycle_gate.sh ghcr.io/catduckgnaf/print-handy:latest "$LOCAL_IMAGE" evidence/lifecycle
       - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4.7.0
-        if: inputs.publish && steps.acceptance.outcome == 'success'
+        if: inputs.publish && steps.acceptance.outcome == 'success' && steps.lifecycle.outcome == 'success'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Push accepted image by digest only
         id: publish
-        if: inputs.publish && steps.acceptance.outcome == 'success'
+        if: inputs.publish && steps.acceptance.outcome == 'success' && steps.lifecycle.outcome == 'success'
         run: |
           set -euo pipefail
           # The identical build is pushed by digest only: no tag is pushed from a

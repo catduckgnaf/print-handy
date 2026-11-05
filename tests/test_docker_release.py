@@ -835,6 +835,27 @@ class AcceptanceFixtureTests(unittest.TestCase):
             with self.subTest(check=check):
                 self.assertIn(check, script)
 
+    def test_lifecycle_gate_is_scratch_only_and_covers_every_transition(self):
+        """The release lifecycle gate (install, upgrade, restore, downgrade) never touches real data."""
+        script = (ROOT / "tests" / "docker" / "lifecycle_gate.sh").read_text()
+        self.assertIn('-p "ph-life-$name-$run_id"', script)
+        self.assertIn("work=$(mktemp -d)", script)
+        self.assertNotIn("container_name", script)
+        self.assertNotRegex(script, r"\s-p\s+\d|--publish")
+        for forbidden in ("prune", "docker push", "docker pull", "docker build", "/mnt/user", "appdata"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, script)
+        # Helper containers have no network; Compose phases use the internal acceptance network.
+        self.assertIn("--network none", script)
+        self.assertIn("compose.acceptance.yml", script)
+        self.assertIn("PRAGMA integrity_check", script)
+        self.assertIn("SHA256SUMS", script)
+        # Every transition runs, each with its own health and data checks.
+        for literal in ("start fresh", "fresh:schema", "upgrade:seeded", "backup:verified",
+                        "start upgrade", "for step in restore downgrade", "image=$previous",
+                        '"$1:healthy"', '"$1:data-intact"', '"$step:restored"'):
+            with self.subTest(literal=literal):
+                self.assertIn(literal, script)
 
 if __name__ == "__main__":
     unittest.main()
