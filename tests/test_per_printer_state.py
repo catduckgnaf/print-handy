@@ -505,3 +505,49 @@ def test_hardware_lock_is_reentrant_and_times_out(tmp_path, monkeypatch):
                 pass
     finally:
         os.close(fd)
+
+
+def _adopt_worker(root):
+    import os
+    from pathlib import Path
+    from print_handy import settings
+    from print_handy.core import launch_state
+    settings.state_dir = lambda data=None: Path(root)
+    return str(launch_state.db_path(DEFAULT_ID))
+
+
+def test_concurrent_legacy_adoption_is_serialized(tmp_path, monkeypatch):
+    import multiprocessing as mp
+    legacy = tmp_path / "print_handy_launches.sqlite3"
+    monkeypatch.setenv("PRINT_HANDY_LAUNCH_DB", str(legacy))
+    launch_state.acquire(DEFAULT_ID, remote="concurrent.gcode")
+    monkeypatch.delenv("PRINT_HANDY_LAUNCH_DB")
+    monkeypatch.setattr(settings, "state_dir", lambda data=None: tmp_path)
+
+    ctx = mp.get_context("fork")
+    procs = [ctx.Process(target=_adopt_worker, args=(str(tmp_path),)) for _ in range(4)]
+    [p.start() for p in procs]
+    [p.join(30) for p in procs]
+    assert all(p.exitcode == 0 for p in procs)
+
+    path = launch_state.db_path(DEFAULT_ID)
+    assert path.exists()
+    assert not list(path.parent.glob("jobs.db.adopting*"))
+    [row] = launch_state.pending(DEFAULT_ID)
+    assert row["remote"] == "concurrent.gcode"
+
+
+def test_legacy_adoption_survives_uri_special_characters_in_path(tmp_path, monkeypatch):
+    special_dir = tmp_path / "home#printer?state"
+    special_dir.mkdir(parents=True)
+    legacy = special_dir / "print_handy_launches.sqlite3"
+    monkeypatch.setenv("PRINT_HANDY_LAUNCH_DB", str(legacy))
+    launch_state.acquire(DEFAULT_ID, remote="special-chars.gcode")
+    monkeypatch.delenv("PRINT_HANDY_LAUNCH_DB")
+    monkeypatch.setattr(settings, "state_dir", lambda data=None: special_dir)
+
+    path = launch_state.db_path(DEFAULT_ID)
+    assert path.exists()
+    assert not list(path.parent.glob("jobs.db.adopting*"))
+    [row] = launch_state.pending(DEFAULT_ID)
+    assert row["remote"] == "special-chars.gcode"
