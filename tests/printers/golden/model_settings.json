@@ -60,6 +60,7 @@
       "timeout_s": 20.0
     },
     "maintenance": {
+      "bed_separate_mm": 20,
       "full_days": 30,
       "full_hours": 75,
       "quick_hours": 25
@@ -228,6 +229,7 @@
       "timeout_s": 20.0
     },
     "maintenance": {
+      "bed_separate_mm": 20,
       "full_days": 30,
       "full_hours": 75,
       "quick_hours": 25
@@ -396,6 +398,7 @@
       "timeout_s": 20.0
     },
     "maintenance": {
+      "bed_separate_mm": 20,
       "full_days": 30,
       "full_hours": 75,
       "quick_hours": 25
@@ -564,6 +567,7 @@
       "timeout_s": 20.0
     },
     "maintenance": {
+      "bed_separate_mm": 20,
       "full_days": 30,
       "full_hours": 75,
       "quick_hours": 25

@@ -144,6 +144,16 @@ _TASK_INTENT_SUGGESTIONS = (
     (re.compile(rf"^{_LEAD}(?:resume|continue|unpause)\s+(?:the\s+)?(?:current\s+)?print{_END}", re.I), "/print-resume"),
     (re.compile(rf"^{_LEAD}(?:restart|reboot)\s+(?:the\s+)?printer{_END}", re.I), "/print-reboot"),
     (re.compile(rf"^{_LEAD}(?:do|run)\s+(?:a\s+)?cold\s*pull{_END}", re.I), "/print-coldpull"),
+    # Prepare to clean: separate the bed and nozzle (the stop recovery ask).
+    # Each form only offers the did-you-mean prompt; /print-bed-down then
+    # asks its own confirmation before anything moves.
+    (re.compile(rf"^{_LEAD}(?:reset|lower|drop)\s+(?:the\s+)?(?:printer'?s?\s+)?bed(?:\s+down)?{_END}", re.I), "/print-bed-down"),
+    (re.compile(rf"^{_LEAD}(?:move|bring|put)\s+(?:the\s+)?bed\s+down{_END}", re.I), "/print-bed-down"),
+    (re.compile(rf"^(?:the\s+)?bed\s+(?:down|reset){_END}", re.I), "/print-bed-down"),
+    (re.compile(rf"^{_LEAD}separate\s+(?:the\s+)?(?:nozzle|bed)(?:\s+(?:and|from)\s+(?:the\s+)?(?:nozzle|bed))?{_END}", re.I), "/print-bed-down"),
+    (re.compile(rf"^{_LEAD}get\s+(?:the\s+)?nozzle\s+off\s+(?:the\s+)?(?:part|print|bed){_END}", re.I), "/print-bed-down"),
+    (re.compile(rf"^{_LEAD}(?:prepare|prep|get\s+ready)\s+(?:the\s+printer\s+)?(?:to|for)\s+clean(?:ing)?{_END}", re.I), "/print-bed-down"),
+    (re.compile(rf"^{_LEAD}clean\s+the\s+nozzle{_END}", re.I), "/print-bed-down"),
     (re.compile(rf"^{_LEAD}(?:change|swap|replace)\s+(?:the\s+)?nozzle{_END}", re.I), "/nozzle change"),
     # Status, progress and failure reports
     (re.compile(rf"^(?:please\s+)?(?:what\s+is\s+(?:the\s+)?)?(?:printer|print)\s+status{_END}", re.I), "/print-status"),
@@ -215,6 +225,26 @@ def _task_suggestion(text):
                 continue
             return cmd.replace("{q}", query)
         return cmd
+    return _bed_down_fuzzy(clean)
+
+
+# Typo forms of the prepare-to-clean request ("rest the bed", "seperate the
+# nozzle", "bed dwn") go through the shared fuzzy scorer. The floor is high on
+# purpose: "reset the printer" (89), "heat the bed" (80) and "level the bed"
+# (77) stay below it, and the result is only ever the did-you-mean prompt.
+BED_DOWN_PHRASES = (
+    "reset the bed", "reset the printer bed", "lower the bed", "drop the bed",
+    "move the bed down", "bed down", "separate the nozzle", "separate the bed and nozzle",
+    "get the nozzle off the part", "prepare to clean", "get ready to clean", "clean the nozzle",
+)
+BED_DOWN_FUZZY_FLOOR = 90
+
+
+def _bed_down_fuzzy(clean):
+    if len(clean.split()) > 8:
+        return None
+    if fuzzy.best_fuzzy_score(clean, BED_DOWN_PHRASES) >= BED_DOWN_FUZZY_FLOOR:
+        return "/print-bed-down"
     return None
 
 

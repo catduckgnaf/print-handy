@@ -341,7 +341,7 @@ Once the bot is running, this is the whole conversation for one print. Every ste
 
 ![Paused post and runout spool question](https://raw.githubusercontent.com/catduckgnaf/print-handy/main/assets/screenshots/discord-06-pause-and-runout.png)
 
-**Emergency stop.** The stop post has one button, "Restart printer & end job". It runs the same firmware restart as `/print-reboot` (no motion or heat), then cancels the stopped job if it is still loaded, and posts a maintenance reminder. An emergency stop cannot be resumed, and Cancel print is not offered because it cannot clear a controller shutdown.
+**Emergency stop.** The stop post has one button, "Restart printer & end job". It runs the same firmware restart as `/print-reboot` (no motion or heat), then cancels the stopped job if it is still loaded, and posts a maintenance reminder that offers `/print-bed-down` (Prepare to clean: separate bed and nozzle) to free the part and clean the nozzle. That command asks first, never homes or heats, and moves only when Klipper reports Z homed; right after a firmware restart Z is not homed, so it posts manual instructions and sends nothing. An emergency stop cannot be resumed, and Cancel print is not offered because it cannot clear a controller shutdown.
 
 **A spool added directly in Spoolman** gets a one-time prompt to load it.
 
