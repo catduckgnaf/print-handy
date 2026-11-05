@@ -26,7 +26,11 @@ of printability: the post-slice toolpath check consumes ``regions``.
 """
 
 import hashlib
+import json
+import os
 import re
+import shutil
+import time
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
@@ -478,3 +482,87 @@ def describe(report):
             lines.append(f'{f["part"]} reaches {_fmt(-f["min_z_mm"])} mm below the plate; '
                          f'{f["volume_below_mm3"]:.0f} mm3 would be cut off.')
     return lines
+
+
+def extend_underside(source_path, dest_path=None, gap_mm=0.4, tol=1e-3):
+    """Extend downward underside vertices at gap_mm down to Z=0 (the build plate).
+
+    Preserves all 3MF components, materials, colors and other metadata.
+    """
+    dest_path = dest_path or source_path
+    tmp_out = Path(dest_path).with_suffix(f'.tmp_ext_{os.getpid()}.3mf')
+    modified_count = 0
+    with zipfile.ZipFile(source_path, 'r') as zin, zipfile.ZipFile(tmp_out, 'w', zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename == '3D/3dmodel.model':
+                root = ET.fromstring(data)
+                ns = {'m': 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'}
+                for v in root.findall('.//m:vertex', ns):
+                    z = float(v.get('z', '0'))
+                    if abs(z - gap_mm) <= tol:
+                        v.set('z', '0.00000000')
+                        modified_count += 1
+                data = ET.tostring(root, encoding='utf-8', xml_declaration=True)
+            zout.writestr(item, data)
+    shutil.move(tmp_out, dest_path)
+    return {'modified_vertices': modified_count, 'output_path': str(dest_path)}
+
+
+def sink_model(source_path, dest_path=None, dz=0.4):
+    """Sink build items in the 3MF by dz mm into the build plate.
+
+    The slicer clips geometry below Z=0, removing the low-clearance underside.
+    """
+    dest_path = dest_path or source_path
+    tmp_out = Path(dest_path).with_suffix(f'.tmp_sink_{os.getpid()}.3mf')
+    with zipfile.ZipFile(source_path, 'r') as zin, zipfile.ZipFile(tmp_out, 'w', zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename == '3D/3dmodel.model':
+                root = ET.fromstring(data)
+                ns = {'m': 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'}
+                for it in root.findall('.//m:build/m:item', ns):
+                    tr = it.get('transform')
+                    if tr:
+                        vals = [float(v) for v in tr.split()]
+                        vals[11] -= dz
+                        it.set('transform', ' '.join(str(v) for v in vals))
+                    else:
+                        it.set('transform', f'1 0 0 0 1 0 0 0 1 0 0 {-dz}')
+                data = ET.tostring(root, encoding='utf-8', xml_declaration=True)
+            zout.writestr(item, data)
+    shutil.move(tmp_out, dest_path)
+    return {'sink_mm': dz, 'output_path': str(dest_path)}
+
+
+def record_clearance_acknowledgement(folder_or_job, gcode=None, source_file=None):
+    """Record operator acknowledgement of an unfixable support clearance risk (print anyway)."""
+    is_path = isinstance(folder_or_job, (str, Path))
+    if is_path:
+        p = Path(folder_or_job)
+        jp = p if p.name == 'JOB.json' else p / 'JOB.json'
+        job = json.loads(jp.read_text())
+    else:
+        job = folder_or_job
+        jp = None
+
+    from print_handy.core import model_job as mj
+    src = source_file or job.get('downloaded_file')
+    src_sha = mj.file_sha256(src) if src and Path(src).is_file() else None
+    binding = job.get('artifact_binding') or {}
+    rec_sha = binding.get('recipe_sha256')
+    gc = gcode or job.get('gcode')
+    gc_sha = mj.file_sha256(gc) if gc and Path(gc).is_file() else binding.get('gcode_sha256')
+
+    job['clearance_acknowledgement'] = {
+        'acknowledged': True,
+        'source_sha256': src_sha,
+        'recipe_sha256': rec_sha,
+        'gcode_sha256': gc_sha,
+        'at': time.strftime('%Y-%m-%dT%H:%M:%S%z'),
+    }
+
+    if is_path and jp is not None:
+        mj.write_job(jp.parent, job)
+    return job
