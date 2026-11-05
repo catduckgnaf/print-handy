@@ -101,7 +101,7 @@ def log_tail(data, lines: int = DEFAULT_LOG_LINES) -> str:
     if not path:
         return ("(no [logging] file is configured; attach the container or systemd log "
                 "for the same time window instead)")
-    target = Path(path).expanduser()
+    target = logs.current_file(path)  # daily files: the newest is the one being written
     try:
         text = target.read_text(errors="replace")
     except OSError as exc:

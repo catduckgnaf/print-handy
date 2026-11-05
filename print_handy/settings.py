@@ -1528,6 +1528,14 @@ def _validate_logging(data):
     path = logging_cfg.setdefault("file", "")
     if not isinstance(path, str):
         raise SettingsError(f"[logging] file must be a path or empty, got {path!r}")
+    keep = logging_cfg.setdefault("retention_days", 14)
+    try:
+        keep_days = int(keep)
+    except (TypeError, ValueError):
+        keep_days = 0
+    if isinstance(keep, bool) or keep_days < 1:
+        raise SettingsError(f"[logging] retention_days must be a whole number of days, 1 or more, got {keep!r}")
+    logging_cfg["retention_days"] = keep_days
     # Per-subsystem verbosity (#390 stage 4): {logger name: level}, so one
     # noisy subsystem can be raised without a wall of debug output.
     levels = logging_cfg.setdefault("levels", {})

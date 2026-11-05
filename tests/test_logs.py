@@ -4,6 +4,7 @@ import json
 import logging
 import logging.handlers
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -134,12 +135,79 @@ def test_invalid_level_and_format_fall_back_to_defaults():
     assert "INFO print_handy.demo: hello" in stream.getvalue()
 
 
-def test_file_option_writes_a_rotating_log_file(tmp_path):
+def test_file_option_writes_a_daily_log_file(tmp_path):
     target = tmp_path / "logs" / "print-handy.log"
     logs.configure({"level": "INFO", "file": str(target)}, stream=io.StringIO())
     logging.getLogger("print_handy.demo").info("to disk")
-    assert "to disk" in target.read_text()
-    assert any(isinstance(h, logging.handlers.RotatingFileHandler) for h in logging.getLogger().handlers)
+    today = target.with_name(f"print-handy-{datetime.now():%Y-%m-%d}.log")
+    assert "to disk" in today.read_text()
+    assert logs.current_file(target) == today
+    assert any(isinstance(h, logs.DailyFileHandler) for h in logging.getLogger().handlers)
+
+
+def test_daily_file_rolls_at_midnight_and_prunes_past_retention(tmp_path, monkeypatch):
+    target = tmp_path / "print-handy.log"
+    for day in ("2026-10-20", "2026-10-22", "2026-10-23"):
+        target.with_name(f"print-handy-{day}.log").write_text(f"{day}\n")
+    (tmp_path / "print-handy-notes.log").write_text("not a dated file")
+    (tmp_path / "other-2026-01-01.log").write_text("another log")
+    day = {"now": "2026-11-04"}
+    monkeypatch.setattr(logs.DailyFileHandler, "_today", staticmethod(lambda: day["now"]))
+    monkeypatch.setattr(logs, "datetime", _FixedDatetime.at(day))
+    handler = logs.DailyFileHandler(target, retention_days=14)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    try:
+        handler.emit(logging.makeLogRecord({"msg": "before midnight"}))
+        # 2026-10-20 and 2026-10-22 are 15 and 13 days old on 11-04: only the first goes.
+        assert [d for d, _ in logs.dated_files(target)] == ["2026-10-22", "2026-10-23", "2026-11-04"]
+        day["now"] = "2026-11-05"
+        handler.emit(logging.makeLogRecord({"msg": "after midnight"}))
+    finally:
+        handler.close()
+    assert target.with_name("print-handy-2026-11-04.log").read_text() == "before midnight\n"
+    assert target.with_name("print-handy-2026-11-05.log").read_text() == "after midnight\n"
+    assert [d for d, _ in logs.dated_files(target)] == ["2026-10-23", "2026-11-04", "2026-11-05"]
+    assert (tmp_path / "print-handy-notes.log").exists() and (tmp_path / "other-2026-01-01.log").exists()
+
+
+def test_two_processes_share_todays_file_without_renaming(tmp_path):
+    target = tmp_path / "print-handy.log"
+    first, second = logs.DailyFileHandler(target, 14), logs.DailyFileHandler(target, 14)
+    try:
+        for handler, msg in ((first, "bot"), (second, "listener"), (first, "bot again")):
+            handler.setFormatter(logging.Formatter("%(message)s"))
+            handler.emit(logging.makeLogRecord({"msg": msg}))
+    finally:
+        first.close()
+        second.close()
+    assert logs.current_file(target).read_text().splitlines() == ["bot", "listener", "bot again"]
+
+
+def test_retention_days_setting_is_validated_and_env_overridable():
+    cfg = settings.load(local=False, user=False, environ={"PRINT_HANDY__LOGGING__RETENTION_DAYS": "30"})
+    assert cfg["logging"]["retention_days"] == 30
+    with pytest.raises(settings.SettingsError, match="retention_days"):
+        settings.load(local=False, user=False, environ={"PRINT_HANDY__LOGGING__RETENTION_DAYS": "0"})
+
+
+def test_docker_default_writes_logs_to_the_persistent_state_volume():
+    root = Path(__file__).resolve().parents[1]
+    for suffix in ("yaml", "toml"):
+        cfg = settings.load(local=root / "config" / f"docker.{suffix}", user=False, environ={})
+        assert cfg["logging"]["file"] == "/data/hermes/logs/print-handy.log"
+        assert cfg["logging"]["retention_days"] == 14
+    assert '"${HOME:-/data}/hermes/logs"' in (root / "docker" / "entrypoint.sh").read_text()
+
+
+class _FixedDatetime(datetime):
+    @classmethod
+    def at(cls, day):
+        cls._day = day
+        return cls
+
+    @classmethod
+    def now(cls, tz=None):
+        return datetime.strptime(cls._day["now"], "%Y-%m-%d")
 
 
 def test_unwritable_file_falls_back_to_stderr_only(tmp_path, capsys):
@@ -218,7 +286,7 @@ def test_stage_interruption_is_a_warning_without_a_traceback():
 
 def test_logging_defaults_come_from_the_checked_in_config():
     for home in (settings.load(local=False, environ={}), settings.load(home=settings.LEGACY_HOME, local=False, environ={})):
-        assert home["logging"] == {"level": "INFO", "format": "text", "file": "", "levels": {}}
+        assert home["logging"] == {"level": "INFO", "format": "text", "file": "", "retention_days": 14, "levels": {}}
 
 
 def test_env_override_sets_debug_json_logging():

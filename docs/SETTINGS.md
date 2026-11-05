@@ -187,7 +187,8 @@ Schema, validation limits and TOML migration: [CONFIGURATION-YAML.md](CONFIGURAT
 | `live_stream.port` | `PRINT_HANDY__LIVE_STREAM__PORT` | `0` | Loopback port the supervised Activity server binds inside the deployment; `0` means no port has been chosen yet, so the server does not start |
 | `logging.level` | `PRINT_HANDY__LOGGING__LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
 | `logging.format` | `PRINT_HANDY__LOGGING__FORMAT` | `text` | `text` (one readable line per event) or `json` (one JSON object per line) |
-| `logging.file` | `PRINT_HANDY__LOGGING__FILE` | empty | Also write a rotating log file (5 MiB, 3 backups) at this path, for example under `/data/hermes/logs`; empty logs to stderr only |
+| `logging.file` | `PRINT_HANDY__LOGGING__FILE` | empty (Docker image: `/data/hermes/logs/print-handy.log`) | Also write daily log files beside this path (`print-handy.log` becomes `print-handy-YYYY-MM-DD.log`); empty logs to stderr only. See [Logs and troubleshooting](DOCKER.md#logs-and-troubleshooting) |
+| `logging.retention_days` | `PRINT_HANDY__LOGGING__RETENTION_DAYS` | `14` | Days of daily log files kept (today counts as one); older files are deleted. A whole number, 1 or more |
 | `logging.levels` | file only | empty | Per-subsystem verbosity (#390): a table of logger name to level, for example `levels = { "print_handy.core.orca_adapter" = "DEBUG" }` in TOML, so one subsystem can be raised without a wall of debug output; applied at process start |
 | `maintenance.quick_hours` | `PRINT_HANDY__MAINTENANCE__QUICK_HOURS` | `25` | Quick maintenance due after these print hours |
 | `maintenance.full_hours` | `PRINT_HANDY__MAINTENANCE__FULL_HOURS` | `75` | Full maintenance due after these print hours |
