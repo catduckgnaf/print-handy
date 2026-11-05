@@ -12,7 +12,9 @@ import json
 import os
 import re
 import shlex
+import sqlite3
 import subprocess
+import sys
 import tempfile
 import tomllib
 import unittest
@@ -845,6 +847,117 @@ class AcceptanceFixtureTests(unittest.TestCase):
         for check in ("spoolman:loopback-only", "spoolman:no-web-ui", "spoolman:persisted", "bot:fails-closed"):
             with self.subTest(check=check):
                 self.assertIn(check, script)
+
+    def test_lifecycle_gate_is_scratch_only_and_covers_every_transition(self):
+        """The release lifecycle gate (install, upgrade, restore, downgrade) never touches real data."""
+        script = (ROOT / "tests" / "docker" / "lifecycle_gate.sh").read_text()
+        self.assertIn('-p "ph-life-$name-$run_id"', script)
+        self.assertIn("work=$(mktemp -d)", script)
+        self.assertNotIn("container_name", script)
+        self.assertNotRegex(script, r"\s-p\s+\d|--publish")
+        for forbidden in ("prune", "docker push", "docker pull", "docker build", "/mnt/user", "appdata"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, script)
+        # Helper containers have no network; Compose phases use the internal acceptance network.
+        self.assertIn("--network none", script)
+        self.assertIn("compose.acceptance.yml", script)
+        helper = (ROOT / "tests" / "docker" / "lifecycle_backup.py").read_text()
+        self.assertIn("lifecycle_backup.py backup /tree /backup", script)
+        self.assertIn("lifecycle_backup.py restore /backup /tree", script)
+        self.assertIn("PRAGMA integrity_check", helper)
+        self.assertIn("SHA256SUMS", helper)
+        # Every transition runs, each with its own health and data checks.
+        for literal in ("start fresh", "fresh:schema", "upgrade:seeded", "backup:verified",
+                        "start upgrade", "for step in restore downgrade", "image=$previous",
+                        '"$1:healthy"', '"$1:data-intact"', '"$step:restored"'):
+            with self.subTest(literal=literal):
+                self.assertIn(literal, script)
+
+
+class LifecycleGateCleanupTests(unittest.TestCase):
+    """The gate's EXIT cleanup must collect logs into OUT_DIR and remove every Compose project.
+
+    Runs the real script against a stub docker that behaves like Compose on the one point that
+    matters: without PRINT_HANDY_IMAGE in the environment, every compose call fails. Every phase
+    reports unhealthy, so the script exits early and only cleanup is exercised.
+    """
+
+    STUB = """#!/bin/sh
+echo "$PWD|${PRINT_HANDY_IMAGE:-}|${PRINT_HANDY_DATA:-}|$*" >> "$STUB_LOG"
+case "$1 $2" in
+  "image inspect") echo sha256:0000000000000000000000; exit 0 ;;
+  "compose "*) [ -n "${PRINT_HANDY_IMAGE:-}" ] || { echo "required variable PRINT_HANDY_IMAGE is missing" >&2; exit 1; }
+     case " $* " in *" up "*) exit 1 ;; *" logs "*) echo stub-logs ;; esac ;;
+esac
+exit 0
+"""
+
+    def test_cleanup_logs_into_relative_out_dir_and_downs_every_project(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            bin_dir = tmp / "bin"
+            bin_dir.mkdir()
+            for name, body in (("docker", self.STUB), ("sudo", "#!/bin/sh\nexit 0\n")):
+                (bin_dir / name).write_text(body)
+                (bin_dir / name).chmod(0o755)
+            log = tmp / "docker.log"
+            env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STUB_LOG=str(log), TMPDIR=str(tmp))
+            env.pop("PRINT_HANDY_IMAGE", None)
+            result = subprocess.run(["bash", str(ROOT / "tests" / "docker" / "lifecycle_gate.sh"),
+                                     "prev:tag", "cand:tag", "evidence/lifecycle"],
+                                    cwd=tmp, env=env, capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertNotIn("compose down failed", result.stderr)
+            calls = log.read_text().splitlines()
+            downs = [c for c in calls if " down " in c]
+            self.assertEqual(len(downs), 2, calls)  # fresh and prev were started
+            for call in downs + [c for c in calls if " logs " in c]:
+                _cwd, image, data, _args = call.split("|", 3)
+                self.assertIn(image, ("prev:tag", "cand:tag"), call)
+                self.assertTrue(data, call)
+            out = tmp / "evidence" / "lifecycle"
+            logs = sorted(out.glob("logs-ph-life-*.txt"))
+            self.assertEqual([f.name.split("-")[3] for f in logs], ["fresh", "prev"], logs)
+            for f in logs:
+                self.assertEqual(f.read_text().strip(), "stub-logs")
+
+
+class LifecycleBackupTests(unittest.TestCase):
+    """The gate's backup must produce a manifest its own restore can match, WAL databases included."""
+
+    def test_wal_database_backup_restores_against_its_manifest(self):
+        sys.path.insert(0, str(ROOT / "tests" / "docker"))
+        try:
+            import lifecycle_backup
+        finally:
+            sys.path.pop(0)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            src = tmp / "tree"
+            (src / "spoolman").mkdir(parents=True)
+            (src / "hermes").mkdir()
+            (src / "hermes" / "marker.txt").write_text("seed")
+            for db in (src / "spoolman" / "spoolman.db", src / "hermes" / "launch.db"):
+                con = sqlite3.connect(db)
+                con.execute("PRAGMA journal_mode=WAL")
+                con.execute("CREATE TABLE t (v TEXT)")
+                con.execute("INSERT INTO t VALUES ('kept')")
+                con.commit()
+                con.close()
+            backup_dir = tmp / "backup"
+            backup_dir.mkdir()
+            dbs, files = lifecycle_backup.backup(str(src), str(backup_dir))
+            self.assertEqual((dbs, files), (2, 3))
+            manifest = (backup_dir / "SHA256SUMS").read_text()
+            self.assertNotRegex(manifest, r"-(wal|shm)$|-(wal|shm)\n")
+            self.assertEqual(sorted(p.name for p in (backup_dir / "tree").rglob("*") if p.is_file()),
+                             ["launch.db", "marker.txt", "spoolman.db"])
+            dst = tmp / "restored"
+            dst.mkdir()
+            self.assertEqual(lifecycle_backup.restore(str(backup_dir), str(dst)), 3)
+            con = sqlite3.connect(dst / "spoolman" / "spoolman.db")
+            self.assertEqual(con.execute("SELECT v FROM t").fetchall(), [("kept",)])
+            con.close()
 
 
 if __name__ == "__main__":

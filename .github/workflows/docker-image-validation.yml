@@ -20,6 +20,10 @@ on:
         type: choice
         options: [amd64, arm64]
         default: amd64
+      previous_image:
+        description: Release the lifecycle gate upgrades from and downgrades to (tag or digest)
+        type: string
+        default: ghcr.io/catduckgnaf/print-handy:latest
 
 permissions:
   contents: read
@@ -47,6 +51,7 @@ jobs:
       WITH_BAMBU: "false"
       # Spoolman is included in the stack (#214); acceptance always exercises it.
       SPOOLMAN_MODE: included
+      PREVIOUS_IMAGE: ${{ inputs.previous_image }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Record the exact source and Orca prebuilt pins
@@ -99,6 +104,12 @@ jobs:
           done
       - name: Offline runtime acceptance
         run: tests/docker/image_acceptance.sh "$IMAGE" "$SPOOLMAN_MODE" evidence/acceptance
+      - name: Release lifecycle gate (fresh install, upgrade, restore, downgrade)
+        run: |
+          set -euo pipefail
+          # The previous release is pulled read-only (anonymous, public); nothing is pushed.
+          docker pull --platform "$PLATFORM" "$PREVIOUS_IMAGE"
+          tests/docker/lifecycle_gate.sh "$PREVIOUS_IMAGE" "$IMAGE" evidence/lifecycle
       - name: Keep the evidence (logs and identities only, never the image)
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
