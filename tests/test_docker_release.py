@@ -690,9 +690,13 @@ class CameraWatchVisibilityTests(unittest.TestCase):
 
     def test_docker_configs_carry_visual_watch_with_the_documented_defaults(self):
         docker_yaml = yaml.safe_load((ROOT / "config" / "docker.yaml").read_text())
-        self.assertEqual(docker_yaml["visual_watch"], {"sensitivity": 3, "enabled": True})
+        self.assertEqual(docker_yaml["visual_watch"], {"sensitivity": 3, "enabled": True,
+                                                        "early_layers": 10, "early_interval_s": 120,
+                                                        "auto_pause_early": False})
         docker_toml = tomllib.loads((ROOT / "config" / "docker.toml").read_text())
-        self.assertEqual(docker_toml["visual_watch"], {"sensitivity": 3, "enabled": True})
+        self.assertEqual(docker_toml["visual_watch"], {"sensitivity": 3, "enabled": True,
+                                                        "early_layers": 10, "early_interval_s": 120,
+                                                        "auto_pause_early": False})
         loaded = settings.load(local=ROOT / "config" / "docker.yaml", environ={})
         self.assertEqual(loaded["visual_watch"]["sensitivity"], 3)
         self.assertIs(loaded["visual_watch"]["enabled"], True)
