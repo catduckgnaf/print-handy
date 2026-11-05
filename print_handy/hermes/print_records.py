@@ -151,9 +151,10 @@ def latest_record_for_file(filename: str) -> dict[str, Any]:
     """
     if not filename:
         return {}
-    wanted = {str(filename), Path(str(filename)).name}
+    exact_wanted = str(filename)
+    base_wanted = Path(exact_wanted).name
     best: dict[str, Any] = {}
-    best_at = ""
+    best_key = (-1, "")
     try:
         paths = list(PRINTS_DIR.glob("*.json"))
     except OSError:
@@ -163,12 +164,17 @@ def latest_record_for_file(filename: str) -> dict[str, Any]:
         if not record:
             continue
         names = {str(record.get("gcode_file") or ""), str(record.get("job_key") or "")}
-        names |= {Path(n).name for n in names if n}
-        if not (wanted & names):
+        names.discard("")
+        # Tier 1: the exact value. Tier 0: base name only, used when no exact match exists.
+        if exact_wanted in names:
+            tier = 1
+        elif base_wanted in {Path(n).name for n in names}:
+            tier = 0
+        else:
             continue
         at = str(record.get("started_at") or record.get("completed_at") or "")
-        if not best or at >= best_at:
-            best, best_at = record, at
+        if (tier, at) >= best_key:
+            best, best_key = record, (tier, at)
     return best
 
 

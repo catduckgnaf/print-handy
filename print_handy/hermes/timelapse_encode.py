@@ -257,6 +257,11 @@ def plan_playback(frame_count, settings=None):
     return fps_int, indices
 
 
+def expected_playback_frames(count, data=None) -> int:
+    """Frames the assembled video holds for ``count`` captured frames (at least 1)."""
+    return max(1, len(plan_playback(count, playback_settings(data))[1]))
+
+
 @contextlib.contextmanager
 def playback_frames(frames_dir, settings=None):
     """Yield (directory, fps, count) of the frames to encode, per plan_playback.
@@ -666,13 +671,15 @@ def captured_video(job_key, *, data=None, max_bytes, log=None, probe=None,
         target = directory / "timelapse.mp4"
         real = run is None
         count = len(list((directory / "frames").glob("frame-*.jpg")))
+        # Playback may decimate or hold, so the video holds the planned frame count, not the capture's.
+        expected = expected_playback_frames(count, data)
 
         def reusable() -> bool:
             if not (target.is_file() and 0 < target.stat().st_size <= max_bytes):
                 return False
             # A cached video is only reused when it still fully decodes:
             # an earlier colliding render may have left a stream-less file.
-            return validate_video(target, ffmpeg=ffmpeg, min_frames=count) if real else True
+            return validate_video(target, ffmpeg=ffmpeg, min_frames=expected) if real else True
 
         if reusable():
             return _deliver(target, job_key, directory, log)

@@ -310,5 +310,50 @@ class SettingsValidationTests(unittest.TestCase):
                 self.validated(**bad)
 
 
+class CacheAndRecordMatchTests(unittest.TestCase):
+    """Codex round 1 on #907."""
+
+    def test_cached_video_is_validated_against_the_planned_frame_count(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            frames = Path(tmp) / "timelapse" / "job-1" / "frames"
+            frames.mkdir(parents=True)
+            for i in range(1, 4301):
+                (frames / f"frame-{i:06d}.jpg").write_bytes(JPEG)
+            (frames.parent / "capture.json").write_text(
+                '{"job_key": "job:1", "filename": "a.gcode", "state": "complete", '
+                '"frames": 4300, "finished_at": 1.0}', encoding="utf-8")
+            target = frames.parent / "timelapse.mp4"
+            target.write_bytes(b"x" * 10)
+            data = {"paths": {"cache": tmp}, "timelapse": {"capture_enabled": True}}
+            seen = {}
+
+            def fake_validate(path, **kw):
+                seen.update(kw)
+                return True
+
+            with mock.patch.object(timelapse_encode, "validate_video", fake_validate), \
+                    mock.patch.object(timelapse_encode, "_deliver", lambda *a, **k: a[0]), \
+                    mock.patch.object(timelapse_encode, "assemble_frames") as assemble:
+                out = timelapse_encode.captured_video("job:1", data=data, max_bytes=9_000_000)
+            self.assertEqual(out, target)
+            assemble.assert_not_called()
+            self.assertEqual(seen["min_frames"], timelapse_encode.expected_playback_frames(4300, data))
+            self.assertLess(seen["min_frames"], 4300)
+
+    def test_exact_filename_beats_a_newer_basename_match(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prints = Path(tmp)
+            import json
+            (prints / "a.json").write_text(json.dumps(
+                {"gcode_file": "folderA/part.gcode", "started_at": "2026-11-01T10:00:00"}))
+            (prints / "b.json").write_text(json.dumps(
+                {"gcode_file": "folderB/part.gcode", "started_at": "2026-11-04T10:00:00"}))
+            with mock.patch.object(print_records, "PRINTS_DIR", prints):
+                self.assertEqual(print_records.latest_record_for_file("folderA/part.gcode")["gcode_file"],
+                                 "folderA/part.gcode")
+                self.assertEqual(print_records.latest_record_for_file("part.gcode")["gcode_file"],
+                                 "folderB/part.gcode")  # basename only: newest wins
+
+
 if __name__ == "__main__":
     unittest.main()
