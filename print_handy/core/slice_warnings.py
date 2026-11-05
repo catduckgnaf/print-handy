@@ -130,6 +130,20 @@ def operator_decided(job):
     return bool(orientation.get('rotation')) and isinstance(orientation.get('supports'), bool)
 
 
+def support_mismatch(job):
+    """Artifacts sliced with supports off although the operator chose supports (fail closed).
+
+    Rows from before slice warnings were recorded carry no ``supports_on`` and are skipped.
+    """
+    if (job.get('support_decision') or {}).get('supports') is not True:
+        return []
+    rows = [('the main slice', job.get('provenance'))] + [
+        (f"plate {p.get('plate_id') or p.get('binding_key') or '?'}", p.get('provenance'))
+        for p in job.get('derived_plates') or [] if isinstance(p, dict)]
+    return [name for name, prov in rows
+            if isinstance(prov, dict) and 'supports_on' in prov and not prov['supports_on']]
+
+
 def support_finding(job):
     """The unanswered support question for a sliced job, or None.
 

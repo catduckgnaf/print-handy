@@ -118,3 +118,64 @@ def test_reslice_with_supports_passes_the_decision_to_the_slicer(tmp_path, monke
     job = json.loads(jp.read_text())
     assert slice_warnings.support_finding(job) is None
     assert job['provenance']['support_decided'] is True
+
+
+def test_support_kw_carries_the_operator_choice_into_every_branch():
+    assert mj._support_kw({}) == {}
+    assert mj._support_kw({}, False) == {'supports': False}
+    assert mj._support_kw({'support_decision': {'supports': True}}) == {'supports': True}
+    # "Re-slice with supports" wins over a path default of off (it came after the warning).
+    assert mj._support_kw({'support_decision': {'supports': True}}, False) == {'supports': True}
+    assert mj._support_kw({'support_decision': {'supports': False}}) == {'supports': False}
+    # A path's own recorded choice (reorientation offer) is kept when the operator said no supports.
+    assert mj._support_kw({'support_decision': {'supports': False}}, True) == {'supports': True}
+
+
+def _slice_model_calls(module):
+    import ast
+    import inspect
+    tree = ast.parse(inspect.getsource(module))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and getattr(node.func, 'id', None) == 'slice_model':
+            yield node
+
+
+def test_every_job_slicing_path_passes_the_support_decision():
+    """Merged, multi-tool, painted, per-plate, split and single paths all reach Orca with it."""
+    import ast
+    missing = []
+    for call in _slice_model_calls(mj):
+        if any(k.arg == 'first_layer' for k in call.keywords):
+            continue  # first-layer probe, not a printed job artifact
+        carried = any(k.arg is None and isinstance(k.value, ast.Call)
+                      and getattr(k.value.func, 'id', None) == '_support_kw' for k in call.keywords)
+        carried = carried or any(k.arg is None and getattr(k.value, 'id', None) == 'scale_kw'
+                                 for k in call.keywords)
+        if not carried:
+            missing.append(call.lineno)
+    assert not missing, f'slice_model calls without the support decision at model_job.py lines {missing}'
+
+
+def test_chosen_supports_never_print_an_unsupported_artifact(tmp_path, monkeypatch):
+    jp, gcode = _warned_slice(tmp_path, monkeypatch)
+    job = mj.record_support_decision(jp.parent, True)
+    job['provenance']['supports_on'] = False  # a branch that dropped the decision
+    with pytest.raises(RuntimeError, match='sliced without them'):
+        mj.require_current_artifact(job, gcode)
+    assert slice_warnings.support_mismatch({'support_decision': {'supports': False},
+                                            'provenance': {'supports_on': False}}) == []
+    assert slice_warnings.support_mismatch({'support_decision': {'supports': True},
+                                            'provenance': {}}) == []  # pre-warning rows
+
+
+def test_support_question_is_answerable_only_by_print_approvers():
+    import ast
+    import inspect
+    from print_handy.core import prepared_intake
+    tree = ast.parse(inspect.getsource(prepared_intake))
+    asks = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and getattr(n.func, 'id', None) == '_ask'
+            and any(isinstance(a, ast.Call) and getattr(a.func, 'attr', None) == 'question'
+                    and getattr(a.func.value, 'id', None) == 'slice_warnings' for a in n.args)]
+    assert asks, 'support question not found'
+    for call in asks:
+        assert any(k.arg == 'approval' and getattr(k.value, 'value', None) is True for k in call.keywords)
