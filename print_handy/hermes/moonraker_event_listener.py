@@ -3440,7 +3440,12 @@ class Listener:
                 return
             prompt = "Is there plastic on the bed under the nozzle, or is there spaghetti/detachment?"
             early = self.visual_watch.in_early_window(layer)
-            verdict, detail = await asyncio.to_thread(_visual_verdict, image, prompt, self.local_streak, early)
+            try:
+                verdict, detail = await asyncio.to_thread(
+                    _visual_verdict, image, prompt, self.local_streak, local_fallback=early)
+            except TypeError:
+                verdict, detail = await asyncio.to_thread(
+                    _visual_verdict, image, prompt, self.local_streak)
             suspicious = verdict in {"air", "spaghetti", "detached", "uncertain", "no", "unsafe"}
             if verdict == "empty_idle" and self.state == "printing":
                 # #913: print_stats says printing, so an empty bed is not a
