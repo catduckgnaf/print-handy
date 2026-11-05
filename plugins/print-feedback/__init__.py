@@ -5225,6 +5225,8 @@ def alert_button_handlers(bot, adapter):
         if slot not in (1, 2, 3, 4):
             await interaction.response.send_message('That insertion prompt is invalid. Nothing changed.', ephemeral=True)
             return
+        # Acknowledge before the Spoolman reads (3 s window).
+        await interaction.response.defer()
         state = await asyncio.to_thread(spool_sync.load_state)
         mapped = (state.get('filament_slots') or {}).get(str(slot)) or {}
         loaded_ids = {int(record.get('spoolman_id')) for key, record in (state.get('filament_slots') or {}).items()
@@ -5232,11 +5234,11 @@ def alert_button_handlers(bot, adapter):
         try:
             spools = await asyncio.to_thread(spool_sync.spoolman, 'GET', '/api/v1/spool?allow_archived=false', None)
         except Exception as exc:
-            await interaction.response.send_message('The shelf spools could not be loaded, so nothing was changed. Check that Spoolman is running, then try again.', ephemeral=True)
+            await interaction.followup.send('The shelf spools could not be loaded, so nothing was changed. Check that Spoolman is running, then try again.', ephemeral=True)
             return
         options = pab.insertion_select_options(spools, mapped, loaded_ids)
         if not options:
-            await interaction.response.send_message('No live shelf spools are available. Nothing changed.', ephemeral=True)
+            await interaction.followup.send('No live shelf spools are available. Nothing changed.', ephemeral=True)
             return
         select_aid = await asyncio.to_thread(pab.record, 'insertion-select', '', slot=slot)
         select = discord.ui.Select(placeholder='Choose a shelf spool', min_values=1, max_values=1,
@@ -5244,7 +5246,7 @@ def alert_button_handlers(bot, adapter):
                                    custom_id=f'pbinsertselect:{select_aid}')
         view = discord.ui.View(timeout=(globals().get('_config').question_timeout_s() if globals().get('_config') else 1800))
         view.add_item(select)
-        await interaction.response.edit_message(content='Choose the shelf spool to map to this IFS slot. Nothing changes until you confirm the bind.', view=view)
+        await interaction.edit_original_response(content='Choose the shelf spool to map to this IFS slot. Nothing changes until you confirm the bind.', view=view)
 
     def intake_view(components):
         import discord
@@ -5261,20 +5263,22 @@ def alert_button_handlers(bot, adapter):
                                                     custom_id=item['custom_id']))
         return view
 
-    async def intake_show_step(interaction, state, *, new_message=False):
+    async def intake_show_step(interaction, state, *, new_message=False, deferred=False):
         """Record the walkthrough's next step and show it (#512)."""
         aid = await asyncio.to_thread(pab.record, 'intake', '', **state)
         state = {**state}
         text = pab.intake_step_text(state)
         view = intake_view(pab.intake_step_components(aid, state))
-        if new_message:
+        if deferred:
+            await interaction.edit_original_response(content=text, view=view)
+        elif new_message:
             await interaction.response.send_message(text, view=view)
         else:
             await interaction.response.edit_message(content=text, view=view)
 
-    async def intake_advance(interaction, state):
+    async def intake_advance(interaction, state, *, deferred=False):
         state = {**state, 'step': pab.intake_next_step(state)}
-        await intake_show_step(interaction, state)
+        await intake_show_step(interaction, state, deferred=deferred)
 
     async def intake_start(interaction, origin, slot, context=None):
         """Open the conversational new-spool walkthrough (#512), replacing the modal.
@@ -5286,12 +5290,14 @@ def alert_button_handlers(bot, adapter):
         if slot not in (1, 2, 3, 4):
             await interaction.response.send_message('That prompt has no usable slot. Nothing changed.', ephemeral=True)
             return
+        # Acknowledge before the Spoolman reads (3 s window).
+        await interaction.response.defer()
         try:
             predicted = await asyncio.to_thread(spool_sync.next_spool_id)
             types = await asyncio.to_thread(spool_sync.filament_types)
         except Exception:
             logger.exception('new spool walkthrough could not read Spoolman')
-            await interaction.response.send_message('Spoolman could not be reached, so nothing was changed. Check that Spoolman is running, then try again.', ephemeral=True)
+            await interaction.followup.send('Spoolman could not be reached, so nothing was changed. Check that Spoolman is running, then try again.', ephemeral=True)
             return
         old_spool_id = old_remaining = None
         if origin == 'insertion':
@@ -5309,7 +5315,7 @@ def alert_button_handlers(bot, adapter):
                  'disposition': None, 'photo_offered': _photo_intake_ready(),
                  'from_photo': False, 'photo_route': None,
                  'nozzle_temp': None, 'bed_temp': None, 'hex': None, 'color_confirmed': False}
-        await intake_advance(interaction, state)
+        await intake_advance(interaction, state, deferred=True)
 
     async def intake_post_step(channel, state):
         """Post the walkthrough's current step as a new channel message.
@@ -5631,6 +5637,8 @@ def alert_button_handlers(bot, adapter):
         if slot not in (1, 2, 3, 4):
             await interaction.response.send_message('That spool question has no usable slot. Nothing changed.', ephemeral=True)
             return
+        # Acknowledge before the Spoolman reads (3 s window).
+        await interaction.response.defer()
         state = await asyncio.to_thread(spool_sync.load_state)
         mapped = (state.get('filament_slots') or {}).get(str(slot)) or {}
         loaded_ids = {int(record.get('spoolman_id')) for key, record in (state.get('filament_slots') or {}).items()
@@ -5638,11 +5646,11 @@ def alert_button_handlers(bot, adapter):
         try:
             spools = await asyncio.to_thread(spool_sync.spoolman, 'GET', '/api/v1/spool?allow_archived=false', None)
         except Exception as exc:
-            await interaction.response.send_message('The shelf spools could not be loaded, so nothing was changed. Check that Spoolman is running, then try again.', ephemeral=True)
+            await interaction.followup.send('The shelf spools could not be loaded, so nothing was changed. Check that Spoolman is running, then try again.', ephemeral=True)
             return
         options = pab.insertion_select_options(spools, mapped, loaded_ids)
         if not options:
-            await interaction.response.send_message('No live shelf spools are available. Nothing changed.', ephemeral=True)
+            await interaction.followup.send('No live shelf spools are available. Nothing changed.', ephemeral=True)
             return
         select_aid = await asyncio.to_thread(pab.record, 'spool-question-select', '', context=context)
         select = discord.ui.Select(placeholder='Choose the replacement shelf spool', min_values=1, max_values=1,
@@ -5650,7 +5658,7 @@ def alert_button_handlers(bot, adapter):
                                    custom_id=f'pbspoolselect:{select_aid}')
         view = discord.ui.View(timeout=(globals().get('_config').question_timeout_s() if globals().get('_config') else 1800))
         view.add_item(select)
-        await interaction.response.edit_message(content='Choose the shelf spool to charge for the rest of this print. Nothing changes until you confirm the bind.', view=view)
+        await interaction.edit_original_response(content='Choose the shelf spool to charge for the rest of this print. Nothing changes until you confirm the bind.', view=view)
 
     async def spool_question_modal(interaction, alert):
         """'New spool' on a paused spool question opens the same walkthrough (#512)."""
@@ -5729,6 +5737,8 @@ def alert_button_handlers(bot, adapter):
         """
         from print_handy.hermes import spool_sync
         from print_handy.hermes.discord_print_summary import spool_picker_label
+        # Acknowledge before the Spoolman re-read (3 s window).
+        await interaction.response.defer()
         label = spool_picker_label(None, None, spool_id, None)
         try:
             spool = await asyncio.to_thread(spool_sync.spoolman, 'GET', f'/api/v1/spool/{int(spool_id)}', None)
@@ -5760,7 +5770,7 @@ def alert_button_handlers(bot, adapter):
         else:
             content = (f'Charge the rest of this print to spool {label} in slot {slot}?{fate} '
                        'Nothing changes until you confirm.')
-        await interaction.response.edit_message(
+        await interaction.edit_original_response(
             content=content, view=intake_view(pab.bind_confirm_components(confirm_aid)))
 
     async def handle_bind_confirm(interaction, action, aid):
