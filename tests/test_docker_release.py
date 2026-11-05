@@ -642,7 +642,8 @@ class LiveContainerTests(unittest.TestCase):
         # token has no safe default; the profile is the opt-in and
         # cloudflared itself exits when started without one.
         self.assertEqual(sidecar["environment"]["TUNNEL_TOKEN"], "${TUNNEL_TOKEN:-}")
-        self.assertEqual(sidecar["image"], "${CLOUDFLARED_IMAGE:-cloudflare/cloudflared:latest}")
+        self.assertEqual(sidecar["image"], "${CLOUDFLARED_IMAGE:-cloudflare/cloudflared:2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba}")
+        self.assertNotIn(":latest", sidecar["image"])
         self.assertNotIn("ports", sidecar)
 
     def test_unraid_live_variables_and_masked_secrets(self):

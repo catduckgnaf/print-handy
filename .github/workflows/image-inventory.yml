@@ -1,0 +1,53 @@
+name: Image inventory
+
+# Report only: pulls a published image, writes an SBOM and a vulnerability
+# report as artifacts. Builds, pushes, tags and deploys nothing, and never
+# fails on findings (docs/COMPONENTS.md).
+on:
+  schedule:
+    - cron: "17 9 * * 1"
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Published image reference (tag or digest) to inventory
+        required: false
+        default: ghcr.io/catduckgnaf/print-handy:latest
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      IMAGE: ${{ inputs.image || 'ghcr.io/catduckgnaf/print-handy:latest' }}
+    steps:
+      - name: SBOM (SPDX)
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c  # v0.24.3
+        with:
+          image: ${{ env.IMAGE }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          artifact-name: print-handy-sbom.spdx.json
+      - name: Vulnerability report (Trivy, from the SBOM)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          scan-type: sbom
+          scan-ref: sbom.spdx.json
+          format: json
+          output: vulnerabilities.json
+          exit-code: "0"
+      - name: Summarize and upload
+        run: |
+          {
+            echo "### Image inventory: $IMAGE"
+            echo
+            echo "| Severity | Findings |"
+            echo "| --- | --- |"
+            jq -r '[.Results[]?.Vulnerabilities[]?.Severity] | group_by(.) | map("| \(.[0]) | \(length) |") | .[]' vulnerabilities.json
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: print-handy-vulnerabilities
+          path: vulnerabilities.json
