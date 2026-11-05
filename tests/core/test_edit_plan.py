@@ -135,6 +135,39 @@ def test_rotate_enrichment_composes_matrices_and_dims():
     assert plan["result_dims"] == [40.0, 20.0, 10.0]  # two quarter turns = the authored footprint
 
 
+def test_rotate_on_a_scaled_job_stores_the_unscaled_envelope():
+    # Regression (Codex P1 on PR #908): result_dims are the PRINTED dims
+    # (envelope x scale) for verification, but orientation.dims_full_mm
+    # is the UNSCALED envelope everywhere else in the codebase — storing
+    # the printed dims there made later enrichment scale them twice.
+    job = _job()
+    job["scale"] = 0.5
+    plan = ep.enrich_plan({"kind": "rotate", "axis": "z", "degrees": 90}, job)
+    assert plan["result_dims"] == [10.0, 20.0, 5.0]  # printed: 20x40x10 at 50%
+    ep.apply_plan(job, plan)
+    assert job["orientation"]["dims_full_mm"] == [20.0, 40.0, 10.0]  # unscaled envelope
+    # A follow-up target-size edit must measure against the envelope x
+    # the job scale ONCE: the rotated X side prints at 20 x 0.5 = 10 mm,
+    # so asking for 20 mm is 200%, not 400%.
+    plan = ep.enrich_plan({"kind": "scale_to_mm", "mm": 20, "axis": "x"}, job)
+    assert plan["percent"] == 200.0
+
+
+def test_scale_to_mm_records_the_expected_dimensions():
+    # Regression (Codex P2 on PR #908): a scale_to_mm plan used to carry
+    # no result_dims, so verify_slice took its "no expectation" branch
+    # and passed any measured bounds.
+    job = _job()
+    plan = ep.enrich_plan({"kind": "scale_to_mm", "mm": 20, "axis": "x"}, job)
+    assert plan["result_dims"] == [20.0, 10.0, 5.0]
+    moves = "G1 X0 Y0 Z0\nG1 X20 Y10 Z0\nG1 X20 Y10 Z5\n"
+    ok, lines = ep.verify_slice(plan, gcode_text=moves, before_dims=(40, 20, 10))
+    assert ok, lines
+    wrong = "G1 X0 Y0 Z0\nG1 X40 Y20 Z0\nG1 X40 Y20 Z10\n"
+    ok, lines = ep.verify_slice(plan, gcode_text=wrong, before_dims=(40, 20, 10))
+    assert not ok and any("bounds" in line for line in lines)
+
+
 def test_lay_flat_matrix_puts_the_largest_face_down():
     # A 40x20x10 box standing on its 20x10 end: the largest face (40x20)
     # must end facing the plate, leaving a 40x20 footprint 10 high.

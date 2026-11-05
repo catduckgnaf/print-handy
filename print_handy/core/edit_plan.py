@@ -617,11 +617,19 @@ def enrich_plan(plan, job, source_path=None):
         if len(source_dims) == 3:
             # The composed matrix maps SOURCE coordinates: measure it
             # against the authored dims, not the already-rotated ones.
-            plan["result_dims"] = [round(v * current_scale, 4)
-                                   for v in transformed_dims(plan["rotation"], source_dims)]
+            envelope = transformed_dims(plan["rotation"], source_dims)
         elif dims:
-            plan["result_dims"] = [round(v * current_scale, 4)
-                                   for v in transformed_dims(matrix, dims)]
+            envelope = transformed_dims(matrix, dims)
+        else:
+            envelope = None
+        if envelope is not None:
+            # result_dims are the PRINTED dims (for verify_slice's bounds
+            # check); envelope_dims are the UNSCALED envelope, which is
+            # what orientation.dims_full_mm means everywhere else — the
+            # two must never be conflated, or a scaled job's dims get
+            # multiplied by the scale a second time downstream.
+            plan["envelope_dims"] = [round(v, 4) for v in envelope]
+            plan["result_dims"] = [round(v * current_scale, 4) for v in envelope]
     elif kind == "lay_flat":
         if source_path is None:
             raise PlanError("lay flat needs the model file, which is not on disk for this job")
@@ -630,6 +638,7 @@ def enrich_plan(plan, job, source_path=None):
         if found is None:
             raise PlanError("the model has no faces to lay flat")
         plan["rotation"] = found[0]
+        plan["envelope_dims"] = [round(v, 4) for v in found[1]]
         plan["result_dims"] = [round(v * current_scale, 4) for v in found[1]]
     elif kind == "mirror":
         plan["mirror"] = mirror_matrix(plan["axis"])
@@ -649,6 +658,14 @@ def enrich_plan(plan, job, source_path=None):
                             f"{percent:.0f}% — outside the {SCALE_MIN_PERCENT:g}–"
                             f"{SCALE_MAX_PERCENT:g}% range")
         plan["percent"] = percent
+        # Record the expected printed dims, like every other geometry
+        # plan: without them verify_slice has nothing to hold the slice
+        # to, and a wrong-sized result would pass as "no expectation".
+        total = current_scale * percent / 100
+        result_dims = [round(d * total, 4) for d in dims]
+        target = AXES.index(axis) if axis in AXES else dims.index(max(dims))
+        result_dims[target] = float(plan["mm"])
+        plan["result_dims"] = result_dims
     elif kind == "scale_percent":
         if dims:
             # This edit multiplies the job's total scale by percent/100, so
@@ -672,8 +689,10 @@ def apply_plan(job, plan):
                                     "plate_only": plan.get("plate_only")}
     elif kind in ("rotate", "lay_flat"):
         orientation["rotation"] = plan["rotation"]
-        if plan.get("result_dims"):
-            orientation["dims_full_mm"] = plan["result_dims"]
+        if plan.get("envelope_dims"):
+            # dims_full_mm is the UNSCALED envelope (see enrich_plan);
+            # result_dims are printed dims and live only on the plan.
+            orientation["dims_full_mm"] = plan["envelope_dims"]
     elif kind == "mirror":
         orientation["mirror"] = plan["mirror"]
     elif kind in ("scale_percent", "scale_to_mm"):

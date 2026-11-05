@@ -157,6 +157,36 @@ def test_failed_verification_reports_and_changes_nothing(edit_env):
     assert not edit_env.reentered
 
 
+def test_reentry_failure_restores_the_original_job(edit_env, monkeypatch):
+    # Regression (Codex P2 on PR #908): when re-entry raised, the
+    # handler wrote the MUTATED job back while telling the user the job
+    # was unchanged — later edits/undo then operated on an edit the
+    # user was told had failed.
+    async def failing_reenter(event, gateway, source, adapter, job):
+        raise RuntimeError("intake blew up")
+
+    monkeypatch.setattr(plugin, "_edit_reenter", failing_reenter)
+    before = json.loads(edit_env.job_path.read_text())
+    result = run(plugin.edit_dispatch(_event("add tree supports"), edit_env.gateway))
+    assert result["reason"] == "edit re-entry failed"
+    assert any("unchanged" in text for text in edit_env.adapter.sent)
+    restored = json.loads(edit_env.job_path.read_text())
+    assert restored == before  # no applied settings, no edit record
+    assert "edits" not in restored and "edit_settings" not in restored
+
+
+def test_out_of_range_typed_request_gets_the_rejection(edit_env):
+    # Regression (Codex P2 on PR #908): resolve_request raises PlanError
+    # for typed values outside the plan bounds (infill 200% here); the
+    # dispatch must answer with the actionable rejection, not abort.
+    before = edit_env.job_path.read_bytes()
+    result = run(plugin.edit_dispatch(_event("infill 200%"), edit_env.gateway))
+    assert result["reason"] == "edit request refused"
+    assert any("Nothing was changed" in text for text in edit_env.adapter.sent)
+    assert edit_env.job_path.read_bytes() == before
+    assert not edit_env.probes and not edit_env.reentered
+
+
 def test_bare_supports_offers_a_pick_list(edit_env):
     edit_env.answers = ["re-slice with tree supports", "Yes, apply the edit"]
     result = run(plugin.edit_dispatch(_event("supports"), edit_env.gateway))

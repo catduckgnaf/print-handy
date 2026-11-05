@@ -6505,6 +6505,7 @@ async def _edit_apply(event, gateway, source, adapter, job_path, job, plan, *, l
         return {'action': 'skip', 'reason': 'edit verification failed'}
     actor = f"{_platform_value(source) or 'discord'}:{getattr(source, 'user_id', '')}"
     source_path = job.get('downloaded_file')
+    original = copy.deepcopy(job)  # restored verbatim if re-entry fails
     record = edit_plan.record_edit(job, plan, actor=actor, lane=lane,
                                    source_sha256=edit_plan.file_sha256(source_path))
     edit_plan.apply_plan(job, plan)
@@ -6512,8 +6513,11 @@ async def _edit_apply(event, gateway, source, adapter, job_path, job, plan, *, l
     try:
         result = await _edit_reenter(event, gateway, source, adapter, job)
     except Exception as exc:
-        record['verification'] = ['the re-slice presentation failed after a verified probe slice']
-        mj.write_job(job_path.parent, job)
+        # The message below says the job is unchanged, so make that
+        # true: write the pristine record back over the applied edit
+        # (whose provenance record goes with it — the attempt is in
+        # the log, and a failed edit must not steer later edits/undo).
+        mj.write_job(job_path.parent, original)
         logger.warning('edit re-entry failed after a verified probe slice: %r', exc)
         await say('The edit verified on a test slice, but re-slicing the job for presentation '
                   'failed, so the job above is unchanged. Nothing was started.')
@@ -6658,13 +6662,26 @@ async def edit_dispatch(event, gateway, **kwargs):
     if model_link(text) or model_file(event):
         return None  # a fresh intake owns links and files
     undo = bool(_EDIT_UNDO_RE.match(text.strip()))
-    resolved = None if undo else edit_plan.resolve_request(text)
-    if not undo and resolved is None and not edit_plan.looks_like_edit(text):
+    resolve_error = None
+    try:
+        resolved = None if undo else edit_plan.resolve_request(text)
+    except edit_plan.PlanError as exc:
+        # A typed request whose values fall outside the plan bounds
+        # (infill 200%, brim 30 mm): answer with the rejection below
+        # instead of aborting the dispatch on ordinary invalid input.
+        resolved, resolve_error = None, exc
+    if resolve_error is None and not undo and resolved is None \
+            and not edit_plan.looks_like_edit(text):
         return None
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
 
     async def say(content):
         await adapter.send(chat_id=source.chat_id, metadata=metadata, content=content)
+
+    if resolve_error is not None:
+        await say(f'I cannot make that edit: {resolve_error} Nothing was changed. '
+                  + edit_plan.vocabulary_text())
+        return {'action': 'skip', 'reason': 'edit request refused'}
 
     root = _state_dir() / 'model-link-intakes'
     found = _edit_current_job(root, source)
