@@ -1,23 +1,33 @@
 name: Develop Docker image to GHCR
 
-# Develop is a floating channel built from the `develop` branch. That
-# branch is a standing development branch, not a pointer: this workflow
-# builds whatever commit its tip names when a maintainer dispatches it,
-# exactly as pushed. There is no promote job and no CI-green gate on the
-# commit choice — the build and acceptance legs are the publication
-# gate, exactly as nightly's. The build matrix, acceptance and
-# push-by-digest flow are the release publisher's (docker-publish.yml);
-# only the source and the tag differ. Published tag: `develop`. Release
-# tags and `latest` are never touched by this workflow.
+# Develop is a floating channel built from the `develop` branch. Like
+# nightly, the channel follows `main`: the promote job fast-forwards the
+# develop branch to the newest commit on `main` whose CI workflow run
+# completed successfully, so a red or unfinished main is never promoted
+# and never published. The two channels differ in tag, version scheme
+# and app channel only. The build matrix, acceptance and push-by-digest
+# flow are the release publisher's (docker-publish.yml); only the
+# source and the tags differ. Published tag: `develop`. Release tags
+# and `latest` are never touched by this workflow.
 #
-# There is no publication-pointer branch: nightly's `nightly-published`
-# pointer exists to reconcile its promote job and its schedule, and
-# develop has neither — a dispatch always builds the current tip.
+# Publication state lives on a second pointer, the `develop-published`
+# branch: the manifest job advances it only after a manifest publication
+# succeeds, and the promote job treats any target that ref does not yet
+# name as still needing a build — so a failed publication (or a
+# promote-only run) never strands a commit unpublished (P2-97).
 on:
+  schedule:
+    # 06:47 UTC daily, offset from nightly's 06:17 so the two channels
+    # do not contend for runners.
+    - cron: "47 6 * * *"
   workflow_dispatch:
     inputs:
       publish:
         description: Push by digest and publish the develop manifests (false builds and validates only)
+        type: boolean
+        default: true
+      promote:
+        description: First fast-forward the develop branch to the newest CI-green main commit
         type: boolean
         default: true
 
@@ -29,16 +39,21 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  resolve:
-    name: Resolve the develop branch tip
+  promote:
+    name: Promote develop to the newest CI-green main commit
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
     outputs:
       sha: ${{ steps.resolve.outputs.sha }}
+      changed: ${{ steps.resolve.outputs.changed }}
       publish: ${{ steps.resolve.outputs.publish }}
     env:
       GH_TOKEN: ${{ github.token }}
       # Inputs reach the shell only as environment variables, never interpolated into scripts.
+      PROMOTE: ${{ github.event_name == 'schedule' || inputs.promote }}
       PUBLISH_INPUT: ${{ inputs.publish }}
     steps:
       - id: resolve
@@ -49,28 +64,72 @@ jobs:
           if ! develop_sha=$(gh api "repos/$repo/git/ref/heads/develop" --jq '.object.sha' 2>/dev/null); then
             develop_sha=""
           fi
-          [[ "$develop_sha" =~ ^[0-9a-f]{40}$ ]] || {
+          published_sha=""
+          if ! published_sha=$(gh api "repos/$repo/git/ref/heads/develop-published" --jq '.object.sha' 2>/dev/null); then
+            published_sha=""
+          fi
+          target="$develop_sha"
+          changed=false
+          if [[ "$PROMOTE" == "true" ]]; then
+            # event=push is load-bearing: ci.yml also runs on pull_request,
+            # and branch=main alone would also match a green PR run from a
+            # fork branch named main, whose head is not in this repository's
+            # main history. Only a push run proves the commit is on main.
+            green=$(gh api "repos/$repo/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // empty')
+            [[ "$green" =~ ^[0-9a-f]{40}$ ]] || {
+              echo "No successful CI run found on main" >&2
+              exit 1
+            }
+            if [[ "$green" != "$develop_sha" ]]; then
+              if [[ -n "$develop_sha" ]]; then
+                status=$(gh api "repos/$repo/compare/$develop_sha...$green" --jq '.status')
+                [[ "$status" == "ahead" ]] || {
+                  echo "develop ($develop_sha) is not an ancestor of the CI-green main commit ($green); compare status: $status. Refusing to move develop." >&2
+                  exit 1
+                }
+                gh api -X PATCH "repos/$repo/git/refs/heads/develop" -f sha="$green" -F force=false --jq '.object.sha'
+              else
+                gh api -X POST "repos/$repo/git/refs" -f ref="refs/heads/develop" -f sha="$green" --jq '.object.sha'
+              fi
+            fi
+            target="$green"
+          fi
+          # Work remains while the target has not been successfully
+          # published (P2-97): branch movement alone used to mark the run
+          # done, so a failed build or manifest push — or a publish=false
+          # run that still promoted — left the commit unpublished and every
+          # later scheduled run skipped it.
+          if [[ "$target" != "$published_sha" ]]; then
+            changed=true
+          fi
+          [[ "$target" =~ ^[0-9a-f]{40}$ ]] || {
             echo "Could not resolve the develop commit (does the develop branch exist?)" >&2
             exit 1
           }
           publish=false
-          if [[ "$PUBLISH_INPUT" == "true" ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" || "$PUBLISH_INPUT" == "true" ]]; then
             publish=true
           fi
           {
-            echo "sha=$develop_sha"
+            echo "sha=$target"
+            echo "changed=$changed"
             echo "publish=$publish"
           } >> "$GITHUB_OUTPUT"
           {
             echo "### Develop source"
             echo
-            echo "- Commit: \`$develop_sha\`"
+            echo "- Commit: \`$target\`"
+            echo "- Last published commit: \`$published_sha\`"
+            echo "- Publication needed: \`$changed\`"
             echo "- Publish: \`$publish\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
   build:
     name: Build (${{ matrix.arch }})
-    needs: resolve
+    needs: promote
+    # A scheduled run whose target commit is already published has
+    # nothing to build; a manual dispatch always builds.
+    if: github.event_name == 'workflow_dispatch' || needs.promote.outputs.changed == 'true'
     # Native runners only: arm64 builds run on a real arm64 runner, never under
     # QEMU emulation. One image is published (#353): the full image
     # (WITH_ORCA=true + WITH_GO2RTC=true) on linux/amd64 and linux/arm64.
@@ -92,7 +151,7 @@ jobs:
     timeout-minutes: 350
     env:
       IMAGE: ghcr.io/catduckgnaf/print-handy
-      DEVELOP_SHA: ${{ needs.resolve.outputs.sha }}
+      DEVELOP_SHA: ${{ needs.promote.outputs.sha }}
       APP_CHANNEL: development
       # Matrix values reach the shell only as environment variables too.
       ARCH: ${{ matrix.arch }}
@@ -106,7 +165,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          ref: ${{ needs.resolve.outputs.sha }}
+          ref: ${{ needs.promote.outputs.sha }}
       - name: Prepare develop evidence
         run: |
           set -euo pipefail
@@ -170,14 +229,14 @@ jobs:
         id: acceptance
         run: tests/docker/image_acceptance.sh "$LOCAL_IMAGE" "$SPOOLMAN_MODE" evidence/acceptance
       - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4.7.0
-        if: needs.resolve.outputs.publish == 'true' && steps.acceptance.outcome == 'success'
+        if: needs.promote.outputs.publish == 'true' && steps.acceptance.outcome == 'success'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Push accepted image by digest only
         id: publish
-        if: needs.resolve.outputs.publish == 'true' && steps.acceptance.outcome == 'success'
+        if: needs.promote.outputs.publish == 'true' && steps.acceptance.outcome == 'success'
         run: |
           set -euo pipefail
           # The identical build is pushed by digest only: no tag is pushed from a
@@ -228,7 +287,7 @@ jobs:
             echo "- Source revision: \`$DEVELOP_SHA\`"
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload pushed digest for the manifest job
-        if: needs.resolve.outputs.publish == 'true' && steps.publish.outcome == 'success'
+        if: needs.promote.outputs.publish == 'true' && steps.publish.outcome == 'success'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: digest-${{ matrix.arch }}
@@ -246,15 +305,16 @@ jobs:
     name: Publish multi-arch manifests
     # Runs only for a real publication and only when every build leg succeeded;
     # a leg succeeds only when its own acceptance passed before its digest push.
-    needs: [resolve, build]
-    if: needs.resolve.outputs.publish == 'true'
+    needs: [promote, build]
+    if: needs.promote.outputs.publish == 'true'
     runs-on: ubuntu-24.04
     permissions:
+      contents: write
       packages: write
     timeout-minutes: 60
     env:
       IMAGE: ghcr.io/catduckgnaf/print-handy
-      DEVELOP_SHA: ${{ needs.resolve.outputs.sha }}
+      DEVELOP_SHA: ${{ needs.promote.outputs.sha }}
     steps:
       - name: Download the pushed per-arch digests
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
@@ -299,6 +359,20 @@ jobs:
             done
             echo "- Source revision: \`$DEVELOP_SHA\`"
           } | tee evidence/manifests.txt >> "$GITHUB_STEP_SUMMARY"
+      - name: Record the published commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Only a run whose manifest publication succeeded reaches this
+          # step. The promote job compares its target against this ref, so
+          # the commit stops being eligible for rebuilds only now (P2-97).
+          repo="$GITHUB_REPOSITORY"
+          if gh api "repos/$repo/git/ref/heads/develop-published" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/$repo/git/refs/heads/develop-published" -f sha="$DEVELOP_SHA" -F force=false --jq '.object.sha'
+          else
+            gh api -X POST "repos/$repo/git/refs" -f ref="refs/heads/develop-published" -f sha="$DEVELOP_SHA" --jq '.object.sha'
+          fi
       - name: Upload manifest evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
