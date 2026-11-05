@@ -78,9 +78,21 @@ class StandaloneAdapter(BasePlatformAdapter):
         opened = []
         try:
             channel = await self._channel(chat_id, metadata)
+            in_thread = False
+            if (metadata or {}).get("thread_name") and reply_to and str(reply_to).isdigit():
+                # Thread replies (#902): anchor a thread at the user's
+                # message and answer inside it. Best effort — a channel or
+                # message that cannot grow a thread keeps the flat reply.
+                try:
+                    anchor = await channel.fetch_message(int(reply_to))
+                    channel = await anchor.create_thread(
+                        name=str(metadata["thread_name"])[:100])
+                    in_thread = True
+                except Exception:
+                    logger.info("Discord thread creation failed; reply stays flat", exc_info=True)
             for index, piece in enumerate(pieces):
                 kwargs = {"allowed_mentions": discord.AllowedMentions.none()}
-                if index == 0 and reply_to and str(reply_to).isdigit():
+                if index == 0 and reply_to and str(reply_to).isdigit() and not in_thread:
                     kwargs["reference"] = discord.MessageReference(
                         message_id=int(reply_to), channel_id=channel.id, fail_if_not_exists=False)
                 if index == len(pieces) - 1 and paths:

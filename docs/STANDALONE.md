@@ -229,10 +229,18 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
   the model cannot solve it. The agent lane is different in kind from the LLM call below: the bot
   sends your text once, with no bot system prompt, and posts the endpoint's reply as-is — the
   endpoint (a Hermes agent behind its API, say) answers in its own voice, and its reply can never
-  name a command into execution. The bot keeps no conversation history; it sends the live session
-  key as an `X-Print-Handy-Session` header the endpoint may key its own conversation on. If a
-  configured agent endpoint does not answer, the reply says so (“The chat agent didn't answer…”)
-  instead of pretending the message was not understood. The order is: explicit commands, deterministic phrases (like "print 57" above),
+  name a command into execution. The bot carries a per-user conversation id (as the
+  `X-Print-Handy-Session` header and the OpenAI `user` field) that stays stable until the
+  conversation has been idle for `agent.idle_timeout_s` (30 minutes by default), so the endpoint
+  can keep per-user context. With the identity layer configured (#902 — `agent.identities`,
+  `agent.users`, `agent.allowlist`, `agent.fallback_identity`) the lane fails closed: a mapped
+  user runs as their own identity's endpoint and key, an allowlisted user as the fallback
+  identity, and everyone else gets no agent call at all, keeping the LLM tier or the short reply
+  below. Agent replies are sanitized so they can never ping anyone, and rate-limited per user.
+  If a configured agent endpoint does not answer, the reply says so (“The chat agent didn't
+  answer…”) and the LLM tier answers instead when one is configured, instead of pretending the
+  message was not understood. See SETTINGS.md, “Agent lane identities”, for the security model
+  and the minimal Hermes setup. The order is: explicit commands, deterministic phrases (like "print 57" above),
   links/files and typed answers to an open question run first and are never rerouted through the model; any
   other text goes to the model, which may answer directly or name one command from a fixed list (read-only or
   button-gated: `/print-stop`, `/print-next`, `/spool list`, `/print-spools`, ...). A named command runs through the same
