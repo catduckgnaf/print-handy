@@ -122,7 +122,7 @@ def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def export_geometry(source, target, scale=1.0, rotation=None, bed=None):
+def export_geometry(source, target, scale=1.0, rotation=None, bed=None, mirror=None):
     """Flatten 3MF build/component transforms exactly; preserve every triangle/order.
 
     No mesh repair, merging or per-part rearrangement. An optional operator-selected
@@ -134,6 +134,12 @@ def export_geometry(source, target, scale=1.0, rotation=None, bed=None):
     if not scale > 0:
         raise ValueError('scale must be greater than 0')
     _check_rotation(rotation)
+    mirror = _check_mirror(mirror)
+    if mirror is not None and (has_cutters(source) or has_part_settings(source)):
+        # The volume-plate export has no mirror channel; refusing beats
+        # silently dropping the mirror or the part settings (#903).
+        raise RuntimeError('this model carries negative/modifier volumes or per-part settings, '
+                           'whose export cannot mirror yet — mirror refused rather than dropped')
     if has_cutters(source) or has_part_settings(source):
         # Flattening to STL would either print the cutter as a solid (Orca -101
         # conflict) or drop it and fill the hole; and per-part author settings
@@ -143,7 +149,7 @@ def export_geometry(source, target, scale=1.0, rotation=None, bed=None):
                                'export to .3mf, not STL')
         from .color_geometry import export_volume_plate
         return export_volume_plate(source, target, scale=scale, rotation=rotation)
-    return _place_triangles(_3mf_triangles(source), target, scale, rotation, bed)
+    return _place_triangles(_3mf_triangles(source), target, scale, rotation, bed, mirror=mirror)
 
 
 def has_cutters(source):
@@ -419,12 +425,34 @@ def _check_rotation(rotation):
     return values
 
 
+def _check_mirror(mirror):
+    """Validate an edit-plan mirror matrix (#903): orthonormal rows with
+    determinant -1 — a pure reflection, no rotation or scaling smuggled in."""
+    if mirror is None:
+        return None
+    values = [float(v) for v in mirror]
+    if len(values) != 9:
+        raise ValueError('mirror must be a 3x3 row-major matrix')
+    rows = [values[0:3], values[3:6], values[6:9]]
+    for i in range(3):
+        for j in range(3):
+            dot = sum(rows[i][k] * rows[j][k] for k in range(3))
+            if abs(dot - (1.0 if i == j else 0.0)) > 1e-6:
+                raise ValueError('mirror must be orthonormal')
+    det = (rows[0][0] * (rows[1][1] * rows[2][2] - rows[1][2] * rows[2][1])
+           - rows[0][1] * (rows[1][0] * rows[2][2] - rows[1][2] * rows[2][0])
+           + rows[0][2] * (rows[1][0] * rows[2][1] - rows[1][1] * rows[2][0]))
+    if abs(det + 1.0) > 1e-6:
+        raise ValueError('mirror must be a reflection (determinant -1)')
+    return values
+
+
 def _rotate(point, m):
     x, y, z = point
     return (m[0] * x + m[1] * y + m[2] * z, m[3] * x + m[4] * y + m[5] * z, m[6] * x + m[7] * y + m[8] * z)
 
 
-def _place_indexed(result, target, scale, rotation, bed):
+def _place_indexed(result, target, scale, rotation, bed, mirror=None):
     """_place_triangles over indexed storage: transform the shared vertices
     once, compute bounds from gathered faces in chunks, and stream the binary
     STL out in bounded batches. Arithmetic mirrors the scalar path per point:
@@ -440,9 +468,20 @@ def _place_indexed(result, target, scale, rotation, bed):
             m[3] * x + m[4] * y + m[5] * z,
             m[6] * x + m[7] * y + m[8] * z,
         ), axis=1)
+    faces = result.faces
+    if mirror is not None:
+        m = mirror
+        x, y, z = vertices[:, 0], vertices[:, 1], vertices[:, 2]
+        vertices = np.stack((
+            m[0] * x + m[1] * y + m[2] * z,
+            m[3] * x + m[4] * y + m[5] * z,
+            m[6] * x + m[7] * y + m[8] * z,
+        ), axis=1)
+        # A reflection flips triangle winding; swap two indices per face so
+        # normals keep pointing outward (fancy indexing copies the array).
+        faces = faces[:, [0, 2, 1]]
     if scale != 1.0:
         vertices = vertices * scale
-    faces = result.faces
     lo = [math.inf, math.inf, math.inf]
     hi = [-math.inf, -math.inf, -math.inf]
     for start in range(0, len(faces), 8192):
@@ -474,10 +513,13 @@ def _place_indexed(result, target, scale, rotation, bed):
     if rotation is not None:
         res['rotation_matrix'] = rotation
         res['policy'] += '; operator-selected rigid rotation applied before scale'
+    if mirror is not None:
+        res['mirror_matrix'] = mirror
+        res['policy'] += '; operator-selected mirror applied before scale, winding corrected'
     return res
 
 
-def _place_triangles(result, target, scale=1.0, rotation=None, bed=None):
+def _place_triangles(result, target, scale=1.0, rotation=None, bed=None, mirror=None):
     """Rotate (rigid), uniformly scale, then center on the bed with the lowest vertex on Z0.
 
     bed is the target printer's (x, y) bed in mm; the configured printer's bed when omitted (220 mm: 110, 110).
@@ -486,10 +528,15 @@ def _place_triangles(result, target, scale=1.0, rotation=None, bed=None):
     if not scale > 0:
         raise ValueError('scale must be greater than 0')
     rotation = _check_rotation(rotation)
+    mirror = _check_mirror(mirror)
     if isinstance(result, IndexedTriangles):
-        return _place_indexed(result, target, scale, rotation, bed)
+        return _place_indexed(result, target, scale, rotation, bed, mirror=mirror)
     if rotation is not None:
         result = [[_rotate(p, rotation) for p in tri] for tri in result]
+    if mirror is not None:
+        # Reflect every point and swap two vertices per triangle: a
+        # reflection flips winding, and outward normals must stay outward.
+        result = [[_rotate(p, mirror) for p in (tri[0], tri[2], tri[1])] for tri in result]
     if scale != 1.0:
         result = [[(p[0] * scale, p[1] * scale, p[2] * scale) for p in tri] for tri in result]
     # One rigid translation only: center XY on the bed and put the lowest vertex on Z0.
@@ -511,6 +558,9 @@ def _place_triangles(result, target, scale=1.0, rotation=None, bed=None):
     if rotation is not None:
         res['rotation_matrix'] = rotation
         res['policy'] += '; operator-selected rigid rotation applied before scale'
+    if mirror is not None:
+        res['mirror_matrix'] = mirror
+        res['policy'] += '; operator-selected mirror applied before scale, winding corrected'
     return res
 
 
@@ -582,12 +632,12 @@ def _footprint(source, rotation=None):
     return hit
 
 
-def place_stl(source, target, scale=1.0, rotation=None, bed=None):
+def place_stl(source, target, scale=1.0, rotation=None, bed=None, mirror=None):
     """Write a rotated/scaled/bed-centered STL from a 3MF or STL source."""
     source = Path(source)
     if source.suffix.lower() == '.3mf':
-        return export_geometry(source, target, scale=scale, rotation=rotation, bed=bed)
-    return _place_triangles(read_stl_triangles(source), target, scale, rotation, bed)
+        return export_geometry(source, target, scale=scale, rotation=rotation, bed=bed, mirror=mirror)
+    return _place_triangles(read_stl_triangles(source), target, scale, rotation, bed, mirror=mirror)
 
 
 # Thin, print-in-place prints (flexy rings, articulated toys): per the AD5X Flexy Ring guide,
@@ -1277,7 +1327,7 @@ def start_mesh_profile(state):
     return mesh
 
 
-def slice_model(source, folder, state, brim=None, first_layer=False, color_decisions=None, preserve_layout=False, filament_slot=None, item_shifts=None, fit_by_object=None, copies=None, scale=None, rotation=None, supports=None, object_ids=None, adapter=None, brim_policy=None):
+def slice_model(source, folder, state, brim=None, first_layer=False, color_decisions=None, preserve_layout=False, filament_slot=None, item_shifts=None, fit_by_object=None, copies=None, scale=None, rotation=None, supports=None, object_ids=None, adapter=None, brim_policy=None, edits=None):
     source, folder = Path(source), Path(folder)
     # An explicit adapter (a job prepared for another model) brings its own templates; the default keeps TEMPLATES.
     printer = adapter or printers.current()
@@ -1287,6 +1337,9 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         if not scale > 0:
             raise ValueError('scale must be greater than 0')
     rotation = _check_rotation(rotation)
+    # Chat edit plans (#903) also carry process-level edit settings and an
+    # optional mirror; the mirror is checked with the rotation refusals below.
+    mirror = _check_mirror((edits or {}).get('mirror')) if edits else None
     # A single-colour decision on a multi_tool printer names one toolhead and
     # slices through the identity-tool export below, so it shares the per-part
     # path's limits: no whole-model rotation, per-object fits allowed. The
@@ -1310,6 +1363,12 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
     if rotation is not None and (preserve_layout or item_shifts or identity_single or pause_single or
                                  (color_decisions and color_decisions.get('mode') == 'per_part')):
         raise ValueError('rotation is only supported for whole-model single-color slicing')
+    if mirror is not None and (preserve_layout or item_shifts or identity_single or pause_single or
+                               (color_decisions and color_decisions.get('mode') == 'per_part')):
+        # The per-part export has no mirror channel; mirroring there would
+        # mean flattening the model and dropping its per-part color
+        # assignments, so refuse with the reason (#903).
+        raise ValueError('mirror is only supported for whole-model single-color slicing')
     if fit_by_object is not None and not (color_decisions and color_decisions.get('mode') == 'per_part') \
             and not identity_single and not pause_single:
         raise ValueError('fit_by_object is only supported for per-part color decisions')
@@ -1394,15 +1453,15 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         input_path = folder / ('geometry.3mf' if has_cutters(source) or has_part_settings(source)
                                else 'geometry.stl')
         geometry.update(export_geometry(source, input_path, scale=scale or 1.0, rotation=rotation,
-                                        bed=printer.build_volume().bed_mm))
+                                        bed=printer.build_volume().bed_mm, mirror=mirror))
         if scale is not None:
             geometry['scale_policy'] = 'uniform scale applied to transformed source vertices before bed centering'
-    elif rotation is not None or (source.suffix.lower() == '.stl' and scale is not None):
+    elif rotation is not None or mirror is not None or (source.suffix.lower() == '.stl' and scale is not None):
         # Direct STL with an operator-selected orientation or scale: transform vertices
         # before slicing so every slicer receives identical resolved geometry.
         input_path = folder / 'geometry.stl'
         geometry.update(place_stl(source, input_path, scale=scale or 1.0, rotation=rotation,
-                                  bed=printer.build_volume().bed_mm))
+                                  bed=printer.build_volume().bed_mm, mirror=mirror))
     else:
         if source.suffix.lower() == '.3mf':
             author = author_settings.read(source)
@@ -1487,6 +1546,20 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             process['brim_type'] = brim_policy.get('type', 'no_brim')
             process['brim_width'] = str(brim_policy.get('width_mm', 0))
         geometry['thin_feature_profile'] = 'arachne flex (designer asked for arachne walls)'
+    if edits and not first_layer:
+        # Chat edit plans (#903): the operator's confirmed choices outrank
+        # the template and tuned-profile defaults they were confirmed
+        # against. (A first-layer test slice keeps its own fixed recipe.)
+        if edits.get('support_type'):
+            process['support_type'] = 'tree(auto)' if edits['support_type'] == 'tree' else 'normal(auto)'
+        if edits.get('support_plate_only') is not None:
+            process['support_on_build_plate_only'] = '1' if edits['support_plate_only'] else '0'
+        if edits.get('layer_height') is not None:
+            process['layer_height'] = str(edits['layer_height'])
+        if edits.get('infill_percent') is not None:
+            process['sparse_infill_density'] = f"{edits['infill_percent']:g}%"
+        geometry['edit_plan'] = json.dumps({k: v for k, v in edits.items() if k != 'mirror'},
+                                           sort_keys=True)
     tree_note = author_settings.tree_style(process, source) if str(process.get('enable_support')) == '1' else None
     if tree_note:
         author_notes.append(tree_note)

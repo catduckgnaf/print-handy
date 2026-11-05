@@ -2812,7 +2812,13 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                        'plate in one color right now.', metadata=metadata)
         quantities = orca_adapter.quantity_buttons(capacity)
         chosen_quantity = 1
-        if len(quantities) > 1:
+        # A resumed job that already carries a count — a chat edit or undo
+        # re-entering the flow (#903) — keeps it (bounded by what fits)
+        # instead of being asked again and silently reset to 1.
+        preset_copies = bool(latest.get('resumed_from') and latest.get('copies'))
+        if preset_copies:
+            chosen_quantity = max(1, min(int(latest['copies']), capacity))
+        if len(quantities) > 1 and not preset_copies:
             quantity_choices = quantity_options(capacity)
             qty_labels = [label for label, _ in quantity_choices]
             qty_prompt = (f"How many copies? This plate fits up to {capacity}. Tap a button "

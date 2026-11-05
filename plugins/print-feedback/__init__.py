@@ -6353,6 +6353,390 @@ def alert_button_handlers(bot, adapter):
 # typed-answer swap when the own renderer is on) and records the effective
 # list in _ACTIVE_DISPATCH_HOOKS; stray_chat_dispatch's model-named-command
 # re-dispatch walks the effective list.
+# ------------------------------------------------------------------ chat model edits (#903)
+#
+# One verified edit-plan pipeline: a chat edit request resolves through
+# the deterministic vocabulary in core/edit_plan.py (fuzzy, confirm
+# first — never an action on a guess), or, when the vocabulary cannot
+# resolve it, the AI lane proposes a plan from the same vocabulary (or a
+# geometry route into the design engine). The plan is probe-sliced and
+# verified BEFORE the job is touched; only a verified edit re-enters the
+# intake flow, which re-slices and re-asks every approval against the
+# new G-code hash. Authorization follows the channel's normal access,
+# and the AI lane follows the #902 identity layer when it is active:
+# no identity, no AI proposals — the vocabulary still works.
+
+_EDIT_UNDO_RE = re.compile(
+    r"^\s*(undo|undo (the )?last edit|take back (the )?last edit|revert (the )?last edit)\s*[.!]?\s*$",
+    re.IGNORECASE)
+
+
+def _edit_current_job(root, source):
+    """(receipt, job_path, job) for the newest live intake in this
+    channel/thread, or None. The job the user last prepared here is the
+    job an edit applies to."""
+    best = None
+    for path in Path(root).glob('*.json'):
+        try:
+            receipt = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        if str(receipt.get('chat_id')) != str(source.chat_id):
+            continue
+        receipt_thread = receipt.get('thread_id')
+        source_thread = getattr(source, 'thread_id', None)
+        if (str(receipt_thread) if receipt_thread else None) != \
+                (str(source_thread) if source_thread else None):
+            continue
+        if receipt.get('status') in ('CANCELLED', 'CANCELLED_OVERSIZED', 'EXPIRED',
+                                     'DECLINED_REPRINT', 'INTERRUPTED'):
+            continue
+        job_json = receipt.get('job_json')
+        if not job_json or not Path(job_json).is_file():
+            continue
+        when = path.stat().st_mtime
+        if best is None or when > best[0]:
+            best = (when, receipt, Path(job_json))
+    if best is None:
+        return None
+    try:
+        job = json.loads(best[2].read_text())
+    except (OSError, ValueError):
+        return None
+    return best[1], best[2], job
+
+
+def _edit_is_multipart(job):
+    audit = job.get('audit') or {}
+    decisions = job.get('color_decisions') or {}
+    return int(audit.get('parts') or 1) > 1 or decisions.get('mode') == 'per_part'
+
+
+def _edit_probe(job, plan):
+    """Slice a throwaway copy of the job with the plan applied and verify
+    the result. Returns (ok, lines). The real job is never touched."""
+    import shutil
+    import tempfile
+    from print_handy.core import edit_plan, model_job as mj
+    scratch = Path(tempfile.mkdtemp(prefix='print-handy-edit-probe-'))
+    try:
+        probe_dir = scratch / 'job'
+        probe_dir.mkdir()
+        probe = copy.deepcopy(job)
+        source = Path(job.get('downloaded_file') or '')
+        if not source.is_file():
+            return False, ['FAILED: the model file for this job is no longer on disk']
+        local = probe_dir / source.name
+        shutil.copyfile(source, local)
+        probe['downloaded_file'] = str(local)
+        if probe.get('sources'):
+            probe['sources'] = [dict(probe['sources'][0], path=str(local), name=source.name)]
+        edit_plan.apply_plan(probe, plan)
+        probe_path = probe_dir / 'JOB.json'
+        mj.write_job(probe_dir, probe)
+        try:
+            outputs = mj.slice_job(str(probe_path))
+        except Exception as exc:
+            return False, [f'FAILED: the edited slice did not run: {exc}']
+        if not outputs:
+            return False, ['FAILED: the edited slice produced no G-code']
+        text = Path(outputs[0]).read_text(errors='ignore')
+        return edit_plan.verify_slice(plan, gcode_text=text,
+                                      before_dims=edit_plan.job_dims(job))
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+async def _edit_reenter(event, gateway, source, adapter, job):
+    """Re-enter the intake flow with the edited job as a resume: the flow
+    re-slices it, shows the new summary and preview, and asks every
+    approval fresh against the new G-code hash."""
+    from print_handy.core import printer_state
+    from print_handy.core.prepared_intake import prepare_link, resume_job
+    resume = resume_job(job)
+    for field in ('scale', 'copies', 'orientation', 'fit_brim_policy', 'edit_settings',
+                  'edits', 'printer_id', 'unit_decision'):
+        if job.get(field) is not None:
+            resume[field] = job[field]
+    root = _state_dir() / 'model-link-intakes'
+    pid = job.get('printer_id') or _routed_printer_id(source, gateway)
+    return await prepare_link(event, adapter, printer_state.load(**_pkw(pid)), root,
+                              reuse=resume, **_pkw(pid))
+
+
+def _edit_new_job(root, source, event):
+    """The job record the re-entered intake just wrote for this event."""
+    from print_handy.core import model_job as mj
+    try:
+        iid = mj.intake_id_from_message(source, getattr(event, 'message_id', None))
+        receipt = json.loads((Path(root) / (iid + '.json')).read_text())
+        job_path = Path(receipt['job_json'])
+        return job_path, json.loads(job_path.read_text())
+    except Exception:
+        return None, None
+
+
+async def _edit_finish_record(root, source, event, *, verification):
+    """Complete the provenance record on the NEW job (the resume carried
+    it over) with the verification result and the new G-code's hash."""
+    from print_handy.core import edit_plan, model_job as mj
+    job_path, new_job = _edit_new_job(root, source, event)
+    if new_job is None:
+        return
+    gcode = new_job.get('gcode')
+    edit_plan.finish_edit_record(
+        new_job, verification=verification,
+        output_sha256=edit_plan.file_sha256(gcode) if gcode else None)
+    mj.write_job(job_path.parent, new_job)
+
+
+async def _edit_apply(event, gateway, source, adapter, job_path, job, plan, *, lane):
+    """Probe-verify, record, apply and re-enter one confirmed plan."""
+    from print_handy.core import edit_plan, model_job as mj
+    metadata = {'thread_id': source.thread_id} if source.thread_id else None
+
+    async def say(content):
+        await adapter.send(chat_id=source.chat_id, metadata=metadata, content=content)
+
+    ok, lines = await asyncio.to_thread(_edit_probe, job, plan)
+    if not ok:
+        await say('That edit did not verify, so nothing was changed:\n'
+                  + '\n'.join(f'- {line}' for line in lines))
+        return {'action': 'skip', 'reason': 'edit verification failed'}
+    actor = f"{_platform_value(source) or 'discord'}:{getattr(source, 'user_id', '')}"
+    source_path = job.get('downloaded_file')
+    record = edit_plan.record_edit(job, plan, actor=actor, lane=lane,
+                                   source_sha256=edit_plan.file_sha256(source_path))
+    edit_plan.apply_plan(job, plan)
+    mj.write_job(job_path.parent, job)
+    try:
+        result = await _edit_reenter(event, gateway, source, adapter, job)
+    except Exception as exc:
+        record['verification'] = ['the re-slice presentation failed after a verified probe slice']
+        mj.write_job(job_path.parent, job)
+        logger.warning('edit re-entry failed after a verified probe slice: %r', exc)
+        await say('The edit verified on a test slice, but re-slicing the job for presentation '
+                  'failed, so the job above is unchanged. Nothing was started.')
+        return {'action': 'skip', 'reason': 'edit re-entry failed'}
+    await _edit_finish_record(_state_dir() / 'model-link-intakes', source, event,
+                              verification=lines)
+    await say('Edit applied and verified:\n' + '\n'.join(f'- {line}' for line in lines))
+    return result if isinstance(result, dict) else {'action': 'skip', 'reason': 'edit applied'}
+
+
+async def _edit_undo(event, gateway, source, adapter, job_path, job):
+    from print_handy.core import edit_plan, model_job as mj
+    metadata = {'thread_id': source.thread_id} if source.thread_id else None
+
+    async def say(content):
+        await adapter.send(chat_id=source.chat_id, metadata=metadata, content=content)
+
+    if not (job.get('edits')):
+        await say('There is no edit to undo on the current job.')
+        return {'action': 'skip', 'reason': 'nothing to undo'}
+    actor = f"{_platform_value(source) or 'discord'}:{getattr(source, 'user_id', '')}"
+    undone = edit_plan.undo_last_edit(job, actor=actor)
+    if undone is None:
+        await say('Every edit on the current job has already been undone.')
+        return {'action': 'skip', 'reason': 'nothing to undo'}
+    mj.write_job(job_path.parent, job)
+    result = await _edit_reenter(event, gateway, source, adapter, job)
+    await _edit_finish_record(_state_dir() / 'model-link-intakes', source, event,
+                              verification=['undo: the restored state was re-sliced by the '
+                                            'intake flow'])
+    await say(f"Undid the last edit ({edit_plan.describe_plan(undone['plan'])}). "
+              'The restored job was re-sliced above; approvals are asked again for the new G-code.')
+    return result if isinstance(result, dict) else {'action': 'skip', 'reason': 'edit undone'}
+
+
+async def _edit_ai_reply(cfg, source, prompt):
+    """One AI-lane answer for an edit request, following the #902
+    identity layer when it is active. Returns the reply text, or None
+    when no AI lane may serve this user."""
+    from print_handy.bot import agent_identity
+    if agent_identity.layer_active(cfg):
+        identity = agent_identity.resolve(cfg, _platform_value(source) or 'discord',
+                                          getattr(source, 'user_id', None))
+        if identity is None:
+            return None
+        from print_handy.bot import agent as agent_lane
+        state = agent_identity.lane_state(cfg)
+        key = state.conversation_key(identity, _platform_value(source) or 'discord',
+                                     source.chat_id, getattr(source, 'user_id', None))
+        reply = await asyncio.to_thread(agent_lane.ask_as, identity, prompt,
+                                        state.conversations.conversation_id(key))
+        agent_identity.log_served(identity, _platform_value(source) or 'discord',
+                                  source.chat_id, getattr(source, 'user_id', None))
+        return reply
+    from print_handy.core import design
+    resolved = design.resolve_http_config(cfg)
+    if resolved is None:
+        return None
+    return await asyncio.to_thread(
+        design.http_complete, cfg, [{'role': 'user', 'content': prompt}])
+
+
+async def _edit_geometry_route(event, gateway, source, adapter, job, instruction):
+    """Route a geometry change into the design engine (#388) — refused
+    up front for a multi-part 3MF, whose per-part assignments a mesh
+    edit would silently flatten."""
+    from print_handy.core import design, edit_plan, geometry_layout, orca_adapter
+    metadata = {'thread_id': source.thread_id} if source.thread_id else None
+
+    async def say(content):
+        await adapter.send(chat_id=source.chat_id, metadata=metadata, content=content)
+
+    if _edit_is_multipart(job):
+        await say('That change edits the model geometry itself, and this is a multi-part '
+                  'model: a geometry edit would flatten it to a single-color mesh and lose '
+                  'the per-part color assignments, so I will not do it silently. Job edits '
+                  '(supports, scale, rotation, copies, brim, layer height, infill) keep every '
+                  'assignment — or split the model and edit one part at a time.')
+        return {'action': 'skip', 'reason': 'geometry edit refused for multi-part model'}
+    source_path = Path(job.get('downloaded_file') or '')
+    if not source_path.is_file():
+        await say('The model file for this job is no longer on disk, so I cannot edit its geometry.')
+        return {'action': 'skip', 'reason': 'geometry edit: source file missing'}
+    cfg = _config.cfg()
+    complete, _kind = _design_transport(cfg)
+    if complete is None:
+        await say('That change needs the design model, and no design endpoint is configured '
+                  '— see docs/DESIGN.md. Nothing was changed.')
+        return {'action': 'skip', 'reason': 'geometry edit: no design endpoint'}
+    engine = design.DesignEngine((cfg.get('paths') or {}).get('cache') or (_hermes_home() / 'cache'),
+                                 complete, cfg=cfg)
+    owner = f"{source.chat_id}:{source.thread_id or ''}:{getattr(source, 'user_id', '')}"
+    try:
+        before = geometry_layout.describe_triangles(orca_adapter.source_triangles(source_path))
+        session = await asyncio.to_thread(engine.start_edit_session, owner, source.chat_id,
+                                          instruction, source_path)
+        result = await engine.run_turn(session, instruction)
+        after = design.validate_stl(result['stl_path'])
+        if not edit_plan.finite_triangles(orca_adapter.read_stl_triangles(result['stl_path'])):
+            raise design.DesignError('the edited mesh has non-finite coordinates, '
+                                     'so there is nothing safe to print')
+    except design.DesignError as exc:
+        await say(f'That design change did not work: {exc} Nothing was sliced or started.')
+        return {'action': 'skip', 'reason': 'geometry edit failed'}
+    delta = ''
+    if before.get('dimensions_mm') and after.get('dimensions_mm'):
+        fmt = lambda dims: ' x '.join(f'{float(v):g}' for v in dims)
+        delta = (f" Geometry check: watertight, fits are re-checked by the intake; size "
+                 f"{fmt(before['dimensions_mm'])} mm → {fmt(after['dimensions_mm'])} mm, "
+                 f"volume {float(before.get('abs_volume_mm3') or 0):,.0f} → "
+                 f"{float(after.get('abs_volume_mm3') or 0):,.0f} mm³.")
+    await say(f"**Design turn {result['session']['turns']}** — {design.summary_text(result)}{delta}")
+    timeout = (_config.question_timeout_s() if globals().get('_config') else 1800)
+    answer = await _confirm(adapter, source, metadata, 'print-design',
+                            'What next for this design?', list(design.CHOICES), timeout,
+                            live_key=gateway._session_key_for_source(source))
+    if answer == design.SLICE_LABEL:
+        engine.mark_handed_off(result['session'])
+        return await _design_handoff(event, gateway, adapter, result['session'],
+                                     result['stl_path'])
+    if answer == design.CHANGE_LABEL:
+        engine.awaiting_revision(result['session'])
+        await say('Say the change in your next message.')
+        return {'action': 'skip', 'reason': 'geometry edit awaiting revision'}
+    engine.cancel(result['session'])
+    await say('Design cancelled. Nothing was sliced or started.')
+    return {'action': 'skip', 'reason': 'geometry edit cancelled'}
+
+
+async def edit_dispatch(event, gateway, **kwargs):
+    """Chat model edits (#903): vocabulary plans, AI proposals, undo —
+    all confirmed, probe-verified, recorded, and re-approved."""
+    source, adapter = _control_gate(event, gateway)
+    if source is None:
+        return None
+    if adapter is None:
+        return {'action': 'skip', 'reason': 'edit UI delivery unavailable'}
+    from print_handy.core import edit_plan
+    from print_handy.core.link_intake import model_link
+    from print_handy.core.prepared_intake import model_file
+    text = str(getattr(event, 'text', '') or '')
+    if model_link(text) or model_file(event):
+        return None  # a fresh intake owns links and files
+    undo = bool(_EDIT_UNDO_RE.match(text.strip()))
+    resolved = None if undo else edit_plan.resolve_request(text)
+    if not undo and resolved is None and not edit_plan.looks_like_edit(text):
+        return None
+    metadata = {'thread_id': source.thread_id} if source.thread_id else None
+
+    async def say(content):
+        await adapter.send(chat_id=source.chat_id, metadata=metadata, content=content)
+
+    root = _state_dir() / 'model-link-intakes'
+    found = _edit_current_job(root, source)
+    if found is None:
+        await say('There is no current model job in this channel to edit. Send a model link '
+                  'or drop the file first, and I will prepare it.')
+        return {'action': 'skip', 'reason': 'edit: no current job'}
+    _receipt, job_path, job = found
+    if undo:
+        return await _edit_undo(event, gateway, source, adapter, job_path, job)
+    lane = 'fuzzy'
+    plan = None
+    if resolved is not None and resolved[0] == 'pick':
+        timeout = (_config.question_timeout_s() if globals().get('_config') else 1800)
+        labels = [edit_plan.describe_plan(candidate) for candidate in resolved[1]]
+        answer = await _confirm(adapter, source, metadata, 'model-edit',
+                                f"Which edit did you mean for {job.get('title') or 'the current model'}?",
+                                labels + ['Cancel'], timeout,
+                                live_key=gateway._session_key_for_source(source))
+        if answer not in labels:
+            await say('No edit made.')
+            return {'action': 'skip', 'reason': 'edit pick cancelled'}
+        plan = resolved[1][labels.index(answer)]
+    elif resolved is not None:
+        plan = resolved[1]
+    if plan is None:
+        # The vocabulary could not resolve it: the AI lane may propose a
+        # plan from the same vocabulary, or route a geometry change.
+        cfg = _config.cfg()
+        prompt = edit_plan.ai_prompt(text, job)
+        try:
+            reply = await _edit_ai_reply(cfg, source, prompt)
+        except Exception as exc:
+            logger.warning('edit AI lane failed: %r', exc)
+            reply = None
+        if reply is None:
+            await say('I could not match that to an edit I can make. ' + edit_plan.vocabulary_text())
+            return {'action': 'skip', 'reason': 'edit vocabulary shown'}
+        try:
+            route, payload = edit_plan.parse_ai_reply(reply)
+        except edit_plan.PlanError as exc:
+            await say(f'The AI proposed an edit I cannot use: {exc} Nothing was changed. '
+                      + edit_plan.vocabulary_text())
+            return {'action': 'skip', 'reason': 'edit AI plan rejected'}
+        if route == 'geometry':
+            return await _edit_geometry_route(event, gateway, source, adapter, job, payload)
+        if route == 'none':
+            await say('That does not sound like a model edit. ' + edit_plan.vocabulary_text())
+            return {'action': 'skip', 'reason': 'edit AI declined'}
+        plan, lane = payload, 'ai'
+    if plan['kind'] == 'copies' and _edit_is_multipart(job):
+        await say('Copies only work for jobs that print on one plate in one color right now; '
+                  'this job is multi-part, so nothing was changed.')
+        return {'action': 'skip', 'reason': 'edit copies refused for multi-part job'}
+    source_path = Path(job.get('downloaded_file') or '')
+    try:
+        plan = edit_plan.enrich_plan(plan, job, source_path if source_path.is_file() else None)
+    except edit_plan.PlanError as exc:
+        await say(f'I cannot make that edit: {exc} Nothing was changed.')
+        return {'action': 'skip', 'reason': 'edit refused'}
+    timeout = (_config.question_timeout_s() if globals().get('_config') else 1800)
+    answer = await _confirm(adapter, source, metadata, 'model-edit',
+                            f"Edit {job.get('title') or 'the current model'}: "
+                            f"{edit_plan.describe_plan(plan)}?",
+                            ['Yes, apply the edit', 'Cancel'], timeout,
+                            live_key=gateway._session_key_for_source(source))
+    if answer != 'Yes, apply the edit':
+        await say('No edit made.')
+        return {'action': 'skip', 'reason': 'edit declined'}
+    return await _edit_apply(event, gateway, source, adapter, job_path, job, plan, lane=lane)
+
+
 _DISPATCH_HOOKS = (
     guided_dispatch,
     design_dispatch,
@@ -6374,6 +6758,7 @@ _DISPATCH_HOOKS = (
     print_stop_dispatch,
     print_resume_dispatch,
     print_again_dispatch,
+    edit_dispatch,
     loaded_spools_dispatch,
     purchase_dispatch,
     spool_dispatch,

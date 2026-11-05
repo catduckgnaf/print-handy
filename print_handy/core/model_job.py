@@ -5510,7 +5510,17 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
                                                            brim=brim_override)
             report = export_single_color_plate(src, plate, decisions, group['part_keys'], bed=int(st['bed_mm'][0]), slot_colors=st.get('filament_slots') or {}, **placement_kw)
             slice_dir = work / 'sliced' / 'orca' / uuid.uuid4().hex
-            out, provenance, configs = slice_model(plate, slice_dir, st, brim_override, preserve_layout=True, filament_slot=group['slot'], **_support_kw(job, supports))
+            # Chat edit settings (#903) ride onto every derived plate too:
+            # the supports choice the edit made outranks the fit flow's
+            # (it becomes the value _support_kw starts from; the operator's
+            # support decision still applies on top, per _support_kw), and
+            # the process edits apply per plate (a mirror in them is
+            # refused by slice_model's per-part guard, loudly).
+            from . import edit_plan as _edit_plan_pp
+            _pp_edits = _edit_plan_pp.slice_edits(job)
+            _pp_supports = _edit_plan_pp.supports_override(job)
+            _effective_supports = _pp_supports if _pp_supports is not None else supports
+            out, provenance, configs = slice_model(plate, slice_dir, st, brim_override, preserve_layout=True, filament_slot=group['slot'], **_support_kw(job, _effective_supports), **({'edits': _pp_edits} if _pp_edits else {}))
             # Keep the plate's physical IFS slot explicit. Orca may retain
             # project-wide unused filament_type entries although all geometry
             # is remapped to logical T0 on this single-color derivative.
@@ -5655,6 +5665,18 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         scale_kw.update(rotation=rotation, supports=bool(orientation.get("supports")))
     else:
         scale_kw.update(_support_kw(job))  # the operator's choice, not the author's enable_support
+    # Chat edit plans (#903): a standalone supports choice has no other
+    # channel (the fit flow's orientation supports only rides along with a
+    # rotation), and the process-level edit settings ride as `edits`. The
+    # edit's supports fills only a gap: a supports value already decided
+    # above (rotation, or the operator's support decision) stands.
+    from . import edit_plan as _edit_plan
+    _job_edits = _edit_plan.slice_edits(job)
+    if _job_edits:
+        scale_kw['edits'] = _job_edits
+    _supports_edit = _edit_plan.supports_override(job)
+    if _supports_edit is not None and 'supports' not in scale_kw:
+        scale_kw['supports'] = _supports_edit
     _timing(job_path, 'orca_begin')
     if selected_slot is not None:
         # Single-color jobs are bound to their named IFS slot exactly like
