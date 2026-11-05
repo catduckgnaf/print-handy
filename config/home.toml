@@ -277,6 +277,15 @@ light_object = ""
 # The Moonraker (Klipper) watchdog never alerts on a stall when vision says "ok"/"safe", at any
 # level; the per-level "ok" rule above applies to the Bambu launched-print monitor.
 sensitivity = 3
+# Early-layer mode (#913): a risky print (slicer finding, "print anyway" override or an
+# operator supports decision) is checked on every layer change for its first early_layers
+# layers, and at least every early_interval_s seconds until then. Normal prints unchanged.
+early_layers = 10
+early_interval_s = 120
+# auto_pause_early PAUSES THE PRINTER. When true, two suspicious verdicts in a row
+# (spaghetti, detached or air) inside the early-layer window send PAUSE through the alert
+# pause path. It never cancels; the alert keeps its stop and resume buttons. Off by default.
+auto_pause_early = false
 
 [timelapse]
 # Mode (#246/#295): rendered = the printer renders it (moonraker-timelapse),

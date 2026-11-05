@@ -246,6 +246,17 @@ visual_watch:
   # at every level. The full table is in docs/PROJECT-REFERENCE.md (Camera stall sensitivity).
   sensitivity: 3
   enabled: true
+  # Early-layer mode (#913): a risky print (a slicer finding, a "print anyway" override or
+  # an operator supports decision) is checked on every layer change for its first
+  # early_layers layers, and at least every early_interval_s seconds until then.
+  # Normal prints keep the sensitivity schedule above.
+  early_layers: 10
+  early_interval_s: 120
+  # auto_pause_early PAUSES THE PRINTER. When true, two suspicious verdicts in a row
+  # (spaghetti, detached or air) inside the early-layer window send PAUSE through the
+  # alert pause path. It never cancels; the alert keeps its stop and resume buttons.
+  # Off by default: turn it on yourself.
+  auto_pause_early: false
 timelapse:
   # Mode (#246/#295): rendered = the printer renders it (moonraker-timelapse),
   # container = Print Handy captures and encodes it in-container, off = none.
