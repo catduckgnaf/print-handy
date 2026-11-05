@@ -131,6 +131,14 @@ def _instant_start_confirmation(monkeypatch):
     return clock
 
 
+def pytest_ignore_collect(collection_path, config):
+    """Keep the dedicated edit corpus out of the existing test shards."""
+    edit_dir = Path(__file__).parent / "corpus" / "edit"
+    if collection_path == edit_dir and os.environ.get("PRINT_HANDY_EDIT_CORPUS") != "1":
+        return True
+    return None
+
+
 # CI splits a long suite across parallel jobs with PRINT_HANDY_TEST_SHARD="<index>/<count>" (0 based).
 # Items are dealt round robin in collection order, so every shard gets a slice of each module and the slow
 # corpus cases spread evenly instead of landing in one shard. Unset (local runs) collects everything.

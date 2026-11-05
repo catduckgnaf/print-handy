@@ -484,6 +484,25 @@ unset PRINT_HANDY_PRIVATE_CORPUS
 
 Private cases use the same offline flow and skip only the public redistribution-license check. The configured directory must exist outside the repository and contain at least one case. Private-corpus opt-in fails when `CI=true`; never set it in CI. The private model is not added to the checkout, public diff, or CI artifacts. Real-slicer output is temporary local scratch under the ignored `.slicer-work/` directory; do not commit or upload it.
 
+#### Edit corpus journeys
+
+The edit corpus (`tests/corpus/edit/`) tests chat model edits and questions against real and mock slicer outputs without lengthening the standard CI critical path. While standard corpus cases verify that a model slices and starts, edit corpus cases verify that chat edits (scale, tree/normal supports, rotation, copies, brim, infill, layer height) and questions produce the expected G-code toolpaths, settings, and provenance records without breaking existing multi-part colors or geometry alignments.
+
+To run the edit corpus locally:
+```bash
+PRINT_HANDY_EDIT_CORPUS=1 python3 -m pytest -q tests/corpus/edit
+```
+To run a specific parallel shard (0, 1, or 2):
+```bash
+PRINT_HANDY_EDIT_CORPUS=1 PRINT_HANDY_EDIT_SHARD=0/3 python3 -m pytest -q tests/corpus/edit
+```
+
+Edit corpus tests include:
+- `test_edit_phrasings.py`: phrasing matrix across typed requests, typo tolerance, pick-list proposals, questions, and negative chat.
+- `test_geometry_screening.py`: 17 core 3MF geometry screening fixtures (#911) with deterministic underface gap detection and interlocking assembly validation (#912).
+- `test_edit_v12.py`: Pixel Patina V12 fixture (`Pixel_Patina_V12_With_Removable_Supports.3mf`) executed in all three shards to verify intake alignment, scale/rotate edits, support toggles, and undo.
+- `test_corpus_edits.py`: end-to-end chat journeys against existing corpus models.
+
 ## ZMod plugin and spool matching
 
 This section is AD5X-only: the macro and the spool matching below describe the IFS
