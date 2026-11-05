@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 from .. import logs, printers, settings
 from ..printers.base import start_code_problems
-from . import author_settings, mesh_fast, resources
+from . import author_settings, mesh_fast, resources, slice_warnings
 from .compact_geometry import IndexedTriangles
 from . import slice_guard as sg
 from .slice_guard import pre_slice, post_slice
@@ -2202,6 +2202,8 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                     'author_notes': author_notes,
                     'project_settings_rewritten': sorted(rewritten),
                     'source_profile_warnings': profile_warnings,
+                    # Orca's own non-fatal findings (floating cantilever ...), read on success too.
+                    **slice_warnings.provenance_fields(folder, process, supports),
                     'sanitized_author_settings': sanitized,
                     'offline_geometry_and_slicer': True}, configs
 

@@ -3784,6 +3784,14 @@ def require_current_artifact(job, gcode):
     """Offline fail-closed guard before telemetry, approval consumption or upload."""
     if not isinstance(job, dict):
         return
+    from . import slice_warnings
+    finding = slice_warnings.support_finding(job)
+    if finding is not None:
+        # The slicer said supports are needed, the slice ran without them and nobody decided.
+        # A question, not a block: answering it (re-slice with supports, or print without)
+        # records the decision on the job and clears this.
+        raise RuntimeError('supports decision needed: ' + slice_warnings.question(finding).splitlines()[0]
+                           + ' Choose re-slice with supports or print without supports; nothing uploaded or started.')
     binding = job.get('artifact_binding')
     if binding is None and not job.get('color_decisions'):
         return  # Preserve legacy jobs without source-color decisions.
@@ -4164,6 +4172,16 @@ def _part_slots(view, manifest):
     return out
 
 
+def record_support_decision(folder, supports, by='operator'):
+    """Record the operator's supports choice on JOB.json (retries and reprints never ask again)."""
+    path = Path(folder) / 'JOB.json'
+    job = json.loads(path.read_text())
+    job['support_decision'] = {'supports': bool(supports), 'by': by,
+                               'at': time.strftime('%Y-%m-%dT%H:%M:%S%z')}
+    write_job(folder, job)
+    return job
+
+
 def _job_fit(job, brim_override):
     """Operator-chosen scale/orientation for per-part plates.
 
@@ -4174,12 +4192,14 @@ def _job_fit(job, brim_override):
     scale = job.get('scale')
     orientation = job.get('orientation') or {}
     rotation = orientation.get('rotation')
+    decided = (job.get('support_decision') or {}).get('supports')  # operator's supports choice
+    decided = decided if isinstance(decided, bool) else None
     if not rotation and (scale is None or float(scale) == 1.0):
         if brim_override is None and job.get('fit_brim_policy'):
             brim_override = job['fit_brim_policy'].get('width_mm', 0)
-        return None, None, brim_override
+        return None, decided, brim_override
     fit = {'scale': float(scale) if scale is not None else 1.0, 'rotation': rotation}
-    supports = bool(orientation.get('supports')) if rotation else None
+    supports = bool(orientation.get('supports')) if rotation else decided
     if brim_override is None and job.get('fit_brim_policy'):
         brim_override = job['fit_brim_policy'].get('width_mm', 0)
     if rotation and brim_override is None and orientation.get('brim'):
@@ -5614,6 +5634,10 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         scale_kw['adapter'] = adapter
     if rotation:
         scale_kw.update(rotation=rotation, supports=bool(orientation.get("supports")))
+    else:
+        decided = (job.get('support_decision') or {}).get('supports')
+        if isinstance(decided, bool):
+            scale_kw['supports'] = decided  # the operator's choice, not the author's enable_support
     _timing(job_path, 'orca_begin')
     if selected_slot is not None:
         # Single-color jobs are bound to their named IFS slot exactly like

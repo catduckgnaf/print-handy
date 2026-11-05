@@ -83,7 +83,11 @@ def slice_recipe(job, source_sha256, state=None, *, copies=None, scale=None, bri
                       'unit_decision': job.get('unit_decision')},
         'copies': int(copies or job.get('copies') or 1),
         'supports_brim': {'supports': supports, 'orientation_brim': orientation_brim,
-                          'fit_brim_policy': job.get('fit_brim_policy')},
+                          'fit_brim_policy': job.get('fit_brim_policy'),
+                          # Only a "supports on" decision changes the slice; "off" is the sliced artifact
+                          # as it stands, and absent keeps older recipes' hashes.
+                          **({'support_decision': True}
+                             if (job.get('support_decision') or {}).get('supports') is True else {})},
         'layout': {'plate_mode': job.get('plate_mode'), 'full_size_split_plan': job.get('full_size_split_plan'),
                     'full_size_rearrange_plan': job.get('full_size_rearrange_plan'),
                     # Part gaps, edge margins and the prime tower decide where

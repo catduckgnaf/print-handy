@@ -1,0 +1,4 @@
+{
+  "_doc": "Slicer warnings known to be harmless. A warning whose text matches a pattern is logged and not shown to the operator. Read by print_handy/core/slice_warnings.py; edited by hand. The support/floating finding can never be ignored here.",
+  "ignore": []
+}
