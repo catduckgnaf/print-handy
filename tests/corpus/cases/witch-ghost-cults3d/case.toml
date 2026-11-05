@@ -37,10 +37,21 @@ question = "How many copies"
 button = "One copy"
 
 [[click]]
+question = "will not print cleanly without supports"
+button = "Print without supports"
+
+[[click]]
 question = "·"
 button = "Slice and print"
 
 [expect]
+# Orca reports floating regions here; the operator answered "Print without supports".
+prompts = ["will not print cleanly without supports"]
 status = "STARTED"
 parts = ["body", "hat", "band", "gold", "ink", "blush"]
 gcodes = 1
+
+[mock_slicer]
+# What real Orca reports for this model with supports off (CI stable tier, PR #904); the mock
+# slicer writes it to result.json so both tiers ask the same support question.
+warnings = ["It seems object body has floating regions. Please re-orient the object or enable support generation."]

@@ -32,6 +32,10 @@ from .link_intake import ask, model_link, has_duration_question  # noqa: E402
 from .quantity_selection import quantity_options, parse_quantity  # noqa: E402
 from .threemf_canonical import intake_working_copy  # noqa: E402
 from .background_slice import drop_runner, runner_for, slice_binding  # noqa: E402
+from . import slice_warnings  # noqa: E402
+
+RESLICE_SUPPORTS_LABEL = 'Re-slice with supports'
+PRINT_NO_SUPPORTS_LABEL = 'Print without supports'
 from .slice_recipe import RECIPE_VERSION, binding_sha256  # noqa: E402
 
 
@@ -3170,10 +3174,42 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                content='Heads up on the source profile:\n'
                                        + '\n'.join(f'- {w}' for w in profile_warnings))
+        # Orca said supports are needed and the slice ran without them: ask before anything else
+        # (bed-clear, upload, start). Only this finding asks; other warnings are information.
+        finding = slice_warnings.support_finding(sliced)
+        if finding is not None:
+            pick = await _ask(adapter, source, key, slice_warnings.question(finding),
+                              [RESLICE_SUPPORTS_LABEL, PRINT_NO_SUPPORTS_LABEL, print_next.CANCEL_LABEL], timeout,
+                              approval=True)  # only print approvers may waive or answer a safety finding
+            receipt['support_decision'] = {'finding': finding, 'choice': pick}
+            if pick == 2:
+                await early.discard()
+                receipt['status'] = 'SLICED_NOT_STARTED'
+                receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                   content='Cancelled. Nothing uploaded or started.')
+                return {'action': 'skip', 'reason': 'operator cancelled on the support question'}
+            mj.record_support_decision(jp.parent, pick == 0)
+            if pick == 0:
+                latest = json.loads(jp.read_text())
+                recipe_sha = binding_sha256(slice_binding(latest, decisions['source_sha256']))
+                receipt['slice_approval']['recipe_sha256'] = recipe_sha
+                receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                copies_kw = {'copies': chosen_quantity} if chosen_quantity and chosen_quantity > 1 else {}
+                out = await _with_stop(adapter, source, key, metadata,
+                                       'Re-slicing with supports. Press Stop to cancel.',
+                                       _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha, **copies_kw),
+                                       allow_stop=True)  # still entirely pre-upload, so Stop is safe
+                gcodes = [str(g) for g in (out if isinstance(out, list) else [out])]
+                sliced = json.loads(jp.read_text())
+                receipt.update(status='SLICED', gcodes=gcodes,
+                               gcode_sha256={g: delivery.sha256(g) for g in gcodes})
+            receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
         # P1-20: a plate a guard refused during slicing is never dropped
         # silently. Name every refused plate before the start question; the
         # operator's confirmed start below records the acceptance print-now
-        # requires for a partial job.
+        # requires for a partial job. Read after the support question, so a
+        # re-slice with supports discloses the final slice's refusals.
         refused_plates = sliced.get('refused_plates') or []
         if refused_plates:
             named = '\n'.join(f"- Plate {row.get('plate_id')} (slot {row.get('slot')}): {row.get('reason')}"
@@ -3183,6 +3219,9 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                        f'refused during slicing:\n{named}\n'
                                        'Starting prints only the plates that sliced cleanly.')
         has_dur_q = has_duration_question(getattr(event, 'text', ''))
+        info_line = slice_warnings.compact_info(sliced)
+        if info_line:
+            await adapter.send(chat_id=source.chat_id, metadata=metadata, content=info_line)
         breakdown = print_summary.format_estimate_breakdown(sliced)
         # #720: the thermal facts recorded for the printer this job was sliced for ride with
         # the estimate everywhere it is shown (duration answer, split notice, start question).

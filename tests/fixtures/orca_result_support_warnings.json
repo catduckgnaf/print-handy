@@ -1,0 +1,32 @@
+{
+	"error_string": "Success.",
+	"export_time": 0,
+	"layer_height": 0.23999999463558197,
+	"plate_index": 0,
+	"prepare_time": 0,
+	"return_code": 0,
+	"sliced_plates": [
+		{
+			"id": 1,
+			"sliced_time": 5,
+			"sliced_time_with_cache": 4,
+			"triangle_count": 4240,
+			"warning_message": "It seems object BRONZE DETAILS has floating regions. Please re-orient the object or enable support generation."
+		}
+	],
+	"sparse_infill_density": 10.0,
+	"strict_mode": false,
+	"wall_loops": 2,
+	"warnings": [
+		{
+			"class": "slicing_warning_non_critical",
+			"plate_id": 1,
+			"text": "It seems object BLACK BODY has a floating cantilever. Please re-orient the object or enable support generation."
+		},
+		{
+			"class": "slicing_warning_non_critical",
+			"plate_id": 1,
+			"text": "It seems object BRONZE DETAILS has floating regions. Please re-orient the object or enable support generation."
+		}
+	]
+}

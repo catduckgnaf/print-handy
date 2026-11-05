@@ -272,8 +272,13 @@ def _profile_temperatures(filament_json):
             first("hot_plate_temp_initial_layer", "hot_plate_temp", default=60))
 
 
-def fake_orca_run(real_run, orca_command, events=None):
-    """subprocess.run stand-in. Only a slice may reach Orca in the mock tier; the fit probe is modelled."""
+def fake_orca_run(real_run, orca_command, events=None, warnings=()):
+    """subprocess.run stand-in. Only a slice may reach Orca in the mock tier; the fit probe is modelled.
+
+    ``warnings`` are the non-critical texts real Orca reports for the case (a case's
+    ``[mock_slicer] warnings``). Like Orca's support check, they are written to result.json only
+    when the slice ran with supports off.
+    """
     def run(cmd, *args, **kwargs):
         if list(cmd[:len(orca_command)]) != list(orca_command):
             return real_run(cmd, *args, **kwargs)
@@ -295,6 +300,11 @@ def fake_orca_run(real_run, orca_command, events=None):
             hotend=hotend, bed=bed, nozzle=nozzle, support=support, types=";".join(["PLA"] * len(filaments)), tools=tools,
             support_lines="; FEATURE: Support\nG1 X110 Y110 E2\n" if support == "1" else "")
         (out / "plate_1.gcode").write_text(text)
+        result = {"error_string": "Success.", "return_code": 0, "sliced_plates": [{"id": 1}]}
+        if warnings and support != "1":
+            result["warnings"] = [{"class": "slicing_warning_non_critical", "plate_id": 1, "text": str(w)}
+                                  for w in warnings]
+        (out / "result.json").write_text(json.dumps(result, indent=1))
         return S(returncode=0, stdout="", stderr="")
     return run
 
@@ -341,6 +351,18 @@ def _stub_print_now(folder):
 
 
 BUILT = "built"  # default: printer state produced by the real create_spool and bind_slot flows (#594)
+
+
+def mock_slicer_warnings(case):
+    """The Orca warnings a case's ``[mock_slicer]`` table says real Orca reports for its model."""
+    table = (getattr(case, "data", None) or {}).get("mock_slicer") or {}
+    return [str(text) for text in table.get("warnings") or ()]
+
+
+def is_post_slice_question(text):
+    """The slicer support question: asked after slicing by design, from Orca's own warnings."""
+    from print_handy.core import slice_warnings
+    return text.startswith(slice_warnings.QUESTION_PREFIX)
 
 
 def run_case(case, work, *, real_slicer=False, state_file=BUILT, in_gateway_env=False, transport="hermes", audit_started=None, auto=True):
@@ -480,7 +502,8 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, in_gateway_env=
             (WORK / "tmp").mkdir(parents=True, exist_ok=True)
             patch(tempfile, "tempdir", str(WORK / "tmp"))
         else:
-            patch(orca_adapter.subprocess, "run", fake_orca_run(orca_adapter.subprocess.run, orca_adapter.ORCA_COMMAND, events))
+            patch(orca_adapter.subprocess, "run", fake_orca_run(orca_adapter.subprocess.run, orca_adapter.ORCA_COMMAND, events,
+                                                                     warnings=mock_slicer_warnings(case)))
             patch(orca_adapter, "orca_plate_capacity",
                   model_capacity(orca_adapter._multi_plate_capacity, orca_adapter.source_triangles,
                                  orca_adapter._source_plate_count))
