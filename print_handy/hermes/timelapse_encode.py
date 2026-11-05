@@ -251,7 +251,10 @@ def plan_playback(frame_count, settings=None):
         out_frames = max(n, int(round(settings["min_length_s"] * fps_int)))
     if out_frames == n:
         indices = list(range(n))
-    else:
+    elif out_frames < n:  # decimate across both endpoints so the last captured frame is kept
+        indices = [0] if out_frames == 1 else [i * (n - 1) // (out_frames - 1) for i in range(out_frames)]
+        indices[-1] = n - 1
+    else:  # hold: spread the extra output frames evenly
         indices = [min(n - 1, i * n // out_frames) for i in range(out_frames)]
     indices += [indices[-1]] * int(round(settings["hold_last_frame_s"] * fps_int))
     return fps_int, indices

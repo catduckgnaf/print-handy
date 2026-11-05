@@ -59,6 +59,12 @@ class PlanPlaybackTests(unittest.TestCase):
         self.assertEqual(indices, sorted(indices))
         self.assertLess(max(indices), 4300)
 
+    def test_decimation_keeps_first_and_last_captured_frame(self):
+        for count in (1270, 4300):
+            _fps, indices = timelapse_encode.plan_playback(count, DEFAULTS)
+            self.assertEqual(indices[0], 0)
+            self.assertEqual(indices[-1], count - 1)  # end hold repeats the final frame
+
     def test_unusable_settings_fall_back_to_playback_fps_and_every_frame(self):
         fps, indices = timelapse_encode.plan_playback(50, None)
         self.assertEqual(fps, timelapse_encode.PLAYBACK_FPS)
