@@ -128,10 +128,30 @@ def confirm_question(distance_mm: float | None = None, motion: str = "apart") ->
             "you get instructions and nothing moves. Is anything else in the way?")
 
 
-def manual_instructions(distance_mm: float | None = None, reason: str = "") -> str:
-    """The instruction-only fallback. Never sends anything."""
+def manual_instructions(distance_mm: float | None = None, reason: str = "",
+                        room_mm: float | None = None) -> str:
+    """The instruction-only fallback. Never sends anything.
+
+    ``room_mm`` is the Z travel Klipper reports as left above the current
+    position (inside the safety margin). When it is given, the move was
+    refused for travel, so the guidance stays inside that room and never
+    suggests the rejected distance or forcing Z by hand past the limit.
+    """
     distance = separate_mm() if distance_mm is None else float(distance_mm)
     lead = f"{reason} " if reason else ""
+    safety = ("Do not home Z to make room: homing drives the nozzle toward the bed and can hit the same "
+              "blob. Keep fingers clear of the nozzle and bed; either may still be hot.")
+    if room_mm is not None:
+        room = max(0.0, float(room_mm))
+        if room >= 0.1:
+            jog = (f"On the printer's own screen (Move / Axis / Jog) you can move Z by at most +{room:g} mm; "
+                   "do not go past that, it is the end of the Z travel. ")
+        else:
+            jog = "Z is already at the end of its travel, so do not jog it any further. "
+        return (f"{lead}Nothing was sent to the printer. {jog}If that does not leave enough room, do not "
+                "force Z past its limit (no lead screw turning, no limit override): move the head away "
+                "in X or Y from the printer screen if it is clear, or let the part cool and lift it off "
+                f"the nozzle by hand. {safety}")
     return (f"{lead}Nothing was sent to the printer. To open the gap by hand: on the printer's own screen "
             f"(Move / Axis / Jog), move Z by +{distance:g} mm so the nozzle and bed move apart. On a "
             "printer whose bed drops, the bed moves down; on one whose head rises, the head moves up. "
@@ -139,6 +159,24 @@ def manual_instructions(distance_mm: float | None = None, reason: str = "") -> s
             "blob. If the screen refuses Z moves, power the printer off and open the gap by hand (turn "
             "the Z lead screw, or lift the cooled part off the nozzle). Keep fingers clear of the "
             "nozzle and bed; either may still be hot.")
+
+
+def travel_room(status: dict[str, Any]) -> float | None:
+    """Z travel left above the current position, inside the margin.
+
+    ``None`` unless Klipper reports Z homed with both the Z position and the Z
+    maximum, so the number is only ever derived from Klipper's own report.
+    """
+    toolhead = status.get("toolhead") or {}
+    if "z" not in str(toolhead.get("homed_axes") or "").casefold():
+        return None
+    position = toolhead.get("position")
+    maximum = toolhead.get("axis_maximum")
+    current = _number(position[2]) if isinstance(position, (list, tuple)) and len(position) > 2 else None
+    z_max = _number(maximum[2]) if isinstance(maximum, (list, tuple)) and len(maximum) > 2 else None
+    if current is None or z_max is None:
+        return None
+    return round(max(0.0, z_max - MAX_MARGIN_MM - current), 3)
 
 
 def _lock_for(printer_id: str | None = None):
@@ -250,7 +288,9 @@ def separate(*, confirmed_at: float, distance_mm: float | None = None,
                 distance, f"The printer state could not be read ({type(exc).__name__}).")
         target, reason = plan_move(status, distance)
         if target is None:
-            return False, manual_instructions(distance, reason)
+            room = travel_room(status)
+            limited = room is not None and room < distance
+            return False, manual_instructions(distance, reason, room if limited else None)
         try:
             _send_gcode(move_script(distance), printer_id, gcode_sender)
         except Exception as exc:

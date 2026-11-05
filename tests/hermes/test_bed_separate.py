@@ -111,6 +111,31 @@ def test_unsafe_states_send_nothing_and_give_instructions(status, reason):
     assert "Nothing was sent" in message and "Do not home Z" in message
 
 
+@pytest.mark.parametrize("z, room", [(215.0, 14.0), (229.0, 0.0), (240.0, 0.0)])
+def test_travel_refusal_guidance_stays_inside_the_limit(z, room):
+    printer = FakePrinter(_status(z=z, z_max=230.0))
+    ok, message = _separate(printer, distance_mm=20)
+    assert not ok and printer.sent == [] and "allowed travel" in message
+    assert "+20 mm so" not in message and "turn the Z lead screw" not in message
+    assert "do not force Z past its limit" in message and "Do not home Z" in message
+    if room:
+        assert f"at most +{room:g} mm" in message
+    else:
+        assert "already at the end of its travel" in message and "at most +" not in message
+
+
+def test_travel_room_needs_klippers_own_report():
+    assert bs.travel_room(_status(z=215.0, z_max=230.0)) == 14.0
+    assert bs.travel_room(_status(homed="xy")) is None
+    assert bs.travel_room({"toolhead": {"homed_axes": "xyz"}}) is None
+
+
+def test_unhomed_refusal_keeps_the_general_guidance():
+    printer = FakePrinter(_status(homed=""))
+    ok, message = _separate(printer, distance_mm=20)
+    assert not ok and printer.sent == [] and "+20 mm so" in message
+
+
 def test_stale_confirmation_sends_nothing():
     printer = FakePrinter(_status())
     ok, message = _separate(printer, confirmed_at=time.time() - bs.CONFIRM_WINDOW_S - 5)
