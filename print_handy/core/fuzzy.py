@@ -520,6 +520,36 @@ def windowed_fuzzy_score(query, target) -> int:
     return best
 
 
+TOKEN_MATCH_FLOOR = 82
+
+
+def token_match(query, words, floor=TOKEN_MATCH_FLOOR):
+    """The best (score, word) of any single query token against a word list.
+
+    Argument-free core matching for short command verbs: "shrnik it by
+    20%" has to find "shrink" without the number, the pronoun or the
+    filler dragging the whole-string ratio under the floor. Each query
+    token is scored on its own against each word (canonical forms, so
+    "shrinking" meets "shrink"). Words of three letters or fewer match
+    exactly only, because one typo in a short word is another word.
+    The floor sits above the general one so a near miss such as
+    "sink" for "shrink" (80) is not a match. Returns (0, None) when
+    nothing reaches the floor; ties keep the earlier word.
+    """
+    best = (0, None)
+    tokens = canonical(query).split()
+    for word in words:
+        target = canonical(word)
+        for token in tokens:
+            if len(target) <= 3 or len(token) <= 3:
+                score = 99 if token == target else 0
+            else:
+                score = fuzzy_score(token, target)
+            if score >= floor and score > best[0]:
+                best = (score, word)
+    return best
+
+
 # ----------------------------------------------------------------- policy
 
 @dataclass(frozen=True)

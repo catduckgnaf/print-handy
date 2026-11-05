@@ -11,7 +11,8 @@ import os
 import shutil
 from pathlib import Path
 
-RECIPE_VERSION = 2  # 2: the layout spacing and prime-tower settings are inputs too
+RECIPE_VERSION = 3  # 2: layout spacing and prime-tower settings are inputs too
+# 3: chat edit-plan settings (edit_settings) are inputs too (#903)
 PROFILE_FILES = ('machine', 'process', 'filament')
 
 
@@ -88,6 +89,11 @@ def slice_recipe(job, source_sha256, state=None, *, copies=None, scale=None, bri
                           # as it stands, and absent keeps older recipes' hashes.
                           **({'support_decision': True}
                              if (job.get('support_decision') or {}).get('supports') is True else {})},
+        # Chat edit plans (#903): the accumulated edit settings decide
+        # support type, layer height and infill, so an edit must never
+        # reuse a slice made without it. (The mirror rides in transform's
+        # orientation, like the rotation.)
+        'edits': job.get('edit_settings') or None,
         'layout': {'plate_mode': job.get('plate_mode'), 'full_size_split_plan': job.get('full_size_split_plan'),
                     'full_size_rearrange_plan': job.get('full_size_rearrange_plan'),
                     # Part gaps, edge margins and the prime tower decide where

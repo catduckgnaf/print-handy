@@ -263,13 +263,15 @@ def test_the_old_vision_settings_still_drive_the_check(monkeypatch):
 # --- settings ------------------------------------------------------------------------------------
 
 def test_the_shipped_defaults_leave_every_tier_empty():
-    assert settings._read(settings.HOME)["ai"] == {"small": {}, "chat": {}, "heavy": {}}
+    assert settings._read(settings.HOME)["ai"] == {"allowed_users": [], "edit_requests_per_hour": 20,
+                                                "small": {}, "chat": {}, "heavy": {}}
 
 
 def test_ai_tier_settings_are_validated():
     data = {}
     settings._validate_ai(data)
-    assert data["ai"] == {"small": {}, "chat": {}, "heavy": {}}
+    assert data["ai"] == {"allowed_users": [], "edit_requests_per_hour": 20,
+                                                "small": {}, "chat": {}, "heavy": {}}
     good = {"ai": {"small": {"chat_url": URL, "model": "m", "fallback_model": "n", "fallback_url": OTHER_URL,
                              "api_key_env": "TIER_KEY", "fallback_api_key_env": "BACKUP_KEY", "timeout_s": 5}}}
     settings._validate_ai(good)

@@ -66,7 +66,7 @@ def test_binding_is_a_versioned_recipe_and_ignores_dict_order():
     base = _job()
     binding = slice_binding(base, 'source-a')
     recipe = json.loads(binding)
-    assert recipe['recipe_version'] == recipe_module.RECIPE_VERSION == 2
+    assert recipe['recipe_version'] == recipe_module.RECIPE_VERSION == 3
     assert recipe['source_sha256'] == 'source-a'
     assert slice_binding(dict(reversed(list(base.items()))), 'source-a') == binding
 

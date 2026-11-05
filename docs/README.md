@@ -52,6 +52,7 @@ Do not run both Discord modes with the same token. Installing, enabling services
 - [Opt-in reviewed CAD split plans and dowel connectors](CAD-SPLIT-PLANS.md): reviewed split presets, chamfered dowel generation, OpenSCAD CSG script synthesis, and post-boolean volume conservation checks.
 - [Running the AI features on Cloudflare's free tier](CLOUDFLARE.md): chat and design through Workers AI's OpenAI-compatible endpoint, the camera watchdog and lookup by meaning through the two reference Workers in `examples/cloudflare`, free-tier limits with rough usage per feature, and what leaves the house. Mock-tested only; not yet run against a real Cloudflare account.
 - [AI design with OpenSCAD](DESIGN.md): `/print-design` describes a part in chat, renders and measures it, and hands the approved STL to normal intake (#388).
+- [Editing a prepared model from chat](EDITING.md): the confirmed, verified edit-plan vocabulary (supports, rotate, lay flat, scale, mirror, copies, brim, layer height, infill), AI-lane proposals from the same vocabulary, multi-part preservation, provenance and undo (#903).
 
 ## 3. Troubleshoot by symptom
 
