@@ -454,11 +454,21 @@
   },
   "witch-ghost-cults3d/hermes": {
    "first_prompt_s": 0.35,
-   "wall_s": 0.75
+   "raised_from": {
+    "first_prompt_s": 0.35,
+    "wall_s": 0.75
+   },
+   "reason": "#911 intake support pre-check: this case is flagged for support risk, so the flow runs a second speculative with-supports slice in the background before bed-clear and the mock flow slices twice. Median of 3 repeats from CI run 42128173482 on d7accd8.",
+   "wall_s": 1.49
   },
   "witch-ghost-cults3d/standalone": {
    "first_prompt_s": 0.33,
-   "wall_s": 0.75
+   "raised_from": {
+    "first_prompt_s": 0.33,
+    "wall_s": 0.75
+   },
+   "reason": "#911 intake support pre-check: this case is flagged for support risk, so the flow runs a second speculative with-supports slice in the background before bed-clear and the mock flow slices twice. Median of 3 repeats from CI run 42128173482 on d7accd8.",
+   "wall_s": 1.46
   }
  },
  "description": "Mock-slicer fake Discord flow (both transports), required gate in ci.yml discord-timing. Re-recorded every release from the release commit's CI artifact; see tests/README.md (Slicing-speed gate).",
