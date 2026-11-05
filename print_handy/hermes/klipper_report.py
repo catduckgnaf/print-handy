@@ -35,6 +35,18 @@ ALARM = re.compile(r"^!!|\b(?:error|warning|exception|traceback)\b|shutdown|must
 RESTART = re.compile(r"^(?:Start printer at|Starting Klippy|=+ Config file =+|Restarting printer|"
                      r"Klippy logging started|Args: \[)", re.I)
 STOP_MARK = re.compile(r"Transition to shutdown state|^!!|Exiting SD card print|cancel_print|CANCEL_PRINT", re.I)
+
+
+def is_stop_mark(line: str) -> bool:
+    """True if line records a genuine runtime stop event, excluding config declarations."""
+    if line.startswith((" ", "\t")):
+        return False
+    s = line.strip()
+    if not s or STARTUP.match(s) or s.startswith(("[", "#", ";")):
+        return False
+    if re.match(r"^[a-zA-Z0-9_]+\s*[:=]", s):
+        return False
+    return bool(STOP_MARK.search(s))
 # The boot-time config dump and registration chatter: never a warning, whatever words it holds.
 STARTUP = re.compile(r"^(?:MCU '[^']*' config:|Loaded MCU|Configured MCU|Starting heater checks|"
                      r"webhooks: registering|\[[^\]]+\]$|(?-i:[a-z_0-9]+ = )|#|Stats |Receive:|Sent |"
@@ -145,14 +157,14 @@ def stop_session(text: str) -> list[str]:
     sessions = log_sessions(text)
     if not sessions:
         return []
-    chosen = next((s for s in reversed(sessions) if any(STOP_MARK.search(x) for x in s)), None)
+    chosen = next((s for s in reversed(sessions) if any(is_stop_mark(x) for x in s)), None)
     if chosen is None:
         # No stop in the tail. A tail that is one fresh boot (the printer restarted and the log
         # rolled over) has nothing from before the stop.
         if RESTART.match(sessions[-1][0].strip()):
             return []
         chosen = sessions[-1]
-    last = max((i for i, x in enumerate(chosen) if STOP_MARK.search(x)), default=len(chosen) - 1)
+    last = max((i for i, x in enumerate(chosen) if is_stop_mark(x)), default=len(chosen) - 1)
     # Klipper prints its shutdown dump right after the transition line; keep a few lines of it.
     return chosen[: last + 4]
 

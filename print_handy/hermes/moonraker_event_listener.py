@@ -330,9 +330,10 @@ def capture_stop(filename, trigger):
         return ""
 
 
-def post_cancel_report(filename):
+def post_cancel_report(filename, reason=None):
     """Full Klipper report on any cancel; falls back to the short summary if the report fails."""
-    reason = capture_stop(filename, "cancel")
+    if reason is None:
+        reason = capture_stop(filename, "cancel")
     try:
         from . import klipper_report
         try:
@@ -3212,7 +3213,8 @@ class Listener:
             if native_screen_cancel(self.prev_native, native):
                 # Klipper shut down mid print, so Moonraker never sees the screen cancel. The stock firmware does.
                 if (await asyncio.to_thread(print_control.status)).get("klippy") == "shutdown":
-                    await asyncio.to_thread(post_cancel_report, self.filename)
+                    reason = await asyncio.to_thread(capture_stop, self.filename, "cancel")
+                    await asyncio.to_thread(post_cancel_report, self.filename, reason)
                     self.start_screen_cancel_reboot(f"native {self.prev_native}->{native} during emergency stop")
             self.prev_native = native
             if self.state in ("printing", "paused"):
@@ -3610,7 +3612,10 @@ class Listener:
             if effective == "cancelled":
                 # One post: post_cancel_report leads with the cancelled summary and
                 # falls back to it alone, so a separate ack read as a duplicate.
-                task = asyncio.create_task(asyncio.to_thread(post_cancel_report, self.filename))
+                # Finish stop capture before starting the screen-cancel reboot so Moonraker
+                # state and log tails are read before Klipper restarts.
+                reason = await asyncio.to_thread(capture_stop, self.filename, "cancel")
+                task = asyncio.create_task(asyncio.to_thread(post_cancel_report, self.filename, reason))
                 self.background_tasks.add(task)
                 task.add_done_callback(self.background_tasks.discard)
                 from . import klipper_report

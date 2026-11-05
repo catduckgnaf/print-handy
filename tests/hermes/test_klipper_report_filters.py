@@ -81,3 +81,26 @@ def test_post_leads_with_the_captured_stop_reason():
     out = kr.build("f.gcode", status, [], STARTUP_DUMP, by_bot=False, now=NOW, stop_reason=reason)
     assert out.splitlines()[1] == "**Stop reason:** " + reason
     assert "plain manual cancel" not in out and kr.NO_WARNINGS in out
+
+
+def test_config_macro_declaration_does_not_override_real_stop_session():
+    startup_with_macro = """partial line
+Start printer at Thu Nov  5 13:27:02 2026 (1792073222.1 12.3)
+===== Config file =====
+[printer]
+kinematics = cartesian
+[gcode_macro CANCEL_PRINT]
+description = Cancel print macro
+rename_existing = CANCEL_PRINT_BASE
+gcode =
+  CANCEL_PRINT_BASE
+=======================
+Loaded MCU 'mcu' 112 commands (v0.12.0)
+Starting heater checks for extruder
+"""
+    tail = SHUTDOWN_SESSION + startup_with_macro.split("\n", 1)[1]
+    session = kr.stop_session(tail)
+    assert any("Transition to shutdown state" in line for line in session)
+    assert not any("CANCEL_PRINT_BASE" in line for line in session)
+    alarms = kr.log_alarms(tail)
+    assert "Transition to shutdown state: MCU 'mcu' shutdown: Timer too close" in alarms

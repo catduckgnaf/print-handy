@@ -354,18 +354,18 @@ def build_record_data(
         "discord_chat_id": str(context.get("discord_chat_id") or DEFAULT_CHAT_ID),
         "moonraker_state": native,
         "job_key": context.get("job_key"),
-        **_stop_fields(filename, started_at),
+        **_stop_fields(filename, started_at, printer=context.get("printer_id") or context.get("printer")),
     }
 
 
-def _stop_fields(filename: str, started_at: Any = None) -> dict[str, Any]:
+def _stop_fields(filename: str, started_at: Any = None, printer: str | None = None) -> dict[str, Any]:
     """stop_reason and stop_capture (the sidecar path) captured when this print stopped.
 
     A capture older than this print's start belongs to an earlier print of the same file.
     """
     try:
         from . import stop_capture
-        captured = stop_capture.load(filename)
+        captured = stop_capture.load(filename, printer_id=printer)
     except Exception:
         return {}
     if not captured:
@@ -373,10 +373,10 @@ def _stop_fields(filename: str, started_at: Any = None) -> dict[str, Any]:
     if started_at and str(captured.get("first_captured_at") or "") < str(started_at):
         return {}
     return {"stop_reason": captured.get("stop_reason") or None,
-            "stop_capture": str(stop_capture.sidecar_path(filename))}
+            "stop_capture": str(stop_capture.sidecar_path(filename, printer_id=printer))}
 
 
-def _newest_record_path_for_file(filename: str) -> Path | None:
+def _newest_record_path_for_file(filename: str, printer: str | None = None) -> Path | None:
     """Path of the newest record for a gcode file (same matching as latest_record_for_file)."""
     exact, base = str(filename or ""), Path(str(filename or "")).name
     best, best_key = None, (-1, "")
@@ -388,6 +388,11 @@ def _newest_record_path_for_file(filename: str) -> Path | None:
         record = _read_json_record(path)
         if not record:
             continue
+        if printer:
+            rec_printer = str(record.get("printer") or "")
+            rec_id = str(record.get("printer_id") or "")
+            if str(printer) not in (rec_printer, rec_id):
+                continue
         names = {str(record.get("gcode_file") or ""), str(record.get("job_key") or "")} - {""}
         tier = 1 if exact in names else 0 if base in {Path(n).name for n in names} else -1
         if tier < 0:
@@ -398,14 +403,15 @@ def _newest_record_path_for_file(filename: str) -> Path | None:
     return best
 
 
-def attach_stop_reason(filename: str, reason: str, capture_path: str, captured_at: str = "") -> str:
+def attach_stop_reason(filename: str, reason: str, capture_path: str, captured_at: str = "",
+                       printer_id: str | None = None) -> str:
     """Add the captured stop reason to the newest record for `filename`; return its path or ''.
 
     An existing reason is kept: the first stop is the one that explains the print. A record
     that completed before the stop is an earlier print and is left alone; the stopped print's
     own record, written later, picks the reason up from the sidecar.
     """
-    path = _newest_record_path_for_file(filename)
+    path = _newest_record_path_for_file(filename, printer=printer_id)
     record = _read_json_record(path) if path else None
     if record is None or path is None:
         return ""

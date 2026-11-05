@@ -40,8 +40,27 @@ def _utc(epoch: float) -> str:
     return datetime.fromtimestamp(epoch, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def stops_dir() -> Path:
-    return _config.state_dir() / "stops"
+def _current_printer_id() -> str | None:
+    try:
+        from print_handy import instance
+        return instance.printer_id()
+    except Exception:
+        return None
+
+
+def stops_dir(printer_id: str | None = None) -> Path:
+    if printer_id is None:
+        printer_id = _current_printer_id()
+    if printer_id:
+        try:
+            from .. import settings
+            data = _config.cfg()
+            if printer_id != settings.default_printer_id(data):
+                return settings.printer_state_dir(printer_id, data) / "stops"
+        except Exception:
+            pass
+        return _config.state_dir() / "stops"
+    return _config.state_file(None, "stops", per_instance=True)
 
 
 def _slug(filename: str) -> str:
@@ -49,8 +68,8 @@ def _slug(filename: str) -> str:
     return (re.sub(r"[^A-Za-z0-9._]+", "-", stem).strip(".-") or "print")[:120]
 
 
-def sidecar_path(filename: str) -> Path:
-    return stops_dir() / f"{_slug(filename)}.json"
+def sidecar_path(filename: str, printer_id: str | None = None) -> Path:
+    return stops_dir(printer_id) / f"{_slug(filename)}.json"
 
 
 def _atomic_write_json(path: Path, value: Any) -> None:
@@ -153,9 +172,9 @@ def pick_reason(facts: dict[str, Any]) -> str:
     return ""
 
 
-def load(filename: str) -> dict[str, Any]:
+def load(filename: str, printer_id: str | None = None) -> dict[str, Any]:
     try:
-        data = json.loads(sidecar_path(filename).read_text(encoding="utf-8"))
+        data = json.loads(sidecar_path(filename, printer_id).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
@@ -172,16 +191,19 @@ def _archive_folder(filename: str) -> Path | None:
 
 
 def capture(filename: str, trigger: str, *, fetch: Callable[..., Any] | None = None,
-            now: float | None = None, log: Callable[[str], Any] | None = None) -> dict[str, Any]:
+            now: float | None = None, log: Callable[[str], Any] | None = None,
+            printer_id: str | None = None) -> dict[str, Any]:
     """Capture, store and return the stop facts for `filename`. Never raises."""
     now = time.time() if now is None else now
+    if printer_id is None:
+        printer_id = _current_printer_id()
     try:
         facts = collect(fetch)
     except Exception as exc:  # pragma: no cover - collect already isolates each source
         facts = {"sources": {"collect": f"failed: {type(exc).__name__}"}}
     reason = pick_reason(facts)
     event = {"trigger": trigger, "captured_at": _utc(now), "reason": reason, **facts}
-    record = load(filename)
+    record = load(filename, printer_id)
     started = (facts.get("job") or {}).get("start_time")
     if record and isinstance(started, (int, float)) and _utc(started) > str(record.get("first_captured_at") or ""):
         record = {}  # the stored stop belongs to an earlier print of the same file
@@ -192,13 +214,14 @@ def capture(filename: str, trigger: str, *, fetch: Callable[..., Any] | None = N
     payload = {
         "_doc": "Why this print stopped, captured by Print Handy when it stopped. Written by stop_capture.py.",
         "filename": filename,
+        "printer_id": printer_id,
         "stop_reason": stop_reason,
         "first_captured_at": record.get("first_captured_at") or event["captured_at"],
         "events": events,
     }
     stored: list[str] = []
     try:
-        path = sidecar_path(filename)
+        path = sidecar_path(filename, printer_id)
         _atomic_write_json(path, payload)
         stored.append(str(path))
     except OSError as exc:
@@ -213,7 +236,8 @@ def capture(filename: str, trigger: str, *, fetch: Callable[..., Any] | None = N
     try:
         from . import print_records
         record_path = print_records.attach_stop_reason(filename, stop_reason, stored[0] if stored else "",
-                                                       payload["first_captured_at"])
+                                                       payload["first_captured_at"],
+                                                       printer_id=printer_id)
         if record_path:
             stored.append(record_path)
     except Exception as exc:

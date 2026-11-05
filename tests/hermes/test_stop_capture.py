@@ -41,7 +41,8 @@ def fake_moonraker(*, klippy="shutdown", message="", log=None, ps_message=""):
 
 @pytest.fixture
 def dirs(tmp_path, monkeypatch):
-    monkeypatch.setattr(stop_capture, "stops_dir", lambda: tmp_path / "stops")
+    monkeypatch.setattr(stop_capture, "stops_dir",
+                        lambda printer_id=None: tmp_path / ("stops" if not printer_id else f"printers/{printer_id}/stops"))
     monkeypatch.setattr(stop_capture, "_archive_folder", lambda name: tmp_path / "archive" / "job1")
     monkeypatch.setattr(records, "PRINTS_DIR", tmp_path / "Prints")
     return tmp_path
@@ -133,3 +134,18 @@ def test_an_earlier_print_of_the_same_file_keeps_its_record_and_reason(dirs):
         return fake_moonraker(klippy="ready", message="Printer is ready")(path, range_bytes)
     out = stop_capture.capture("v12.gcode", "cancel", fetch=reprint, now=NOW + 90000, log=lambda _: None)
     assert out["stop_reason"] == "" and [e["trigger"] for e in out["events"]] == ["cancel"]
+
+
+def test_stop_capture_namespaced_by_printer_identity(dirs):
+    # Two roster printers running the same filename have separate sidecars
+    stop_capture.capture("v12.gcode", "shutdown", fetch=fake_moonraker(message="Printer 1 stop"),
+                         now=NOW, log=lambda _: None, printer_id="printer_a")
+    stop_capture.capture("v12.gcode", "shutdown", fetch=fake_moonraker(message="Printer 2 stop"),
+                         now=NOW, log=lambda _: None, printer_id="printer_b")
+
+    side_a = stop_capture.load("v12.gcode", printer_id="printer_a")
+    side_b = stop_capture.load("v12.gcode", printer_id="printer_b")
+    assert side_a["stop_reason"] == "Printer 1 stop"
+    assert side_b["stop_reason"] == "Printer 2 stop"
+    assert side_a["printer_id"] == "printer_a"
+    assert side_b["printer_id"] == "printer_b"
