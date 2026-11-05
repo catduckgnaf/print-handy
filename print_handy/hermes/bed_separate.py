@@ -15,8 +15,8 @@ Safety posture (mirrors :mod:`print_handy.hermes.nozzle_change`):
 * The live path is Moonraker/Klipper only, and only when Klipper itself
   reports that Z is homed (``toolhead.homed_axes`` contains ``z``) and
   reports both the current Z position and the Z axis maximum. The move is one
-  absolute ``G1`` to ``current Z + distance``, and it is refused unless that
-  target stays inside the reported Z maximum.
+  relative ``G91`` / ``G1 Z+distance`` / ``G90``, and it is refused unless
+  ``current Z + distance`` stays inside the reported Z maximum.
 * Nothing here forces a position: no ``SET_KINEMATIC_POSITION``, no
   ``FORCE_MOVE``, no homing (``G28``) and no heat. Connection availability, a
   printer's kinematics label or an assumed Z of 0 never stand in for
@@ -199,6 +199,16 @@ def plan_move(status: dict[str, Any], distance_mm: float) -> tuple[float | None,
     return target, ""
 
 
+def move_script(distance_mm: float) -> str:
+    """The one move sent: relative, bounded, slow, then back to absolute mode.
+
+    Relative on purpose: ``toolhead.position`` is in machine coordinates, while
+    an absolute ``G1 Z`` is in G-code coordinates (Z offsets applied), so only a
+    relative move is exactly ``distance_mm`` from where the head is now.
+    """
+    return f"G91\nG1 Z{float(distance_mm):g} F{MOVE_FEED_MM_MIN}\nG90\nM400"
+
+
 def separate(*, confirmed_at: float, distance_mm: float | None = None,
              connection: str | None = None,
              gcode_sender: Callable[[str], Any] | None = None,
@@ -237,7 +247,7 @@ def separate(*, confirmed_at: float, distance_mm: float | None = None,
         if target is None:
             return False, manual_instructions(distance, reason)
         try:
-            _send_gcode(f"G90\nG1 Z{target:g} F{MOVE_FEED_MM_MIN}\nM400", printer_id, gcode_sender)
+            _send_gcode(move_script(distance), printer_id, gcode_sender)
         except Exception as exc:
             return False, (f"The move command failed ({type(exc).__name__}). Check the printer screen "
                            "before doing anything else; do not retry blindly.")
