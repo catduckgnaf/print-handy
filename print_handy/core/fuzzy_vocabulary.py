@@ -1075,6 +1075,7 @@ TYPO_FORMS: dict[str, str] = {
     'alot': 'a lot',
     'brimm': 'brim',
     'calibarte': 'calibrate',
+    'canceled': 'cancel',
     'callibrate': 'calibrate',
     'callibration': 'calibration',
     'cance': 'cancel',
