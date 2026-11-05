@@ -11,6 +11,7 @@
 - [Matrix bot setup](MATRIX-BOT-SETUP.md): run the standalone bot in a Matrix room instead (#164); a pure bot with no LLM, /sync polling, numbered-list prompts, unencrypted room required.
 - [Hermes installation](INSTALL.md): profile installation, private overlays and listener setup.
 - [Docker](DOCKER.md): container configuration, persistent storage and service lifecycle. Follow the guide for the checked-out revision; do not assume a draft packaging PR is available.
+- [Component provenance and vulnerability inventory](COMPONENTS.md): every pinned third-party component in the image and Compose file, where its pin lives, the weekly image SBOM and vulnerability report, and the review cadence and exception policy.
 - [More than one printer](MULTI-INSTANCE.md): one instance per printer, kept as the alternative for hard process isolation, with one shared Spoolman. The default shape is one instance serving a whole roster — see [SETTINGS.md — Printers list](SETTINGS.md#printers-list) and [MULTI-PRINTER-DESIGN.md](MULTI-PRINTER-DESIGN.md).
 - [From the image to a first A1 print](BAMBU-A1-DOCKER.md): the Docker image on a Bambu Lab A1, step by step (#274): Compose overrides, A1 templates from the bundled OrcaSlicer, the hand-written hardware record, MakerWorld token, Discord, the LAN print opt-in and the fixes still pending. Verified on an A1 on 26 Oct 2026.
 
