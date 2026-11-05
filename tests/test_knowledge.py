@@ -624,9 +624,16 @@ TYPO_CORPUS = [
     ("adheison", "flow", "first-layer", 65, 84),
     ("nozzel clog", "flow", "clog", 85, 99),
     ("bed adheison", "flow", "first-layer", 65, 99),
-    ("nozzel", "flow", "clog", 65, 99),
     ("ofset", "flow", "first-layer", 65, 99),
 ]
+
+
+def test_lookup_bare_misspelling_ranks_like_the_word(registry):
+    # Phase 2: "nozzel" folds to "nozzle", so it finds the same entries the
+    # correct spelling's fuzzy tier does, with the clog flow among them.
+    ids = [getattr(m.item, "id", None) for m in registry.lookup("nozzel")]
+    assert "clog" in ids
+    assert all(m.score <= 84 for m in registry.lookup("nozzel"))
 
 
 @pytest.mark.parametrize("query,kind,ident,low,high", TYPO_CORPUS)
