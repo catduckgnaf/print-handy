@@ -2024,17 +2024,31 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         log_text = (result.stdout + '\n' + result.stderr).strip()
         if not orca_failed:
             orca_failure = 'Bambu Studio is the configured slicer'
-        elif re.search(r'G-code conflicts detected', log_text, re.I):
+        elif re.search(r'G-code conflicts detected', log_text, re.I) or _orca_conflict(folder):
             # A conflict is a slicer failure, not a Print Handy refusal. Bambu gets
             # one isolated attempt after Orca's own retry/candidate logic is exhausted.
             orca_failure = ('Orca detected G-code conflicts: inspect the model for '
                             'overlapping/intersecting parts, separate or reposition them, then retry; '
-                            'Bambu Studio is now the fallback attempt')
+                            'Bambu Studio is now the fallback attempt' + details)
         else:
             orca_failure = (f'Orca slicing failed ({result.returncode}) or no G-code output{details}'
                             if details else
                             f'Orca slicing failed ({result.returncode}) or no G-code output')
         bambu_role = 'Bambu Studio fallback' if orca_failed else 'Bambu Studio'
+        geometry_conflict = orca_failed and _orca_conflict(folder)
+
+        def _no_fallback(why):
+            # A geometry conflict is the real failure (#912): name it and its
+            # objects rather than the missing second attempt.
+            if geometry_conflict:
+                return SliceFailure(
+                    f'Orca found a geometry conflict between parts{details}; the parts overlap or interlock. '
+                    f'Group them into one object or separate them, then retry',
+                    kind='conflict', slicer='OrcaSlicer', returncode=why,
+                    **_failure_evidence(folder, 'orca.log'))
+            return SliceFailure(f'{orca_failure}; {_BAMBU_NOT_INSTALLED}', kind='launch',
+                                slicer='Bambu Studio' if primary == 'bambu_studio' else 'OrcaSlicer and Bambu Studio',
+                                returncode=127, **_failure_evidence(folder, 'orca.log'))
         logger.warning('%s: %s', bambu_role, orca_failure)
         bambu_dir = folder / 'bambu'
         bambu_dir.mkdir(exist_ok=True)
@@ -2089,17 +2103,13 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         except FileNotFoundError as exc:
             # Why Orca failed is the useful part: the missing fallback only explains why there
             # was no second attempt (#814 + #817).
-            raise SliceFailure(f'{orca_failure}; {_BAMBU_NOT_INSTALLED}', kind='launch',
-                               slicer='Bambu Studio' if primary == 'bambu_studio' else 'OrcaSlicer and Bambu Studio',
-                               returncode=127, **_failure_evidence(folder, 'orca.log')) from exc
+            raise _no_fallback(result.returncode) from exc
         except (subprocess.TimeoutExpired, OSError) as exc:
             raise RuntimeError(f'{orca_failure}; {bambu_role} failed to start: {exc}') from exc
         (folder / 'bambu.log').write_text(bambu_result.stdout + bambu_result.stderr)
         if bambu_result.returncode == 127 and 'failed to execute' in bambu_result.stderr:
             # taskset (the CPU-budget wrapper) exits 127 when the slicer binary is absent.
-            raise SliceFailure(f'{orca_failure}; {_BAMBU_NOT_INSTALLED}', kind='launch',
-                               slicer='Bambu Studio' if primary == 'bambu_studio' else 'OrcaSlicer and Bambu Studio',
-                               returncode=127, **_failure_evidence(folder, 'orca.log'))
+            raise _no_fallback(result.returncode)
         if bambu_result.returncode or not output.is_file() or output.stat().st_size == 0:
             if primary == 'bambu_studio':
                 raise SliceFailure(

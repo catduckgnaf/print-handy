@@ -257,23 +257,52 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
     # Group per source build item (not object id: repeated instances of one
     # object stay separate). Parts of one build item share space by design;
     # exported as separate Orca objects they overlap and fail as G-code
-    # conflicts, and auto-arrange scatters them into the tower lane.
+    # conflicts, and auto-arrange scatters them into the tower lane. Build
+    # items whose footprints overlap or touch (an inlay seated in a body that
+    # the author kept as its own item, #912) are one assembly for the same
+    # reason, so they are merged too (union-find over items).
     item_of = lambda instance_key: instance_key.split('/')[0]
+    part_by_key = {p['instance_key']: p for p in manifest['parts']}
     leaf_boxes = {}
     for key, _mesh, points in leaves:
+        # Footprints are compared where the leaves land, because per-object
+        # shifts can move touching items apart or together.
+        leaf_move = ([float(v) for v in item_shifts[str(part_by_key[key]['object_id'])]]
+                     if item_shifts is not None else delta)
         leaf_boxes.setdefault(item_of(key), []).append(
-            [(min(p[a] for p in points), max(p[a] for p in points)) for a in (0, 1)])
+            [(min(p[a] for p in points) + leaf_move[a], max(p[a] for p in points) + leaf_move[a]) for a in (0, 1)])
     # Orca's conflict checker uses extrusion paths, so touching or near-touching
     # footprints (within one perimeter-ish gap) also count as overlapping.
     touch = lambda a, b: all(a[i][0] < b[i][1] + 1 and b[i][0] < a[i][1] + 1 for i in (0, 1))
     overlapping_items = {item for item, boxes in leaf_boxes.items()
                          if any(touch(a, b) for i, a in enumerate(boxes) for b in boxes[i + 1:])}
+    parent = {item: item for item in leaf_boxes}
+
+    def find(item):
+        while parent[item] != item:
+            parent[item] = parent[parent[item]]
+            item = parent[item]
+        return item
+
+    ordered_items = list(leaf_boxes)
+    for i, first in enumerate(ordered_items):
+        for second in ordered_items[i + 1:]:
+            if find(first) != find(second) and any(
+                    touch(a, b) for a in leaf_boxes[first] for b in leaf_boxes[second]):
+                parent[find(second)] = find(first)
+    members = {}
+    for item in ordered_items:
+        members.setdefault(find(item), []).append(item)
     cut_items = {item_of(cutter_rows[k]['instance_key']) for k, _, _ in cut_leaves}
+    first_part_of = {}
     for part in manifest['parts']:
-        item = item_of(part['instance_key'])
-        if painted or item in cut_items or item in overlapping_items:
-            group_of.setdefault(item, {'name': part.get('object_name') or part['name'],
-                                       'parts': [], 'cutters': []})
+        first_part_of.setdefault(item_of(part['instance_key']), part)
+    for root, items in members.items():
+        if painted or len(items) > 1 or any(i in cut_items or i in overlapping_items for i in items):
+            lead = first_part_of[items[0]]
+            shared = {'name': lead.get('object_name') or lead['name'], 'parts': [], 'cutters': [], 'root': root}
+            for item in items:
+                group_of[item] = shared
     for i, ((key, mesh, points), part) in enumerate(zip(leaves, manifest['parts']), 1):
         # inventory metadata may reorder parts: match resolved build instance.
         part = next(p for p in manifest['parts'] if p['instance_key'] == key)
@@ -361,7 +390,7 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
         prev = cutter_bounds.get(oid)
         cutter_bounds[oid] = box if prev is None else [
             (min(prev[a][0], box[a][0]), max(prev[a][1], box[a][1])) for a in range(3)]
-    for group in group_of.values():
+    for group in {id(g): g for g in group_of.values()}.values():
         wrapper_id = str(next_id)
         next_id += 1
         wrapper = ET.SubElement(resources, tag('object'), id=wrapper_id, type='model', name=group['name'])
@@ -388,7 +417,8 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
         # Tower clearance is per printed object, i.e. per assembly.
         merged = {}
         for record, box in zip(records, part_bounds):
-            oid = item_of(next(p['instance_key'] for p in manifest['parts'] if p['instance_key'] == record['build_key']))
+            item = item_of(record['build_key'])
+            oid = group_of[item]['root'] if item in group_of else item
             prev = merged.get(oid)
             merged[oid] = box if prev is None else [(min(prev[a][0], box[a][0]), max(prev[a][1], box[a][1])) for a in range(3)]
         part_bounds = list(merged.values())
