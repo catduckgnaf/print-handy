@@ -9,13 +9,20 @@ Pins three behaviours the multi-printer design relies on but no test stated:
 2. settings.view_for projects each vendor family's own connection and nothing else;
 3. settings.set_override is process-global, so a per-printer view installed by a
    listener is what settings.current() returns until it is cleared.
+
+Also pins the id-change hazard the rename procedure exists to avoid: moving the
+state folder does not rekey the lease rows inside jobs.db, and both acquire()
+and reconcile-launch look a lease up by the current id, so an unresolved lease
+survives the rename neither enforced nor reconcilable until its rows are rekeyed.
 """
+import sqlite3
 import tempfile
 from pathlib import Path
 
 import pytest
 
 from print_handy import settings
+from print_handy.core import launch_state
 
 
 def load_local(text):
@@ -178,3 +185,67 @@ def test_explicit_data_is_unaffected_by_an_installed_override(roster, clean_over
     settings.set_override(settings.view_for("octo", roster))
     assert settings.view_for("moon", roster)["services"]["moonraker_url"] == "http://10.0.0.1:7125"
     assert settings.by_id("sdcp", roster)["host"] == "10.0.0.4"
+
+
+# --------------------------------------- changing an id keeps its lease
+
+
+def _seed_lease(db, printer_id):
+    """A held uncertain lease and its history baseline, keyed by printer_id."""
+    con = sqlite3.connect(db)
+    for statement in launch_state.SCHEMA:
+        con.execute(statement)
+    con.execute(
+        "INSERT INTO leases (printer, token, phase, job_json, gcode_sha256, remote, pid, host,"
+        " leased_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (printer_id, "tok-held", "uncertain", "/jobs/JOB.json", "sha", "x.gcode", 1, "host",
+         "2026-01-01T00:00:00+0000", "2026-01-01T00:00:00+0000"))
+    con.execute("INSERT INTO lease_baselines (printer, baseline) VALUES (?,?)",
+                (printer_id, '["job-1"]'))
+    con.commit()
+    con.close()
+
+
+def test_renaming_the_state_folder_hides_a_held_lease_until_its_rows_are_rekeyed(tmp_path, monkeypatch):
+    """docs/SETTINGS.md, "To change an id on purpose".
+
+    The folder name is the printer id, but the lease and its baseline are keyed
+    by a column inside jobs.db. Moving the folder (what a rename does) leaves
+    that column on the old id: the new id's acquire() does not see the held
+    lease, so a second launch is not refused, and reconcile-launch cannot clear
+    it either. Rekeying the rows, which the procedure requires before the bot
+    starts, makes the same lease enforceable and reconcilable again.
+    """
+    monkeypatch.delenv("PRINT_HANDY_LAUNCH_DB", raising=False)
+    monkeypatch.setattr(settings, "state_dir", lambda data=None: tmp_path)
+    old = tmp_path / "printers" / "old-id"
+    old.mkdir(parents=True)
+    _seed_lease(old / "jobs.db", "old-id")
+
+    moved = tmp_path / "printers" / "new-id"
+    old.rename(moved)
+
+    # The moved database still answers to the old id, and to nothing else: the
+    # new id sees no lease, so a second launch is not refused, and reconciling
+    # the new id clears the launch just taken, not the hidden one.
+    assert launch_state.pending("new-id") == []
+    launch_state.acquire("new-id", job_json="/jobs/JOB2.json", gcode_sha256="sha2", remote="y.gcode").release()
+    with pytest.raises(SystemExit, match="No launch is pending"):
+        launch_state.resolve("new-id", "not_started")
+    with launch_state.transaction("new-id") as con:
+        hidden = con.execute("SELECT token FROM leases").fetchall()
+    assert [row["token"] for row in hidden] == ["tok-held"]
+
+    # What the procedure tells the operator to run, against the moved database.
+    con = sqlite3.connect(moved / "jobs.db")
+    con.execute("UPDATE leases SET printer='new-id' WHERE printer!='new-id'")
+    con.execute("UPDATE lease_baselines SET printer='new-id' WHERE printer!='new-id'")
+    con.commit()
+    con.close()
+
+    held = launch_state.pending("new-id")
+    assert [r["token"] for r in held] == ["tok-held"]
+    with pytest.raises(SystemExit, match="REFUSED"):
+        launch_state.acquire("new-id", job_json="/jobs/JOB3.json", gcode_sha256="sha3", remote="z.gcode")
+    launch_state.resolve("new-id", "not_started")
+    assert launch_state.pending("new-id") == []

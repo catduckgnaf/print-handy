@@ -387,7 +387,15 @@ Each printer's runtime state lives in its own folder, `state/printers/<id>/` und
 
 - **With a `printers:` list**, the `id` is written in your file and never changes unless you edit it. Edit `name` whenever you like.
 - **Without a list** (the single-printer default), the `id` is derived from `printer.name` on every start, so renaming `printer.name` silently moves the printer to a new, empty state folder: the held lease, the hardware record (loaded spool, nozzle) and maintenance record stay behind in the old folder. To rename safely, first pin the current id: add a one-entry list whose `id` is the slug of the old name (the folder name under `state/printers/`), move the printer's connection keys into it, then change `name`. A config with a list must not also set the legacy `[printer]` connection keys.
-- **To change an `id` on purpose**, stop the bot with no print running, rename the folder `state/printers/<old-id>/` to `state/printers/<new-id>/`, update the `id` in the config (and any `PRINT_HANDY__PRINTERS__<ID>__` variables, which use the id uppercased), then start. Keep a copy of the old folder until the printer has been seen working. Job folders in the archive keep the `printer_id` they were created with; finished jobs are not rewritten.
+- **To change an `id` on purpose**, stop the bot first, and only while no print is running. Stopping is not enough on its own: a launch that was sent but never confirmed leaves a lease row in `jobs.db`, and that row (and its history baseline) is keyed by the old id. Merely renaming the folder keeps the row, and the new id never sees it — a later start is not refused, and `reconcile-launch` reports nothing pending, because both look the lease up by the current id. Before you start the bot again, rekey those rows to the new id:
+
+  ```
+  sqlite3 state/printers/<old-id>/jobs.db "
+    UPDATE leases SET printer='<new-id>' WHERE printer!='<new-id>';
+    UPDATE lease_baselines SET printer='<new-id>' WHERE printer!='<new-id>';"
+  ```
+
+  Then rename the folder `state/printers/<old-id>/` to `state/printers/<new-id>/`, update the `id` in the config (and any `PRINT_HANDY__PRINTERS__<ID>__` variables, which use the id uppercased), and start. If `sqlite3` says there is no such table, that printer has never held a lease and there is nothing to rekey. Keep a copy of the old folder until the printer has been seen working. Job folders in the archive keep the `printer_id` they were created with; finished jobs are not rewritten.
 - An `id` must be a slug (`a-z`, `0-9`, `-`, `_`, starting with a letter or digit) and unique; anything else, including path characters, is refused at startup.
 
 **One printer per process.** Each printer's listener runs in its own process on that printer's settings view (`settings.view_for`), installed process-wide through `settings.set_override`. A process therefore serves exactly one printer; do not run two printers in one process. The view carries only that printer's model, geometry and connection keys; `[paths]`, the chat platforms, Spoolman and `[delivery]` stay global and shared.
