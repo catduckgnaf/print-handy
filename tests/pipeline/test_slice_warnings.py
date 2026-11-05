@@ -179,3 +179,37 @@ def test_support_question_is_answerable_only_by_print_approvers():
     assert asks, 'support question not found'
     for call in asks:
         assert any(k.arg == 'approval' and getattr(k.value, 'value', None) is True for k in call.keywords)
+
+
+def _prepare_link_tree():
+    import ast
+    import inspect
+    from print_handy.core import prepared_intake
+    return ast.parse(inspect.getsource(prepared_intake))
+
+
+def test_support_reslice_can_be_stopped():
+    """The re-slice is pre-upload, so its progress offers Stop like the first slice."""
+    import ast
+    calls = [n for n in ast.walk(_prepare_link_tree()) if isinstance(n, ast.Call)
+             and getattr(n.func, 'id', None) == '_with_stop'
+             and any(isinstance(a, ast.Constant) and str(a.value).startswith('Re-slicing with supports')
+                     for a in n.args)]
+    assert calls, 'support re-slice not found'
+    for call in calls:
+        assert any(k.arg == 'allow_stop' and getattr(k.value, 'value', None) is True for k in call.keywords)
+
+
+def test_refused_plates_are_read_from_the_final_slice():
+    """A re-slice with supports can refuse different plates; disclose and accept those, not the first slice's."""
+    import ast
+    tree = _prepare_link_tree()
+    fn = next(n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef) and n.name == 'prepare_link')
+    reads = [n.lineno for n in ast.walk(fn) if isinstance(n, ast.Assign)
+             and any(getattr(t, 'id', None) == 'refused_plates' for t in n.targets)]
+    reslices = [n.lineno for n in ast.walk(fn) if isinstance(n, ast.Call)
+                and getattr(n.func, 'id', None) == '_with_stop'
+                and any(isinstance(a, ast.Constant) and str(a.value).startswith('Re-slicing with supports')
+                        for a in n.args)]
+    assert reads and reslices
+    assert min(reads) > max(reslices), 'refused_plates is read before the support re-slice'

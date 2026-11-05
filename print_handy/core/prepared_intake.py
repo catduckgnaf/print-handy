@@ -3174,18 +3174,6 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                content='Heads up on the source profile:\n'
                                        + '\n'.join(f'- {w}' for w in profile_warnings))
-        # P1-20: a plate a guard refused during slicing is never dropped
-        # silently. Name every refused plate before the start question; the
-        # operator's confirmed start below records the acceptance print-now
-        # requires for a partial job.
-        refused_plates = sliced.get('refused_plates') or []
-        if refused_plates:
-            named = '\n'.join(f"- Plate {row.get('plate_id')} (slot {row.get('slot')}): {row.get('reason')}"
-                              for row in refused_plates)
-            await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                               content='Heads up: part of this model will NOT print. These plates were '
-                                       f'refused during slicing:\n{named}\n'
-                                       'Starting prints only the plates that sliced cleanly.')
         # Orca said supports are needed and the slice ran without them: ask before anything else
         # (bed-clear, upload, start). Only this finding asks; other warnings are information.
         finding = slice_warnings.support_finding(sliced)
@@ -3210,12 +3198,26 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                 copies_kw = {'copies': chosen_quantity} if chosen_quantity and chosen_quantity > 1 else {}
                 out = await _with_stop(adapter, source, key, metadata,
                                        'Re-slicing with supports. Press Stop to cancel.',
-                                       _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha, **copies_kw))
+                                       _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha, **copies_kw),
+                                       allow_stop=True)  # still entirely pre-upload, so Stop is safe
                 gcodes = [str(g) for g in (out if isinstance(out, list) else [out])]
                 sliced = json.loads(jp.read_text())
                 receipt.update(status='SLICED', gcodes=gcodes,
                                gcode_sha256={g: delivery.sha256(g) for g in gcodes})
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+        # P1-20: a plate a guard refused during slicing is never dropped
+        # silently. Name every refused plate before the start question; the
+        # operator's confirmed start below records the acceptance print-now
+        # requires for a partial job. Read after the support question, so a
+        # re-slice with supports discloses the final slice's refusals.
+        refused_plates = sliced.get('refused_plates') or []
+        if refused_plates:
+            named = '\n'.join(f"- Plate {row.get('plate_id')} (slot {row.get('slot')}): {row.get('reason')}"
+                              for row in refused_plates)
+            await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                               content='Heads up: part of this model will NOT print. These plates were '
+                                       f'refused during slicing:\n{named}\n'
+                                       'Starting prints only the plates that sliced cleanly.')
         has_dur_q = has_duration_question(getattr(event, 'text', ''))
         info_line = slice_warnings.compact_info(sliced)
         if info_line:
