@@ -181,6 +181,15 @@ class BackgroundSlice:
         updated = copy.deepcopy(slice_job_data)
         for field in ('support_decision', 'clearance_acknowledgement', 'copies', 'filament_selection', 'color_decisions'):
             if field in current:
+                # The speculative with-supports slice's own temporary
+                # decision is not an operator decision: restoring the
+                # no-supports snapshot must not leak it into JOB.json,
+                # where it would change the slice recipe binding (breaking
+                # a Slice only answer's approval guard) and read as a
+                # settled support question after a reorientation (#922).
+                if field == 'support_decision' and isinstance(current[field], dict) \
+                        and current[field].get('by') == 'speculative_intake':
+                    continue
                 updated[field] = current[field]
         if 'support_decision' not in updated and default_supports is not None:
             updated['support_decision'] = {'supports': default_supports, 'by': 'speculative_intake'}
@@ -281,6 +290,13 @@ class BackgroundSlice:
                         job[key] = self.job_before[key]
                     else:
                         job.pop(key, None)
+                # A speculative slice's temporary decision is not an
+                # operator decision (#922): discarding that slice removes
+                # it, so a cancelled or reoriented job does not carry a
+                # settled support question it never answered.
+                if isinstance(job.get('support_decision'), dict) \
+                        and job['support_decision'].get('by') == 'speculative_intake':
+                    job.pop('support_decision', None)
                 target = Path(self.job_path)
                 tmp = target.with_name(f".JOB.json.{os.getpid()}.{time.monotonic_ns()}.tmp")
                 tmp.write_text(json.dumps(job, indent=2) + "\n")

@@ -3809,7 +3809,16 @@ def require_current_artifact(job, gcode):
         rec_sha = binding.get('recipe_sha256')
         gc_path = gcode or job.get('gcode')
         gc_sha = file_sha256(gc_path) if gc_path and Path(gc_path).is_file() else None
+        # A "with supports" choice does not satisfy a low-clearance
+        # finding (#922 gap 2): it is recorded with via='with_supports'
+        # and deliberately fails this guard, because supports cannot fit
+        # into a sub-1.0 mm gap. An explicit print-anyway choice, a
+        # verified geometry repair, or the operator's explicit
+        # without-supports (as-authored) decision does satisfy it.
+        # Acknowledgements recorded before `via` existed keep their
+        # original print-anyway meaning.
         if not (ack.get('acknowledged')
+                and ack.get('via', 'print_anyway') in ('print_anyway', 'geometry_repair', 'without_supports')
                 and (src_sha is None or ack.get('source_sha256') == src_sha)
                 and (rec_sha is None or ack.get('recipe_sha256') == rec_sha)
                 and (gc_sha is None or ack.get('gcode_sha256') == gc_sha)):

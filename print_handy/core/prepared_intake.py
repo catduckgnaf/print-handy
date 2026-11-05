@@ -1125,6 +1125,41 @@ def upload_job(path):
             'sources': [{'n': 1, 'name': name, 'title': stem, 'path': str(path)}]}
 
 
+def gcode_3mf_message(name):
+    """The plain refusal for a sliced G-code package sent as a model (#922 gap 9)."""
+    return (f'{name} is an already-sliced G-code package (.gcode.3mf), not an unsliced 3MF mesh. '
+            'Send the original unsliced .3mf or .stl model instead, so it can be sliced for this '
+            'printer. Nothing was sliced or started.')
+
+
+def is_gcode_3mf(path):
+    """True for an already-sliced .gcode.3mf package (#922 gap 9).
+
+    Detected by the double suffix, or by content: a package carrying
+    Metadata/plate_*.gcode whose root model has an empty <build> (no build
+    items, hence no unsliced mesh inventory). A normal unsliced 3MF with
+    plate G-code metadata but real build items is not one.
+    """
+    path = Path(path)
+    if path.name.lower().endswith('.gcode.3mf'):
+        return True
+    if path.suffix.lower() != '.3mf' or not path.is_file():
+        return False
+    import zipfile
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = archive.namelist()
+            if not any(re.fullmatch(r'Metadata/plate_\d+\.gcode', n) for n in names):
+                return False
+            if '3D/3dmodel.model' not in names:
+                return False
+            model = archive.read('3D/3dmodel.model').decode('utf-8', 'replace')
+    except Exception:
+        return False
+    build = re.search(r'<build[^>]*>(.*?)</build>', model, re.S)
+    return build is not None and '<item' not in build.group(1)
+
+
 def upload_title(path, limit=1 << 20):
     """The designer's Title from a dropped 3MF, so uploads read like links ("Slim 12oz Can Holder..."
     rather than "CanHolder3MF"). Reads only the head of 3D/3dmodel.model; None when absent or not a 3MF."""
@@ -2206,6 +2241,10 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                 lambda: _with_stop(adapter, source, key, metadata, None,
                                    asyncio.to_thread(fetch, job, chosen, folder / 'source')))
             job['downloaded_file'] = str(path)
+        if await asyncio.to_thread(is_gcode_3mf, path):
+            # An already-sliced G-code package, not a corrupt 3MF (#922 gap 9):
+            # refuse before the audit can misreport it as bad_3mf_structure.
+            raise ValueError(gcode_3mf_message(Path(path).name))
         await asyncio.to_thread(check_source, path)
         # One canonical form for everything downstream (#814, #825): the audit, colors, fit, layout
         # and slicer all read this copy. The user's bytes are kept under source/original/.
@@ -3011,10 +3050,25 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                 if clearance and support_clearance.risky(clearance):
                     for f in clearance.get('findings') or []:
                         for fix in f.get('fixes') or []:
-                            if fix.get('fix') == 'extend_underside' and not any(a['kind'] == 'extend' for a in fix_actions):
+                            # "Extend underside to plate" is only a repair when
+                            # the underside faces the plate (#922 gap 5): over
+                            # another part there is no plate to extend to.
+                            if fix.get('fix') == 'extend_underside' and f.get('over') == 'plate' \
+                                    and not any(a['kind'] == 'extend' for a in fix_actions):
                                 fix_actions.append({'kind': 'extend', 'label': 'Extend underside to plate', 'finding': f})
+                                if fix.get('added_volume_mm3') is not None:
+                                    flag_lines.append(
+                                        f"- Extend underside to plate adds about "
+                                        f"{fix['added_volume_mm3']:.0f} mm3 of material below the underside.")
                             elif fix.get('fix') == 'sink' and not any(a['kind'] == 'sink' for a in fix_actions):
                                 fix_actions.append({'kind': 'sink', 'label': 'Flatten (sink) to plate', 'finding': f})
+                                if fix.get('removed_volume_mm3') is not None:
+                                    flag_lines.append(
+                                        f"- Flatten (sink) to plate removes about "
+                                        f"{fix['removed_volume_mm3']:.0f} mm3 that would end up below the plate.")
+                            elif fix.get('fix') == 'reorient' and not any(a['kind'] == 'reorient' for a in fix_actions):
+                                fix_actions.append({'kind': 'reorient', 'label': 'Reorient (lay flat)', 'finding': f})
+                    summary_extra = '\n' + '\n'.join(flag_lines)
 
                 menu_options = [
                     {'kind': 'sup', 'label': sup_label},
@@ -3022,6 +3076,11 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                 ]
                 for act in fix_actions:
                     menu_options.append(act)
+                if clearance and support_clearance.risky(clearance):
+                    # The one explicit waiver for a low-clearance finding
+                    # (#922 gap 2): neither "with supports" nor "without
+                    # supports" records it.
+                    menu_options.append({'kind': 'print_anyway', 'label': 'Print anyway (accept the risk)'})
                 menu_options.append({'kind': 'slice_only', 'label': 'Slice only'})
                 menu_options.append({'kind': 'scale', 'label': SCALE_LABEL})
                 menu_options.append({'kind': 'cancel', 'label': cancel_label})
@@ -3065,8 +3124,10 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                     if hasattr(early, 'settle'):
                         await early.settle()
                     mj.record_support_decision(folder, True)
-                    if clearance and support_clearance.risky(clearance):
-                        support_clearance.record_clearance_acknowledgement(folder, source_file=path)
+                    # "With supports" does NOT waive a low-clearance finding
+                    # (#922 gap 2): supports cannot fit into a sub-1.0 mm gap.
+                    # The flagged regions still owe post-slice toolpath
+                    # coverage verification before start (below).
                     latest = json.loads(jp.read_text())
                     binding = early.supports_binding or slice_binding(latest, decisions['source_sha256'])
                     recipe_sha = binding_sha256(binding)
@@ -3077,12 +3138,86 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                     if hasattr(early, 'settle'):
                         await early.settle()
                     mj.record_support_decision(folder, False)
+                    if early.finding:
+                        # An explicit override, bound to the slicer warning
+                        # and the artifact hash (#922 gap 3) -- never a
+                        # silent pass for a single-mesh cantilever.
+                        slice_warnings.record_unsupported_cantilever_override(
+                            folder, early.finding, source_file=path)
                     if clearance and support_clearance.risky(clearance):
-                        support_clearance.record_clearance_acknowledgement(folder, source_file=path)
+                        # "Without supports" is the operator's explicit
+                        # as-authored decision after seeing the findings, and
+                        # is recorded as such (#922 gap 2 scopes the
+                        # no-waive rule to the "with supports" choice, which
+                        # promises supports that cannot fit a sub-1.0 mm gap;
+                        # the witch-ghost corpus case pins this behavior).
+                        support_clearance.record_clearance_acknowledgement(
+                            folder, source_file=path, via='without_supports')
                     latest = json.loads(jp.read_text())
                     binding = slice_binding(latest, decisions['source_sha256'])
                     recipe_sha = binding_sha256(binding)
                     break
+                elif opt['kind'] == 'print_anyway':
+                    choice = 0
+                    if hasattr(early, 'settle'):
+                        await early.settle()
+                    # The explicit waiver (#922 gap 2): the only menu choice
+                    # that satisfies a low-clearance finding without a
+                    # verified geometry repair.
+                    if clearance and support_clearance.risky(clearance):
+                        support_clearance.record_clearance_acknowledgement(
+                            folder, source_file=path, via='print_anyway')
+                    latest = json.loads(jp.read_text())
+                    binding = slice_binding(latest, decisions['source_sha256'])
+                    recipe_sha = binding_sha256(binding)
+                    break
+                elif opt['kind'] == 'reorient':
+                    # Wire the reorient fix the findings name (#922 gap 7):
+                    # lay the largest face flat, record the rotation with NO
+                    # supports value, and clear the recorded support decision
+                    # and any clearance acknowledgement, so the post-rotation
+                    # slice evaluates support warnings freshly. PR #923
+                    # delivers the matching slice_job/_job_fit half (a plain
+                    # rotation must not become supports=False decided); this
+                    # branch does not duplicate it.
+                    await early.discard()
+                    from . import edit_plan
+                    try:
+                        tris = [tuple(map(tuple, tri)) for p in support_clearance.leaves(path)
+                                for tri in p['tris']]
+                    except Exception:
+                        tris = []
+                    found = edit_plan.lay_flat_rotation(tris) if tris else None
+                    if found is None:
+                        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                           content='I could not work out a flat reorientation for this model, '
+                                                   'so nothing was rotated. The support question is unchanged.')
+                        binding = slice_binding(latest, decisions['source_sha256'])
+                        recipe_sha = binding_sha256(binding)
+                        await early.start(jp, binding, lambda job_path, work, runner, copies=chosen_quantity, **kwargs:
+                                          _heavy(mj.slice_job, str(job_path), recipe_sha256=kwargs.get('recipe_sha256', recipe_sha), **(
+                                              {'copies': copies} if copies and int(copies) > 1 else {})))
+                        await early.started.wait()
+                        continue
+                    matrix, _dims = found
+                    latest['orientation'] = {'rotation': matrix}
+                    latest.pop('support_decision', None)
+                    latest.pop('clearance_acknowledgement', None)
+                    mj.write_job(folder, latest)
+                    await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                       content='Reoriented: laid the largest face flat. The support question '
+                                               'will be evaluated again for the new orientation.')
+                    binding = slice_binding(latest, decisions['source_sha256'])
+                    recipe_sha = binding_sha256(binding)
+                    await early.start(jp, binding, lambda job_path, work, runner, copies=chosen_quantity, **kwargs:
+                                      _heavy(mj.slice_job, str(job_path), recipe_sha256=kwargs.get('recipe_sha256', recipe_sha), **(
+                                          {'copies': copies} if copies and int(copies) > 1 else {})))
+                    await early.started.wait()
+                    if (early.running() and not early.first_slice_done.is_set()
+                            and getattr(early, 'release', None) is not None
+                            and early.release.is_set()):
+                        await early.first_slice_done.wait()
+                    continue
                 elif opt['kind'] == 'extend':
                     f = opt['finding']
                     # Stop the background slices before touching the source or
@@ -3092,7 +3227,8 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                     await early.discard()
                     res = support_clearance.extend_underside(path, gap_mm=f['clearance_mm']['min'])
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                                       content=f"Extended underside to touch build plate ({res['modified_vertices']} vertices adjusted). Re-analyzing...")
+                                       content=f"Extended underside to touch build plate ({res['modified_vertices']} vertices adjusted, "
+                                               f"added {res.get('added_volume_mm3', 0):.0f} mm3). Re-analyzing...")
                     new_sha = mj.file_sha256(path)
                     decisions['source_sha256'] = new_sha
                     manifest['source_sha256'] = new_sha
@@ -3117,7 +3253,8 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                     await early.discard()  # see the extend action above
                     res = support_clearance.sink_model(path, dz=f['clearance_mm']['max'])
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                                       content=f"Flattened model to plate by sinking {res['sink_mm']} mm. Re-analyzing...")
+                                       content=f"Flattened model to plate by sinking {res['sink_mm']} mm "
+                                               f"({res.get('removed_volume_mm3', 0):.0f} mm3 ends up below the plate and is clipped). Re-analyzing...")
                     new_sha = mj.file_sha256(path)
                     decisions['source_sha256'] = new_sha
                     manifest['source_sha256'] = new_sha
@@ -3440,6 +3577,49 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         receipt.update(status='SLICED', sliced=True, gcodes=gcodes,
                        gcode_sha256={g: delivery.sha256(g) for g in gcodes})
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+
+        def _coverage_failure(gcode_list):
+            """The failed post-slice support coverage result, or None (#922 gaps 2 and 4)."""
+            report = sliced.get('support_clearance') or clearance
+            if not report:
+                return None
+            try:
+                text = '\n'.join(Path(g).read_text(errors='replace') for g in gcode_list)
+            except OSError:
+                return None
+            result = support_clearance.verify_support_coverage(report.get('regions') or [], text)
+            return result if result['checked'] and not result['ok'] else None
+
+        if supports_choice is True:
+            cov_failure = _coverage_failure(gcodes)
+            if cov_failure is not None:
+                worst = min(cov_failure['regions'], key=lambda r: r['coverage'])
+                receipt.update(status='SLICED_NOT_STARTED', started=False, support_coverage=cov_failure)
+                receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                   content='Sliced with supports, but the support toolpaths do not cover every '
+                                           f"flagged region (worst region: {worst['coverage'] * 100:.0f}% of its "
+                                           '3 mm cells covered). Nothing was uploaded or started. The slice '
+                                           'stays on disk; repair the geometry or choose Print anyway to override.')
+                return {'action': 'skip', 'reason': 'support coverage verification failed'}
+        if supports_choice is True:
+            report = sliced.get('support_clearance') or clearance
+            # Only a low-clearance finding is unwaivable by a with-supports
+            # choice (#922 gap 2); other findings (modeled supports) keep
+            # their Phase 1 behavior.
+            if any(f.get('code') == support_clearance.CODE_CLEARANCE
+                   for f in (report or {}).get('findings') or []):
+                ack = sliced.get('clearance_acknowledgement') or {}
+                if not ack.get('acknowledged') \
+                        or ack.get('via', 'print_anyway') not in ('print_anyway', 'geometry_repair'):
+                    receipt.update(status='SLICED_NOT_STARTED', started=False)
+                    receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                    await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                       content='This print has a low-clearance underside (under 1.0 mm) that '
+                                               'slicer supports cannot fix. Nothing was uploaded or started. '
+                                               'Repair the geometry (extend or sink) or choose Print anyway '
+                                               'to accept the risk explicitly.')
+                    return {'action': 'skip', 'reason': 'low clearance not waived by supports choice'}
         provenance = sliced.get('provenance') or {}
         if not provenance and (sliced.get('derived_plates') or []):
             provenance = (sliced['derived_plates'][0].get('provenance') or {})
@@ -3468,13 +3648,22 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                               approval=True)  # only print approvers may waive or answer a safety finding
             receipt['support_decision'] = {'finding': finding, 'choice': pick}
             if pick == 2:
-                await early.discard()
+                # Cancelling the START, not the slice (#922 gap 6): this slice
+                # is already referenced by JOB.json and the receipt above, so
+                # early.discard() must not delete its directory. The files
+                # stay on disk under SLICED_NOT_STARTED.
                 receipt['status'] = 'SLICED_NOT_STARTED'
                 receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
                 await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                                   content='Cancelled. Nothing uploaded or started.')
+                                   content='Cancelled. Nothing uploaded or started. '
+                                           'The slice stays on disk.')
                 return {'action': 'skip', 'reason': 'operator cancelled on the support question'}
             mj.record_support_decision(jp.parent, pick == 0)
+            if pick == 1:
+                # Explicit no-supports override, bound to the warning and the
+                # artifact hash (#922 gap 3).
+                slice_warnings.record_unsupported_cantilever_override(
+                    jp.parent, finding, source_file=sliced.get('downloaded_file'))
             if pick == 0:
                 latest = json.loads(jp.read_text())
                 recipe_sha = binding_sha256(slice_binding(latest, decisions['source_sha256']))
@@ -3489,6 +3678,17 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                 sliced = json.loads(jp.read_text())
                 receipt.update(status='SLICED', gcodes=gcodes,
                                gcode_sha256={g: delivery.sha256(g) for g in gcodes})
+                cov_failure = _coverage_failure(gcodes)
+                if cov_failure is not None:
+                    worst = min(cov_failure['regions'], key=lambda r: r['coverage'])
+                    receipt.update(status='SLICED_NOT_STARTED', started=False, support_coverage=cov_failure)
+                    receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                    await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                       content='Re-sliced with supports, but the support toolpaths do not cover '
+                                               f"every flagged region (worst region: {worst['coverage'] * 100:.0f}% "
+                                               'of its 3 mm cells covered). Nothing was uploaded or started. '
+                                               'The slice stays on disk.')
+                    return {'action': 'skip', 'reason': 'support coverage verification failed'}
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
         # P1-20: a plate a guard refused during slicing is never dropped
         # silently. Name every refused plate before the start question; the
