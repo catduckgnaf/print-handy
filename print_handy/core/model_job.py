@@ -4198,7 +4198,25 @@ def _support_kw(job, supports=None):
         supports = True  # chosen after the slicer's warning: the latest operator word on supports
     elif supports is None and decided is False:
         supports = False
+    if supports is None and isinstance(job, dict):
+        # A chat edit's supports choice (#903) fills the remaining gap on
+        # every path, early-return slicing paths included.
+        from . import edit_plan as _edit_plan_sk
+        supports = _edit_plan_sk.supports_override(job)
     return {'supports': supports} if supports is not None else {}
+
+
+def _edit_kw(job):
+    """slice_model kwargs carrying a job's chat edit settings (#903).
+
+    Every slicing path passes these, so a layer height, infill or support
+    type edit is never dropped on the merged, painted, multi-tool or
+    per-plate paths (Codex P2 on #908). slice_model refuses a mirror on
+    the per-part and preserve-layout paths, loudly, instead of dropping it.
+    """
+    from . import edit_plan as _edit_plan_ek
+    edits = _edit_plan_ek.slice_edits(job) if isinstance(job, dict) else None
+    return {'edits': edits} if edits else {}
 
 
 def _job_fit(job, brim_override):
@@ -4597,7 +4615,7 @@ def _slice_painted_plates(job, job_path, src, manifest, decisions, view, plates,
         slice_dir = work / 'sliced' / 'orca' / uuid.uuid4().hex
         out, provenance, configs = slice_model(src, slice_dir, st, brim_override, color_decisions=view,
                                                object_ids=ids, scale=None if scale == 1.0 else scale,
-                                               **_support_kw(job))
+                                               **_support_kw(job), **_edit_kw(job))
         geometry = provenance.get('geometry') or {}
         if sorted(r['part_key'] for r in geometry.get('parts', [])) != sorted(keys):
             raise RuntimeError(f"painted plate {plate['id']} dropped or duplicated a source part")
@@ -4692,7 +4710,7 @@ def _slice_merged(job, job_path, src, manifest, decisions, view, verdict, st, br
                     raise RuntimeError(f'merged plate did not land at the recorded turn for object {oid}; '
                                        'refusing to slice it as turned')
         out, provenance, configs = slice_model(plate, slice_dir, st, brim_override, preserve_layout=True, filament_slot=slots[0],
-                                               **_support_kw(job))
+                                               **_support_kw(job), **_edit_kw(job))
         material = st.get('filament_slots', {}).get(str(slots[0]), {}).get('material')
         if not material:
             raise RuntimeError(f'merged plate physical IFS slot {slots[0]} has no verified material')
@@ -4704,7 +4722,7 @@ def _slice_merged(job, job_path, src, manifest, decisions, view, verdict, st, br
         # exporter, so pass the per-part view (it is exactly the user's choice).
         out, provenance, configs = slice_model(src, slice_dir, st, brim_override,
                                                color_decisions=view if manifest.get('painted') else decisions,
-                                               item_shifts=verdict['shifts'], **_support_kw(job),
+                                               item_shifts=verdict['shifts'], **_support_kw(job), **_edit_kw(job),
                                                **({'fit_by_object': fit_by_object} if fit_by_object else {}))
         geometry = provenance.get('geometry') or {}
         placed_keys = sorted(row['part_key'] for row in geometry.get('parts', []))
@@ -4805,7 +4823,7 @@ def _slice_merged_multi_tool(job, job_path, src, manifest, decisions, view, verd
             fit_by_object[str(oid)] = {'rotation': _yaw(value)}
     out, provenance, configs = slice_model(src, slice_dir, st, brim_override,
                                            color_decisions=view if manifest.get('painted') else decisions,
-                                           item_shifts=verdict['shifts'], **_support_kw(job),
+                                           item_shifts=verdict['shifts'], **_support_kw(job), **_edit_kw(job),
                                            **({'fit_by_object': fit_by_object} if fit_by_object else {}))
     mapping = {str(tool): int(slot) for tool, slot in (provenance.get('tool_mapping') or {}).items()}
     # The recorded mapping must pass the adapter's identity contract exactly
@@ -4897,7 +4915,7 @@ def _slice_per_plate(job, job_path, src, manifest, decisions, view, plates, st, 
                 raise RuntimeError(f'derived plate physical IFS slot {slot} has no verified material')
             report = export_single_color_plate(src, plate, view, keys, bed=int(st['bed_mm'][0]), slot_colors=st.get('filament_slots') or {}, **({'fit': current_fit} if current_fit is not None else {}))
             slice_dir = work / 'sliced' / 'orca' / uuid.uuid4().hex
-            out, provenance, configs = slice_model(plate, slice_dir, st, brim_override, preserve_layout=True, filament_slot=slot, **_support_kw(job, supports))
+            out, provenance, configs = slice_model(plate, slice_dir, st, brim_override, preserve_layout=True, filament_slot=slot, **_support_kw(job, supports), **_edit_kw(job))
             finalize_multicolor(out, None, st, {'0': slot})
             check = verify_gcode_offline(out, st, _job_adapter(job))
         except RuntimeError as exc:
@@ -5279,7 +5297,7 @@ def _slice_full_size_split(job, job_path, src, manifest, decisions, st):
                                    'refusing to slice it as reoriented')
         slice_dir = work / 'sliced' / 'orca' / uuid.uuid4().hex
         out, provenance, configs = slice_model(plate, slice_dir, st, preserve_layout=True,
-                                               filament_slot=slot, **_support_kw(job, supports))
+                                               filament_slot=slot, **_support_kw(job, supports), **_edit_kw(job))
         finalize_multicolor(out, None, st, {'0': slot})
         check = verify_gcode_offline(out, st, _job_adapter(job))
         artifacts.append({'slot': slot, 'plate_id': index, 'binding_key': f'{index}:{slot}',
@@ -5517,10 +5535,9 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
             # the process edits apply per plate (a mirror in them is
             # refused by slice_model's per-part guard, loudly).
             from . import edit_plan as _edit_plan_pp
-            _pp_edits = _edit_plan_pp.slice_edits(job)
             _pp_supports = _edit_plan_pp.supports_override(job)
             _effective_supports = _pp_supports if _pp_supports is not None else supports
-            out, provenance, configs = slice_model(plate, slice_dir, st, brim_override, preserve_layout=True, filament_slot=group['slot'], **_support_kw(job, _effective_supports), **({'edits': _pp_edits} if _pp_edits else {}))
+            out, provenance, configs = slice_model(plate, slice_dir, st, brim_override, preserve_layout=True, filament_slot=group['slot'], **_support_kw(job, _effective_supports), **_edit_kw(job))
             # Keep the plate's physical IFS slot explicit. Orca may retain
             # project-wide unused filament_type entries although all geometry
             # is remapped to logical T0 on this single-color derivative.

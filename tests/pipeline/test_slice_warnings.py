@@ -1,4 +1,5 @@
 """Orca support warnings: parsed on success, gate the launch until the operator decides."""
+import ast
 import json
 import shutil
 from pathlib import Path
@@ -213,3 +214,31 @@ def test_refused_plates_are_read_from_the_final_slice():
                         for a in n.args)]
     assert reads and reslices
     assert min(reads) > max(reslices), 'refused_plates is read before the support re-slice'
+
+
+def test_every_job_slicing_path_passes_the_chat_edit_settings():
+    """Codex P2 on #908: layer height, infill and support type edits reach
+    Orca on the merged, painted, multi-tool and per-plate paths too."""
+    missing = []
+    for call in _slice_model_calls(mj):
+        if any(k.arg == 'first_layer' for k in call.keywords):
+            continue
+        carried = any(k.arg is None and isinstance(k.value, ast.Call)
+                      and getattr(k.value.func, 'id', None) == '_edit_kw' for k in call.keywords)
+        carried = carried or any(k.arg is None and getattr(k.value, 'id', None) == 'scale_kw'
+                                 for k in call.keywords)
+        if not carried:
+            missing.append(call.lineno)
+    assert not missing, f'slice_model calls without the edit settings at model_job.py lines {missing}'
+
+
+def test_edit_kw_and_support_kw_carry_the_chat_edit():
+    from print_handy.core import edit_plan as ep
+    job = {'scale': 1.0, 'orientation': {}}
+    assert mj._edit_kw(job) == {}
+    ep.apply_plan(job, {'kind': 'supports', 'enabled': True, 'type': 'tree'})
+    assert mj._edit_kw(job) == {'edits': {'support_type': 'tree'}}
+    assert mj._support_kw(job) == {'supports': True}
+    # The operator's own support decision still wins over the edit.
+    job['support_decision'] = {'supports': False}
+    assert mj._support_kw(job) == {'supports': False}
