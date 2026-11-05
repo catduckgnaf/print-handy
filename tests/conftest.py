@@ -121,7 +121,9 @@ def _instant_start_confirmation(monkeypatch):
 def pytest_ignore_collect(collection_path, config):
     """Keep the dedicated edit corpus out of the existing test shards."""
     edit_dir = Path(__file__).parent / "corpus" / "edit"
-    return collection_path == edit_dir and os.environ.get("PRINT_HANDY_EDIT_CORPUS") != "1"
+    if collection_path == edit_dir and os.environ.get("PRINT_HANDY_EDIT_CORPUS") != "1":
+        return True
+    return None
 
 
 # CI splits a long suite across parallel jobs with PRINT_HANDY_TEST_SHARD="<index>/<count>" (0 based).
