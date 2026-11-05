@@ -826,3 +826,16 @@ class BeginExplicitUrlTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ArchiveNameTests(unittest.TestCase):
+    def test_name_comes_from_the_completed_record(self):
+        from print_handy.hermes import print_records, timelapse_encode
+        with mock.patch.object(print_records, "latest_completed_record",
+                               return_value={"print_number": 42, "title": "Benchy"}):
+            self.assertEqual(timelapse_encode.archive_name("job:1", "job-1"), "print-42-Benchy")
+
+    def test_name_falls_back_without_a_record(self):
+        from print_handy.hermes import print_records, timelapse_encode
+        with mock.patch.object(print_records, "latest_completed_record", return_value={}):
+            self.assertEqual(timelapse_encode.archive_name("job:1", "job-1"), "job-1")

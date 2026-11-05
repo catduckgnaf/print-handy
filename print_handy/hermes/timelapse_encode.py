@@ -302,6 +302,29 @@ def _assemble_quality_fallback(frames_dir, target, partial, frames, max_bytes, f
     return None
 
 
+def archive_name(job_key, fallback) -> str:
+    """A readable archive name: ``print-<number>-<title>`` from the job's record (#906).
+
+    Falls back to the capture directory name when no completed record names
+    the job. Never raises.
+    """
+    try:
+        from . import print_records
+        record = print_records.latest_completed_record(job_key)
+        title = str(record.get("title") or "").strip()
+        number = record.get("print_number")
+        parts = []
+        if isinstance(number, int) and not isinstance(number, bool) and number > 0:
+            parts.append(f"print-{number}")
+        if title:
+            parts.append(title)
+        if parts:
+            return "-".join(parts)
+    except Exception:
+        pass
+    return str(fallback)
+
+
 def archive_local_copy(video, name, *, directory=None, log=None):
     """Keep a finished timelapse in the mounted local archive, whatever the chat upload does.
 
@@ -506,11 +529,11 @@ def captured_video(job_key, *, data=None, max_bytes, log=None, probe=None,
             return validate_video(target, ffmpeg=ffmpeg, min_frames=count) if real else True
 
         if reusable():
-            archive_local_copy(target, directory.name, log=log)
+            archive_local_copy(target, archive_name(job_key, directory.name), log=log)
             return target
         with render_lock(target):
             if reusable():  # a concurrent render finished while we waited
-                archive_local_copy(target, directory.name, log=log)
+                archive_local_copy(target, archive_name(job_key, directory.name), log=log)
                 return target
             if target.exists():
                 log(f"cached timelapse {target} failed validation; re-rendering")
@@ -519,7 +542,7 @@ def captured_video(job_key, *, data=None, max_bytes, log=None, probe=None,
                                    preference=capture_preference(data), probe=probe,
                                    ffmpeg=ffmpeg, run=run, log=log)
             if made is not None:
-                archive_local_copy(made, directory.name, log=log)
+                archive_local_copy(made, archive_name(job_key, directory.name), log=log)
             return made
     except Exception as exc:  # the completion post must never see this fail
         log(f"captured timelapse unavailable for {job_key!r}: {exc!r}")
