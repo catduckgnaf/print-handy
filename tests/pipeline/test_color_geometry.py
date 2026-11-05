@@ -866,3 +866,51 @@ def test_single_item_multi_part_export_is_unchanged(tmp_path):
     with zipfile.ZipFile(tmp_path / 'out.3mf') as z:
         model = ET.fromstring(z.read('3D/3dmodel.model'))
     assert len(_plate_objects(model)) == 1
+
+
+def _cut_recess_and_plug_source(path):
+    """Item 1: a body with a negative-volume recess. Item 2: a separate plug seated in that recess."""
+    settings_xml = ('<?xml version="1.0" encoding="UTF-8"?><config><object id="1">'
+                    '<metadata key="name" value="BODY"/><metadata key="extruder" value="1"/>'
+                    '<part id="10" subtype="normal_part"/><part id="11" subtype="negative_volume"/>'
+                    '</object><object id="2"><metadata key="name" value="PLUG"/>'
+                    '<metadata key="extruder" value="2"/></object></config>')
+    model = ('<?xml version="1.0" encoding="UTF-8"?>'
+             f'<model unit="millimeter" xmlns="{CORE_NS}"><resources>'
+             f'<object id="10" name="main" type="model">{_mesh_xml(_box(40, 40, 10))}</object>'
+             f'<object id="11" name="recess" type="model">{_mesh_xml(_box(10, 10, 6, (15, 15, 5)))}</object>'
+             '<object id="1" name="BODY" type="model"><components>'
+             '<component objectid="10" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>'
+             '<component objectid="11" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>'
+             '</components></object>'
+             f'<object id="2" name="PLUG" type="model">{_mesh_xml(_box(9.6, 9.6, 5, (15.2, 15.2, 5.02)))}</object>'
+             '</resources><build>'
+             '<item objectid="1" transform="1 0 0 0 1 0 0 0 1 20 20 0" printable="1"/>'
+             '<item objectid="2" transform="1 0 0 0 1 0 0 0 1 20 20 0" printable="1"/>'
+             '</build></model>')
+    with zipfile.ZipFile(path, 'w') as z:
+        z.writestr('[Content_Types].xml', '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>')
+        z.writestr('_rels/.rels', '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>')
+        z.writestr('3D/3dmodel.model', model)
+        z.writestr('Metadata/model_settings.config', settings_xml)
+    return path
+
+
+def test_cutter_bearing_item_is_not_merged_with_an_overlapping_item(tmp_path):
+    """A negative volume is object-scoped: merging the plug into the body's object would cut the plug."""
+    from .test_plate_merge import _two_slot_decisions
+    src = _cut_recess_and_plug_source(tmp_path / 'recess.3mf')
+    manifest = source_colors.inventory(src)
+    assert manifest['cutters'], 'the fixture must really carry a cutter'
+    export_color_geometry(src, tmp_path / 'out.3mf', _two_slot_decisions(manifest))
+    with zipfile.ZipFile(tmp_path / 'out.3mf') as z:
+        model = ET.fromstring(z.read('3D/3dmodel.model'))
+        config = ET.fromstring(z.read('Metadata/model_settings.config'))
+    assert len(_plate_objects(model)) == 2
+    objects = config.findall('object')
+    assert len(objects) == 2
+    owner_of_cutter = [o for o in objects
+                       if any(p.get('subtype') == 'negative_volume' for p in o.iter('part'))]
+    assert len(owner_of_cutter) == 1
+    names = {p.find("metadata[@key='name']").get('value') for p in owner_of_cutter[0].iter('part')}
+    assert 'PLUG' not in names

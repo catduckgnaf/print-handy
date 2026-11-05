@@ -284,16 +284,22 @@ def export_color_geometry(source, target, decisions, item_shifts=None, object_id
             item = parent[item]
         return item
 
+    # Negative volumes subtract from every part of their Orca object, so an
+    # item that carries cutters is never merged with another item: its cutter
+    # would also cut the other item's geometry (a plug seated in a cut recess
+    # would vanish). Such an item keeps its own assembly.
+    cut_items = {item_of(cutter_rows[k]['instance_key']) for k, _, _ in cut_leaves}
     ordered_items = list(leaf_boxes)
     for i, first in enumerate(ordered_items):
         for second in ordered_items[i + 1:]:
+            if first in cut_items or second in cut_items:
+                continue
             if find(first) != find(second) and any(
                     touch(a, b) for a in leaf_boxes[first] for b in leaf_boxes[second]):
                 parent[find(second)] = find(first)
     members = {}
     for item in ordered_items:
         members.setdefault(find(item), []).append(item)
-    cut_items = {item_of(cutter_rows[k]['instance_key']) for k, _, _ in cut_leaves}
     first_part_of = {}
     for part in manifest['parts']:
         first_part_of.setdefault(item_of(part['instance_key']), part)
