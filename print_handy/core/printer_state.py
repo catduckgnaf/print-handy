@@ -20,7 +20,7 @@ marked verified just because a config number was readable.
   python3 -m print_handy.core.printer_state set --z-offset N -> record a measured user offset; does not write Klipper
   python3 -m print_handy.core.printer_state set --sync-z   -> record live probe.z_offset as the probe store only
 """
-import argparse, datetime, json, os, re, sys, urllib.request
+import argparse, contextlib, datetime, json, os, re, sys, threading, urllib.request
 from pathlib import Path
 
 from .. import printers, settings
@@ -712,14 +712,91 @@ def load(printer_id=None):
     return state
 
 
-def save(st, printer_id=None):
-    target = state_path(printer_id)
+def atomic_write_json(target, data):
+    """Write JSON to `target` so a crash leaves the old file or the whole new one.
+
+    Unique same-directory temp file (a shared "<file>.tmp" let two writers
+    interleave), flush + fsync, then rename. Atomic, not isolated: wrap a
+    read-modify-write in `hardware_lock`.
+    """
+    import tempfile
+    target = Path(target)
     target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = str(target) + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(st, f, indent=2)
-        f.write("\n")
-    os.replace(tmp, target)
+    fd, tmp = tempfile.mkstemp(prefix=target.name + ".", suffix=".tmp", dir=str(target.parent))
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2)
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, target)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+_LOCK_DEPTH = threading.local()
+
+
+@contextlib.contextmanager
+def hardware_lock(printer_id=None, path=None, timeout=30.0):
+    """Interprocess lock around one hardware record's read-modify-write.
+
+    flock on a sibling `<record>.lock` file (released by the kernel if the
+    holder dies, so there is no stale-lock recovery). Re-entrant within a
+    thread. Raises TimeoutError rather than hanging. Spoolman and the printer
+    are separate systems: this serializes local record updates only.
+    """
+    target = Path(path) if path is not None else state_path(printer_id)
+    key = str(target)
+    held = getattr(_LOCK_DEPTH, "held", None)
+    if held is None:
+        held = _LOCK_DEPTH.held = {}
+    if held.get(key):
+        held[key] += 1
+        try:
+            yield
+        finally:
+            held[key] -= 1
+        return
+    import fcntl, time
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(target) + ".lock", os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"hardware record {target} is locked by another process")
+                time.sleep(0.02)
+        held[key] = 1
+        try:
+            yield
+        finally:
+            held.pop(key, None)
+    finally:
+        os.close(fd)
+
+
+def update(mutate, printer_id=None):
+    """Locked load -> mutate(state) -> save. Returns the saved state."""
+    with hardware_lock(printer_id):
+        st = load(printer_id)
+        result = mutate(st)
+        if result is not None:
+            st = result
+        save(st, printer_id)
+        return st
+
+
+def save(st, printer_id=None):
+    atomic_write_json(state_path(printer_id), st)
 
 
 def _model_nozzle_default(view=None):
