@@ -55,7 +55,7 @@ from .. import logs
 from ..printers.elegoo_sdcp import camera as elegoo_camera
 from . import _config
 from . import discord_print_summary as print_summary
-from . import stock_watch, timelapse_capture
+from . import stock_watch, timelapse_capture, timelapse_encode
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ def _default_encode(session):
 
     raw = stock_watch.encode_frames(session.frames_dir, session.directory / "timelapse.mp4")
     try:
-        return mel.platform_sized_video(raw)
+        return stock_watch.delivery_video(mel.platform_sized_video(raw), session.filename, session)
     except Exception as exc:
         log(f"elegoo timelapse sizing failed for {session.filename!r}: {exc!r}")
         return None
@@ -193,6 +193,7 @@ class ElegooPrintMonitor:
             log(f"elegoo timelapse for {self.filename!r} has no frames "
                 f"({session.failures} failed fetch(es)); posting the completion without it")
         if video is not None:
+            text = timelapse_encode.caption_with_number(text, None, self.filename)
             try:
                 self._post(f"{text}\nMEDIA:{video}")
                 return kind

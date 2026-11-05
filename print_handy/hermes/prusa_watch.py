@@ -66,6 +66,15 @@ def log(line):
     logger.info("%s", logs.redact(str(line)))
 
 
+def _caption_number(text, filename):
+    """Add the print number to a timelapse caption (#906). Never raises."""
+    try:
+        from . import timelapse_encode
+        return timelapse_encode.caption_with_number(text, None, filename)
+    except Exception:
+        return text
+
+
 def _default_encode(session):
     """Encode a stopped session's frames and size the result for delivery.
 
@@ -81,7 +90,7 @@ def _default_encode(session):
 
     raw = stock_watch.encode_frames(session.frames_dir, session.directory / "timelapse.mp4")
     try:
-        return mel.platform_sized_video(raw)
+        return stock_watch.delivery_video(mel.platform_sized_video(raw), session.filename, session)
     except Exception as exc:
         log(f"prusa timelapse sizing failed for {session.filename!r}: {exc!r}")
         return None
@@ -201,6 +210,7 @@ class PrusaPrintMonitor:
             log(f"prusa timelapse for {self.filename!r} has no frames "
                 f"({session.failures} failed fetch(es)); posting the completion without it")
         if video is not None:
+            text = _caption_number(text, self.filename)
             try:
                 # The production sender reports a refusal as a False
                 # return, not an exception (P2-169): only an explicit

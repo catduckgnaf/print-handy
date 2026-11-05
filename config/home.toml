@@ -310,6 +310,13 @@ capture_source_url = ""
 capture_trigger = "interval"
 capture_interval_s = 5.0
 # Per-job storage caps for captured frames; 0 disables that cap.
+# Playback length (#906): fps from frame count and target_length_s, clamped to
+# min_fps..max_fps; beyond the clamp frames are decimated or held.
+target_length_s = 20
+min_fps = 10
+max_fps = 60
+min_length_s = 5
+hold_last_frame_s = 1
 capture_max_frames = 3600
 capture_max_bytes = 536870912
 # Encoder preference for the Stage 3 encode (auto | vaapi | nvenc | qsv |
