@@ -94,25 +94,27 @@ def supports_answer(job, source=None):
 
 
 def _dims(job):
+    from . import edit_plan
+    dims = edit_plan.job_dims(job)
     audit = job.get('audit') or {}
-    try:
-        dims = [float(audit[k]) for k in ('size_x', 'size_y', 'size_z')]
-    except (KeyError, TypeError, ValueError):
-        dims = None
     if dims is None:
         raw = job.get('dimensions_mm') or (job.get('audit') or {}).get('dimensions_mm') or ()
         try:
-            dims = [float(v) for v in raw][:3]
+            dims = tuple(float(v) for v in raw)[:3]
         except (TypeError, ValueError):
             return None
+    if len(dims) != 3:
+        return None
     scale = job.get('scale') or 1.0
     try:
         scale = float(scale)
     except (TypeError, ValueError):
         scale = 1.0
-    if not audit.get('scaled') and scale != 1.0:
-        dims = [v * scale for v in dims]
-    return dims if len(dims) == 3 else None
+    orientation = job.get('orientation') or {}
+    from_orientation = bool(orientation.get('dims_full_mm'))
+    if (from_orientation or not audit.get('scaled')) and scale != 1.0:
+        dims = tuple(v * scale for v in dims)
+    return list(dims)
 
 
 def size_answer(job):

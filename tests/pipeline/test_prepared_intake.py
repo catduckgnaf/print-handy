@@ -2403,3 +2403,42 @@ def test_before_start_hook_returning_none_continues_the_intake(env):
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1,
                                              before_start=hook))
     assert any(q['question'].startswith('Ready to slice') for q in adapter.questions)
+
+
+def test_resumed_job_fit_probe_forwards_resumed_transforms(env, monkeypatch):
+    from print_handy.core import orca_adapter
+    calls = []
+
+    def fake_capacity(path, st, **kw):
+        calls.append(kw)
+        return 2
+
+    monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', fake_capacity)
+    import zipfile
+    dummy_file = env.tmp / 'ghost.3mf'
+    with zipfile.ZipFile(dummy_file, 'w') as z:
+        z.writestr('[Content_Types].xml', '<Types/>')
+        z.writestr('3D/3dmodel.model', '<model/>')
+    from print_handy.core import model_job as mj
+    sha = mj.file_sha256(dummy_file)
+    monkeypatch.setattr(mj, 'audit', lambda p: {'plates': 1, 'color_manifest': {'source_sha256': mj.file_sha256(p), 'plates': 1}})
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='res1',
+              text='https://www.printables.com/model/1-ghost')
+    resumed = {
+        'site': 'printables',
+        'downloaded_file': str(dummy_file),
+        'title': 'Ghost',
+        'slug': 'ghost',
+        'intake_id': 'saved_iid',
+        'resumed_from': 'saved_iid',
+        'sources': [{'name': 'ghost.3mf', 'path': str(dummy_file)}],
+        'selected_source': {'name': 'ghost.3mf', 'path': str(dummy_file)},
+        'audit': {'size_x': 50, 'size_y': 50, 'size_z': 50, 'color_manifest': {'source_sha256': sha, 'plates': 1}},
+        'scale': 0.8,
+        'orientation': {'rotation': [0, 0, 45], 'supports': True},
+        'copies': 4,
+    }
+    adapter = Adapter([3])  # Cancel at ready question
+    asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1, reuse=resumed))
+    assert any(c.get('scale') == 0.8 and c.get('rotation') == [0, 0, 45] and c.get('supports') is True and c.get('copy_limit') == 16 for c in calls)
+

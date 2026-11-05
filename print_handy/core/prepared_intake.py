@@ -2203,8 +2203,30 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         # The author-layout fit probe needs only the file and the printer state, never the unit or
         # color answers, so start it now and let it run while the operator answers (#734). It is
         # awaited at the fit check below, which then usually has nothing left to wait for.
+        # A resumed job (e.g. chat edit or undo re-entering, #903) uses its resumed
+        # transforms so copy capacity reflects the edited model rather than clamping
+        # to the authored size.
         from . import orca_adapter
-        fit_probe = _prefetch(_heavy(orca_adapter.orca_plate_capacity, path, state))
+        fit_kw = {}
+        if job.get('resumed_from'):
+            if job.get('scale') is not None:
+                try:
+                    fit_kw['scale'] = float(job['scale'])
+                except (TypeError, ValueError):
+                    pass
+            orientation = job.get('orientation') or {}
+            if orientation.get('rotation') is not None:
+                fit_kw['rotation'] = orientation['rotation']
+            if orientation.get('supports') is not None:
+                fit_kw['supports'] = bool(orientation['supports'])
+            if job.get('fit_brim_policy'):
+                fit_kw['brim_policy'] = job['fit_brim_policy']
+            if job.get('copies'):
+                try:
+                    fit_kw['copy_limit'] = max(16, int(job['copies']))
+                except (TypeError, ValueError):
+                    pass
+        fit_probe = _prefetch(_heavy(orca_adapter.orca_plate_capacity, path, state, **fit_kw))
         unit_q = mj.unit_question(job)
         if unit_q is not None:
             # STL records no units and this part is small enough to be either

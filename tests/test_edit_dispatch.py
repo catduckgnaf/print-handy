@@ -368,6 +368,16 @@ def test_size_and_fit_questions_are_answered(edit_env):
     assert not edit_env.confirms and not edit_env.reentered
 
 
+def test_size_and_fit_questions_respect_orientation_and_scale(edit_env):
+    job = json.loads(edit_env.job_path.read_text())
+    job["orientation"] = {"dims_full_mm": [20.0, 40.0, 10.0], "rotation": [0, 0, 90]}
+    job["scale"] = 0.5
+    edit_env.job_path.write_text(json.dumps(job))
+    run(plugin.edit_dispatch(_event("how big is it?"), edit_env.gateway))
+    sent = edit_env.adapter.sent
+    assert any("10.0 x 20.0 x 5.0 mm" in m for m in sent)
+
+
 def test_question_without_a_job_is_left_to_chat(edit_env):
     for path in edit_env.root.glob("*.json"):
         path.unlink()
