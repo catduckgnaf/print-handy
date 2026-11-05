@@ -290,7 +290,8 @@ def login_rows(submitted_username="", *, required=True):
         f'autocomplete="new-password" minlength="{minimum}"{req}></p>'
         f'<p><label for="f-{SETUP_CONFIRM_FIELD}">Password again</label> '
         f'<input type="password" id="f-{SETUP_CONFIRM_FIELD}" name="{SETUP_CONFIRM_FIELD}" '
-        f'autocomplete="new-password"{req}></p>')
+        f'autocomplete="new-password"{req}></p>'
+        f'<p class="hint">{_esc(access_module.PASSWORD_HINT)}</p>')
 
 
 def render_setup_page(form_token, error=None, *, theme=shell.DEFAULT_THEME):
