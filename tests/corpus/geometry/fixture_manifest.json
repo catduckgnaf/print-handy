@@ -1,0 +1,137 @@
+{
+  "purpose": "Test candidate detection and false-positive boundaries, not a promise of printability.",
+  "gap_mm": 1.0,
+  "area_mm2": 500,
+  "cases": [
+    {
+      "fixture": "01_bed_gap_040_large.3mf",
+      "description": "A large flat 60x40 underside at Z0.4 across open air.",
+      "expect_low_gap_flags": 1,
+      "other_checks": []
+    },
+    {
+      "fixture": "02_bed_gap_080_large.3mf",
+      "description": "Large underside Z0.8, still under default 1.0mm gate.",
+      "expect_low_gap_flags": 1,
+      "other_checks": []
+    },
+    {
+      "fixture": "03_bed_gap_120_large.3mf",
+      "description": "Large underside Z1.2 outside low-gap rule; normal supports may still be needed.",
+      "expect_low_gap_flags": 0,
+      "other_checks": [
+        "NORMAL_SUPPORT_EVALUATION"
+      ]
+    },
+    {
+      "fixture": "04_bed_gap_500_large.3mf",
+      "description": "Z5.0 normal bridge/overhang; should not be treated as near-plate.",
+      "expect_low_gap_flags": 0,
+      "other_checks": [
+        "NORMAL_SUPPORT_EVALUATION"
+      ]
+    },
+    {
+      "fixture": "05_bed_gap_040_small_area.3mf",
+      "description": "20x20=400mm2 floating plate: intentionally below 500mm2 area cutoff; still potentially dangerous.",
+      "expect_low_gap_flags": 0,
+      "other_checks": [
+        "SPAN_RISK_INDEPENDENT_OF_AREA"
+      ]
+    },
+    {
+      "fixture": "06_part_gap_040_large.3mf",
+      "description": "Large slab at Z2.4 only 0.4mm above another part top Z2.0.",
+      "expect_low_gap_flags": 1,
+      "other_checks": []
+    },
+    {
+      "fixture": "07_part_gap_080_large.3mf",
+      "description": "Large slab only 0.8mm above underlying model, independent of distance to bed.",
+      "expect_low_gap_flags": 1,
+      "other_checks": []
+    },
+    {
+      "fixture": "08_part_gap_300_large.3mf",
+      "description": "Another 60x40 underside with 3.0mm air gap above a base; normal support check only.",
+      "expect_low_gap_flags": 0,
+      "other_checks": [
+        "NORMAL_SUPPORT_EVALUATION"
+      ]
+    },
+    {
+      "fixture": "09_modeled_support_tiny_contact.3mf",
+      "description": "A few tiny posts under a broad face; they barely touch XY and have a top Z gap.",
+      "expect_low_gap_flags": 0,
+      "other_checks": [
+        "MODELED_SUPPORT_COVERAGE_TOO_LOW"
+      ]
+    },
+    {
+      "fixture": "10_build_transform_z040.3mf",
+      "description": "Core 3MF build transform positions a local zero-level 60x40 plate at +0.4mm.",
+      "expect_low_gap_flags": 1,
+      "other_checks": [
+        "BUILD_TRANSFORM_MUST_APPLY"
+      ]
+    },
+    {
+      "fixture": "11_disjoint_islands_below_cutoff.3mf",
+      "description": "Two independent 20x20 platforms, each <500mm2; do not sum into one connected risk.",
+      "expect_low_gap_flags": 0,
+      "other_checks": [
+        "PRESERVE_CONNECTED_COMPONENTS"
+      ]
+    },
+    {
+      "fixture": "12_long_narrow_bridge_small_area.3mf",
+      "description": "80x4=320mm2 can still have an 80mm unsupported span despite area cutoff.",
+      "expect_low_gap_flags": 0,
+      "other_checks": [
+        "SPAN_RISK_INDEPENDENT_OF_AREA"
+      ]
+    },
+    {
+      "fixture": "13_sloped_low_clearance.3mf",
+      "description": "6-degree underside tilt: reference horizontal-only analyzer is insufficient.",
+      "expect_low_gap_flags": 0,
+      "other_checks": [
+        "PRODUCTION_SLOPED_TRIANGLE_RAYCAST"
+      ]
+    },
+    {
+      "fixture": "14_support_interpenetrates_model.3mf",
+      "description": "A modeled support intersects a structural roof; extrusion collision guard must flag.",
+      "expect_low_gap_flags": 0,
+      "other_checks": [
+        "INTERSECTION_COLLISION_GUARD"
+      ]
+    },
+    {
+      "fixture": "15_below_plate_negative_z.3mf",
+      "description": "Mesh penetrates build plate by 0.4mm; crop/sink changes must state loss.",
+      "expect_low_gap_flags": 0,
+      "other_checks": [
+        "BELOW_BED_GEOMETRY",
+        "SINK_LOSS_REPORT"
+      ]
+    },
+    {
+      "fixture": "16_multicolor_gap_inlay.3mf",
+      "description": "Small bronze islands floating 0.02mm over black top; materials must be preserved.",
+      "expect_low_gap_flags": 0,
+      "other_checks": [
+        "MULTICOLOR_MATERIAL_PRESERVATION",
+        "THIN_COLOR_INTERFACE"
+      ]
+    },
+    {
+      "fixture": "17_raft_false_solution.3mf",
+      "description": "Same Z0.4 underside with a raft hypothetical; moving whole object/raft preserves relative gap.",
+      "expect_low_gap_flags": 1,
+      "other_checks": [
+        "RAFT_MUST_NOT_BE_SUGGESTED_AS_GAP_FIX"
+      ]
+    }
+  ]
+}
