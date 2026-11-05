@@ -172,15 +172,15 @@ services:
   # secret: set TUNNEL_TOKEN in .env (never here, never in a settings
   # file), and point the tunnel's ingress at
   # http://127.0.0.1:${PRINT_HANDY__LIVE_STREAM__PORT:-8091} in the
-  # Cloudflare dashboard. CLOUDFLARED_IMAGE names the connector image the
-  # operator tested (a pinned tag or digest). Both variables use the
+  # Cloudflare dashboard. CLOUDFLARED_IMAGE overrides the connector image; the
+  # default is a pinned release tag plus digest (docs/COMPONENTS.md), never latest. Both variables use the
   # repo's ${VAR:-default} form on purpose: a token has no safe default
   # and a required-variable guard here would break the bare
   # `docker compose config` render for everyone, profile or not — the
   # profile is the opt-in, and cloudflared itself exits at once when
   # started without a token.
   cloudflared:
-    image: ${CLOUDFLARED_IMAGE:-cloudflare/cloudflared:latest}
+    image: ${CLOUDFLARED_IMAGE:-cloudflare/cloudflared:2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba}
     profiles: ["live-stream"]
     restart: unless-stopped
     network_mode: "service:combined"
