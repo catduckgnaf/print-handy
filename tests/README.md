@@ -199,11 +199,10 @@ Phase 2 additions (#594):
 - Generated rearrange: four CC0 parts authored across 330 mm exercise automatic 100% rearrange without private Duplo.
   Both color modes complete one plate. One-color once failed because `slice_model` rejected the rearranged source with
   `color decisions must bind the exact source SHA256`; P1-50 fixed that by validating decisions against the original
-  and rebinding them to the arranged derivative (`tests/pipeline/test_data2_fixes.py`). Both journeys pass under real
-  Orca in the CI slicer shards on main (run 41896268534, head 408aec9).
+  and rebinding them to the arranged derivative (`tests/pipeline/test_data2_fixes.py`).
 
-Known gaps, still open on #594: the private Duplo model is not in CI; the generated rearrange journeys run in both the
-mock tier and, in CI, the real-Orca tier. Shrink, rotate and split are covered on public
+Known gaps, still open on #594: the private Duplo model is not in CI; the generated rearrange journeys use the
+mock slicer and do not establish real-Orca rearrange coverage. Shrink, rotate and split are covered on public
 cases but not every fit option crosses every color mode (see `UNSUPPORTED` for model-specific unavailable buttons).
 Painted-fit and distinct per-part slot mapping across all fits remain incomplete. Product gap: spool-question same/cancel doing printer or Spoolman work before responding
 (strict xfails, no production changes). Other handler families listed above have no new ordering proof.
