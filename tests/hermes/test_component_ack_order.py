@@ -3,7 +3,9 @@
 Discord drops an interaction that is not answered within 3 seconds. These are deterministic ORDERING
 tests on the real plugin handlers with a fake Discord: they prove the response is sent before the
 slow call starts, not that a real network round trip beats 3 s. A handler that does slow work first
-is a product gap; it is recorded as a strict xfail with the exact failure, never by loosening the check.
+fails this file. The spool-question same/cancel gap was a strict xfail until the handlers acknowledged
+first (P2-164); those markers are removed, and a new strict xfail belongs in
+tests/strict_xfail_register.json with an owner and an expiry.
 
 Handler families (plugins/print-feedback alert_button_handlers):
   covered elsewhere: clarify pbq (tests/bot/test_runtime.py, test_clarify_ui.py), exclude pick

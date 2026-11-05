@@ -52,7 +52,9 @@ def _flow_params():
     """Parametrization for the flow tests. A case may declare
     known_failure = "<reason>" in case.toml while a tracked production defect
     is open; its flow tests then xfail (strict, so the marker must be removed
-    once the defect is fixed) instead of failing the suite."""
+    once the defect is fixed) instead of failing the suite. The case must also
+    be listed in tests/strict_xfail_register.json; scripts/check_strict_xfails.py
+    fails the build when a known_failure has no current register entry."""
     params = []
     for case in CASES:
         reason = case.data.get("known_failure")

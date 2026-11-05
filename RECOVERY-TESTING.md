@@ -6,7 +6,7 @@ Included corpus: 27 manifests and 27 referenced generated model fixtures (15 3MF
 
 Included older test branch changes: complete test-path diff from the two test commits, `e5ad63c` and `1ef4e91`. Excluded its third commit `431a690`: production changes to `print_handy/core/orca_adapter.py` and `print_handy/core/prepared_intake.py`; the associated large-model notice test is excluded because that production API is not on current main. No test-path files omitted from the test commits.
 
-Checks: focused unit/integration command `python3 -m pytest -q --basetemp "$HOME/.cache/hermes-pytest-basetemp/adhoc-pbpub-$$" -p no:cacheprovider tests/core/test_prepared_intake_units.py tests/pipeline/test_model_intake_audit_placement.py tests/core/test_large_model_notice.py` resulted in 29 passed, 1 skipped (optional trimesh), 3 strict xfailed for known non-finite-coordinate placement defect. The corpus suite run was interrupted after repeated failures and two four-minute faulthandler dumps. Saved historical `corpus-run.log` likewise reports failures and hangs: million-triangle mesh audit inside `mesh_topology`, and unanswered prompt waiting in `prompts.wait_for_response`. This PR does not claim the corpus suite is green; failures are to be investigated on the draft.
+Checks (historical, this PR's snapshot): focused unit/integration command `python3 -m pytest -q --basetemp "$HOME/.cache/hermes-pytest-basetemp/adhoc-pbpub-$$" -p no:cacheprovider tests/core/test_prepared_intake_units.py tests/pipeline/test_model_intake_audit_placement.py tests/core/test_large_model_notice.py` resulted in 29 passed, 1 skipped (optional trimesh), 3 strict xfailed for the then-open non-finite-coordinate placement defect. That defect is fixed on current main: the same test raises on NaN and infinity and carries no xfail marker (see tests/AUDIT.md). The corpus suite run was interrupted after repeated failures and two four-minute faulthandler dumps. Saved historical `corpus-run.log` likewise reports failures and hangs: million-triangle mesh audit inside `mesh_topology`, and unanswered prompt waiting in `prompts.wait_for_response`. This PR does not claim the corpus suite is green; failures are to be investigated on the draft.
 
 Pending: reconcile corpus failures against current main, test family changes in GitHub CI, inspect all diffs and run repository policy check before publication. This branch does not include mesh_fast or performance work from the separate recovery lane.
 
@@ -23,9 +23,11 @@ reconciled with current production behaviour (commit b6cc612):
 - parts-one-plate was regenerated with one part assigned to both plates;
   production tolerates the overlap and merges the parts once, and the case
   now pins that behaviour.
-- stl-degenerate-zero-volume is a known failure (strict xfail in the flow
-  tests) tracked by issue #194: zero-volume meshes are not rejected at
-  intake. The case stays as that issue's regression test.
+- stl-degenerate-zero-volume was a known failure (strict xfail in the flow
+  tests) while issue #194 was open: zero-volume meshes were not rejected at
+  intake. #194 is closed. The case now expects a FAILED receipt
+  (`error_contains = "no printable volume"`) and declares no known_failure,
+  so the flow test is required to pass.
 - The large-model notice test was removed; the feature it tests (commit
   431a690) remains excluded from this PR, as documented above.
 - The harness clarify stand-in now expires unanswered waits after 10 s, so

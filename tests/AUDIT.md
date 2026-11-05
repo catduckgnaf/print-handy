@@ -18,4 +18,4 @@ Audit counts: 9 test definitions fixed, including 1 duplicate removed. Static au
 
 Added `tests/core/test_prepared_intake_units.py` and `tests/pipeline/test_model_intake_audit_placement.py` for geometry, topology, model audit, archive/XML/STL edge cases, worker failure/timeout/concurrency, and STL-file-to-audit-to-placement behavior. Full corpus recovery results and known hangs/failures are documented in `RECOVERY-TESTING.md`.
 
-Known observed bug: `orca_adapter.placement_candidates` accepts NaN and positive/negative infinity coordinates and returns a report. Three strict xfails preserve the correct rejection expectation without changing production code.
+Known observed bug, since fixed: `orca_adapter.placement_candidates` used to accept NaN and positive or negative infinity and return a report. `test_placement_nonfinite_coordinates_do_not_produce_successful_candidate_report` now asserts those coordinates raise, with no xfail marker.
