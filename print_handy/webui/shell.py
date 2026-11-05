@@ -283,9 +283,10 @@ def theme_from_cookies(cookie_header):
     return DEFAULT_THEME
 
 
-def theme_cookie_header(theme):
+def theme_cookie_header(theme, secure=False):
     """The Set-Cookie value that remembers ``theme`` for a year."""
-    return f"{THEME_COOKIE}={theme}; SameSite=Lax; Path=/; Max-Age=31536000"
+    flags = "; Secure" if secure else ""
+    return f"{THEME_COOKIE}={theme}; SameSite=Lax; Path=/; Max-Age=31536000{flags}"
 
 
 def _header(path, theme):

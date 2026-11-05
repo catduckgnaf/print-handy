@@ -442,11 +442,11 @@ class WalkthroughServerTests(unittest.TestCase):
 
 
 class ThemeTests(unittest.TestCase):
-    def start(self, tmp, *, setup_done=False, host="0.0.0.0", environ=None):
+    def start(self, tmp, *, setup_done=False, host="0.0.0.0", environ=None, extra=""):
         local = Path(tmp) / "local.yaml"
         local.write_text(f"paths:\n  hermes_home: {tmp}/hermes\n"
                          "webui:\n  enabled: true\n"
-                         f"  host: {host}\n  port: 8765\n")
+                         f"  host: {host}\n  port: 8765\n" + extra)
         environ = {"PRINT_HANDY_CONFIG": str(local), **(environ or {})}
         data = settings.load(local=local, environ=environ)
         if setup_done:
@@ -494,6 +494,15 @@ class ThemeTests(unittest.TestCase):
             self.assertTrue(headers["set-cookie"].startswith("ph-theme=light"))
             self.assertIn("SameSite=Lax", headers["set-cookie"])
             self.assertIn("Path=/", headers["set-cookie"])
+            self.assertNotIn("Secure", headers["set-cookie"])
+
+    def test_theme_cookie_is_secure_only_when_configured(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            port = self.start(tmp, host="127.0.0.1", extra="  cookie_secure: true\n")
+            code, headers, _ = self.request(port, "GET", "/theme?set=dark&back=/config")
+            self.assertEqual(code, 303)
+            self.assertIn("ph-theme=dark", headers["set-cookie"])
+            self.assertIn("; Secure", headers["set-cookie"])
 
     def test_theme_route_rejects_bad_values_and_foreign_backs(self):
         with tempfile.TemporaryDirectory() as tmp:

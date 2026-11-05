@@ -154,6 +154,9 @@ EXEMPTIONS = {
     # Like require_auth: arming printer controls is a file/environment decision,
     # not a click on the page it arms. The env sample documents the safe default.
     ("webui", "controls_enabled"): (frozenset({"webui"}), "#708"),
+    # Like require_auth and controls_enabled: cookie transport security is an
+    # infrastructure/environment posture decision, not a click in the Web UI.
+    ("webui", "cookie_secure"): (frozenset({"webui"}), "P0 exposure"),
 }
 # --- end of EXEMPTIONS ------------------------------------------------------
 

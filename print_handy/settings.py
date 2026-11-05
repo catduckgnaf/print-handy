@@ -102,7 +102,10 @@ LEGACY_ENV = {
 # variable: it never enters the defaults tree or OPTIONAL_KEYS. ifs_slots became
 # filament_slots once color_system (#656) carried the meaning the IFS name
 # implied; the printer registry had always called the same fact filament_slots.
-KEY_ALIASES = {("printer", "ifs_slots"): ("printer", "filament_slots")}
+KEY_ALIASES = {
+    ("printer", "ifs_slots"): ("printer", "filament_slots"),
+    ("webui", "secure_cookie"): ("webui", "cookie_secure"),
+}
 
 
 def _apply_key_aliases(layer):
@@ -1128,6 +1131,12 @@ def _validate_webui(data):
     controls = webui.setdefault("controls_enabled", False)
     if not isinstance(controls, bool):
         raise SettingsError(f"[webui] controls_enabled must be true or false, got {controls!r}")
+    # cookie_secure: marks the Web UI session cookie Secure so browsers only
+    # transmit it over HTTPS. Off by default for plain-HTTP LAN access; set true
+    # when exposing the Web UI through an HTTPS reverse proxy.
+    cookie_secure = webui.setdefault("cookie_secure", False)
+    if not isinstance(cookie_secure, bool):
+        raise SettingsError(f"[webui] cookie_secure must be true or false, got {cookie_secure!r}")
 
 
 VERTICAL_SHORT_MODES = ("pad", "crop")

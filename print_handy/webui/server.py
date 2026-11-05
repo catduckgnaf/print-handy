@@ -130,8 +130,9 @@ TOKEN_HEADER = "X-WebUI-Token"
 LOOPBACK_NAMES = frozenset({"localhost"})
 # Browser login sessions: the cookie carries only an opaque id; the
 # id -> expiry map lives in server memory (see make_server), so nothing
-# is persisted and a restart signs everyone out. No Secure flag: the
-# documented posture is plain HTTP on a trusted LAN (Unraid WebUI link).
+# is persisted and a restart signs everyone out. The Secure flag is
+# off by default for plain HTTP on a trusted LAN (Unraid WebUI link);
+# set [webui] cookie_secure = true when exposed via an HTTPS reverse proxy.
 SESSION_COOKIE = "webui_session"
 SESSION_TTL_S = 12 * 60 * 60  # 12 hours
 
@@ -939,7 +940,7 @@ class _Handler(BaseHTTPRequestHandler):
             # CR/LF would otherwise land in the Location header verbatim
             # and inject response headers of the caller's choosing.
             back = "/"
-        self._redirect(back, headers=[("Set-Cookie", shell.theme_cookie_header(theme))])
+        self._redirect(back, headers=[("Set-Cookie", shell.theme_cookie_header(theme, secure=self._cookie_secure()))])
 
     def _rotate_form_token(self):
         """Replace the config form token after an access-rule change.
@@ -1019,6 +1020,13 @@ class _Handler(BaseHTTPRequestHandler):
     def _username_mode(self):
         return self._password_mode() and bool(self.server.access.username)
 
+    def _cookie_secure(self):
+        secure = getattr(self.server, "cookie_secure", None)
+        if secure is not None:
+            return bool(secure)
+        data = getattr(self.server, "settings_data", None) or {}
+        return bool(data.get("webui", {}).get("cookie_secure", False))
+
     def _start_session(self):
         """A new login-session cookie header for this browser."""
         now = time.time()
@@ -1027,7 +1035,8 @@ class _Handler(BaseHTTPRequestHandler):
             del sessions[stale]
         session_id = secrets.token_urlsafe(32)
         sessions[session_id] = now + SESSION_TTL_S
-        return ("Set-Cookie", f"{SESSION_COOKIE}={session_id}; HttpOnly; SameSite=Strict; Path=/")
+        flags = "; Secure" if self._cookie_secure() else ""
+        return ("Set-Cookie", f"{SESSION_COOKIE}={session_id}; HttpOnly; SameSite=Strict; Path=/{flags}")
 
     def _login_submit(self):
         form, error = self._read_form()
@@ -1108,8 +1117,9 @@ class _Handler(BaseHTTPRequestHandler):
         session_id = self._session_id()
         if session_id:
             self.server.sessions.pop(session_id, None)
+        flags = "; Secure" if self._cookie_secure() else ""
         cookie = (f"{SESSION_COOKIE}=; HttpOnly; SameSite=Strict; "
-                  "Path=/; Max-Age=0")
+                  f"Path=/; Max-Age=0{flags}")
         self._redirect("/login", headers=[("Set-Cookie", cookie)])
 
     # -- config writes (stage 3) -------------------------------------------
@@ -1329,6 +1339,7 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     bind_port = cfg_port if port is None else int(port)
     server = ThreadingHTTPServer((bind_host, bind_port), _Handler)
     server.settings_data = data
+    setattr(server, "cookie_secure", bool((data or {}).get("webui", {}).get("cookie_secure", False)))
     server.access = access_module.resolve(data, bind_host, environ)
     server.bind_host = bind_host
     server.setup_lock = threading.Lock()

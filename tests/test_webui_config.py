@@ -41,7 +41,8 @@ class WebUISettingsTests(unittest.TestCase):
         self.assertEqual(data["webui"], {"enabled": False, "host": "127.0.0.1", "port": 0,
                                          "access_token_env": "WEBUI_ACCESS_TOKEN",
                                          "require_auth": True,
-                                          "controls_enabled": False})
+                                         "controls_enabled": False,
+                                         "cookie_secure": False})
 
     def test_section_values_and_env_override_load(self):
         with tempfile.TemporaryDirectory() as tmp:

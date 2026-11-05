@@ -290,7 +290,7 @@ class OverrideTests(unittest.TestCase):
                           "capture_encoder"},
             "logging": {"level", "format", "file", "levels"},
             "webui": {"enabled", "host", "port", "access_token_env", "require_auth",
-                      "controls_enabled"},
+                      "controls_enabled", "cookie_secure"},
             "live_stream": {"enabled", "voice_channel_id", "auto_start_on_print", "max_height", "fps",
                             "max_bitrate_kbps", "encoder", "empty_timeout_s", "activity_origin", "port"},
             "notify": {"mqtt_enabled", "mqtt_host", "mqtt_port", "mqtt_topic", "mqtt_username",
@@ -437,6 +437,30 @@ class OverrideTests(unittest.TestCase):
         with self.assertRaisesRegex(settings.SettingsError, "filament_slots must be 1"):
             settings.load(local=self.toml('[printer]\nmodel = "klipper.generic"\nifs_slots = 2\n'),
                           environ={})
+
+    def test_secure_cookie_alias_in_local_file_loads_as_cookie_secure(self):
+        data = settings.load(local=self.toml("[webui]\nsecure_cookie = true\n"), environ={})
+        self.assertEqual(data["webui"]["cookie_secure"], True)
+        self.assertNotIn("secure_cookie", data["webui"])
+
+    def test_cookie_secure_wins_when_both_spellings_are_in_one_file(self):
+        data = settings.load(local=self.toml("[webui]\nsecure_cookie = false\ncookie_secure = true\n"), environ={})
+        self.assertEqual(data["webui"]["cookie_secure"], True)
+
+    def test_secure_cookie_alias_in_environment(self):
+        data = settings.load(local=False, environ={"PRINT_HANDY__WEBUI__SECURE_COOKIE": "true"})
+        self.assertEqual(data["webui"]["cookie_secure"], True)
+        self.assertNotIn("secure_cookie", data["webui"])
+
+    def test_cookie_secure_environment_wins_over_secure_cookie(self):
+        environ = {"PRINT_HANDY__WEBUI__SECURE_COOKIE": "false",
+                   "PRINT_HANDY__WEBUI__COOKIE_SECURE": "true"}
+        data = settings.load(local=False, environ=environ)
+        self.assertEqual(data["webui"]["cookie_secure"], True)
+
+    def test_cookie_secure_defaults_false(self):
+        data = settings.load(local=False, environ={})
+        self.assertIs(data["webui"]["cookie_secure"], False)
 
     def test_generic_klipper_slot_error_hints_at_the_ad5x_model(self):
         """#678: an AD5X owner moved to the new Docker default gets the fix in the error."""

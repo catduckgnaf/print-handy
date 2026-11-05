@@ -182,9 +182,23 @@ The token's value is a secret held only in the environment variable named by `we
 
 **Browser sign-in:** a normal browser cannot add a custom header to an address-bar request, so browsers sign in at `/login` instead. Open the Web UI address (the Unraid **WebUI** link lands on `/`, which redirects to the login page while signed out), enter the access token, and the server sets a `webui_session` cookie (`HttpOnly`, `SameSite=Strict`) that authorizes page views (`GET` requests) for 12 hours. Sessions live only in the server's memory, so restarting the server signs everyone out; `POST /logout` ends your own session immediately. With no token configured there is nothing to sign in to and `/login` simply redirects to the status page. Scripts and API clients keep using the `X-WebUI-Token` header exactly as above — the cookie is a browser convenience, not a second token. There is one saved login at most (no multi-user accounts) and no HTTPS listener, so do not remove the token from a LAN-reachable bind just to make a page load.
 
+The session cookie and the `ph-theme` cookie omit the `Secure` attribute unless `[webui] cookie_secure` is true. The default is false so a plain-HTTP browser on the LAN still stores the cookie. Set it true only when every browser that should keep the session reaches the Web UI over HTTPS. The flag does not turn on TLS and does not change who may log in.
+
 Configuration form posts have a second, narrower credential: the server generates a form token when it starts, keeps it only in memory, and embeds it as the `_csrf` hidden field. A `POST` is accepted with either the `X-WebUI-Token` header or that form token. The form token is not the access token and does not authorize `GET` requests, and a session cookie alone never authorizes a post either — a signed-in browser still submits the form's own `_csrf` value. On loopback with no access token configured, the form token is still required for posts, so another page in the operator's browser cannot silently submit configuration changes.
 
-Keep the Web UI on a trusted LAN or reach it over a VPN. Never forward its port from a router or expose it directly to the public internet.
+## Where the Web UI may be reached
+
+The Web UI has no HTTPS listener of its own. Put it where the network already limits who can open the port.
+
+| Boundary | Supported | Cookie setting |
+|---|---|---|
+| Loopback (`127.0.0.1` or `localhost`) | Yes. The default bind. Only the same machine can connect. | Leave `cookie_secure` false. |
+| Trusted LAN, plain HTTP | Yes. Bind a LAN address or `0.0.0.0` and publish the container port only on that network. | Leave `cookie_secure` false. A `Secure` cookie is not stored by a browser that loaded the page over HTTP, so the login would not stick. |
+| VPN that places you on that LAN | Yes. Treat it as the LAN above. The VPN is what admits you; Print Handy does not see it. | Same as the LAN. |
+| HTTPS reverse proxy on that LAN or VPN | Yes, if the proxy is the only public name and it forwards to the Web UI over the private network. Terminate TLS at the proxy. Leave the Web UI on plain HTTP behind it. | Set `cookie_secure` true (`PRINT_HANDY__WEBUI__COOKIE_SECURE=true`). Browsers then send the session and theme cookies only on HTTPS requests to the proxy. |
+| Router port forward, or the Web UI published directly on the public internet | No. Do not forward the Web UI port and do not publish it as a public HTTP service. | Not a supported configuration. `cookie_secure` does not make a public bind safe. |
+
+`cookie_secure` is a file or environment decision, not a field on the configuration page. Restart after changing it. Authentication (`require_auth`, the access token, or first-run setup) is separate and stays as configured.
 
 ## Use the configuration page
 
