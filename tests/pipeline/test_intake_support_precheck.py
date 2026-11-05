@@ -169,15 +169,16 @@ def test_flagged_orca_warning_offers_supports_before_bed_clear(env, monkeypatch)
     """Orca floating warning triggers background with-supports slice and options before bed-clear."""
     # Make fake_slice simulate Orca floating regions warning
     def slice_with_warning(job_path, recipe_sha256=None, supports=None, **kwargs):
-        env.slice_calls.append({'job_path': str(job_path), 'recipe_sha256': recipe_sha256, 'supports': supports})
-        tag = 'supports' if supports else 'nosup'
+        data = json.loads(Path(job_path).read_text())
+        is_sup = bool(supports or (data.get('support_decision') or {}).get('supports'))
+        env.slice_calls.append({'job_path': str(job_path), 'recipe_sha256': recipe_sha256, 'supports': is_sup})
+        tag = 'supports' if is_sup else 'nosup'
         gcode = Path(job_path).parent / 'sliced' / f'plate_1_{tag}.gcode'
         gcode.parent.mkdir(parents=True, exist_ok=True)
         gcode.write_text(f'; estimated printing time (normal mode) = 1h 0m 0s\n; tag = {tag}\nG1 X1\n')
-        data = json.loads(Path(job_path).read_text())
         data['derived_plates'] = [{'gcode': str(gcode), 'plate_id': 1, 'slot': 1}]
         data['gcode'] = str(gcode)
-        if not supports:
+        if not is_sup:
             data['provenance'] = {
                 'slice_warnings': {
                     'support_needed': True,

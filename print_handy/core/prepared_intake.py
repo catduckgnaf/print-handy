@@ -2925,8 +2925,7 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         recipe_sha = binding_sha256(binding)  # the worker refuses to slice any other recipe
         await early.start(jp, binding, lambda job_path, work, runner, copies=chosen_quantity, **kwargs:
                           _heavy(mj.slice_job, str(job_path), recipe_sha256=kwargs.get('recipe_sha256', recipe_sha), **(
-                              {'copies': copies} if copies and int(copies) > 1 else {}), **(
-                              {'supports': kwargs['supports']} if 'supports' in kwargs else {})))
+                              {'copies': copies} if copies and int(copies) > 1 else {})))
         await early.started.wait()  # armed before the question goes up
         multi = len(manifest['parts']) > 1
         def _color_of(sel):
@@ -2977,7 +2976,12 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             is_flagged = bool(early.flagged or early.finding or support_clearance.risky(clearance))
 
             if is_flagged:
-                rec_reason = 'low clearance underside found' if support_clearance.risky(clearance) else 'floating regions found'
+                reasons = []
+                if early.finding:
+                    reasons.append('floating regions found')
+                if support_clearance.risky(clearance):
+                    reasons.append('low clearance underside found')
+                rec_reason = ', '.join(reasons) or 'floating regions found'
                 sup_est = _variant_estimate_str(early.job_with_supports, early.supports_result)
                 nosup_est = _variant_estimate_str(early.job_no_supports, early.result)
                 flag_lines = [
@@ -3083,8 +3087,7 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                     recipe_sha = binding_sha256(binding)
                     await early.start(jp, binding, lambda job_path, work, runner, copies=chosen_quantity, **kwargs:
                                       _heavy(mj.slice_job, str(job_path), recipe_sha256=kwargs.get('recipe_sha256', recipe_sha), **(
-                                          {'copies': copies} if copies and int(copies) > 1 else {}), **(
-                                          {'supports': kwargs['supports']} if 'supports' in kwargs else {})))
+                                          {'copies': copies} if copies and int(copies) > 1 else {})))
                     await early.started.wait()
                     continue
                 elif opt['kind'] == 'sink':
@@ -3105,8 +3108,7 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                     recipe_sha = binding_sha256(binding)
                     await early.start(jp, binding, lambda job_path, work, runner, copies=chosen_quantity, **kwargs:
                                       _heavy(mj.slice_job, str(job_path), recipe_sha256=kwargs.get('recipe_sha256', recipe_sha), **(
-                                          {'copies': copies} if copies and int(copies) > 1 else {}), **(
-                                          {'supports': kwargs['supports']} if 'supports' in kwargs else {})))
+                                          {'copies': copies} if copies and int(copies) > 1 else {})))
                     await early.started.wait()
                     continue
                 elif opt['kind'] == 'slice_only':
@@ -3233,8 +3235,7 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             recipe_sha = binding_sha256(binding)  # the worker refuses to slice any other recipe
             await early.start(jp, binding, lambda job_path, work, runner, copies=chosen_quantity, **kwargs:
                               _heavy(mj.slice_job, str(job_path), recipe_sha256=kwargs.get('recipe_sha256', recipe_sha), **(
-                                  {'copies': copies} if copies and int(copies) > 1 else {}), **(
-                                  {'supports': kwargs['supports']} if 'supports' in kwargs else {})))
+                                  {'copies': copies} if copies and int(copies) > 1 else {})))
             await early.started.wait()  # armed before the repeated question goes up
         if choice == 3:
             await early.discard()  # the early slice was for a job that will not print
@@ -3269,7 +3270,7 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                     recipe_sha = binding_sha256(binding)
                     out = await _with_stop(adapter, source, key, metadata,
                                            "Slicing with supports. Press Stop to cancel.",
-                                           _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha, supports=True, **(
+                                           _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha, **(
                                                {'copies': chosen_quantity} if chosen_quantity and chosen_quantity > 1 else {})),
                                            allow_stop=True)
             elif supports_choice is False:

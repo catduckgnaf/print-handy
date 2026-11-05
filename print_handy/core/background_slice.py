@@ -158,8 +158,6 @@ class BackgroundSlice:
                 sig = inspect.signature(slice_func)
                 if any(p.kind == p.VAR_KEYWORD or p.name == 'recipe_sha256' for p in sig.parameters.values()):
                     kw['recipe_sha256'] = sup_recipe_sha
-                if any(p.kind == p.VAR_KEYWORD or p.name == 'supports' for p in sig.parameters.values()):
-                    kw['supports'] = True
 
                 sup_work = asyncio.ensure_future(slice_func(self.job_path, self.work, self, **kw))
                 self.supports_task = sup_work
@@ -173,9 +171,20 @@ class BackgroundSlice:
             except Exception as exc:
                 self.supports_error = exc
             finally:
-                if self.job_no_supports is not None and self.job_path is not None:
-                    target = Path(self.job_path)
-                    target.write_text(json.dumps(self.job_no_supports, indent=2) + "\n")
+                self._write_slice_job(self.job_no_supports)
+
+    def _write_slice_job(self, slice_job_data, default_supports=None):
+        if slice_job_data is None or self.job_path is None:
+            return
+        target = Path(self.job_path)
+        current = json.loads(target.read_text()) if target.exists() else {}
+        updated = copy.deepcopy(slice_job_data)
+        for field in ('support_decision', 'clearance_acknowledgement', 'copies', 'filament_selection', 'color_decisions'):
+            if field in current:
+                updated[field] = current[field]
+        if 'support_decision' not in updated and default_supports is not None:
+            updated['support_decision'] = {'supports': default_supports, 'by': 'speculative_intake'}
+        target.write_text(json.dumps(updated, indent=2) + "\n")
 
     async def take(self, binding):
         """Return the finished slice for this binding, or None when there is nothing usable."""
@@ -188,8 +197,7 @@ class BackgroundSlice:
         self.task = None
         if self.error is not None or self.result is None:
             return None
-        if self.job_no_supports is not None and self.job_path is not None:
-            Path(self.job_path).write_text(json.dumps(self.job_no_supports, indent=2) + "\n")
+        self._write_slice_job(self.job_no_supports)
         return self.result
 
     async def take_no_supports(self):
@@ -197,8 +205,7 @@ class BackgroundSlice:
         if self.task is not None:
             with contextlib.suppress(asyncio.CancelledError):
                 await self.task
-        if self.job_no_supports is not None and self.job_path is not None:
-            Path(self.job_path).write_text(json.dumps(self.job_no_supports, indent=2) + "\n")
+        self._write_slice_job(self.job_no_supports, default_supports=False)
         return self.result
 
     async def take_supports(self):
@@ -209,8 +216,7 @@ class BackgroundSlice:
         if self.supports_task is not None:
             with contextlib.suppress(asyncio.CancelledError):
                 await self.supports_task
-        if self.job_with_supports is not None and self.job_path is not None:
-            Path(self.job_path).write_text(json.dumps(self.job_with_supports, indent=2) + "\n")
+        self._write_slice_job(self.job_with_supports, default_supports=True)
         return self.supports_result
 
     async def discard(self):
