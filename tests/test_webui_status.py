@@ -652,6 +652,54 @@ class ComponentReadinessTests(unittest.TestCase):
             row = status.slicer_status(data)
             self.assertEqual((row["slicer"], row["ok"]), ("flash_studio", True))
 
+    def test_slicer_status_honors_the_orca_override(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = load_settings(tmp)
+            exe = Path(tmp) / "native-orca"
+            exe.write_text("#!/bin/sh\nexit 99\n")
+            exe.chmod(0o755)
+            data["orca"]["command"] = [str(Path(tmp) / "absent-flatpak"), "run", "x"]
+            self.assertFalse(status.slicer_status(data, {})["ok"])
+            row = status.slicer_status(data, {"PRINT_HANDY_ORCA_CMD": str(exe)})
+            self.assertTrue(row["ok"], row)
+            self.assertIn(str(exe), row["detail"])
+            # An unavailable override fails even when the settings command exists.
+            data["orca"]["command"] = [str(exe)]
+            missing = {"PRINT_HANDY_ORCA_CMD": str(Path(tmp) / "gone")}
+            self.assertFalse(status.slicer_status(data, missing)["ok"])
+
+    def test_readiness_skips_the_doctor_checks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = load_settings(tmp, "services:\n  spoolman_url: http://spoolman.local:7912\n")
+            with mock.patch.object(status, "doctor_checks",
+                                   side_effect=AssertionError("doctor ran")):
+                comp = status.readiness(data, environ={}, probe=down_probe)
+        self.assertEqual(set(comp), {"spoolman", "slicer", "printers", "ready"})
+        self.assertFalse(comp["spoolman"]["ok"])
+        self.assertFalse(comp["ready"])
+
+    def test_readyz_default_wiring_uses_readiness_not_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = load_settings(tmp, "webui:\n  enabled: true\n  port: 8765\n")
+            with mock.patch.object(server.status_module, "snapshot",
+                                   side_effect=AssertionError("snapshot ran")), \
+                    mock.patch.object(server.status_module, "readiness",
+                                      return_value={"ready": True}) as ready:
+                httpd = server.make_server(data, environ={}, port=0)
+                thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    conn = http.client.HTTPConnection("127.0.0.1", httpd.server_address[1], timeout=5)
+                    conn.request("GET", "/readyz")
+                    response = conn.getresponse()
+                    self.assertEqual(response.status, 200)
+                    self.assertEqual(json.loads(response.read().decode()), {"ready": True})
+                    conn.close()
+                finally:
+                    httpd.shutdown()
+                    httpd.server_close()
+            ready.assert_called_once()
+
     def test_printer_reachability_reads_the_heartbeat_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             data = load_settings(tmp)

@@ -611,7 +611,7 @@ class _Handler(BaseHTTPRequestHandler):
                 # Readiness per component (Spoolman, slicer, each printer),
                 # behind the same auth as /api/status; /healthz stays the
                 # unauthenticated liveness probe.
-                ready = self.server.snapshot_func().get("components") or {}
+                ready = self.server.readiness_func() or {}
                 self._json(200 if ready.get("ready", False) else 503, ready)
             elif path.startswith("/api/printers/"):
                 self._printer_status_route(path[len("/api/printers/"):])
@@ -1334,7 +1334,8 @@ class _Handler(BaseHTTPRequestHandler):
 
 def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=None,
                 printer_status_func=None, printer_control_func=None,
-                camera_snapshot_func=None, spools_view_func=None, spools_action_func=None):
+                camera_snapshot_func=None, spools_view_func=None, spools_action_func=None,
+                readiness_func=None):
     """A bound (not yet serving) ThreadingHTTPServer for the Web UI.
 
     ``host``/``port`` override the settings (tests bind port 0 for an
@@ -1371,6 +1372,12 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     server.login_throttle = access_module.LoginThrottle()
     server.snapshot_func = snapshot_func or (
         lambda: status_module.snapshot(data, environ=environ))
+    # /readyz builds its components on their own (no doctor run); a
+    # caller-supplied snapshot_func still drives it when no readiness_func
+    # is given, so embedders and tests keep one source.
+    server.readiness_func = readiness_func or (
+        (lambda: (snapshot_func() or {}).get("components") or {}) if snapshot_func
+        else (lambda: status_module.readiness(data, environ=environ)))
     server.printer_status_func = printer_status_func or (
         lambda printer_id: status_module.printer_status(data, printer_id))
     server.printer_control_func = printer_control_func or (

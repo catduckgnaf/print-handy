@@ -271,8 +271,21 @@ def snapshot(data=None, *, environ=None, heartbeat=READ_HEARTBEAT, probe=None, c
         "doctor": rows,
         "slice_failures": _slice_failures_section(data),
         "ok": ok,
-        "components": components(data, {"spoolman": spoolman}),
+        "components": components(data, {"spoolman": spoolman}, environ=environ),
     }
+
+
+def readiness(data=None, *, environ=None, probe=None):
+    """The /readyz body: per-component readiness without the doctor rows.
+
+    Builds only what components() needs (the bounded Spoolman probe, the
+    slicer executable lookup and the listener heartbeats), so polling it
+    never runs the slicer or the doctor's service and printer checks.
+    """
+    environ = os.environ if environ is None else environ
+    data = settings.load(environ=environ) if data is None else data
+    spoolman = _spoolman_section(data, environ, probe or probe_spoolman)
+    return components(data, {"spoolman": spoolman}, environ=environ)
 
 
 def _slice_failures_section(data):
@@ -328,13 +341,15 @@ def _roster_section(data):
 _SLICER_COMMANDS = {"orca": "orca", "bambu_studio": "bambu"}
 
 
-def slicer_status(data):
+def slicer_status(data, environ=None):
     """Whether the default printer's primary slicer can be started here.
 
     Read-only and cheap: the configured executable (``[slicer]
     flash_studio_path`` when set, else the ``[orca]``/``[bambu]`` command
     for the ``[printer] slicer`` choice) must resolve to an executable
-    file. The slicer is not run — ``python3 -m print_handy.doctor`` runs
+    file. For Orca, ``PRINT_HANDY_ORCA_CMD`` wins over ``[orca] command``,
+    as it does for slicing (core.orca_adapter._orca_command; the container
+    entrypoint sets it for the selected channel). The slicer is not run — ``python3 -m print_handy.doctor`` runs
     ``--help`` when an operator wants that proof — so a resolvable but
     broken binary still reads ok here. Never raises.
     """
@@ -346,7 +361,12 @@ def slicer_status(data):
         else:
             vendor = printers.MODELS[data["printer"]["model"]].vendor
             name = data["printer"].get("slicer") or (vendor.slicers[0] if vendor else "orca")
-            command = list((data.get(_SLICER_COMMANDS.get(name, "orca")) or {}).get("command") or [])
+            section = _SLICER_COMMANDS.get(name, "orca")
+            override = (os.environ if environ is None else environ).get("PRINT_HANDY_ORCA_CMD")
+            if section == "orca" and override:
+                command = [override]
+            else:
+                command = list((data.get(section) or {}).get("command") or [])
         if not command:
             return {"slicer": name, "ok": False, "detail": "no command configured"}
         found = shutil.which(os.path.expanduser(command[0]))
@@ -379,7 +399,7 @@ def printer_reachability(data):
     return rows
 
 
-def components(data, snap, *, slicer=None, reach=None):
+def components(data, snap, *, slicer=None, reach=None, environ=None):
     """Per-component readiness (P1 health split): Spoolman, slicer and
     each printer reported on their own, so one cannot mask another.
 
@@ -389,7 +409,7 @@ def components(data, snap, *, slicer=None, reach=None):
     alive, this answers whether each dependency is usable.
     """
     spoolman = {"ok": snap["spoolman"]["ok"], "detail": snap["spoolman"]["detail"]}
-    slicer = slicer_status(data) if slicer is None else slicer
+    slicer = slicer_status(data, environ) if slicer is None else slicer
     reach = printer_reachability(data) if reach is None else reach
     rows = [spoolman["ok"], slicer["ok"], *(row["ok"] for row in reach.values())]
     return {"spoolman": spoolman, "slicer": slicer, "printers": reach,
