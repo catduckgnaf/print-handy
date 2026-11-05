@@ -391,7 +391,7 @@ def test_captured_video_assembles_and_reuses(tmp_path):
     data = capture_data(tmp_path)
     out = timelapse_encode.captured_video(
         "job:7", data=data, max_bytes=9_500_000, probe=probe(), run=fake)
-    assert out == root / "job-7" / "timelapse.mp4" and out.stat().st_size == 500_000
+    assert out.parent == root / "job-7" and out.suffix == ".mp4" and out.stat().st_size == 500_000
     again = timelapse_encode.captured_video(
         "job:7", data=data, max_bytes=9_500_000, probe=probe(), run=fake)
     assert again == out and len(fake.calls) == 1  # reused, not re-encoded

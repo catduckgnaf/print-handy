@@ -1217,8 +1217,9 @@ def _validate_timelapse(data):
     for key, default in (("target_length_s", 20), ("min_fps", 10), ("max_fps", 60),
                          ("min_length_s", 5), ("hold_last_frame_s", 1)):
         value = timelapse.setdefault(key, default)
-        floor_ok = value >= 0 if key in ("hold_last_frame_s", "min_length_s") else value > 0
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not floor_ok or value > 3600:
+        numeric = isinstance(value, (int, float)) and not isinstance(value, bool)
+        floor_ok = numeric and (value >= 0 if key in ("hold_last_frame_s", "min_length_s") else value > 0)
+        if not numeric or not floor_ok or value > 3600:
             raise SettingsError(f"[timelapse] {key} must be a number of "
                                 f"{'frames per second' if key.endswith('fps') else 'seconds'} "
                                 f"(above 0{', 0 allowed' if key in ('hold_last_frame_s', 'min_length_s') else ''}"

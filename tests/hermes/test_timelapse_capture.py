@@ -680,9 +680,9 @@ class ListenerCaptureHookTests(unittest.IsolatedAsyncioTestCase):
                 if task is not None:
                     await task
                 if len(slept) >= 3:
-                    raise _asyncio.CancelledError
+                    raise asyncio.CancelledError
 
-            with self.assertRaises(_asyncio.CancelledError):
+            with self.assertRaises(asyncio.CancelledError):
                 await listener._capture_timer(sleep=fake_sleep)
             await listener._capture_task
             self.assertEqual(slept, [5.0, 5.0, 5.0])
