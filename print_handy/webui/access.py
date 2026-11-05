@@ -262,6 +262,27 @@ def clean_username(username):
     return username
 
 
+PASSWORD_HINT = ("Eight characters is the minimum; 12 or more, such as three or four unrelated words, is better. "
+                 "Avoid your username, repeated characters and common passwords.")
+_COMMON_PASSWORDS = frozenset({
+    "password", "password1", "password123", "passw0rd", "12345678", "123456789",
+    "1234567890", "qwertyui", "qwerty123", "iloveyou", "letmein1", "welcome1",
+    "admin123", "administrator", "changeme", "printhandy", "print-handy",
+    "abc12345", "11111111", "00000000"})
+
+
+def weak_password_reason(password, username=None):
+    """Why a password is too guessable for a network login, or None."""
+    lowered = (password or "").casefold()
+    if lowered in _COMMON_PASSWORDS:
+        return "That password is on the list of commonly guessed passwords. " + PASSWORD_HINT
+    if username and lowered == username.casefold():
+        return "The password must not be the same as the username. " + PASSWORD_HINT
+    if len(set(lowered)) < 4:
+        return "That password repeats too few distinct characters. " + PASSWORD_HINT
+    return None
+
+
 def save_password(data, password, confirm, username=None):
     """Store a new Web UI login (password hashed). Raises AccessError when refused.
 
@@ -271,6 +292,9 @@ def save_password(data, password, confirm, username=None):
         username = clean_username(username)
     if len(password or "") < MIN_PASSWORD_LENGTH:
         raise AccessError(f"Use at least {MIN_PASSWORD_LENGTH} characters.")
+    weak = weak_password_reason(password, username)
+    if weak:
+        raise AccessError(weak)
     if password != confirm:
         raise AccessError("The two passwords do not match.")
     salt = secrets.token_bytes(16)

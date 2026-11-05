@@ -488,7 +488,32 @@ class _Handler(BaseHTTPRequestHandler):
         access = self.server.access
         if not access.required:
             return True
-        return access.matches(self.headers.get(TOKEN_HEADER) or "")
+        provided = self.headers.get(TOKEN_HEADER) or ""
+        if not provided:
+            return False  # no header is not a guess; a browser session may still apply
+        # Failed-guess backoff shares the login form's per-address counter.
+        # A locked-out address is refused before any hashing, even with the
+        # right token; _deny_header turns that into a 429.
+        address = self.client_address[0]
+        throttle = self.server.login_throttle
+        if throttle.retry_after(address):
+            return False
+        if access.matches(provided):
+            throttle.record_success(address)
+            return True
+        throttle.record_failure(address)
+        return False
+
+    def _deny_header(self):
+        """401 for a missing or wrong header token; 429 with Retry-After
+        while this address is locked out after repeated wrong tokens."""
+        wait = self.server.login_throttle.retry_after(self.client_address[0])
+        if wait:
+            self._send(429, json.dumps({"ok": False, "reason": "too many failed attempts",
+                                        "retry_after": wait}, indent=1, sort_keys=True),
+                       "application/json", headers=[("Retry-After", str(wait))])
+            return
+        self._json(401, {"ok": False, "reason": f"missing or wrong {TOKEN_HEADER}"})
 
     def _theme(self):
         """This browser's theme from its cookie (#813); dark by default."""
@@ -585,7 +610,7 @@ class _Handler(BaseHTTPRequestHandler):
                     # JSON 401 below.
                     self._redirect("/login")
                     return
-                self._json(401, {"ok": False, "reason": f"missing or wrong {TOKEN_HEADER}"})
+                self._deny_header()
                 return
             if path == "/theme":
                 self._theme_route()
@@ -705,7 +730,7 @@ class _Handler(BaseHTTPRequestHandler):
         route's shape.
         """
         if not self._header_authorized():
-            self._json(401, {"ok": False, "reason": f"missing or wrong {TOKEN_HEADER}"})
+            self._deny_header()
             return
         segments = rest.split("/")
         verbs = (*controls_module.ACTIONS, "temperature", "target")
@@ -746,7 +771,7 @@ class _Handler(BaseHTTPRequestHandler):
         named-printer rule and every refusal live in spools.py.
         """
         if not self._header_authorized():
-            self._json(401, {"ok": False, "reason": f"missing or wrong {TOKEN_HEADER}"})
+            self._deny_header()
             return
         segments = rest.split("/")
         actions = (*spools_module.ACTIONS, "purchase/propose", "purchase/create")
