@@ -607,6 +607,12 @@ class _Handler(BaseHTTPRequestHandler):
                     "text/html; charset=utf-8")
             elif path == "/api/status":
                 self._json(200, self.server.snapshot_func())
+            elif path == "/readyz":
+                # Readiness per component (Spoolman, slicer, each printer),
+                # behind the same auth as /api/status; /healthz stays the
+                # unauthenticated liveness probe.
+                ready = self.server.snapshot_func().get("components") or {}
+                self._json(200 if ready.get("ready", False) else 503, ready)
             elif path.startswith("/api/printers/"):
                 self._printer_status_route(path[len("/api/printers/"):])
             elif path == "/spools":
@@ -649,7 +655,7 @@ class _Handler(BaseHTTPRequestHandler):
                                  "reason": "try /, /api/status, /api/printers/<id>/status, "
                                            "/api/printers/<id>/camera/snapshot, "
                                            "/api/printers/<id>/spools, "
-                                           "/healthz, /config, /designs, /layers, /spools, "
+                                           "/healthz, /readyz, /config, /designs, /layers, /spools, "
                                            "/walkthrough or /login"})
         except Exception as exc:  # a broken snapshot is a 500, never a dropped connection
             if self._browser_navigation(path):

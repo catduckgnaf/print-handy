@@ -598,3 +598,106 @@ class OverallJobTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ComponentReadinessTests(unittest.TestCase):
+    """P1 health split: Spoolman, slicer and printer reported separately."""
+
+    def test_each_component_reports_independently(self):
+        up = {"slicer": "orca", "ok": True, "detail": "found"}
+        down = {"slicer": "orca", "ok": False, "detail": "missing"}
+        spool_up = {"spoolman": {"ok": True, "detail": "HTTP 200"}}
+        spool_down = {"spoolman": {"ok": False, "detail": "refused"}}
+        with tempfile.TemporaryDirectory() as tmp:
+            data = load_settings(tmp)
+            offline = {"ad5x": {"ok": False, "detail": "printer not connected"}}
+            online = {"ad5x": {"ok": True, "detail": "connected"}}
+            # A down printer does not hide a healthy Spoolman or slicer.
+            comp = status.components(data, spool_up, slicer=up, reach=offline)
+            self.assertTrue(comp["spoolman"]["ok"])
+            self.assertTrue(comp["slicer"]["ok"])
+            self.assertFalse(comp["printers"]["ad5x"]["ok"])
+            self.assertFalse(comp["ready"])
+            # A down Spoolman does not hide a reachable printer.
+            comp = status.components(data, spool_down, slicer=up, reach=online)
+            self.assertFalse(comp["spoolman"]["ok"])
+            self.assertTrue(comp["printers"]["ad5x"]["ok"])
+            self.assertFalse(comp["ready"])
+            comp = status.components(data, spool_up, slicer=down, reach=online)
+            self.assertFalse(comp["slicer"]["ok"])
+            self.assertFalse(comp["ready"])
+            comp = status.components(data, spool_up, slicer=up, reach=online)
+            self.assertTrue(comp["ready"])
+            # Unknown and not configured do not fail readiness.
+            unknown = {"ad5x": {"ok": None, "detail": "unknown"}}
+            comp = status.components(data, {"spoolman": {"ok": None, "detail": "not configured"}},
+                                     slicer=up, reach=unknown)
+            self.assertTrue(comp["ready"])
+
+    def test_slicer_status_resolves_without_running_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = load_settings(tmp)
+            exe = Path(tmp) / "fake-orca"
+            exe.write_text("#!/bin/sh\nexit 99\n")
+            exe.chmod(0o755)
+            data["orca"]["command"] = [str(exe), "--extra"]
+            row = status.slicer_status(data)
+            self.assertTrue(row["ok"], row)
+            self.assertEqual(row["slicer"], "orca")
+            data["orca"]["command"] = [str(Path(tmp) / "absent")]
+            self.assertFalse(status.slicer_status(data)["ok"])
+            data["orca"]["command"] = []
+            self.assertFalse(status.slicer_status(data)["ok"])
+            data["slicer"] = {"flash_studio_path": str(exe)}
+            row = status.slicer_status(data)
+            self.assertEqual((row["slicer"], row["ok"]), ("flash_studio", True))
+
+    def test_printer_reachability_reads_the_heartbeat_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = load_settings(tmp)
+            pid = settings.default_printer_id(data)
+            rows = status.printer_reachability(data)
+            self.assertIsNone(rows[pid]["ok"])  # no listener heartbeat yet: unknown
+            healthcheck.beat(data=data, runtime=healthcheck.expected_runtime(data),
+                             moonraker_connected=False)
+            self.assertIs(status.printer_reachability(data)[pid]["ok"], False)
+            healthcheck.beat(data=data, runtime=healthcheck.expected_runtime(data),
+                             moonraker_connected=True)
+            self.assertIs(status.printer_reachability(data)[pid]["ok"], True)
+            # The liveness check stays healthy with the printer offline.
+            healthcheck.beat(data=data, runtime=healthcheck.expected_runtime(data),
+                             printer_connected=False)
+            self.assertTrue(healthcheck.check(data)[0])
+            self.assertIs(healthcheck.printer_reachability(data)[0], False)
+
+    def test_snapshot_carries_components(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = load_settings(tmp, "services:\n  spoolman_url: http://spoolman.local:7912\n")
+            snap = status.snapshot(data, environ={}, heartbeat=fresh_heartbeat(),
+                                   probe=down_probe, checks=OK_CHECKS)
+        comp = snap["components"]
+        self.assertEqual(set(comp), {"spoolman", "slicer", "printers", "ready"})
+        self.assertFalse(comp["spoolman"]["ok"])
+        self.assertFalse(comp["ready"])
+
+    def test_readyz_route(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = load_settings(tmp, "webui:\n  enabled: true\n  port: 8765\n")
+            ready = {"components": {"ready": True, "spoolman": {"ok": True}}}
+            for snap, code in ((ready, 200),
+                               ({"components": {"ready": False}}, 503),
+                               ({}, 503)):
+                httpd = server.make_server(data, environ={}, port=0,
+                                           snapshot_func=lambda snap=snap: snap)
+                thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    conn = http.client.HTTPConnection("127.0.0.1", httpd.server_address[1], timeout=5)
+                    conn.request("GET", "/readyz")
+                    response = conn.getresponse()
+                    self.assertEqual(response.status, code, snap)
+                    json.loads(response.read().decode())
+                    conn.close()
+                finally:
+                    httpd.shutdown()
+                    httpd.server_close()
