@@ -183,7 +183,7 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
   quotes one copy's finish as the whole job's — sequential finishes depend on the bed-clear pauses
   between copies.
 * Slash commands: `/print-next`, `/print-stop`, `/print-resume`, `/print-again`, `/print-reboot`,
-  `/print-coldpull`, `/nozzle`, `/print-maintenance`, `/print-colors`, `/spool`, `/print-spools`, `/print-lookup`, `/print-troubleshoot`,
+  `/print-coldpull`, `/print-bed-down` (prepare to clean: separate bed and nozzle, asks first, never homes or heats), `/nozzle`, `/print-maintenance`, `/print-colors`, `/spool`, `/print-spools`, `/print-lookup`, `/print-troubleshoot`,
   `/print-macros` (Moonraker printers only; lists the macros the printer defines, and `run <name>` runs one behind a confirmation),
   `/print-firmware` (firmware version report on Moonraker printers; `update <component>` applies one component update behind a confirmation on ZMod and vanilla Klipper printers only; `guide zmod` / `guide stock` walk through the manual AD5X updates; other families get their manual update guidance),
   `/print-calibration` (printer calibrations with before/after values and an accept step before anything saves, on ZMod and vanilla Klipper printers; Z offset is report + guide; `records` lists past runs),

@@ -67,6 +67,58 @@ def supports_live_move(connection: str | None) -> bool:
     return str(connection or "").casefold() == "moonraker"
 
 
+# Which part moves in Z, from the printer registry (knowledge/printers): the
+# kinematics label, with a per-model override for CoreXY machines whose gantry
+# moves in Z (Voron 2.4 style). The live move is the same in every case
+# (Klipper Z grows away from the nozzle); only the words differ. An unknown
+# layout gets the neutral wording.
+_BED_MOVES_Z = ("corexy",)
+_HEAD_MOVES_Z = ("cartesian", "cartesian (moving bed)", "cartesian (idex)", "corexz")
+_GANTRY_MOVES_Z = ("sovol.sv08", "sovol.sv08_max")
+
+
+def motion_for(kinematics: str | None, key: str | None = None) -> str:
+    """``"bed_down"``, ``"head_up"`` or ``"apart"`` for a registry kinematics label and model key."""
+    if str(key or "").strip().casefold() in _GANTRY_MOVES_Z:
+        return "head_up"
+    label = str(kinematics or "").strip().casefold()
+    if label in _BED_MOVES_Z:
+        return "bed_down"
+    if label in _HEAD_MOVES_Z:
+        return "head_up"
+    return "apart"
+
+
+def motion_phrase(motion: str, distance_mm: float) -> str:
+    if motion == "bed_down":
+        return f"moves the bed down about {distance_mm:g} mm"
+    if motion == "head_up":
+        return f"raises the print head about {distance_mm:g} mm"
+    return f"moves the nozzle and bed about {distance_mm:g} mm apart"
+
+
+def printer_motion(printer_id: str | None = None) -> str:
+    """The motion wording key for the configured printer; ``"apart"`` when unknown."""
+    try:
+        from . import print_control as pc
+        key = pc._adapter_for(printer_id).key
+        from print_handy import knowledge
+        for entry in knowledge.default_registry().printers:
+            if entry.key == key:
+                return motion_for(entry.kinematics, entry.key)
+    except Exception:
+        return "apart"
+    return "apart"
+
+
+def confirm_question(distance_mm: float | None = None, motion: str = "apart") -> str:
+    """The confirmation asked before anything moves."""
+    distance = separate_mm() if distance_mm is None else float(distance_mm)
+    return (f"Prepare to clean: this {motion_phrase(motion, distance)}, with no homing and no heat, "
+            "and only if Klipper reports Z homed and the move stays inside the Z travel. Otherwise "
+            "you get instructions and nothing moves. Is anything else in the way?")
+
+
 def manual_instructions(distance_mm: float | None = None, reason: str = "") -> str:
     """The instruction-only fallback. Never sends anything."""
     distance = separate_mm() if distance_mm is None else float(distance_mm)
@@ -74,10 +126,10 @@ def manual_instructions(distance_mm: float | None = None, reason: str = "") -> s
     return (f"{lead}Nothing was sent to the printer. To open the gap by hand: on the printer's own screen "
             f"(Move / Axis / Jog), move Z by +{distance:g} mm so the nozzle and bed move apart. On a "
             "printer whose bed drops, the bed moves down; on one whose head rises, the head moves up. "
-            "If the screen refuses Z moves until the printer homes, home it from the screen only after "
-            "you have checked that nothing is under the nozzle, or lower the bed by hand with the "
-            "power off if your printer allows that. Keep fingers clear of the nozzle and bed; either "
-            "may still be hot.")
+            "Do not home Z to make room: homing drives the nozzle toward the bed and can hit the same "
+            "blob. If the screen refuses Z moves, power the printer off and open the gap by hand (turn "
+            "the Z lead screw, or lift the cooled part off the nozzle). Keep fingers clear of the "
+            "nozzle and bed; either may still be hot.")
 
 
 def _lock_for(printer_id: str | None = None):
@@ -185,7 +237,7 @@ def separate(*, confirmed_at: float, distance_mm: float | None = None,
         if target is None:
             return False, manual_instructions(distance, reason)
         try:
-            _send_gcode(f"G90\nG1 Z{target:g} F{MOVE_FEED_MM_MIN}", printer_id, gcode_sender)
+            _send_gcode(f"G90\nG1 Z{target:g} F{MOVE_FEED_MM_MIN}\nM400", printer_id, gcode_sender)
         except Exception as exc:
             return False, (f"The move command failed ({type(exc).__name__}). Check the printer screen "
                            "before doing anything else; do not retry blindly.")

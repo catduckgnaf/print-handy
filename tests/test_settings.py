@@ -296,7 +296,7 @@ class OverrideTests(unittest.TestCase):
                             "max_bitrate_kbps", "encoder", "empty_timeout_s", "activity_origin", "port"},
             "notify": {"mqtt_enabled", "mqtt_host", "mqtt_port", "mqtt_topic", "mqtt_username",
                        "ntfy_enabled", "ntfy_url", "ntfy_topic"},
-            "maintenance": {"quick_hours", "full_hours", "full_days"},
+            "maintenance": {"quick_hours", "full_hours", "full_days", "bed_separate_mm"},
             "delivery": {"methods"},
             "nozzle_temp_offsets": {"brass", "hardened_steel", "stainless_steel", "ruby", "tungsten_carbide", "diamond"},
             "material_temps": {"PLA", "PETG", "ABS", "ASA", "TPU", "PA", "PC"},

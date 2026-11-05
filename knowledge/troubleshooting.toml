@@ -331,3 +331,41 @@ next = "speed-check"
 id = "speed-check"
 kind = "advice"
 prompt = "With mechanics sound, ringing is acceleration exciting the frame's resonance. Lower outer-wall speed and acceleration in the slicer in steps, or, on Klipper, run input-shaper calibration and store the result (SAVE_CONFIG). Compare with the same test model each time; change one thing at a time."
+
+[[flow]]
+id = "prepare-to-clean"
+title = "Prepare to clean: separate the bed and nozzle (lower the bed)"
+aliases = ["bed reset", "reset the bed", "reset the printer bed", "lower the bed", "lower bed", "drop the bed", "move the bed down", "move bed down", "bed down", "separate the nozzle", "separate bed and nozzle", "separate the bed and nozzle", "nozzle stuck in part", "get the nozzle off the part", "prepare to clean", "clean the nozzle", "get ready to clean", "after emergency stop", "after a collision"]
+safety = [
+  "Do not home Z to make room: after a firmware restart Z is not homed, and homing drives the nozzle toward the bed and can hit the same blob.",
+  "Never separate the bed and nozzle while a print is running or paused. Stop or finish the print first.",
+  "The nozzle may still be hot after a stop. Let it cool before touching it or the part.",
+]
+start = "printing"
+
+[[flow.node]]
+id = "printing"
+kind = "question"
+prompt = "Is a print running or paused on this printer right now?"
+  [[flow.node.option]]
+  label = "No, it is idle or stopped"
+  next = "bed-down"
+  [[flow.node.option]]
+  label = "Yes, it is printing or paused"
+  next = "stop-first"
+
+[[flow.node]]
+id = "stop-first"
+kind = "advice"
+prompt = "Stop the print first (/print-stop), or let it finish. Separating the bed and nozzle is never offered during a print."
+
+[[flow.node]]
+id = "bed-down"
+kind = "advice"
+prompt = "Run /print-bed-down. It asks first, then makes one slow relative move of about 20 mm ([maintenance] bed_separate_mm) away from the nozzle: the bed moves down on a CoreXY bed-in-Z printer such as the AD5X, and the print head rises on a bed-slinger. It moves only when Klipper reports Z homed and the target stays inside the Z travel; there is no homing and no heat. Otherwise it sends nothing and gives you these manual steps."
+next = "manual"
+
+[[flow.node]]
+id = "manual"
+kind = "advice"
+prompt = "Manual way, with no homing: on the printer screen, use the Z jog or move-axis control in small steps to move the bed down (or the head up) until there is room, then clean the nozzle and remove the part. If Z will not jog because it is not homed, power the printer off and turn the Z lead screw by hand to open the gap, or lift the part carefully off the nozzle once it is cool."

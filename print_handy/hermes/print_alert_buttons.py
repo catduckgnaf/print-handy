@@ -34,7 +34,9 @@ PLATE_PREFIX = "pbplate"
 CONFIRM_LABEL = "Confirm bed is clear & print"
 RECOVER_LABEL = "Restart printer & end job"
 MAINTENANCE_FOLLOW_UP = ("The stopped print is cleared. Check the filament path and consider a "
-                         "maintenance quick check before the next print.")
+                         "maintenance quick check before the next print. To clean the nozzle or "
+                         "free the part, use `/print-bed-down` (Prepare to clean: separate bed and "
+                         "nozzle). It asks first and never homes or heats.")
 TTL = 24 * 3600
 _LOCK = threading.Lock()
 

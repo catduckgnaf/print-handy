@@ -36,7 +36,7 @@ command syntax, what it does, and its safety notes.
 ```
 
 With no argument the bot lists the flows: `first-layer`, `clog`, `heat-creep`,
-`bed-level` and `ringing`. A flow opens with its safety warnings, then asks one
+`bed-level`, `ringing` and `prepare-to-clean`. A flow opens with its safety warnings, then asks one
 diagnostic question at a time (buttons, for example "Is filament curling up at
 the nozzle tip?") and branches on the answer. Advice steps are single bounded
 physical checks: one observation or one small change, then the next question.
@@ -49,6 +49,9 @@ command, heat, motion or extrusion to a printer, and there is no printer client
 on that code path. Where a fix is itself an action — a cold pull is the example
 in the clog flow — the flow points at the existing guarded command
 (`/print-coldpull`), which asks for its own confirmation before doing anything.
+The `prepare-to-clean` flow does the same with `/print-bed-down`, which
+separates the bed and nozzle after a stop. `/print-lookup bed reset` ranks that
+flow first, ahead of heater G-code.
 Heater and thermal errors deliberately have no walkthrough past "power off,
 cool down, inspect the wiring": that protection is doing its job.
 
