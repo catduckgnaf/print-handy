@@ -3184,7 +3184,8 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         # (bed-clear, upload, start). Only this finding asks; other warnings are information.
         finding = slice_warnings.support_finding(sliced)
         if finding is not None:
-            pick = await _ask(adapter, source, key, slice_warnings.question(finding),
+            pick = await _ask(adapter, source, key,
+                              slice_warnings.question(finding, sliced.get('downloaded_file')),
                               [RESLICE_SUPPORTS_LABEL, PRINT_NO_SUPPORTS_LABEL, print_next.CANCEL_LABEL], timeout,
                               approval=True)  # only print approvers may waive or answer a safety finding
             receipt['support_decision'] = {'finding': finding, 'choice': pick}
