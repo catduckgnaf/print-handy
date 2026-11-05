@@ -1,14 +1,16 @@
 <?xml version="1.0"?>
 <!-- Unraid DockerMan template PROPOSAL for the combined Print Handy container (issues #117, #214). Not published or exercised on Unraid.
      One container runs the Discord bot, the Moonraker listener and the bundled Spoolman API under tini and a supervisor.
-     Replace Repository with a locally built, tested image tag or immutable digest; prefer the tested GHCR digest when available.
+     Repository is the current release's multi-arch index digest (2.2.4), not a moving tag.
+     :latest, :develop and :nightly move; a release tag is immutable only until someone republishes it.
+     An install that already runs a tested digest keeps that digest. Do not replace it with this default.
      Mirrors docker-compose.yml; tests/test_docker_release.py keeps the two in step. Setup: docs/DOCKER.md.
      GPU passthrough for hardware timelapse encoding (#246) is opt-in and OFF here: to grant an Intel/AMD
      iGPU, add a device mapping for /dev/dri to Extra Parameters below and make sure the container user
      can use the host render group; the container runs fine without it. See docs/DOCKER.md. -->
 <Container version="2">
   <Name>print-handy</Name>
-  <Repository>ghcr.io/catduckgnaf/print-handy:latest</Repository>
+  <Repository>ghcr.io/catduckgnaf/print-handy@sha256:a43e48f1eea57c9d053ff9cf8bc535e22acf010cf987a699efc44a87472c33ec</Repository>
   <Registry/>
   <Network>bridge</Network>
   <MyIP/>

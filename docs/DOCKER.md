@@ -268,9 +268,62 @@ On the host, put only the token in `dot-config/bambu/token` under `PRINT_HANDY_D
 
 As of 2.2.2 the shipped Docker default model is `klipper.generic` (it was `flashforge.ad5x`). If you run an AD5X and never set the model, add `PRINT_HANDY__PRINTER__MODEL=flashforge.ad5x` to your `.env` or container environment before upgrading. Without it the container runs as Generic Klipper, and a leftover `PRINT_HANDY__PRINTER__FILAMENT_SLOTS=4` (or the older `IFS_SLOTS=4`) stops startup with `filament_slots must be 1`. When the model comes only from the default and the saved hardware record shows several slots, `doctor` and the listener log print a warning that names this variable.
 
+## Pinning the image
+
+`:latest`, `:develop` and `:nightly` are moving tags. A pull of any of them can replace a working container with a different build, including one that was never released. A release tag such as `:2.2.4` is safer, but it is immutable only until someone republishes it. The thing that does not move is the multi-arch index digest.
+
+The current release is 2.2.4. Its index digest, read from GHCR on 2026-11-04, is the same digest `:latest` pointed at that day:
+
+```text
+ghcr.io/catduckgnaf/print-handy@sha256:a43e48f1eea57c9d053ff9cf8bc535e22acf010cf987a699efc44a87472c33ec
+```
+
+That digest is the amd64 and arm64 index, not one architecture's image. The in-repo Unraid template's `Repository` is this value. Compose has no default image: set `PRINT_HANDY_IMAGE` in `.env` to the same digest.
+
+Confirm a tag still points where you think before you pin it:
+
+```bash
+docker buildx imagetools inspect ghcr.io/catduckgnaf/print-handy:2.2.4
+```
+
+The `Digest:` line of the index is the value to pin. The per-architecture lines under `Manifests:` are not.
+
+### Change an existing Unraid install
+
+This is the edit. It is not applied by installing this repository.
+
+1. Copy the live template first: `/boot/config/plugins/dockerMan/templates-user/my-print-handy.xml` to a dated `.bak` beside it.
+2. Change only the `Repository` element, from the moving tag to the digest:
+
+```xml
+<Repository>ghcr.io/catduckgnaf/print-handy@sha256:a43e48f1eea57c9d053ff9cf8bc535e22acf010cf987a699efc44a87472c33ec</Repository>
+```
+
+3. Leave every path, port, variable and `ExtraParams` value as it is. In particular do not drop a volume: the five appdata paths and any extra mounts (account tokens, timelapse archive) stay.
+4. Apply the template through DockerMan so the container is recreated from the same paths. Do not run `docker compose down -v` and do not delete `/mnt/user/appdata/print-handy`.
+5. After it is up, `docker inspect print-handy --format '{{.Config.Image}}'` must print the digest above, and the health check must be healthy.
+
+An install already running a tested digest keeps that digest. Do not overwrite it with the template default just because the default changed.
+
+### Rollback
+
+Rollback is the previous digest with the same data paths. Nothing in Print Handy downgrades the Spoolman database, so roll back only to an image that can read the data the current one wrote. The 2.2.3 index, which 2.2.4's release notes leave untouched, is:
+
+```text
+ghcr.io/catduckgnaf/print-handy@sha256:1acdcdac6c7f7a49ab723eba231bf596786f670693a55448de1a4109a3cca04f
+```
+
+Put that value back in `Repository` (or in `PRINT_HANDY_IMAGE`) and recreate. If the container will not start on the new digest, put the digest you copied out of the template backup back instead of guessing a tag.
+
+A box that was tracking `:develop` cannot be rolled back to "whatever develop was" after the pin, because that tag keeps moving. Record the running digest before the change, and keep that local image until the pinned release has been healthy. Do not `docker image prune` it on the same day:
+
+```bash
+docker image inspect ghcr.io/catduckgnaf/print-handy:develop --format '{{index .RepoDigests 0}}'
+```
+
 ## Unraid DockerMan
 
-Use `docker/unraid/print-handy.xml`, replacing the prior three templates. One entry runs all required processes; leave PostArgs empty. The template specifies UID/GID 1000:1000 and five persistent paths under `/mnt/user/appdata/print-handy`. Set Repository to the tested immutable digest before deployment. It publishes no port; add an approved API mapping only as described under Included Spoolman. Image HEALTHCHECK covers the combined runtime.
+Use `docker/unraid/print-handy.xml`, replacing the prior three templates. One entry runs all required processes; leave PostArgs empty. The template specifies UID/GID 1000:1000 and five persistent paths under `/mnt/user/appdata/print-handy`. Its `Repository` is the current release's multi-arch index digest, not `:latest` or `:develop`; see [Pinning the image](#pinning-the-image) for the exact edit and the rollback. It publishes no port; add an approved API mapping only as described under Included Spoolman. Image HEALTHCHECK covers the combined runtime.
 
 The runtime selector `PRINT_HANDY_ORCA_CHANNEL` (Compose, `.env.example` and the template) defaults to `stable` and accepts `preview`; the pre-#600 name `alpha` is still accepted as an alias for `preview` with a startup notice, and any other value stops container startup.
 
