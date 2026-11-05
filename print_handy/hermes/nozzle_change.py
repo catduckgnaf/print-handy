@@ -502,9 +502,10 @@ def finish_change(state: dict[str, Any], diameter_mm: float, nozzle_type: str,
     """
     from ..core import printer_state
 
-    st = state if state else printer_state.load(printer_id)
-    record_nozzle_change(st, diameter_mm, nozzle_type, **kwargs)
-    printer_state.save(st, printer_id)
+    with printer_state.hardware_lock(printer_id):
+        st = state if state else printer_state.load(printer_id)
+        record_nozzle_change(st, diameter_mm, nozzle_type, **kwargs)
+        printer_state.save(st, printer_id)
     text = calibration_text(st)
     note = _klipper_nozzle_sync_note(st, printer_id=printer_id, klipper_sync=klipper_sync)
     return f"{text}\n{note}" if note else text

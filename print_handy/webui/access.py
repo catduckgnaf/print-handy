@@ -33,6 +33,8 @@ import json
 import os
 import secrets
 import tempfile
+import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -125,6 +127,64 @@ class Access:
                 self.matches(provided)
                 return False
         return self.matches(provided)
+
+
+class LoginThrottle:
+    """Bounded backoff for failed logins, kept in memory per client address.
+
+    After ``max_failures`` failures inside ``window_s`` the address is locked
+    out for ``lockout_s``; during the lockout even a correct credential is
+    refused, so guessing cannot continue at full speed. One address never
+    locks another out (behind a reverse proxy every client shares the proxy's
+    address, so they share a lockout). The table is capped so spraying from
+    many addresses cannot grow memory without bound.
+    """
+
+    def __init__(self, max_failures=5, window_s=300, lockout_s=60, max_entries=1024,
+                 clock=time.monotonic):
+        self.max_failures = max_failures
+        self.window_s = window_s
+        self.lockout_s = lockout_s
+        self.max_entries = max_entries
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._failures = {}   # address -> [failure times]
+        self._locked = {}     # address -> lockout end
+
+    def retry_after(self, address):
+        """Seconds left on this address's lockout, or 0 when it may try."""
+        with self._lock:
+            end = self._locked.get(address, 0)
+            now = self._clock()
+            if end > now:
+                return int(end - now) + 1
+            self._locked.pop(address, None)
+            return 0
+
+    def record_failure(self, address):
+        with self._lock:
+            now = self._clock()
+            recent = [t for t in self._failures.get(address, []) if now - t < self.window_s]
+            recent.append(now)
+            if len(recent) >= self.max_failures:
+                self._locked[address] = now + self.lockout_s
+                recent = []
+            self._failures[address] = recent
+            if len(self._failures) > self.max_entries or len(self._locked) > self.max_entries:
+                for key in [k for k, v in self._failures.items()
+                            if not v or now - v[-1] >= self.window_s]:
+                    del self._failures[key]
+                for key in [k for k, end in self._locked.items() if end <= now]:
+                    del self._locked[key]
+                while len(self._failures) > self.max_entries:
+                    self._failures.pop(next(iter(self._failures)))
+                while len(self._locked) > self.max_entries:
+                    self._locked.pop(next(iter(self._locked)))
+
+    def record_success(self, address):
+        with self._lock:
+            self._failures.pop(address, None)
+            self._locked.pop(address, None)
 
 
 def access_path(data):
