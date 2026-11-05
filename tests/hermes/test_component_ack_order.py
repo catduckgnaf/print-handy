@@ -9,8 +9,11 @@ Handler families (plugins/print-feedback alert_button_handlers):
   covered elsewhere: clarify pbq (tests/bot/test_runtime.py, test_clarify_ui.py), exclude pick
                      (tests/hermes/test_exclude_chat.py)
   covered here:      plate confirm (pbplate:go), intake Retry, spool-question same / cancel / existing select
-  not covered:       insertion, new-spool and intake wizards (in-memory or modal only, no printer/Spoolman call
-                     before the response), alert resume/pause/cancel (respond first by construction, line order)
+                     insertion existing / new, spool-question existing / new, and the picker selection that
+                     re-reads Spoolman for the bind confirmation
+  not covered:       new-spool slot and disposition steps and intake wizard steps (in-memory only, no
+                     printer/Spoolman call before the response), alert resume/pause/cancel (respond first
+                     by construction, line order)
 """
 import asyncio
 import json
@@ -205,3 +208,60 @@ def test_new_spool_confirm_acknowledges_before_the_bind(tmp_path, monkeypatch):
     asyncio.run(on_interaction(click))
     assert order[:2] == ["ack", "slow"], order
     assert order[-1] == "edit"
+
+
+def _spoolman_rig(tmp_path, monkeypatch, order):
+    """Plugin handlers plus a Spoolman whose every call records "slow"."""
+    import importlib.util
+    from pathlib import Path
+    from print_handy.hermes import print_alert_buttons as pab, spool_sync
+    monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
+    # Real discord.ui (the pickers build Select/View); the shared _install fake has none.
+    spec = importlib.util.spec_from_file_location(
+        "pf_ack_order", Path(__file__).parents[2] / "plugins/print-feedback/__init__.py")
+    plugin = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(plugin)
+    listeners = {}
+    plugin.alert_button_handlers(S(add_listener=lambda fn, name: listeners.__setitem__(name, fn)), S())
+    on_interaction = listeners["on_interaction"]
+
+    def slow(value):
+        def call(*a, **k):
+            order.append("slow")
+            return value
+        return call
+    state = {"filament_slots": {"2": {"spoolman_id": 12, "name": "Red PETG", "remaining_grams": 90.0}}}
+    spools = [{"id": 7, "remaining_weight": 400.0, "filament": {"name": "Matte White", "material": "PLA+"}}]
+    monkeypatch.setattr(spool_sync, "load_state", slow(state))
+    monkeypatch.setattr(spool_sync, "spoolman", slow(spools))
+    monkeypatch.setattr(spool_sync, "next_spool_id", slow(20))
+    monkeypatch.setattr(spool_sync, "filament_types", slow([]))
+    return on_interaction, pab
+
+
+@pytest.mark.parametrize("make_id", [
+    lambda pab: f"pbinsert:existing:{pab.record('insertion', '', slot=2)}",
+    lambda pab: f"pbinsert:new:{pab.record('insertion', '', slot=2)}",
+    lambda pab: f"pbspool:existing:{pab.record('spool-question', '', context={'slot': 2})}",
+    lambda pab: f"pbspool:new:{pab.record('spool-question', '', context={'slot': 2})}",
+], ids=["insertion-existing", "insertion-new", "spool-question-existing", "spool-question-new"])
+def test_spool_pickers_acknowledge_before_spoolman_reads(tmp_path, monkeypatch, make_id):
+    """Opening a shelf picker or the new-spool walkthrough reads Spoolman first;
+    the interaction must be deferred before any of those reads (3 s window)."""
+    order = Order()
+    on_interaction, pab = _spoolman_rig(tmp_path, monkeypatch, order)
+    asyncio.run(on_interaction(_bind_click(tmp_path, monkeypatch, order, make_id(pab))))
+    assert "slow" in order and order[0] == "ack", order
+    assert order.count("ack") == 1, order
+
+
+def test_picker_selection_acknowledges_before_the_bind_confirmation_reread(tmp_path, monkeypatch):
+    """Choosing a spool re-reads it from Spoolman for the confirmation text."""
+    order = Order()
+    on_interaction, pab = _spoolman_rig(tmp_path, monkeypatch, order)
+    aid = pab.record("insertion-select", "", slot=2)
+    click = _bind_click(tmp_path, monkeypatch, order, f"pbinsertselect:{aid}")
+    click.data["values"] = ["7"]
+    asyncio.run(on_interaction(click))
+    assert "slow" in order and order[0] == "ack", order
+    assert order[-1] == "edit" and "Bind spool" in (order.texts[-1] or ""), (order, order.texts)
