@@ -821,7 +821,8 @@ def test_recover_restarts_then_cancels_loaded_job():
     """Shutdown stop followed by the button: restart first, then cancel the still-loaded job."""
     order = []
     sts = iter([{"klippy": "shutdown", "state": "paused", "filename": "f.gcode"},
-                {"klippy": "ready", "state": "paused", "filename": "f.gcode"}])
+                {"klippy": "ready", "state": "paused", "filename": "f.gcode"},
+                {"klippy": "ready", "state": "cancelled", "filename": ""}])
     def clear(*a, **k):
         order.append("restart"); return True, "Cleared the emergency stop."
     def cancel(name, **k):
@@ -832,6 +833,41 @@ def test_recover_restarts_then_cancels_loaded_job():
         out = pab.handle_click("recover", {"kind": "shutdown", "filename": "f.gcode"})
     assert order == ["restart", ("cancel", "f.gcode")]
     assert "Cleared the emergency stop." in out and "Stopped." in out and pab.MAINTENANCE_FOLLOW_UP in out
+
+
+def test_recover_withholds_clearance_when_cancel_does_not_end_the_job():
+    """A cancel that leaves the job printing or paused must not claim the print is cleared."""
+    sts = iter([{"klippy": "ready", "state": "paused", "filename": "f.gcode"},
+                {"klippy": "ready", "state": "paused", "filename": "f.gcode"}])
+    with patch("print_handy.hermes.print_control.status", side_effect=lambda **k: next(sts)), \
+         patch("print_handy.hermes.print_stop.cancel", return_value=(True, "Cancel sent, but the printer still reports paused after 20s.")):
+        out = pab.recover_from_stop("f.gcode")
+    assert "still reports paused" in out
+    assert pab.MAINTENANCE_FOLLOW_UP not in out
+
+
+def test_recover_withholds_clearance_when_a_different_file_is_loaded():
+    sts = [{"klippy": "ready", "state": "printing", "filename": "other.gcode"}]
+    with patch("print_handy.hermes.print_control.status", side_effect=lambda **k: sts[0]), \
+         patch("print_handy.hermes.print_stop.cancel") as cancel:
+        out = pab.recover_from_stop("f.gcode")
+    cancel.assert_not_called()
+    assert "Not cancelling it" in out
+    assert pab.MAINTENANCE_FOLLOW_UP not in out
+
+
+def test_recover_withholds_clearance_when_the_outcome_cannot_be_read():
+    sts = iter([{"klippy": "ready", "state": "paused", "filename": "f.gcode"}])
+    def status(**k):
+        row = next(sts, None)
+        if row is None:
+            raise OSError("status unread")
+        return row
+    with patch("print_handy.hermes.print_control.status", side_effect=status), \
+         patch("print_handy.hermes.print_stop.cancel", return_value=(True, "Stopped. Printer now reports cancelled.")):
+        out = pab.recover_from_stop("f.gcode")
+    assert "Stopped." in out
+    assert pab.MAINTENANCE_FOLLOW_UP not in out
 
 
 def test_recover_does_not_cancel_when_restart_fails():

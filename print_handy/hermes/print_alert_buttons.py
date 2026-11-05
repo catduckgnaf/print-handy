@@ -1443,14 +1443,31 @@ def recover_from_stop(filename: str, printer_id: str | None = None, *, wait_s: f
             return "\n".join(lines)
     elif st.get("klippy") != "ready":
         return f"The printer's controller is {st.get('klippy')}, not in an emergency stop. Nothing sent."
+    cleared = False
     if st.get("state") in print_stop.ACTIVE:
         if filename and st.get("filename") and st["filename"] != filename:
             lines.append("A different print is loaded now than the one in this alert. Not cancelling it.")
         else:
-            lines.append(print_stop.cancel(st.get("filename") or filename, **kw)[1])
+            ended, text = print_stop.cancel(st.get("filename") or filename, printer_id=printer_id)
+            lines.append(text)
+            # cancel() returns True when the command was sent, including when the
+            # printer is still printing or paused, or the outcome is unknown.
+            # Confirm a terminal state by one more read before claiming the job
+            # ended (Codex review of #909). A failed re-read keeps the cancel
+            # text and withholds the clearance line.
+            if ended:
+                try:
+                    after = pc.status(**kw)
+                except Exception:
+                    after = None
+                cleared = bool(after) and after.get("state") not in print_stop.ACTIVE
+            else:
+                cleared = False
     else:
         lines.append(f"The stopped job is already gone (printer is {st.get('state')}).")
-    lines.append(MAINTENANCE_FOLLOW_UP)
+        cleared = True
+    if cleared:
+        lines.append(MAINTENANCE_FOLLOW_UP)
     return "\n".join(lines)
 
 
