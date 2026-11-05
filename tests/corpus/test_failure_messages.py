@@ -40,6 +40,6 @@ def test_known_bad_case_never_ends_in_the_generic_message(case, tmp_path, monkey
     except Exception:  # a flow that stops early still posted what the operator saw
         pass
     assert not [post for post in posts if GENERIC in post], posts
-    failure_posts = [post for post in posts if "Reference: PH_" in post]
+    failure_posts = [post for post in posts if "Reference: [PH_" in post]
     for post in failure_posts:
         assert "Traceback" not in post, post

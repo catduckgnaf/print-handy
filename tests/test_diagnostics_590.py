@@ -157,7 +157,7 @@ def test_known_post_names_the_cause_without_raw_text_or_resend_advice():
     assert post is not None
     assert "MakerWorld" in post and "account token" in post
     assert "MakerWorld account token" in post and "PROJECT-REFERENCE" in post
-    assert post.rstrip().endswith("Reference: PH_INTAKE_CONFIGURATION")
+    assert post.rstrip().endswith("Reference: [PH_INTAKE_CONFIGURATION](https://catduckgnaf.github.io/print-handy-docs/diagnostics#ph-intake-configuration)")
     assert "UNKNOWN" not in post
     assert "send the link" not in post.lower() and "again" not in post.lower()
     # The raw exception text (its container path) never reaches chat (#467 pin).
@@ -268,7 +268,7 @@ def test_direct_link_post_leaks_no_host_or_url_credentials():
         subsystem="intake", exc=_direct(DIRECT_LINK_CASES[0][0]))
     assert post is not None and "not public" in post
     assert "192.168.1.5" not in post and "DirectLinkError" not in post
-    assert post.rstrip().endswith("Reference: PH_INTAKE_CONFIGURATION")
+    assert post.rstrip().endswith("Reference: [PH_INTAKE_CONFIGURATION](https://catduckgnaf.github.io/print-handy-docs/diagnostics#ph-intake-configuration)")
     creds = diagnostics.known_post(
         "Preparing that model stopped before it was ready.",
         subsystem="intake",

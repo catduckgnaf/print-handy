@@ -144,4 +144,6 @@ def post(exc, *, retry_failed=False):
     next_step = BUNDLE if retry_failed and info.retryable else info.next_step
     return diagnostics.plain_post(first,
         not_happened='No G-code was kept, and nothing was uploaded or started.',
-        next_step=next_step, subsystem='slicing', exc=exc, category=info.category)
+        next_step=next_step, subsystem='slicing', exc=exc, category=info.category,
+        # #924: link the specific signature code when the boundary read one.
+        code=failure_report.SIGNATURE_CODES.get(getattr(exc, 'signature', None)))

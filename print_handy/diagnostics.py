@@ -87,6 +87,109 @@ def marker(subsystem: str, category: Category) -> str:
     return f"PH_{_token(subsystem)}_{Category(category).value.upper()}"
 
 
+#: The documentation site's base URL — the one address every error-code
+#: link is built from (#924). It is the Pages site the README links to
+#: and scripts/check_release_surfaces.py gates releases on; the site
+#: repo (catduckgnaf/print-handy-docs) re-syncs its pages from this
+#: repo's docs/ folder, so docs/DIAGNOSTICS.md here is the source the
+#: anchors below resolve on.
+DOCS_BASE_URL = "https://catduckgnaf.github.io/print-handy-docs/"
+DIAGNOSTICS_URL = DOCS_BASE_URL + "diagnostics"
+
+#: Where a code with no catalog section of its own links instead: the
+#: general reference-codes section of the diagnostics page.
+REFERENCE_CODES_ANCHOR = "reference-codes"
+
+
+def anchor_for(code: str) -> str:
+    """The docs anchor for one error code (#924): the deterministic slug
+    rule — the code lowercased, underscores turned into hyphens. Every
+    catalog heading in docs/DIAGNOSTICS.md carries this anchor
+    explicitly, and tests/test_error_code_docs.py pins registry and
+    catalog to each other, so a built link always resolves."""
+    return str(code).strip().lower().replace("_", "-")
+
+
+#: The (subsystem, category) pairs the production boundaries actually
+#: emit, from the #924 whole-repo inventory: every subsystem passed to
+#: plain_post / operator_message / marker in print_handy and
+#: plugins/print-feedback, plus the doctor, debug-mode and startup-exit
+#: codes. Categories are the ones reachable at that boundary:
+#: classify() never returns hardware, so it appears only for printer,
+#: the one boundary that may pass it explicitly for a physical failure.
+#: A pair outside this table still formats (marker() is total), but it
+#: links to the general section — see docs_url_for.
+MARKER_CODE_CATEGORIES = {
+    "discord": (Category.CONFIGURATION, Category.TRANSIENT),
+    "spoolman": (Category.CONFIGURATION, Category.TRANSIENT, Category.UNKNOWN),
+    "intake": (Category.CONFIGURATION, Category.TRANSIENT,
+               Category.PROGRAMMING, Category.UNKNOWN),
+    "slicing": (Category.CONFIGURATION, Category.TRANSIENT,
+                Category.PROGRAMMING, Category.UNKNOWN),
+    "printer": (Category.CONFIGURATION, Category.TRANSIENT,
+                Category.PROGRAMMING, Category.UNKNOWN, Category.HARDWARE),
+    "debug": (Category.CONFIGURATION, Category.TRANSIENT,
+              Category.PROGRAMMING, Category.UNKNOWN),
+    "logging": (Category.CONFIGURATION,),
+    "listener": (Category.TRANSIENT,),
+}
+
+#: Every error code with its own section in docs/DIAGNOSTICS.md, mapped
+#: to a short title. The single source of truth for which codes exist:
+#: the marker codes are built from MARKER_CODE_CATEGORIES above, and
+#: print_handy.core.failure_report registers its signature codes here
+#: at import (register_error_codes). The drift test parses the docs
+#: page and asserts this registry and the catalog anchors match both
+#: ways, so the two cannot silently drift apart.
+ERROR_CODES = {
+    marker(subsystem, category): f"{subsystem} {category.value}"
+    for subsystem, categories in MARKER_CODE_CATEGORIES.items()
+    for category in categories
+}
+
+
+def register_error_codes(codes: dict) -> None:
+    """Add codes owned by another module to the registry (#924).
+
+    Used by print_handy.core.failure_report for its signature codes;
+    registration is what makes docs_url_for link a code to its own
+    catalog section instead of the general fallback.
+    """
+    ERROR_CODES.update(codes)
+
+
+def docs_url_for(code: str) -> str:
+    """The diagnostics-page URL for one error code (#924).
+
+    A registered code links to its own catalog anchor; an unregistered
+    code (a subsystem/category pair no current boundary emits) links to
+    the general reference-codes section rather than an anchor that
+    does not exist.
+    """
+    anchor = anchor_for(code) if code in ERROR_CODES else REFERENCE_CODES_ANCHOR
+    return f"{DIAGNOSTICS_URL}#{anchor}"
+
+
+def reference_line(code: str) -> str:
+    """The chat `Reference:` tail for one code (#924): a Markdown link
+    whose text is the raw code itself, so the PH_ token stays in the
+    raw text and existing log/chat greps for it keep working."""
+    return f"Reference: [{code}]({docs_url_for(code)})"
+
+
+def plain_reference_tail(code: str) -> str:
+    """The `Reference:` tail for plain-text surfaces (#924): the bare
+    code followed by its URL in parentheses — terminals, the doctor
+    and other non-Markdown output, where link syntax would show raw."""
+    return f"Reference: {code} ({docs_url_for(code)})"
+
+
+def bracket_reference(code: str) -> str:
+    """The doctor-row form of a code (#924): the established bracket
+    token, then the plain URL in parentheses."""
+    return f"[{code}] ({docs_url_for(code)})"
+
+
 class KnownCause:
     """A recognised, operator-fixable cause for one failure (#590).
 
@@ -443,7 +546,8 @@ def known_post(first_line: str, *, not_happened: str | None = None,
 def plain_post(first_line: str, *, not_happened: str | None = None,
                next_step: str | None = None, subsystem: str | None = None,
                exc: BaseException | None = None,
-               category: Category | None = None) -> str:
+               category: Category | None = None,
+               code: str | None = None) -> str:
     """One user-facing failure/refusal post meeting the #467 plain-language bar.
 
     The first line says in plain words what the person asked for and what
@@ -453,7 +557,9 @@ def plain_post(first_line: str, *, not_happened: str | None = None,
     started."), and ``next_step`` gives the one clear thing to do next.
     Technical detail is demoted, not deleted: when ``subsystem`` is named
     the post ends with the stable greppable ``PH_*`` marker (classified
-    from ``exc`` when given, never its text), and the full detail stays in
+    from ``exc`` when given, never its text), rendered since #924 as a
+    link to the code's section in the diagnostics docs (the raw token
+    stays in the text, so greps still hit), and the full detail stays in
     the log and the diagnostics bundle, where the caller already put it.
 
     This is the shared builder for chat posts; the Discord action
@@ -467,7 +573,11 @@ def plain_post(first_line: str, *, not_happened: str | None = None,
     if subsystem is not None:
         resolved = classify(exc, category=category) if exc is not None else (
             Category(category) if category is not None else Category.UNKNOWN)
-        lines.append(f"Reference: {marker(subsystem, resolved)}")
+        # #924: a caller that classified the failure more specifically
+        # (failure_report's signature code) links that code instead of
+        # the generic subsystem marker. Either way the tail is a link
+        # whose text is the raw code, so greps for the token still hit.
+        lines.append(reference_line(code if code is not None else marker(subsystem, resolved)))
     return logs.redact("\n".join(lines))
 
 
@@ -492,5 +602,5 @@ def operator_message(what: str, *, subsystem: str,
     lines = [f"⚠ {what}",
              f"Likely cause: {cause} ({resolved.value}).",
              f"What to do: {remedy or DEFAULT_REMEDIES[resolved]}",
-             f"Reference: {marker(subsystem, resolved)}"]
+             reference_line(marker(subsystem, resolved))]
     return logs.redact("\n".join(lines))

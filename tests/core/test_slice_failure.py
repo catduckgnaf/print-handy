@@ -29,7 +29,7 @@ def test_error_protocol_preserves_category_and_plain_cause(error, category, phra
     assert phrase in post
     assert 'SECRET' not in post and 'secret-command' not in post
     assert 'nothing was uploaded or started' in post
-    assert 'Reference: PH_SLICING_' in post
+    assert 'Reference: [PH_SLICING_' in post
 
 
 def test_protocol_preserves_refusal_and_safe_fix():
