@@ -93,9 +93,15 @@ def test_edit_distance_stops_past_the_limit():
     assert fuzzy.edit_distance("abcdefgh", "zzzzzzzz", 2) == 3
 
 
+def test_edit_distance_long_tokens_bounded():
+    assert fuzzy.edit_distance("a" * 2000, "a" * 1999 + "b", 2) == 1
+    assert fuzzy.windowed_fuzzy_score("a" * 2000, "a" * 1999 + "b") == 99
+
+
 @pytest.mark.parametrize("token,limit", [("bed", 0), ("stop", 0), ("purge", 1),
                                          ("nozzle", 1), ("extrude", 1),
-                                         ("filament", 2), ("calibration", 2)])
+                                         ("filament", 2), ("calibration", 2),
+                                         ("a" * 50, 0)])
 def test_typo_limit_by_length(token, limit):
     assert fuzzy.typo_limit(token) == limit
 

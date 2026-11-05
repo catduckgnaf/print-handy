@@ -231,31 +231,44 @@ def edit_distance(a, b, limit):
     """Damerau-Levenshtein (optimal string alignment) distance, or ``limit + 1`` past ``limit``.
 
     A swap of two neighbouring letters is one edit, so "shrnik" is one
-    edit from "shrink". Rows stop early once every cell exceeds the limit.
+    edit from "shrink". Evaluates a limit-width diagonal band and stops
+    early once every cell in the band exceeds the limit.
     """
     if a == b:
         return 0
-    if abs(len(a) - len(b)) > limit:
+    len_a, len_b = len(a), len(b)
+    if abs(len_a - len_b) > limit:
         return limit + 1
+    if not len_a:
+        return len_b
+    if not len_b:
+        return len_a
+    inf = limit + 1
     prev2 = None
-    prev = list(range(len(b) + 1))
-    for i in range(1, len(a) + 1):
-        cur = [i] + [0] * len(b)
-        for j in range(1, len(b) + 1):
+    prev = [j if j <= limit else inf for j in range(len_b + 1)]
+    for i in range(1, len_a + 1):
+        cur = [inf] * (len_b + 1)
+        if i <= limit:
+            cur[0] = i
+        j_start = max(1, i - limit)
+        j_end = min(len_b, i + limit)
+        for j in range(j_start, j_end + 1):
             cost = 0 if a[i - 1] == b[j - 1] else 1
-            cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
+            val = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
             if (prev2 is not None and i > 1 and j > 1
                     and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]):
-                cur[j] = min(cur[j], prev2[j - 2] + 1)
-        if min(cur) > limit:
+                val = min(val, prev2[j - 2] + 1)
+            cur[j] = val
+        if min(cur[j_start:j_end + 1]) > limit:
             return limit + 1
         prev2, prev = prev, cur
-    return prev[-1]
+    res = prev[len_b]
+    return res if res <= limit else limit + 1
 
 
 def typo_limit(token):
-    """Edits tolerated for one token: none up to 4 letters, 1 for 5 to 7, 2 for 8 or more."""
-    if len(token) <= 4:
+    """Edits tolerated for one token: none up to 4 letters, 1 for 5 to 7, 2 for 8 to 40, none beyond 40."""
+    if len(token) <= 4 or len(token) > 40:
         return 0
     return 1 if len(token) <= 7 else 2
 
@@ -279,7 +292,7 @@ def correct_token(token, vocabulary):
     limit = typo_limit(token)
     best, best_distance, tied = None, limit + 1, False
     for word in vocabulary:
-        if not word or word[0] != token[0] or not word.isalpha():
+        if not word or word[0] != token[0] or len(word) > 40 or not word.isalpha():
             continue
         distance = edit_distance(token, word, limit)
         if distance < best_distance:
