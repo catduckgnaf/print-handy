@@ -1938,8 +1938,8 @@ def printers(data=None):
 
     The first entry is the default printer — the one the legacy singleton
     view (data["printer"], the [services] URLs, printers.current()) is
-    populated from. Nothing consumes the roster at runtime yet; it is the
-    config model the later multi-printer stages (#334 onward) build on.
+    populated from. Runtime consumers include the healthcheck, listener gate,
+    diagnostics bundle, doctor, launch state and the web UI status page.
     """
     return list((data or current())["printers"])
 

@@ -69,6 +69,10 @@ jobs:
         run: |
           command -v jq || { apt-get update -q && apt-get install -y -q jq; }
           jq --version
+      - name: Strict xfail register
+        # Every strict xfail needs an owner and an unexpired date. Runs before
+        # the suite so an unregistered marker fails even when its test xpasses.
+        run: python3 scripts/check_strict_xfails.py
       - name: Offline tests (no printer, no slicer, no network)
         timeout-minutes: 25
         env:

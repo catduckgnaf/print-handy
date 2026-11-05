@@ -1,0 +1,4 @@
+{
+  "_doc": "Strict expected-failure register for Print Handy tests. The checker in scripts/check_strict_xfails.py is the only writer of verdicts; humans edit entries. An entry is a pytest.mark.xfail(strict=True) that is allowed to exist, or a corpus case.toml known_failure that the corpus flow applies as one. Every other strict xfail fails the check. Owner is who removes the marker. Expiry is the date that removal is due (YYYY-MM-DD). A missing, unnamed, ownerless, or expired entry fails the check.",
+  "entries": []
+}
