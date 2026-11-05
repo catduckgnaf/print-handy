@@ -109,6 +109,14 @@ _SIGNATURES = (
         "is nothing to print.",
         "Re-export the model as a solid, closed mesh (give it real thickness), then send it again."),
     _signature_row(
+        "gcode_3mf_package", "intake",
+        r"already-sliced g-code package",
+        "That file is an already-sliced G-code package (.gcode.3mf), not an unsliced 3MF mesh. "
+        "Its build inventory is empty because the model was already sliced, not because the "
+        "file is corrupt.",
+        "Send the original unsliced .3mf or .stl model instead, so it can be sliced for this "
+        "printer. Nothing was sliced or started."),
+    _signature_row(
         "bad_3mf_structure", "parse",
         r"unresolved 3mf|cyclic 3mf|3mf component cycle|missing 3mf object|ambiguous 3mf object"
         r"|duplicate (or missing )?3mf|invalid 3mf (plate|build|filament|transform)|3mf metadata"

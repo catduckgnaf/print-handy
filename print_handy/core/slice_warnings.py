@@ -163,6 +163,43 @@ def support_finding(job):
     return {'objects': objects, 'texts': texts}
 
 
+def record_unsupported_cantilever_override(folder_or_job, finding, source_file=None):
+    """Record an explicit no-supports override for a slicer cantilever warning (#922 gap 3).
+
+    Bound to the warning texts and the source artifact hash, so the record
+    cannot be read as a blanket waiver for a different model or a different
+    warning. Accepts a job dict or a job folder / JOB.json path, mirroring
+    support_clearance.record_clearance_acknowledgement.
+    """
+    import time
+    from pathlib import Path as _Path
+    is_path = isinstance(folder_or_job, (str, _Path))
+    if is_path:
+        p = _Path(folder_or_job)
+        jp = p if p.name == 'JOB.json' else p / 'JOB.json'
+        job = json.loads(jp.read_text())
+    else:
+        job = folder_or_job
+        jp = None
+    from print_handy.core import model_job as mj
+    src = source_file or job.get('downloaded_file')
+    src_sha = mj.file_sha256(src) if src and _Path(src).is_file() else None
+    gc = job.get('gcode')
+    gc_sha = mj.file_sha256(gc) if gc and _Path(gc).is_file() else None
+    job['unsupported_cantilever_override'] = {
+        'code': 'UNSUPPORTED_CANTILEVER_OVERRIDE',
+        'acknowledged': True,
+        'warning': list((finding or {}).get('texts') or []),
+        'objects': list((finding or {}).get('objects') or []),
+        'source_sha256': src_sha,
+        'gcode_sha256': gc_sha,
+        'at': time.strftime('%Y-%m-%dT%H:%M:%S%z'),
+    }
+    if is_path and jp is not None:
+        mj.write_job(jp.parent, job)
+    return job
+
+
 QUESTION_PREFIX = 'The slicer says this will not print cleanly without supports'
 
 

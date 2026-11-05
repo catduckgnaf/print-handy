@@ -303,25 +303,118 @@ def test_flagged_v12_fixture_offers_fixes_and_clearance_warnings(env, monkeypatc
 
     # picks: one color (1), slot 1 (0), pick choice 0 (Slice and print with supports)
     adapter, result, receipt = run_flow(env, [1, 0, 0])
-    last_q = adapter.questions[-1]
+    # The Ready question is not the last question in the #922 flow (the
+    # blocked start sends no further question, so it still is here), but
+    # find it by its choices rather than by position.
+    last_q = next(q for q in adapter.questions
+                  if q['choices'] and q['choices'][0] == 'Slice and print with supports (bed is clear)')
     choices = last_q['choices']
 
     assert choices[0] == 'Slice and print with supports (bed is clear)'
     assert choices[1] == 'Slice and print without supports (bed is clear)'
     assert 'Extend underside to plate' in choices
     assert 'Flatten (sink) to plate' in choices
+    assert 'Reorient (lay flat)' in choices
+    assert 'Print anyway (accept the risk)' in choices
 
-    # Disclosure in question text
+    # Disclosure in question text, including the measured volume deltas (#922 gap 5)
     q_text = last_q['question']
     assert 'bridges a 0.4 mm gap to the build plate across 9493 mm2' in q_text
     assert 'modeled supports touch only 1.8%' in q_text
+    assert 'Extend underside to plate adds about' in q_text
 
-    # Approval and receipt
-    assert receipt['status'] == 'STARTED'
-    assert receipt['started'] is True
-    # Clearance acknowledgement was recorded
+    # #922 gap 2: choosing "with supports" does NOT waive the 0.40 mm
+    # low-clearance finding. The fake with-supports G-code carries no
+    # ;TYPE:Support toolpaths, so coverage verification fails and the
+    # print does not start; no clearance acknowledgement is recorded.
+    assert receipt['status'] == 'SLICED_NOT_STARTED'
+    assert receipt.get('started') is not True
     job = json.loads(Path(receipt['job_json']).read_text())
-    assert job.get('clearance_acknowledgement', {}).get('acknowledged') is True
+    assert not job.get('clearance_acknowledgement', {}).get('acknowledged')
+
+
+def test_flagged_v12_print_anyway_records_explicit_ack_and_starts(env, monkeypatch):
+    """The explicit Print anyway choice is the one waiver for a low-clearance finding (#922 gap 2)."""
+    assert V12_FIXTURE.is_file()
+    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
+    from print_handy.core import orca_adapter
+    monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
+
+    # Menu: sup(0), nosup(1), extend(2), sink(3), reorient(4), print anyway(5)
+    adapter, result, receipt = run_flow(env, [1, 0, 5])
+    assert receipt['status'] == 'STARTED'
+    job = json.loads(Path(receipt['job_json']).read_text())
+    ack = job.get('clearance_acknowledgement') or {}
+    assert ack.get('acknowledged') is True
+    assert ack.get('via') == 'print_anyway'
+
+
+def test_flagged_v12_reorient_records_rotation_and_clears_decision(env, monkeypatch):
+    """The Reorient button wires the reorient fix and clears the support decision (#922 gap 7)."""
+    assert V12_FIXTURE.is_file()
+    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
+    from print_handy.core import orca_adapter
+    monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
+
+    # Menu: sup(0), nosup(1), extend(2), sink(3), reorient(4), print anyway(5),
+    # slice only(6), scale(7), cancel(8). Pick reorient, then cancel the
+    # repeated question.
+    adapter, result, receipt = run_flow(env, [1, 0, 4, 8])
+    assert any('Reoriented' in m for m in adapter.sent)
+    job = json.loads(Path(receipt['job_json']).read_text())
+    assert (job.get('orientation') or {}).get('rotation') is not None
+    assert 'supports' not in (job.get('orientation') or {})
+    assert 'support_decision' not in job
+    assert 'clearance_acknowledgement' not in job
+
+
+def test_post_slice_support_prompt_cancel_keeps_the_slice(env, monkeypatch):
+    """Cancelling at the post-slice support prompt keeps the archived slice (#922 gap 6)."""
+    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    # Ready menu (flagged, no clearance fixes): sup(0), nosup(1), slice only(2);
+    # then the post-slice support prompt: re-slice(0), print without(1), cancel(2).
+    adapter, result, receipt = run_flow(env, [1, 0, 2, 2])
+    assert receipt['status'] == 'SLICED_NOT_STARTED'
+    assert receipt['gcodes'], 'the receipt must still reference the slice'
+    for g in receipt['gcodes']:
+        assert Path(g).is_file(), f'cancel deleted the archived slice: {g}'
+
+
+def test_post_slice_print_without_supports_records_cantilever_override(env, monkeypatch):
+    """Print without supports after an Orca warning records the explicit override (#922 gap 3)."""
+    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    # Ready: slice only(2); support prompt: print without(1); start button: start(0).
+    adapter, result, receipt = run_flow(env, [1, 0, 2, 1, 0])
+    assert receipt['status'] == 'STARTED'
+    job = json.loads(Path(receipt['job_json']).read_text())
+    rec = job.get('unsupported_cantilever_override') or {}
+    assert rec.get('code') == 'UNSUPPORTED_CANTILEVER_OVERRIDE'
+    assert rec.get('warning') == ['object Body has floating regions']
+    assert rec.get('source_sha256') == model_job.file_sha256(job['downloaded_file'])
+
+
+def test_gcode_3mf_upload_is_named_as_already_sliced_not_corrupt(env, monkeypatch, tmp_path):
+    """A .gcode.3mf package is refused as already-sliced, not bad_3mf_structure (#922 gap 9)."""
+    import zipfile as _zip
+    pkg = tmp_path / 'model.gcode.3mf'
+    with _zip.ZipFile(pkg, 'w') as z:
+        z.writestr('3D/3dmodel.model',
+                   '<model xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">'
+                   '<resources></resources><build></build></model>')
+        z.writestr('Metadata/plate_1.gcode', 'G1 X1 Y1\n')
+
+    def _download(job, chosen, dest):
+        dest = Path(dest)
+        dest.mkdir(parents=True, exist_ok=True)
+        out = dest / pkg.name
+        out.write_bytes(pkg.read_bytes())
+        return out
+    monkeypatch.setattr(model_job, 'printables_download', _download)
+    adapter, result, receipt = run_flow(env, [])
+    assert result['reason'] == 'source-first intake failed closed'
+    assert any('already-sliced G-code package' in m for m in adapter.sent)
+    assert not any('internal structure is inconsistent' in m for m in adapter.sent)
+    assert receipt['failure']['signature'] == 'gcode_3mf_package'
 
 
 def test_extend_underside_fix_action_repairs_geometry(env, monkeypatch):
@@ -335,9 +428,11 @@ def test_extend_underside_fix_action_repairs_geometry(env, monkeypatch):
     # 1: one color
     # 0: slot 1
     # 2: 'Extend underside to plate'
-    # Then loop repeats with repaired mesh!
-    # On repeat, clearance risk is cleared, so pick 0 (Slice and print now)
-    adapter, result, receipt = run_flow(env, [1, 0, 2, 0])
+    # Then loop repeats with repaired mesh: the low-clearance finding is
+    # gone, but the modeled-support findings remain, so the menu is the
+    # flagged one again and the operator waives those explicitly with
+    # 'Print anyway' (index 2 there: sup, nosup, print anyway, ...).
+    adapter, result, receipt = run_flow(env, [1, 0, 2, 2])
     assert any('Extended underside to touch build plate' in m for m in adapter.sent)
     assert receipt['status'] == 'STARTED'
 
