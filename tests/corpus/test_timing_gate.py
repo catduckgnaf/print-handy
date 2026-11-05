@@ -185,3 +185,48 @@ def test_real_slicer_leg_is_reporting_only_and_skips_the_slow_case():
     assert {k.split("/")[0] for k in real["cases"]} <= names
     from tests.corpus import harness
     assert names <= {f.name for f in harness.case_dirs()}
+
+
+def test_real_leg_stays_reporting_only_until_the_variance_record_allows_blocking():
+    """Promotion is decided by measured CI noise (timing_variance_real_slicer.json), not by hand.
+
+    The record holds a leave-one-out over green main runs: each run recorded as the release baseline and every
+    other run gated against it. The real leg may block only when that shows zero failing pairings at the
+    baseline's own tolerance and slack_s, and the record must have been measured at those limits."""
+    import json
+    from pathlib import Path
+    here = Path(__file__).parent
+    real = json.loads((here / "timing_baseline_real_slicer.json").read_text())
+    noise = json.loads((here / "timing_variance_real_slicer.json").read_text())
+    assert noise["baseline_limits"] == {"tolerance": real["tolerance"], "slack_s": real["slack_s"]}
+    assert noise["runs"] >= 20 and noise["source"], "measure enough green main runs and say which"
+    at = noise["leave_one_out_at_baseline"]
+    assert (at["tolerance"], at["slack_s"]) == (real["tolerance"], real["slack_s"])
+    job = _ci_jobs()["slicer-timing-real"]
+    runs = "\n".join(s.get("run", "") for s in job["steps"])
+    blocking = not job.get("continue-on-error") and "--warn-only" not in runs
+    if at["failing_pairings"]:
+        assert not blocking, (f"{at['failing_pairings']}/{at['pairings']} unchanged-code pairings fail at these "
+                              "limits; the real leg must stay --warn-only and continue-on-error")
+
+
+def test_timing_variance_leave_one_out(tmp_path):
+    import json
+    from tests.corpus import timing_variance
+
+    def run_dir(name, wall):
+        d = tmp_path / name
+        d.mkdir()
+        for i in (1, 2, 3):
+            (d / f"run-{i}.json").write_text(json.dumps({"rows": [row(wall)]}))
+        return d
+
+    dirs = [run_dir("a", 4.0), run_dir("b", 4.2), run_dir("c", 9.0)]
+    (tmp_path / "short").mkdir()  # fewer than 3 repeats: ignored
+    runs = timing_variance.load_runs([*dirs, tmp_path / "short"])
+    assert sorted(runs) == ["a", "b", "c"]
+    # a<->b within 10% + 1 s both ways; c is far above either, and a/b recorded from c pass.
+    assert timing_variance.leave_one_out(runs, 0.10, 1.0)[:2] == (2, 6)
+    out = timing_variance.measure(runs, {"tolerance": 0.10, "slack_s": 1.0, "cases": {}}, "test")
+    assert out["leave_one_out_at_baseline"]["failing_pairings"] == 2
+    assert out["spread"]["single-part/hermes wall_s"]["max"] == 9.0

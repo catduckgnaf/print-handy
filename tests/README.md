@@ -249,8 +249,8 @@ So 0.5 s is the smallest tested slack that never failed on unchanged code. It st
 in a flow, which covers the bug class that started this issue (a print-again scan that took 2.1 s instead of 5 ms).
 On the mock leg the slack dominates the 10%; the 10% matters on the real-Orca leg, where flows take seconds.
 
-The real-Orca leg starts with `slack_s` 1.0 s as a provisional value. Its runner noise is not known yet, which is
-why it reports instead of failing. It runs one untimed warm-up slice first, because the first flatpak start pays
+The real-Orca leg keeps `slack_s` 1.0 s and stays reporting-only, because its measured runner noise is too large
+for any blocking limit in the tested range (see Real-Orca runner noise below). It runs one untimed warm-up slice first, because the first flatpak start pays
 one-off costs. `must-shrink` and `stl-must-shrink` are left out on purpose: they take minutes and write a very large
 G-code, so they would measure disk and size search, not regressions, and would make the job slow.
 
@@ -298,10 +298,37 @@ baselines"), and CONTRIBUTING.md requires it before tagging. Nothing updates a b
 A baseline is only as good as the run it came from. If the release run's summary shows a case far off its usual
 value, re-run the job and record from the re-run rather than freezing an outlier.
 
+### Real-Orca runner noise
+
+`tests/corpus/timing_variance_real_slicer.json` is the measured noise of `slicer-timing-real`, written by
+`python -m tests.corpus.timing_variance` from the artifacts of 91 green `main` runs (2026-11-02 to 2026-11-05, three
+repeats each). It holds, per case and metric, the spread across runs, and the same leave-one-out the mock leg's slack
+came from: each run recorded as the release baseline in turn and every other run gated against it (8190 pairings).
+
+What it shows:
+
+- The checked-in baseline fails none of the 91 runs at +10% +1.0 s, but only because it happens to sit on a fast run.
+- A baseline recorded on another run fails 1838 of 8190 pairings at +10% +1.0 s, and still 74 at +20% +3.0 s
+  (the widest tested). The worst median sat 3.75 s over its limit at +10% +1.0 s.
+- The cause is runner speed, not the code: hosted runners come in a fast and a slow group about 1.5x apart
+  (`single-part` wall time 4.2 s versus 6.3 s on unchanged code; repeats inside one job agree within 1.3% median).
+  Dividing each case by the same run's `single-part` time drops the cross-run variation from 14 to 20% to 0.6 to 12%.
+
+So no blocking limit in the tested grid is safe, and widening the slack until one is would hide real regressions of
+several seconds. The real leg stays `--warn-only` and `continue-on-error`; `test_timing_gate.py` refuses to drop
+either while the record shows failing pairings at the baseline's own `tolerance` and `slack_s`. The next step toward
+promotion is runner-speed normalization (a control case in the same job) or the same-job A/B against the merge base.
+
+To refresh the record, download `slicer-timing-real` from at least 20 recent green `main` runs into one directory
+each and rerun the tool:
+
+    gh run download <run-id> -n slicer-timing-real -D artifacts/<run-id>
+    python -m tests.corpus.timing_variance artifacts/* --source "<runs, dates, head>" \
+        > tests/corpus/timing_variance_real_slicer.json
+
 ### Promoting the real-Orca leg
 
-Keep it reporting-only for a few releases. At each release, look at its warnings since the last one and at how far
-medians moved on unchanged code (the job summaries show the change per case). When the spread is understood, set
-`slack_s` from that data the same way the mock leg's was set, then remove `--warn-only` and `continue-on-error`
-from `slicer-timing-real` and add it to the required checks. `test_timing_gate.py` pins the current split: the mock
-leg blocks, the real leg reports.
+Promote only when a refreshed variance record shows zero failing pairings at the baseline's `tolerance` and
+`slack_s`, measured with whatever normalization the gate then uses. Then remove `--warn-only` and
+`continue-on-error` from `slicer-timing-real` and add it to the required checks. `test_timing_gate.py` pins the current
+split: the mock leg blocks, the real leg reports.
