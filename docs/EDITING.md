@@ -47,13 +47,13 @@ wall) is routed to the design engine instead; requests about slicer
 settings (supports, brim, infill, layer height, scale, rotation,
 copies) are never turned into mesh edits.
 
-Who the AI lane serves follows the agent identity layer (see
-SETTINGS.md, "Agent lane identities"): when that layer is active, only
-mapped or allowlisted users get AI-proposed plans — everyone else keeps
-the deterministic vocabulary and the vocabulary list. When the layer is
-not configured, the design endpoint ([design], inheriting [llm]) serves
-edit proposals. With no AI configured at all, an unresolvable edit
-request simply gets the vocabulary list above.
+The AI lane uses the design endpoint ([design], inheriting [llm]).
+`ai.allowed_users` limits it to listed chat user IDs (empty keeps it open
+to everyone the gateway already authorizes), and
+`ai.edit_requests_per_hour` (default 20, 0 for none) limits each user over
+a rolling hour. A refused request, or one sent with no AI configured at
+all, gets the vocabulary list above; nothing reaches the endpoint. Discord
+mentions are stripped from the request before it is sent.
 
 Model names, filenames and 3MF metadata are passed to the AI as quoted
 data, never as instructions, and the reply is only ever parsed as a
@@ -96,3 +96,23 @@ the source and output G-code hashes. "Undo" walks that record back one
 edit at a time. Because approvals are bound to the G-code hash, any
 edit — including an undo — means the print approvals are asked again
 for the new G-code.
+
+## Questions about the model
+
+A question about the current job is answered, never turned into an edit:
+
+- "Does this need supports?" reports whether this slice has supports on,
+  what the slicer flagged (floating regions, cantilevers) and, when the
+  file ships its own supports as a named object such as "REMOVABLE
+  SUPPORTS", a measured report: each overhang's height and area, the gap
+  down to the support tops, and roughly how much of the overhang they
+  touch. These numbers come from the mesh, never from AI, and are
+  approximate (a 0.25 mm grid). When the slicer flagged something and
+  supports are off, it offers **Re-slice with supports** or **Print
+  without supports**; nothing changes until you pick. The same measured
+  report is added to the slicer-warning question asked during intake.
+- "How big is it?" gives the job's X x Y x Z size in millimeters.
+- "Will it fit?" compares that size with the printer's bed.
+
+A question in a channel with no current job is left to the chat.
+

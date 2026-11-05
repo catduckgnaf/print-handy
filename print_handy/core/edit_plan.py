@@ -967,3 +967,22 @@ def verify_slice(plan, *, gcode_text, before_dims, config=None):
 
 def file_sha256(path):
     return hashlib.sha256(open(path, "rb").read()).hexdigest() if path else None
+
+
+def ai_lane_allowed(user, ai, calls, now):
+    """(allowed, reason) for the AI edit lane (#902). ``ai`` is the [ai] settings
+    table: allowed_users (empty = everyone the gateway authorizes) and
+    edit_requests_per_hour (per user, rolling hour, 0 = no limit). ``calls`` maps
+    user -> recent call times and is updated when a call is allowed."""
+    user = str(user or '')
+    allowed = [str(v) for v in (ai or {}).get('allowed_users') or []]
+    if allowed and user not in allowed:
+        return False, 'not on the AI allowlist'
+    limit = int((ai or {}).get('edit_requests_per_hour', 20) or 0)
+    if limit:
+        recent = [t for t in calls.get(user, []) if now - t < 3600]
+        if len(recent) >= limit:
+            calls[user] = recent
+            return False, 'AI edit rate limit reached'
+        calls[user] = recent + [now]
+    return True, ''

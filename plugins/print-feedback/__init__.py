@@ -6586,24 +6586,14 @@ def _edit_ai_allowed(source, now=None):
     """(allowed, reason) for the AI edit lane: the [ai] allowed_users list and the
     per-user edit_requests_per_hour limit (#902). A refused request falls back to
     the vocabulary; nothing is sent to the endpoint."""
+    from print_handy.core import edit_plan
     try:
         from print_handy import settings
         ai = settings.current().get('ai') or {}
     except Exception:
         ai = {}
-    user = str(getattr(source, 'user_id', '') or '')
-    allowed = [str(v) for v in ai.get('allowed_users') or []]
-    if allowed and user not in allowed:
-        return False, 'not on the AI allowlist'
-    limit = int(ai.get('edit_requests_per_hour', 20) or 0)
-    if limit:
-        now = time.time() if now is None else now
-        recent = [t for t in _EDIT_AI_CALLS.get(user, []) if now - t < 3600]
-        if len(recent) >= limit:
-            _EDIT_AI_CALLS[user] = recent
-            return False, 'AI edit rate limit reached'
-        _EDIT_AI_CALLS[user] = recent + [now]
-    return True, ''
+    return edit_plan.ai_lane_allowed(getattr(source, 'user_id', ''), ai, _EDIT_AI_CALLS,
+                                     time.time() if now is None else now)
 
 
 async def _edit_ai_reply(cfg, source, prompt):
