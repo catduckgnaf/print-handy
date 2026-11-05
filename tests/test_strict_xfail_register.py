@@ -71,10 +71,28 @@ class RegisterTests(unittest.TestCase):
             @pytest.mark.xfail(reason="flaky, not strict")
             def test_soft():
                 assert False
+            @pytest.mark.xfail
+            def test_bare():
+                assert False
             """)
         with self.temporary() as directory:
             root = self.write_tree(directory, [], text)
             self.assertEqual([], checker.check(root, date(2026, 11, 4)))
+
+    def test_a_param_mark_is_a_strict_xfail(self):
+        text = textwrap.dedent("""\
+            import pytest
+            @pytest.mark.parametrize("value", [
+                pytest.param(1, marks=pytest.mark.xfail(strict=True, reason="open")),
+                pytest.param(2, marks=pytest.mark.xfail(reason="not strict")),
+            ])
+            def test_cases(value):
+                assert value
+            """)
+        with self.temporary() as directory:
+            root = self.write_tree(directory, [], text)
+            errors = checker.check(root, date(2026, 11, 4))
+        self.assertEqual(["strict xfail has no register entry: tests/test_sample.py::test_cases"], errors)
 
     def temporary(self):
         return tempfile.TemporaryDirectory()

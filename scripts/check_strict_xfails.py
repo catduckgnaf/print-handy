@@ -30,28 +30,41 @@ def _call_name(node):
     return ""
 
 
+def _keyword(call, name):
+    return next((kw.value for kw in call.keywords if kw.arg == name), None)
+
+
 def _is_strict_xfail(node):
-    """True for an xfail mark that passes strict=True, including a bare attribute."""
-    call = node
+    """True only for an xfail mark that passes strict=True.
+
+    A bare pytest.mark.xfail, and one called without strict=True, follow pytest's
+    default of strict=False (this repo does not set strict_xfail). A positional
+    argument is the condition, never the strict flag, so it cannot make one strict.
+    """
     if isinstance(node, ast.Attribute) and node.attr == "xfail":
-        return True
+        return False
     if not (isinstance(node, ast.Call) and _call_name(node.func) == "xfail"):
         return False
-    strict = next((kw.value for kw in call.keywords if kw.arg == "strict"), None)
+    strict = _keyword(node, "strict")
     return isinstance(strict, ast.Constant) and strict.value is True
+
+
+def _walk_xfail(node, node_id, found, seen):
+    """Record node_id wherever this tree writes a strict xfail, descending into marks."""
+    if id(node) in seen or not isinstance(node, ast.AST):
+        return
+    seen.add(id(node))
+    if _is_strict_xfail(node):
+        found.append(node_id)
+    for child in ast.iter_child_nodes(node):
+        _walk_xfail(child, node_id, found, seen)
 
 
 def _decorator_sites(decorators, node_id):
     found = []
+    seen = set()
     for deco in decorators:
-        if isinstance(deco, ast.Call) and _call_name(deco.func) == "parametrize":
-            for arg in deco.args[1:]:
-                target = arg.value if isinstance(arg, ast.Starred) else arg
-                if _is_strict_xfail(target):
-                    found.append(node_id)
-            continue
-        if _is_strict_xfail(deco):
-            found.append(node_id)
+        _walk_xfail(deco, node_id, found, seen)
     return found
 
 
@@ -70,12 +83,11 @@ def python_sites(root):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
                 node_id = f"{rel}::{class_name}::{node.name}" if class_name else f"{rel}::{node.name}"
                 sites.extend(_decorator_sites(node.decorator_list, node_id))
-                owned = {id(deco) for deco in node.decorator_list}
-                owned.update(id(deco.func) for deco in node.decorator_list if isinstance(deco, ast.Call))
+                decorated = {id(item) for deco in node.decorator_list for item in ast.walk(deco)}
             else:
-                owned = set()
-            for child in ast.iter_child_nodes(node):
-                if isinstance(child, ast.Call) and id(child) not in owned and _is_strict_xfail(child):
+                decorated = set()
+            for child in ast.walk(node):
+                if isinstance(child, ast.Call) and id(child) not in decorated and _is_strict_xfail(child):
                     sites.append(f"{rel}:{child.lineno}")
 
         for child in tree.body:
