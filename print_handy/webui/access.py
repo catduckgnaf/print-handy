@@ -170,7 +170,7 @@ class LoginThrottle:
                 self._locked[address] = now + self.lockout_s
                 recent = []
             self._failures[address] = recent
-            if len(self._failures) > self.max_entries:
+            if len(self._failures) > self.max_entries or len(self._locked) > self.max_entries:
                 for key in [k for k, v in self._failures.items()
                             if not v or now - v[-1] >= self.window_s]:
                     del self._failures[key]
@@ -178,10 +178,13 @@ class LoginThrottle:
                     del self._locked[key]
                 while len(self._failures) > self.max_entries:
                     self._failures.pop(next(iter(self._failures)))
+                while len(self._locked) > self.max_entries:
+                    self._locked.pop(next(iter(self._locked)))
 
     def record_success(self, address):
         with self._lock:
             self._failures.pop(address, None)
+            self._locked.pop(address, None)
 
 
 def access_path(data):

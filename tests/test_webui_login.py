@@ -344,3 +344,11 @@ class LoginThrottleTests(unittest.TestCase):
             t.record_failure(f"ip{i}")
         self.assertLessEqual(len(t._failures), 4)
 
+    def test_lockout_table_is_bounded(self):
+        t = self.make()
+        for i in range(50):
+            for _ in range(3):
+                t.record_failure(f"ip{i}")
+        self.assertLessEqual(len(t._locked), 4)
+        self.assertLessEqual(len(t._failures), 4)
+
