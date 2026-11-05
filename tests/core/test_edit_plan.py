@@ -392,3 +392,25 @@ def test_object_toolpath_dims_reads_orca_object_comments():
             "; stop printing object box id:1 copy 0\nG1 X0 Y0\n")
     assert ep.object_toolpath_dims(text) == (30.0, 20.0, 12.0)
     assert ep.object_toolpath_dims("G1 X0 Y0 Z0\nG1 X5 Y5 Z5\n") is None
+
+
+@pytest.mark.parametrize("text,degrees", [
+    ("rotate 45", 45.0), ("rotate 180", 180.0), ("turn it by 45", 45.0),
+    ("rotate it 30 on x", 30.0), ("rotate", 90.0)])
+def test_bare_numeric_rotation_angles_are_kept(text, degrees):
+    """Codex P2 on #908: a bare angle is the angle, not the 90 degree default."""
+    kind, plan = ep.resolve_request(text)
+    assert kind == "plan" and plan["kind"] == "rotate" and plan["degrees"] == degrees
+
+
+def test_copy_count_reads_orca_labels_with_spaces_once_per_copy():
+    """Codex P2 on #908: Orca labels carry spaces and repeat on every layer."""
+    layer = ("; printing object box id:1 copy 0\nG1 X1 E1\n; stop printing object box id:1 copy 0\n"
+             "; printing object box id:1 copy 1\nG1 X2 E2\n; stop printing object box id:1 copy 1\n")
+    assert ep.plate_object_count(layer * 3) == 2
+    ok, lines = ep.verify_slice({"kind": "copies", "count": 2}, gcode_text=layer * 3, before_dims=None)
+    assert ok, lines
+
+
+def test_label_objects_rides_the_slice_edits():
+    assert ep.slice_edits({"edit_settings": {"label_objects": True}}) == {"label_objects": True}

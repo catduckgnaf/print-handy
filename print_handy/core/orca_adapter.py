@@ -1558,6 +1558,10 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             process['layer_height'] = str(edits['layer_height'])
         if edits.get('infill_percent') is not None:
             process['sparse_infill_density'] = f"{edits['infill_percent']:g}%"
+        if edits.get('label_objects'):
+            # The copies probe slice (#903): the shipped AD5X profiles turn
+            # object labels off, so the probe turns them on to count copies.
+            process['gcode_label_objects'] = '1'
         geometry['edit_plan'] = json.dumps({k: v for k, v in edits.items() if k != 'mirror'},
                                            sort_keys=True)
     tree_note = author_settings.tree_style(process, source) if str(process.get('enable_support')) == '1' else None

@@ -373,6 +373,14 @@ def _extract_args(text):
     match = re.search(r"(-?\d+(?:\.\d+)?)\s*(?:degrees?|deg|°)", folded)
     if match:
         degrees = float(match.group(1))
+    elif re.search(r"\b(?:rotat\w*|turn)\b", folded):
+        # A bare angle ("rotate 45", "turn it by 180") is still the angle
+        # (Codex P2 on #908); a number with another unit is not.
+        match = re.search(r"\b(?:rotat\w*|turn)\b(?:\s+(?:it|this|that|the model|by))*\s+"
+                          r"(-?\d+(?:\.\d+)?)(?!\s*(?:%|percent|mm|millimet|cop(?:y|ies)|x\b|times))",
+                          folded)
+        if match:
+            degrees = float(match.group(1))
     layer_mm = None
     if "layer" in folded:
         match = re.search(r"(\d+\.\d+)\s*(?:mm)?\b", folded)
@@ -872,6 +880,8 @@ def slice_edits(job):
         edits["layer_height"] = float(settings_now["layer_height"])
     if settings_now.get("infill_percent") is not None:
         edits["infill_percent"] = float(settings_now["infill_percent"])
+    if settings_now.get("label_objects"):
+        edits["label_objects"] = True
     mirror = (job.get("orientation") or {}).get("mirror")
     if mirror:
         edits["mirror"] = mirror
@@ -977,9 +987,11 @@ def plate_object_count(text):
     defined = re.findall(r"^EXCLUDE_OBJECT_DEFINE NAME=(\S+)", text, re.M)
     if defined:
         return len(set(defined))
-    printed = re.findall(r"^; printing object (\S+)$", text, re.M)
+    # Orca's object labels ("; printing object box id:1 copy 0") repeat on
+    # every layer and carry spaces: count distinct identities, not markers.
+    printed = re.findall(r"^; printing object (.+?)\s*$", text, re.M)
     if printed:
-        return len(printed)
+        return len(set(printed))
     return None
 
 

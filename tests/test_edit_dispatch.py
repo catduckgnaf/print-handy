@@ -544,3 +544,60 @@ def test_file_plus_question_answers_after_intake(edit_env, monkeypatch):
     event.media_types = ["model/3mf"]
     run(plugin.model_link_dispatch(event, edit_env.gateway))
     assert any("support" in (m or "").lower() for m in edit_env.adapter.sent + [q for q, _ in edit_env.confirms])
+
+
+def test_copies_probe_turns_on_object_labels(tmp_path, monkeypatch):
+    """Codex P2 on #908: the shipped AD5X profiles have labels off, so the
+    copies probe slice turns them on; the real job is not changed."""
+    model = tmp_path / "model.stl"
+    model.write_text(STL)
+    job = {"downloaded_file": str(model), "audit": {"size_x": 40, "size_y": 20, "size_z": 10}}
+    seen = {}
+
+    def fake_slice_job(path):
+        seen["job"] = json.loads(Path(path).read_text())
+        gcode = Path(path).parent / "plate.gcode"
+        gcode.write_text("; printing object box id:1 copy 0\nG1 X1 E1\n"
+                         "; printing object box id:1 copy 1\nG1 X2 E2\n")
+        return [str(gcode)]
+
+    monkeypatch.setattr(mj, "slice_job", fake_slice_job)
+    ok, lines = edit_chat._edit_probe(job, {"kind": "copies", "count": 2})
+    assert ok, lines
+    assert seen["job"]["edit_settings"]["label_objects"] is True
+    assert ep.slice_edits(seen["job"])["label_objects"] is True
+    assert "edit_settings" not in job
+
+
+def test_fit_answer_checks_the_printer_height(edit_env, monkeypatch):
+    """Codex P2 on #908: bed_mm has two values; the height limit is separate."""
+    from print_handy import settings
+    job = json.loads(edit_env.job_path.read_text())
+    job["audit"] = {"size_x": 20, "size_y": 20, "size_z": 1000, "parts": 1}
+    edit_env.job_path.write_text(json.dumps(job))
+    monkeypatch.setattr(settings, "current",
+                        lambda: {"printer": {"bed_mm": [220.0, 220.0], "max_print_height_mm": 220.0}})
+    from print_handy.core import printer_state
+
+    def no_state(**_kw):
+        raise FileNotFoundError("no saved printer state")
+
+    monkeypatch.setattr(printer_state, "load", no_state)
+    run(plugin.edit_dispatch(_event("will it fit on the bed?"), edit_env.gateway))
+    sent = edit_env.adapter.sent
+    assert any(m.startswith("No.") and "220 x 220 x 220 mm" in m for m in sent), sent
+
+
+def test_supports_question_choice_is_an_approval(edit_env, monkeypatch):
+    """Codex P2 on #908: the supports safety choice needs approval users."""
+    _mark_unsupported_slice(edit_env)
+    flags = []
+
+    async def fake_confirm(adapter, source, metadata, prefix, question, choices, timeout,
+                           live_key=None, approval=False):
+        flags.append(approval)
+        return "Print without supports"
+
+    monkeypatch.setattr(plugin, "_confirm", fake_confirm)
+    run(plugin.edit_dispatch(_event("does this need supports?"), edit_env.gateway))
+    assert flags == [True]

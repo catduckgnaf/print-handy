@@ -15,7 +15,7 @@ Say any of these about the current job in the channel (or thread):
 - **Supports:** "add supports", "add tree supports", "normal supports",
   "supports on the build plate only", "no supports". A bare "supports
   please" works too.
-- **Rotate:** "rotate 90", "rotate 45 degrees around X". Default is 90°
+- **Rotate:** "rotate 90", "rotate 45", "rotate 45 degrees around X". A bare number is the angle. Default is 90°
   around Z.
 - **Lay flat:** "lay flat", "flat side down", "largest face down" — the
   model is set on its largest face.
@@ -80,7 +80,7 @@ checked against the plan before the real job changes:
 - supports edits check the G-code actually contains support toolpaths
   and the sliced config matches (support on/off, tree vs normal,
   build-plate-only);
-- copies check the plate's object count;
+- copies check the plate's object count (the probe slice turns Orca object labels on, since the shipped AD5X profiles ship with them off);
 - brim, layer height and infill check the values in the sliced config.
 
 A failed check is reported with its reason and the job is left exactly

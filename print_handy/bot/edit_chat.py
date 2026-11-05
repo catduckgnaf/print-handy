@@ -124,6 +124,10 @@ def _edit_probe(job, plan):
         if probe.get('sources'):
             probe['sources'] = [dict(probe['sources'][0], path=str(local), name=source.name)]
         edit_plan.apply_plan(probe, plan)
+        if plan.get('kind') == 'copies':
+            # Probe only: label objects so the copy count is measurable on
+            # profiles that ship with labels off (Codex P2 on #908).
+            probe['edit_settings'] = dict(probe.get('edit_settings') or {}, label_objects=True)
         probe_path = probe_dir / 'JOB.json'
         mj.write_job(probe_dir, probe)
         try:
@@ -137,6 +141,25 @@ def _edit_probe(job, plan):
                                       before_dims=edit_plan.job_dims(job))
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
+
+
+def _build_volume(job, source, gateway):
+    """[x, y, z] mm for the job's printer: its saved state, else settings.
+    Settings keep bed_mm as two values and the height separately, so the
+    height is added here; a fit answer must check it (Codex P2 on #908)."""
+    from print_handy import settings
+    printer = settings.current().get('printer') or {}
+    bed = list(printer.get('bed_mm') or [])[:2]
+    height = printer.get('max_print_height_mm')
+    try:
+        from print_handy.core import printer_state
+        pid = job.get('printer_id') or _h()._routed_printer_id(source, gateway)
+        state = printer_state.load(**_h()._pkw(pid))
+        bed = list(state.get('bed_mm') or bed)[:2]
+        height = state.get('max_print_height_mm') or height
+    except Exception:
+        pass  # no saved printer state here: the configured printer stands
+    return bed + ([height] if height else [])
 
 
 async def _edit_question(event, gateway, source, adapter, kind):
@@ -158,8 +181,7 @@ async def _edit_question(event, gateway, source, adapter, kind):
         await say(model_questions.size_answer(job))
         return {'action': 'skip', 'reason': 'question answered: size'}
     if kind == 'fit':
-        from print_handy import settings
-        await say(model_questions.fit_answer(job, settings.current()['printer']['bed_mm']))
+        await say(model_questions.fit_answer(job, _build_volume(job, source, gateway)))
         return {'action': 'skip', 'reason': 'question answered: fit'}
     model = job.get('downloaded_file')
     answer, offer = model_questions.supports_answer(job, model if model and Path(model).is_file() else None)
@@ -167,9 +189,10 @@ async def _edit_question(event, gateway, source, adapter, kind):
         await say(answer)
         return {'action': 'skip', 'reason': 'question answered: supports'}
     timeout = _config.question_timeout_s()
+    # A safety choice: approval users only, like the intake's own prompt (Codex P2 on #908).
     pick = await _h()._confirm(adapter, source, metadata, 'model-question', answer + '\nWhat should I do?',
                           [RESLICE_SUPPORTS_LABEL, PRINT_NO_SUPPORTS_LABEL], timeout,
-                          live_key=gateway._session_key_for_source(source))
+                          live_key=gateway._session_key_for_source(source), approval=True)
     if pick == RESLICE_SUPPORTS_LABEL:
         mj.record_support_decision(job_path.parent, True)
         job = json.loads(job_path.read_text())
