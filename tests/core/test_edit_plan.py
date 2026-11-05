@@ -353,3 +353,40 @@ def test_lay_flat_measures_the_rotated_vertices():
     tris = [((0, 0, 0), (10, 0, 0), (0, 10, 0))]
     matrix, dims = ep.lay_flat_rotation(tris)
     assert dims == ep.mesh_envelope(matrix, tris)
+
+
+OBJECT_GCODE = """G90
+M83
+G1 X0 Y0 Z0.2 F3000
+G1 X200 Y0 E9.0 ; purge line outside the object
+EXCLUDE_OBJECT_START NAME=part_1
+G1 X50 Y50 Z0.2
+G1 X70 Y50 E1.0
+G1 X70 Y60 E0.5
+G1 X50 Y60 Z5 E1.0
+G1 X120 Y120 ; travel inside the block, no extrusion
+EXCLUDE_OBJECT_END NAME=part_1
+EXCLUDE_OBJECT_START NAME=part_2
+G1 X100 Y50 Z0.2
+G1 X120 Y50 E1.0
+G1 X120 Y60 Z5 E0.5
+EXCLUDE_OBJECT_END NAME=part_2
+G1 X220 Y220 Z10 ; park
+"""
+
+
+def test_verify_slice_measures_object_toolpaths_not_all_motion():
+    # Codex P2 on #908: purge lines, travel, parking and a second copy
+    # must not inflate the measured size of one object.
+    assert ep.object_toolpath_dims(OBJECT_GCODE) == (20.0, 10.0, 5.0)
+    plan = {"kind": "scale_percent", "percent": 50, "result_dims": [20.0, 10.0, 5.0]}
+    ok, lines = ep.verify_slice(plan, gcode_text=OBJECT_GCODE, before_dims=(40, 20, 10))
+    assert ok, lines
+
+
+def test_object_toolpath_dims_reads_orca_object_comments():
+    text = ("G90\nM82\nG92 E0\n; printing object box id:1 copy 0\n"
+            "G1 X10 Y10 Z0.2\nG1 X40 Y10 E1\nG1 X40 Y30 Z12 E2\n"
+            "; stop printing object box id:1 copy 0\nG1 X0 Y0\n")
+    assert ep.object_toolpath_dims(text) == (30.0, 20.0, 12.0)
+    assert ep.object_toolpath_dims("G1 X0 Y0 Z0\nG1 X5 Y5 Z5\n") is None

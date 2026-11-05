@@ -981,6 +981,88 @@ def plate_object_count(text):
     return None
 
 
+_OBJECT_START_RE = re.compile(r"^\s*(?:; printing object (.+?)|EXCLUDE_OBJECT_START NAME=(\S+))\s*$")
+_OBJECT_END_RE = re.compile(r"^\s*(?:; stop printing object\b.*|EXCLUDE_OBJECT_END\b.*)$")
+_MOVE_RE = re.compile(r"^\s*G0?[01](?=\s|$)([^;]*)", re.I)
+_WORD_RE = re.compile(r"([XYZE])\s*(-?\d+(?:\.\d+)?|-?\.\d+)", re.I)
+
+
+def object_toolpath_dims(text):
+    """The printed size of ONE object from its extruding toolpaths.
+
+    Counts only G0/G1 moves that extrude (E increases) inside an object
+    block ('; printing object' or EXCLUDE_OBJECT_START), so travel, purge
+    lines, wipe moves and the skirt or brim are left out, and several
+    copies on one plate are measured one object at a time (the largest
+    per axis). Z is the top of the highest extrusion, since the object
+    sits on the plate. Returns None when the G-code has no object blocks
+    or no extruding moves in them, so the caller can fall back.
+    """
+    absolute_xyz = True
+    absolute_e = True
+    pos = {"X": None, "Y": None, "Z": None, "E": 0.0}
+    current = None
+    per_object = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        start = _OBJECT_START_RE.match(line)
+        if start:
+            current = start.group(1) or start.group(2)
+            continue
+        if _OBJECT_END_RE.match(line):
+            current = None
+            continue
+        upper = line.upper()
+        if upper.startswith("G90"):
+            absolute_xyz = absolute_e = True
+            continue
+        if upper.startswith("G91"):
+            absolute_xyz = absolute_e = False
+            continue
+        if upper.startswith("M82"):
+            absolute_e = True
+            continue
+        if upper.startswith("M83"):
+            absolute_e = False
+            continue
+        if upper.startswith("G92"):
+            for axis, number in _WORD_RE.findall(line.split(";")[0]):
+                if axis.upper() == "E":
+                    pos["E"] = float(number)
+            continue
+        move = _MOVE_RE.match(line)
+        if not move:
+            continue
+        before = (pos["X"], pos["Y"])
+        extrudes = False
+        for axis, number in _WORD_RE.findall(move.group(1)):
+            axis = axis.upper()
+            value = float(number)
+            if axis == "E":
+                delta = value - pos["E"] if absolute_e else value
+                pos["E"] = value if absolute_e else pos["E"] + value
+                extrudes = delta > 1e-9
+            elif absolute_xyz or pos[axis] is None:
+                pos[axis] = value
+            else:
+                pos[axis] += value
+        if not (extrudes and current is not None) or None in (pos["X"], pos["Y"], pos["Z"]):
+            continue
+        box = per_object.setdefault(current, [math.inf, -math.inf, math.inf, -math.inf, -math.inf])
+        for x, y in (before, (pos["X"], pos["Y"])):
+            if x is None or y is None:
+                continue
+            box[0] = min(box[0], x)
+            box[1] = max(box[1], x)
+            box[2] = min(box[2], y)
+            box[3] = max(box[3], y)
+        box[4] = max(box[4], pos["Z"])
+    if not per_object:
+        return None
+    sizes = [(b[1] - b[0], b[3] - b[2], b[4]) for b in per_object.values()]
+    return tuple(round(max(s[a] for s in sizes), 3) for a in range(3))
+
+
 def _dims_close(expected, measured, tolerance_mm=0.75, tolerance_ratio=0.015):
     if expected is None or measured is None:
         return False
@@ -1008,8 +1090,13 @@ def verify_slice(plan, *, gcode_text, before_dims, config=None):
     kind = plan["kind"]
     if kind in ("scale_percent", "scale_to_mm", "rotate", "lay_flat", "mirror"):
         try:
-            bounds = mj.gcode_motion_bounds(gcode_text)
-            measured = tuple(round(bounds[a][1] - bounds[a][0], 3) for a in "xyz")
+            # The model's own toolpaths (Codex P2 on #908): all-motion
+            # bounds include purge lines, travel, skirt and brim, and a
+            # plate of copies, none of which is the model's size.
+            measured = object_toolpath_dims(gcode_text)
+            if measured is None:
+                bounds = mj.gcode_motion_bounds(gcode_text)
+                measured = tuple(round(bounds[a][1] - bounds[a][0], 3) for a in "xyz")
         except Exception as exc:
             measured = None
             check("result bounds", False, f"the G-code bounds could not be measured ({exc})")
