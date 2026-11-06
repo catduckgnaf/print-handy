@@ -439,7 +439,11 @@ def power_action(data, printer_id, action, body=None, *, adapter=None, read=None
     gate — least of all on emergency stop, which must send from whatever
     state the printer can be read in (printing included, exactly like
     the chat panic ladder). The printer is still read first, so an
-    unreachable printer is an explicit 502 rather than a blind send.
+    unreachable printer is an explicit 502 rather than a blind send —
+    except ``server_restart``, whose read is best-effort: Moonraker
+    rejects the status query while Klippy is disconnected, and server
+    restart is the recovery control for exactly that failure, so the
+    restart POST itself decides reachability there.
     Moonraker only; every other family refuses 501 from ``default_send``.
     """
     read = status_module.read_live_status if read is None else read
@@ -451,7 +455,18 @@ def power_action(data, printer_id, action, body=None, *, adapter=None, read=None
         entry, view = _resolve(data, printer_id)
         _require_confirm(body, action)
         adapter = adapter or printers.get(entry["model"], view)
-        state = str(_live_status(adapter, view, read).get("state") or "unknown")
+        if action == "server_restart":
+            # Best-effort read only: Moonraker rejects the objects query
+            # while Klippy is disconnected, but /server/restart does not
+            # depend on Klippy — it is the recovery control for exactly
+            # that failure. The restart POST itself decides whether
+            # Moonraker is reachable (a failed send is a 502 below).
+            try:
+                state = str(_live_status(adapter, view, read).get("state") or "unknown")
+            except ControlError:
+                state = "unknown"
+        else:
+            state = str(_live_status(adapter, view, read).get("state") or "unknown")
         _dispatch(send, adapter, view, ("power", action), action)
     except ControlError as refusal:
         return refusal.code, {"ok": False, "reason": refusal.reason}

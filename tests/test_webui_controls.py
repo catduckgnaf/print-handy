@@ -513,6 +513,29 @@ class PowerActionTests(unittest.TestCase):
             self.assertEqual(code, 404)
         self.assertEqual(send.sent, [])
 
+    def test_server_restart_sends_even_when_status_cannot_be_read(self):
+        # Moonraker rejects the objects query while Klippy is
+        # disconnected, but /server/restart does not depend on Klippy:
+        # it is the recovery control for exactly that failure, so its
+        # status read is best-effort and the restart POST decides.
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            code, body = controls.power_action(enabled(tmp), PRINTER, "server_restart",
+                                               {"confirm": True}, read=unreachable, send=send)
+        self.assertEqual(code, 200, body)
+        self.assertEqual(body["from_state"], "unknown")
+        self.assertEqual(send.sent, [("power", "server_restart")])
+
+    def test_other_power_actions_still_require_a_readable_printer(self):
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = enabled(tmp)
+            for action in ("emergency_stop", "firmware_restart"):
+                code, _ = controls.power_action(data, PRINTER, action, {"confirm": True},
+                                                read=unreachable, send=send)
+                self.assertEqual(code, 502, action)
+        self.assertEqual(send.sent, [])
+
     def test_moonraker_paths(self):
         posts = []
         adapter = FakeMoonrakerAdapter()
@@ -699,6 +722,22 @@ class ObjectStatusTests(unittest.TestCase):
         from print_handy.printers.klipper.adapter import KlipperAdapter
         adapter = object.__new__(KlipperAdapter)
         self.assertIn("exclude_object", adapter.moonraker_objects())
+
+    def test_every_moonraker_adapter_queries_exclude_object(self):
+        # The ZMod and Snapmaker adapters carry their own object lists:
+        # without the query their printers normalize to empty object
+        # lists and every exclude request would refuse as unknown.
+        from print_handy.printers.flashforge.adapter import (
+            ZmodAdapter,
+            ZmodMultiToolAdapter,
+            ZmodSingleExtruderAdapter,
+        )
+        from print_handy.printers.snapmaker.adapter import SnapmakerAdapter
+        for cls in (ZmodAdapter, ZmodSingleExtruderAdapter, ZmodMultiToolAdapter,
+                    SnapmakerAdapter):
+            adapter = object.__new__(cls)
+            adapter.config = {"printer": {"tool_count": 2}}
+            self.assertIn("exclude_object", adapter.moonraker_objects(), cls.__name__)
 
     def test_basic_status_normalizes_object_entries(self):
         from print_handy.printers.base import basic_status
