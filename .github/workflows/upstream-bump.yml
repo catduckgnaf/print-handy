@@ -3,8 +3,12 @@ name: Upstream bump
 # Opens draft bump PRs for the manually pinned upstream tools
 # (Phase A: go2rtc and Spoolman; Phase B: Bambu Studio, whose bump
 # also regenerates the HMS error table from the new commit's own
-# resources) when a final upstream release is newer than the pin
-# and at least 3 days old. Identity comes from
+# resources; Phase C: OrcaSlicer, single channel - the target is
+# the newest release overall, prereleases included, and the bump
+# verifies the new bundle's vendor profiles against the recorded
+# identities before opening the PR) when an upstream release is
+# newer than the pin and, for finals, at least 3 days old.
+# Identity comes from
 # the print-handy-upstream-bot GitHub App so the PRs trigger CI
 # normally; until catduck adds the UPSTREAM_BOT_APP_ID /
 # UPSTREAM_BOT_PRIVATE_KEY secrets this workflow is deliberately
@@ -26,6 +30,7 @@ on:
           - go2rtc
           - spoolman
           - bambu
+          - orca
         default: all
 
 permissions:
@@ -38,10 +43,14 @@ concurrency:
 jobs:
   bump:
     runs-on: ubuntu-24.04
-    # 30 minutes of headroom: a Bambu bump fetches the new
+    # 45 minutes of headroom: a Bambu bump fetches the new
     # commit's resources/hms files from Bambu Studio (a blob-less
-    # sparse fetch) to regenerate the HMS table from them.
-    timeout-minutes: 30
+    # sparse fetch) to regenerate the HMS table from them, and an
+    # Orca bump downloads the ~200 MB AppImage, extracts it,
+    # sparse-fetches the source tree's resources/profiles at the
+    # same commit, and sweeps every recorded model's profiles in
+    # both packagings before it may open a PR.
+    timeout-minutes: 45
     steps:
       # persist-credentials: false - the checkout must not store the
       # workflow token as a git auth extraheader; that header would

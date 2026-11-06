@@ -6,21 +6,70 @@ set -euo pipefail
 # backward-compatible migration lives here: when the legacy volume holds
 # files and the new one holds none, the new path becomes a symlink to the
 # legacy folder and every service keeps reading the existing data through
-# /data/state. Nothing is moved or copied; an install that only maps the
-# new path never sees this, and an explicit paths.hermes_home pointing at
-# /data/hermes is honored unchanged (no symlink is needed then).
+# /data/state. Nothing is moved or copied — except when /data/state is
+# itself a mounted volume (the shipped two-bind-mount layout): a
+# mountpoint cannot be removed or replaced by a symlink, so the legacy
+# contents are copied into the mounted volume instead and the legacy
+# volume is left untouched. An install that only maps the new path never
+# sees this, and an explicit paths.hermes_home pointing at /data/hermes
+# is honored unchanged (no symlink is needed then).
 data_root="${HOME:-/data}"
 state_home="$data_root/state"
 legacy_home="$data_root/hermes"
 _has_files() { [ -d "$1" ] && [ -n "$(find "$1" -type f -print -quit 2>/dev/null)" ]; }
+_is_mountpoint() {
+    # Two signals, either is enough: the folder is listed as a
+    # mountpoint in /proc/self/mounts (catches every mount, bind mounts
+    # included), or its device differs from its parent folder's device
+    # (a mounted filesystem of its own; stat is GNU coreutils, which the
+    # Debian image ships). Unreadable inputs read as "not a mountpoint"
+    # so the plain-folder path below still applies.
+    [ -d "$1" ] || return 1
+    local dev parent_dev mp _
+    if [ -r /proc/self/mounts ]; then
+        while read -r _ mp _; do
+            case "$mp" in *\\0*) mp="$(printf '%b' "$mp")" ;; esac
+            [ "$mp" = "$1" ] && return 0
+        done < /proc/self/mounts
+    fi
+    dev="$(stat -c %d "$1" 2>/dev/null)" || return 1
+    parent_dev="$(stat -c %d "$1/.." 2>/dev/null)" || return 1
+    [ -n "$dev" ] && [ -n "$parent_dev" ] && [ "$dev" != "$parent_dev" ]
+}
 if [ -L "$state_home" ]; then
     echo "Print Handy: state volume is /data/state, a symlink to $(readlink "$state_home") — the legacy /data/hermes volume is in use (deprecated name; it stays accepted for at least two minor releases)." >&2
-elif _has_files "$legacy_home" && ! _has_files "$state_home"; then
-    rm -rf "$state_home"
-    ln -s "$legacy_home" "$state_home"
-    echo "Print Handy: using the legacy /data/hermes state volume as /data/state (deprecated name; rename the host folder to 'state' when convenient — /data/hermes stays accepted for at least two minor releases)." >&2
+elif _has_files "$legacy_home" && { ! _has_files "$state_home" || [ -e "$state_home/.migration-incomplete" ]; }; then
+    if _is_mountpoint "$state_home"; then
+        # rm -rf on a mountpoint fails EBUSY and would stop the container
+        # before any service starts, so the mounted volume is populated
+        # from the legacy one instead of being replaced by a symlink.
+        # Later starts see both volumes holding data and keep using
+        # /data/state (the warning branch below). Ownership is not
+        # preserved: the copy runs as the volume's runtime user, and a
+        # filesystem that refuses chown must not stop the copy either.
+        # The copy is marked in progress inside the state volume until
+        # it completes: a start that finds the mark re-copies, so a copy
+        # interrupted partway (full disk, killed container) never reads
+        # as a finished migration on the next start.
+        if [ -e "$state_home/.migration-incomplete" ]; then
+            echo "Print Handy: an earlier copy of the legacy /data/hermes state volume into the mounted /data/state volume did not finish; copying it again to complete the migration." >&2
+        fi
+        touch "$state_home/.migration-incomplete"
+        cp -a --no-preserve=ownership "$legacy_home"/. "$state_home"/
+        rm -f "$state_home/.migration-incomplete"
+        echo "Print Handy: /data/state is a mounted volume, so it cannot be replaced by a symlink to the legacy /data/hermes volume; the legacy volume's contents were copied into /data/state instead, and /data/hermes is left untouched (deprecated name; it stays accepted for at least two minor releases)." >&2
+    else
+        rm -rf "$state_home"
+        ln -s "$legacy_home" "$state_home"
+        echo "Print Handy: using the legacy /data/hermes state volume as /data/state (deprecated name; rename the host folder to 'state' when convenient — /data/hermes stays accepted for at least two minor releases)." >&2
+    fi
 elif _has_files "$legacy_home" && _has_files "$state_home"; then
     echo "Print Handy: WARNING both /data/state and the legacy /data/hermes state volumes hold data; using /data/state and ignoring /data/hermes." >&2
+elif [ -e "$state_home/.migration-incomplete" ]; then
+    # The mark is there but the legacy volume holds nothing to complete
+    # the copy from (it was removed or unmapped between starts): say so
+    # plainly instead of silently trusting a partial /data/state.
+    echo "Print Handy: WARNING an earlier copy into /data/state did not finish, and the legacy /data/hermes volume now holds no files to complete it from; /data/state may be incomplete." >&2
 elif [ -e "$state_home" ] && [ ! -e "$legacy_home" ] && [ ! -L "$legacy_home" ]; then
     # Only the new volume is mapped (Docker created it as an empty
     # mountpoint directory) and the legacy name does not exist at all:

@@ -1,0 +1,4 @@
+
+def test_profile_defaults_reference_orca_profile_names_and_sources(p1s_profiles):
+    assert facts.ORCA_RELEASE == ("v2.5.0-rc", "af2ffb8cddd2f3c0bdadc56d9cc3945fb23577ea")
+    assert all(fact.source in {"ORCA", "BAMBU", "DERIVED"} for fact in facts.P1S.values())

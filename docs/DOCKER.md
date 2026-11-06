@@ -41,6 +41,8 @@ Default bind is `127.0.0.1:8000` inside the container. Print Handy defaults to `
 
 Then point Moonraker's `[spoolman]` section at `server: http://<unraid-ip>:7912` (see [ZMod printers](ZMOD.md#bundled-spoolman-from-printer-moonraker-443)); a healthy bundled Spoolman answers `GET http://<unraid-ip>:7912/api/v1/info` with HTTP 200. The API is unauthenticated: keep it on the LAN only and never forward its port from a router. Spoolman's web UI is not bundled (#214) — Print Handy remains the interface.
 
+A browser that opens the bundled Spoolman's root gets a small stub page (#940): it explains that this address is the Spoolman API only, links to `/api/v1`, and links onward to the Print Handy Web UI Spools page on the same host (Web UI port, default 8088, path `/spools`). Dashboards and webpage cards — for example a Home Assistant dashboard card — should point at the Web UI's `/spools` page, not at Spoolman's root.
+
 Persist `/data/spoolman` separately, including database, config, logs and backups. Upstream Alembic migrations remain intact for existing 0.26.1/0.27.0 databases. Runtime migration acceptance is required before deployment; retaining migration files alone is not evidence of a successful migration. Preserve source data and reconcile inventory at final cutover. No automatic downgrade is provided.
 
 For an existing external instance set `PRINT_HANDY__SERVICES__SPOOLMAN_URL=http://spoolman.example:8000`. Its data is not migrated or reset; the local database remains separate. Optionally set `PRINT_HANDY_BUNDLED_SPOOLMAN=false` to skip the local API, requiring a nonlocal URL. Healthcheck then checks the external API. Changing a URL never moves or deletes a database.
@@ -285,12 +287,12 @@ As of 2.2.2 the shipped Docker default model is `klipper.generic` (it was `flash
 
 ## Pinning the image
 
-`:latest`, `:develop` and `:nightly` are moving tags. A pull of any of them can replace a working container with a different build, including one that was never released. A release tag such as `:2.2.4` is safer, but it is immutable only until someone republishes it. The thing that does not move is the multi-arch index digest.
+`:latest`, `:develop` and `:nightly` are moving tags. A pull of any of them can replace a working container with a different build, including one that was never released. A release tag such as `:2.2.5` is safer, but it is immutable only until someone republishes it. The thing that does not move is the multi-arch index digest.
 
-The current release is 2.2.4. Its index digest, read from GHCR on 2026-11-04, is the same digest `:latest` pointed at that day:
+The current release is 2.2.5. Its index digest, read from GHCR on 2026-11-06, is the same digest `:latest` pointed at that day:
 
 ```text
-ghcr.io/catduckgnaf/print-handy@sha256:a43e48f1eea57c9d053ff9cf8bc535e22acf010cf987a699efc44a87472c33ec
+ghcr.io/catduckgnaf/print-handy@sha256:15daa36606fef923b773d1690d242584bd018df7746a545bc62ed78a825f8a56
 ```
 
 That digest is the amd64 and arm64 index, not one architecture's image. The in-repo Unraid template's `Repository` is this value. Compose has no default image: set `PRINT_HANDY_IMAGE` in `.env` to the same digest.
@@ -298,7 +300,7 @@ That digest is the amd64 and arm64 index, not one architecture's image. The in-r
 Confirm a tag still points where you think before you pin it:
 
 ```bash
-docker buildx imagetools inspect ghcr.io/catduckgnaf/print-handy:2.2.4
+docker buildx imagetools inspect ghcr.io/catduckgnaf/print-handy:2.2.5
 ```
 
 The `Digest:` line of the index is the value to pin. The per-architecture lines under `Manifests:` are not.
@@ -311,7 +313,7 @@ This is the edit. It is not applied by installing this repository.
 2. Change only the `Repository` element, from the moving tag to the digest:
 
 ```xml
-<Repository>ghcr.io/catduckgnaf/print-handy@sha256:a43e48f1eea57c9d053ff9cf8bc535e22acf010cf987a699efc44a87472c33ec</Repository>
+<Repository>ghcr.io/catduckgnaf/print-handy@sha256:15daa36606fef923b773d1690d242584bd018df7746a545bc62ed78a825f8a56</Repository>
 ```
 
 3. Leave every path, port, variable and `ExtraParams` value as it is. In particular do not drop a volume: the five appdata paths and any extra mounts (account tokens, timelapse archive) stay.
@@ -324,13 +326,17 @@ An install already running a tested digest keeps that digest. Do not overwrite i
 
 The main state volume was called `/data/hermes` before 2.2.5 — a leftover
 from when Print Handy lived inside Hermes. Its neutral name is now
-`/data/state` (#914). **No upgrade action is required:** nothing is moved
-or copied, and an install that keeps mapping only the old path keeps
-working unchanged. At startup the entrypoint checks the two paths:
+`/data/state` (#914). **No upgrade action is required,** and an install
+that keeps mapping only the old path keeps working unchanged. At startup
+the entrypoint checks the two paths:
 
 - Only the legacy volume holds data: `/data/state` becomes a symlink to
   it, one deprecation line is logged, and every service reads the existing
-  data through the new path.
+  data through the new path. Where `/data/state` is itself a mounted volume
+  (the shipped Compose file and templates mount both paths), it cannot be
+  replaced by a symlink: on the first start the legacy contents are copied
+  into the mounted volume instead, the legacy folder is left untouched, and
+  the log says so; later starts use `/data/state` and warn that both hold data.
 - Only the new volume holds data (or neither): the new path is used.
 - Both hold data: the new path wins, a warning is logged, and the legacy
   folder is ignored.
@@ -362,10 +368,10 @@ To adopt the new name (optional, any time before that removal):
 
 ### Rollback
 
-Rollback is the previous digest with the same data paths. Nothing in Print Handy downgrades the Spoolman database, so roll back only to an image that can read the data the current one wrote. The 2.2.3 index, which 2.2.4's release notes leave untouched, is:
+Rollback is the previous digest with the same data paths. Nothing in Print Handy downgrades the Spoolman database, so roll back only to an image that can read the data the current one wrote. The 2.2.4 index, which 2.2.5's release notes leave untouched, is:
 
 ```text
-ghcr.io/catduckgnaf/print-handy@sha256:1acdcdac6c7f7a49ab723eba231bf596786f670693a55448de1a4109a3cca04f
+ghcr.io/catduckgnaf/print-handy@sha256:a43e48f1eea57c9d053ff9cf8bc535e22acf010cf987a699efc44a87472c33ec
 ```
 
 Put that value back in `Repository` (or in `PRINT_HANDY_IMAGE`) and recreate. If the container will not start on the new digest, put the digest you copied out of the template backup back instead of guessing a tag.

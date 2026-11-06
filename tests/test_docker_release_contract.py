@@ -151,6 +151,40 @@ class DockerReleaseContract(unittest.TestCase):
         self.assertNotRegex(stage, r"\b(npm|node|vite)\b")
         self.assertIn("COPY --from=spoolman-build /opt/spoolman /opt/spoolman", dockerfile)
 
+    def test_spoolman_stub_page_points_at_the_api_and_the_web_ui_spools_page(self):
+        """#940: the bundled Spoolman's root serves a stub page, not a web UI.
+
+        A browser (or a dashboard webpage card, for example in Home
+        Assistant) that opens the bundled Spoolman's root gets the
+        200.html the spoolman-build stage writes. That page must not be a
+        dead end: it keeps the managed-by sentence, says the bundled
+        Spoolman has no web UI and is API-only, links to the API, and
+        links onward to the Print Handy Web UI Spools page. The stub is
+        served from the Spoolman port while the Web UI runs on its own
+        port (default 8088), so the onward link is built from the page's
+        own protocol and host plus the Web UI port and the /spools path,
+        with visible fallback text spelling out that pattern.
+        """
+        dockerfile = (ROOT / "Dockerfile").read_text()
+        stage = dockerfile.split("AS spoolman-build", 1)[1].split("AS runtime", 1)[0]
+        self.assertIn("client_v2/build/200.html", stage)
+        # (a) The managed-by sentence survives.
+        self.assertIn("Spoolman is managed by Print Handy", stage)
+        # (d) The page says the bundled Spoolman has no web UI / is API-only.
+        self.assertIn("has no web UI", stage)
+        self.assertIn("API-only", stage)
+        # (b) The page links to the Spoolman API.
+        self.assertIn('href="/api/v1"', stage)
+        # (c) The onward link targets the Web UI Spools page: same protocol
+        # and host as the stub page, Web UI port (default 8088), /spools.
+        self.assertIn("location.protocol", stage)
+        self.assertIn("location.hostname", stage)
+        self.assertIn(":8088/spools", stage)
+        self.assertIn("Web UI port (default 8088)", stage)
+        self.assertIn("Web UI must be enabled", stage)
+        # Still one self-contained page: no copied frontend assets.
+        self.assertNotIn("client_v2/build/assets", stage)
+
     def test_configuration_parity_channels_and_packaged_plugins(self):
         import tomllib
         from print_handy import settings
