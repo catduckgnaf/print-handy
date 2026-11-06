@@ -48,7 +48,28 @@ OPERATOR_MINED_2 = {
     "suprise": "surprise", "syntaxt": "syntax", "tempalates": "templates",
     "throughly": "thoroughly", "wel": "well", "whgatever": "whatever",
 }
-ALL_PAIRS = {**CURATED_PAIRS, **VARIANTS, **CARD_TYPOS, **OPERATOR_MINED_2}
+# Generic high-frequency non-word misspellings: domain typos the bounded
+# edit-distance pass misses (filamet, nozel) plus classic English keyboard
+# slips (teh, recieve, definately). Suggested in a branch commit whose file
+# writes landed as placeholders; re-added here properly, pair by pair.
+# Seven of these (infil, infiil, nozel, retracton, stringin, temperture,
+# temprature) also exist in TOKEN_FORMS — the same deliberate duplication
+# as cance/extuder/nozzl — because ``typo_fold`` consumers never see
+# TOKEN_FORMS, so the TYPO entry is what folds them there.
+GENERIC_TYPOS = {
+    "adn": "and", "becasue": "because", "becuase": "because",
+    "definately": "definitely", "definatly": "definitely",
+    "extrudor": "extruder", "filamet": "filament", "filamnt": "filament",
+    "infiil": "infill", "infil": "infill", "klipperr": "klipper",
+    "listners": "listeners", "nozel": "nozzle", "occured": "occurred",
+    "recieve": "receive", "reccomend": "recommend", "recomend": "recommend",
+    "retraciton": "retraction", "retracton": "retraction",
+    "seperatly": "separately", "stringin": "stringing", "teh": "the",
+    "temperture": "temperature", "temprature": "temperature",
+    "untill": "until", "warpping": "warping", "wich": "which",
+}
+ALL_PAIRS = {**CURATED_PAIRS, **VARIANTS, **CARD_TYPOS, **OPERATOR_MINED_2,
+             **GENERIC_TYPOS}
 
 
 @pytest.mark.parametrize("typo,word", sorted(ALL_PAIRS.items()))
