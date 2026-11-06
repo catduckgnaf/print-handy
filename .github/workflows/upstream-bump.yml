@@ -1,0 +1,78 @@
+name: Upstream bump
+
+# Opens draft bump PRs for the manually pinned upstream tools
+# (Phase A: go2rtc and Spoolman) when a final upstream release is
+# newer than the pin and at least 3 days old. Identity comes from
+# the print-handy-upstream-bot GitHub App so the PRs trigger CI
+# normally; until catduck adds the UPSTREAM_BOT_APP_ID /
+# UPSTREAM_BOT_PRIVATE_KEY secrets this workflow is deliberately
+# inert: it prints a notice and exits 0 without changing anything.
+# It never merges. The companion upstream-bump-ready.yml flips a
+# bump PR from draft to ready once its CI suite is green.
+
+on:
+  schedule:
+    # Mondays 15:07 UTC - after the upstream-watch workflow's slot.
+    - cron: "7 15 * * 1"
+  workflow_dispatch:
+    inputs:
+      component:
+        description: "Component to check for a bump"
+        type: choice
+        options:
+          - all
+          - go2rtc
+          - spoolman
+        default: all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      # persist-credentials: false - the checkout must not store the
+      # workflow token as a git auth extraheader; that header would
+      # override the app-token remote URL below and pushes would
+      # authenticate as the (read-only) workflow token instead.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check upstream bot identity
+        id: identity
+        env:
+          UPSTREAM_BOT_APP_ID: ${{ secrets.UPSTREAM_BOT_APP_ID }}
+          UPSTREAM_BOT_PRIVATE_KEY: ${{ secrets.UPSTREAM_BOT_PRIVATE_KEY }}
+        run: python3 scripts/bump_upstream.py --check-identity >> "$GITHUB_OUTPUT"
+
+      - name: Notice when inert
+        if: steps.identity.outputs.configured != 'true'
+        run: |
+          echo "::notice::Upstream bump automation is inert: the upstream bot identity is not configured (secrets UPSTREAM_BOT_APP_ID / UPSTREAM_BOT_PRIVATE_KEY - see the setup checklist). Nothing was changed."
+
+      - name: Mint upstream bot token
+        id: app-token
+        if: steps.identity.outputs.configured == 'true'
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.UPSTREAM_BOT_APP_ID }}
+          private-key: ${{ secrets.UPSTREAM_BOT_PRIVATE_KEY }}
+
+      - name: Point git at the bot token
+        if: steps.identity.outputs.configured == 'true'
+        env:
+          BOT_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: git remote set-url origin "https://x-access-token:${BOT_TOKEN}@github.com/${{ github.repository }}.git"
+
+      - name: Run the bump automation
+        if: steps.identity.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: python3 scripts/bump_upstream.py --component "${{ inputs.component || 'all' }}"
