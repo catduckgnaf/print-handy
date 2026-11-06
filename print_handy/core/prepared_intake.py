@@ -3203,6 +3203,19 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                     latest['orientation'] = {'rotation': matrix}
                     latest.pop('support_decision', None)
                     latest.pop('clearance_acknowledgement', None)
+                    # The cached report describes the pose as authored;
+                    # replace it with the rotated pose's report, or the old
+                    # finding follows the job forever and the repair reads as
+                    # if it changed nothing (#922 gap 7 review follow-up).
+                    try:
+                        rotated = await asyncio.to_thread(
+                            support_clearance.rotated_report, path, matrix)
+                        latest['support_clearance'] = rotated
+                        clearance = rotated
+                        early.clearance = rotated
+                    except Exception:  # noqa: BLE001 - re-analyzed on the next slice instead
+                        latest.pop('support_clearance', None)
+                        clearance = None
                     mj.write_job(folder, latest)
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                        content='Reoriented: laid the largest face flat. The support question '
@@ -3587,7 +3600,18 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                 text = '\n'.join(Path(g).read_text(errors='replace') for g in gcode_list)
             except OSError:
                 return None
-            result = support_clearance.verify_support_coverage(report.get('regions') or [], text)
+            source_bounds = None
+            try:
+                import numpy as _np
+                _tris = _np.concatenate([p['tris'].reshape(-1, 3)
+                                         for p in support_clearance.leaves(path)])
+                source_bounds = (float(_tris[:, 0].min()), float(_tris[:, 1].min()),
+                                 float(_tris[:, 0].max()), float(_tris[:, 1].max()))
+            except Exception:  # noqa: BLE001 - bounds only refine the comparison
+                source_bounds = None
+            result = support_clearance.verify_support_coverage(
+                report.get('regions') or [], text, source_bounds=source_bounds,
+                gcode_bounds=support_clearance.gcode_model_bounds(text))
             return result if result['checked'] and not result['ok'] else None
 
         if supports_choice is True:
