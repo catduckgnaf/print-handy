@@ -1,4 +1,4 @@
-"""The per-test timeout policy: pytest.ini's limit applies everywhere except tests/corpus (#687)."""
+"""The per-test timeout policy: the pyproject.toml limit applies everywhere except tests/corpus (#687)."""
 import pytest
 
 

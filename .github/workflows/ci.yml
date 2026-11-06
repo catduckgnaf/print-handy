@@ -40,8 +40,8 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-          cache-dependency-path: requirements-test.txt
-      - run: python -m pip install -r requirements-test.txt
+          cache-dependency-path: pyproject.toml
+      - run: python -m pip install ".[test]"
       - name: Run offline edit corpus shard
         env:
           PRINT_HANDY_EDIT_CORPUS: '1'
@@ -78,8 +78,8 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements-test.txt
-      - run: python -m pip install -r requirements-test.txt
+          cache-dependency-path: pyproject.toml
+      - run: python -m pip install ".[test]"
       - name: Install flatpak and xvfb
         run: |
           sudo apt-get update -q
@@ -120,7 +120,7 @@ jobs:
         run: |
           chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
           git rev-parse --is-inside-work-tree
-      - run: python -m pip install -r requirements-test.txt
+      - run: python -m pip install ".[test]"
       - name: Ruff (syntax and undefined names, whole tree)
         run: python -m ruff check .
       - name: Install ffmpeg for the timelapse tests
@@ -176,8 +176,8 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements-test.txt
-      - run: python -m pip install -r requirements-test.txt
+          cache-dependency-path: pyproject.toml
+      - run: python -m pip install ".[test]"
       - name: Time the corpus (3 repeats, both transports)
         run: |
           mkdir -p timing
@@ -224,8 +224,8 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements-test.txt
-      - run: python -m pip install -r requirements-test.txt
+          cache-dependency-path: pyproject.toml
+      - run: python -m pip install ".[test]"
       - name: Install flatpak and xvfb
         run: |
           sudo apt-get update -q
@@ -270,7 +270,8 @@ jobs:
           path: slicer-timing/
 
   dependency-audit:
-    # Known-vulnerability check of the requirement files. It does not upgrade anything.
+    # Known-vulnerability check of the dependencies declared in pyproject.toml,
+    # audited as installed (runtime plus the test extra). It does not upgrade anything.
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -279,25 +280,23 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: |
-            requirements.txt
-            requirements-test.txt
-      - run: python -m pip install -r requirements.txt -r requirements-test.txt
+          cache-dependency-path: pyproject.toml
+      - run: python -m pip install ".[test]"
       - name: pip-audit
-        run: python -m pip_audit -r requirements.txt -r requirements-test.txt
+        run: python -m pip_audit
 
   standalone-no-hermes:
-    # #73: the standalone bot installs from requirements.txt alone, loads every handler and imports no Hermes module.
+    # #73: the standalone bot installs from the runtime dependencies alone (pip install .), loads every handler and imports no Hermes module.
     runs-on: ubuntu-24.04  # Debian 13 container; hosted runner supplies the VM only.
     container:
       image: python:3.12-slim-trixie
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - name: Clean venv with runtime requirements only
+      - name: Clean venv with runtime dependencies only
         run: |
           python -m venv "/tmp/clean"
-          "/tmp/clean/bin/python" -m pip install -r requirements.txt
+          "/tmp/clean/bin/python" -m pip install .
       - name: Standalone bot setup check
         env:
           PRINT_HANDY__BOT__MODE: standalone
@@ -358,8 +357,8 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements-test.txt
-      - run: python -m pip install -r requirements-test.txt
+          cache-dependency-path: pyproject.toml
+      - run: python -m pip install ".[test]"
       - name: Install flatpak and xvfb
         run: |
           sudo apt-get update -q
@@ -416,8 +415,8 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements-test.txt
-      - run: python -m pip install -r requirements-test.txt
+          cache-dependency-path: pyproject.toml
+      - run: python -m pip install ".[test]"
       - name: Install flatpak and xvfb
         run: |
           sudo apt-get update -q
@@ -456,7 +455,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - run: python -m pip install -r requirements-test.txt
+      - run: python -m pip install ".[test]"
       - name: Install Debian tools and pinned Spoolman server
         run: |
           set -euo pipefail

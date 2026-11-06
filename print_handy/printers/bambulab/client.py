@@ -241,7 +241,7 @@ def _paho_factory(host, serial, access_code, client_id=None):
         import paho.mqtt.client as mqtt
     except ImportError as exc:
         raise BambuLanError("paho-mqtt is not installed; Bambu Lab LAN telemetry needs it "
-                            "(pip install paho-mqtt, or use the full requirements.txt)") from exc
+                            "(pip install paho-mqtt, or install the full package with pip install .)") from exc
     try:
         client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, protocol=mqtt.MQTTv311,
                              client_id=client_id, clean_session=True)

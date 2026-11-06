@@ -172,8 +172,9 @@ ARG APP_CHANNEL=development
 RUN case "$APP_CHANNEL" in stable|development) ;; *) echo 'APP_CHANNEL must be stable or development' >&2; exit 2;; esac
 LABEL org.print-handy.app-channel=$APP_CHANNEL
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY pyproject.toml README.md ./
+COPY print_handy/__init__.py ./print_handy/__init__.py
+RUN pip install --no-cache-dir .
 COPY . .
 ENV TZ=America/New_York
 ENV PRINT_HANDY_CONFIG=/app/config/docker.yaml HOME=/data PRINT_HANDY__BOT__MODE=standalone \

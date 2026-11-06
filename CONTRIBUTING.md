@@ -28,12 +28,12 @@ Thanks for helping improve Print Handy. This guide describes the repository work
 
 ## Run checks
 
-Use Python 3.11 or newer. From the repository root, create an isolated environment, install test dependencies and run the offline suite:
+Use Python 3.12 or newer. From the repository root, create an isolated environment, install test dependencies and run the offline suite:
 
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install -r requirements-test.txt
+python -m pip install -e ".[test]"
 python -m pytest -q tests
 ```
 

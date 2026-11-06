@@ -45,10 +45,10 @@ so an unclaimed message simply ends.
 ```sh
 git clone https://github.com/<you>/print-handy.git ~/print-handy
 cd ~/print-handy
-python3 -m pip install -r requirements-test.txt
+python3 -m pip install -e ".[test]"
 ```
 
-Needs Python 3.11+, Hermes (`~/.hermes/hermes-agent`), and OrcaSlicer as a Flatpak.
+Needs Python 3.12+, Hermes (`~/.hermes/hermes-agent`), and OrcaSlicer as a Flatpak.
 Stock Flashforge IFS occupancy is read from `/detail` and is not verified on a live printer.
 
 ## 2. Settings: YAML preferred, TOML supported during migration

@@ -14,3 +14,7 @@ config/after-update.sh
 # Docker deployment state and secrets
 /.env
 /data/
+
+# Python packaging build artifacts (pyproject.toml builds)
+build/
+*.egg-info/

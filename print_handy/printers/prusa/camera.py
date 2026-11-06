@@ -81,7 +81,7 @@ def snapshot_jpeg(client, camera_id=None) -> bytes:
         raise PrusaLinkError("PrusaLink camera has no snapshot image yet")
     if len(payload) > MAX_STILL_BYTES or not payload.startswith(PNG_MAGIC):
         raise PrusaLinkError("PrusaLink camera snapshot is not a bounded PNG still")
-    from PIL import Image  # Pillow: a hard dependency (requirements.txt)
+    from PIL import Image  # Pillow: a hard dependency (pyproject.toml)
 
     out = io.BytesIO()
     with Image.open(io.BytesIO(payload)) as image:
