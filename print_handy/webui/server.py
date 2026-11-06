@@ -92,15 +92,23 @@ instead of returning the JSON 401 (#440); API requests keep the JSON
 401. A valid, unexpired session cookie authorises GETs
 exactly like the header; it never authorises a config POST on its own
 (those still need the header or the form token, so login cannot be
-turned into a CSRF path). Sessions live only in server memory with a
-``SESSION_TTL_S`` lifetime — a restart signs everyone out — and
-``POST /logout`` ends the caller's own session. ``/healthz`` stays
+turned into a CSRF path). Plain sessions live only in server memory
+with a ``SESSION_TTL_S`` lifetime — a restart signs them out. Ticking
+"Keep me signed in on this browser" on the login form instead mints a
+remembered session with a ``REMEMBER_TTL_S`` (30-day) lifetime: the
+cookie gains a matching ``Max-Age`` and the session id is persisted
+only as its SHA-256 hash in ``webui_sessions.json`` in the state
+folder (mode 0600, written atomically), so that browser stays signed
+in across restarts. Changing the access credential revokes every
+remembered session, and ``POST /logout`` ends the caller's own
+session in both stores. ``/healthz`` stays
 unauthenticated: the container healthcheck probes it. With no token
 configured there is nothing to log in to: ``/login`` redirects to ``/``
 and the loopback posture is otherwise unchanged.
 """
 from __future__ import annotations
 
+import hashlib
 import hmac
 import html
 import ipaddress
@@ -109,10 +117,12 @@ import logging
 import os
 import secrets
 import sys
+import tempfile
 import threading
 import time
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from .. import settings
@@ -141,6 +151,70 @@ LOOPBACK_NAMES = frozenset({"localhost"})
 # set [webui] cookie_secure = true when exposed via an HTTPS reverse proxy.
 SESSION_COOKIE = "webui_session"
 SESSION_TTL_S = 12 * 60 * 60  # 12 hours
+# Remembered sessions ("Keep me signed in on this browser" on the login
+# form): a 30-day session whose id is persisted only as its SHA-256 hash
+# in SESSIONS_FILE in the state folder, so it survives a server restart.
+# The raw id is never written to disk.
+REMEMBER_TTL_S = 30 * 24 * 60 * 60  # 30 days
+SESSIONS_FILE = "webui_sessions.json"
+_REMEMBER_TRUTHY = frozenset({"on", "true", "1", "yes"})
+
+
+def sessions_path(data):
+    return Path(settings.state_dir(data)) / SESSIONS_FILE
+
+
+def _session_digest(session_id):
+    return hashlib.sha256(session_id.encode("utf-8")).hexdigest()
+
+
+def _load_remembered_sessions(data):
+    """{sha256(session id): expiry epoch} from SESSIONS_FILE.
+
+    A missing or unreadable file reads as no remembered sessions, exactly
+    like access._read_saved; expired entries are pruned on load."""
+    try:
+        saved = json.loads(sessions_path(data).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(saved, dict):
+        return {}
+    now = time.time()
+    loaded = {}
+    for digest, expiry in saved.items():
+        try:
+            expiry = float(expiry)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(digest, str) and digest and expiry > now:
+            loaded[digest] = expiry
+    return loaded
+
+
+def _save_remembered_sessions(server):
+    """Persist server.remembered_sessions atomically with mode 0600.
+
+    Returns True when the file was written. A failure is logged and
+    reported, never raised: a read-only state mount must not break
+    sign-in (the caller falls back to an ephemeral session)."""
+    path = sessions_path(server.settings_data)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".webui_sessions.")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(dict(getattr(server, "remembered_sessions", {}) or {}), handle)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, path)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
+    except OSError as exc:
+        log.warning("webui: could not save remembered sessions to %s: %s", path, exc)
+        return False
+    return True
 
 # The form-token refusal for browser forms (#840): the token is
 # regenerated on every process start, so a tab left open across a
@@ -541,15 +615,26 @@ class _Handler(BaseHTTPRequestHandler):
     def _session_authorized(self):
         """A valid, unexpired login-session cookie. Expired ids are
         pruned on sight; unknown or expired cookies are simply
-        unauthenticated."""
+        unauthenticated. Both stores count: the ephemeral in-memory
+        map (raw id) and the remembered map (SHA-256 of the id)."""
         session_id = self._session_id()
         if not session_id:
             return False
+        now = time.time()
         expiry = self.server.sessions.get(session_id)
+        if expiry is not None:
+            if expiry <= now:
+                del self.server.sessions[session_id]
+                return False
+            return True
+        remembered = getattr(self.server, "remembered_sessions", None) or {}
+        digest = _session_digest(session_id)
+        expiry = remembered.get(digest)
         if expiry is None:
             return False
-        if expiry <= time.time():
-            del self.server.sessions[session_id]
+        if expiry <= now:
+            del remembered[digest]
+            _save_remembered_sessions(self.server)
             return False
         return True
 
@@ -997,6 +1082,23 @@ class _Handler(BaseHTTPRequestHandler):
         page it loads next carries the new token."""
         self.server.form_token = secrets.token_urlsafe(32)
 
+    def _revoke_remembered_sessions(self):
+        """Revoke every remembered session and delete its store file.
+
+        Called only where the login rule itself was just set, changed or
+        removed (the setup submit and the walkthrough Login step, beside
+        their _rotate_form_token calls): a session minted under the old
+        credential must not outlive it. Ephemeral sessions are untouched
+        — they die with the process, as before."""
+        remembered = getattr(self.server, "remembered_sessions", None)
+        if remembered is not None:
+            remembered.clear()
+        try:
+            sessions_path(self.server.settings_data).unlink(missing_ok=True)
+        except OSError as exc:
+            log.warning("webui: could not delete remembered sessions file: %s", exc)
+            _save_remembered_sessions(self.server)
+
     # -- first-run walkthrough (#813) -----------------------------------------
     def _walkthrough_data(self):
         """The current effective settings for a walkthrough render or
@@ -1039,6 +1141,7 @@ class _Handler(BaseHTTPRequestHandler):
             self.server.access = access_module.resolve(
                 self.server.settings_data, self.server.bind_host, self.server.webui_environ)
             self._rotate_form_token()
+            self._revoke_remembered_sessions()
             self._redirect(payload, headers=[self._start_session()]
                            if self.server.access.required else [])
         elif kind == "redirect":
@@ -1070,15 +1173,33 @@ class _Handler(BaseHTTPRequestHandler):
         data = getattr(self.server, "settings_data", None) or {}
         return bool(data.get("webui", {}).get("cookie_secure", False))
 
-    def _start_session(self):
-        """A new login-session cookie header for this browser."""
+    def _start_session(self, remember=False):
+        """A new login-session cookie header for this browser.
+
+        With ``remember`` the session lasts REMEMBER_TTL_S, the cookie
+        gains a matching Max-Age, and only the id's SHA-256 hash is
+        persisted, so the session survives a server restart. When that
+        write fails (a read-only state mount, say) the login still
+        succeeds with a plain ephemeral session, as before."""
         now = time.time()
         sessions = self.server.sessions
         for stale in [sid for sid, expiry in sessions.items() if expiry <= now]:
             del sessions[stale]
         session_id = secrets.token_urlsafe(32)
-        sessions[session_id] = now + SESSION_TTL_S
         flags = "; Secure" if self._cookie_secure() else ""
+        if remember:
+            remembered = getattr(self.server, "remembered_sessions", None)
+            if remembered is None:
+                remembered = self.server.remembered_sessions = {}
+            for stale in [d for d, expiry in remembered.items() if expiry <= now]:
+                del remembered[stale]
+            remembered[_session_digest(session_id)] = now + REMEMBER_TTL_S
+            if _save_remembered_sessions(self.server):
+                return ("Set-Cookie", f"{SESSION_COOKIE}={session_id}; HttpOnly; "
+                        f"SameSite=Strict; Path=/; Max-Age={REMEMBER_TTL_S}{flags}")
+            # Fail open to the current behavior: ephemeral, no Max-Age.
+            del remembered[_session_digest(session_id)]
+        sessions[session_id] = now + SESSION_TTL_S
         return ("Set-Cookie", f"{SESSION_COOKIE}={session_id}; HttpOnly; SameSite=Strict; Path=/{flags}")
 
     def _login_submit(self):
@@ -1115,7 +1236,9 @@ class _Handler(BaseHTTPRequestHandler):
                 "text/html; charset=utf-8")
             return
         throttle.record_success(address)
-        self._redirect("/", headers=[self._start_session()])
+        remember = (form.get(pages.LOGIN_REMEMBER_FIELD) or [""])[0].strip().lower() \
+            in _REMEMBER_TRUTHY
+        self._redirect("/", headers=[self._start_session(remember=remember)])
 
     # -- first-run setup (#708) ---------------------------------------------
     def _setup_pending_json(self):
@@ -1165,6 +1288,7 @@ class _Handler(BaseHTTPRequestHandler):
             self.server.access = access_module.resolve(data, self.server.bind_host,
                                                        self.server.webui_environ)
             self._rotate_form_token()
+            self._revoke_remembered_sessions()
         # The person who just chose the password is signed in on this browser.
         self._redirect("/", headers=[self._start_session()] if self.server.access.required else [])
 
@@ -1174,6 +1298,9 @@ class _Handler(BaseHTTPRequestHandler):
         session_id = self._session_id()
         if session_id:
             self.server.sessions.pop(session_id, None)
+            remembered = getattr(self.server, "remembered_sessions", None) or {}
+            if remembered.pop(_session_digest(session_id), None) is not None:
+                _save_remembered_sessions(self.server)
         flags = "; Secure" if self._cookie_secure() else ""
         cookie = (f"{SESSION_COOKIE}=; HttpOnly; SameSite=Strict; "
                   f"Path=/; Max-Age=0{flags}")
@@ -1415,8 +1542,14 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     # visitors on /setup, so it is never the config form token above.
     server.setup_token = secrets.token_urlsafe(32)
     # Browser login sessions: {session id: expiry epoch}. Memory only —
-    # a restart signs everyone out; nothing about a session is persisted.
+    # a restart signs these out; nothing about them is persisted.
     server.sessions = {}
+    # Remembered sessions: {sha256(session id): expiry epoch}, loaded
+    # from webui_sessions.json in the state folder (expired entries
+    # pruned on load) and re-saved on every change, so a browser that
+    # ticked "Keep me signed in" survives a restart. The raw id is
+    # never written to disk.
+    server.remembered_sessions = _load_remembered_sessions(data)
     server.login_throttle = access_module.LoginThrottle()
     server.snapshot_func = snapshot_func or (
         lambda: status_module.snapshot(data, environ=environ))
