@@ -1,0 +1,6 @@
+# The one place CI pins the real OrcaSlicer the slicer legs run (scripts/install-orca-flatpak.sh reads
+# these). ORCA_BUNDLE_VERSION is the one build docker/orca-prebuilt.sh ships (the stable channel);
+# tests/test_orca_pins.py fails when the two disagree or a pin is copied into a job.
+env:
+  ORCA_BUNDLE_VERSION: 2.5.0-rc
+  ORCA_BUNDLE_SHA256: f0140100eb3d26d021b68347da9d5ce8536fe78d3e839d6abd83f40b27457175

@@ -1,0 +1,1 @@
+Print Handy ships no Prusa slicer profiles (OrcaSlicer's Prusa profiles are AGPL-3.0). Generate them from your own OrcaSlicer v2.5.0-rc installation (the shipped slicer; the 2.5 line since #356; its Prusa profiles are unchanged from v2.5.0-beta, so the recorded beta identities cover it):
