@@ -66,11 +66,11 @@ These are mockups built from the bot's real message text and buttons, with place
 
 ## Get started
 
-Setup instructions do not live in this README; they live in the guides, where they can be as detailed as each route needs:
+## Get started
 
-- **Docker** (the easiest route: one container does everything) — the [Docker guide](docs/DOCKER.md). Pin the image by its digest, not `:latest` or `:develop`; the guide has the current digest and the rollback. On Unraid, start from `docker/unraid/print-handy.xml`.
-- **No Docker** — the [standalone bot](docs/STANDALONE.md) (Discord, or [Telegram](docs/TELEGRAM-BOT-SETUP.md) or [Matrix](docs/MATRIX-BOT-SETUP.md) instead), or the [Hermes installation](docs/INSTALL.md) for existing Hermes users.
-- **Everything else** — the [documentation home](docs/README.md) indexes every guide, including configuration, multi-printer installs and troubleshooting.
+**Docker is the install path.** Choose the standard image **with AI extras** or the smaller **without AI** image in the [Docker guide](docs/DOCKER.md), then configure one of three chat sources: [Discord](docs/DISCORD-BOT-SETUP.md), [Telegram](docs/TELEGRAM-BOT-SETUP.md), or [Matrix](docs/MATRIX-BOT-SETUP.md). The optional [Web UI](docs/WEBUI.md) provides local status and settings without a chat platform. On Unraid, use the [template](docker/unraid/print-handy.xml).
+
+Pin a verified image digest rather than `:latest` or `:develop`. The [docs home](docs/README.md) links setup, printer, and troubleshooting guides.
 
 **You need** a 64-bit Debian or Ubuntu machine, or a Raspberry Pi 4 or 5 with 64-bit Raspberry Pi OS, for the Docker route. The image (`ghcr.io/catduckgnaf/print-handy`) is published for `linux/amd64` and `linux/arm64`.
 
