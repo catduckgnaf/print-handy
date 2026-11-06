@@ -50,28 +50,21 @@ Copy these as written. Each one is sized for where it goes.
 
 ## Voice
 
-- **Funny about the model, never about the person's safety.** Roast the
-  articulated dragon, the 14th Benchy, the 40-hour print started at 11 p.m.
-  Never joke inside a safety fact: confirmations, heat and motion warnings,
-  refusals and error messages stay plain and exact.
-- **Short sentences, concrete nouns.** "Paste a link" beats "leverage our
-  intake pipeline".
-- **Every printer, every chat.** Never describe Print Handy as a Discord bot.
-  It takes models in Discord, Telegram and Matrix, with a Web UI for
-  status, settings and spools, on Klipper, Bambu Lab,
-  Flashforge, Prusa, Elegoo, Creality, Sovol, Snapmaker, Qidi, Anycubic and
-  OctoPrint printers.
-- **Never overclaim.** A printer family that is offline-tested only stays
-  described that way. Jokes are allowed; invented features are not.
-- **American spelling** (color, behavior, gray) and no em dashes.
+- **Funny about the model, never about safety.** Keep approval prompts, heat and motion warnings, refusals and errors plain and exact. Put roasts only in the print-start message, one per print, when an LLM or vision endpoint is configured; never put them in completion messages or safety copy.
+- **Short, concrete and task-first.** Say what the reader can do, then link to details. Avoid repetitive reassurance and exhaustive inventories on entry pages.
+- **Local-first, stated honestly.** Print Handy itself runs on the owner's machine and has no Print Handy cloud. Chat providers carry messages and files; model downloads and optional hosted AI use the network. Never claim that nothing leaves the house.
+- **Mark optional features clearly.** Camera monitoring, AI, live viewing and printer controls are optional or separately enabled. Do not imply camera analysis guarantees safe unattended printing.
+- **Describe supported paths, not every printer.** Name connection families in short copy and link to the current support guide. Distinguish code coverage from hardware verification. Never imply certification.
+- **Preserve approvals.** State that the exact sliced job needs human approval before printing. Do not suggest a model estimate or bounding box proves a safe physical print.
+- **American spelling** (color, behavior, gray) and avoid em dashes.
 
-Lines that have been approved and can be reused:
+Approved short copy:
 
+- "Your slicer lives on a desk. You don’t."
 - "Another articulated dragon? Bold choice."
-- "Sometimes it really is fine. Sometimes it's modern art." (the camera watchdog)
-- "Lock approvals to one person if your friends have questionable taste."
+- "Sometimes it really is fine. Sometimes it's modern art."
 - "Spoolman, minus the spreadsheet."
-- "Your slicer lives on a desk. You don't."
+- "Not affiliated with Bambu Lab. We just liked their app enough to want it on every other printer."
 
 ## The mascot
 
