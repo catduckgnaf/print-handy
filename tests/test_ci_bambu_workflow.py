@@ -16,7 +16,7 @@ import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
-ORCA_BUNDLE_SHA256 = "2d2f6979a3379d5fe77c62bbdff0ea36ec415ef43c9557e118ed45b95d39de03"
+ORCA_BUNDLE_SHA256 = "f0140100eb3d26d021b68347da9d5ce8536fe78d3e839d6abd83f40b27457175"
 
 
 def load_workflow():
@@ -72,10 +72,11 @@ class RealSlicerBambuWorkflowContract(unittest.TestCase):
 
     def test_existing_real_slicer_legs_are_untouched(self):
         jobs = load_workflow()["jobs"]
-        for name in ("slicer-test-stable", "slicer-test-preview"):
-            self.assertIn(name, jobs)
-            self.assertEqual(jobs[name]["env"]["PRINT_HANDY_REAL_SLICER"], "1")
-            self.assertNotIn("PRINT_HANDY_REAL_BAMBU", jobs[name]["env"])
+        # One bundled Orca only: the stable leg remains, the preview leg is gone.
+        self.assertNotIn("slicer-test-preview", jobs)
+        self.assertIn("slicer-test-stable", jobs)
+        self.assertEqual(jobs["slicer-test-stable"]["env"]["PRINT_HANDY_REAL_SLICER"], "1")
+        self.assertNotIn("PRINT_HANDY_REAL_BAMBU", jobs["slicer-test-stable"]["env"])
 
     def test_slicer_job_names_are_stage_neutral(self):
         # #600: job display names describe the channel's role, never the
@@ -85,7 +86,6 @@ class RealSlicerBambuWorkflowContract(unittest.TestCase):
         # The stable leg is sharded; its result job carries the required check name.
         self.assertEqual(jobs["slicer-test-stable-result"]["name"], "Slicer test (stable)")
         self.assertEqual(jobs["slicer-test-stable-result"]["needs"], "slicer-test-stable")
-        self.assertEqual(jobs["slicer-test-preview"]["name"], "Slicer test (preview)")
         self.assertEqual(jobs["slicer-test-bambu"]["name"], "Slicer test (bambu)")
         for job_id in jobs:
             self.assertNotIn("alpha", job_id)

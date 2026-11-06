@@ -4,8 +4,12 @@
 Renovate covers GitHub Actions, pip requirements and Dockerfile base
 images, but it cannot see the pins this script watches:
 
-- OrcaSlicer, stable and preview channels: ``version=`` / ``revision=``
-  blocks in ``docker/orca-prebuilt.sh``.
+- OrcaSlicer: the single bundled build's ``version=`` / ``revision=``
+  pin (the ``stable`` block) in ``docker/orca-prebuilt.sh``. Print
+  Handy ships one OrcaSlicer only, and the newest of upstream's
+  finals and prereleases counts against that pin — the shipped
+  build is itself a prerelease, so a newer prerelease is a finding,
+  not noise.
 - go2rtc: ``version=`` in ``docker/go2rtc-prebuilt.sh``.
 - Bambu Studio and Spoolman: commit pins (``ARG BAMBU_REF`` /
   ``ARG SPOOLMAN_REF``) in the ``Dockerfile``.
@@ -107,49 +111,46 @@ def parse_datetime(text: str) -> datetime:
 
 
 @dataclass(frozen=True)
-class ChannelPin:
+class OrcaPin:
     version: str
     revision: str
 
 
 @dataclass(frozen=True)
 class Pins:
-    orca_stable: ChannelPin
-    orca_preview: ChannelPin
+    orca: OrcaPin
     go2rtc_version: str
     bambu_ref: str
     spoolman_ref: str
 
 
-def parse_orca_pins(text: str) -> dict[str, ChannelPin]:
-    """Parse the ``stable)`` / ``preview)`` case blocks of orca-prebuilt.sh."""
-    channels: dict[str, dict[str, str]] = {}
-    current: str | None = None
+def parse_orca_pins(text: str) -> OrcaPin:
+    """Parse the one ``stable)`` case block of orca-prebuilt.sh.
+
+    Print Handy ships a single bundled OrcaSlicer, so there is
+    exactly one pin to read. A missing block, or a block without a
+    version/revision pin, fails closed: the watch exists to notice
+    pin-file reshapes, not to guess past them.
+    """
+    found: dict[str, str] = {}
+    current = False
     for line in text.splitlines():
-        label = re.match(r"\s+(stable|preview)\)\s*$", line)
-        if label:
-            current = label.group(1)
-            channels[current] = {}
+        if re.match(r"\s+stable\)\s*$", line):
+            current = True
             continue
         if re.match(r"\s+\*\)", line):
-            current = None
+            current = False
             continue
-        if current is not None:
+        if current:
             assign = re.match(r"\s+(version|revision)=(\S+)\s*$", line)
             if assign:
-                channels[current][assign.group(1)] = assign.group(2)
-    pins = {}
-    for channel in ("stable", "preview"):
-        found = channels.get(channel, {})
-        if "version" not in found or "revision" not in found:
-            raise WatchError(
-                f"orca-prebuilt.sh: no version/revision pin found for "
-                f"the {channel} channel"
-            )
-        pins[channel] = ChannelPin(
-            version=found["version"], revision=found["revision"]
+                found[assign.group(1)] = assign.group(2)
+    if "version" not in found or "revision" not in found:
+        raise WatchError(
+            "orca-prebuilt.sh: no version/revision pin found in the "
+            "stable block"
         )
-    return pins
+    return OrcaPin(version=found["version"], revision=found["revision"])
 
 
 def parse_script_version(text: str, source: str) -> str:
@@ -173,10 +174,8 @@ def read_pins(root: Path) -> Pins:
         dockerfile_text = (root / "Dockerfile").read_text()
     except OSError as exc:
         raise WatchError(f"cannot read pin files under {root}: {exc}") from exc
-    orca = parse_orca_pins(orca_text)
     return Pins(
-        orca_stable=orca["stable"],
-        orca_preview=orca["preview"],
+        orca=parse_orca_pins(orca_text),
         go2rtc_version=parse_script_version(go2rtc_text, "go2rtc-prebuilt.sh"),
         bambu_ref=parse_dockerfile_arg(dockerfile_text, "BAMBU_REF"),
         spoolman_ref=parse_dockerfile_arg(dockerfile_text, "SPOOLMAN_REF"),
@@ -311,18 +310,16 @@ def build_findings(
         return max(pool, key=lambda r: r.published_at, default=None)
 
     return [
+        # One OrcaSlicer component for the one bundled build: its
+        # candidates are the newest final and the newest prerelease
+        # alike, and _version_finding keeps the greater version, so
+        # a newer prerelease is flagged (the shipped build is itself
+        # a prerelease) while an older prerelease never shadows a
+        # newer final.
         _version_finding(
-            "OrcaSlicer (stable)",
-            pins.orca_stable.version,
-            "docker/orca-prebuilt.sh, stable channel",
-            [orca_stable_latest],
-        ),
-        # A new final release counts for the preview channel too, so
-        # its candidates are the newest stable and prerelease alike.
-        _version_finding(
-            "OrcaSlicer (preview)",
-            pins.orca_preview.version,
-            "docker/orca-prebuilt.sh, preview channel",
+            "OrcaSlicer",
+            pins.orca.version,
+            "docker/orca-prebuilt.sh",
             [orca_stable_latest, orca_pre_latest],
         ),
         _version_finding(
@@ -541,12 +538,8 @@ def run(root: Path, repo: str, dry_run: bool, client: GitHubClient) -> int:
     pins = read_pins(root)
     print("Pins read from this checkout:")
     print(
-        f"  OrcaSlicer (stable): {pins.orca_stable.version} "
-        f"(revision {pins.orca_stable.revision[:12]})"
-    )
-    print(
-        f"  OrcaSlicer (preview): {pins.orca_preview.version} "
-        f"(revision {pins.orca_preview.revision[:12]})"
+        f"  OrcaSlicer: {pins.orca.version} "
+        f"(revision {pins.orca.revision[:12]})"
     )
     print(f"  go2rtc: {pins.go2rtc_version}")
     print(f"  Spoolman: commit {pins.spoolman_ref[:12]}")

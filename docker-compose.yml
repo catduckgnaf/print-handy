@@ -9,9 +9,10 @@ services:
       # Mount a custom config at the selected path with a local Compose override.
       PRINT_HANDY_CONFIG: ${PRINT_HANDY_CONFIG:-/app/config/docker.yaml}
       PRINT_HANDY__BOT__MODE: standalone
-      # Bundled OrcaSlicer channel the entrypoint selects at startup (docs/SETTINGS.md
-      # "Runtime environment"); stable is the default, preview is the other channel
-      # (alpha, its old name, is still accepted for now).
+      # Bundled OrcaSlicer selection at startup (docs/SETTINGS.md "Runtime
+      # environment"); Print Handy ships one bundled OrcaSlicer, stable is the
+      # only value, and preview/alpha start on the same single build with a
+      # startup notice (the preview channel was removed).
       PRINT_HANDY_ORCA_CHANNEL: ${PRINT_HANDY_ORCA_CHANNEL:-stable}
       # Container timezone (docs/SETTINGS.md "Compose variables"): IANA name for
       # the container's local time — log timestamps, scheduled and timed

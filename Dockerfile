@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
-# OrcaSlicer is never built from source: both channels install pinned official
-# prebuilt releases (docker/orca-prebuilt.sh, SHA256 verified before extraction).
+# OrcaSlicer is never built from source: the one bundled build installs the pinned official
+# prebuilt release (docker/orca-prebuilt.sh, SHA256 verified before extraction).
 # See docs/DOCKER-117-PROGRESS.md for contributor attribution.
 FROM debian:13-slim AS orca-prebuilt
 ARG WITH_ORCA=false
@@ -12,7 +12,6 @@ RUN mkdir -p /out && \
     if [ "$WITH_ORCA" = true ]; then \
       apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && \
       sh /usr/local/bin/orca-prebuilt stable "$TARGETARCH" && \
-      sh /usr/local/bin/orca-prebuilt preview "$TARGETARCH" && \
       rm -rf /var/lib/apt/lists/*; \
     fi
 

@@ -18,7 +18,7 @@ Bed sizes are the pinned Orca profiles' printable areas — the values slicing e
 
 ## Set up the profiles
 
-Print Handy ships no Qidi slicer profiles (OrcaSlicer's Qidi profiles are AGPL-3.0). Generate them from your own OrcaSlicer v2.5.0-beta installation (the shipped slicer on the stable channel; the preview channel ships v2.5.0-rc, also checked; the 2.5 line since #356):
+Print Handy ships no Qidi slicer profiles (OrcaSlicer's Qidi profiles are AGPL-3.0). Generate them from your own OrcaSlicer v2.5.0-rc installation (the one shipped slicer; the 2.5 line since #356):
 
 ```bash
 python3 scripts/qidi-templates.py --printer q1pro --resources <OrcaSlicer resources folder>
