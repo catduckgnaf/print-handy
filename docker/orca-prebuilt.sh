@@ -1,12 +1,12 @@
 #!/bin/sh
 # Invoked ONLY inside the Docker build stage. No host AppImage installation.
-# OrcaSlicer is never built from source: each channel installs the pinned official
-# prebuilt Linux release for the target architecture, verified by SHA256 before
-# extraction. Upstream publishes both x86_64 and aarch64 AppImages; Docker's
-# TARGETARCH spells them amd64 and arm64, so arm64 selects the aarch64 asset.
-# Any other architecture (for example arm/v7, for which upstream ships no Linux
-# build) fails closed.
-#   orca-prebuilt.sh stable|preview amd64|arm64
+# OrcaSlicer is never built from source: the one bundled build installs the
+# pinned official prebuilt Linux release for the target architecture, verified
+# by SHA256 before extraction. Upstream publishes both x86_64 and aarch64
+# AppImages; Docker's TARGETARCH spells them amd64 and arm64, so arm64 selects
+# the aarch64 asset. Any other architecture (for example arm/v7, for which
+# upstream ships no Linux build) fails closed.
+#   orca-prebuilt.sh stable amd64|arm64
 set -eu
 channel=${1:-}
 arch=${2:-}
@@ -16,26 +16,15 @@ case "$arch" in
 esac
 case "$channel" in
     stable)
-        # Print Handy ships OrcaSlicer v2.5.0-beta: the 2.5 line is the first whose
-        # BBL vendor profiles cover the H2C and A2L (#356), and the profiles
-        # pipeline reads its packed preset caches (profiles/<Vendor>.opc)
-        # directly. Upstream published the beta on 2026-10-27, after v2.5.0-alpha,
-        # so the preview channel below currently pins the same build; the channels
-        # diverge again when upstream publishes a newer prerelease. Channel names
-        # describe the role, not the upstream stage (#600): the exact build each
-        # channel pins is recorded in this file and in the build-info file only.
-        version=2.5.0-beta
-        revision=345efec64c7b95a05ce5cf96df0dde66a158835c
-        sha256_amd64=15b0e9f9d577bc7a84cfef4f1ecc6e16ef75bc253e500d772fcaa66f4c25b97e
-        sha256_arm64=941ea21d012483770a582589590b539f34cbe1c041aa367f9008fbe8c3e6bcd9
-        asset_amd64=OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0-beta.AppImage
-        asset_arm64=OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.0-beta.AppImage
-        ;;
-    preview)
-        # The preview channel chases the newest upstream prerelease: v2.5.0-rc
-        # (published 2026-11-01) here, while stable above holds v2.5.0-beta until
-        # the final 2.5.0. The channels diverged here, as the stable block
-        # anticipated; both channels' pins are recorded per channel in this file.
+        # Print Handy ships ONE bundled OrcaSlicer: v2.5.0-rc (catduck's
+        # direction, 2026-11-05: one Orca only, the stable channel pins the
+        # RC, the preview channel and the beta pin are removed; there is no
+        # second channel). The 2.5 line is the first whose BBL vendor
+        # profiles cover the H2C and A2L (#356), and the profiles pipeline
+        # reads its packed preset caches (profiles/<Vendor>.opc) directly.
+        # Upstream published v2.5.0-rc on 2026-11-01; no final v2.5.0 exists
+        # yet. The exact build this one channel pins is recorded in this file
+        # and in the build-info file only.
         version=2.5.0-rc
         revision=af2ffb8cddd2f3c0bdadc56d9cc3945fb23577ea
         sha256_amd64=203104a3b0a880975b476ff00cfdd3a8fd2beb95fd8bfb2a9a28fb2bcbb47159
@@ -43,9 +32,9 @@ case "$channel" in
         asset_amd64=OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0-rc.AppImage
         asset_arm64=OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.0-rc.AppImage
         ;;
-    *) echo 'usage: orca-prebuilt.sh stable|preview amd64|arm64' >&2; exit 2 ;;
+    *) echo 'usage: orca-prebuilt.sh stable amd64|arm64' >&2; exit 2 ;;
 esac
-# The source revision is per channel, shared by both architectures; the asset
+# The source revision is shared by both architectures; the asset
 # name and SHA256 are per architecture.
 case "$arch" in
     amd64) sha256=$sha256_amd64; asset=$asset_amd64 ;;

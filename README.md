@@ -82,7 +82,7 @@ Everything below is bundled in the one published Docker image — there is nothi
 | Chat bot | Your interface: links, uploads, guided slicing, spool commands and print confirmation |
 | Printer listener | One per printer, matched to how that printer connects. It follows the print and reports progress, alerts and timelapses to the chat |
 | Spoolman | The filament and spool record keeper, bundled as an API only — Print Handy is its interface, so there is no separate Spoolman web UI to run. Already have your own Spoolman? The [Docker guide](docs/DOCKER.md) covers pointing Print Handy at it instead |
-| OrcaSlicer | The slicer, in stable and preview channels |
+| OrcaSlicer | The slicer: one bundled build (v2.5.0-rc) |
 | OpenSCAD | CAD splitting, and the engine behind designing parts in chat |
 | ffmpeg and go2rtc | Timelapse capture and assembly, and the camera fan-out the watchdog and live view share |
 

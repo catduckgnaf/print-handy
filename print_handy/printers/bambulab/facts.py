@@ -26,7 +26,7 @@ class Fact:
 
 # OrcaSlicer release whose BBL vendor profiles were checked: (tag, commit). A provenance reference only; the
 # profiles (AGPL-3.0) are not in this repository. See docs/BAMBU-LAB.md "Provenance and licence".
-ORCA_RELEASE = ("v2.5.0-beta", "345efec64c7b95a05ce5cf96df0dde66a158835c")
+ORCA_RELEASE = ("v2.5.0-rc", "af2ffb8cddd2f3c0bdadc56d9cc3945fb23577ea")
 ORCA_PROFILE_ROOT = "resources/profiles/BBL"
 # Print Handy's only changes to the flattened vendor profiles, by kind. The shared post-slice guard allows only
 # Normal Lift and no arc fitting; settings IDs let it match the effective settings Orca writes back.

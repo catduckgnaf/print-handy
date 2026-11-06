@@ -3,7 +3,7 @@
 Settings parity: every user-adjustable setting in the schema has a docs/SETTINGS.md row and, when it
 is a scalar, an .env.example line; every PRINT_HANDY__ name in a deployment file is a real setting.
 Sanitization: public deployment files carry no LAN addresses, machine paths, IDs or credentials.
-Build: OrcaSlicer is prebuilt-only (both channels pinned by version, revision and SHA256);
+Build: OrcaSlicer is prebuilt-only (the one bundled build pinned by version, revision and SHA256);
 bounded, validated parallelism remains only for the Bambu Studio source build. Unraid: the
 single template matches the Compose runtime contract.
 """
@@ -253,7 +253,7 @@ class OrcaBuildJobsTests(unittest.TestCase):
 
 
 class OrcaPrebuiltTests(unittest.TestCase):
-    """OrcaSlicer is never built from source: both channels are pinned official prebuilts."""
+    """OrcaSlicer is never built from source: the one bundled build is a pinned official prebuilt."""
 
     def test_no_orca_source_build_remains(self):
         self.assertFalse((ROOT / "docker" / "orca-build.sh").exists())
@@ -267,29 +267,23 @@ class OrcaPrebuiltTests(unittest.TestCase):
         self.assertIn("print-handy-bambu-", mounts[0])
         self.assertIn('COPY --from=orca-prebuilt /out/ /', DOCKERFILE)
         self.assertIn('sh /usr/local/bin/orca-prebuilt stable "$TARGETARCH"', DOCKERFILE)
-        self.assertIn('sh /usr/local/bin/orca-prebuilt preview "$TARGETARCH"', DOCKERFILE)
+        self.assertNotIn('orca-prebuilt preview', DOCKERFILE)
 
-    def test_both_channels_are_pinned_prebuilts(self):
+    def test_the_single_channel_is_a_pinned_prebuilt(self):
         helper = (ROOT / "docker" / "orca-prebuilt.sh").read_text()
-        blocks = dict(re.findall(r"(stable|preview)\)\n(.*?)\n        ;;", helper, re.S))
-        # Stable pins OrcaSlicer v2.5.0-beta, the shipped slicer (the
-        # successor of the v2.5.0-alpha pinned in #356); preview pins the
-        # newer v2.5.0-rc prerelease, the channels' first divergence since
-        # they converged on the beta.
-        for pin in ("version=2.5.0-beta", "revision=345efec64c7b95a05ce5cf96df0dde66a158835c",
-                    "sha256_amd64=15b0e9f9d577bc7a84cfef4f1ecc6e16ef75bc253e500d772fcaa66f4c25b97e",
-                    "asset_amd64=OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0-beta.AppImage",
-                    "sha256_arm64=941ea21d012483770a582589590b539f34cbe1c041aa367f9008fbe8c3e6bcd9",
-                    "asset_arm64=OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.0-beta.AppImage"):
-            with self.subTest(channel="stable", pin=pin):
-                self.assertIn(pin, blocks["stable"])
+        blocks = dict(re.findall(r"(stable)\)\n(.*?)\n        ;;", helper, re.S))
+        # The one bundled build pins OrcaSlicer v2.5.0-rc (the successor of
+        # the v2.5.0-beta pinned before the single-Orca change; the beta pin
+        # and the preview block are gone).
         for pin in ("version=2.5.0-rc", "revision=af2ffb8cddd2f3c0bdadc56d9cc3945fb23577ea",
                     "sha256_amd64=203104a3b0a880975b476ff00cfdd3a8fd2beb95fd8bfb2a9a28fb2bcbb47159",
                     "asset_amd64=OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0-rc.AppImage",
                     "sha256_arm64=fdd29d685ed54671a1a2887684fff4d888bd98b74809154a9731a788a7c6dced",
                     "asset_arm64=OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.0-rc.AppImage"):
-            with self.subTest(channel="preview", pin=pin):
-                self.assertIn(pin, blocks["preview"])
+            with self.subTest(channel="stable", pin=pin):
+                self.assertIn(pin, blocks["stable"])
+        self.assertNotIn("2.5.0-beta", helper)
+        self.assertNotIn("preview)", helper)
         self.assertIn("set -eu", helper)
         self.assertIn("sha256sum --check --strict -", helper)
         self.assertLess(helper.index("sha256sum --check"), helper.index("--appimage-extract"))
@@ -298,23 +292,17 @@ class OrcaPrebuiltTests(unittest.TestCase):
         self.assertNotIn("cmake", helper)
 
     def test_per_arch_pins_parse_to_the_official_assets_and_digests(self):
-        """The script's pin table, parsed not eyeballed: channel x arch -> asset + SHA256.
+        """The script's pin table, parsed not eyeballed: arch -> asset + SHA256.
 
-        Revisions are per channel (shared by both architectures); the aarch64
-        asset digests are the upstream GitHub release asset digests for the
-        pinned versions, matching the amd64 pins' provenance.
+        The revision is shared by both architectures; the aarch64 asset
+        digest is the upstream GitHub release asset digest for the pinned
+        version, matching the amd64 pin's provenance.
         """
         helper = (ROOT / "docker" / "orca-prebuilt.sh").read_text()
-        blocks = dict(re.findall(r"(stable|preview)\)\n(.*?)\n        ;;", helper, re.S))
-        self.assertEqual(set(blocks), {"stable", "preview"})
+        blocks = dict(re.findall(r"(stable)\)\n(.*?)\n        ;;", helper, re.S))
+        self.assertEqual(set(blocks), {"stable"})
         expected = {
-            "stable": ("2.5.0-beta", "345efec64c7b95a05ce5cf96df0dde66a158835c", {
-                "amd64": ("OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0-beta.AppImage",
-                          "15b0e9f9d577bc7a84cfef4f1ecc6e16ef75bc253e500d772fcaa66f4c25b97e"),
-                "arm64": ("OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.0-beta.AppImage",
-                          "941ea21d012483770a582589590b539f34cbe1c041aa367f9008fbe8c3e6bcd9"),
-            }),
-            "preview": ("2.5.0-rc", "af2ffb8cddd2f3c0bdadc56d9cc3945fb23577ea", {
+            "stable": ("2.5.0-rc", "af2ffb8cddd2f3c0bdadc56d9cc3945fb23577ea", {
                 "amd64": ("OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0-rc.AppImage",
                           "203104a3b0a880975b476ff00cfdd3a8fd2beb95fd8bfb2a9a28fb2bcbb47159"),
                 "arm64": ("OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.0-rc.AppImage",
@@ -349,17 +337,17 @@ class OrcaPrebuiltTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 2)
                 self.assertIn("amd64 and arm64 only", result.stderr)
         # A supported arch with an unknown channel is refused before any download.
-        # "alpha" is refused here too: it is only an alias for the runtime
-        # entrypoint (#600), never a build channel.
+        # "preview" and "alpha" are refused here too: they are only runtime
+        # entrypoint aliases for the single build, never build channels.
         for arch in ("amd64", "arm64"):
-            for bad_channel in ("beta", "alpha"):
+            for bad_channel in ("beta", "alpha", "preview"):
                 with self.subTest(arch=arch, channel=bad_channel):
                     result = subprocess.run(["sh", str(script), bad_channel, arch],
                                             capture_output=True, text=True, timeout=30)
                     self.assertEqual(result.returncode, 2)
-                    self.assertIn("usage: orca-prebuilt.sh stable|preview amd64|arm64", result.stderr)
+                    self.assertIn("usage: orca-prebuilt.sh stable amd64|arm64", result.stderr)
 
-    def test_each_channel_has_its_own_wrapper_and_identity(self):
+    def test_the_single_build_has_its_wrapper_and_identity(self):
         helper = (ROOT / "docker" / "orca-prebuilt.sh").read_text()
         self.assertIn('mv "squashfs-root" "/out/opt/orca-$channel"', helper)
         self.assertIn('"/out/usr/local/bin/orca-slicer-$channel"', helper)
@@ -523,8 +511,8 @@ class UnraidTemplateTests(unittest.TestCase):
                     self.assertIn(target, COMPOSE_VARS)
         # The bot token may be empty: the listener and Spoolman run while the bot idles.
         self.assertEqual(variables["DISCORD_BOT_TOKEN"].get("Required"), "false")
-        # The runtime Orca channel selector (#180): in the template, the Compose runtime
-        # environment and as a settable .env.example line, so both reach preview without a rebuild.
+        # The runtime Orca selector (#180): in the template, the Compose runtime
+        # environment and as a settable .env.example line.
         self.assertEqual(variables["PRINT_HANDY_ORCA_CHANNEL"].text, "stable")
         self.assertEqual(compose_env["PRINT_HANDY_ORCA_CHANNEL"], "${PRINT_HANDY_ORCA_CHANNEL:-stable}")
         self.assertRegex(ENV_EXAMPLE, r"(?m)^PRINT_HANDY_ORCA_CHANNEL=stable$")
