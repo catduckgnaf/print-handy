@@ -29,8 +29,26 @@ spec.loader.exec_module(bump)
 
 NOW = datetime(2026, 11, 5, 12, 0, tzinfo=timezone.utc)
 
-GO2RTC_TEXT = (ROOT / "docker" / "go2rtc-prebuilt.sh").read_text()
-DOCKERFILE_TEXT = (ROOT / "Dockerfile").read_text()
+# Frozen fixture copies of the pin surfaces (tests/fixtures/bump_upstream).
+# Parser and planner tests run against these, never against the live
+# production pins: every bump PR changes the production files, so a
+# test that hardcoded the live values would fail the bump's own CI.
+FIXTURES = ROOT / "tests" / "fixtures" / "bump_upstream"
+GO2RTC_TEXT = (FIXTURES / "docker" / "go2rtc-prebuilt.sh").read_text()
+DOCKERFILE_TEXT = (FIXTURES / "Dockerfile").read_text()
+
+
+def fixture_root(base):
+    """Copy the fixture tree into a temp root with production layout."""
+    import shutil
+
+    root = Path(base)
+    for src in FIXTURES.rglob("*"):
+        if src.is_file():
+            dest = root / src.relative_to(FIXTURES)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, dest)
+    return root
 
 
 def make_release(version, age_days=10, assets=None, tag=None):
@@ -155,7 +173,10 @@ class VersionOrdering(unittest.TestCase):
 
 
 class PinSurfaces(unittest.TestCase):
-    def test_go2rtc_parse_real_file(self):
+    """Against the frozen fixtures; the values below are the fixture's,
+    frozen on purpose so future production bumps cannot break them."""
+
+    def test_go2rtc_parse_fixture(self):
         pin = bump.parse_go2rtc(GO2RTC_TEXT)
         self.assertEqual(pin.version, "1.9.15")
         self.assertEqual(pin.revision, "7c05066")
@@ -186,13 +207,24 @@ class PinSurfaces(unittest.TestCase):
         with self.assertRaises(bump.BumpError):
             bump.parse_go2rtc("version=1.0\n")
 
+    def test_live_pin_files_keep_the_expected_shape(self):
+        # Format-only assertions over the PRODUCTION files: whatever
+        # values future bumps land, the shapes the parsers rely on
+        # must hold. No live value is hardcoded here.
+        pin = bump.parse_go2rtc((ROOT / "docker" / "go2rtc-prebuilt.sh").read_text())
+        self.assertRegex(pin.version, r"^\d+\.\d+\.\d+$")
+        self.assertRegex(pin.revision, r"^[0-9a-f]{7}$")
+        self.assertRegex(pin.sha256_amd64, r"^[0-9a-f]{64}$")
+        self.assertRegex(pin.sha256_arm64, r"^[0-9a-f]{64}$")
+        self.assertTrue(pin.asset_amd64 and pin.asset_arm64)
+        ref = bump.parse_spoolman((ROOT / "Dockerfile").read_text())
+        self.assertRegex(ref, r"^[0-9a-f]{40}$")
+
 
 class Go2rtcPlanning(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
-        (self.root / "docker").mkdir()
-        (self.root / "docker" / "go2rtc-prebuilt.sh").write_text(GO2RTC_TEXT)
+        self.root = fixture_root(self.tmp.name)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -226,6 +258,36 @@ class Go2rtcPlanning(unittest.TestCase):
         self.assertEqual(pin.sha256_arm64, "2" * 64)
         self.assertTrue(any("digest field" in line for line in plan.provenance))
 
+    def test_bump_moves_every_recorded_surface(self):
+        release = make_release("1.9.16", assets=[
+            asset("go2rtc_linux_amd64", "sha256:" + "1" * 64),
+            asset("go2rtc_linux_arm64", "sha256:" + "2" * 64),
+        ])
+        plan = bump.plan_go2rtc(self.root, self.api_for(release, commit="c" * 40), NOW)
+        plan.apply(self.root)
+        guard = (self.root / "tests" / "test_go2rtc_container.py").read_text()
+        self.assertIn("version=1.9.16", guard)
+        self.assertIn('AMD64_SHA = "' + "1" * 64 + '"', guard)
+        self.assertIn('ARM64_SHA = "' + "2" * 64 + '"', guard)
+        self.assertIn("`1.9.16`, revision `ccccccc`", (self.root / "docs" / "COMPONENTS.md").read_text())
+        self.assertIn("go2rtc v1.9.16", (self.root / "docs" / "DOCKER.md").read_text())
+        self.assertIn("(v1.9.16,", (self.root / "docs" / "SETTINGS.md").read_text())
+        self.assertEqual(
+            set(plan.files),
+            {"docker/go2rtc-prebuilt.sh", "tests/test_go2rtc_container.py",
+             "docs/COMPONENTS.md", "docs/DOCKER.md", "docs/SETTINGS.md"},
+        )
+
+    def test_drifted_recorded_surface_stops_the_bump(self):
+        components = self.root / "docs" / "COMPONENTS.md"
+        components.write_text(components.read_text().replace("`1.9.15`, revision `7c05066`", "`1.9.15`"))
+        release = make_release("1.9.16", assets=[
+            asset("go2rtc_linux_amd64", "sha256:" + "1" * 64),
+            asset("go2rtc_linux_arm64", "sha256:" + "2" * 64),
+        ])
+        with self.assertRaises(bump.BumpError):
+            bump.plan_go2rtc(self.root, self.api_for(release), NOW)
+
     def test_missing_digest_falls_back_to_download_and_hash(self):
         import hashlib
 
@@ -248,8 +310,7 @@ class Go2rtcPlanning(unittest.TestCase):
 class SpoolmanPlanning(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
-        (self.root / "Dockerfile").write_text(DOCKERFILE_TEXT)
+        self.root = fixture_root(self.tmp.name)
         self.pin_ref = bump.parse_spoolman(DOCKERFILE_TEXT)
 
     def tearDown(self):
@@ -272,6 +333,19 @@ class SpoolmanPlanning(unittest.TestCase):
         self.assertEqual(plan.action, "bump")
         plan.apply(self.root)
         self.assertEqual(bump.parse_spoolman((self.root / "Dockerfile").read_text()), new_ref)
+        # The recorded surfaces move with the pin.
+        settings = (self.root / "docs" / "SETTINGS.md").read_text()
+        self.assertIn(new_ref, settings)
+        self.assertIn("Pinned Spoolman v0.27.1 source commit", settings)
+        docker_doc = (self.root / "docs" / "DOCKER.md").read_text()
+        self.assertIn(f"Spoolman 0.27.1 is built from exact upstream revision `{new_ref}`", docker_doc)
+        self.assertEqual(set(plan.files), {"Dockerfile", "docs/SETTINGS.md", "docs/DOCKER.md"})
+
+    def test_disagreeing_recorded_surfaces_stop_the_bump(self):
+        settings = self.root / "docs" / "SETTINGS.md"
+        settings.write_text(settings.read_text().replace("v0.27.0", "v0.26.9"))
+        with self.assertRaises(bump.BumpError):
+            bump.plan_spoolman(self.root, self.api_for(make_release("0.27.1"), "e" * 40), NOW)
 
     def test_pin_ahead_of_release_is_not_a_bump(self):
         plan = bump.plan_spoolman(
@@ -311,7 +385,7 @@ class DedupeSupersede(unittest.TestCase):
     def test_execute_supersede_closes_old_with_pointer(self):
         release = make_release("0.27.1")
         plan = bump.Plan("spoolman", "bump", version="0.27.1", files=["Dockerfile"],
-                         release=release, apply=lambda root: None)
+                         release=release)
         api = FakeApi(prs=[pr_dict(7, "upstream/spoolman-0.27.0")])
         git = FakeGit()
         outcome = bump.execute_plan(Path("."), api, "catduckgnaf/print-handy", plan, False, git=git, log=lambda m: None)
@@ -322,7 +396,7 @@ class DedupeSupersede(unittest.TestCase):
 
     def test_execute_dedupe_noops(self):
         plan = bump.Plan("go2rtc", "bump", version="1.9.16", files=["docker/go2rtc-prebuilt.sh"],
-                         release=make_release("1.9.16"), apply=lambda root: None)
+                         release=make_release("1.9.16"))
         api = FakeApi(prs=[pr_dict(9, "upstream/go2rtc-1.9.16")])
         outcome = bump.execute_plan(Path("."), api, "catduckgnaf/print-handy", plan, False, git=FakeGit(), log=lambda m: None)
         self.assertEqual(outcome, "dedupe")
@@ -474,6 +548,17 @@ class WorkflowShapes(unittest.TestCase):
         self.assertIn("configured", token_step["if"])
         run_step = next(s for s in steps if "bump_upstream.py --component" in s.get("run", ""))
         self.assertIn("configured", run_step["if"])
+        # The checkout must not persist the workflow token as a git
+        # auth extraheader: it would override the app-token remote
+        # URL and pushes would go out as the read-only workflow token.
+        checkout = next(s for s in steps if "actions/checkout" in s.get("uses", ""))
+        self.assertEqual(checkout["with"]["persist-credentials"], "false")
+
+    def test_ready_workflow_checkout_does_not_persist_credentials(self):
+        wf = self.load(READY_WORKFLOW)
+        steps = wf["jobs"]["mark-ready"]["steps"]
+        checkout = next(s for s in steps if "actions/checkout" in s.get("uses", ""))
+        self.assertEqual(checkout["with"]["persist-credentials"], "false")
 
     def test_ready_workflow_trigger_and_guards(self):
         wf = self.load(READY_WORKFLOW)

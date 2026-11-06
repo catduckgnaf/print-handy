@@ -37,7 +37,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
+      # persist-credentials: false - the checkout must not store the
+      # workflow token as a git auth extraheader; that header would
+      # override the app-token remote URL below and pushes would
+      # authenticate as the (read-only) workflow token instead.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Check upstream bot identity
         id: identity

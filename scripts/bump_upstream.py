@@ -15,6 +15,14 @@ the PRs it opens trigger CI like a human's. With no identity
 configured it is deliberately inert: --check-identity reports
 configured=false and write mode exits 0 without changing anything.
 
+A bump moves every surface that records the pin in the same commit
+- for go2rtc the container contract test and three doc records,
+for Spoolman the SETTINGS.md row and the DOCKER.md build sentence -
+exactly like a hand-run bump; if a recorded surface does not hold
+the value the bump expects, planning fails for a human instead of
+guessing. Historical records that name old versions on purpose
+(acceptance reports, migration notes) are never rewritten.
+
 A bump PR is opened as a draft; .github/workflows/
 upstream-bump-ready.yml flips it to ready once its CI suite is
 green (see --mark-ready). Nothing here ever merges a PR.
@@ -324,6 +332,22 @@ def render_spoolman(text, ref):
 # --------------------------------------------------------------------------
 
 
+GO2RTC_GUARD_TEST = "tests/test_go2rtc_container.py"
+DOC_COMPONENTS = "docs/COMPONENTS.md"
+DOC_DOCKER = "docs/DOCKER.md"
+DOC_SETTINGS = "docs/SETTINGS.md"
+
+
+def replace_exact(text, old, new, what, count=1):
+    """Replace an exact recorded value; a missing or multiplied match
+    means the surface drifted from what the bump expects, which is a
+    human's problem, not something to guess around."""
+    found = text.count(old)
+    if found != count:
+        raise BumpError(f"{what}: expected {count} occurrence(s) of {old!r}, found {found}")
+    return text.replace(old, new)
+
+
 @dataclass
 class Plan:
     component: str
@@ -334,7 +358,11 @@ class Plan:
     provenance: list = field(default_factory=list)
     changes: list = field(default_factory=list)
     release: Release | None = None
-    apply: object = None  # callable(root) performing the file edits
+    edits: list = field(default_factory=list)  # [(relative path, new content)]
+
+    def apply(self, root):
+        for relpath, content in self.edits:
+            (root / relpath).write_text(content)
 
 
 def _age_gate(release, now):
@@ -356,8 +384,7 @@ def _asset_sha256(api, release, asset_name):
 
 
 def plan_go2rtc(root, api, now):
-    path = root / GO2RTC_FILE
-    text = path.read_text()
+    text = (root / GO2RTC_FILE).read_text()
     pin = parse_go2rtc(text)
     release = api.get_latest_release(GO2RTC_REPO)
     if release is None:
@@ -393,17 +420,74 @@ def plan_go2rtc(root, api, now):
         f"sha256_amd64: {pin.sha256_amd64} -> {sha_amd64}",
         f"sha256_arm64: {pin.sha256_arm64} -> {sha_arm64}",
     ]
+    # The pin is recorded on more surfaces than the build script: the
+    # container contract test pins the exact table, and three docs
+    # name the version. A bump moves every recorded surface in the
+    # same commit, exactly like a hand-run bump - a stale guard test
+    # would fail the bump PR's own CI, and stale docs would drift.
+    guard = (root / GO2RTC_GUARD_TEST).read_text()
+    guard = replace_exact(guard, f"version={pin.version}", f"version={release.version}",
+                          "go2rtc guard test version")
+    guard = replace_exact(guard, f'AMD64_SHA = "{pin.sha256_amd64}"', f'AMD64_SHA = "{sha_amd64}"',
+                          "go2rtc guard test amd64 digest")
+    guard = replace_exact(guard, f'ARM64_SHA = "{pin.sha256_arm64}"', f'ARM64_SHA = "{sha_arm64}"',
+                          "go2rtc guard test arm64 digest")
+    components = replace_exact(
+        (root / DOC_COMPONENTS).read_text(),
+        f"`{pin.version}`, revision `{pin.revision}`",
+        f"`{release.version}`, revision `{revision}`",
+        "docs/COMPONENTS.md go2rtc row",
+    )
+    docker_doc = replace_exact(
+        (root / DOC_DOCKER).read_text(),
+        f"go2rtc v{pin.version}", f"go2rtc v{release.version}",
+        "docs/DOCKER.md go2rtc version",
+    )
+    settings_doc = replace_exact(
+        (root / DOC_SETTINGS).read_text(),
+        f"(v{pin.version},", f"(v{release.version},",
+        "docs/SETTINGS.md go2rtc version",
+    )
+    edits = [
+        (GO2RTC_FILE, render_go2rtc(text, new_pin)),
+        (GO2RTC_GUARD_TEST, guard),
+        (DOC_COMPONENTS, components),
+        (DOC_DOCKER, docker_doc),
+        (DOC_SETTINGS, settings_doc),
+    ]
+    changes.append("guard test (tests/test_go2rtc_container.py) and the COMPONENTS/DOCKER/SETTINGS doc records updated to the same values")
+    return Plan("go2rtc", "bump", version=release.version,
+                files=[relpath for relpath, _ in edits],
+                provenance=provenance, changes=changes, release=release, edits=edits)
 
-    def apply(root, _text=text, _pin=new_pin):
-        (root / GO2RTC_FILE).write_text(render_go2rtc(_text, _pin))
 
-    return Plan("go2rtc", "bump", version=release.version, files=[GO2RTC_FILE],
-                provenance=provenance, changes=changes, release=release, apply=apply)
+_SPOOLMAN_SETTINGS_RE = re.compile(r"Pinned Spoolman v(\d+\.\d+\.\d+) source commit")
+
+
+def _spoolman_recorded_version(root, pin_ref):
+    """The Spoolman version the docs record for the pinned ref.
+
+    The pin itself is a bare commit, so the current version is read
+    from the SETTINGS.md row and cross-checked against the DOCKER.md
+    build sentence; if the recorded surfaces disagree with each
+    other or with the Dockerfile, the bump stops for a human.
+    """
+    settings = (root / DOC_SETTINGS).read_text()
+    match = _SPOOLMAN_SETTINGS_RE.search(settings)
+    if not match:
+        raise BumpError("docs/SETTINGS.md has no 'Pinned Spoolman vX.Y.Z source commit' record")
+    version = match.group(1)
+    if pin_ref not in settings:
+        raise BumpError("docs/SETTINGS.md does not record the Dockerfile's SPOOLMAN_REF")
+    docker_doc = (root / DOC_DOCKER).read_text()
+    sentence = f"Spoolman {version} is built from exact upstream revision `{pin_ref}`"
+    if sentence not in docker_doc:
+        raise BumpError("docs/DOCKER.md's Spoolman build sentence does not match the SETTINGS.md record and the Dockerfile pin")
+    return version
 
 
 def plan_spoolman(root, api, now):
-    path = root / SPOOLMAN_FILE
-    text = path.read_text()
+    text = (root / SPOOLMAN_FILE).read_text()
     pin_ref = parse_spoolman(text)
     release = api.get_latest_release(SPOOLMAN_REPO)
     if release is None:
@@ -420,18 +504,39 @@ def plan_spoolman(root, api, now):
     if not ok:
         return Plan("spoolman", "too-young", version=release.version,
                     reason=f"release is {age:.1f} days old; the gate is {MIN_RELEASE_AGE_DAYS} days")
+    old_version = _spoolman_recorded_version(root, pin_ref)
     provenance = [
         f"Release: {release.html_url} (published {release.published_at.date().isoformat()})",
         f"SPOOLMAN_REF: the full commit {release.tag} resolves to, {commit}",
         "The Dockerfile build fetches and verifies this exact ref, so CI is the judge of the bump.",
     ]
     changes = [f"SPOOLMAN_REF: {pin_ref} -> {commit}"]
-
-    def apply(root, _text=text, _ref=commit):
-        (root / SPOOLMAN_FILE).write_text(render_spoolman(_text, _ref))
-
-    return Plan("spoolman", "bump", version=release.version, files=[SPOOLMAN_FILE],
-                provenance=provenance, changes=changes, release=release, apply=apply)
+    # The recorded version/ref also lives in docs/SETTINGS.md and in
+    # docs/DOCKER.md's build sentence; both move in the same commit.
+    # (Historical records - acceptance reports, migration notes for
+    # old databases - name old versions on purpose and stay.)
+    settings = (root / DOC_SETTINGS).read_text()
+    settings = replace_exact(settings, f"`{pin_ref}`", f"`{commit}`",
+                             "docs/SETTINGS.md SPOOLMAN_REF row")
+    settings = replace_exact(settings, f"Pinned Spoolman v{old_version} source commit",
+                             f"Pinned Spoolman v{release.version} source commit",
+                             "docs/SETTINGS.md Spoolman version")
+    docker_doc = (root / DOC_DOCKER).read_text()
+    docker_doc = replace_exact(
+        docker_doc,
+        f"Spoolman {old_version} is built from exact upstream revision `{pin_ref}`",
+        f"Spoolman {release.version} is built from exact upstream revision `{commit}`",
+        "docs/DOCKER.md Spoolman build sentence",
+    )
+    edits = [
+        (SPOOLMAN_FILE, render_spoolman(text, commit)),
+        (DOC_SETTINGS, settings),
+        (DOC_DOCKER, docker_doc),
+    ]
+    changes.append("the SETTINGS.md row and DOCKER.md build sentence updated to the same version and ref")
+    return Plan("spoolman", "bump", version=release.version,
+                files=[relpath for relpath, _ in edits],
+                provenance=provenance, changes=changes, release=release, edits=edits)
 
 
 PLANNERS = {"go2rtc": plan_go2rtc, "spoolman": plan_spoolman}
