@@ -18,13 +18,13 @@ Bed sizes are the pinned Orca profiles' printable areas — the values slicing e
 
 ## Set up the profiles
 
-Print Handy ships no Qidi slicer profiles (OrcaSlicer's Qidi profiles are AGPL-3.0). Generate them from your own OrcaSlicer v2.5.0-beta installation (the shipped slicer; the 2.5 line since #356):
+Print Handy ships no Qidi slicer profiles (OrcaSlicer's Qidi profiles are AGPL-3.0). Generate them from your own OrcaSlicer v2.5.0-beta installation (the shipped slicer on the stable channel; the preview channel ships v2.5.0-rc, also checked; the 2.5 line since #356):
 
 ```bash
 python3 scripts/qidi-templates.py --printer q1pro --resources <OrcaSlicer resources folder>
 ```
 
-The resources folder holds `profiles/Qidi.json` and `profiles/Qidi/`, or — OrcaSlicer 2.5 and later — the packed preset cache `profiles/Qidi.opc` on its own; the command reads either. It resolves the profiles' `inherits`/`include` chains and refuses unless they hash to a checked identity recorded in `print_handy/printers/qidi/facts.py` (OrcaSlicer 2.4.2, Qidi vendor profiles `02.04.00.06`; OrcaSlicer v2.5.0-alpha, `02.04.00.17`, and OrcaSlicer v2.5.0-beta, `02.04.00.19`, each from its tree or its packed cache — each packaging has its own identity), then writes them into `<state>/orca-profiles/qidi_<model>/`, never into the checkout. One 2.5 change to know: upstream renamed the whole `Qidi Generic …` filament family to `Generic … @Qidi …`, and the checked default filaments follow the new names, so generate Qidi templates from a 2.5 install (2.5.0-alpha or 2.5.0-beta) — a folder generated from 2.4.2 keeps verifying, but its profile names no longer resolve in a 2.4.2 tree. Missing, edited or unrecognised profiles fail closed, exactly as for Bambu Lab, Prusa and Elegoo.
+The resources folder holds `profiles/Qidi.json` and `profiles/Qidi/`, or — OrcaSlicer 2.5 and later — the packed preset cache `profiles/Qidi.opc` on its own; the command reads either. It resolves the profiles' `inherits`/`include` chains and refuses unless they hash to a checked identity recorded in `print_handy/printers/qidi/facts.py` (OrcaSlicer 2.4.2, Qidi vendor profiles `02.04.00.06`; OrcaSlicer v2.5.0-alpha, `02.04.00.17`, OrcaSlicer v2.5.0-beta, `02.04.00.19`, and OrcaSlicer v2.5.0-rc, `02.04.00.20`, each from its tree or its packed cache — each packaging has its own identity), then writes them into `<state>/orca-profiles/qidi_<model>/`, never into the checkout. One 2.5 change to know: upstream renamed the whole `Qidi Generic …` filament family to `Generic … @Qidi …`, and the checked default filaments follow the new names, so generate Qidi templates from a 2.5 install (2.5.0-alpha, 2.5.0-beta or 2.5.0-rc) — a folder generated from 2.4.2 keeps verifying, but its profile names no longer resolve in a 2.4.2 tree. Missing, edited or unrecognised profiles fail closed, exactly as for Bambu Lab, Prusa and Elegoo.
 
 ## Moonraker
 

@@ -32,12 +32,16 @@ case "$channel" in
         asset_arm64=OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.0-beta.AppImage
         ;;
     preview)
-        version=2.5.0-beta
-        revision=345efec64c7b95a05ce5cf96df0dde66a158835c
-        sha256_amd64=15b0e9f9d577bc7a84cfef4f1ecc6e16ef75bc253e500d772fcaa66f4c25b97e
-        sha256_arm64=941ea21d012483770a582589590b539f34cbe1c041aa367f9008fbe8c3e6bcd9
-        asset_amd64=OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0-beta.AppImage
-        asset_arm64=OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.0-beta.AppImage
+        # The preview channel chases the newest upstream prerelease: v2.5.0-rc
+        # (published 2026-11-01) here, while stable above holds v2.5.0-beta until
+        # the final 2.5.0. The channels diverged here, as the stable block
+        # anticipated; both channels' pins are recorded per channel in this file.
+        version=2.5.0-rc
+        revision=af2ffb8cddd2f3c0bdadc56d9cc3945fb23577ea
+        sha256_amd64=203104a3b0a880975b476ff00cfdd3a8fd2beb95fd8bfb2a9a28fb2bcbb47159
+        sha256_arm64=fdd29d685ed54671a1a2887684fff4d888bd98b74809154a9731a788a7c6dced
+        asset_amd64=OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0-rc.AppImage
+        asset_arm64=OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.0-rc.AppImage
         ;;
     *) echo 'usage: orca-prebuilt.sh stable|preview amd64|arm64' >&2; exit 2 ;;
 esac

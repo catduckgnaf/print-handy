@@ -390,18 +390,26 @@ jobs:
 
   slicer-test-preview:
     name: Slicer test (preview)
-    # The preview channel pins the same build as production (both
-    # channels in docker/orca-prebuilt.sh pin it), so this job runs the same
-    # bundle as Slicer test (stable) on a fast subset as a smoke track. When
-    # upstream publishes a newer prerelease, point this job at it to restore
-    # the ahead-of-production meaning. Job names describe the channel's role,
-    # not the upstream stage (#600).
+    # The preview channel pins the newest upstream prerelease, ahead of
+    # production: the job-level bundle pins below override the workflow-level
+    # (stable channel) ones for this job only, so this leg installs the
+    # preview channel's build (docker/orca-prebuilt.sh) through the same
+    # installer script and runs a fast subset as the ahead-of-production
+    # smoke track. The bundle SHA256 is the upstream release asset digest of
+    # that build's x86_64 flatpak. When the channels converge again, drop the
+    # overrides. Job names describe the channel's role, not the upstream
+    # stage (#600).
     # Flatpak plus xvfb requires a full system session and display; kept on the host runner after
     # Debian 13 container attempts failed during actual slicer startup.
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       ORCA_FLATPAK_APP_ID: com.orcaslicer.OrcaSlicer
+      # The preview channel's bundle pins (see the job comment above): the
+      # installer and the cache key read these from the environment, so this
+      # job caches and installs its own channel's build, not stable's.
+      ORCA_BUNDLE_VERSION: 2.5.0-rc
+      ORCA_BUNDLE_SHA256: f0140100eb3d26d021b68347da9d5ce8536fe78d3e839d6abd83f40b27457175
       PRINT_HANDY_REAL_SLICER: "1"
     steps:
       - uses: actions/checkout@v7
