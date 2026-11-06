@@ -195,6 +195,40 @@ class TestEntrypointMigration:
         assert (tmp_path / "state").is_dir() and not (tmp_path / "state").is_symlink()
         assert "WARNING" in result.stderr and "both" in result.stderr
 
+    def test_an_interrupted_mountpoint_copy_is_completed_on_the_next_start(self, tmp_path):
+        # A copy that dies partway (full disk, killed container) must not
+        # read as a finished migration on the next start: the partial
+        # state would otherwise win over the intact legacy volume via the
+        # both-hold-data branch. The entrypoint marks the copy in
+        # progress inside the state volume and re-copies while the mark
+        # is there.
+        seed(tmp_path / "hermes" / "state", "printer_hardware.json")
+        (tmp_path / "state").mkdir()
+        mount_shim = stat_shim_reporting_a_mountpoint(tmp_path / "mount-shim")
+        dying_cp = tmp_path / "dying-cp"
+        dying_cp.mkdir()
+        script = dying_cp / "cp"
+        script.write_text(
+            "#!/bin/sh\n"
+            "for last; do :; done\n"
+            "mkdir -p \"$last/state\"\n"
+            "printf '{\"truncated' > \"$last/state/printer_hardware.json\"\n"
+            "exit 1\n")
+        script.chmod(0o755)
+        both = tmp_path / "both-shims"
+        both.mkdir()
+        for shim in (mount_shim / "stat", script):
+            (both / shim.name).symlink_to(shim)
+        with pytest.raises(subprocess.CalledProcessError):
+            run_entrypoint_with_path(tmp_path, ["true"], both)
+        state = tmp_path / "state"
+        assert (state / "state" / "printer_hardware.json").read_text() == '{"truncated'
+        result = run_entrypoint_with_path(tmp_path, ["true"], mount_shim)
+        assert state.is_dir() and not state.is_symlink()
+        assert (state / "state" / "printer_hardware.json").read_text() == "{}"
+        assert not (state / ".migration-incomplete").exists()
+        assert "did not finish" in result.stderr and "copied" in result.stderr
+
     def test_legacy_data_and_a_real_bind_mounted_state_volume_is_copied(self, tmp_path):
         # The unstubbed detector against a real bind mount (a folder bound
         # onto itself, like the Compose layout's /data/state bind mount),

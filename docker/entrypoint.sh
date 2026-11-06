@@ -38,7 +38,7 @@ _is_mountpoint() {
 }
 if [ -L "$state_home" ]; then
     echo "Print Handy: state volume is /data/state, a symlink to $(readlink "$state_home") — the legacy /data/hermes volume is in use (deprecated name; it stays accepted for at least two minor releases)." >&2
-elif _has_files "$legacy_home" && ! _has_files "$state_home"; then
+elif _has_files "$legacy_home" && { ! _has_files "$state_home" || [ -e "$state_home/.migration-incomplete" ]; }; then
     if _is_mountpoint "$state_home"; then
         # rm -rf on a mountpoint fails EBUSY and would stop the container
         # before any service starts, so the mounted volume is populated
@@ -47,7 +47,16 @@ elif _has_files "$legacy_home" && ! _has_files "$state_home"; then
         # /data/state (the warning branch below). Ownership is not
         # preserved: the copy runs as the volume's runtime user, and a
         # filesystem that refuses chown must not stop the copy either.
+        # The copy is marked in progress inside the state volume until
+        # it completes: a start that finds the mark re-copies, so a copy
+        # interrupted partway (full disk, killed container) never reads
+        # as a finished migration on the next start.
+        if [ -e "$state_home/.migration-incomplete" ]; then
+            echo "Print Handy: an earlier copy of the legacy /data/hermes state volume into the mounted /data/state volume did not finish; copying it again to complete the migration." >&2
+        fi
+        touch "$state_home/.migration-incomplete"
         cp -a --no-preserve=ownership "$legacy_home"/. "$state_home"/
+        rm -f "$state_home/.migration-incomplete"
         echo "Print Handy: /data/state is a mounted volume, so it cannot be replaced by a symlink to the legacy /data/hermes volume; the legacy volume's contents were copied into /data/state instead, and /data/hermes is left untouched (deprecated name; it stays accepted for at least two minor releases)." >&2
     else
         rm -rf "$state_home"
@@ -56,6 +65,11 @@ elif _has_files "$legacy_home" && ! _has_files "$state_home"; then
     fi
 elif _has_files "$legacy_home" && _has_files "$state_home"; then
     echo "Print Handy: WARNING both /data/state and the legacy /data/hermes state volumes hold data; using /data/state and ignoring /data/hermes." >&2
+elif [ -e "$state_home/.migration-incomplete" ]; then
+    # The mark is there but the legacy volume holds nothing to complete
+    # the copy from (it was removed or unmapped between starts): say so
+    # plainly instead of silently trusting a partial /data/state.
+    echo "Print Handy: WARNING an earlier copy into /data/state did not finish, and the legacy /data/hermes volume now holds no files to complete it from; /data/state may be incomplete." >&2
 elif [ -e "$state_home" ] && [ ! -e "$legacy_home" ] && [ ! -L "$legacy_home" ]; then
     # Only the new volume is mapped (Docker created it as an empty
     # mountpoint directory) and the legacy name does not exist at all:
