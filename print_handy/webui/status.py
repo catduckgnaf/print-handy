@@ -449,7 +449,10 @@ _STATUS_DEFAULTS = {"state": "unknown", "filename": "", "progress": None,
                     # printer family does not report it, so the Home Assistant
                     # integration never has to guess between missing and unknown.
                     "hotend_target_c": None, "bed_target_c": None,
-                    "layer": None, "total_layers": None, "remaining_min": None}
+                    "layer": None, "total_layers": None, "remaining_min": None,
+                    # Exclude-object data (ha-print-handy #1): always present,
+                    # None / empty where the family does not report objects.
+                    "current_object": None, "objects": [], "excluded_objects": []}
 
 
 def _moonraker_status(adapter, view):

@@ -10,6 +10,38 @@ printer through the same paths chat uses:
 - every other family: the adapter's own ``control()`` operation
   (``family_control.FamilyControl``), with cancel spelled ``stop``.
 
+The ha-print-handy #1 routes add, under the same guard:
+
+- ``POST /api/printers/<id>/emergency_stop``, ``/firmware_restart`` and
+  ``/server_restart`` — Moonraker's ``/printer/emergency_stop``,
+  ``/printer/firmware_restart`` and ``/server/restart`` (the endpoints
+  the chat panic ladder in ``hermes/panic.py`` uses). Each needs
+  ``{"confirm": true}``. Emergency stop has NO state gate: it is the
+  panic button, so it sends from any state the printer can be read in.
+  No other family exposes a verified stop or restart capability in its
+  adapter or client code, so every other family refuses with a named
+  501 — no behavior is invented for them. This deliberately reverses
+  the #708 presumption that emergency stop stays chat-side only, at
+  catduck's direction for ha-print-handy #1.
+- ``POST /api/printers/<id>/gcode`` — raw G-code from the JSON body
+  ``{"script": "..."}`` (also a #708 scope reversal, same direction).
+  Moonraker sends it through ``/printer/gcode/script``; OctoPrint
+  sends one command per non-empty line through ``/api/printer/command``
+  (the endpoint its client already uses for temperature commands);
+  every other family refuses with a named 501. The script is refused
+  (400) when it is missing, not a string, empty, or longer than
+  ``GCODE_MAX_CHARS`` characters.
+- ``POST /api/printers/<id>/exclude`` — exclude one named object from
+  the running print, Moonraker only (exclude-object is a Klipper
+  feature; other families refuse 501). The body is
+  ``{"object": "<name>", "confirm": true}`` and the decision is built
+  by ``core.exclude_object.exclude_plan`` from the live status's
+  objects minus its excluded objects: a confirmed exclude sends the
+  plan's ``EXCLUDE_OBJECT NAME=<target>`` script, the last remaining
+  object answers 409 and sends nothing (cancel the print instead), an
+  unknown or already-excluded name refuses 400, and a missing confirm
+  answers 400 naming the ``{"confirm": true}`` requirement.
+
 Guard (the issue requires one): controls are OFF by default. Only
 ``[webui] controls_enabled = true`` turns them on; while off every
 control route answers 403 with the reason and sends nothing. ``cancel``
@@ -32,9 +64,19 @@ import urllib.error
 import urllib.request
 
 from .. import printers, settings
+from ..core import exclude_object as _exclude_object
 from . import status as status_module
 
 ACTIONS = ("pause", "resume", "cancel")
+# ha-print-handy #1: the power routes and their Moonraker endpoints
+# (the chat panic ladder's, in hermes/panic.py and print_alert_buttons).
+POWER_ACTIONS = {"emergency_stop": "/printer/emergency_stop",
+                 "firmware_restart": "/printer/firmware_restart",
+                 "server_restart": "/server/restart"}
+# The send-G-code size cap: a script is a snippet (a macro call, a few
+# moves), not a print file. 2048 characters also keeps the JSON body
+# under the control route's 4096-byte cap in server.py.
+GCODE_MAX_CHARS = 2048
 HEATERS = ("nozzle", "bed")
 # The family control vocabulary (FamilyControl): cancel is "stop".
 _FAMILY_ACTION = {"pause": "pause", "resume": "resume", "cancel": "stop"}
@@ -82,7 +124,13 @@ def _moonraker_post(view, path, payload=None):
 
 
 def default_send(adapter, view, command):
-    """Send one command: ("control", action) or ("temperature", heater, target)."""
+    """Send one command.
+
+    Shapes: ``("control", action)``, ``("temperature", heater, target)``,
+    ``("power", action)`` for the ha-print-handy #1 power routes, and
+    ``("gcode", script)`` for raw G-code (which the exclude route also
+    uses for its EXCLUDE_OBJECT script, on Moonraker only).
+    """
     connection = _connection(adapter)
     if command[0] == "control":
         action = command[1]
@@ -92,6 +140,26 @@ def default_send(adapter, view, command):
             raise ControlError(501, f"print controls are not supported for "
                                     f"{connection or 'this'} printers. Nothing sent.")
         return adapter.control(_FAMILY_ACTION[action])
+    if command[0] == "power":
+        action = command[1]
+        if connection == "moonraker":
+            return _moonraker_post(view, POWER_ACTIONS[action])
+        raise ControlError(501, f"{action} is not supported for "
+                                f"{connection or 'this'} printers: only Moonraker printers "
+                                "expose it in Print Handy. Nothing sent.")
+    if command[0] == "gcode":
+        script = command[1]
+        if connection == "moonraker":
+            return _moonraker_post(view, "/printer/gcode/script", {"script": script})
+        if connection == "octoprint":
+            sender = getattr(adapter, "send_gcode", None)
+            if not callable(sender):
+                raise ControlError(501, "send-G-code is not supported for OctoPrint "
+                                        "printers in this build. Nothing sent.")
+            lines = [line.strip() for line in str(script).splitlines() if line.strip()]
+            return sender(lines)
+        raise ControlError(501, f"send-G-code is not supported for "
+                                f"{connection or 'this'} printers. Nothing sent.")
     _, heater, target = command
     if connection == "moonraker":
         word = "M104" if heater == "nozzle" else "M140"
@@ -201,7 +269,8 @@ def control(data, printer_id, action, body=None, *, adapter=None, read=None, sen
     try:
         if action not in ACTIONS:
             raise ControlError(404, "try /api/printers/<id>/pause, resume, cancel, "
-                                    "temperature or target")
+                                    "temperature, target, emergency_stop, firmware_restart, "
+                                    "server_restart, gcode or exclude")
         entry, view = _resolve(data, printer_id)
         if action == "cancel" and not (isinstance(body, dict) and body.get("confirm") is True):
             raise ControlError(400, 'cancel needs the JSON body {"confirm": true}. Nothing sent.')
@@ -331,3 +400,160 @@ def set_targets(data, printer_id, body=None, *, adapter=None, read=None, send=No
     return 200, {"ok": True, "id": entry["id"],
                  "targets": {key: target for key, _, target in wanted},
                  "limits": limits, "detail": "targets sent; check the printer's status for the result."}
+
+
+# -- ha-print-handy #1: power, send-G-code and exclude-object routes -------
+
+
+def _require_confirm(body, label):
+    if not (isinstance(body, dict) and body.get("confirm") is True):
+        raise ControlError(400, f'{label} needs the JSON body {{"confirm": true}}. Nothing sent.')
+
+
+def _live_status(adapter, view, read):
+    """The full live status dict; an unreadable printer is an explicit 502."""
+    try:
+        live = read(adapter, view) or {}
+    except ControlError:
+        raise
+    except Exception as exc:  # unreachable is an explicit failure, never a guess
+        raise ControlError(502, f"printer unreachable ({type(exc).__name__}: {exc}). "
+                                "Nothing sent.") from None
+    return live if isinstance(live, dict) else {}
+
+
+def _dispatch(send, adapter, view, command, label):
+    try:
+        send(adapter, view, command)
+    except ControlError:
+        raise
+    except Exception as exc:
+        raise ControlError(502, f"{label} failed to reach the printer "
+                                f"({type(exc).__name__}: {exc})") from None
+
+
+def power_action(data, printer_id, action, body=None, *, adapter=None, read=None, send=None):
+    """(code, body) for POST /api/printers/<id>/emergency_stop|firmware_restart|server_restart.
+
+    All three need ``{"confirm": true}``. There is deliberately no state
+    gate — least of all on emergency stop, which must send from whatever
+    state the printer can be read in (printing included, exactly like
+    the chat panic ladder). The printer is still read first, so an
+    unreachable printer is an explicit 502 rather than a blind send —
+    except ``server_restart``, whose read is best-effort: Moonraker
+    rejects the status query while Klippy is disconnected, and server
+    restart is the recovery control for exactly that failure, so the
+    restart POST itself decides reachability there.
+    Moonraker only; every other family refuses 501 from ``default_send``.
+    """
+    read = status_module.read_live_status if read is None else read
+    send = default_send if send is None else send
+    try:
+        if action not in POWER_ACTIONS:
+            raise ControlError(404, "try /api/printers/<id>/emergency_stop, "
+                                    "firmware_restart or server_restart")
+        entry, view = _resolve(data, printer_id)
+        _require_confirm(body, action)
+        adapter = adapter or printers.get(entry["model"], view)
+        if action == "server_restart":
+            # Best-effort read only: Moonraker rejects the objects query
+            # while Klippy is disconnected, but /server/restart does not
+            # depend on Klippy — it is the recovery control for exactly
+            # that failure. The restart POST itself decides whether
+            # Moonraker is reachable (a failed send is a 502 below).
+            try:
+                state = str(_live_status(adapter, view, read).get("state") or "unknown")
+            except ControlError:
+                state = "unknown"
+        else:
+            state = str(_live_status(adapter, view, read).get("state") or "unknown")
+        _dispatch(send, adapter, view, ("power", action), action)
+    except ControlError as refusal:
+        return refusal.code, {"ok": False, "reason": refusal.reason}
+    return 200, {"ok": True, "id": entry["id"], "action": action, "from_state": state,
+                 "detail": f"{action} sent; check the printer's status for the result."}
+
+
+def send_gcode(data, printer_id, body=None, *, adapter=None, read=None, send=None):
+    """(code, body) for POST /api/printers/<id>/gcode.
+
+    Body: ``{"script": "<G-code text>"}``. A missing, non-string, empty
+    or oversized script (over ``GCODE_MAX_CHARS`` characters) refuses
+    400 and sends nothing. Moonraker receives the script verbatim
+    through ``/printer/gcode/script``; OctoPrint receives one command
+    per non-empty line through ``/api/printer/command``; every other
+    family refuses 501 from ``default_send``.
+    """
+    read = status_module.read_live_status if read is None else read
+    send = default_send if send is None else send
+    try:
+        entry, view = _resolve(data, printer_id)
+        script = body.get("script") if isinstance(body, dict) else None
+        if not isinstance(script, str):
+            raise ControlError(400, "script must be a string of G-code. Nothing sent.")
+        if not script.strip():
+            raise ControlError(400, "script is empty. Nothing sent.")
+        if len(script) > GCODE_MAX_CHARS:
+            raise ControlError(400, f"script is {len(script)} characters; the limit is "
+                                    f"{GCODE_MAX_CHARS}. Nothing sent.")
+        adapter = adapter or printers.get(entry["model"], view)
+        _live_status(adapter, view, read)
+        _dispatch(send, adapter, view, ("gcode", script), "send-G-code")
+    except ControlError as refusal:
+        return refusal.code, {"ok": False, "reason": refusal.reason}
+    return 200, {"ok": True, "id": entry["id"], "action": "gcode",
+                 "detail": "G-code sent; check the printer's status for the result."}
+
+
+def exclude_object(data, printer_id, body=None, *, adapter=None, read=None, send=None):
+    """(code, body) for POST /api/printers/<id>/exclude.
+
+    Body: ``{"object": "<name>", "confirm": true}``. Moonraker only —
+    exclude-object is a Klipper feature, so any other family refuses
+    501 before the printer is read. The plan comes from
+    ``core.exclude_object.exclude_plan`` over the live status's objects
+    minus its excluded objects: ``exclude`` sends the plan's
+    EXCLUDE_OBJECT script through the Moonraker G-code path,
+    ``cancel_print`` (the last remaining object) answers 409 and sends
+    nothing, ``refuse`` (unknown or already-excluded name) answers 400
+    and sends nothing, and without ``confirm: true`` the plan's
+    ``confirm`` action surfaces as a 400 naming the requirement.
+    """
+    read = status_module.read_live_status if read is None else read
+    send = default_send if send is None else send
+    try:
+        entry, view = _resolve(data, printer_id)
+        body = body if isinstance(body, dict) else {}
+        target = body.get("object")
+        if not isinstance(target, str) or not target.strip():
+            raise ControlError(400, "object must name one object on the plate. Nothing sent.")
+        target = target.strip()
+        adapter = adapter or printers.get(entry["model"], view)
+        connection = _connection(adapter)
+        if connection != "moonraker":
+            raise ControlError(501, "exclude-object is a Klipper (Moonraker) feature and is "
+                                    f"not supported for {connection or 'this'} printers. "
+                                    "Nothing sent.")
+        live = _live_status(adapter, view, read)
+        objects = [name for name in (live.get("objects") or []) if isinstance(name, str)]
+        excluded = {name for name in (live.get("excluded_objects") or [])
+                    if isinstance(name, str)}
+        remaining = [name for name in objects if name not in excluded]
+        plan = _exclude_object.exclude_plan(objects, target,
+                                            confirmed=body.get("confirm") is True,
+                                            remaining=remaining)
+        action = plan["action"]
+        if action == "confirm":
+            raise ControlError(400, 'excluding an object needs the JSON body '
+                                    '{"object": "<name>", "confirm": true}. '
+                                    f'{plan["reason"]} Nothing sent.')
+        if action == "cancel_print":
+            raise ControlError(409, f'{plan["reason"]} Nothing sent.')
+        if action != "exclude":
+            raise ControlError(400, f'{plan["reason"]}. Nothing sent.')
+        script = plan["body"]["params"]["script"]
+        _dispatch(send, adapter, view, ("gcode", script), "exclude-object")
+    except ControlError as refusal:
+        return refusal.code, {"ok": False, "reason": refusal.reason}
+    return 200, {"ok": True, "id": entry["id"], "action": "exclude", "object": target,
+                 "detail": plan["reason"]}

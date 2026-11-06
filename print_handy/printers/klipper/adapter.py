@@ -55,7 +55,8 @@ class KlipperAdapter(PrinterAdapter):
         return problems
 
     def moonraker_objects(self):
-        return ["webhooks", "print_stats", "virtual_sdcard", "extruder", "heater_bed"]
+        return ["webhooks", "print_stats", "virtual_sdcard", "extruder", "heater_bed",
+                "exclude_object"]
 
     def normalize_status(self, raw):
         return basic_status(raw)

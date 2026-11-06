@@ -56,7 +56,7 @@ class ZmodAdapter(PrinterAdapter):
 
     def moonraker_objects(self):
         return ["webhooks", "print_stats", "virtual_sdcard", "extruder", "heater_bed", "zmod_color", "zmod_ifs",
-                "save_variables"]
+                "save_variables", "exclude_object"]
 
     def normalize_status(self, raw):
         out = basic_status(raw)
@@ -115,7 +115,8 @@ class ZmodSingleExtruderAdapter(ZmodAdapter):
         return None
 
     def moonraker_objects(self):
-        return ["webhooks", "print_stats", "virtual_sdcard", "extruder", "heater_bed"]
+        return ["webhooks", "print_stats", "virtual_sdcard", "extruder", "heater_bed",
+                "exclude_object"]
 
     def normalize_status(self, raw):
         return basic_status(raw)
@@ -200,7 +201,7 @@ class ZmodMultiToolAdapter(ZmodSingleExtruderAdapter):
     def moonraker_objects(self):
         return ["webhooks", "print_stats", "virtual_sdcard",
                 *[self._extruder_name(tool) for tool in range(self.tool_count)],
-                "heater_bed", "zmod_color"]
+                "heater_bed", "zmod_color", "exclude_object"]
 
     def normalize_status(self, raw):
         out = basic_status(raw)

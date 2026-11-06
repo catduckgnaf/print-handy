@@ -10,6 +10,7 @@ import threading
 import unittest
 import urllib.error
 from pathlib import Path
+from unittest import mock
 
 from print_handy import settings
 from print_handy.webui import controls, server
@@ -425,6 +426,339 @@ class TargetTests(unittest.TestCase):
         self.assertIn("already sent: hotend_c=200", body["reason"])
         self.assertEqual(len(calls), 2)
 
+class FakeMoonrakerAdapter:
+    connection = "moonraker"
+
+
+class FakeOctoAdapter:
+    connection = "octoprint"
+
+    def __init__(self):
+        self.gcode_lines = []
+
+    def send_gcode(self, lines):
+        self.gcode_lines.append(list(lines))
+        return {}
+
+
+def live_objects(state="printing", objects=("cube", "gear", "clip"), excluded=("clip",),
+                 current="cube"):
+    return lambda adapter, view: {"state": state, "objects": list(objects),
+                                  "excluded_objects": list(excluded),
+                                  "current_object": current}
+
+
+class PowerActionTests(unittest.TestCase):
+    """ha-print-handy #1: emergency stop and the two restarts."""
+
+    def test_off_is_403_for_every_new_route_and_sends_nothing(self):
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = load_settings(tmp)
+            for action in controls.POWER_ACTIONS:
+                code, body = controls.power_action(data, PRINTER, action, {"confirm": True},
+                                                   read=reads("printing"), send=send)
+                self.assertEqual(code, 403, action)
+                self.assertIn("controls_enabled", body["reason"])
+            code, _ = controls.send_gcode(data, PRINTER, {"script": "G28"},
+                                          read=reads("idle"), send=send)
+            self.assertEqual(code, 403)
+            code, _ = controls.exclude_object(data, PRINTER, {"object": "cube", "confirm": True},
+                                              read=live_objects(), send=send)
+            self.assertEqual(code, 403)
+        self.assertEqual(send.sent, [])
+
+    def test_confirm_required_for_each_power_action(self):
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = enabled(tmp)
+            for action in controls.POWER_ACTIONS:
+                for body in (None, {}, {"confirm": "true"}, {"confirm": 1}):
+                    code, out = controls.power_action(data, PRINTER, action, body,
+                                                      read=reads("printing"), send=send)
+                    self.assertEqual(code, 400, (action, body))
+                    self.assertIn('"confirm": true', out["reason"])
+        self.assertEqual(send.sent, [])
+
+    def test_emergency_stop_has_no_state_gate(self):
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = enabled(tmp)
+            for state in ("printing", "paused", "idle", "complete", "error", "unknown"):
+                code, body = controls.power_action(data, PRINTER, "emergency_stop",
+                                                   {"confirm": True}, read=reads(state), send=send)
+                self.assertEqual(code, 200, (state, body))
+        self.assertEqual(send.sent, [("power", "emergency_stop")] * 6)
+
+    def test_restarts_send_their_power_command(self):
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = enabled(tmp)
+            for action in ("firmware_restart", "server_restart"):
+                code, body = controls.power_action(data, PRINTER, action, {"confirm": True},
+                                                   read=reads("idle"), send=send)
+                self.assertEqual(code, 200, body)
+                self.assertEqual(body["action"], action)
+        self.assertEqual(send.sent, [("power", "firmware_restart"), ("power", "server_restart")])
+
+    def test_unreachable_is_502_and_unknown_is_404(self):
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = enabled(tmp)
+            code, _ = controls.power_action(data, PRINTER, "emergency_stop", {"confirm": True},
+                                            read=unreachable, send=send)
+            self.assertEqual(code, 502)
+            code, _ = controls.power_action(data, "ghost", "emergency_stop", {"confirm": True},
+                                            read=reads("idle"), send=send)
+            self.assertEqual(code, 404)
+        self.assertEqual(send.sent, [])
+
+    def test_server_restart_sends_even_when_status_cannot_be_read(self):
+        # Moonraker rejects the objects query while Klippy is
+        # disconnected, but /server/restart does not depend on Klippy:
+        # it is the recovery control for exactly that failure, so its
+        # status read is best-effort and the restart POST decides.
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            code, body = controls.power_action(enabled(tmp), PRINTER, "server_restart",
+                                               {"confirm": True}, read=unreachable, send=send)
+        self.assertEqual(code, 200, body)
+        self.assertEqual(body["from_state"], "unknown")
+        self.assertEqual(send.sent, [("power", "server_restart")])
+
+    def test_other_power_actions_still_require_a_readable_printer(self):
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = enabled(tmp)
+            for action in ("emergency_stop", "firmware_restart"):
+                code, _ = controls.power_action(data, PRINTER, action, {"confirm": True},
+                                                read=unreachable, send=send)
+                self.assertEqual(code, 502, action)
+        self.assertEqual(send.sent, [])
+
+    def test_moonraker_paths(self):
+        posts = []
+        adapter = FakeMoonrakerAdapter()
+        view = {"services": {"moonraker_url": "http://printer:7125"}}
+        with mock.patch.object(
+                controls, "_moonraker_post",
+                lambda v, path, payload=None: posts.append((path, payload))):
+            for action, path in (("emergency_stop", "/printer/emergency_stop"),
+                                 ("firmware_restart", "/printer/firmware_restart"),
+                                 ("server_restart", "/server/restart")):
+                controls.default_send(adapter, view, ("power", action))
+        self.assertEqual([p for p, _ in posts],
+                         ["/printer/emergency_stop", "/printer/firmware_restart", "/server/restart"])
+
+    def test_non_moonraker_power_actions_refuse_501(self):
+        adapter = FakeFamilyAdapter()
+        with tempfile.TemporaryDirectory() as tmp:
+            for action in controls.POWER_ACTIONS:
+                code, body = controls.power_action(enabled(tmp), PRINTER, action,
+                                                   {"confirm": True}, adapter=adapter,
+                                                   read=reads("printing"))
+                self.assertEqual(code, 501, action)
+                self.assertIn("not supported", body["reason"])
+        self.assertEqual(adapter.calls, [])
+
+
+class SendGcodeTests(unittest.TestCase):
+    """ha-print-handy #1: the send-G-code route."""
+
+    def test_moonraker_script_is_sent_verbatim(self):
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            code, body = controls.send_gcode(enabled(tmp), PRINTER, {"script": "G28\nM400"},
+                                             read=reads("idle"), send=send)
+        self.assertEqual(code, 200, body)
+        self.assertEqual(send.sent, [("gcode", "G28\nM400")])
+        posts = []
+        with mock.patch.object(
+                controls, "_moonraker_post",
+                lambda v, path, payload=None: posts.append((path, payload))):
+            controls.default_send(FakeMoonrakerAdapter(),
+                                  {"services": {"moonraker_url": "http://p:7125"}},
+                                  ("gcode", "G28"))
+        self.assertEqual(posts, [("/printer/gcode/script", {"script": "G28"})])
+
+    def test_validation_refusals_send_nothing(self):
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = enabled(tmp)
+            for bad in (None, {}, {"script": None}, {"script": 42}, {"script": ""},
+                        {"script": "  \n  "}, {"script": "G28" * (controls.GCODE_MAX_CHARS + 1)}):
+                code, body = controls.send_gcode(data, PRINTER, bad, read=reads("idle"), send=send)
+                self.assertEqual(code, 400, bad if not isinstance(bad, dict)
+                                 or len(str(bad.get("script") or "")) < 100 else "oversized")
+                self.assertIn("Nothing sent", body["reason"])
+        self.assertEqual(send.sent, [])
+
+    def test_octoprint_sends_one_command_per_non_empty_line(self):
+        adapter = FakeOctoAdapter()
+        with tempfile.TemporaryDirectory() as tmp:
+            code, body = controls.send_gcode(enabled(tmp), PRINTER,
+                                             {"script": "G28\n\n  M104 S200 \n"},
+                                             adapter=adapter, read=reads("idle"))
+        self.assertEqual(code, 200, body)
+        self.assertEqual(adapter.gcode_lines, [["G28", "M104 S200"]])
+
+    def test_octoprint_client_posts_to_printer_command(self):
+        import io
+
+        from print_handy.printers.octoprint.client import OctoPrintClient
+
+        captured = {}
+
+        class Response(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def opener(request, timeout=None):
+            captured["url"] = request.full_url
+            captured["data"] = request.data
+            return Response(b"{}")
+
+        client = OctoPrintClient("http://octo:5000", "key", opener=opener)
+        client.send_commands(["G28", "M104 S200"])
+        self.assertTrue(captured["url"].endswith("/api/printer/command"))
+        self.assertEqual(json.loads(captured["data"]), {"commands": ["G28", "M104 S200"]})
+
+        from print_handy.printers.octoprint.adapter import OctoPrintAdapter
+
+        adapter = object.__new__(OctoPrintAdapter)
+        seen = {}
+
+        class FakeClient:
+            def send_commands(self, lines):
+                seen["lines"] = list(lines)
+
+        adapter.client = lambda: FakeClient()
+        adapter.send_gcode(["G28", ""])
+        self.assertEqual(seen["lines"], ["G28"])
+
+    def test_other_families_refuse_501(self):
+        adapter = FakeFamilyAdapter()
+        with tempfile.TemporaryDirectory() as tmp:
+            code, body = controls.send_gcode(enabled(tmp), PRINTER, {"script": "G28"},
+                                             adapter=adapter, read=reads("idle"))
+        self.assertEqual(code, 501)
+        self.assertIn("not supported", body["reason"])
+        self.assertEqual(adapter.calls, [])
+
+
+class ExcludeObjectTests(unittest.TestCase):
+    """ha-print-handy #1: exclude-object through core.exclude_object."""
+
+    def test_confirmed_exclude_sends_exclude_object_script(self):
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            code, body = controls.exclude_object(enabled(tmp), PRINTER,
+                                                 {"object": "gear", "confirm": True},
+                                                 read=live_objects(), send=send)
+        self.assertEqual(code, 200, body)
+        self.assertEqual(body["object"], "gear")
+        self.assertEqual(send.sent, [("gcode", "EXCLUDE_OBJECT NAME=gear")])
+
+    def test_no_confirm_is_400_and_sends_nothing(self):
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            for body in ({"object": "gear"}, {"object": "gear", "confirm": "true"}):
+                code, out = controls.exclude_object(enabled(tmp), PRINTER, body,
+                                                    read=live_objects(), send=send)
+                self.assertEqual(code, 400)
+                self.assertIn('"confirm": true', out["reason"])
+        self.assertEqual(send.sent, [])
+
+    def test_last_remaining_object_is_409_and_sends_nothing(self):
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            # "clip" is already excluded, so "gear" is the last one left.
+            code, body = controls.exclude_object(
+                enabled(tmp), PRINTER, {"object": "gear", "confirm": True},
+                read=live_objects(objects=("gear", "clip"), excluded=("clip",)), send=send)
+        self.assertEqual(code, 409)
+        self.assertIn("last object", body["reason"])
+        self.assertEqual(send.sent, [])
+
+    def test_unknown_or_already_excluded_object_refuses(self):
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = enabled(tmp)
+            for name in ("nope", "clip", ""):
+                code, body = controls.exclude_object(data, PRINTER,
+                                                     {"object": name, "confirm": True},
+                                                     read=live_objects(), send=send)
+                self.assertEqual(code, 400, name)
+                self.assertIn("Nothing sent", body["reason"])
+        self.assertEqual(send.sent, [])
+
+    def test_non_moonraker_refuses_501(self):
+        adapter = FakeFamilyAdapter()
+        with tempfile.TemporaryDirectory() as tmp:
+            code, body = controls.exclude_object(enabled(tmp), PRINTER,
+                                                 {"object": "gear", "confirm": True},
+                                                 adapter=adapter, read=live_objects())
+        self.assertEqual(code, 501)
+        self.assertIn("Klipper", body["reason"])
+        self.assertEqual(adapter.calls, [])
+
+    def test_unreachable_is_502(self):
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            code, _ = controls.exclude_object(enabled(tmp), PRINTER,
+                                              {"object": "gear", "confirm": True},
+                                              read=unreachable, send=send)
+        self.assertEqual(code, 502)
+        self.assertEqual(send.sent, [])
+
+
+class ObjectStatusTests(unittest.TestCase):
+    """ha-print-handy #1: object data in the normalized status."""
+
+    def test_klipper_queries_exclude_object(self):
+        from print_handy.printers.klipper.adapter import KlipperAdapter
+        adapter = object.__new__(KlipperAdapter)
+        self.assertIn("exclude_object", adapter.moonraker_objects())
+
+    def test_every_moonraker_adapter_queries_exclude_object(self):
+        # The ZMod and Snapmaker adapters carry their own object lists:
+        # without the query their printers normalize to empty object
+        # lists and every exclude request would refuse as unknown.
+        from print_handy.printers.flashforge.adapter import (
+            ZmodAdapter,
+            ZmodMultiToolAdapter,
+            ZmodSingleExtruderAdapter,
+        )
+        from print_handy.printers.snapmaker.adapter import SnapmakerAdapter
+        for cls in (ZmodAdapter, ZmodSingleExtruderAdapter, ZmodMultiToolAdapter,
+                    SnapmakerAdapter):
+            adapter = object.__new__(cls)
+            adapter.config = {"printer": {"tool_count": 2}}
+            self.assertIn("exclude_object", adapter.moonraker_objects(), cls.__name__)
+
+    def test_basic_status_normalizes_object_entries(self):
+        from print_handy.printers.base import basic_status
+        out = basic_status({"print_stats": {"state": "printing"},
+                            "exclude_object": {
+                                "current_object": "cube",
+                                "objects": [{"name": "cube", "center": [1, 2]},
+                                            {"name": "gear"}, "clip", {"no_name": 1}],
+                                "excluded_objects": ["clip"]}})
+        self.assertEqual(out["current_object"], "cube")
+        self.assertEqual(out["objects"], ["cube", "gear", "clip"])
+        self.assertEqual(out["excluded_objects"], ["clip"])
+
+    def test_basic_status_object_defaults(self):
+        from print_handy.printers.base import basic_status
+        out = basic_status({})
+        self.assertIsNone(out["current_object"])
+        self.assertEqual(out["objects"], [])
+        self.assertEqual(out["excluded_objects"], [])
+
+
 class RouteTests(unittest.TestCase):
     """The HTTP surface: token header, JSON only, 404 shape, real wiring."""
 
@@ -475,6 +809,26 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertEqual(seen, [(PRINTER, "cancel", {"confirm": True}),
                                 (PRINTER, "target", {"hotend_c": None, "bed_c": 60})])
+
+    def test_new_verbs_dispatch(self):
+        seen = []
+
+        def fake(printer_id, verb, body):
+            seen.append((printer_id, verb, body))
+            return 200, {"ok": True}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            port = self.start(tmp, printer_control_func=fake)
+            for verb, payload in (("emergency_stop", b'{"confirm": true}'),
+                                  ("firmware_restart", b'{"confirm": true}'),
+                                  ("server_restart", b'{"confirm": true}'),
+                                  ("gcode", b'{"script": "G28"}'),
+                                  ("exclude", b'{"object": "gear", "confirm": true}')):
+                code, _ = self.post(port, f"/api/printers/{PRINTER}/{verb}", payload)
+                self.assertEqual(code, 200, verb)
+        self.assertEqual([verb for _, verb, _ in seen],
+                         ["emergency_stop", "firmware_restart", "server_restart",
+                          "gcode", "exclude"])
 
     def test_real_wiring_off_by_default_and_404(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -53,7 +53,7 @@ class SnapmakerAdapter(KlipperAdapter):
     def moonraker_objects(self):
         return ["webhooks", "print_stats", "virtual_sdcard",
                 *[self._extruder_name(tool) for tool in range(self.tool_count)],
-                "heater_bed"]
+                "heater_bed", "exclude_object"]
 
     def spool_remain_g(self, status, tool):
         """Grams left on one toolhead, or None when the sample does not say.
