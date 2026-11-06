@@ -2,7 +2,7 @@ name: Upstream watch
 
 # Weekly check for newer upstream releases of the third-party tools
 # Print Handy pins manually, which Renovate cannot see: OrcaSlicer
-# (stable and preview channels, docker/orca-prebuilt.sh), go2rtc
+# (the single bundled build's pin, docker/orca-prebuilt.sh), go2rtc
 # (docker/go2rtc-prebuilt.sh), and the Spoolman / Bambu Studio commit
 # pins (Dockerfile). scripts/check_upstream_releases.py reads the pins
 # from this checkout, compares them with each upstream's GitHub
