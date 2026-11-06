@@ -292,7 +292,7 @@ As of 2.2.2 the shipped Docker default model is `klipper.generic` (it was `flash
 The current release is 2.2.5. Its index digest, read from GHCR on 2026-11-06, is the same digest `:latest` pointed at that day:
 
 ```text
-ghcr.io/catduckgnaf/print-handy@sha256:15daa36606fef923b773d1690d242584bd018df7746a545bc62ed78a825f8a56
+ghcr.io/catduckgnaf/print-handy@sha256:03d88ec367004143d1a087f92cdb46a9fbf7671d49b5f25d0aa3ee7209202375
 ```
 
 That digest is the amd64 and arm64 index, not one architecture's image. The in-repo Unraid template's `Repository` is this value. Compose has no default image: set `PRINT_HANDY_IMAGE` in `.env` to the same digest.
@@ -313,7 +313,7 @@ This is the edit. It is not applied by installing this repository.
 2. Change only the `Repository` element, from the moving tag to the digest:
 
 ```xml
-<Repository>ghcr.io/catduckgnaf/print-handy@sha256:15daa36606fef923b773d1690d242584bd018df7746a545bc62ed78a825f8a56</Repository>
+<Repository>ghcr.io/catduckgnaf/print-handy@sha256:03d88ec367004143d1a087f92cdb46a9fbf7671d49b5f25d0aa3ee7209202375</Repository>
 ```
 
 3. Leave every path, port, variable and `ExtraParams` value as it is. In particular do not drop a volume: the five appdata paths and any extra mounts (account tokens, timelapse archive) stay.
