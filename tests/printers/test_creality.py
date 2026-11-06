@@ -62,8 +62,8 @@ def test_creality_registration_and_defaults(key):
 def test_creality_identity_is_a_real_pin(key):
     f = getattr(creality_facts, MODELS[key])
     entries = f["orca_identity"].value
-    # One pin per checked packaging: 2.4.2's tree, then 2.5.0-alpha's and 2.5.0-beta's tree and packed cache (beta kept the vendor version).
-    assert [known["vendor_version"] for known in entries] == ["02.03.02.75", "02.03.02.87", "02.03.02.87", "02.03.02.87", "02.03.02.87"]
+    # One pin per checked packaging: 2.4.2's tree, then 2.5.0-alpha's, 2.5.0-beta's and 2.5.0-rc's tree and packed cache (beta kept alpha's vendor version; rc bumped it).
+    assert [known["vendor_version"] for known in entries] == ["02.03.02.75", "02.03.02.87", "02.03.02.87", "02.03.02.87", "02.03.02.87", "02.03.02.88", "02.03.02.88"]
     for known in entries:
         assert all(re.fullmatch(r"[0-9a-f]{64}", d) for d in known["sha256"].values())
     assert all(fixture.identity(f)["sha256"] != known["sha256"] for known in entries)

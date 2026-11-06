@@ -271,16 +271,25 @@ class OrcaPrebuiltTests(unittest.TestCase):
 
     def test_both_channels_are_pinned_prebuilts(self):
         helper = (ROOT / "docker" / "orca-prebuilt.sh").read_text()
-        # Both channels pin OrcaSlicer v2.5.0-beta: it is the shipped slicer
-        # (the successor of the v2.5.0-alpha pinned in #356), and the preview
-        # channel converges on it until upstream publishes a newer prerelease.
+        blocks = dict(re.findall(r"(stable|preview)\)\n(.*?)\n        ;;", helper, re.S))
+        # Stable pins OrcaSlicer v2.5.0-beta, the shipped slicer (the
+        # successor of the v2.5.0-alpha pinned in #356); preview pins the
+        # newer v2.5.0-rc prerelease, the channels' first divergence since
+        # they converged on the beta.
         for pin in ("version=2.5.0-beta", "revision=345efec64c7b95a05ce5cf96df0dde66a158835c",
                     "sha256_amd64=15b0e9f9d577bc7a84cfef4f1ecc6e16ef75bc253e500d772fcaa66f4c25b97e",
                     "asset_amd64=OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0-beta.AppImage",
                     "sha256_arm64=941ea21d012483770a582589590b539f34cbe1c041aa367f9008fbe8c3e6bcd9",
                     "asset_arm64=OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.0-beta.AppImage"):
-            with self.subTest(pin=pin):
-                self.assertIn(pin, helper)
+            with self.subTest(channel="stable", pin=pin):
+                self.assertIn(pin, blocks["stable"])
+        for pin in ("version=2.5.0-rc", "revision=af2ffb8cddd2f3c0bdadc56d9cc3945fb23577ea",
+                    "sha256_amd64=203104a3b0a880975b476ff00cfdd3a8fd2beb95fd8bfb2a9a28fb2bcbb47159",
+                    "asset_amd64=OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0-rc.AppImage",
+                    "sha256_arm64=fdd29d685ed54671a1a2887684fff4d888bd98b74809154a9731a788a7c6dced",
+                    "asset_arm64=OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.0-rc.AppImage"):
+            with self.subTest(channel="preview", pin=pin):
+                self.assertIn(pin, blocks["preview"])
         self.assertIn("set -eu", helper)
         self.assertIn("sha256sum --check --strict -", helper)
         self.assertLess(helper.index("sha256sum --check"), helper.index("--appimage-extract"))
@@ -305,11 +314,11 @@ class OrcaPrebuiltTests(unittest.TestCase):
                 "arm64": ("OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.0-beta.AppImage",
                           "941ea21d012483770a582589590b539f34cbe1c041aa367f9008fbe8c3e6bcd9"),
             }),
-            "preview": ("2.5.0-beta", "345efec64c7b95a05ce5cf96df0dde66a158835c", {
-                "amd64": ("OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0-beta.AppImage",
-                          "15b0e9f9d577bc7a84cfef4f1ecc6e16ef75bc253e500d772fcaa66f4c25b97e"),
-                "arm64": ("OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.0-beta.AppImage",
-                          "941ea21d012483770a582589590b539f34cbe1c041aa367f9008fbe8c3e6bcd9"),
+            "preview": ("2.5.0-rc", "af2ffb8cddd2f3c0bdadc56d9cc3945fb23577ea", {
+                "amd64": ("OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0-rc.AppImage",
+                          "203104a3b0a880975b476ff00cfdd3a8fd2beb95fd8bfb2a9a28fb2bcbb47159"),
+                "arm64": ("OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.0-rc.AppImage",
+                          "fdd29d685ed54671a1a2887684fff4d888bd98b74809154a9731a788a7c6dced"),
             }),
         }
         for channel, (version, revision, arches) in expected.items():

@@ -61,8 +61,8 @@ def test_qidi_registration_and_defaults(key):
 def test_qidi_identity_is_a_real_pin(key):
     f = getattr(qidi_facts, MODELS[key])
     entries = f["orca_identity"].value
-    # One pin per checked packaging: 2.4.2's tree, then 2.5.0-alpha's and 2.5.0-beta's tree and packed cache.
-    assert [known["vendor_version"] for known in entries] == ["02.04.00.06", "02.04.00.17", "02.04.00.17", "02.04.00.19", "02.04.00.19"]
+    # One pin per checked packaging: 2.4.2's tree, then 2.5.0-alpha's, 2.5.0-beta's and 2.5.0-rc's tree and packed cache.
+    assert [known["vendor_version"] for known in entries] == ["02.04.00.06", "02.04.00.17", "02.04.00.17", "02.04.00.19", "02.04.00.19", "02.04.00.20", "02.04.00.20"]
     for known in entries:
         assert all(re.fullmatch(r"[0-9a-f]{64}", d) for d in known["sha256"].values())
     assert all(fixture.identity(f)["sha256"] != known["sha256"] for known in entries)
