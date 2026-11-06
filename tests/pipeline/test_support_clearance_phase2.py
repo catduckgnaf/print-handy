@@ -285,6 +285,19 @@ def test_coverage_rejects_support_just_outside_a_narrow_target_box():
     assert result['ok'] is True
 
 
+def test_coverage_counts_a_segment_crossing_a_partial_edge_cell():
+    # A target ending in a partial cell: the support line crosses the
+    # whole box, but the discrete samples along it jump over the final
+    # cell's in-box interval ([12, 12.5] here). Segments are clipped to
+    # the box before sampling, so the crossing still counts every cell
+    # (while the outside-only paths in the narrow-box test stay excluded).
+    region = {'kind': 'supportable_overhang', 'part': 'P', 'bbox_mm': [[0.0, 0.0], [12.5, 3.0]],
+              'z_mm': {'min': 20.0, 'max': 20.0}}
+    gcode = ';TYPE:Support\nG1 Z19.8\nG1 X-1 Y1.5\nG1 X14 Y1.5 E5\n'
+    result = support_clearance.verify_support_coverage([region], gcode)
+    assert result['ok'] is True and result['regions'][0]['coverage'] == 1.0
+
+
 def test_coverage_rejects_support_paths_outside_the_target_box():
     region = {'kind': 'supportable_overhang', 'part': 'P', 'bbox_mm': [[0.0, 0.0], [12.0, 3.0]],
               'z_mm': {'min': 20.0, 'max': 20.0}}
