@@ -363,7 +363,7 @@ class DeploymentContractTests(unittest.TestCase):
     def test_unraid_device_is_off_by_default_and_documented(self):
         import xml.etree.ElementTree as ET
         root = ET.fromstring(UNRAID_TEXT)
-        self.assertNotIn("--device", root.findtext("ExtraParams"))
+        self.assertNotIn("--device", root.findtext("ExtraParams") or "")
         self.assertIn("/dev/dri", UNRAID_TEXT)  # the opt-in note in the header comment
         variables = {c.get("Target"): c for c in root.findall("Config")
                      if c.get("Type") == "Variable"}

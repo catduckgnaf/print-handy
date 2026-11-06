@@ -4,7 +4,10 @@
      Repository is the current release's multi-arch index digest (2.2.5), not a moving tag.
      :latest, :develop and :nightly move; a release tag is immutable only until someone republishes it.
      An install that already runs a tested digest keeps that digest. Do not replace it with this default.
-     Mirrors docker-compose.yml; tests/test_docker_release.py keeps the two in step. Setup: docs/DOCKER.md.
+     Mirrors docker-compose.yml's paths and variables; tests/test_docker_release.py keeps the two in step.
+     ExtraParams ships empty on purpose: the container's user, hardening and healthcheck live in
+     docker-compose.yml and the image, not in template docker-run flags (the CA template made the
+     same change). Setup: docs/DOCKER.md.
      GPU passthrough for hardware timelapse encoding (#246) is opt-in and OFF here: to grant an Intel/AMD
      iGPU, add a device mapping for /dev/dri to Extra Parameters below and make sure the container user
      can use the host render group; the container runs fine without it. See docs/DOCKER.md. -->
@@ -23,7 +26,7 @@
   <WebUI>http://[IP]:[PORT:8088]/</WebUI>
   <TemplateURL/>
   <Icon/>
-  <ExtraParams>--user 1000:1000 --cap-drop ALL --security-opt no-new-privileges:true --shm-size 256m --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 --restart unless-stopped --health-cmd &quot;python3 /usr/local/bin/print-handy-healthcheck&quot; --health-interval 30s --health-timeout 10s --health-start-period 90s --health-retries 3</ExtraParams>
+  <ExtraParams/>
   <PostArgs/>
   <CPUset/>
   <DonateText/>
