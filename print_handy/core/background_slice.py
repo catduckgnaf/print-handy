@@ -181,6 +181,9 @@ class BackgroundSlice:
         updated = copy.deepcopy(slice_job_data)
         for field in ('support_decision', 'clearance_acknowledgement', 'copies', 'filament_selection', 'color_decisions'):
             if field in current:
+                if (field == 'support_decision' and isinstance(current[field], dict)
+                        and current[field].get('by') == 'speculative_intake'):
+                    continue  # the speculative slice's temporary decision is not the operator's
                 updated[field] = current[field]
         if 'support_decision' not in updated and default_supports is not None:
             updated['support_decision'] = {'supports': default_supports, 'by': 'speculative_intake'}

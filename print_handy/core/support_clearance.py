@@ -484,26 +484,106 @@ def describe(report):
     return lines
 
 
-def extend_underside(source_path, dest_path=None, gap_mm=0.4, tol=1e-3):
-    """Extend downward underside vertices at gap_mm down to Z=0 (the build plate).
+def _instance_matrices(source):
+    """{(model file, object id): [composed world matrix, ...]} for printable meshes.
 
+    The same traversal leaves() uses (build items, components and their
+    transforms, cutter/modifier volumes left out), recording where each mesh
+    object lands in printer coordinates instead of its triangles.
+    """
+    from print_handy.core import source_colors
+    out = {}
+    with zipfile.ZipFile(source) as archive:
+        try:
+            cutters = source_colors.cutter_ids(archive)
+        except Exception:
+            cutters = {}
+        models = {}
+
+        def model(name):
+            name = name.lstrip('/')
+            if name not in models:
+                root = ET.fromstring(archive.read(name))
+                objs = {}
+                for res in _kids(root, 'resources'):
+                    for obj in _kids(res, 'object'):
+                        objs[obj.get('id')] = obj
+                models[name] = (root, objs)
+            return models[name]
+
+        def collect(name, oid, matrix, top_oid, active):
+            if (name, oid) in active:
+                raise ValueError('cyclic 3MF component reference')
+            obj = model(name)[1].get(oid)
+            if obj is None:
+                raise ValueError(f'unresolved 3MF object {oid}')
+            if (obj.get('type') or 'model').lower() in _SKIP_TYPES:
+                return
+            mesh = next(iter(_kids(obj, 'mesh')), None)
+            if mesh is not None and (top_oid, oid) not in cutters:
+                out.setdefault((name, oid), []).append(matrix)
+            for wrap in _kids(obj, 'components'):
+                for comp in _kids(wrap, 'component'):
+                    path = next((v for k, v in comp.attrib.items() if _local(k) == 'path'), name)
+                    collect(path.lstrip('/'), comp.get('objectid'), _matrix(comp) @ matrix,
+                            top_oid, active | {(name, oid)})
+
+        root = model('3D/3dmodel.model')[0]
+        for build in _kids(root, 'build'):
+            for item in _kids(build, 'item'):
+                if item.get('printable', '1') == '0':
+                    continue
+                oid = item.get('objectid')
+                collect('3D/3dmodel.model', oid, _matrix(item), oid, frozenset())
+    return out
+
+
+def extend_underside(source_path, dest_path=None, gap_mm=0.4, tol=1e-3):
+    """Extend downward underside vertices at gap_mm down to the build plate.
+
+    gap_mm is a printer-coordinate height (findings are measured in world
+    coordinates): each vertex is matched by its world Z under its build /
+    component transform and moved in local coordinates by the amount that
+    puts its world Z on the plate, so transformed and component-based 3MFs
+    are repaired as well as root-file meshes at the same local height.
     Preserves all 3MF components, materials, colors and other metadata.
     """
     dest_path = dest_path or source_path
+    instances = _instance_matrices(source_path)
     tmp_out = Path(dest_path).with_suffix(f'.tmp_ext_{os.getpid()}.3mf')
     modified_count = 0
     with zipfile.ZipFile(source_path, 'r') as zin, zipfile.ZipFile(tmp_out, 'w', zipfile.ZIP_DEFLATED) as zout:
         for item in zin.infolist():
             data = zin.read(item.filename)
-            if item.filename == '3D/3dmodel.model':
+            if item.filename.endswith('.model'):
                 root = ET.fromstring(data)
-                ns = {'m': 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'}
-                for v in root.findall('.//m:vertex', ns):
-                    z = float(v.get('z', '0'))
-                    if abs(z - gap_mm) <= tol:
-                        v.set('z', '0.00000000')
-                        modified_count += 1
-                data = ET.tostring(root, encoding='utf-8', xml_declaration=True)
+                changed = False
+                for obj in root.iter():
+                    if _local(obj.tag) != 'object':
+                        continue
+                    mats = (instances.get((item.filename, obj.get('id')))
+                            or instances.get((item.filename.lstrip('/'), obj.get('id'))))
+                    if not mats:
+                        continue
+                    mesh = next(iter(_kids(obj, 'mesh')), None)
+                    if mesh is None:
+                        continue
+                    for vs in _kids(mesh, 'vertices'):
+                        for v in _kids(vs, 'vertex'):
+                            x = float(v.get('x') or 0)
+                            y = float(v.get('y') or 0)
+                            z = float(v.get('z') or 0)
+                            targets = []
+                            for m in mats:
+                                wz = x * m[0, 2] + y * m[1, 2] + z * m[2, 2] + m[3, 2]
+                                if abs(wz - gap_mm) <= tol and abs(m[2, 2]) > 1e-9:
+                                    targets.append(z - wz / m[2, 2])
+                            if targets and max(targets) - min(targets) <= 1e-6:
+                                v.set('z', f'{targets[0]:.8f}')
+                                modified_count += 1
+                                changed = True
+                if changed:
+                    data = ET.tostring(root, encoding='utf-8', xml_declaration=True)
             zout.writestr(item, data)
     shutil.move(tmp_out, dest_path)
     return {'modified_vertices': modified_count, 'output_path': str(dest_path)}

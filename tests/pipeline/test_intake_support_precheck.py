@@ -371,3 +371,53 @@ def test_negative_start_guard_refuses_unacknowledged_risk(tmp_path):
     # After recording acknowledgement, it passes
     support_clearance.record_clearance_acknowledgement(job, gcode=str(gcode), source_file=str(V12_FIXTURE))
     assert job['clearance_acknowledgement']['acknowledged'] is True
+
+
+def test_extend_fix_rebinds_color_decisions_to_repaired_source(env, monkeypatch):
+    """After a geometry repair the saved color decisions must bind the new
+    source SHA256, or the restarted slice refuses them (Codex P2)."""
+    assert V12_FIXTURE.is_file()
+    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
+    from print_handy.core import orca_adapter
+    monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
+
+    adapter, result, receipt = run_flow(env, [1, 0, 2, 0])
+    assert receipt['status'] == 'STARTED'
+    job = json.loads(Path(receipt['job_json']).read_text())
+    assert job['color_decisions']['source_sha256'] == model_job.file_sha256(job['downloaded_file'])
+
+
+def test_clearance_acknowledgement_binds_the_selected_artifact(env, monkeypatch):
+    """The clearance acknowledgement must carry the selected variant's G-code
+    hash, not whichever artifact was on disk when the operator answered
+    (Codex P2)."""
+    assert V12_FIXTURE.is_file()
+    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
+    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    from print_handy.core import orca_adapter
+    monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
+
+    # picks: one color (1), slot 1 (0), "Slice and print with supports" (0)
+    adapter, result, receipt = run_flow(env, [1, 0, 0])
+    assert receipt['status'] == 'STARTED'
+    job = json.loads(Path(receipt['job_json']).read_text())
+    assert 'supports' in Path(job['gcode']).name
+    ack = job['clearance_acknowledgement']
+    assert ack['acknowledged'] is True
+    assert ack['gcode_sha256'] == model_job.file_sha256(job['gcode'])
+    assert ack['source_sha256'] == model_job.file_sha256(job['downloaded_file'])
+
+
+def test_flagged_slice_labels_when_printer_cannot_print(env, monkeypatch):
+    """With no print delivery method, the flagged 'Slice with supports' option
+    takes the slice-only path: no bed-clear approval, no printer start
+    (Codex P2)."""
+    monkeypatch.setattr(prepared_intake.delivery, 'methods', lambda: [])
+    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+
+    # picks: one color (1), slot 1 (0), "Slice with supports" (0)
+    adapter, result, receipt = run_flow(env, [1, 0, 0])
+    assert adapter.questions[-1]['choices'][0] == 'Slice with supports'
+    assert receipt['status'] == 'SLICED_NOT_STARTED'
+    assert 'bed_clear_approval' not in receipt
+    assert env.starts == []

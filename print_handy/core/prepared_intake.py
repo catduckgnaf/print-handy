@@ -2959,6 +2959,7 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         choice = None
         scale_note = ''
         supports_choice = None
+        clearance_ack_pending = False
         # The Ready question is composed from the finished first slice: the
         # with-supports offer (and the reason shown for it) depends on that
         # slice's warnings, so a free-running slice is waited out in full.
@@ -3058,7 +3059,7 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                 opt = menu_options[picked]
                 if opt['kind'] == 'sup':
                     supports_choice = True
-                    choice = 0
+                    choice = 0 if can_print else 1  # no print delivery: the slice-only path
                     # JOB.json must be stable before the decision is recorded:
                     # a still-running speculative slice rewrites it and would
                     # clobber the decision (see BackgroundSlice.settle).
@@ -3066,19 +3067,21 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                         await early.settle()
                     mj.record_support_decision(folder, True)
                     if clearance and support_clearance.risky(clearance):
-                        support_clearance.record_clearance_acknowledgement(folder, source_file=path)
+                        # Recorded after the selected variant is installed
+                        # (below), so the acknowledgement binds its hashes.
+                        clearance_ack_pending = True
                     latest = json.loads(jp.read_text())
                     binding = early.supports_binding or slice_binding(latest, decisions['source_sha256'])
                     recipe_sha = binding_sha256(binding)
                     break
                 elif opt['kind'] == 'nosup':
                     supports_choice = False
-                    choice = 0
+                    choice = 0 if can_print else 1  # no print delivery: the slice-only path
                     if hasattr(early, 'settle'):
                         await early.settle()
                     mj.record_support_decision(folder, False)
                     if clearance and support_clearance.risky(clearance):
-                        support_clearance.record_clearance_acknowledgement(folder, source_file=path)
+                        clearance_ack_pending = True
                     latest = json.loads(jp.read_text())
                     binding = slice_binding(latest, decisions['source_sha256'])
                     recipe_sha = binding_sha256(binding)
@@ -3100,6 +3103,11 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                     clearance_rep = support_clearance.safe_analyze(path)
                     latest['support_clearance'] = clearance_rep
                     early.clearance = clearance_rep
+                    # The repair changed the source bytes: rebind the saved
+                    # color decisions to the repaired source, or the restarted
+                    # slice refuses them for binding the old SHA256.
+                    validated = validate_decisions(manifest, decisions, state, mj.resolve_filament_selection)
+                    mj.set_color_decisions(latest, validated)
                     mj.write_job(folder, latest)
                     binding = slice_binding(latest, new_sha)
                     recipe_sha = binding_sha256(binding)
@@ -3125,6 +3133,11 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                     clearance_rep = support_clearance.safe_analyze(path)
                     latest['support_clearance'] = clearance_rep
                     early.clearance = clearance_rep
+                    # The repair changed the source bytes: rebind the saved
+                    # color decisions to the repaired source, or the restarted
+                    # slice refuses them for binding the old SHA256.
+                    validated = validate_decisions(manifest, decisions, state, mj.resolve_filament_selection)
+                    mj.set_color_decisions(latest, validated)
                     mj.write_job(folder, latest)
                     binding = slice_binding(latest, new_sha)
                     recipe_sha = binding_sha256(binding)
@@ -3490,6 +3503,15 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                 receipt.update(status='SLICED', gcodes=gcodes,
                                gcode_sha256={g: delivery.sha256(g) for g in gcodes})
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+        if clearance_ack_pending:
+            # The selected variant's artifact is installed now: bind the
+            # clearance acknowledgement to its recipe and G-code hashes.
+            # Recording it when the operator answered captured whichever
+            # variant the background slices had on disk then, and the start
+            # guard compares the acknowledgement against the final artifact.
+            from . import support_clearance
+            support_clearance.record_clearance_acknowledgement(folder, source_file=path)
+            sliced = json.loads(jp.read_text())
         # P1-20: a plate a guard refused during slicing is never dropped
         # silently. Name every refused plate before the start question; the
         # operator's confirmed start below records the acceptance print-now

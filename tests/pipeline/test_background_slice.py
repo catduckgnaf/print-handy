@@ -208,3 +208,43 @@ def test_await_background_slice_reraises_cancellation(tmp_path):
         await runner.discard()
 
     asyncio.run(run())
+
+
+def test_speculative_support_decision_is_not_restored_into_the_job(tmp_path):
+    """The speculative with-supports slice's temporary support decision must
+    not survive into the restored job: the no-supports artifact would claim
+    supports were chosen, and the start guard would refuse it (Codex P2)."""
+    async def run():
+        folder = tmp_path / 'intake'
+        folder.mkdir()
+        job_path = folder / 'JOB.json'
+        job_path.write_text(json.dumps({'color_manifest': {'source_sha256': 'src-a'}}))
+        runner = BackgroundSlice()
+        calls = []
+
+        async def slice_func(path, work, _runner, **kwargs):
+            data = json.loads(Path(path).read_text())
+            is_sup = bool((data.get('support_decision') or {}).get('supports'))
+            calls.append(is_sup)
+            work.mkdir(parents=True, exist_ok=True)
+            out = work / ('plate_sup.gcode' if is_sup else 'plate_nosup.gcode')
+            out.write_text('G1 X1\n')
+            if not is_sup:
+                data['provenance'] = {'slice_warnings': {'support_needed': True, 'objects': ['Body'],
+                                                         'support_texts': ['object Body has floating regions']},
+                                      'supports_on': False, 'support_decided': False}
+            data['gcode'] = str(out)
+            Path(path).write_text(json.dumps(data))
+            return [out]
+
+        await runner.start(job_path, 'binding-a', slice_func)
+        await runner.settle()
+        assert calls == [False, True]  # the speculative slice ran
+        job = json.loads(job_path.read_text())
+        assert (job.get('support_decision') or {}).get('supports') is not True
+        out = await runner.take('binding-a')
+        assert out and out[0].name == 'plate_nosup.gcode'
+        job = json.loads(job_path.read_text())
+        assert (job.get('support_decision') or {}).get('supports') is not True
+
+    asyncio.run(run())

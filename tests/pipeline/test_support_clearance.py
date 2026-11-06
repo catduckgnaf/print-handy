@@ -140,3 +140,20 @@ def test_safe_analyze_error_handling(tmp_path):
     bad = tmp_path / "corrupt.3mf"
     bad.write_text("not a zip file")
     assert support_clearance.safe_analyze(str(bad)) is None
+
+
+def test_extend_underside_applies_build_transform(tmp_path):
+    """A build transform lifting the mesh 0.4 mm must not defeat the repair:
+    findings are in printer coordinates, so the fix maps them back to local
+    coordinates instead of matching local Z against the gap (Codex P2)."""
+    import shutil
+    src = FIXTURES_DIR / "10_build_transform_z040.3mf"
+    assert src.is_file()
+    work = tmp_path / "model.3mf"
+    shutil.copy(src, work)
+    rep = support_clearance.analyze(str(work))
+    finding = next(f for f in rep["findings"] if f["code"] == support_clearance.CODE_CLEARANCE)
+    res = support_clearance.extend_underside(str(work), gap_mm=finding["clearance_mm"]["min"])
+    assert res["modified_vertices"] > 0
+    rep2 = support_clearance.analyze(str(work))
+    assert support_clearance.CODE_CLEARANCE not in support_clearance.codes(rep2)
