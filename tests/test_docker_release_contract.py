@@ -221,7 +221,12 @@ class DockerReleaseContract(unittest.TestCase):
                     "15b0e9f9d577bc7a84cfef4f1ecc6e16ef75bc253e500d772fcaa66f4c25b97e",
                     "345efec64c7b95a05ce5cf96df0dde66a158835c",
                     "OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.0-beta.AppImage",
-                    "941ea21d012483770a582589590b539f34cbe1c041aa367f9008fbe8c3e6bcd9"):
+                    "941ea21d012483770a582589590b539f34cbe1c041aa367f9008fbe8c3e6bcd9",
+                    "OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0-rc.AppImage",
+                    "203104a3b0a880975b476ff00cfdd3a8fd2beb95fd8bfb2a9a28fb2bcbb47159",
+                    "af2ffb8cddd2f3c0bdadc56d9cc3945fb23577ea",
+                    "OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.0-rc.AppImage",
+                    "fdd29d685ed54671a1a2887684fff4d888bd98b74809154a9731a788a7c6dced"):
             with self.subTest(pin=pin):
                 self.assertIn(pin, prebuilt)
         self.assertIn("sha256sum --check --strict -", prebuilt)
