@@ -8,10 +8,13 @@ The three optimizations pinned here:
    reproduced below as the reference; the optimized functions must agree
    with it on every case, including tool lines at the file start/end, CRLF
    files and heater-only files.
-2. ``_verify_routed`` skips the G-code body re-parse at launch when the job
-   already verified this exact artifact (``gcode_verified`` plus a matching
-   ``artifact_binding.gcode_sha256``). Any other state falls back to the full
-   verification — the skip never applies to unverified or changed artifacts.
+2. ``_verify_routed`` skips the G-code body re-parse at launch when the full
+   verification already passed on this exact artifact (``gcode_verified``,
+   a matching ``artifact_binding.gcode_sha256``, and the
+   ``gcode_full_verified_sha256`` marker only a passed full verification
+   records). The live ``printer_state.check`` still runs on the skip path.
+   Any other state falls back to the full verification — the skip never
+   applies to unverified, offline-only-verified or changed artifacts.
 3. ``gcode_3mf.plate_metadata`` reads its header/footer comments from the
    head and tail slices only, and ``package`` still produces a readable
    package whose inner G-code is byte-identical.
@@ -184,9 +187,9 @@ class _CountingAdapter:
 
 
 def _verified_job(path, sha=None):
-    return {'gcode': str(path), 'gcode_verified': True,
-            'artifact_binding': {'gcode_sha256': sha if sha is not None
-                                 else hashlib.sha256(Path(path).read_bytes()).hexdigest()}}
+    digest = sha if sha is not None else hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    return {'gcode': str(path), 'gcode_verified': True, 'gcode_full_verified_sha256': digest,
+            'artifact_binding': {'gcode_sha256': digest}}
 
 
 @pytest.fixture
@@ -241,10 +244,41 @@ def test_routed_verify_skip_supports_a_split_job_plate_hash(skip_rig):
     path, adapter, state = skip_rig
     sha = hashlib.sha256(Path(path).read_bytes()).hexdigest()
     job = {'gcode': '/elsewhere/first.gcode', 'gcode_verified': True,
+           'gcode_full_verified_sha256': sha,
            'derived_plates': [{'gcode': str(path), 'slot': 1}],
            'artifact_binding': {'gcode_sha256': {'1': sha}}}
     result = model_job._verify_routed(path, adapter, state, 'p1', job=job)
     assert result.get('skipped_reparse') is True
+    assert adapter.calls == 0
+
+
+def test_routed_verify_reparses_a_legacy_job_without_the_full_verify_marker(skip_rig):
+    # Jobs written before #925, and jobs whose slice ran only the offline
+    # verify, carry gcode_verified without gcode_full_verified_sha256: the
+    # full launch verification (first-layer and line-width checks included)
+    # has not been proven for them, so it still runs.
+    path, adapter, state = skip_rig
+    job = _verified_job(path)
+    del job['gcode_full_verified_sha256']
+    result = model_job._verify_routed(path, adapter, state, 'p1', job=job)
+    assert 'skipped_reparse' not in result
+    assert adapter.calls == 1
+    # The full pass records the marker, so the next launch may skip.
+    assert job['gcode_full_verified_sha256'] == hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    result = model_job._verify_routed(path, adapter, state, 'p1', job=job)
+    assert result.get('skipped_reparse') is True
+    assert adapter.calls == 1
+
+
+def test_routed_verify_skip_still_runs_the_live_printer_check(skip_rig, monkeypatch):
+    # The skip replaces only the body parse: printer_state.check (live
+    # nozzle / pressure advance / probe calibration vs the record) still
+    # runs, and its refusal still refuses.
+    path, adapter, state = skip_rig
+    monkeypatch.setattr(model_job.printer_state, 'check',
+                        lambda *a, **k: (False, ['live nozzle diameter changed'], {}))
+    with pytest.raises(RuntimeError, match='the printer check did not pass'):
+        model_job._verify_routed(path, adapter, state, 'p1', job=_verified_job(path))
     assert adapter.calls == 0
 
 

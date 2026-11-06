@@ -3150,15 +3150,21 @@ def _recorded_temperatures(job, gcode_path):
 
 
 def _already_verified_artifact(job, gcode_path):
-    """True only when this job already verified these exact bytes (#925).
+    """True only when the full verification already passed on these bytes (#925).
 
-    The binding is the slice-time record: ``gcode_verified`` must be true
-    and the artifact's current SHA-256 must equal the bound
-    ``artifact_binding.gcode_sha256`` — the plain digest for a single
+    The evidence is threefold: ``gcode_verified`` must be true, the
+    artifact's current SHA-256 must equal the bound
+    ``artifact_binding.gcode_sha256`` (the plain digest for a single
     artifact, or this plate's entry of the per-plate digest map for a
-    split job. Anything else (no job, no binding, an unverified job, a
-    malformed binding, a changed file) is not evidence and returns False,
-    so the caller runs the full verification exactly as before.
+    split job), and ``gcode_full_verified_sha256`` must name that same
+    digest. The marker is recorded only by _verify_routed after the full
+    verify_gcode — including its first-layer and line-width checks — has
+    passed on the artifact; slice paths that run only the offline verify
+    set ``gcode_verified`` without it, so their artifacts still get the
+    full launch verification. Anything else (no job, no binding, an
+    unverified job, a missing or stale marker, a malformed binding, a
+    changed file) is not evidence and returns False, so the caller runs
+    the full verification exactly as before.
     """
     if not isinstance(job, dict) or job.get('gcode_verified') is not True:
         return False
@@ -3177,10 +3183,37 @@ def _already_verified_artifact(job, gcode_path):
                 break
     if not isinstance(stored, str) or not stored:
         return False
+    if job.get('gcode_full_verified_sha256') != stored:
+        return False
     try:
         return file_sha256(gcode_path) == stored
     except OSError:
         return False
+
+
+def _run_live_printer_check(adapter, state, printer_id):
+    """printer_state.check exactly as verify_gcode runs it (live hardware record).
+
+    The verified-artifact skip in _verify_routed replaces only the G-code
+    body parse; the live check — live nozzle, pressure advance and probe
+    calibration against the hardware record — still runs, with the same
+    routing and the same refusal text verify_gcode produces.
+    """
+    if printer_id:
+        use_adapter = adapter or printers.current()
+        use_state = state if state is not None else printer_state.load(printer_id)
+    else:
+        use_adapter = printers.current()
+        use_state = printer_state.load()
+    offline = use_adapter.connection in ('offline', 'bambulab_lan', 'prusalink', 'elegoo_sdcp', 'flashforge_stock')
+    live_kw = {'live': False} if offline else {}
+    if printer_id:
+        ok, probs, facts = printer_state.check(use_state, printer_id=printer_id, adapter=use_adapter, **live_kw)
+    else:
+        ok, probs, facts = printer_state.check(use_state, **live_kw)
+    _print_check_warnings(facts)
+    if not ok:
+        raise RuntimeError("the printer check did not pass:\n  " + "\n  ".join(probs))
 
 
 def _verify_routed(gcode_path, adapter, state, printer_id, job=None):
@@ -3192,24 +3225,40 @@ def _verify_routed(gcode_path, adapter, state, printer_id, job=None):
     temperatures ride along so the verify checks the artifact against
     what it was sliced at (P2-275).
 
-    #925: when the job already verified this exact artifact (see
-    _already_verified_artifact), the G-code body is not re-parsed for the
-    offline bounds/tool checks — slicing ran them on these bytes seconds
-    earlier, and the launch paths around this call keep their own live
-    guards (idle/mesh/readiness checks, require_current_artifact's recipe
-    and binding re-checks, the embedded tool-map read). A SHA mismatch or
-    a missing verified flag falls back to the full verification below.
-    The result mirrors the offline shape verify_gcode returns for the
-    offline/LAN families, with skipped_reparse naming what was skipped.
+    #925: when the full verification already passed on this exact
+    artifact (see _already_verified_artifact), the G-code body is not
+    re-parsed for the offline bounds/tool checks — slicing ran them on
+    these bytes seconds earlier. Only the body parse is skipped: the
+    live printer_state.check verify_gcode performs still runs here, and
+    the launch paths around this call keep their own live guards
+    (idle/mesh/readiness checks, require_current_artifact's recipe and
+    binding re-checks, the embedded tool-map read). A SHA mismatch, a
+    missing verified flag or a missing full-verification marker falls
+    back to the full verification below. The result mirrors the offline
+    shape verify_gcode returns for the offline/LAN families, with
+    skipped_reparse naming what was skipped.
+
+    A successful full verification records the artifact's digest in the
+    job's gcode_full_verified_sha256 marker, so a later launch of the
+    same bytes can take the skip; callers that persist the job (slice,
+    remap) persist the marker with it.
     """
     if _already_verified_artifact(job, gcode_path):
+        _run_live_printer_check(adapter, state, printer_id)
         connection = getattr(adapter, 'connection', None) or 'offline'
         return {'offline': True, 'connection': connection, 'skipped_reparse': True}
     recorded = _recorded_temperatures(job, gcode_path)
     kw = {'recorded_temps': recorded} if recorded else {}
     if printer_id:
-        return verify_gcode(gcode_path, adapter=adapter, state=state, printer_id=printer_id, **kw)
-    return verify_gcode(gcode_path, **kw)
+        result = verify_gcode(gcode_path, adapter=adapter, state=state, printer_id=printer_id, **kw)
+    else:
+        result = verify_gcode(gcode_path, **kw)
+    if isinstance(job, dict):
+        try:
+            job['gcode_full_verified_sha256'] = file_sha256(gcode_path)
+        except OSError:
+            pass
+    return result
 
 
 def _recorded_printer_id(job):
@@ -3708,9 +3757,10 @@ def set_color_decisions(job, decisions):
     if decisions_digest(job.get('color_decisions')) != decisions_digest(decisions):
         if job.get('gcode'):
             job.setdefault('artifact_history', []).append({key: job[key] for key in
-                ('gcode', 'gcode_verified', 'provenance', 'artifact_binding', 'sliced_at', 'slice_config',
-                 'slice_recipe') if key in job})
-        for key in ('gcode', 'provenance', 'artifact_binding', 'sliced_at', 'slice_config', 'slice_recipe'):
+                ('gcode', 'gcode_verified', 'gcode_full_verified_sha256', 'provenance', 'artifact_binding',
+                 'sliced_at', 'slice_config', 'slice_recipe') if key in job})
+        for key in ('gcode', 'provenance', 'artifact_binding', 'sliced_at', 'slice_config', 'slice_recipe',
+                    'gcode_full_verified_sha256'):
             job.pop(key, None)
         job['gcode_verified'] = False
     job['color_decisions'] = decisions
@@ -3763,9 +3813,10 @@ def set_unit_decision(job, decision):
     if decisions_digest(job.get('unit_decision')) != decisions_digest(decision):
         if job.get('gcode'):
             job.setdefault('artifact_history', []).append({key: job[key] for key in
-                ('gcode', 'gcode_verified', 'provenance', 'artifact_binding', 'sliced_at', 'slice_config',
-                 'slice_recipe') if key in job})
-        for key in ('gcode', 'provenance', 'artifact_binding', 'sliced_at', 'slice_config', 'slice_recipe'):
+                ('gcode', 'gcode_verified', 'gcode_full_verified_sha256', 'provenance', 'artifact_binding',
+                 'sliced_at', 'slice_config', 'slice_recipe') if key in job})
+        for key in ('gcode', 'provenance', 'artifact_binding', 'sliced_at', 'slice_config', 'slice_recipe',
+                    'gcode_full_verified_sha256'):
             job.pop(key, None)
         job['gcode_verified'] = False
     job['unit_decision'] = decision
