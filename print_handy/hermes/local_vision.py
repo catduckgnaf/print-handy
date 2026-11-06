@@ -116,7 +116,7 @@ def enabled(cfg=None) -> bool:
 def model_path(cfg=None) -> Path:
     """Where the ONNX weights live: the operator's
     ``vision.local_model_path`` when set, else ``models/`` under the
-    Hermes home (persistent in the container's ``/data/hermes`` volume)."""
+    Hermes home (persistent in the container's ``/data/state`` volume)."""
     cfg = _config.cfg() if cfg is None else cfg
     raw = str((cfg.get("vision") or {}).get("local_model_path") or "").strip()
     if raw:

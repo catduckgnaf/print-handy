@@ -15,7 +15,7 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-from . import diagnostics, settings, state_files
+from . import diagnostics, settings, state_files, state_volume
 from .core import resources, spoolman_client
 
 # Moonraker and Spoolman endpoints that answer without auth when the service is up.
@@ -28,6 +28,13 @@ def check_settings(data):
                  else f"{printer['filament_slots']} slot(s)")
     return (f"{printer['name']}, bed {printer['bed_mm'][0]:g}x{printer['bed_mm'][1]:g} mm, "
                   f"{positions}, {printer['nozzle_diameter_mm']:g} mm nozzle")
+
+
+def check_state_volume(data):
+    """Which state volume is in use (#914): the configured data folder, and
+    whether the legacy /data/hermes volume is the one actually holding the
+    data (entrypoint symlink, an explicit legacy path, or both present)."""
+    return state_volume.describe_state_volume(data["paths"]["hermes_home"])
 
 
 def check_model(data):
@@ -395,6 +402,7 @@ def run(out=sys.stdout):
         print(f"FAIL  settings: {exc}", file=out)
         return 1
     report("settings", check_settings, data)
+    report("state volume", check_state_volume, data)
     report("printer model", check_model, data)
     report("orca templates", check_templates, data)
     report("core", check_core, data)

@@ -35,14 +35,18 @@ bambu:
   lan_serial: ""
   lan_access_code_env: BAMBU_LAN_PASSWORD
 paths:
-  hermes_home: /data/hermes
+  # The state volume's neutral name since 2.2.5 (#914); the key keeps its
+  # historical name. /data/hermes (the pre-2.2.5 path) stays accepted: the
+  # entrypoint links /data/state to it when only the legacy volume holds
+  # data, and pointing this at /data/hermes explicitly still works.
+  hermes_home: /data/state
   archive: /data/archive
   records_vault: /data/records
   cache: /data/cache
   hermes_bin: /usr/local/bin/hermes
   ffmpeg: ffmpeg
-  hermes_agent: /data/hermes/hermes-agent
-  hermes_restart_helper: /data/hermes/restart_hermes.py
+  hermes_agent: /data/state/hermes-agent
+  hermes_restart_helper: /data/state/restart_hermes.py
 services:
   # Runtime paths: Spoolman is loopback only inside the combined container.
   moonraker_url: ""
@@ -146,5 +150,5 @@ logging:
   # Daily app log files on the state volume, so they survive a container recreate
   # (docker logs does not). Override with PRINT_HANDY__LOGGING__FILE (empty: stderr only)
   # and PRINT_HANDY__LOGGING__RETENTION_DAYS.
-  file: /data/hermes/logs/print-handy.log
+  file: /data/state/logs/print-handy.log
   retention_days: 14

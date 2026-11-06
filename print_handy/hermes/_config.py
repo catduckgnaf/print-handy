@@ -119,7 +119,7 @@ def hosting_profile(plugin_file=None, home=None, mode=None) -> tuple[str, bool]:
     * ``paths.hermes_home`` inside a Hermes profiles layout
       (``~/.hermes/profiles/<name>``) — the path the installer targets; its
       basename is the profile name. A hermes_home outside that layout
-      (Docker's ``/data/hermes``) names a data root, not a profile, and is
+      (Docker's ``/data/state``) names a data root, not a profile, and is
       skipped; ``$HERMES_HOME`` is never consulted either, for the
       pinned_hermes_home reason (a cron job's names the launching profile).
     * the plugin's own install location, when ``plugin_file``'s folder is

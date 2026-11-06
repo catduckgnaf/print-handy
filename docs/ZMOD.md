@@ -406,7 +406,7 @@ the printer prints this file, abandons the start, reports error or cancelled, or
 15 minutes pass.
 
 Files: `<hermes_home>/state/start-recordings/<UTC stamp>-<file stem>.jsonl`
-(Docker: `/data/hermes/state/start-recordings/`), and `<same>.summary.json`
+(Docker: `/data/state/state/start-recordings/`), and `<same>.summary.json`
 with the outcome, the time of the first heater target and of `printing`, any
 `!!` lines and the lease phases. The JSONL holds the printer's address and real
 file names; it is a local record, not a fixture.

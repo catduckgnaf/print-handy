@@ -21,6 +21,16 @@ from print_handy.webui_gate import start_blocked, webui_config
 
 def main():
     healthy = True
+    # State volume (#914): report which path is in use — the new
+    # /data/state, or the legacy /data/hermes through the entrypoint's
+    # symlink or an explicit setting. Reporting only, never a failure:
+    # both names are accepted in this release.
+    try:
+        from print_handy.state_volume import describe_state_volume
+        print(f"ok  state volume: "
+              f"{describe_state_volume(settings.current()['paths']['hermes_home'])}")
+    except Exception as exc:
+        print(f"ok  state volume: could not be determined ({exc})")
     # The same decision the supervisor made (print_handy.bot_gate): the
     # configured platform's own token, not DISCORD_BOT_TOKEN alone.
     from print_handy.bot_gate import decide as bot_decide

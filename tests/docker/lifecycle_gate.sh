@@ -69,7 +69,10 @@ phase() { local name=$1 image=$2 tree=$3; shift 3
     (cd "$work" && PRINT_HANDY_IMAGE="$image" PRINT_HANDY_DATA="$tree" PRINT_HANDY_SPOOLMAN_DATA="$tree/spoolman" \
         docker compose -p "ph-life-$name-$run_id" "${files[@]}" "$@"); }
 new_tree() {  # new_tree DIR: an empty data tree owned by the image's uid 1000
-    mkdir -p "$1"/{hermes,archive,records,cache,spoolman}
+    # Both state-volume names (#914): the previous image seeds under
+    # hermes/, this one under state/ — the upgrade phase exercises the
+    # entrypoint migration between them.
+    mkdir -p "$1"/{state,hermes,archive,records,cache,spoolman}
     chown -R 1000:1000 "$1" 2> /dev/null || sudo chown -R 1000:1000 "$1"
 }
 # as_handy IMAGE TREE CMD...: a one-shot, no-network helper container on a stopped tree.

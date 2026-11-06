@@ -164,11 +164,15 @@ ENV PRINT_HANDY_CONFIG=/app/config/docker.yaml HOME=/data PRINT_HANDY__BOT__MODE
 # variable; glibc, Python and Go consumers honor a runtime TZ override
 # directly, and the entrypoint validates the name against this database.
 RUN ln -snf "/usr/share/zoneinfo/$TZ" /etc/localtime && printf '%s\n' "$TZ" > /etc/timezone
-VOLUME ["/data/hermes", "/data/archive", "/data/records", "/data/cache", "/data/spoolman"]
+# /data/state is the state volume's neutral name since 2.2.5 (#914);
+# /data/hermes is its pre-2.2.5 name and stays a declared volume so legacy
+# mounts keep working (the entrypoint links /data/state to it when only
+# the legacy volume holds data; removal is at least two minor releases out).
+VOLUME ["/data/state", "/data/hermes", "/data/archive", "/data/records", "/data/cache", "/data/spoolman"]
 EXPOSE 8000 8088
 COPY docker/supervise.sh /usr/local/bin/print-handy-supervise
 COPY docker/healthcheck.py /usr/local/bin/print-handy-healthcheck
-RUN mkdir -p /data/hermes/state /data/archive /data/records /data/cache /data/spoolman/config /data/spoolman/logs /data/spoolman/backups && \
+RUN mkdir -p /data/state/state /data/state/logs /data/hermes/state /data/archive /data/records /data/cache /data/spoolman/config /data/spoolman/logs /data/spoolman/backups && \
     chown -R handy:handy /data && chmod +x /app/docker/entrypoint.sh /usr/local/bin/print-handy-supervise
 USER handy
 ENTRYPOINT ["/usr/bin/tini", "-g", "--", "/app/docker/entrypoint.sh", "/usr/local/bin/print-handy-supervise"]

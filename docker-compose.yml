@@ -38,7 +38,7 @@ services:
       PRINT_HANDY__VISION__ROAST_ENABLED: ${PRINT_HANDY__VISION__ROAST_ENABLED:-true}
       # Local failure detector (#455): built-in ONNX detector for the camera
       # watchdog when no vision endpoint is configured. Off by default; the
-      # pinned model (~202 MB) downloads once into /data/hermes/models.
+      # pinned model (~202 MB) downloads once into /data/state/models.
       PRINT_HANDY__VISION__LOCAL_DETECTOR_ENABLED: ${PRINT_HANDY__VISION__LOCAL_DETECTOR_ENABLED:-false}
       PRINT_HANDY__VISION__LOCAL_MODEL_PATH: ${PRINT_HANDY__VISION__LOCAL_MODEL_PATH:-}
       # Auto light-off (#516): light on at print start, off after the plate
@@ -120,6 +120,13 @@ services:
       PRINT_HANDY_BUNDLED_SPOOLMAN: ${PRINT_HANDY_BUNDLED_SPOOLMAN:-true}
       SPOOLMAN_PORT: 8000
     volumes:
+      # State volume (#914): /data/state is the neutral name since 2.2.5.
+      # The /data/hermes line below it is the legacy fallback for installs
+      # whose host folder is still named hermes: the entrypoint uses that
+      # data through /data/state until the host folder is renamed (see
+      # docs/DOCKER.md, "State volume rename"). Keep both lines until then;
+      # the legacy line can be dropped once the host folder is state/.
+      - ${PRINT_HANDY_DATA:-./data}/state:/data/state
       - ${PRINT_HANDY_DATA:-./data}/hermes:/data/hermes
       - ${PRINT_HANDY_DATA:-./data}/archive:/data/archive
       - ${PRINT_HANDY_DATA:-./data}/records:/data/records

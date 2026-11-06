@@ -432,11 +432,11 @@ Check the setup any time with `python3 -m print_handy.doctor`. It also checks Mo
 
 Prerequisites: Docker Engine with the Docker Compose plugin, and Git. From the repository root, copy `.env.example` to `.env` and set `PRINT_HANDY__SERVICES__MOONRAKER_URL` to your printer's Moonraker URL. Set other scalar settings with `PRINT_HANDY__SECTION__KEY` variables in `.env`; `config/docker.yaml` supplies Docker defaults. Lists such as `orca.command` belong in a config file, not environment variables. To replace the full config, mount YAML and set `PRINT_HANDY_CONFIG` to its container path. Existing TOML mounts remain compatible by mounting at `/app/config/docker.toml` and setting `PRINT_HANDY_CONFIG=/app/config/docker.toml` in `.env`.
 
-Compose stores persistent data in `./data/hermes`, `./data/archive`, `./data/records`, and `./data/cache`; the included Spoolman uses `./data/spoolman`. Create these directories before starting. Spoolman is included in the Compose stack and published on no host port; Print Handy has no published host port and connects to Moonraker and Spoolman over the Compose network.
+Compose stores persistent data in `./data/state`, `./data/archive`, `./data/records`, and `./data/cache`; the included Spoolman uses `./data/spoolman`. (Compose also maps the legacy `./data/hermes` folder to `/data/hermes` while an install still uses it, #914.) Create these directories before starting. Spoolman is included in the Compose stack and published on no host port; Print Handy has no published host port and connects to Moonraker and Spoolman over the Compose network.
 
 ```bash
 cp .env.example .env
-mkdir -p data/hermes data/archive data/records data/cache data/spoolman
+mkdir -p data/state data/archive data/records data/cache data/spoolman
 docker compose up -d
 docker compose logs -f print-handy
 ```
