@@ -1,0 +1,32 @@
+name: Upstream watch
+
+# Weekly check for newer upstream releases of the third-party tools
+# Print Handy pins manually, which Renovate cannot see: OrcaSlicer
+# (stable and preview channels, docker/orca-prebuilt.sh), go2rtc
+# (docker/go2rtc-prebuilt.sh), and the Spoolman / Bambu Studio commit
+# pins (Dockerfile). scripts/check_upstream_releases.py reads the pins
+# from this checkout, compares them with each upstream's GitHub
+# releases and opens one deduplicated `upstream-watch` issue per newer
+# release, closing it again once the pin catches up. Notification
+# only: the workflow never edits a pin and never opens a bump PR.
+
+on:
+  schedule:
+    # Mondays 13:37 UTC. The odd minute avoids the top-of-hour
+    # scheduler rush and the 06:47 UTC develop run.
+    - cron: "37 13 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-upstream-releases:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Check upstream releases against the pinned versions
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/check_upstream_releases.py
