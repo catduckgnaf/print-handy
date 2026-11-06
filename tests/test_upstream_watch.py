@@ -10,6 +10,7 @@ and the create/close decisions — all offline, with fixture payloads.
 
 import importlib.util
 import pathlib
+import re
 import sys
 import unittest
 from datetime import datetime, timezone
@@ -253,16 +254,29 @@ class PlanActions(unittest.TestCase):
 
 
 class FakeClient(watch.GitHubClient):
-    """Records requests instead of performing them."""
+    """Records requests instead of performing them.
 
-    def __init__(self, responses):
+    ``responses`` maps (method, path-without-query) to the single page
+    of results; ``pages`` maps the same key to {page_number: results}
+    for pagination tests.
+    """
+
+    def __init__(self, responses=None, pages=None):
         super().__init__(token=None)
-        self.responses = responses
+        self.responses = responses or {}
+        self.pages = pages or {}
         self.calls = []
 
     def request(self, method, path, payload=None):
         self.calls.append((method, path, payload))
-        return self.responses.get((method, path.split("?")[0]))
+        base = path.split("?")[0]
+        match = re.search(r"[?&]page=(\d+)", path)
+        page = int(match.group(1)) if match else 1
+        if (method, base) in self.pages:
+            return self.pages[(method, base)].get(page, [])
+        if page > 1:
+            return []
+        return self.responses.get((method, base))
 
 
 class ClientBehavior(unittest.TestCase):
@@ -289,6 +303,47 @@ class ClientBehavior(unittest.TestCase):
         )
         releases = client.list_releases("X/Y")
         self.assertEqual([r.version for r in releases], ["1.0.0"])
+
+    def test_open_watch_issues_paginate_past_the_first_hundred(self):
+        # Regression: with more than 100 open watch issues, page 2+
+        # must still be read — otherwise dedupe misses existing
+        # reports and catch-up closes never reach the older issues.
+        page_one = [
+            {"number": n, "title": f"Upstream release: go2rtc 1.0.{n}"}
+            for n in range(1, 101)
+        ]
+        page_two = [
+            {
+                "number": 101,
+                "title": "Upstream release: OrcaSlicer (preview) 2.5.0-rc",
+            }
+        ]
+        client = FakeClient(
+            pages={("GET", "/repos/me/repo/issues"): {1: page_one, 2: page_two}}
+        )
+        issues = client.list_open_watch_issues("me/repo")
+        self.assertEqual(len(issues), 101)
+        self.assertEqual(issues[-1].component, "OrcaSlicer (preview)")
+        self.assertEqual(issues[-1].version, "2.5.0-rc")
+
+    def test_releases_paginate(self):
+        def item(version):
+            return {
+                "tag_name": f"v{version}",
+                "prerelease": False,
+                "draft": False,
+                "published_at": "2026-01-01T00:00:00Z",
+                "html_url": "https://example.invalid/x",
+            }
+
+        page_one = [item(f"1.0.{n}") for n in range(100)]
+        client = FakeClient(
+            pages={
+                ("GET", "/repos/X/Y/releases"): {1: page_one, 2: [item("0.9.0")]}
+            }
+        )
+        releases = client.list_releases("X/Y")
+        self.assertEqual(len(releases), 101)
 
     def test_open_watch_issues_parse_titles(self):
         client = FakeClient(

@@ -415,10 +415,29 @@ class GitHubClient:
             raise WatchError(f"GitHub API {method} {url} failed: {exc}") from exc
         return json.loads(body) if body else None
 
+    def _list_all(self, path: str) -> list:
+        """Fetch every page of a list endpoint.
+
+        A single page silently truncates at 100 entries: for the
+        watch issues that would blind deduplication and catch-up
+        closes once reports accumulate, so always walk the pages.
+        """
+        items: list = []
+        page = 1
+        while True:
+            separator = "&" if "?" in path else "?"
+            batch = self.request(
+                "GET", f"{path}{separator}per_page=100&page={page}"
+            )
+            if batch is None:
+                raise WatchError(f"GitHub API returned no list for {path}")
+            items.extend(batch)
+            if len(batch) < 100:
+                return items
+            page += 1
+
     def list_releases(self, repo: str) -> list[Release]:
-        raw = self.request("GET", f"/repos/{repo}/releases?per_page=100")
-        if raw is None:
-            raise WatchError(f"GitHub API returned no release list for {repo}")
+        raw = self._list_all(f"/repos/{repo}/releases")
         releases = []
         for item in raw:
             if item.get("draft"):
@@ -441,12 +460,9 @@ class GitHubClient:
         return parse_datetime(raw["commit"]["committer"]["date"])
 
     def list_open_watch_issues(self, repo: str) -> list[WatchIssue]:
-        raw = self.request(
-            "GET",
-            f"/repos/{repo}/issues?labels={LABEL}&state=open&per_page=100",
+        raw = self._list_all(
+            f"/repos/{repo}/issues?labels={LABEL}&state=open"
         )
-        if raw is None:
-            raise WatchError(f"GitHub API returned no issue list for {repo}")
         issues = []
         for item in raw:
             if "pull_request" in item:
