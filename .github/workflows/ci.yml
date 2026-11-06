@@ -148,10 +148,16 @@ jobs:
       # them per commit, so patch coverage reflects the whole offline suite.
       # The 3.14 legs stay uninstrumented as a timing cross-check, and no
       # timed job (discord-timing, slicer timing) is ever instrumented.
+      # The instrumented legs use coverage's sysmon core (sys.monitoring):
+      # the default C tracer made the million-triangle audit test
+      # (tests/corpus/test_corpus.py, 120 s budget) take over 3x as long
+      # locally and pushed it past its budget in CI, while sysmon measured
+      # within ~10% of the uninstrumented run.
       - name: Offline tests (no printer, no slicer, no network)
         timeout-minutes: 25
         env:
           PRINT_HANDY_TEST_SHARD: ${{ matrix.shard }}/3
+          COVERAGE_CORE: ${{ matrix.python-version == '3.12' && 'sysmon' || 'ctrace' }}
         run: python -m pytest -q -rs tests ${{ matrix.python-version == '3.12' && '--cov=print_handy --cov-report=xml:coverage.xml' || '' }}
       - name: Install Codecov upload dependencies (3.12 legs only)
         # The Codecov action checks for curl and gpg before it runs, and the

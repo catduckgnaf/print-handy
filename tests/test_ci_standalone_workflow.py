@@ -112,6 +112,16 @@ class CodecovReportOnlyContract(unittest.TestCase):
         self.assertIn("--cov=print_handy", offline)
         self.assertIn("--cov-report=xml:coverage.xml", offline)
 
+    def test_instrumented_legs_use_the_sysmon_coverage_core(self):
+        # The default C tracer more than tripled the million-triangle audit
+        # test locally and pushed it past its 120 s budget in CI; sysmon
+        # (sys.monitoring) measured within ~10% of uninstrumented.
+        job = load_workflow()["jobs"]["offline-tests"]
+        step = next(step for step in job["steps"]
+                    if "pytest" in step.get("run", ""))
+        self.assertIn("sysmon", step["env"]["COVERAGE_CORE"])
+        self.assertIn("matrix.python-version == '3.12'", step["env"]["COVERAGE_CORE"])
+
     def test_upload_dependencies_are_installed_for_python312_legs(self):
         # The Codecov action's pre-flight dependency check (curl, gpg) is not
         # covered by fail_ci_if_error, and the slim container ships neither.
