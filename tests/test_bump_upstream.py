@@ -990,6 +990,81 @@ MODELS = {"mini": {
             second = bump.sweep_orca_identities(root, tree, packed, families=["creality"])
             self.assertEqual(second["creality"]["mini"]["tree"]["matched"], ["fixture identity"])
 
+    BBL_FACTS_TEMPLATE = '''
+class _Fact:
+    def __init__(self, value):
+        self.value = value
+
+
+MODELS = {"mini": {
+    "orca_profiles": _Fact({"machine": "Mini Machine", "process": "Mini Process",
+                            "filament": "Mini Filament"}),
+    "orca_filaments": _Fact({"PLA": "Mini Filament", "PETG": "Mini Filament PETG"}),
+    "orca_identity": _Fact(%s),
+}}
+'''
+
+    def build_bbl(self, base, root, tree):
+        """Add a BBL mini tree (with a second, PETG filament profile)
+        to the synthetic package and resources from build()."""
+        profiles = tree / "profiles"
+        index = {
+            "version": "9.9.9",
+            "machine_list": [{"name": "Mini Machine", "sub_path": "mini_machine.json"}],
+            "process_list": [{"name": "Mini Process", "sub_path": "mini_process.json"}],
+            "filament_list": [{"name": "Mini Filament", "sub_path": "mini_filament.json"},
+                              {"name": "Mini Filament PETG", "sub_path": "mini_filament_petg.json"}],
+        }
+        _write(profiles / "BBL.json", json.dumps(index))
+        _write(profiles / "BBL" / "mini_machine.json",
+               json.dumps({"type": "machine", "name": "Mini Machine", "printer_model": "Mini"}))
+        _write(profiles / "BBL" / "mini_process.json",
+               json.dumps({"type": "process", "name": "Mini Process", "layer_height": "0.2"}))
+        _write(profiles / "BBL" / "mini_filament.json",
+               json.dumps({"type": "filament", "name": "Mini Filament", "filament_type": ["PLA"]}))
+        _write(profiles / "BBL" / "mini_filament_petg.json",
+               json.dumps({"type": "filament", "name": "Mini Filament PETG",
+                           "filament_type": ["PETG"]}))
+        return root / "print_handy" / "printers" / "bambulab" / "facts.py"
+
+    def test_driver_verifies_declared_filament_profiles(self):
+        # A model whose orca_filaments declares a non-default profile:
+        # the identity matches only when that profile also flattens
+        # to the identity's recorded filament hash - a changed,
+        # misrecorded or removed profile must not match.
+        sys.path.insert(0, str(ROOT))
+        from print_handy.printers.bambulab import profiles as production_profiles
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root, tree, packed = self.build(tmp)
+            facts = self.build_bbl(tmp, root, tree)
+            _write(facts, self.BBL_FACTS_TEMPLATE % "[]")
+            first = bump.sweep_orca_identities(root, tree, packed, families=["bambulab"])
+            entry = first["bambulab"]["mini"]["tree"]
+            self.assertEqual(entry["matched"], [])
+            flat = production_profiles.flatten_filaments(tree, ["Mini Filament PETG"])
+            petg_hash = production_profiles.sha256(flat["Mini Filament PETG"])
+            recorded = [{"label": "fixture identity", "vendor_version": "9.9.9",
+                         "sha256": entry["sha256"],
+                         "filaments": {"Mini Filament PETG": petg_hash}}]
+            _write(facts, self.BBL_FACTS_TEMPLATE % repr(recorded))
+            second = bump.sweep_orca_identities(root, tree, packed, families=["bambulab"])
+            self.assertEqual(second["bambulab"]["mini"]["tree"]["matched"],
+                             ["fixture identity"])
+            # A misrecorded filament hash breaks the match even though
+            # the machine/process/default-filament triple still agrees.
+            recorded[0]["filaments"]["Mini Filament PETG"] = "0" * 64
+            _write(facts, self.BBL_FACTS_TEMPLATE % repr(recorded))
+            third = bump.sweep_orca_identities(root, tree, packed, families=["bambulab"])
+            self.assertEqual(third["bambulab"]["mini"]["tree"]["matched"], [])
+            # A removed profile is an error entry, not a match.
+            index = json.loads((tree / "profiles" / "BBL.json").read_text())
+            index["filament_list"] = [e for e in index["filament_list"]
+                                      if e["name"] != "Mini Filament PETG"]
+            _write(tree / "profiles" / "BBL.json", json.dumps(index))
+            fourth = bump.sweep_orca_identities(root, tree, packed, families=["bambulab"])
+            self.assertIn("error", fourth["bambulab"]["mini"]["tree"])
+
 
 class DedupeSupersede(unittest.TestCase):
     def test_same_version_open_pr_dedupes(self):

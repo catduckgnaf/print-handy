@@ -1081,7 +1081,12 @@ the model's profiles from each resources variant with the repo's
 own pipeline (print_handy.printers.bambulab.profiles - the same
 flatten the scripts/*-templates.py --check mode verifies with)
 and report which recorded identities the flattened hashes match.
-It mirrors the hand-run sweep harness used for the 2.5.0-rc bump.
+For models that declare per-material filament profiles
+(orca_filaments - Bambu Lab models), the matched identity must
+also cover those profiles at their recorded hashes, the same
+conjunction profiles.check_resources enforces. It mirrors the
+hand-run sweep harness used for the 2.5.0-rc bump, extended with
+that filament coverage.
 """
 import importlib
 import json
@@ -1118,20 +1123,42 @@ for pkg, vendor in VENDORS.items():
     for key, model in sorted(models.items()):
         names = model["orca_profiles"].value
         recorded = model["orca_identity"].value
+        declared = model["orca_filaments"].value if "orca_filaments" in model else {}
         per_variant = {}
         for vname, resources in variants.items():
             try:
                 upstream, version = shared.flatten(resources, names, vendor=vendor)
                 hashes = {kind: shared.sha256(upstream[kind]) for kind in shared.KINDS}
+                matched = []
+                for entry in recorded:
+                    if not (all(entry["sha256"].get(kind) == hashes[kind] for kind in shared.KINDS)
+                            and entry["vendor_version"] == version):
+                        continue
+                    if declared:
+                        # The identity must also cover the model's
+                        # declared per-material filament profiles at
+                        # their recorded hashes (production's
+                        # filament_hashes: the identity's filaments
+                        # map plus the default filament from the
+                        # triple). flatten_filaments reads the BBL
+                        # vendor, so a declared set on any other
+                        # family is refused, never silently skipped.
+                        if pkg != "bambulab":
+                            raise ValueError(
+                                f"{pkg}/{key} declares orca_filaments, which the "
+                                "sweep can only verify for bambulab models"
+                            )
+                        expected = {**entry.get("filaments", {}),
+                                    names["filament"]: entry["sha256"]["filament"]}
+                        flat = shared.flatten_filaments(
+                            resources, sorted(set(declared.values())))
+                        if any(shared.sha256(flat[name]) != expected.get(name)
+                               for name in set(declared.values())):
+                            continue
+                    matched.append(entry["label"])
             except Exception as exc:  # keep going: the report names every failure
                 per_variant[vname] = {"error": f"{type(exc).__name__}: {exc}"}
                 continue
-            matched = [
-                entry["label"]
-                for entry in recorded
-                if all(entry["sha256"].get(kind) == hashes[kind] for kind in shared.KINDS)
-                and entry["vendor_version"] == version
-            ]
             per_variant[vname] = {"version": version, "sha256": hashes, "matched": matched}
         results[pkg][key] = per_variant
 out_path.write_text(json.dumps(results, indent=1) + "\\n")
@@ -1159,7 +1186,13 @@ def sweep_orca_identities(root, tree_resources, packed_resources, families=None)
         ]
         if families:
             cmd.append(",".join(families))
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        # A fresh bytecode-cache prefix inside the stage: the driver
+        # must read the checkout's facts as they are on disk, never
+        # a stale .pyc a previous run left beside them (the cache
+        # key is whole-second mtime + size, so a same-size edit
+        # inside one second would otherwise be silently missed).
+        env = {**os.environ, "PYTHONPYCACHEPREFIX": str(stage / "pycache")}
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
         if result.returncode != 0 or not out.is_file():
             detail = (result.stderr or result.stdout).strip()
             raise BumpError(f"the Orca identity sweep driver failed: {detail}")
