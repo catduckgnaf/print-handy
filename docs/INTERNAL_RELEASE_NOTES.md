@@ -2,7 +2,7 @@
 
 # Unreleased
 
-Nothing yet.
+- Support coverage footprint grading (#963): post-slice support coverage now grades the underside footprint a region actually occupies (persisted at intake at about 1 mm pitch) instead of every cell of its bounding box, so a fully supported non-rectangular overhang no longer fails the gate. Only flagged low-clearance regions are coverage targets; copies are graded per object instance and multi-plate jobs per plate with each plate's own bounds; the source-to-slice mapping uses the job's recorded scale and placement when they are recorded; tree supports are accepted on their interface layer while grid supports count every support path; and a coverage check that cannot run (unreadable G-code or source bounds) is recorded in the receipt as a named unverified state instead of silently passing.
 
 # Version 2.2.5
 
