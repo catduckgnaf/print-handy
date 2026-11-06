@@ -15,7 +15,7 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-from . import settings, state_files, state_volume
+from . import diagnostics, settings, state_files, state_volume
 from .core import resources, spoolman_client
 
 # Moonraker and Spoolman endpoints that answer without auth when the service is up.
@@ -281,11 +281,11 @@ def check_logging(data):
     if not target.parent.is_dir():
         raise RuntimeError(
             f"log file folder {target.parent} does not exist; create it or fix [logging] file "
-            f"[PH_LOGGING_CONFIGURATION]")
+            f"{diagnostics.bracket_reference("PH_LOGGING_CONFIGURATION")}")
     if target.is_dir():
         raise RuntimeError(
             f"log file {target} is a folder, not a file; fix [logging] file "
-            f"[PH_LOGGING_CONFIGURATION]")
+            f"{diagnostics.bracket_reference("PH_LOGGING_CONFIGURATION")}")
     if target.exists():
         # The configured file itself is the thing the logger must append
         # to; a writable folder around an unwritable file is still broken.
@@ -295,7 +295,7 @@ def check_logging(data):
         except OSError as exc:
             raise RuntimeError(
                 f"log file {target} is not writable ({exc}); fix its permissions "
-                f"or change [logging] file [PH_LOGGING_CONFIGURATION]") from exc
+                f"or change [logging] file {diagnostics.bracket_reference("PH_LOGGING_CONFIGURATION")}") from exc
     else:
         # No file yet (the logger creates it at first write): probe the
         # folder, under a unique temporary name so concurrent doctor runs
@@ -309,7 +309,7 @@ def check_logging(data):
         except OSError as exc:
             raise RuntimeError(
                 f"log file folder {target.parent} is not writable ({exc}); fix its permissions "
-                f"or change [logging] file [PH_LOGGING_CONFIGURATION]") from exc
+                f"or change [logging] file {diagnostics.bracket_reference("PH_LOGGING_CONFIGURATION")}") from exc
     return f"file {target}{suffix}"
 
 
@@ -331,7 +331,7 @@ def check_listener_heartbeats(data):
         return None
     return (f"listener heartbeat not healthy for {', '.join(down)}; check that printer's "
             f"listener is running (in the container it restarts on its own; see "
-            f"docs/DIAGNOSTICS.md) [PH_LISTENER_TRANSIENT]")
+            f"docs/DIAGNOSTICS.md) {diagnostics.bracket_reference("PH_LISTENER_TRANSIENT")}")
 
 
 def check_debug_mode(data):

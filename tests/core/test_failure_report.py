@@ -108,7 +108,7 @@ def test_unrecognized_failure_keeps_caller_headline_and_still_names_stage_and_re
                                headline='I could not finish the check.')
     assert post.startswith('I could not finish the check. Stage: plate plan.')
     assert '/print-handy bundle' in post and 'SECRET' not in post
-    assert 'Reference: PH_INTAKE_UNKNOWN' in post
+    assert 'Reference: [PH_INTAKE_UNKNOWN](' in post
 
 
 def test_signature_on_the_exception_beats_its_text():
@@ -151,7 +151,7 @@ def test_unreadable_3mf_failure_reaches_chat_as_parse_stage_across_the_worker_wi
     post = slice_failure.post(back)
     assert 'Stage: parse.' in post and 'could not read this 3MF' in post
     assert 'Re-export the model' in post
-    assert 'nothing was uploaded or started' in post and 'PH_SLICING_' in post
+    assert 'nothing was uploaded or started' in post and 'PH_PARSE_MODEL_UNREADABLE' in post
     assert 'SECRET' not in post and '/data/state' not in post
     assert 'could not identify the cause' not in post
 

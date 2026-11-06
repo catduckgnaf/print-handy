@@ -137,6 +137,15 @@ visual_watch:
   # 450 seconds for levels 1 to 5.
   sensitivity: 3
   enabled: true
+  # Early-layer mode (#913): risky prints are checked every layer for the first
+  # early_layers layers and at least every early_interval_s seconds until then.
+  # Override with PRINT_HANDY__VISUAL_WATCH__EARLY_LAYERS / __EARLY_INTERVAL_S.
+  early_layers: 10
+  early_interval_s: 120
+  # auto_pause_early PAUSES THE PRINTER (PRINT_HANDY__VISUAL_WATCH__AUTO_PAUSE_EARLY):
+  # two suspicious verdicts in a row (spaghetti, detached or air) in the early-layer
+  # window send PAUSE. It never cancels; the alert keeps stop and resume. Off by default.
+  auto_pause_early: false
 logging:
   # Daily app log files on the state volume, so they survive a container recreate
   # (docker logs does not). Override with PRINT_HANDY__LOGGING__FILE (empty: stderr only)

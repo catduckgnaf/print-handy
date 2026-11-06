@@ -757,3 +757,442 @@ def test_no_vision_endpoint_means_no_camera_checks_and_no_false_alerts(monkeypat
 
 def test_a_configured_vision_endpoint_still_runs_the_due_check(monkeypatch):
     assert _printing_with_a_due_check(monkeypatch, ready=True) == ["layer2"]
+
+
+# -- #913: cadence, early-layer mode, opt-in auto-pause, local fallback -----
+
+
+def test_cadence_tick_with_fake_clock_and_40min_layer(monkeypatch):
+    """Cadence bug (#913): periodic checks are time-based, independent of layer events.
+
+    In V12, layers 3 and 4 took 49 minutes with no layer event, so no periodic
+    check ran. The tick timer must fire periodic checks regardless of layer stillness.
+    """
+    watch = mel.VisualPrintWatch(sensitivity=3)
+    watch.record(3, 1000.0)
+
+    # In sensitivity 3, periodic interval is 900s.
+    assert watch.tick(3, 1000.0 + 899.0) is None
+    assert watch.tick(3, 1000.0 + 900.0) == "periodic"
+    assert watch.tick(3, 1000.0 + 1799.0) is None
+    assert watch.tick(3, 1000.0 + 1800.0) == "periodic"
+    # A 40-minute layer (2400 seconds) fires again at 2700s:
+    assert watch.tick(3, 1000.0 + 2699.0) is None
+    assert watch.tick(3, 1000.0 + 2700.0) == "periodic"
+
+    # Listener _visual_timer_tick launches visual_check and respects single-flight
+    listener = mel.Listener()
+    listener.state = "printing"
+    listener.last_stats = {"info": {"current_layer": 3}}
+    monkeypatch.setattr(mel, "_vision_ready", lambda: True)
+    monkeypatch.setattr(mel._config, "cfg", lambda: {"visual_watch": {"enabled": True, "sensitivity": 3}})
+    launched = []
+
+    async def fake_visual_check(reason, layer):
+        launched.append((reason, layer))
+
+    monkeypatch.setattr(listener, "visual_check", fake_visual_check)
+    listener.visual_watch.record(3, 1000.0)
+
+    # Before periodic_s -> None
+    assert listener._visual_timer_tick(now=1899.0) is None
+    assert launched == []
+
+    # Inside an event loop, at periodic_s -> fires task
+    import asyncio
+
+    async def run():
+        assert listener._visual_timer_tick(now=1900.0) == "periodic"
+        async def noop():
+            pass
+
+        task = asyncio.create_task(noop())
+        listener.last_visual_task = task
+        assert listener._visual_timer_tick(now=3000.0) is None
+        await task
+
+    asyncio.run(run())
+
+
+def test_empty_idle_on_layer_one_rechecks_within_60s_and_alerts_on_second(monkeypatch):
+    """An empty_idle verdict on layer 1 while printing re-checks in 60s and alerts on repeat (#913)."""
+    import asyncio
+    from print_handy.hermes import visual_watch as vw
+
+    alerts = []
+    posts = []
+    monkeypatch.setattr(mel, "_camera_snapshot_bytes", lambda: _jpeg())
+    monkeypatch.setattr(mel, "_frame_changed", lambda before, after: False)
+    monkeypatch.setattr(mel, "_visual_alert", lambda filename, image, text, identity=None: alerts.append((text, identity)))
+    monkeypatch.setattr(mel, "post", posts.append)
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(pab, "visual_muted", lambda filename, identity: False)
+
+    listener = mel.Listener()
+    listener.filename = "plate.gcode"
+    listener.state = "printing"
+
+    # 1. First check at layer 1 returns empty_idle
+    monkeypatch.setattr(mel, "_visual_verdict", lambda image, prompt, streak=None, local_fallback=False: ("empty_idle", "clear bed"))
+    asyncio.run(listener.visual_check("layer1", 1))
+    assert alerts == []  # Not alerted on first occurrence
+    assert listener.visual_watch.recheck_at > 0
+
+    # tick before 60s -> None; at 60s -> empty_idle_recheck
+    assert listener.visual_watch.tick(1, listener.visual_watch.recheck_at - 1) is None
+    assert listener.visual_watch.tick(1, listener.visual_watch.recheck_at) == "empty_idle_recheck"
+
+    # 2. Second check with empty_idle_recheck reason also sees empty_idle -> alerts!
+    asyncio.run(listener.visual_check("empty_idle_recheck", 1))
+    assert len(alerts) == 1
+    assert "empty_idle_recheck" in alerts[0][0]
+    assert "empty bed again while the printer reports printing" in alerts[0][0]
+
+
+def test_early_layer_schedule_for_risky_prints_vs_normal():
+    """Early-layer mode checks every layer up to early_layers and every early_interval_s (#913)."""
+    from print_handy.hermes import visual_watch as vw
+
+    # Normal print: layer 2, layer 5, then periodic
+    normal_watch = mel.VisualPrintWatch(sensitivity=3)
+    normal_watch.set_mode(vw.WATCH_MODE_NORMAL)
+    assert normal_watch.due(1, 100) is None
+    assert normal_watch.due(2, 101) == "layer2"
+    assert normal_watch.due(3, 102) is None
+    assert normal_watch.due(4, 103) is None
+    assert normal_watch.due(5, 104) == "layer5"
+    assert normal_watch.due(6, 105) is None
+
+    # Risky print: checks every layer change for first early_layers (10)
+    risky_watch = mel.VisualPrintWatch(sensitivity=3, early_layers=10, early_interval_s=120)
+    risky_watch.set_mode(vw.WATCH_MODE_EARLY)
+    for layer in range(1, 11):
+        assert risky_watch.due(layer, 200 + layer) == "early_layer"
+    # Layer 11 is past early window
+    assert risky_watch.due(11, 300) is None
+
+    # Tick inside early window fires at early_interval_s (120s)
+    risky_watch.record(2, 1000)
+    assert risky_watch.tick(2, 1119) is None
+    assert risky_watch.tick(2, 1120) == "early_periodic"
+
+    # Outside early window (layer 12), tick fires at periodic_s (900s), not 120s
+    risky_watch.record(12, 2000)
+    assert risky_watch.tick(12, 2120) is None
+    assert risky_watch.tick(12, 2900) == "periodic"
+
+    # risky_job context recognition
+    assert vw.risky_job({}) == ""
+    assert "finding" in vw.risky_job({"slice_findings": ["unsupported_overhang"]})
+    assert "override" in vw.risky_job({"print_anyway": True})
+    assert "supports" in vw.risky_job({"support_decision": {"supports": True}})
+    assert "risky marker" in vw.risky_job({"risky": True})
+
+
+def test_auto_pause_early_off_by_default_and_on_opt_in(monkeypatch):
+    """Auto-pause is off by default; on opt-in it pauses on 2 suspicious verdicts, never cancels (#913)."""
+    import asyncio
+    from print_handy.hermes import visual_watch as vw
+
+    alerts = []
+    pauses = []
+    actions = []
+    real_auto_pause = mel._auto_pause_early
+    monkeypatch.setattr(mel, "_camera_snapshot_bytes", lambda: _jpeg())
+    monkeypatch.setattr(mel, "_frame_changed", lambda before, after: False)
+    monkeypatch.setattr(mel, "_visual_alert", lambda filename, image, text, identity=None: alerts.append(text))
+    monkeypatch.setattr(mel, "_auto_pause_early", lambda filename, identity: pauses.append((filename, identity)) or "Paused")
+    monkeypatch.setattr(mel, "post", lambda msg: True)
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(pab, "visual_muted", lambda filename, identity: False)
+
+    # 1. Off by default
+    listener = mel.Listener()
+    listener.filename = "risky_off.gcode"
+    listener.state = "printing"
+    listener.visual_watch.set_mode(vw.WATCH_MODE_EARLY)
+    monkeypatch.setattr(mel._config, "cfg", lambda: {
+        "visual_watch": {"enabled": True, "sensitivity": 3, "auto_pause_early": False, "early_layers": 10, "early_interval_s": 120}
+    })
+
+    monkeypatch.setattr(mel, "_visual_verdict", lambda *args, **kwargs: ("spaghetti", "spaghetti found"))
+    asyncio.run(listener.visual_check("early_layer", 2))
+    assert len(alerts) == 1
+    assert pauses == []
+
+    # Second suspicious verdict
+    asyncio.run(listener.visual_check("early_layer", 3))
+    assert len(alerts) == 2
+    assert pauses == []  # Off by default: NO pause sent
+    assert listener.visual_watch.auto_paused is False
+
+    # 2. Opt-in enabled
+    listener_on = mel.Listener()
+    listener_on.filename = "risky_on.gcode"
+    listener_on.state = "printing"
+    listener_on.visual_watch.set_mode(vw.WATCH_MODE_EARLY)
+    monkeypatch.setattr(mel._config, "cfg", lambda: {
+        "visual_watch": {"enabled": True, "sensitivity": 3, "auto_pause_early": True, "early_layers": 10, "early_interval_s": 120}
+    })
+
+    alerts.clear()
+    pauses.clear()
+
+    # First suspicious verdict (streak 1) -> alert, but NO pause
+    asyncio.run(listener_on.visual_check("early_layer", 2))
+    assert len(alerts) == 1
+    assert "Auto-pause" not in alerts[0]
+    assert pauses == []
+    assert listener_on.visual_watch.auto_paused is False
+
+    # Second suspicious verdict (streak 2) -> alert + PAUSE!
+    asyncio.run(listener_on.visual_check("early_layer", 3))
+    assert len(alerts) == 2
+    assert "Auto-pause" in alerts[1]
+    assert len(pauses) == 1
+    assert pauses[0][0] == "risky_on.gcode"
+    assert listener_on.visual_watch.auto_paused is True
+
+    # Third suspicious verdict (streak 3) -> alert, but pause only sent ONCE per print
+    asyncio.run(listener_on.visual_check("early_layer", 4))
+    assert len(alerts) == 3
+    assert len(pauses) == 1
+
+    # Verify _auto_pause_early only uses action="pause", NEVER "cancel"
+    monkeypatch.setattr(pab, "handle_click", lambda act, alert: actions.append(act) or "Paused")
+    real_auto_pause("risky_on.gcode", "id123")
+    assert actions == ["pause"]
+
+
+def test_local_detector_fallback_in_early_layer_mode(monkeypatch, tmp_path):
+    """Local detector is used as backup in early-layer mode when endpoint fails and model is present (#913)."""
+    from print_handy.hermes import local_vision
+    from print_handy.hermes import visual_watch as vw
+
+    model_file = tmp_path / "model.onnx"
+    model_file.write_bytes(b"dummy-onnx")
+
+    def boom(*args, **kwargs):
+        raise OSError("cloud timeout")
+
+    monkeypatch.setattr(vw, "_vision_answer", boom)
+    monkeypatch.setattr(vw, "_chat_route_configured", lambda api_key: True)
+    monkeypatch.setattr(local_vision, "model_path", lambda: model_file)
+    monkeypatch.setattr(local_vision, "local_verdict", lambda image, streak=None: ("spaghetti", "local detector saw spaghetti"))
+
+    # In early-layer mode with model present: falls back to local detector
+    verdict, detail = vw.visual_verdict(
+        b"image", "prompt", chat_url="http://fake", model="gemini",
+        api_key=lambda: "key", context="", local_fallback=True
+    )
+    assert verdict == "spaghetti"
+    assert "local detector fallback" in detail
+
+    # In early-layer mode with model MISSING: degrades to uncertain without downloading
+    monkeypatch.setattr(local_vision, "model_path", lambda: tmp_path / "missing.onnx")
+    verdict, detail = vw.visual_verdict(
+        b"image", "prompt", chat_url="http://fake", model="gemini",
+        api_key=lambda: "key", context="", local_fallback=True
+    )
+    assert verdict == "uncertain"
+    assert "the vision check could not be completed" in detail
+
+    # In normal mode (local_fallback=False) even with model present: no fallback
+    monkeypatch.setattr(local_vision, "model_path", lambda: model_file)
+    verdict, detail = vw.visual_verdict(
+        b"image", "prompt", chat_url="http://fake", model="gemini",
+        api_key=lambda: "key", context="", local_fallback=False
+    )
+    assert verdict == "uncertain"
+    assert "the vision check could not be completed" in detail
+
+
+def test_transport_and_settings_parity_for_early_layer_and_auto_pause():
+    """Settings, catalog, and validation parity for early_layers, early_interval_s, auto_pause_early (#913)."""
+    from print_handy import settings
+    from print_handy.webui import catalog
+
+    cfg = settings.load(local=False)
+    assert cfg["visual_watch"]["early_layers"] == 10
+    assert cfg["visual_watch"]["early_interval_s"] == 120
+    assert cfg["visual_watch"]["auto_pause_early"] is False
+
+    assert catalog.field_by_id("visual_watch.early_layers") is not None
+    assert catalog.field_by_id("visual_watch.early_interval_s") is not None
+    assert catalog.field_by_id("visual_watch.auto_pause_early") is not None
+
+    # Validation errors on invalid inputs
+    base = settings.load(local=False)
+    bad_layers = {**base, "visual_watch": {**base["visual_watch"], "early_layers": -1}}
+    with pytest.raises(settings.SettingsError):
+        settings.validate(bad_layers)
+    bad_interval = {**base, "visual_watch": {**base["visual_watch"], "early_interval_s": 0}}
+    with pytest.raises(settings.SettingsError):
+        settings.validate(bad_interval)
+    bad_pause = {**base, "visual_watch": {**base["visual_watch"], "auto_pause_early": "yes"}}
+    with pytest.raises(settings.SettingsError):
+        settings.validate(bad_pause)
+
+
+
+# -- Codex findings on #920: provenance shapes, late context, stale verdicts --
+
+
+def test_risky_job_reads_support_warnings_from_job_provenance():
+    """Support risk lives under provenance, not top-level fields (Codex on #920).
+
+    core/slice_warnings stores warnings as job['provenance']['slice_warnings']
+    with a support_needed flag (and the same on derived plates), and an
+    operator can settle supports through job['orientation']['supports'].
+    risky_job must recognize those real shapes.
+    """
+    from print_handy.hermes import visual_watch as vw
+
+    warned = {"provenance": {"slice_warnings": {"support_needed": True,
+                                                 "support_texts": ["floating regions"]}}}
+    assert vw.risky_job(warned) == "support warning"
+    plated = {"derived_plates": [{"provenance": {"slice_warnings": {"support_needed": True}}}]}
+    assert vw.risky_job(plated) == "support warning"
+    decided = {"orientation": {"rotation": [90, 0, 0], "supports": False}}
+    assert vw.risky_job(decided) == "supports decision"
+    # No warning recorded anywhere: still a normal print.
+    quiet = {"provenance": {"slice_warnings": {"support_needed": False}}}
+    assert vw.risky_job(quiet) == ""
+
+
+def test_watch_mode_upgrades_when_start_context_arrives_late(monkeypatch):
+    """A start context written after the first printing event still upgrades the mode (Codex on #920).
+
+    On the generic Moonraker launch path record_start writes the sidecar only
+    after the start is confirmed, so the listener's first _apply_watch_mode can
+    see no context and pick normal. The timer tick must retry the lookup until
+    a context exists, instead of leaving the risky print unmonitored.
+    """
+    from print_handy.hermes import visual_watch as vw
+
+    contexts = {"late.gcode": {}}
+    monkeypatch.setattr(mel.print_records, "load_context",
+                        lambda filename: contexts.get(filename, {}))
+    monkeypatch.setattr(mel._config, "cfg", lambda: {
+        "visual_watch": {"enabled": True, "sensitivity": 3,
+                         "auto_pause_early": True, "early_layers": 10, "early_interval_s": 120}})
+    monkeypatch.setattr(mel, "log", lambda line: None)
+
+    listener = mel.Listener()
+    listener.filename = "late.gcode"
+    listener.state = "printing"
+    listener.last_stats = {"info": {"current_layer": 3}}
+    assert listener._apply_watch_mode() == vw.WATCH_MODE_NORMAL
+
+    # record_start lands after the start was already observed.
+    contexts["late.gcode"] = {"watch_mode": "early_layer", "watch_risk": "slicer finding"}
+    listener._visual_timer_tick(now=50)
+    assert listener.visual_watch.mode == vw.WATCH_MODE_EARLY
+
+
+def test_stale_verdict_from_previous_print_never_alerts_or_pauses(monkeypatch):
+    """A verdict captured for one print must not act on the next print (Codex P1 on #920).
+
+    While visual_check awaits the vision call, a new print can start: the old
+    verdict must be discarded, not counted toward the new print's streak and
+    never sent as its PAUSE.
+    """
+    import asyncio
+    from print_handy.hermes import visual_watch as vw
+
+    alerts = []
+    pauses = []
+    monkeypatch.setattr(mel, "_camera_snapshot_bytes", lambda: _jpeg())
+    monkeypatch.setattr(mel, "_frame_changed", lambda before, after: False)
+    monkeypatch.setattr(mel, "_visual_alert", lambda filename, image, text, identity=None: alerts.append((filename, text)))
+    monkeypatch.setattr(mel, "_auto_pause_early", lambda filename, identity: pauses.append((filename, identity)) or "Paused")
+    monkeypatch.setattr(mel, "post", lambda msg: True)
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(pab, "visual_muted", lambda filename, identity: False)
+    monkeypatch.setattr(mel._config, "cfg", lambda: {
+        "visual_watch": {"enabled": True, "sensitivity": 3, "auto_pause_early": True,
+                         "early_layers": 10, "early_interval_s": 120}})
+
+    listener = mel.Listener()
+    listener.filename = "old.gcode"
+    listener.state = "printing"
+    listener.visual_watch.set_mode(vw.WATCH_MODE_EARLY)
+
+    def verdict_after_print_changed(*args, **kwargs):
+        # The new print starts while the vision call is in flight: on_status
+        # swaps the filename and resets the watch for the new print.
+        listener.filename = "new.gcode"
+        listener.visual_watch.reset()
+        listener.visual_watch.set_mode(vw.WATCH_MODE_EARLY)
+        return ("spaghetti", "spaghetti found")
+
+    monkeypatch.setattr(mel, "_visual_verdict", verdict_after_print_changed)
+    asyncio.run(listener.visual_check("early_layer", 2))
+
+    assert alerts == []
+    assert pauses == []
+    assert listener.visual_watch.suspicious_streak == 0
+    assert listener.visual_watch.auto_paused is False
+
+
+def test_empty_idle_recheck_keeps_the_earliest_deadline():
+    """Repeated empty_idle verdicts must not postpone the recheck (Codex re-review on #920).
+
+    Early layers can take less than 60 s each; if every empty-bed result
+    pushed the deadline out another 60 s, the timer would never reach
+    empty_idle_recheck and the promised alert would never fire.
+    """
+    watch = mel.VisualPrintWatch(sensitivity=3)
+    watch.note_empty_idle(100)
+    assert watch.recheck_at == 160
+    watch.note_empty_idle(130)
+    assert watch.recheck_at == 160
+    assert watch.tick(1, 160) == "empty_idle_recheck"
+    # The fired recheck clears the deadline, so a later empty-bed verdict
+    # schedules a fresh one.
+    watch.note_empty_idle(200)
+    assert watch.recheck_at == 260
+
+
+def test_concurrent_suspicious_checks_pause_only_once(monkeypatch):
+    """Overlapping checks must not each send the auto-pause (Codex re-review on #920).
+
+    Due layer checks are scheduled without waiting for the previous check, so
+    two suspicious checks can sit in the alert block at once. The once-per-
+    print reservation must happen before the alert await, not after it.
+    """
+    import asyncio
+    import time
+    from print_handy.hermes import visual_watch as vw
+
+    alerts = []
+    pauses = []
+
+    def slow_alert(filename, image, text, identity=None):
+        time.sleep(0.3)
+        alerts.append(text)
+
+    monkeypatch.setattr(mel, "_camera_snapshot_bytes", lambda: _jpeg())
+    monkeypatch.setattr(mel, "_frame_changed", lambda before, after: False)
+    monkeypatch.setattr(mel, "_visual_alert", slow_alert)
+    monkeypatch.setattr(mel, "_auto_pause_early", lambda filename, identity: pauses.append(filename) or "Paused")
+    monkeypatch.setattr(mel, "post", lambda msg: True)
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(pab, "visual_muted", lambda filename, identity: False)
+    monkeypatch.setattr(mel._config, "cfg", lambda: {
+        "visual_watch": {"enabled": True, "sensitivity": 3, "auto_pause_early": True,
+                         "early_layers": 10, "early_interval_s": 120}})
+    monkeypatch.setattr(mel, "_visual_verdict", lambda *args, **kwargs: ("spaghetti", "spaghetti found"))
+
+    listener = mel.Listener()
+    listener.filename = "race.gcode"
+    listener.state = "printing"
+    listener.visual_watch.set_mode(vw.WATCH_MODE_EARLY)
+
+    async def run():
+        await asyncio.gather(*(listener.visual_check("early_layer", layer) for layer in (2, 3, 4)))
+
+    asyncio.run(run())
+    assert len(alerts) == 3
+    assert pauses == ["race.gcode"]
+    assert listener.visual_watch.auto_paused is True

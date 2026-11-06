@@ -114,7 +114,7 @@ A bed-clear approval starts one print. Starting the same G-code again needs a ne
   ABS for ASA"). A mapped launch accepts exactly that stand-in label for that material.
 * A slice refused for a deterministic reason says why in plain words (for example "Slot 1 (Matte
   white PLA) was never confirmed as loaded … Is Matte white PLA loaded in slot 1?") with
-  `Reference: PH_SLICING_CONFIGURATION`, and offers the one safe fix as a button ("Yes, slot 1 has
+  `Reference: [PH_SLICING_CONFIGURATION](https://catduckgnaf.github.io/print-handy-docs/diagnostics#ph-slicing-configuration)` (#924: the code links to its diagnostics catalog section), and offers the one safe fix as a button ("Yes, slot 1 has
   it: slice") that records the confirmation and slices again. A refusal with no safe fix (no spool
   recorded, a material that differs from the chosen spool) explains itself and offers no blind retry.
 * `/print-colors <JOB.json>` opens the color selection flow for an archived job. Preparation only: it slices nothing, uploads nothing and starts nothing, and the path must be an archived `JOB.json`.
@@ -193,7 +193,7 @@ Upgrading from `[printer] family`: replace it in `config/local.toml` with `model
 | 4 | 4.0 | 3 layers | 10 min | no |
 | 5 | 5.0 | 2 layers | 7.5 min | no |
 
-Empty bed, spaghetti, detached part, uncertain, and vision failure alerts fire at every level. On the Moonraker (Klipper) watchdog a vision "ok" or "safe" verdict cancels a stall at every level, and an "uncertain" verdict that says the camera feed is dark posts the once-per-print dark-camera notice instead of an alert.
+Empty bed, spaghetti, detached part, uncertain, and vision failure alerts fire at every level. On the Moonraker (Klipper) watchdog a vision "ok" or "safe" verdict cancels a stall at every level, and an "uncertain" verdict that says the camera feed is dark posts the once-per-print dark-camera notice instead of an alert. An `empty_idle` verdict on layer 1 while printing (#913) re-checks within 60 s and alerts if it repeats. In early-layer mode for risky prints (#913), checks run on every layer change up to `early_layers` (default 10) and at least every `early_interval_s` (default 120 s); opt-in `auto_pause_early` pauses the printer after 2 consecutive suspicious verdicts during early layers (never cancels). Periodic checks run on a timer independent of layer events.
 
 ### MakerWorld account token
 
@@ -402,6 +402,8 @@ Failures are named in chat with the cause and the remedy: the host could not be 
 | `vision` | `model`, `roast_model` | `gemini-latest`, `luna-latest` | Models for camera checks and roasts |
 | | `roast_enabled` | `true` | The print-post roast switch: on by default whenever an LLM/vision endpoint is available, on every platform including Telegram; `false` turns roasts off, camera checks unaffected |
 | `visual_watch` | `enabled`, `sensitivity` | `true`, `3` | Camera monitoring switch; sensitivity from 1 to 5 |
+| | `early_layers`, `early_interval_s` | `10`, `120` | Early-layer mode window (layers) and interval (seconds) for risky prints (#913) |
+| | `auto_pause_early` | `false` | Opt-in auto-pause after 2 suspicious checks during early layers (never cancels) (#913) |
 | `timelapse` | `archive_host`, `archive_dir`, `ssh_key` | empty | Printer-rendered timelapse archive; empty host disables the printer-rendered delivery path |
 | | `render_wait_s`, `render_poll_s` | `900`, `10` | Wait for the printer to render the timelapse |
 | | `max_bytes`, `local_retention_days`, `plan_clip_retention_days` | 200 MiB, `1`, `14` | Size cap and retention |

@@ -170,6 +170,27 @@ SIGNATURE_IDS = frozenset(row[0] for row in _SIGNATURES)
 _BY_ID = {row[0]: row for row in _SIGNATURES}
 
 
+def signature_code(sig_id) -> str | None:
+    """The documented error code for one signature id (#924):
+    ``PH_<STAGE>_<SIGNATURE>`` — for example ``bad_3mf_structure`` at
+    stage ``parse`` is ``PH_PARSE_BAD_3MF_STRUCTURE``. None for an
+    unknown id. This is the code a classified failure's chat post
+    links, instead of only the generic subsystem marker."""
+    row = _BY_ID.get(sig_id)
+    if row is None:
+        return None
+    return f"PH_{row[1].upper().replace(' ', '_')}_{str(sig_id).upper()}"
+
+
+#: Every signature's error code, by signature id. Registered into
+#: diagnostics.ERROR_CODES below so the code registry, the docs
+#: catalog (docs/DIAGNOSTICS.md) and the links posts carry cannot
+#: drift apart — tests/test_error_code_docs.py pins all three.
+SIGNATURE_CODES = {sig_id: signature_code(sig_id) for sig_id in SIGNATURE_IDS}
+diagnostics.register_error_codes(
+    {code: f"signature {sig_id}" for sig_id, code in SIGNATURE_CODES.items()})
+
+
 def match_signature(text: str, return_code=None) -> str | None:
     """The id of the first known signature in ``text``, or None.
 
@@ -279,9 +300,12 @@ def post(exc, stage: str, *, subsystem: str, headline: str | None = None,
     """
     report = describe(exc, stage, transient=transient, other=other)
     first = lead(report, headline if not report.classified else None)
+    # #924: a classified failure links its specific signature code;
+    # the unclassified fallback keeps the generic subsystem marker.
     return diagnostics.plain_post(first, not_happened=not_happened or state_line(report),
                                   next_step=report.recovery, subsystem=subsystem, exc=exc,
-                                  category=report.category)
+                                  category=report.category,
+                                  code=signature_code(report.signature))
 
 
 def start_report(*, refused: bool, printer_rejected: bool = False, upload_failed: bool = False) -> Report:

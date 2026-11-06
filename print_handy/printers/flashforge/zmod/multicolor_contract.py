@@ -9,16 +9,37 @@ MAP_PREFIX = '; hermes_tool_slots = '
 # Matched against every line of the plate, so compiled once.
 TOOL_LINE = re.compile(r'T(\d+)(?:\s*;.*)?')
 HEATER_TOOL_LINE = re.compile(r'M10[49].*\bT(\d+)\b.*')
+# First characters a stripped tool/heater line can hide behind (#925): the
+# letter itself, or whitespace strip() removes that splitlines() does not
+# already treat as a line boundary. Every other line — the motion and
+# comment bulk of a plate — is skipped without a strip or a regex call.
+_TOOL_CANDIDATES = frozenset('T \t\x1f\xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005'
+                             '\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000')
+_HEATER_CANDIDATES = frozenset('M \t\x1f\xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005'
+                               '\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000')
+
+
+def _scan_tools(text, pattern, candidates):
+    tools = set()
+    add = tools.add
+    fullmatch = pattern.fullmatch
+    for line in text.splitlines():
+        if line[:1] in candidates and (m := fullmatch(line.strip())):
+            add(int(m.group(1)))
+    return tools
 
 
 def used_tools(text):
-    tools = {int(m.group(1)) for line in text.splitlines()
-             if (m := TOOL_LINE.fullmatch(line.strip()))}
+    # One streaming pass over the plate (#925): the old scan paid a strip()
+    # and a fullmatch() for every one of ~1.6M lines; candidate lines still
+    # go through the exact same fullmatch, everything else is one lookup.
+    # (A compiled whole-buffer multiline regex was measured slower than
+    # this on the same file, so the pass stays line-based but filtered.)
+    tools = _scan_tools(text, TOOL_LINE, _TOOL_CANDIDATES)
     # Standard Orca single-extruder start code uses T0 only on heater
     # declarations; that still identifies the logical tool for the explicit map.
     if not tools:
-        tools = {int(m.group(1)) for line in text.splitlines()
-                 if (m := HEATER_TOOL_LINE.fullmatch(line.strip()))}
+        tools = _scan_tools(text, HEATER_TOOL_LINE, _HEATER_CANDIDATES)
     return tools
 
 

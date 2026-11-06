@@ -121,6 +121,70 @@ def test_reslice_with_supports_passes_the_decision_to_the_slicer(tmp_path, monke
     assert job['provenance']['support_decided'] is True
 
 
+def _warned_reslice(tmp_path, monkeypatch, orientation):
+    """Re-slice the warned fixture job with an orientation on the job,
+    capturing the exact kwargs the slicer received."""
+    seen = {}
+
+    def slice_fake(src, folder, st, brim, color_decisions, filament_slot=None, copies=1, **kw):
+        seen.update(kw)
+        folder.mkdir(parents=True)
+        out = folder / 'plate_1.gcode'
+        out.write_text(json.dumps(color_decisions, sort_keys=True))
+        shutil.copy(FIXTURE, folder / 'result.json')
+        return out, {'offline_test': True,
+                     **slice_warnings.provenance_fields(folder, {'enable_support': '0'}, kw.get('supports'))}, []
+    jp, st, gcode = setup_job(tmp_path, monkeypatch)
+    job = json.loads(jp.read_text())
+    job['orientation'] = orientation
+    jp.write_text(json.dumps(job))
+    monkeypatch.setattr(orca_adapter, 'slice_model', slice_fake)
+    return jp, Path(mj.slice_job(jp)), seen
+
+
+_IDENTITY_ROTATION = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+
+
+def test_rotation_without_a_support_choice_leaves_the_question_open(tmp_path, monkeypatch):
+    # Regression (#916): a rotate edit adds a rotation without a supports
+    # value; slicing must not turn that absence into supports=False with
+    # support_decided=True, which suppressed the support question.
+    jp, gcode, seen = _warned_reslice(tmp_path, monkeypatch,
+                                      {'rotation': _IDENTITY_ROTATION})
+    assert seen.get('supports') is None
+    job = json.loads(jp.read_text())
+    assert job['provenance']['support_decided'] is False
+    assert slice_warnings.support_finding(job) is not None
+    with pytest.raises(RuntimeError, match='supports decision needed'):
+        mj.require_current_artifact(job, gcode)
+
+
+def test_rotation_keeps_an_existing_support_choice(tmp_path, monkeypatch):
+    jp, gcode, seen = _warned_reslice(
+        tmp_path, monkeypatch, {'rotation': _IDENTITY_ROTATION, 'supports': False})
+    assert seen.get('supports') is False
+    job = json.loads(jp.read_text())
+    assert job['provenance']['support_decided'] is True
+    assert slice_warnings.support_finding(job) is None
+    jp, gcode, seen = _warned_reslice(
+        tmp_path, monkeypatch, {'rotation': _IDENTITY_ROTATION, 'supports': True})
+    assert seen.get('supports') is True
+
+
+def test_job_fit_leaves_supports_unresolved_after_a_plain_rotation():
+    # The per-plate fit channel carried the same forced False (#916).
+    _fit, supports, _brim = mj._job_fit(
+        {'scale': 1.0, 'orientation': {'rotation': _IDENTITY_ROTATION}}, None)
+    assert supports is None
+    _fit, supports, _brim = mj._job_fit(
+        {'scale': 1.0, 'orientation': {'rotation': _IDENTITY_ROTATION, 'supports': False}}, None)
+    assert supports is False
+    _fit, supports, _brim = mj._job_fit(
+        {'scale': 1.0, 'orientation': {'rotation': _IDENTITY_ROTATION},
+         'support_decision': {'supports': True}}, None)
+    assert supports is True
+
+
 def test_support_kw_carries_the_operator_choice_into_every_branch():
     assert mj._support_kw({}) == {}
     assert mj._support_kw({}, False) == {'supports': False}
