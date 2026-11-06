@@ -33,6 +33,8 @@ Default bind is `127.0.0.1:8000` inside the container. Print Handy defaults to `
 
 Then point Moonraker's `[spoolman]` section at `server: http://<unraid-ip>:7912` (see [ZMod printers](ZMOD.md#bundled-spoolman-from-printer-moonraker-443)); a healthy bundled Spoolman answers `GET http://<unraid-ip>:7912/api/v1/info` with HTTP 200. The API is unauthenticated: keep it on the LAN only and never forward its port from a router. Spoolman's web UI is not bundled (#214) — Print Handy remains the interface.
 
+A browser that opens the bundled Spoolman's root gets a small stub page (#940): it explains that this address is the Spoolman API only, links to `/api/v1`, and links onward to the Print Handy Web UI Spools page on the same host (Web UI port, default 8088, path `/spools`). Dashboards and webpage cards — for example a Home Assistant dashboard card — should point at the Web UI's `/spools` page, not at Spoolman's root.
+
 Persist `/data/spoolman` separately, including database, config, logs and backups. Upstream Alembic migrations remain intact for existing 0.26.1/0.27.0 databases. Runtime migration acceptance is required before deployment; retaining migration files alone is not evidence of a successful migration. Preserve source data and reconcile inventory at final cutover. No automatic downgrade is provided.
 
 For an existing external instance set `PRINT_HANDY__SERVICES__SPOOLMAN_URL=http://spoolman.example:8000`. Its data is not migrated or reset; the local database remains separate. Optionally set `PRINT_HANDY_BUNDLED_SPOOLMAN=false` to skip the local API, requiring a nonlocal URL. Healthcheck then checks the external API. Changing a URL never moves or deletes a database.
