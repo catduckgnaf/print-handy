@@ -33,6 +33,12 @@ step) serving:
 - ``GET /spools`` and ``GET /spools/<id>`` — the per-printer Spools
   page (#789): the same view as HTML, with picker forms that post back
   to ``POST /spools/<id>`` under the config posts' form-token rule;
+- ``GET /data``, ``GET /wrapped``, ``GET /api/data`` and
+  ``GET /api/wrapped`` — the Data tab and Print Handy Wrapped (#956,
+  :mod:`print_handy.webui.data`), behind ``[timelapse]
+  wrapped_enabled``; ``POST /wrapped/video`` compiles the Wrapped
+  video from the Wrapped page's form under the same form-token rule,
+  additionally behind ``[timelapse] wrapped_ai_video``;
 - ``GET /healthz`` — the bot heartbeat evaluation, with the same
   200/503 + JSON shape as the standalone bot's own health server;
 - ``GET /config`` — the picker configuration page
@@ -121,6 +127,7 @@ from . import access as access_module
 from . import camera as camera_module
 from . import config as config_api
 from . import controls as controls_module
+from . import data as data_module
 from . import designs as designs_module
 from . import layers as layers_module
 from . import pages
@@ -290,7 +297,7 @@ def _job_block(job):
 
 
 def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
-                       walkthrough_pending=False, job=None, error=None):
+                       walkthrough_pending=False, job=None, error=None, nav=None):
     """The / page: the snapshot as escaped HTML in the shared shell (#813).
 
     The overall card on top is derived from what the snapshot already
@@ -402,7 +409,7 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
             + f"<h2>Doctor checks</h2><table>{doctor}</table>"
             + failures_table
             + debug_section)
-    return shell.page("status", body, path="/", theme=theme, banner=banner)
+    return shell.page("status", body, path="/", theme=theme, banner=banner, nav=nav)
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -635,10 +642,14 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(200, render_status_html(
                     snap, form_token=self.server.form_token, theme=self._theme(),
                     walkthrough_pending=walkthrough_module.pending(self.server.settings_data),
-                    job=_overall_job(self.server.settings_data)),
+                    job=_overall_job(self.server.settings_data),
+                    nav=data_module.nav_for(self.server.settings_data)
+                    if data_module.wrapped_enabled(self.server.settings_data) else None),
                     "text/html; charset=utf-8")
             elif path == "/api/status":
                 self._json(200, self.server.snapshot_func())
+            elif path in ("/data", "/wrapped", "/api/data", "/api/wrapped"):
+                self._data_route(path)
             elif path == "/readyz":
                 # Readiness per component (Spoolman, slicer, each printer),
                 # behind the same auth as /api/status; /healthz stays the
@@ -696,6 +707,85 @@ class _Handler(BaseHTTPRequestHandler):
                 self._html_refusal(500, "Something went wrong rendering this page.", "/")
             else:
                 self._json(500, {"ok": False, "reason": f"{type(exc).__name__}: {exc}"})
+
+    # -- Data tab and Wrapped (#956) ---------------------------------------
+    def _year_param(self):
+        raw = (parse_qs(urlparse(self.path).query).get("year") or [None])[0]
+        if raw is None or raw == "":
+            return None, None
+        try:
+            return int(raw), None
+        except ValueError:
+            return None, (400, {"ok": False,
+                                "reason": "year must be a whole number. Nothing shown."})
+
+    def _data_route(self, path):
+        """GET /data, /wrapped, /api/data and /api/wrapped (#956).
+
+        Behind the same login as every other page. While
+        [timelapse] wrapped_enabled is off, all four answer the named
+        403 refusal from data.py, for pages and APIs alike.
+        """
+        year, error = self._year_param()
+        if error:
+            self._json(error[0], error[1])
+            return
+        data = self.server.settings_data
+        if path == "/api/data":
+            code, payload = data_module.data_view(data, year=year)
+            self._json(code, payload)
+            return
+        if path == "/api/wrapped":
+            code, payload = data_module.wrapped_view(data, year=year)
+            self._json(code, payload)
+            return
+        if path == "/data":
+            code, payload = data_module.data_view(data, year=year)
+            if code != 200:
+                self._json(code, payload)
+                return
+            self._send(200, data_module.render_data_page(data, payload, theme=self._theme()),
+                       "text/html; charset=utf-8")
+            return
+        code, payload = data_module.wrapped_view(data, year=year)
+        if code != 200:
+            self._json(code, payload)
+            return
+        done = (parse_qs(urlparse(self.path).query).get("done") or [""])[0]
+        self._send(200, data_module.render_wrapped_page(
+            data, payload, form_token=self.server.form_token, theme=self._theme(),
+            notice=done or None), "text/html; charset=utf-8")
+
+    def _wrapped_video_post(self):
+        """POST /wrapped/video (#956): the Wrapped page's video form.
+
+        Authorized exactly like a Spools page form (the access-token
+        header or the page's form token; a login session alone never
+        authorizes it). The compile itself, its two toggles and every
+        named refusal live in data.py / wrapped_video.py.
+        """
+        form, error = self._read_form()
+        if error:
+            self._html_refusal(error[0], error[1], "/wrapped")
+            return
+        if not self._post_authorized(form):
+            self._html_refusal(403, STALE_FORM_MESSAGE, "/wrapped")
+            return
+        raw_year = (form.get("year") or [""])[0]
+        try:
+            year = int(raw_year)
+        except (TypeError, ValueError):
+            self._html_refusal(400, "year must be a whole number. Nothing was compiled.",
+                               "/wrapped")
+            return
+        code, payload = data_module.make_video(self.server.settings_data, year)
+        if code != 200:
+            self._html_refusal(code, payload.get("reason", "the video compile failed"),
+                               "/wrapped")
+            return
+        self._send(200, data_module.render_video_result(
+            self.server.settings_data, payload, theme=self._theme()),
+            "text/html; charset=utf-8")
 
     # -- per-printer live status (#664) -------------------------------------
     def _printer_status_route(self, rest):
@@ -1236,6 +1326,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._logout()
             elif path == "/walkthrough":
                 self._walkthrough_post()
+            elif path == "/wrapped/video":
+                self._wrapped_video_post()
             elif path == "/config/preview":
                 self._config_preview()
             elif path == "/config":

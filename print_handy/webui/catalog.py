@@ -149,6 +149,8 @@ GROUP_OF = {
     "timelapse.archive_host": "timelapse",
     "timelapse.archive_dir": "timelapse",
     "timelapse.ssh_key": "timelapse",
+    "timelapse.wrapped_enabled": "timelapse",
+    "timelapse.wrapped_ai_video": "timelapse",
     "logging.level": "logging",
     "logging.format": "logging",
     "logging.retention_days": "logging",
@@ -511,6 +513,19 @@ CATALOG = (
            "Filesystem path of the SSH private key for the archive host; only the path "
            "is stored here, never the key contents.",
            validator="settings type check"),
+    _field("timelapse", "wrapped_enabled", "Data tab and Wrapped", "toggle",
+           "The Data tab and Print Handy Wrapped (#956): read-only statistics over "
+           "the print records, plus the once-a-year Wrapped recap. Off by default; "
+           "while off, the Data and Wrapped pages are not in the navigation and "
+           "their routes refuse by name.",
+           validator="settings timelapse check"),
+    _field("timelapse", "wrapped_ai_video", "Wrapped AI video", "toggle",
+           "The on-demand Wrapped video compile (#956): AI commentary (when an AI "
+           "route is configured, with the local deterministic script as the "
+           "fallback) plus a local video of stat cards and the year's timelapses. "
+           "Off by default, and it needs the Data tab and Wrapped switch above on. "
+           "The video is generated only when the operator asks, and never sent anywhere.",
+           validator="settings timelapse check"),
     # Logging.
     _field("logging", "level", "Log level", "picker",
            "Log verbosity.",

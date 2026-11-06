@@ -289,9 +289,9 @@ def theme_cookie_header(theme, secure=False):
     return f"{THEME_COOKIE}={theme}; SameSite=Lax; Path=/; Max-Age=31536000{flags}"
 
 
-def _header(path, theme):
+def _header(path, theme, nav=None):
     items = []
-    for target, label in NAV:
+    for target, label in (NAV if nav is None else nav):
         active = path == target or (target != "/" and path.startswith(target + "/"))
         items.append(f'<a href="{target}"{" class=\"active\"" if active else ""}>'
                      f"{_esc(label)}</a>")
@@ -310,7 +310,7 @@ def _header(path, theme):
 
 
 def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None,
-         eyebrow="", banner=""):
+         eyebrow="", banner="", nav=None):
     """One full HTML document in the shared shell.
 
     ``title`` names the page (``Print Handy — <title>`` in the tab, and
@@ -318,8 +318,11 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
     the heading; any other value replaces the default. ``chrome=False``
     renders the bare document (login and first-run setup: no navigation
     to offer yet). ``banner`` is inserted at the top of the content,
-    above the heading. Every interpolated value here is escaped by the
-    callers for body content; title and heading are escaped here.
+    above the heading. ``nav`` overrides the header navigation for this
+    page only (the Data/Wrapped pages pass the extended nav when that
+    feature is on, #956); the default is :data:`NAV`, unchanged for
+    every existing page. Every interpolated value here is escaped by
+    the callers for body content; title and heading are escaped here.
     """
     theme_attr = ' data-theme="light"' if theme == "light" else ""
     parts = ["<!DOCTYPE html>\n<html lang=\"en\"", theme_attr, "><head><meta charset=\"utf-8\">"
@@ -327,7 +330,7 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
              f"<title>Print Handy — {_esc(title)}</title>"
              f"<style>{CSS}</style></head><body>"]
     if chrome:
-        parts.append(_header(path, theme))
+        parts.append(_header(path, theme, nav=nav))
     parts.append('<main><div class="wrap">')
     if banner:
         parts.append(banner)

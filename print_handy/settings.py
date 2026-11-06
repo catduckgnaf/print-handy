@@ -84,6 +84,8 @@ LEGACY_ENV = {
     "PRINT_TIMELAPSE_MAX_BYTES": ("timelapse", "max_bytes"),
     "PRINT_TIMELAPSE_LOCAL_RETENTION_DAYS": ("timelapse", "local_retention_days"),
     "PRINT_TIMELAPSE_PLAN_CLIP_RETENTION_DAYS": ("timelapse", "plan_clip_retention_days"),
+    "PRINT_TIMELAPSE_WRAPPED_ENABLED": ("timelapse", "wrapped_enabled"),
+    "PRINT_TIMELAPSE_WRAPPED_AI_VIDEO": ("timelapse", "wrapped_ai_video"),
     "PRINT_TIMELAPSE_VERTICAL_SHORT": ("timelapse", "vertical_short"),
     "PRINT_TIMELAPSE_VERTICAL_SHORT_MODE": ("timelapse", "vertical_short_mode"),
     "PRINT_TIMELAPSE_VERTICAL_SHORT_OVERLAY": ("timelapse", "vertical_short_overlay"),
@@ -151,6 +153,8 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("agent", "chat_url"): str, ("agent", "model"): str,
                  ("agent", "api_key_env"): str, ("agent", "timeout_s"): int,
                  ("timelapse", "mode"): str, ("timelapse", "encoder"): str,
+                 ("timelapse", "wrapped_enabled"): bool,
+                 ("timelapse", "wrapped_ai_video"): bool,
                  ("services", "camera_source"): str,
                  ("live_stream", "enabled"): bool, ("live_stream", "voice_channel_id"): str,
                  ("live_stream", "auto_start_on_print"): bool, ("live_stream", "max_height"): int,
@@ -1175,7 +1179,8 @@ def _validate_timelapse(data):
     if mode not in TIMELAPSE_MODES:
         raise SettingsError(f"[timelapse] mode must be one of {', '.join(TIMELAPSE_MODES)}, got {raw!r}")
     timelapse["mode"] = mode
-    for key, default in (("vertical_short", False), ("vertical_short_overlay", True)):
+    for key, default in (("vertical_short", False), ("vertical_short_overlay", True),
+                         ("wrapped_enabled", False), ("wrapped_ai_video", False)):
         value = timelapse.setdefault(key, default)
         if not isinstance(value, bool):
             raise SettingsError(f"[timelapse] {key} must be true or false, got {value!r}")
