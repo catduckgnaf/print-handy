@@ -33,7 +33,7 @@ Use Python 3.12 or newer. From the repository root, create an isolated environme
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install ".[test]"
+python -m pip install -e ".[test]"
 python -m pytest -q tests
 ```
 

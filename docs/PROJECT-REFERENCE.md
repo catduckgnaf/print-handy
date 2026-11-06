@@ -447,7 +447,7 @@ To update a checkout, pull the desired source revision and rebuild/recreate the 
 
 From the repository root, CI runs this on every push and pull request:
 ```bash
-python3 -m pip install ".[test]"
+python3 -m pip install -e ".[test]"
 python3 -m pytest tests
 ```
 A second CI job installs the Flathub OrcaSlicer, slices small test models with the templates, and runs the slice guards on the real G-code. Run it locally with `PRINT_HANDY_REAL_SLICER=1 python3 -m pytest -s tests/slicer`.
