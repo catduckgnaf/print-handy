@@ -1,0 +1,77 @@
+# Print Handy packaging and tool configuration.
+#
+# This file replaces requirements.txt, requirements-test.txt, pytest.ini and
+# ruff.toml (root cleanup PR-2). Runtime dependencies live in [project];
+# test-only dependencies are the [project.optional-dependencies] "test"
+# extra, so `pip install ".[test]"` reproduces exactly the old
+# runtime + test-requirements union. The version stays single-sourced in
+# print_handy/__init__.py (__version__), read dynamically below.
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "print-handy"
+dynamic = ["version"]
+description = "Bambu Handy for every printer, local-first: chat-guided slicing, spool matching and confirmed printing for Klipper, Bambu Lab, Prusa, Flashforge, Elegoo, Creality, Sovol, Snapmaker, Qidi, Anycubic and OctoPrint printers."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "jinja2>=3.1",
+    # Barcode/QR decoding for spool label photo intake (#514); imported lazily, only used when reading a label photo.
+    "zxing-cpp>=3.0",
+    # Bambu Lab LAN MQTT telemetry (#187); imported lazily, only used when LAN is configured.
+    "paho-mqtt>=2.0",
+    # Local failure-detector inference for the camera watchdog (#455); imported lazily,
+    # only used when vision.local_detector_enabled is set.
+    "onnxruntime>=1.17",
+    "numpy>=1.26",
+    "pillow>=10.0",
+    "pyyaml>=6.0",
+    "websockets>=12",
+    "discord.py>=2.3,<3",
+]
+
+[project.optional-dependencies]
+# Only the delta beyond the runtime dependencies above: installing
+# ".[test]" adds these to the runtime set, nothing more.
+test = [
+    "trimesh>=4.0",
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "pytest-timeout>=2.3",
+    "ruff>=0.8",
+    "pip-audit>=2.7",
+]
+
+[tool.setuptools.dynamic]
+version = { attr = "print_handy.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["print_handy*"]
+
+# The package reads data files beside its modules at runtime via
+# Path(__file__) (Orca templates, data/*.toml, HMS data, the Bambu CA
+# bundle); ship every one of them in the wheel, not just the .py files.
+[tool.setuptools.package-data]
+"*" = ["*.json", "*.toml", "*.pem"]
+print_handy = ["templates/**/*.json", "data/*.toml", "data/*.json"]
+
+[tool.pytest.ini_options]
+# A stuck test fails the job. Corpus cases override this to 600s
+# (tests/corpus/conftest.py); slicer cases run under this limit.
+timeout = 120
+timeout_func_only = true
+
+# Conservative check for the whole Python tree. Style and format stay out:
+# a format pass would be an unrelated diff. This catches syntax errors and
+# names that do not exist.
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+extend-exclude = ["hermes"]
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]

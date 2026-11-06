@@ -12,7 +12,7 @@ Print Handy ships third-party software in its container image and Compose file. 
 | BambuStudio | commit `926a7192…` (`BAMBU_REF`) | `Dockerfile` | Build fails unless `git rev-parse HEAD` equals the ref |
 | Spoolman | commit `bed3f14e…` (`SPOOLMAN_REF`) | `Dockerfile` | Build fails unless the checked-out commit equals the ref; `uv sync --locked` |
 | uv (build only) | `0.9.5` | `Dockerfile` | Exact version |
-| Python packages | `requirements.txt`, `requirements-test.txt` | repository root | `pip-audit` in `ci.yml` |
+| Python packages | `pyproject.toml` | repository root | `pip-audit` in `ci.yml` |
 | cloudflared sidecar | `2026.10.7` plus manifest digest | `docker-compose.yml` (`CLOUDFLARED_IMAGE` overrides) | Digest is the multi-architecture index; never `latest` |
 
 `latest` and `develop` of the Print Handy image itself remain a documented convenience for people who want the newest release. Pin a version tag or digest for a reproducible install.

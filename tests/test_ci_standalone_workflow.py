@@ -1,7 +1,7 @@
 """Contract tests for the standalone and offline CI legs (.github/workflows/ci.yml).
 
 The standalone-no-hermes job (#73) proves the bot installs from
-requirements.txt alone and passes `bot check` with no Hermes module loaded.
+the runtime dependencies alone (`pip install .`) and passes `bot check` with no Hermes module loaded.
 Discord was its only platform for a long time, but Telegram and Matrix
 (#164 stages 2-3) are standalone platforms too and stdlib-only by design:
 these tests pin a clean-venv `bot check` step for each of them, so a stray
@@ -32,12 +32,12 @@ def steps_by_name(job):
 
 
 class StandaloneWorkflowContract(unittest.TestCase):
-    def test_job_builds_one_clean_venv_from_runtime_requirements_only(self):
+    def test_job_builds_one_clean_venv_from_runtime_dependencies_only(self):
         job = load_workflow()["jobs"]["standalone-no-hermes"]
         runs = "\n".join(step.get("run", "") for step in job["steps"])
         self.assertIn('python -m venv "/tmp/clean"', runs)
-        self.assertIn('"/tmp/clean/bin/python" -m pip install -r requirements.txt', runs)
-        self.assertNotIn("requirements-test.txt", runs)
+        self.assertIn('"/tmp/clean/bin/python" -m pip install .', runs)
+        self.assertNotIn("[test]", runs)
 
     def test_bot_check_runs_for_discord(self):
         step = steps_by_name(load_workflow()["jobs"]["standalone-no-hermes"])[

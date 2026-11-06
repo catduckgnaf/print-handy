@@ -40,7 +40,7 @@ def pytest_collection_modifyitems(items):
     """A hung corpus case fails at 10 minutes instead of holding the job.
 
     This hook sees every item of the session, not only this directory's, so the marker is applied
-    to items under tests/corpus only; everything else keeps the pytest.ini limit (120 s).
+    to items under tests/corpus only; everything else keeps the pyproject.toml limit (120 s).
     """
     for item in items:
         if CORPUS_DIR in Path(str(item.path)).resolve().parents:

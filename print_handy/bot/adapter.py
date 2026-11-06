@@ -29,7 +29,7 @@ def library_status():
     try:
         import discord
     except ImportError:
-        return ("discord.py", False, "not installed: pip install -r requirements.txt")
+        return ("discord.py", False, "not installed: pip install . (or the print-handy package)")
     return ("discord.py", True, discord.__version__)
 
 

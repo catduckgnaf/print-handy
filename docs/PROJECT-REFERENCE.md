@@ -161,7 +161,7 @@ Live camera streaming (#311) starts with a delivery-agnostic core in `print_hand
 
 `config/home.yaml` holds the shared defaults and picks the printer. Printer-specific defaults (bed, height, nozzle, slots, margins, prime tower and macros) come from the selected model and can be overridden in YAML. Put machine-specific overrides in the gitignored `config/local.yaml`; YAML is preferred for new configuration. Existing `config/home.toml` and `config/local.toml` remain supported during migration. When both formats are present, YAML wins; TOML is used when the corresponding YAML file is absent. `PRINT_HANDY_CONFIG=/path/to/settings.yaml` selects one YAML file, and `.toml` paths remain supported. Environment variables (`PRINT_HANDY__SECTION__KEY` and the existing legacy names) override file settings.
 
-Settings merge in this order: printer-model defaults, home configuration, the selected local or explicit configuration, then environment. A typo or invalid value stops startup and identifies the setting. Python 3.11 or newer is required. Changes require restarting the relevant process; settings are loaded once at process startup. See [YAML configuration and TOML migration](../docs/CONFIGURATION-YAML.md) for schema, precedence, safety limits and migration guidance.
+Settings merge in this order: printer-model defaults, home configuration, the selected local or explicit configuration, then environment. A typo or invalid value stops startup and identifies the setting. Python 3.12 or newer is required. Changes require restarting the relevant process; settings are loaded once at process startup. See [YAML configuration and TOML migration](../docs/CONFIGURATION-YAML.md) for schema, precedence, safety limits and migration guidance.
 
 ```yaml
 # config/local.yaml example
@@ -447,7 +447,7 @@ To update a checkout, pull the desired source revision and rebuild/recreate the 
 
 From the repository root, CI runs this on every push and pull request:
 ```bash
-python3 -m pip install -r requirements-test.txt
+python3 -m pip install ".[test]"
 python3 -m pytest tests
 ```
 A second CI job installs the Flathub OrcaSlicer, slices small test models with the templates, and runs the slice guards on the real G-code. Run it locally with `PRINT_HANDY_REAL_SLICER=1 python3 -m pytest -s tests/slicer`.

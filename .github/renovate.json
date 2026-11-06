@@ -20,10 +20,10 @@
         },
         {
             "commitMessagePrefix": "deps:",
-            "description": "Group pip updates for requirements.txt and requirements-test.txt (both matched by the pip_requirements manager's default file patterns). The files use version ranges, so these PRs are mostly range-widening and vulnerability-driven.",
+            "description": "Group pip updates for the dependencies declared in pyproject.toml (matched by the pep508 manager). The declarations use version ranges, so these PRs are mostly range-widening and vulnerability-driven.",
             "groupName": "pip requirements",
             "matchManagers": [
-                "pip_requirements"
+                "pep508"
             ]
         },
         {
