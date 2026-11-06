@@ -21,6 +21,14 @@ elif _has_files "$legacy_home" && ! _has_files "$state_home"; then
     echo "Print Handy: using the legacy /data/hermes state volume as /data/state (deprecated name; rename the host folder to 'state' when convenient — /data/hermes stays accepted for at least two minor releases)." >&2
 elif _has_files "$legacy_home" && _has_files "$state_home"; then
     echo "Print Handy: WARNING both /data/state and the legacy /data/hermes state volumes hold data; using /data/state and ignoring /data/hermes." >&2
+elif [ -e "$state_home" ] && [ ! -e "$legacy_home" ] && [ ! -L "$legacy_home" ]; then
+    # Only the new volume is mapped (Docker created it as an empty
+    # mountpoint directory) and the legacy name does not exist at all:
+    # leave it as a symlink to the new volume so tools that still use the
+    # pre-2.2.5 path keep working (#938). A legacy path that exists as a
+    # real folder or mount is never replaced.
+    ln -s "$state_home" "$legacy_home"
+    echo "Print Handy: /data/hermes is a symlink to /data/state so the pre-2.2.5 name keeps working (deprecated name; it stays accepted for at least two minor releases)." >&2
 fi
 mkdir -p "$state_home/state" "$state_home/logs" "$data_root/archive" "$data_root/records" "$data_root/cache"
 # Container timezone: TZ names an IANA zone (image default America/New_York).

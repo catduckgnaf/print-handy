@@ -664,7 +664,7 @@ def gcode_model_height(gcode_text):
 
 
 def verify_support_coverage(regions, gcode, cell_mm=3.0, source_bounds=None, gcode_bounds=None,
-                            z_scale=1.0):
+                            z_scale=None):
     """Post-slice toolpath coverage for support target regions (#922 gaps 2 and 4).
 
     ``regions`` is a report's region list (or a whole report); only
@@ -680,7 +680,11 @@ def verify_support_coverage(regions, gcode, cell_mm=3.0, source_bounds=None, gco
     rearrange the model. When ``source_bounds`` and ``gcode_bounds`` (XY
     min/max of the model in each system) are both given, target boxes are
     mapped by that translation + scale before comparison, and ``z_scale``
-    (the slice's Z scale, 1.0 when unscaled) scales the target heights.
+    scales the target heights. An explicit ``z_scale`` wins; when it is
+    None the Z scale is derived from the bounds mapping (the job scale is
+    uniform, so the mapping's XY scale is the Z scale too), or 1.0 when
+    no mapping is given (#938 item 1: heights must never be compared
+    unscaled against a slice the XY boxes were scaled for).
     Returns {'checked', 'ok', 'regions': [{..., 'coverage', ...}]}; with no
     targets, checked is False and ok is True (nothing to verify).
     """
@@ -738,9 +742,16 @@ def verify_support_coverage(regions, gcode, cell_mm=3.0, source_bounds=None, gco
                      gcode_bounds[1] + (ay - source_bounds[1]) * sy],
                     [gcode_bounds[0] + (bx - source_bounds[0]) * sx,
                      gcode_bounds[1] + (by - source_bounds[1]) * sy]]
+
+        if z_scale is None:
+            # The job scale is uniform: the mapping's XY scale is the
+            # slice's Z scale as well (#938 item 1).
+            z_scale = (sx + sy) / 2.0
     else:
         def _map(box):
             return box
+    if z_scale is None:
+        z_scale = 1.0
     out = []
     ok = True
     for r in targets:
@@ -757,9 +768,12 @@ def verify_support_coverage(regions, gcode, cell_mm=3.0, source_bounds=None, gco
             # only toolpath near the underside's own Z counts for it.
             if zmin is not None and not (zmin - 1.0 <= z <= zmin + 0.5):
                 continue
-            # Only samples inside the target's own cell grid count; a path
-            # outside the box must not be clamped into an edge cell.
-            if x0 - 1e-9 <= x <= x0 + nx * cell_mm and y0 - 1e-9 <= y <= y0 + ny * cell_mm:
+            # Only samples inside the target's own box count (#938 item
+            # 2): a path outside the box must not count toward an edge
+            # cell, however narrow the box is.
+            if x0 - 1e-9 <= x <= x1 + 1e-9 and y0 - 1e-9 <= y <= y1 + 1e-9:
+                # A point exactly on the box's upper edge indexes one
+                # past the last cell; the clamp keeps it in that cell.
                 i = min(nx - 1, max(0, int((x - x0) // cell_mm)))
                 j = min(ny - 1, max(0, int((y - y0) // cell_mm)))
                 covered.add((i, j))
