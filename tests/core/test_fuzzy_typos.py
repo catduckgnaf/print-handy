@@ -29,8 +29,25 @@ CARD_TYPOS = {
 }
 DO_NOT_MAP = ["stale", "later", "head", "point", "step", "shrine", "restriction",
               "warning", "pure", "spook", "micro", "calibre", "fitment", "stats",
-              "states", "parse"]
-ALL_PAIRS = {**CURATED_PAIRS, **VARIANTS, **CARD_TYPOS}
+              "states", "parse", "nest", "upstate", "fir"]
+# Second mining pass over the operator's chat history (same aggregate-only
+# rule: pairs, never message text). "iddint" maps to the apostrophe-less
+# form the matcher canonicalizes to, and "seel" is kept deliberately: it is
+# an archaic falconry word, not a living one, and the mined context is
+# unambiguously "see". Real words found misspelled-looking in the same pass
+# (nest, upstate, fir) were rejected, not mapped — see DO_NOT_MAP's rule.
+OPERATOR_MINED_2 = {
+    "ahow": "how", "catagories": "categories", "comouse": "compose",
+    "conficts": "conflicts", "ddi": "did", "dobe": "done",
+    "eleego": "elegoo", "iddint": "didnt", "incorperate": "incorporate",
+    "intergration": "integration", "jewelery": "jewelry",
+    "langauge": "language", "listerners": "listeners", "ocming": "coming",
+    "recongized": "recognized", "rgar": "that", "sanatize": "sanitize",
+    "seel": "see", "seperately": "separately", "suppert": "support",
+    "suprise": "surprise", "syntaxt": "syntax", "tempalates": "templates",
+    "throughly": "thoroughly", "wel": "well", "whgatever": "whatever",
+}
+ALL_PAIRS = {**CURATED_PAIRS, **VARIANTS, **CARD_TYPOS, **OPERATOR_MINED_2}
 
 
 @pytest.mark.parametrize("typo,word", sorted(ALL_PAIRS.items()))
