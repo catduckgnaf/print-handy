@@ -161,6 +161,8 @@ def supportable_file(tmp_path):
 def _support_gcode_for(regions):
     lines = [';TYPE:Support']
     for r in regions:
+        # Support interface sits just below the underside it holds up.
+        lines.append(f"G1 Z{r['z_mm']['min'] - 0.2:.2f}")
         (x0, y0), (x1, y1) = r['bbox_mm']
         nx = max(1, math.ceil((x1 - x0) / 3.0))
         ny = max(1, math.ceil((y1 - y0) / 3.0))
@@ -186,6 +188,61 @@ def test_supportable_overhang_regions_emitted_and_verified(tmp_path):
 
     bad = support_clearance.verify_support_coverage(rep['regions'], 'G1 X1 Y1 E1\n')
     assert bad['checked'] is True and bad['ok'] is False
+
+
+def test_coverage_counts_cells_crossed_by_a_segment():
+    region = {'kind': 'supportable_overhang', 'part': 'P', 'bbox_mm': [[0.0, 0.0], [12.0, 3.0]],
+              'z_mm': {'min': 1.0, 'max': 1.0}}
+    gcode = ';TYPE:Support\nG1 Z0.8\nG1 X0 Y1\nG1 X12 Y1 E5\n'
+    result = support_clearance.verify_support_coverage([region], gcode)
+    assert result['ok'] is True and result['regions'][0]['coverage'] == 1.0
+
+
+def test_coverage_requires_support_near_the_underside_height():
+    region = {'kind': 'supportable_overhang', 'part': 'P', 'bbox_mm': [[0.0, 0.0], [12.0, 3.0]],
+              'z_mm': {'min': 20.0, 'max': 20.0}}
+    low = ';TYPE:Support\nG1 Z1.0\nG1 X6 Y1.5 E5\n'
+    result = support_clearance.verify_support_coverage([region], low)
+    assert result['ok'] is False and result['regions'][0]['coverage'] == 0.0
+    high = ';TYPE:Support\nG1 Z19.8\nG1 X0 Y1\nG1 X12 Y1 E5\n'
+    result = support_clearance.verify_support_coverage([region], high)
+    assert result['ok'] is True
+
+
+def test_coverage_maps_targets_into_sliced_coordinates():
+    region = {'kind': 'supportable_overhang', 'part': 'P', 'bbox_mm': [[0.0, 0.0], [60.0, 34.0]],
+              'z_mm': {'min': 2.65, 'max': 2.65}}
+    # The slice centered the model: everything moved by (+200, +200).
+    lines = [';TYPE:Support', 'G1 Z2.45']
+    import math as _math
+    for i in range(20):
+        for j in range(12):
+            lines.append(f'G1 X{200 + (i + 0.5) * 3.0:.1f} Y{200 + (j + 0.5) * 3.0:.1f} E1')
+    gcode = '\n'.join(lines) + '\n'
+    unmapped = support_clearance.verify_support_coverage([region], gcode)
+    assert unmapped['ok'] is False
+    mapped = support_clearance.verify_support_coverage(
+        [region], gcode, source_bounds=(0.0, 0.0, 60.0, 34.0),
+        gcode_bounds=(200.0, 200.0, 260.0, 234.0))
+    assert mapped['ok'] is True
+
+
+def test_gcode_model_bounds_ignores_support_and_purge():
+    text = (';TYPE:Support\nG1 X200 Y200 E1\n;TYPE:Outer wall\n'
+            'G1 X10 Y10 E1\nG1 X50 Y40 E1\n')
+    assert support_clearance.gcode_model_bounds(text) == (10.0, 10.0, 50.0, 40.0)
+
+
+def test_rotated_report_describes_the_rotated_pose(tmp_path):
+    slab = box(0, 0, 10.0, 60, 40, 2.0)      # floating slab: supportable at z=10
+    src = write_3mf(tmp_path / 'slab.3mf', [('Slab', slab, '', None)])
+    before = support_clearance.analyze(src)
+    assert any(r['kind'] == 'supportable_overhang' for r in before['regions'])
+    flip = [1, 0, 0, 0, -1, 0, 0, 0, -1]    # 180 degrees about X
+    after = support_clearance.rotated_report(src, flip)
+    assert after['orientation_applied'] is True
+    # Flipped, the slab rests on the plate: nothing floats any more.
+    assert not any(r['kind'] == 'supportable_overhang' for r in after['regions'])
 
 
 # ---------------------------------------------------------------- gap 3

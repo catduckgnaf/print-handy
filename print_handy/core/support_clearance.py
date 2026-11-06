@@ -317,8 +317,36 @@ def _sha256(path):
 
 def analyze(source, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_mm=SPAN_MM, min_coverage=MIN_COVERAGE):
     """The structured support clearance report for a 3MF (see the module docstring)."""
-    parts = leaves(source)
-    report = {'version': VERSION, 'source_sha256': _sha256(source),
+    return _analyze_parts(leaves(source), _sha256(source), gap_mm=gap_mm, area_mm2=area_mm2,
+                          span_mm=span_mm, min_coverage=min_coverage)
+
+
+def rotated_report(source, matrix):
+    """The clearance report for ``source`` after a rotation (#922 gap 7).
+
+    ``matrix`` is the 9-value row-major rotation edit_plan records in the
+    job's orientation. The rotated geometry is shifted so its lowest point
+    sits on the plate, which is how the slicer will place it; the report is
+    marked ``orientation_applied`` so callers know it describes the rotated
+    pose, not the file as authored.
+    """
+    parts = []
+    rot = np.asarray(matrix, dtype=float).reshape(3, 3)
+    for p in leaves(source):
+        tris = np.asarray(p['tris'], dtype=float) @ rot.T
+        parts.append({**p, 'tris': tris})
+    if parts:
+        low = min(float(p['tris'][:, :, 2].min()) for p in parts)
+        for p in parts:
+            p['tris'][:, :, 2] -= low
+    report = _analyze_parts(parts, _sha256(source))
+    report['orientation_applied'] = True
+    return report
+
+
+def _analyze_parts(parts, source_sha256, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_mm=SPAN_MM,
+                   min_coverage=MIN_COVERAGE):
+    report = {'version': VERSION, 'source_sha256': source_sha256,
               'thresholds': {'gap_mm': gap_mm, 'area_mm2': area_mm2, 'span_mm': span_mm,
                              'contact_mm': CONTACT_MM, 'min_coverage': min_coverage},
               'objects': [{'object': p['object'], 'name': p['name'], 'support': p['support'],
@@ -544,18 +572,75 @@ def codes(report):
 
 
 _MOVE_RE = re.compile(r'^\s*G0?1(?=\s|$)([^;]*)', re.I)
-_WORD_RE = re.compile(r'([XYE])\s*(-?\d+(?:\.\d+)?|-?\.\d+)', re.I)
+_WORD_RE = re.compile(r'([XYZE])\s*(-?\d+(?:\.\d+)?|-?\.\d+)', re.I)
+_OBJ_START = re.compile(r'EXCLUDE_OBJECT_START|;\s*printing object', re.I)
+_OBJ_END = re.compile(r'EXCLUDE_OBJECT_END|;\s*stop printing object', re.I)
 
 
-def verify_support_coverage(regions, gcode, cell_mm=3.0):
+def gcode_model_bounds(gcode_text):
+    """XY bounds of the printed model (non-support extrusion), or None.
+
+    When the file carries object markers, only extrusion inside an object
+    block counts, so brims, purge lines and support do not move the bounds.
+    Used to map source-coordinate coverage targets into the sliced
+    coordinate system: slicing may center, scale or rearrange the model,
+    which a whole-model translation + scale derived from these bounds
+    captures.
+    """
+    has_objects = bool(_OBJ_START.search(gcode_text))
+    in_object = not has_objects
+    current_type = ''
+    pos = {'X': None, 'Y': None}
+    lo = [None, None]
+    hi = [None, None]
+    for raw in gcode_text.splitlines():
+        line = raw.strip()
+        if line.startswith(';TYPE:'):
+            current_type = line.split(':', 1)[1].strip().casefold()
+            continue
+        if has_objects:
+            if _OBJ_START.search(line):
+                in_object = True
+                continue
+            if _OBJ_END.search(line):
+                in_object = False
+                continue
+        move = _MOVE_RE.match(line)
+        if not move:
+            continue
+        extrudes = False
+        for axis, number in _WORD_RE.findall(move.group(1)):
+            axis = axis.upper()
+            if axis == 'E':
+                extrudes = True
+            elif axis in pos:
+                pos[axis] = float(number)
+        if (extrudes and in_object and 'support' not in current_type
+                and pos['X'] is not None and pos['Y'] is not None):
+            for k, v in enumerate((pos['X'], pos['Y'])):
+                lo[k] = v if lo[k] is None else min(lo[k], v)
+                hi[k] = v if hi[k] is None else max(hi[k], v)
+    if lo[0] is None:
+        return None
+    return (lo[0], lo[1], hi[0], hi[1])
+
+
+def verify_support_coverage(regions, gcode, cell_mm=3.0, source_bounds=None, gcode_bounds=None):
     """Post-slice toolpath coverage for support target regions (#922 gaps 2 and 4).
 
     ``regions`` is a report's region list (or a whole report); only
     ``supportable_overhang`` and ``low_clearance`` regions are targets.
     ``gcode`` is G-code text or a path. Each target's bounding box is cut
-    into ``cell_mm`` cells; a cell counts as covered when a support
-    toolpath point (``;TYPE:Support`` / ``;TYPE:Support interface``
-    extruding move endpoint) lands in it. Acceptance is 100% of cells.
+    into ``cell_mm`` cells; a cell counts as covered when support toolpath
+    (``;TYPE:Support`` / ``;TYPE:Support interface`` extruding moves,
+    sampled along the whole segment, not just endpoints) passes through it
+    at a height that can hold the underside up: within 1.0 mm below the
+    region's ``z_mm`` minimum. Acceptance is 100% of cells.
+
+    Region boxes are in source coordinates; slicing may center, scale or
+    rearrange the model. When ``source_bounds`` and ``gcode_bounds`` (XY
+    min/max of the model in each system) are both given, target boxes are
+    mapped by that translation + scale before comparison.
     Returns {'checked', 'ok', 'regions': [{..., 'coverage', ...}]}; with no
     targets, checked is False and ok is True (nothing to verify).
     """
@@ -569,7 +654,7 @@ def verify_support_coverage(regions, gcode, cell_mm=3.0):
         gcode = Path(gcode).read_text(errors='replace')
     points = []
     current_type = ''
-    pos = {'X': None, 'Y': None, 'E': 0.0}
+    pos = {'X': None, 'Y': None, 'Z': 0.0}
     for raw in gcode.splitlines():
         line = raw.strip()
         if line.startswith(';TYPE:'):
@@ -578,29 +663,57 @@ def verify_support_coverage(regions, gcode, cell_mm=3.0):
         move = _MOVE_RE.match(line)
         if not move:
             continue
-        start = (pos['X'], pos['Y'])
+        start = (pos['X'], pos['Y'], pos['Z'])
         # An E word on the move is an extrusion, in absolute or relative E
         # mode alike; a bare G1 travel carries no E.
         extrudes = False
         for axis, number in _WORD_RE.findall(move.group(1)):
-            value = float(number)
-            if axis.upper() == 'E':
+            axis = axis.upper()
+            if axis == 'E':
                 extrudes = True
-                pos['E'] = value
-            else:
-                pos[axis.upper()] = value
+            elif axis in pos:
+                pos[axis] = float(number)
         if extrudes and 'support' in current_type and pos['X'] is not None and pos['Y'] is not None:
             if start[0] is not None:
-                points.append(start)
-            points.append((pos['X'], pos['Y']))
+                # Sample along the segment: a long straight support line
+                # covers every cell it crosses, not only its endpoints.
+                dist = max(abs(pos['X'] - start[0]), abs(pos['Y'] - start[1]))
+                steps = max(1, int(dist // (cell_mm / 2)) + 1)
+                for s in range(steps + 1):
+                    t = s / steps
+                    points.append((start[0] + (pos['X'] - start[0]) * t,
+                                   start[1] + (pos['Y'] - start[1]) * t,
+                                   start[2] + (pos['Z'] - start[2]) * t))
+            else:
+                points.append((pos['X'], pos['Y'], pos['Z']))
+    if source_bounds and gcode_bounds:
+        sx = ((gcode_bounds[2] - gcode_bounds[0]) / (source_bounds[2] - source_bounds[0])
+              if source_bounds[2] > source_bounds[0] else 1.0)
+        sy = ((gcode_bounds[3] - gcode_bounds[1]) / (source_bounds[3] - source_bounds[1])
+              if source_bounds[3] > source_bounds[1] else 1.0)
+
+        def _map(box):
+            (ax, ay), (bx, by) = box
+            return [[gcode_bounds[0] + (ax - source_bounds[0]) * sx,
+                     gcode_bounds[1] + (ay - source_bounds[1]) * sy],
+                    [gcode_bounds[0] + (bx - source_bounds[0]) * sx,
+                     gcode_bounds[1] + (by - source_bounds[1]) * sy]]
+    else:
+        def _map(box):
+            return box
     out = []
     ok = True
     for r in targets:
-        (x0, y0), (x1, y1) = r['bbox_mm']
+        (x0, y0), (x1, y1) = _map(r['bbox_mm'])
+        zmin = (r.get('z_mm') or {}).get('min')
         nx = max(1, int(np.ceil((x1 - x0) / cell_mm)))
         ny = max(1, int(np.ceil((y1 - y0) / cell_mm)))
         covered = set()
-        for x, y in points:
+        for x, y, z in points:
+            # Support at the wrong height does not hold this underside up:
+            # only toolpath near the underside's own Z counts for it.
+            if zmin is not None and not (zmin - 1.0 <= z <= zmin + 0.5):
+                continue
             if x0 - 1e-9 <= x <= x1 + cell_mm and y0 - 1e-9 <= y <= y1 + cell_mm:
                 i = min(nx - 1, max(0, int((x - x0) // cell_mm)))
                 j = min(ny - 1, max(0, int((y - y0) // cell_mm)))
