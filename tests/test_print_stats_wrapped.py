@@ -248,6 +248,33 @@ class VideoTests(unittest.TestCase):
     def test_drawtext_escaping(self):
         self.assertEqual(wrapped_video.escape_drawtext("a:b'c%"), "a\\:b\\'c\\%")
 
+    def test_card_text_is_wrapped_to_fit_the_frame(self):
+        """Long commentary lines wrap: no drawtext text may be wider than
+        the 1280px frame at fontsize 40, and no words are lost."""
+        import re
+
+        long_line = ("You started 123 prints in 2025 and the longest single "
+                     "print ran for nine hours and forty-two minutes "
+                     "without pausing")
+        wrapped = {"year": 2025, "headline": {}, "highlights": {},
+                   "script": [long_line]}
+        runner = FakeRunner()
+        with tempfile.TemporaryDirectory() as tmp:
+            result = wrapped_video.build_wrapped_video(
+                2025, wrapped, Path(tmp) / "wrapped", ffmpeg="ffmpeg",
+                runner=runner, find_clips=lambda year: [], ai_call=None,
+                data={})
+            self.assertTrue(result["ok"])
+        texts = []
+        for command in runner.commands:
+            for part in command:
+                texts.extend(re.findall(r"drawtext=text='((?:[^'\\]|\\.)*)'", part))
+        self.assertTrue(texts)
+        self.assertTrue(all(len(text) <= 48 for text in texts), texts)
+        joined = " ".join(texts).replace("\\", "")
+        for word in ("123 prints", "nine hours", "without pausing"):
+            self.assertIn(word, joined)
+
 
 class RouteTests(unittest.TestCase):
     def start(self, tmp, extra="", environ=None):
@@ -323,6 +350,19 @@ class RouteTests(unittest.TestCase):
             self.assertEqual(code, 200)
             self.assertIn("wrapped_ai_video", raw)
             self.assertNotIn("Make my Wrapped video", raw)
+
+    def test_wrapped_page_discloses_the_ai_commentary_send(self):
+        """The video form must not promise nothing is sent anywhere: with
+        an AI route configured, the commentary lines go to that route."""
+        with tempfile.TemporaryDirectory() as tmp:
+            write_vault(tmp)
+            httpd = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n"
+                                    "  wrapped_ai_video: true\n")
+            port = httpd.server_address[1]
+            code, raw = self.request(port, "GET", "/wrapped?year=2025")
+            self.assertEqual(code, 200)
+            self.assertIn("configured AI route", raw)
+            self.assertNotIn("Nothing is sent anywhere", raw)
 
     def test_video_post_requires_form_token_and_ai_toggle(self):
         with tempfile.TemporaryDirectory() as tmp:

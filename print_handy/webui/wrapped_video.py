@@ -1,6 +1,9 @@
 """The Wrapped video compile (#956): stat cards + timelapse clips + script.
 
-On demand only, local only. Cards are generated with ffmpeg's lavfi
+On demand only. The compile itself is local; the one exception is the
+commentary enrichment, which sends the script lines (with their
+numbers) to the configured AI route when one is set — the Wrapped
+page discloses that next to the button. Cards are generated with ffmpeg's lavfi
 ``color`` source and ``drawtext``; timelapse clips whose file mtime
 falls in the Wrapped year are trimmed and appended when a clip finder
 discovers them. There is no reliable single timelapse store on disk —
@@ -25,12 +28,15 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
 
 MAX_CLIPS = 6
 CLIP_SECONDS = 4
 CARD_SECONDS = 3
+CARD_WRAP = 46  # chars per drawtext line: fits the 1280px frame at fontsize 40
+CARD_LINE_PX = 52
 
 
 def escape_drawtext(text):
@@ -121,6 +127,28 @@ def _run(runner, command):
         raise RuntimeError(f"ffmpeg exited {code}")
 
 
+def _card_lines(text):
+    """Wrap one card's text so every drawtext line fits inside the frame."""
+    lines = []
+    for chunk in str(text).split("\n"):
+        lines.extend(textwrap.wrap(chunk, width=CARD_WRAP) or [""])
+    return lines[:8]
+
+
+def _card_filter(text):
+    """A chain of drawtext filters, one per wrapped line, block-centered."""
+    lines = _card_lines(text)
+    middle = (len(lines) - 1) / 2
+    filters = []
+    for index, line in enumerate(lines):
+        offset = round((index - middle) * CARD_LINE_PX)
+        y = f"(h-text_h)/2{offset:+d}" if offset else "(h-text_h)/2"
+        filters.append(
+            f"drawtext=text='{escape_drawtext(line)}':"
+            f"fontcolor=white:fontsize=40:x=(w-text_w)/2:y={y}")
+    return ",".join(filters)
+
+
 def _card_texts(wrapped):
     headline = wrapped.get("headline") or {}
     texts = [f"Print Handy Wrapped {wrapped.get('year')}"]
@@ -185,9 +213,7 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
             segment = work / f"card-{index:02d}.mp4"
             _run(runner, [resolved, "-y", "-f", "lavfi", "-i",
                           f"color=c=0x12110F:s=1280x720:d={CARD_SECONDS}",
-                          "-vf", f"drawtext=text='{escape_drawtext(text)}':"
-                                 "fontcolor=white:fontsize=40:"
-                                 "x=(w-text_w)/2:y=(h-text_h)/2",
+                          "-vf", _card_filter(text),
                           "-c:v", "libx264", "-pix_fmt", "yuv420p", str(segment)])
             segments.append(segment)
         for index, clip in enumerate(clips):

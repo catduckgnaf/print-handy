@@ -237,9 +237,13 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
             f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'
             f'<input type="hidden" name="year" value="{year}">'
             '<button type="submit" data-busy="Compiling…">Make my Wrapped video</button>'
-            "<p>The video is compiled locally, on demand, from stat cards, this "
-            "commentary as on-screen text, and the year's timelapses where they "
-            "are found. Nothing is sent anywhere.</p></form>")
+            "<p>Compiling runs on this machine, on demand, from stat cards, "
+            "this commentary as on-screen text, and the year's timelapses "
+            "where they are found. The commentary lines above, with their "
+            "numbers, are first sent to the configured AI route to be "
+            "rewritten; if no route is configured, the local lines above "
+            "are used as-is and nothing leaves this machine. There is no "
+            "spoken narration.</p></form>")
     else:
         parts.append("<h2>Wrapped video</h2><p>The video step is off: set "
                      "[timelapse] wrapped_ai_video = true to turn on the AI "
