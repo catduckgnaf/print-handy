@@ -416,7 +416,7 @@ class UnraidTemplateTests(unittest.TestCase):
 
     def setUp(self):
         self.service = COMPOSE["services"]["combined"]
-        params = shlex.split(UNRAID.findtext("ExtraParams"))
+        params = shlex.split(UNRAID.findtext("ExtraParams") or "")
         self.params = params
         self.flags = {flag: params[i + 1] for i, flag in enumerate(params[:-1]) if flag.startswith("--")}
 
@@ -432,8 +432,11 @@ class UnraidTemplateTests(unittest.TestCase):
         self.assertEqual(UNRAID.findtext("Name"), "print-handy")
         self.assertFalse(UNRAID.findtext("PostArgs"))
         self.assertNotIn("command", self.service)
-        health = self.flags["--health-cmd"]
-        self.assertEqual(["CMD", *shlex.split(health)], self.service["healthcheck"]["test"])
+        # The template ships no ExtraParams: the healthcheck is the Compose
+        # service's own, not a template --health-cmd flag.
+        self.assertEqual(self.params, [])
+        self.assertEqual(self.service["healthcheck"]["test"],
+                         ["CMD", "python3", "/usr/local/bin/print-handy-healthcheck"])
         publish = (ROOT / ".github" / "workflows" / "docker-publish.yml").read_text()
         image = re.search(r"(?m)^      IMAGE: (ghcr\.io/[^\s]+)$", publish)
         if image is None:
@@ -465,24 +468,30 @@ class UnraidTemplateTests(unittest.TestCase):
         self.assertEqual(ports["8000"].text, "7912")
         self.assertEqual(UNRAID.findtext("WebUI"), "http://[IP]:[PORT:8088]/")
 
-    def test_hardening_and_limits_match_compose(self):
-        value, service = self.flags, self.service
-        logs = [self.params[i + 1] for i, flag in enumerate(self.params[:-1]) if flag == "--log-opt"]
-        self.assertEqual(value["--user"], service["user"])
-        self.assertEqual(value["--cap-drop"], "ALL")
-        self.assertIn(value["--security-opt"], service["security_opt"])
+    def test_hardening_and_limits_live_in_compose_not_the_template(self):
+        service = self.service
+        # The template adds no docker-run flags at all: ExtraParams ships
+        # empty, so nothing in it can drift from the runtime contract.
+        self.assertEqual(self.params, [])
+        self.assertEqual(self.flags, {})
+        # The hardening the flags used to duplicate stays in Compose, where
+        # it is expressed as service keys instead of CLI flags.
+        self.assertEqual(service["user"], "1000:1000")
+        self.assertEqual(service["cap_drop"], ["ALL"])
+        self.assertEqual(service["security_opt"], ["no-new-privileges:true"])
+        self.assertEqual(service["shm_size"], "256m")
+        self.assertEqual(service["restart"], "unless-stopped")
+        self.assertEqual(service["logging"]["driver"], "json-file")
+        self.assertEqual(service["logging"]["options"], {"max-size": "10m", "max-file": "3"})
+        for key, expected in (("interval", "30s"), ("timeout", "10s"),
+                              ("start_period", "90s"), ("retries", 3)):
+            with self.subTest(healthcheck=key):
+                self.assertEqual(service["healthcheck"][key], expected)
         # No resource limits ship: a pids/memory/cpus limit starved OrcaSlicer on a large host.
         for flag in ("--pids-limit", "--memory", "--cpus"):
-            self.assertNotIn(flag, value)
+            self.assertNotIn(flag, self.flags)
         for key in ("pids_limit", "mem_limit", "cpus", "deploy"):
             self.assertNotIn(key, service)
-        self.assertEqual(value["--shm-size"], service["shm_size"])
-        self.assertEqual(value["--restart"], service["restart"])
-        self.assertEqual(sorted(logs), sorted(f"{k}={v}" for k, v in service["logging"]["options"].items()))
-        for flag, key in (("--health-interval", "interval"), ("--health-timeout", "timeout"),
-                          ("--health-start-period", "start_period"), ("--health-retries", "retries")):
-            with self.subTest(flag=flag):
-                self.assertEqual(str(value[flag]), str(service["healthcheck"][key]))
 
     def test_paths_and_variables_match_the_runtime(self):
         compose_env = self.service["environment"]

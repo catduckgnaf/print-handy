@@ -117,10 +117,10 @@ log "Unraid template: its ExtraParams as docker run sees them"
 template="$repo/docker/unraid/print-handy.xml"
 mapfile -t extra < <(python3 -c "
 import shlex, sys, xml.etree.ElementTree as ET
-params = shlex.split(ET.parse(sys.argv[1]).getroot().findtext('ExtraParams'))
-i = params.index('--restart'); del params[i:i + 2]   # --rm below replaces DockerMan's restart policy
+params = shlex.split(ET.parse(sys.argv[1]).getroot().findtext('ExtraParams') or '')
 print('\n'.join(params))" "$template")
-# Every supervised module must import under exactly these runtime flags.
+# The template ships no ExtraParams, so this runs with no extra flags:
+# every supervised module must import under the image's own defaults.
 if output=$(timeout 300 docker run --name "$project-unraid" "${probe_args[@]}" "${extra[@]}" "$image" \
         python3 -c 'import importlib; [importlib.import_module(m) for m in ("print_handy.bot", "print_handy.hermes.moonraker_event_listener")]; print("imported bot and listener")' 2>&1); then
     record unraid:params ok "docker run accepted ${#extra[@]} template arguments; $(tail -n 1 <<< "$output")"
