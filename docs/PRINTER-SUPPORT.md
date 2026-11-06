@@ -11,13 +11,13 @@ The code has no single "support level" field. A printer model either exists or i
 | Level | What it is | Where it lives |
 |---|---|---|
 | **Generic adapter** | A placeholder model for any printer that speaks the same protocol. It has one nominal bed (`klipper.generic`: 220 x 220 mm, 250 mm high, 0.4 mm nozzle) and no facts about your machine. You override the numbers. | `print_handy/printers/klipper/generic.py`, `print_handy/printers/octoprint/marlin.py` |
-| **Built-in model (offline-tested)** | A model module with its own bed, height, nozzle limits and slicer templates, usually with a vendor G-code guard and sourced facts, all pinned by automated tests that use fake printers and fake transports. | `print_handy/printers/<vendor>/<model>.py`, listed in `printers/registry/<vendor>.toml` |
+| **Built-in model (offline-tested)** | A model module with its own bed, height, nozzle limits and slicer templates, usually with a vendor G-code guard and sourced facts, all pinned by automated tests that use fake printers and fake transports. | `print_handy/printers/<vendor>/<model>.py`, listed in `print_handy/data/printers-registry/<vendor>.toml` |
 | **Verified on hardware** | A person ran the checklist below on the real printer and reported the result. | Stated only in prose in the docs. No field in the code records it. |
 
 Where this comes from:
 
 - A model is a `PrinterModel` with a `vendor`, an `adapter`, a template folder, nozzle limits and default settings (`print_handy/printers/base.py`). Any module in a vendor package that defines `MODEL` is registered automatically (`print_handy/printers/__init__.py`).
-- `printers/registry/<vendor>.toml` (one file per vendor) is the data index of every registered model. `tests/test_knowledge.py::test_printer_registry_matches_code_profiles` fails if an entry drifts from its model.
+- `print_handy/data/printers-registry/<vendor>.toml` (one file per vendor) is the data index of every registered model. `tests/test_knowledge.py::test_printer_registry_matches_code_profiles` fails if an entry drifts from its model.
 - The word `verified` in code is narrower than it sounds. Each sourced value in a vendor's `facts.py` is a `Fact(value, source, verified)` (for example class `Fact` in `print_handy/printers/qidi/facts.py`). `verified=True` means the value was read straight from its source, such as OrcaSlicer's printable area. It does not mean a printer was involved. The temperature ceilings, for instance, are recorded as unverified manufacturer figures.
 - `verified_slicers` on an adapter (`PrinterAdapter` in `base.py`) lists the slicers whose output that printer's G-code guard has been checked against. That is also about files, not hardware.
 - The docs state the hardware position in prose, per family and per model, in the vendor guides (see [Qidi](QIDI.md), [Snapmaker](SNAPMAKER.md), [ZMod](ZMOD.md), [Bambu Lab](BAMBU-LAB.md)).
@@ -67,7 +67,7 @@ What a vendor package like Qidi contains:
 
 The rest of the checklist for a new model:
 
-1. **Registry entry.** Add a `[[printer]]` block to `printers/registry/<vendor>.toml` for the model's vendor (schema in `printers/README.md`) in the same change. Key, label, firmware, connection, bed, height and slot count must match the code.
+1. **Registry entry.** Add a `[[printer]]` block to `print_handy/data/printers-registry/<vendor>.toml` for the model's vendor (schema in `print_handy/data/printers-registry/README.md`) in the same change. Key, label, firmware, connection, bed, height and slot count must match the code.
 2. **Slicer templates.** Either ship your own generic templates in `print_handy/templates/orca/<folder>/` (`machine.json`, `process.json`, `filament.json`), or, for vendors whose slicer profiles cannot be redistributed, follow the Qidi pattern: a `scripts/<vendor>-templates.py` generator that reads the user's OrcaSlicer install and checks it against a recorded identity (see `scripts/qidi-templates.py`; Bambu Lab, Creality, Elegoo and Prusa have siblings). Do not copy slicer vendor profile text into the repository.
 3. **Source every number.** Take bed size and height from the slicer profile's printable area and height, not from marketing pages, and record the source in `facts.py`. Mark a value unverified if it came from a spec sheet.
 4. **Tests.** Use the vendor's existing test file as the template (`tests/printers/test_qidi.py` with `tests/printers/qidi_fixture.py`). They run offline against invented slicer resources. Golden Orca input files in `tests/printers/golden/` pin the slicer inputs, and `tests/printers/test_vendor_profiles.py` pins model defaults.

@@ -1,4 +1,4 @@
-"""Offline tests for the root registries, lookup engine and troubleshooting flows (issue #169).
+"""Offline tests for the package registries, lookup engine and troubleshooting flows (issue #169).
 
 No printer, network or Discord is involved: the lookup and flow code is read-only
 by construction, and the dispatch tests use a fake adapter that records sends.
@@ -40,7 +40,7 @@ def test_registries_load_and_validate(registry):
 
 
 def test_printer_registry_matches_code_profiles(registry):
-    """The root printer registry must not drift from print_handy/printers."""
+    """The package printer registry must not drift from print_handy/printers."""
     assert {p.key for p in registry.printers} == set(printers.MODELS)
     for entry in registry.printers:
         model = printers.MODELS[entry.key]
@@ -67,9 +67,8 @@ def test_printer_registry_matches_code_profiles(registry):
 
 
 def test_broken_registry_is_rejected(tmp_path):
-    for name in ("knowledge", "firmware", "printers"):
-        shutil.copytree(ROOT / name, tmp_path / name)
-    flows = tmp_path / "knowledge" / "troubleshooting.toml"
+    _copy_registry_tree(tmp_path)
+    flows = tmp_path / "knowledge" / "data" / "troubleshooting.toml"
     flows.write_text(flows.read_text().replace('next = "look"', 'next = "no-such-node"', 1))
     with pytest.raises(RegistryError, match="unknown node"):
         knowledge.load_registry(tmp_path)
@@ -83,8 +82,12 @@ def test_missing_registry_is_rejected(tmp_path):
 # ------------------------------------------------- firmware split (issue #644)
 
 def _copy_registry_tree(tmp_path):
-    for name in ("knowledge", "firmware", "printers"):
-        shutil.copytree(ROOT / name, tmp_path / name)
+    # Copy the registry data tree in its package layout (root cleanup PR-3):
+    # load_registry(root) resolves knowledge/data/, data/firmware-commands/
+    # and data/printers-registry/ under root, so a tmp root needs the
+    # package's knowledge/ and data/ directories, nothing else.
+    shutil.copytree(ROOT / "print_handy" / "knowledge", tmp_path / "knowledge")
+    shutil.copytree(ROOT / "print_handy" / "data", tmp_path / "data")
     return tmp_path
 
 
@@ -145,7 +148,7 @@ def test_split_registry_matches_pre_split_entries(registry):
 
 def test_duplicate_entry_id_across_files_rejected(tmp_path):
     root = _copy_registry_tree(tmp_path)
-    commands = root / "firmware" / "commands"
+    commands = root / "data" / "firmware-commands"
     block = _entry_block(commands / "klipper.toml", "klipper.print-start")
     marlin = commands / "marlin.toml"
     marlin.write_text(marlin.read_text() + "\n" + block)
@@ -155,7 +158,7 @@ def test_duplicate_entry_id_across_files_rejected(tmp_path):
 
 def test_entry_in_wrong_firmware_file_rejected(tmp_path):
     root = _copy_registry_tree(tmp_path)
-    commands = root / "firmware" / "commands"
+    commands = root / "data" / "firmware-commands"
     klipper = commands / "klipper.toml"
     block = _entry_block(klipper, "klipper.print-start")
     klipper.write_text(klipper.read_text().replace(block, ""))
@@ -182,7 +185,7 @@ safety = "Fixture only; it describes nothing real and is never sent anywhere."
 
 def test_pack_round_trips_through_loader_and_lookup(tmp_path):
     root = _copy_registry_tree(tmp_path)
-    klipper = root / "firmware" / "commands" / "klipper.toml"
+    klipper = root / "data" / "firmware-commands" / "klipper.toml"
     klipper.write_text(klipper.read_text() + FIXTURE_PACK_ENTRY)
     reg = knowledge.load_registry(root)
     entry = next(e for e in reg.firmware_entries if e.id == "klipper.fixture-pack-probe")
@@ -201,16 +204,15 @@ def test_pack_round_trips_through_loader_and_lookup(tmp_path):
 
 def test_pack_must_be_a_slug(tmp_path):
     root = _copy_registry_tree(tmp_path)
-    klipper = root / "firmware" / "commands" / "klipper.toml"
+    klipper = root / "data" / "firmware-commands" / "klipper.toml"
     klipper.write_text(klipper.read_text()
                        + FIXTURE_PACK_ENTRY.replace('pack = "fixture-pack"', 'pack = "Fixture Pack!"'))
     with pytest.raises(RegistryError, match="pack must be a lowercase slug"):
         knowledge.load_registry(root)
 
 def _copy_registries(tmp_path):
-    for name in ("knowledge", "firmware", "printers"):
-        shutil.copytree(ROOT / name, tmp_path / name)
-    return tmp_path / "printers" / "registry"
+    _copy_registry_tree(tmp_path)
+    return tmp_path / "data" / "printers-registry"
 
 
 def test_printer_registry_duplicate_key_across_files_is_rejected(tmp_path):

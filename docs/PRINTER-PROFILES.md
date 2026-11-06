@@ -151,7 +151,7 @@ per filament slot. The Prusa XL's Stage 1 posture ended with #670: it is
 ## Thermal capabilities
 
 Every registered model carries a structured thermal record in its
-`[printer.thermal]` table in `printers/registry/<vendor>.toml` (issue #720),
+`[printer.thermal]` table in `print_handy/data/printers-registry/<vendor>.toml` (issue #720),
 loaded as `PrinterEntry.thermal` by `print_handy/knowledge/registry.py` and
 surfaced by `print_handy/knowledge/thermal.py`:
 
