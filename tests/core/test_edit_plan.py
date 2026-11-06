@@ -168,6 +168,89 @@ def test_scale_to_mm_records_the_expected_dimensions():
     assert not ok and any("bounds" in line for line in lines)
 
 
+def _inch_job():
+    # A small STL confirmed as inches (#916): the 25.4 conversion lives in
+    # unit_provenance / unit_decision / auto_scale, not in job["scale"].
+    job = _job()
+    job["scale"] = None
+    job["audit"] = {"size_x": 2, "size_y": 1, "size_z": 1, "parts": 1}
+    job["selected_source"] = {"name": "small.stl"}
+    job["unit_decision"] = {"units": "inch", "source_sha256": "a" * 64,
+                             "original_mm": [2, 1, 1]}
+    job["unit_provenance"] = {"units": "inch", "source": "user_confirmation",
+                              "original_mm": [2, 1, 1], "factor": 25.4}
+    return job
+
+
+def test_relative_scale_edit_folds_in_the_confirmed_inch_conversion():
+    # Regression (#916): 80% of a 2 inch side is 40.64 mm, not 1.6 mm.
+    job = _inch_job()
+    plan = ep.enrich_plan({"kind": "scale_percent", "percent": 80}, job)
+    assert plan["result_dims"] == [40.64, 20.32, 20.32]
+    ep.apply_plan(job, plan)
+    # The folded scale is explicit, so the next slice keeps the inch size
+    # at 80% instead of the explicit scale overriding the unit decision.
+    assert job["scale"] == 20.32
+    # A second relative edit composes against the folded scale and must
+    # not apply the 25.4 conversion again.
+    plan = ep.enrich_plan({"kind": "scale_percent", "percent": 50}, job)
+    assert plan["result_dims"] == [20.32, 10.16, 10.16]
+    ep.apply_plan(job, plan)
+    assert job["scale"] == 10.16
+
+
+def test_scale_to_mm_measures_against_the_inch_converted_size():
+    job = _inch_job()
+    plan = ep.enrich_plan({"kind": "scale_to_mm", "mm": 40.64, "axis": "x"}, job)
+    assert plan["percent"] == pytest.approx(80.0)
+    assert plan["result_dims"] == [40.64, 20.32, 20.32]
+    ep.apply_plan(job, plan)
+    assert job["scale"] == pytest.approx(20.32)
+
+
+def test_scale_edit_after_an_inch_slice_uses_the_recorded_auto_scale():
+    job = _inch_job()
+    job.pop("unit_decision")
+    job.pop("unit_provenance")
+    job["auto_scale"] = {"factor": 25.4, "reason": "inch units",
+                         "original_mm": [2, 1, 1], "final_mm": [50.8, 25.4, 25.4]}
+    plan = ep.enrich_plan({"kind": "scale_percent", "percent": 80}, job)
+    assert plan["result_dims"] == [40.64, 20.32, 20.32]
+    ep.apply_plan(job, plan)
+    assert job["scale"] == 20.32
+
+
+def test_mm_confirmed_job_scale_edit_has_no_conversion_to_fold():
+    job = _inch_job()
+    job["unit_decision"] = {"units": "mm", "source_sha256": "a" * 64,
+                            "original_mm": [2, 1, 1]}
+    job["unit_provenance"] = {"units": "mm", "source": "user_confirmation",
+                              "original_mm": [2, 1, 1], "factor": 1.0}
+    plan = ep.enrich_plan({"kind": "scale_percent", "percent": 80}, job)
+    assert plan["result_dims"] == [1.6, 0.8, 0.8]
+    ep.apply_plan(job, plan)
+    assert job["scale"] == 0.8
+
+
+def test_rotate_result_dims_use_the_inch_converted_size():
+    job = _inch_job()
+    plan = ep.enrich_plan({"kind": "rotate", "axis": "z", "degrees": 90}, job)
+    assert plan["envelope_dims"] == [1.0, 2.0, 1.0]  # unscaled envelope
+    assert plan["result_dims"] == [25.4, 50.8, 25.4]  # printed, inches folded in
+
+
+def test_undo_of_a_folded_scale_edit_restores_the_unit_records():
+    job = _inch_job()
+    record = ep.record_edit(job, {"kind": "scale_percent", "percent": 80},
+                            actor="discord:42", lane="fuzzy", source_sha256="a" * 64)
+    plan = ep.enrich_plan(record["plan"], job)
+    ep.apply_plan(job, plan)
+    assert job["scale"] == 20.32
+    ep.undo_last_edit(job, actor="discord:42")
+    assert job.get("scale") is None
+    assert job["unit_provenance"]["units"] == "inch"
+
+
 def test_lay_flat_matrix_puts_the_largest_face_down():
     # A 40x20x10 box standing on its 20x10 end: the largest face (40x20)
     # must end facing the plate, leaving a 40x20 footprint 10 high.
