@@ -33,7 +33,7 @@ def test_makerworld_token_failure_names_the_cause(env, monkeypatch):
     assert hits, posts
     post = hits[0]
     assert "PROJECT-REFERENCE" in post
-    assert "Reference: PH_INTAKE_CONFIGURATION" in post
+    assert "Reference: [PH_INTAKE_CONFIGURATION](" in post
     assert "UNKNOWN" not in post
     assert "Send the link" not in post
     assert "/data/.config" not in post  # raw exception text stays out of chat
@@ -44,7 +44,7 @@ def test_unknown_failure_keeps_bundle_hint_without_resend_advice(env, monkeypatc
     hits = [m for m in posts if "Preparing that model stopped" in m]
     assert hits, posts
     post = hits[0]
-    assert "Reference: PH_INTAKE_UNKNOWN" in post
+    assert "Reference: [PH_INTAKE_UNKNOWN](" in post
     assert "/print-handy bundle" in post
     assert "Send the link" not in post
 
@@ -54,7 +54,7 @@ def test_transient_failure_may_suggest_resending(env, monkeypatch):
     hits = [m for m in posts if "Preparing that model stopped" in m]
     assert hits, posts
     post = hits[0]
-    assert "Reference: PH_INTAKE_TRANSIENT" in post
+    assert "Reference: [PH_INTAKE_TRANSIENT](" in post
     assert "Send the link or file again" in post
 
 
@@ -66,7 +66,7 @@ def test_unreadable_model_failure_names_stage_cause_and_recovery(env, monkeypatc
     post = hits[0]
     assert "Re-export the model" in post and "Nothing was sliced, uploaded or started." in post
     assert "stopped before it was ready" not in post
-    assert "Reference: PH_INTAKE_CONFIGURATION" in post
+    assert "Reference: [PH_PARSE_MODEL_UNREADABLE](https://catduckgnaf.github.io/print-handy-docs/diagnostics#ph-parse-model-unreadable)" in post
     assert "/data/secret" not in post
     receipt = json.loads(next(env.root.glob("*.json")).read_text())
     assert receipt["failure"]["stage"] == "parse" and receipt["failure"]["submitted"] == "nothing"

@@ -38,7 +38,7 @@ def test_plain_post_shape_plain_first_line_marker_last():
     lines = post.splitlines()
     assert lines[0] == "Slicing this model did not work."
     assert "Nothing was uploaded or started." in post and "Try again." in post
-    assert lines[-1].startswith("Reference: PH_SLICING_")
+    assert lines[-1].startswith("Reference: [PH_SLICING_")
     assert "secret raw detail" not in post and "RuntimeError" not in post
 
 

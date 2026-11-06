@@ -107,13 +107,19 @@ def run_bot(cfg):
         try:
             PrintHandyBot(cfg).run(token, log_handler=None)
         except discord.LoginFailure as exc:
+            from .. import diagnostics
             print(f"Discord refused the bot token: {exc}. Check that the token in the environment "
                   "variable named by discord.token_env is the current bot token. "
-                  "Reference: PH_DISCORD_CONFIGURATION", file=sys.stderr)
+                  # #924: stderr is a plain-text surface, so the tail is the
+                  # bare code plus its docs URL, not Markdown link syntax.
+                  f"{diagnostics.plain_reference_tail('PH_DISCORD_CONFIGURATION')}",
+                  file=sys.stderr)
             return 3
         except discord.PrivilegedIntentsRequired:
+            from .. import diagnostics
             print("Turn on the Message Content intent for this bot in the Discord developer portal "
-                  "(Bot > Privileged Gateway Intents). Reference: PH_DISCORD_CONFIGURATION",
+                  "(Bot > Privileged Gateway Intents). "
+                  f"{diagnostics.plain_reference_tail('PH_DISCORD_CONFIGURATION')}",
                   file=sys.stderr)
             return 3
         except Exception as exc:

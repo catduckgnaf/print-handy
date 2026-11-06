@@ -47,7 +47,7 @@ class OperatorMessageTests(unittest.TestCase):
         self.assertIn("Spool tracking was skipped", text)
         self.assertIn("Likely cause:", text)
         self.assertIn("What to do:", text)
-        self.assertIn("Reference: PH_SPOOLMAN_TRANSIENT", text)
+        self.assertIn("Reference: [PH_SPOOLMAN_TRANSIENT](https://catduckgnaf.github.io/print-handy-docs/diagnostics#ph-spoolman-transient)", text)
 
     def test_no_bare_exception_text_and_secrets_are_redacted(self):
         secret = "hunter2-secret-value"
