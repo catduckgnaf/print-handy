@@ -402,6 +402,15 @@ Only STL and 3MF files are supported.
 
 ### Signature codes: intake
 
+#### PH_INTAKE_GCODE_3MF_PACKAGE {#ph-intake-gcode-3mf-package}
+
+**What failed:** that file is an already-sliced G-code package
+(`.gcode.3mf`), not an unsliced 3MF mesh. Its build inventory is empty
+because the model was already sliced, not because the file is corrupt.
+**What to do:** send the original unsliced `.3mf` or `.stl` model
+instead, so it can be sliced for this printer. Nothing was sliced or
+started.
+
 #### PH_INTAKE_UNCLEAR_UNITS {#ph-intake-unclear-units}
 
 **What failed:** the model's measurement units are missing or

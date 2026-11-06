@@ -19,6 +19,16 @@ Structured findings (``analyze(source)['findings']``):
   ``min_coverage`` of it, or intersects a printed part.
 - ``BELOW_BED_GEOMETRY``: a part extends below Z 0; the volume that would be
   cut is stated.
+- ``SINGLE_MESH_CANTILEVER`` (warning only, #922): one mesh whose downward
+  overhang dwarfs its bed contact — baked-in pillars are part of the mesh,
+  not a modeled support object.
+
+Regions also include ``supportable_overhang`` entries (clearance at least
+``gap_mm``, area at least ``area_mm2`` or span at least ``span_mm``): not
+risky at pre-check, but the required targets for post-slice
+``;TYPE:Support`` coverage verification (``verify_support_coverage``), and
+``sloped_wedge_root`` entries: narrow sloped strips rooting into a
+zero-clearance anchor edge, excluded from the clearance finding.
 
 Each region also carries fix estimates (extend the underside down, sink the
 part, reorient, print anyway). These are screening thresholds, not a promise
@@ -41,6 +51,16 @@ VERSION = 1
 CODE_CLEARANCE = 'INSUFFICIENT_SUPPORT_CLEARANCE'
 CODE_MODELED = 'INEFFECTIVE_MODELED_SUPPORT'
 CODE_BELOW_BED = 'BELOW_BED_GEOMETRY'
+CODE_CANTILEVER = 'SINGLE_MESH_CANTILEVER'
+# A sloped face whose downward normal sits within this angle of vertical is
+# in the self-supporting band for the wedge-root exclusion (#922 gap 1):
+# cos(55 degrees) ~= 0.574. A near-horizontal face (|nz| above 0.95) is not
+# a sloped wedge face even though its normal is also near vertical.
+WEDGE_COS_MIN = 0.574
+WEDGE_COS_MAX = 0.95
+WEDGE_WIDTH_MM = 2.0     # a low-clearance strip narrower than this can be a wedge root
+CANTILEVER_RATIO = 5.0   # single-mesh overhang / bed-contact ratio that names a cantilever risk
+CANTILEVER_MIN_OVERHANG_MM2 = 500.0
 
 GAP_MM = 1.0             # an underside closer than this to what is below cannot take support
 AREA_MM2 = 500.0         # connected low-clearance area that triggers the finding
@@ -95,6 +115,19 @@ def leaves(source):
     """
     from print_handy.core import source_colors
     out = []
+    if str(source).lower().endswith('.stl'):
+        # A single-part STL is one unnamed mesh (#922 gaps 3 and 8): it gets
+        # the same leaf shape a one-object 3MF without pid/pindex gets, so
+        # every downstream check treats the two identically.
+        from print_handy.core import orca_adapter
+        tris = orca_adapter.read_stl_triangles(source)
+        tris = np.asarray(tris, dtype=float).reshape(-1, 3, 3)
+        if len(tris):
+            name = Path(source).stem or 'STL'
+            out.append({'item': 0, 'object': name, 'name': name, 'object_id': '1',
+                        'leaf_id': '1', 'support': bool(SUPPORT_NAME.search(name)),
+                        'material': [None, None], 'tris': tris})
+        return out
     with zipfile.ZipFile(source) as archive:
         try:
             cutters = source_colors.cutter_ids(archive)
@@ -284,8 +317,36 @@ def _sha256(path):
 
 def analyze(source, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_mm=SPAN_MM, min_coverage=MIN_COVERAGE):
     """The structured support clearance report for a 3MF (see the module docstring)."""
-    parts = leaves(source)
-    report = {'version': VERSION, 'source_sha256': _sha256(source),
+    return _analyze_parts(leaves(source), _sha256(source), gap_mm=gap_mm, area_mm2=area_mm2,
+                          span_mm=span_mm, min_coverage=min_coverage)
+
+
+def rotated_report(source, matrix):
+    """The clearance report for ``source`` after a rotation (#922 gap 7).
+
+    ``matrix`` is the 9-value row-major rotation edit_plan records in the
+    job's orientation. The rotated geometry is shifted so its lowest point
+    sits on the plate, which is how the slicer will place it; the report is
+    marked ``orientation_applied`` so callers know it describes the rotated
+    pose, not the file as authored.
+    """
+    parts = []
+    rot = np.asarray(matrix, dtype=float).reshape(3, 3)
+    for p in leaves(source):
+        tris = np.asarray(p['tris'], dtype=float) @ rot.T
+        parts.append({**p, 'tris': tris})
+    if parts:
+        low = min(float(p['tris'][:, :, 2].min()) for p in parts)
+        for p in parts:
+            p['tris'][:, :, 2] -= low
+    report = _analyze_parts(parts, _sha256(source))
+    report['orientation_applied'] = True
+    return report
+
+
+def _analyze_parts(parts, source_sha256, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_mm=SPAN_MM,
+                   min_coverage=MIN_COVERAGE):
+    report = {'version': VERSION, 'source_sha256': source_sha256,
               'thresholds': {'gap_mm': gap_mm, 'area_mm2': area_mm2, 'span_mm': span_mm,
                              'contact_mm': CONTACT_MM, 'min_coverage': min_coverage},
               'objects': [{'object': p['object'], 'name': p['name'], 'support': p['support'],
@@ -338,6 +399,10 @@ def analyze(source, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_mm=SPAN_MM, min_cover
     floor = part_ev.top_below(cel[di], zz[di] + 1e-3)
     over_part = ~np.isnan(floor) & (floor > 0.01)
     clear = zz[di] - np.where(over_part, floor, 0.0)
+    # Zero-clearance anchor cells (#922 gap 1): underside rays that already
+    # touch what is below them. A narrow sloped strip whose edge touches one
+    # of these cells roots into the part below instead of floating over it.
+    anchor_cells = {int(c) for c in cel[di[clear <= CONTACT_MM]]}
     keep = clear > CONTACT_MM
     di, clear, over_part = di[keep], clear[keep], over_part[keep]
 
@@ -370,11 +435,12 @@ def analyze(source, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_mm=SPAN_MM, min_cover
                                  'max': round(float(cl.max()), 3)},
                 'over': 'part' if op.mean() > 0.5 else 'plate',
                 'sloped': bool(zv.max() - zv.min() > 0.2),
+                'slope_nz': round(float(np.median(np.abs(nzs[idx]))), 4),
                 'span_mm': round(length, 1), 'width_mm': round(width, 1),
                 'bbox_mm': [[round(float(cx.min()), 2), round(float(cy.min()), 2)],
                             [round(float(cx.max()), 2), round(float(cy.max()), 2)]],
                 'gap_fill_mm3': round(float(cl.sum()) * area_cell, 1),
-                '_idx': idx}
+                '_idx': idx, '_cells': cells}
 
     # INSUFFICIENT_SUPPORT_CLEARANCE: connected low-clearance surfaces.
     low = clear < gap_mm
@@ -383,6 +449,18 @@ def analyze(source, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_mm=SPAN_MM, min_cover
     for lab in range(int(labels.max()) + 1 if len(labels) else 0):
         r = region(low, labels, lab)
         r.pop('_idx')
+        cells = r.pop('_cells')
+        # Wedge-root exclusion (#922 gap 1): a sloped face in the
+        # self-supporting band (downward normal <= 55 degrees from vertical,
+        # but not near-horizontal), whose sub-gap strip is narrower than
+        # 2.0 mm and touches a zero-clearance anchor cell at its root, is a
+        # wall rooting into the shelf below it -- not a floating underside.
+        anchored = any((int(c) + d) in anchor_cells for c in cells for d in (-1, 1, -w, w))
+        if (r['sloped'] and r['width_mm'] < WEDGE_WIDTH_MM
+                and WEDGE_COS_MIN <= r['slope_nz'] <= WEDGE_COS_MAX and anchored):
+            r['kind'] = 'sloped_wedge_root'
+            report['regions'].append(r)
+            continue
         trigger = 'area' if r['area_mm2'] >= area_mm2 else 'span' if r['span_mm'] >= span_mm else None
         r['kind'] = 'low_clearance'
         report['regions'].append(r)
@@ -397,6 +475,41 @@ def analyze(source, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_mm=SPAN_MM, min_cover
         report['findings'].append({'code': CODE_CLEARANCE, 'severity': 'risk', 'trigger': trigger,
                                    **{k: v for k, v in r.items() if k != 'kind'}, 'fixes': fixes})
 
+    # SUPPORTABLE_OVERHANG (#922 gap 4): connected downward overhangs with
+    # room for supports (clearance >= gap_mm). Not risky at pre-check, but
+    # they are the required target regions for post-slice ;TYPE:Support
+    # coverage verification when the job is sliced with supports.
+    ample = clear >= gap_mm
+    if ample.any():
+        alabels = _components(leaf[di[ample]], cel[di[ample]], zz[di[ample]], w)
+        for lab in range(int(alabels.max()) + 1 if len(alabels) else 0):
+            r = region(ample, alabels, lab)
+            r.pop('_idx')
+            r.pop('_cells')
+            if r['area_mm2'] >= area_mm2 or r['span_mm'] >= span_mm:
+                r['kind'] = 'supportable_overhang'
+                report['regions'].append(r)
+
+    # SINGLE-MESH CANTILEVER (#922 gap 3): one unnamed mesh can bake its
+    # support pillars into the part itself, so no named support object ever
+    # appears. A large downward overhang held up by a much smaller bed
+    # contact is named as a warning (never a low-clearance risk), so the
+    # operator's no-supports choice can be recorded as an explicit override.
+    if len(parts) == 1 and not parts[0]['support']:
+        contact = {int(c) for c in cel[(leaf == 0) & (sign > 0) & (zz <= CONTACT_MM)]}
+        bed_contact = round(len(contact) * area_cell, 1)
+        overhang_area = round(len(np.unique(cel[di])) * area_cell, 1) if len(di) else 0.0
+        ratio = round(overhang_area / bed_contact, 2) if bed_contact > 0 else None
+        high = bool(bed_contact > 0 and overhang_area >= CANTILEVER_MIN_OVERHANG_MM2
+                    and ratio is not None and ratio >= CANTILEVER_RATIO)
+        report['single_mesh'] = {'bed_contact_mm2': bed_contact, 'overhang_mm2': overhang_area,
+                                 'ratio': ratio, 'high_overhang_ratio': high}
+        if high:
+            report['findings'].append({'code': CODE_CANTILEVER, 'severity': 'warning',
+                                       'object': parts[0]['object'], 'part': parts[0]['name'],
+                                       'overhang_mm2': overhang_area, 'bed_contact_mm2': bed_contact,
+                                       'ratio': ratio})
+
     # INEFFECTIVE_MODELED_SUPPORT: overhangs with modeled supports under them.
     if is_sup.any():
         allsel = np.ones(len(di), bool)
@@ -404,6 +517,7 @@ def analyze(source, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_mm=SPAN_MM, min_cover
         for lab in range(int(olabels.max()) + 1 if len(olabels) else 0):
             r = region(allsel, olabels, lab)
             idx = r.pop('_idx')
+            r.pop('_cells')
             if r['area_mm2'] < MIN_OVERHANG_MM2:
                 continue
             top = sup_ev.top_below(cel[idx], zz[idx] + 1e-3)
@@ -457,6 +571,250 @@ def codes(report):
     return sorted({f['code'] for f in (report or {}).get('findings') or []})
 
 
+_MOVE_RE = re.compile(r'^\s*G0?1(?=\s|$)([^;]*)', re.I)
+_WORD_RE = re.compile(r'([XYZE])\s*(-?\d+(?:\.\d+)?|-?\.\d+)', re.I)
+_OBJ_START = re.compile(r'EXCLUDE_OBJECT_START|;\s*printing object', re.I)
+_OBJ_END = re.compile(r'EXCLUDE_OBJECT_END|;\s*stop printing object', re.I)
+
+
+def gcode_model_bounds(gcode_text):
+    """XY bounds of the printed model (non-support extrusion), or None.
+
+    When the file carries object markers, only extrusion inside an object
+    block counts, so brims, purge lines and support do not move the bounds.
+    Used to map source-coordinate coverage targets into the sliced
+    coordinate system: slicing may center, scale or rearrange the model,
+    which a whole-model translation + scale derived from these bounds
+    captures.
+    """
+    has_objects = bool(_OBJ_START.search(gcode_text))
+    in_object = not has_objects
+    current_type = ''
+    pos = {'X': None, 'Y': None}
+    lo = [None, None]
+    hi = [None, None]
+    for raw in gcode_text.splitlines():
+        line = raw.strip()
+        if line.startswith(';TYPE:'):
+            current_type = line.split(':', 1)[1].strip().casefold()
+            continue
+        if has_objects:
+            if _OBJ_START.search(line):
+                in_object = True
+                continue
+            if _OBJ_END.search(line):
+                in_object = False
+                continue
+        move = _MOVE_RE.match(line)
+        if not move:
+            continue
+        extrudes = False
+        for axis, number in _WORD_RE.findall(move.group(1)):
+            axis = axis.upper()
+            if axis == 'E':
+                extrudes = True
+            elif axis in pos:
+                pos[axis] = float(number)
+        if (extrudes and in_object and 'support' not in current_type
+                and pos['X'] is not None and pos['Y'] is not None):
+            for k, v in enumerate((pos['X'], pos['Y'])):
+                lo[k] = v if lo[k] is None else min(lo[k], v)
+                hi[k] = v if hi[k] is None else max(hi[k], v)
+    if lo[0] is None:
+        return None
+    return (lo[0], lo[1], hi[0], hi[1])
+
+
+def gcode_model_height(gcode_text):
+    """Highest Z reached by model (non-support) extrusion, or None.
+
+    Both the source and the slice sit on the plate, so the ratio of this
+    height to the source model's height is the slice's Z scale.
+    """
+    has_objects = bool(_OBJ_START.search(gcode_text))
+    in_object = not has_objects
+    current_type = ''
+    z = 0.0
+    top = None
+    for raw in gcode_text.splitlines():
+        line = raw.strip()
+        if line.startswith(';TYPE:'):
+            current_type = line.split(':', 1)[1].strip().casefold()
+            continue
+        if has_objects:
+            if _OBJ_START.search(line):
+                in_object = True
+                continue
+            if _OBJ_END.search(line):
+                in_object = False
+                continue
+        move = _MOVE_RE.match(line)
+        if not move:
+            continue
+        extrudes = False
+        for axis, number in _WORD_RE.findall(move.group(1)):
+            axis = axis.upper()
+            if axis == 'E':
+                extrudes = True
+            elif axis == 'Z':
+                z = float(number)
+        if extrudes and in_object and 'support' not in current_type:
+            top = z if top is None else max(top, z)
+    return top
+
+
+def verify_support_coverage(regions, gcode, cell_mm=3.0, source_bounds=None, gcode_bounds=None,
+                            z_scale=1.0):
+    """Post-slice toolpath coverage for support target regions (#922 gaps 2 and 4).
+
+    ``regions`` is a report's region list (or a whole report); only
+    ``supportable_overhang`` and ``low_clearance`` regions are targets.
+    ``gcode`` is G-code text or a path. Each target's bounding box is cut
+    into ``cell_mm`` cells; a cell counts as covered when support toolpath
+    (``;TYPE:Support`` / ``;TYPE:Support interface`` extruding moves,
+    sampled along the whole segment, not just endpoints) passes through it
+    at a height that can hold the underside up: within 1.0 mm below the
+    region's ``z_mm`` minimum. Acceptance is 100% of cells.
+
+    Region boxes are in source coordinates; slicing may center, scale or
+    rearrange the model. When ``source_bounds`` and ``gcode_bounds`` (XY
+    min/max of the model in each system) are both given, target boxes are
+    mapped by that translation + scale before comparison, and ``z_scale``
+    (the slice's Z scale, 1.0 when unscaled) scales the target heights.
+    Returns {'checked', 'ok', 'regions': [{..., 'coverage', ...}]}; with no
+    targets, checked is False and ok is True (nothing to verify).
+    """
+    if isinstance(regions, dict):
+        regions = regions.get('regions') or []
+    targets = [r for r in regions or []
+               if r.get('kind') in ('supportable_overhang', 'low_clearance') and r.get('bbox_mm')]
+    if not targets:
+        return {'checked': False, 'ok': True, 'regions': []}
+    if not isinstance(gcode, str):
+        gcode = Path(gcode).read_text(errors='replace')
+    points = []
+    current_type = ''
+    pos = {'X': None, 'Y': None, 'Z': 0.0}
+    for raw in gcode.splitlines():
+        line = raw.strip()
+        if line.startswith(';TYPE:'):
+            current_type = line.split(':', 1)[1].strip().casefold()
+            continue
+        move = _MOVE_RE.match(line)
+        if not move:
+            continue
+        start = (pos['X'], pos['Y'], pos['Z'])
+        # An E word on the move is an extrusion, in absolute or relative E
+        # mode alike; a bare G1 travel carries no E.
+        extrudes = False
+        for axis, number in _WORD_RE.findall(move.group(1)):
+            axis = axis.upper()
+            if axis == 'E':
+                extrudes = True
+            elif axis in pos:
+                pos[axis] = float(number)
+        if extrudes and 'support' in current_type and pos['X'] is not None and pos['Y'] is not None:
+            if start[0] is not None:
+                # Sample along the segment: a long straight support line
+                # covers every cell it crosses, not only its endpoints.
+                dist = max(abs(pos['X'] - start[0]), abs(pos['Y'] - start[1]))
+                steps = max(1, int(dist // (cell_mm / 2)) + 1)
+                for s in range(steps + 1):
+                    t = s / steps
+                    points.append((start[0] + (pos['X'] - start[0]) * t,
+                                   start[1] + (pos['Y'] - start[1]) * t,
+                                   start[2] + (pos['Z'] - start[2]) * t))
+            else:
+                points.append((pos['X'], pos['Y'], pos['Z']))
+    if source_bounds and gcode_bounds:
+        sx = ((gcode_bounds[2] - gcode_bounds[0]) / (source_bounds[2] - source_bounds[0])
+              if source_bounds[2] > source_bounds[0] else 1.0)
+        sy = ((gcode_bounds[3] - gcode_bounds[1]) / (source_bounds[3] - source_bounds[1])
+              if source_bounds[3] > source_bounds[1] else 1.0)
+
+        def _map(box):
+            (ax, ay), (bx, by) = box
+            return [[gcode_bounds[0] + (ax - source_bounds[0]) * sx,
+                     gcode_bounds[1] + (ay - source_bounds[1]) * sy],
+                    [gcode_bounds[0] + (bx - source_bounds[0]) * sx,
+                     gcode_bounds[1] + (by - source_bounds[1]) * sy]]
+    else:
+        def _map(box):
+            return box
+    out = []
+    ok = True
+    for r in targets:
+        (x0, y0), (x1, y1) = _map(r['bbox_mm'])
+        zmin = (r.get('z_mm') or {}).get('min')
+        if zmin is not None:
+            # A scaled slice scales the underside height with the model.
+            zmin = zmin * z_scale
+        nx = max(1, int(np.ceil((x1 - x0) / cell_mm)))
+        ny = max(1, int(np.ceil((y1 - y0) / cell_mm)))
+        covered = set()
+        for x, y, z in points:
+            # Support at the wrong height does not hold this underside up:
+            # only toolpath near the underside's own Z counts for it.
+            if zmin is not None and not (zmin - 1.0 <= z <= zmin + 0.5):
+                continue
+            # Only samples inside the target's own cell grid count; a path
+            # outside the box must not be clamped into an edge cell.
+            if x0 - 1e-9 <= x <= x0 + nx * cell_mm and y0 - 1e-9 <= y <= y0 + ny * cell_mm:
+                i = min(nx - 1, max(0, int((x - x0) // cell_mm)))
+                j = min(ny - 1, max(0, int((y - y0) // cell_mm)))
+                covered.add((i, j))
+        total = nx * ny
+        cov = len(covered) / total if total else 1.0
+        ok = ok and cov >= 1.0
+        out.append({'kind': r['kind'], 'part': r.get('part'), 'z_mm': r.get('z_mm'),
+                    'bbox_mm': r['bbox_mm'], 'coverage': round(cov, 4),
+                    'covered_cells': len(covered), 'total_cells': total})
+    return {'checked': True, 'ok': ok, 'regions': out}
+
+
+def _mesh_volume(source):
+    """Absolute signed volume of every leaf mesh in a source (mm3)."""
+    total = 0.0
+    for p in leaves(source):
+        t = p['tris']
+        total += float(np.einsum('ij,ij->i', t[:, 0], np.cross(t[:, 1], t[:, 2])).sum()) / 6.0
+    return abs(total)
+
+
+def _volume_below(source, dz):
+    """Solid volume at or below Z dz, measured on the analyze() ray grid."""
+    parts = leaves(source)
+    if not parts:
+        return 0.0
+    allpts = np.concatenate([p['tris'].reshape(-1, 3) for p in parts])
+    span = allpts[:, :2].max(0) - allpts[:, :2].min(0) + 2
+    cell = max(CELL_MM, float(np.sqrt(span[0] * span[1] / MAX_CELLS)))
+    lo = allpts[:, :2].min(0) - 1
+    w, h = (np.ceil(span / cell).astype(int) + 1).tolist()
+    rows = []
+    for p in parts:
+        t = p['tris']
+        nrm = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
+        nz = nrm[:, 2] / np.maximum(np.linalg.norm(nrm, axis=1), 1e-12)
+        idx = np.nonzero(np.abs(nz) > 1e-6)[0]
+        c, z, ti = _raster(t[idx], lo, cell, w, h)
+        tri = idx[ti]
+        sign = np.where(nz[tri] < 0, 1, -1)
+        _, first = np.unique(np.stack([c, np.round(z, 4), sign]), axis=1, return_index=True)
+        rows.append((c[first], z[first], sign[first]))
+    cel, zz, sign = (np.concatenate(col) for col in zip(*rows))
+    ev = _Events(cel, zz, sign)
+    if len(ev.z) < 2:
+        return 0.0
+    same = ev.cell[:-1] == ev.cell[1:]
+    # depth[i] is the solid depth in the interval starting at hit i.
+    depth = ev.cum[1:]
+    z0, z1 = ev.z[:-1], ev.z[1:]
+    overlap = np.minimum(z1, dz) - np.minimum(z0, dz)
+    solid = same & (depth[:len(z0)] > 0) & (overlap > 0)
+    return float(overlap[solid].sum()) * cell * cell
+
+
 def _fmt(v):
     return f'{v:.2f}'.rstrip('0').rstrip('.')
 
@@ -478,6 +836,10 @@ def describe(report):
         elif f['code'] == CODE_MODELED:
             lines.append(f'{f["part"]}: the modeled supports touch only {100 * f["support_coverage"]:.1f}% of the '
                          f'{f["area_mm2"]:.0f} mm2 overhang at Z {_fmt(f["z_mm"]["min"])} mm.')
+        elif f['code'] == CODE_CANTILEVER:
+            lines.append(f'{f["part"]}: one single mesh holds a {f["overhang_mm2"]:.0f} mm2 overhang '
+                         f'over only {f["bed_contact_mm2"]:.0f} mm2 of bed contact; baked-in pillars '
+                         'in the same mesh are not separate modeled supports.')
         elif f['code'] == CODE_BELOW_BED:
             lines.append(f'{f["part"]} reaches {_fmt(-f["min_z_mm"])} mm below the plate; '
                          f'{f["volume_below_mm3"]:.0f} mm3 would be cut off.')
@@ -547,11 +909,28 @@ def extend_underside(source_path, dest_path=None, gap_mm=0.4, tol=1e-3):
     puts its world Z on the plate, so transformed and component-based 3MFs
     are repaired as well as root-file meshes at the same local height.
     Preserves all 3MF components, materials, colors and other metadata.
+    The measured volume change is returned as ``added_volume_mm3`` (#922
+    gap 5); instances that disagree on a shared vertex's target leave it
+    alone and count it in ``skipped_shared_vertices``.
     """
     dest_path = dest_path or source_path
+    before_volume = _mesh_volume(source_path)
+    if str(source_path).lower().endswith('.stl'):
+        # An STL has no transforms to compose: its vertices are already in
+        # printer coordinates, so the same rule applies directly (#922
+        # gap 8 made STL findings offer these repairs, so they must run).
+        tris = _stl_tris(source_path)
+        mask = np.abs(tris[:, :, 2] - gap_mm) <= tol
+        modified = int(mask.sum())
+        tris[:, :, 2] = np.where(mask, 0.0, tris[:, :, 2])
+        _write_binary_stl(dest_path, tris)
+        return {'modified_vertices': modified, 'skipped_shared_vertices': 0,
+                'added_volume_mm3': round(_mesh_volume(dest_path) - before_volume, 1),
+                'output_path': str(dest_path)}
     instances = _instance_matrices(source_path)
     tmp_out = Path(dest_path).with_suffix(f'.tmp_ext_{os.getpid()}.3mf')
     modified_count = 0
+    skipped_shared = 0
     with zipfile.ZipFile(source_path, 'r') as zin, zipfile.ZipFile(tmp_out, 'w', zipfile.ZIP_DEFLATED) as zout:
         for item in zin.infolist():
             data = zin.read(item.filename)
@@ -582,19 +961,53 @@ def extend_underside(source_path, dest_path=None, gap_mm=0.4, tol=1e-3):
                                 v.set('z', f'{targets[0]:.8f}')
                                 modified_count += 1
                                 changed = True
+                            elif targets:
+                                # Instances disagree on the local target:
+                                # leave the shared vertex alone (#922 gap 5).
+                                skipped_shared += 1
                 if changed:
                     data = ET.tostring(root, encoding='utf-8', xml_declaration=True)
             zout.writestr(item, data)
     shutil.move(tmp_out, dest_path)
-    return {'modified_vertices': modified_count, 'output_path': str(dest_path)}
+    after_volume = _mesh_volume(dest_path)
+    return {'modified_vertices': modified_count, 'skipped_shared_vertices': skipped_shared,
+            'added_volume_mm3': round(after_volume - before_volume, 1),
+            'output_path': str(dest_path)}
+
+
+def _write_binary_stl(path, tris):
+    """Write triangles as a binary STL (the repair output for STL sources)."""
+    import struct
+    tris = np.asarray(tris, dtype='<f4').reshape(-1, 3, 3)
+    with open(path, 'wb') as fh:
+        fh.write(b'\0' * 80)
+        fh.write(struct.pack('<I', len(tris)))
+        zeros = np.zeros((len(tris), 3), dtype='<f4')
+        for tri, zero in zip(tris, zeros):
+            fh.write(zero.tobytes())
+            fh.write(tri.tobytes())
+            fh.write(struct.pack('<H', 0))
+
+
+def _stl_tris(source_path):
+    from print_handy.core import orca_adapter
+    tris = orca_adapter.read_stl_triangles(source_path)
+    return np.asarray(tris, dtype=float).reshape(-1, 3, 3)
 
 
 def sink_model(source_path, dest_path=None, dz=0.4):
     """Sink build items in the 3MF by dz mm into the build plate.
 
     The slicer clips geometry below Z=0, removing the low-clearance underside.
+    An STL source has no build items: every vertex moves down by dz instead.
     """
     dest_path = dest_path or source_path
+    if str(source_path).lower().endswith('.stl'):
+        tris = _stl_tris(source_path)
+        tris[:, :, 2] -= dz
+        _write_binary_stl(dest_path, tris)
+        return {'sink_mm': dz, 'removed_volume_mm3': round(_volume_below(dest_path, 0.0), 1),
+                'output_path': str(dest_path)}
     tmp_out = Path(dest_path).with_suffix(f'.tmp_sink_{os.getpid()}.3mf')
     with zipfile.ZipFile(source_path, 'r') as zin, zipfile.ZipFile(tmp_out, 'w', zipfile.ZIP_DEFLATED) as zout:
         for item in zin.infolist():
@@ -613,11 +1026,24 @@ def sink_model(source_path, dest_path=None, dz=0.4):
                 data = ET.tostring(root, encoding='utf-8', xml_declaration=True)
             zout.writestr(item, data)
     shutil.move(tmp_out, dest_path)
-    return {'sink_mm': dz, 'output_path': str(dest_path)}
+    # Measured, not estimated (#922 gap 5): the volume the slicer will clip
+    # is the solid that now sits below Z 0 in the sunk file.
+    return {'sink_mm': dz, 'removed_volume_mm3': round(_volume_below(dest_path, 0.0), 1),
+            'output_path': str(dest_path)}
 
 
-def record_clearance_acknowledgement(folder_or_job, gcode=None, source_file=None):
-    """Record operator acknowledgement of an unfixable support clearance risk (print anyway)."""
+def record_clearance_acknowledgement(folder_or_job, gcode=None, source_file=None, via='print_anyway'):
+    """Record operator acknowledgement of an unfixable support clearance risk.
+
+    ``via`` names how the operator satisfied the finding (#922 gap 2): an
+    explicit ``print_anyway`` choice, a verified geometry repair (which
+    clears the finding itself), or the operator's explicit
+    ``without_supports`` as-authored decision satisfies a low-clearance
+    finding at the start guard. A ``with_supports`` choice is recorded for
+    provenance but deliberately does not satisfy it: slicer supports
+    cannot fit into a sub-1.0 mm gap, so that choice still owes post-slice
+    toolpath coverage verification for the flagged regions.
+    """
     is_path = isinstance(folder_or_job, (str, Path))
     if is_path:
         p = Path(folder_or_job)
@@ -637,6 +1063,7 @@ def record_clearance_acknowledgement(folder_or_job, gcode=None, source_file=None
 
     job['clearance_acknowledgement'] = {
         'acknowledged': True,
+        'via': via,
         'source_sha256': src_sha,
         'recipe_sha256': rec_sha,
         'gcode_sha256': gc_sha,

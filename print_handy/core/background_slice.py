@@ -284,6 +284,13 @@ class BackgroundSlice:
                         job[key] = self.job_before[key]
                     else:
                         job.pop(key, None)
+                # A speculative slice's temporary decision is not an
+                # operator decision (#922): discarding that slice removes
+                # it, so a cancelled or reoriented job does not carry a
+                # settled support question it never answered.
+                if isinstance(job.get('support_decision'), dict) \
+                        and job['support_decision'].get('by') == 'speculative_intake':
+                    job.pop('support_decision', None)
                 target = Path(self.job_path)
                 tmp = target.with_name(f".JOB.json.{os.getpid()}.{time.monotonic_ns()}.tmp")
                 tmp.write_text(json.dumps(job, indent=2) + "\n")
