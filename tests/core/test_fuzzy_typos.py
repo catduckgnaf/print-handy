@@ -43,7 +43,8 @@ OPERATOR_MINED_2 = {
     "intergration": "integration", "jewelery": "jewelry",
     "langauge": "language", "listerners": "listeners", "ocming": "coming",
     "recongized": "recognized", "rgar": "that", "sanatize": "sanitize",
-    "seel": "see", "seperately": "separately", "suppert": "support",
+    "seel": "see", "seperately": "separately", "spegattis": "spaghettis",
+    "suppert": "support",
     "suprise": "surprise", "syntaxt": "syntax", "tempalates": "templates",
     "throughly": "thoroughly", "wel": "well", "whgatever": "whatever",
 }

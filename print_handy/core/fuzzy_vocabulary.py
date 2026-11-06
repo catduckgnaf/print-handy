@@ -1126,6 +1126,7 @@ TYPO_FORMS: dict[str, str] = {
     'seperated': 'separated',
     'seperately': 'separately',
     'shrnik': 'shrink',
+    'spegattis': 'spaghettis',
     'spegetti': 'spaghetti',
     'spagetti': 'spaghetti',
     'stopp': 'stop',
