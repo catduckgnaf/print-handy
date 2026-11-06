@@ -1,304 +1,413 @@
 {
  "cases": {
   "assembly-2c-tight/hermes": {
-   "first_prompt_s": 0.15,
+   "first_prompt_s": 0.26,
    "fit_check_s": 0.0,
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
     "wall_s": 0.07
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.25
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.44
   },
   "assembly-2c-tight/standalone": {
+   "first_prompt_s": 0.42,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.07
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.49
+  },
+  "assembly-3c-tight/hermes": {
+   "first_prompt_s": 0.24,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.06,
+    "fit_check_s": 0.0,
+    "wall_s": 0.22
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.31
+  },
+  "assembly-3c-tight/standalone": {
    "first_prompt_s": 0.23,
    "fit_check_s": 0.0,
    "raised_from": {
-    "first_prompt_s": 0.01,
+    "first_prompt_s": 0.2,
     "fit_check_s": 0.0,
-    "wall_s": 0.07
+    "wall_s": 0.26
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.27
-  },
-  "assembly-3c-tight/hermes": {
-   "first_prompt_s": 0.12,
-   "fit_check_s": 0.0,
-   "raised_from": {
-    "first_prompt_s": 0.06,
-    "fit_check_s": 0.0,
-    "wall_s": 0.22
-   },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.16
-  },
-  "assembly-3c-tight/standalone": {
-   "first_prompt_s": 0.12,
-   "fit_check_s": 0.0,
-   "wall_s": 0.17
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.31
   },
   "assembly-four-color-tight/hermes": {
-   "first_prompt_s": 0.14,
+   "first_prompt_s": 0.26,
    "fit_check_s": 0.0,
    "raised_from": {
     "first_prompt_s": 0.06,
     "fit_check_s": 0.0,
     "wall_s": 0.22
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.19
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.34
   },
   "assembly-four-color-tight/standalone": {
-   "first_prompt_s": 0.14,
+   "first_prompt_s": 0.26,
    "fit_check_s": 0.0,
-   "wall_s": 0.2
+   "raised_from": {
+    "first_prompt_s": 0.2,
+    "fit_check_s": 0.0,
+    "wall_s": 0.26
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.33
   },
   "assembly-small-tower/hermes": {
-   "first_prompt_s": 0.11,
+   "first_prompt_s": 0.21,
    "fit_check_s": 0.0,
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
     "wall_s": 0.07
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.15
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.27
   },
   "assembly-small-tower/standalone": {
-   "first_prompt_s": 0.11,
+   "first_prompt_s": 0.21,
    "fit_check_s": 0.0,
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
     "wall_s": 0.07
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.14
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.27
   },
   "assembly-three-color-no-room/hermes": {
-   "first_prompt_s": 0.16,
+   "first_prompt_s": 0.29,
    "fit_check_s": 0.0,
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
     "wall_s": 0.05
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.19
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.33
   },
   "assembly-three-color-no-room/standalone": {
-   "first_prompt_s": 0.16,
+   "first_prompt_s": 0.3,
    "fit_check_s": 0.0,
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
     "wall_s": 0.04
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.18
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.33
   },
   "assembly-two-color-roomy/hermes": {
-   "first_prompt_s": 0.05,
+   "first_prompt_s": 0.1,
    "fit_check_s": 0.0,
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
     "wall_s": 0.07
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.08
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.17
   },
   "assembly-two-color-roomy/standalone": {
-   "first_prompt_s": 0.05,
+   "first_prompt_s": 0.1,
    "fit_check_s": 0.0,
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
     "wall_s": 0.07
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.09
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.19
   },
   "copies-multiple-plates/hermes": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "wall_s": 0.05
-  },
-  "copies-multiple-plates/standalone": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "wall_s": 0.05
-  },
-  "core-basematerials-parts/hermes": {
-   "first_prompt_s": 0.02,
-   "fit_check_s": 0.0,
-   "wall_s": 0.08
-  },
-  "core-basematerials-parts/standalone": {
-   "first_prompt_s": 0.02,
-   "fit_check_s": 0.0,
-   "wall_s": 0.07
-  },
-  "core-colorgroup-items/hermes": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "wall_s": 0.05
-  },
-  "core-colorgroup-items/standalone": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "wall_s": 0.05
-  },
-  "core-cyclic-components/hermes": {
-   "wall_s": 0.01
-  },
-  "core-cyclic-components/standalone": {
-   "wall_s": 0.01
-  },
-  "core-dangling-build-item/hermes": {
-   "wall_s": 0.01
-  },
-  "core-dangling-build-item/standalone": {
-   "wall_s": 0.01
-  },
-  "core-inch-nested-assembly/hermes": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "wall_s": 0.04
-  },
-  "core-inch-nested-assembly/standalone": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "wall_s": 0.04
-  },
-  "core-multiproperties-texture/hermes": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "wall_s": 0.04
-  },
-  "core-multiproperties-texture/standalone": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "wall_s": 0.04
-   },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.05
-  },
-  "core-one-color/hermes": {
-   "first_prompt_s": 0.02,
-   "fit_check_s": 0.0,
-   "wall_s": 0.06
-  },
-  "core-one-color/standalone": {
    "first_prompt_s": 0.03,
    "fit_check_s": 0.0,
-   "wall_s": 0.07
+   "wall_s": 0.09
   },
-  "core-prefixed-namespace/hermes": {
-   "first_prompt_s": 0.01,
+  "copies-multiple-plates/standalone": {
+   "first_prompt_s": 0.03,
    "fit_check_s": 0.0,
-   "wall_s": 0.04
+   "wall_s": 0.09
   },
-  "core-prefixed-namespace/standalone": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "wall_s": 0.05
-  },
-  "core-triangle-colors/hermes": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "wall_s": 0.04
-   },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.06
-  },
-  "core-triangle-colors/standalone": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "wall_s": 0.04
-  },
-  "duplicate-part-names/hermes": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "wall_s": 0.04
-  },
-  "duplicate-part-names/standalone": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "wall_s": 0.04
-   },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.05
-  },
-  "five-colors-over-slots/hermes": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "wall_s": 0.06
-  },
-  "five-colors-over-slots/standalone": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "wall_s": 0.06
-  },
-  "foreign-bambu-profile-split/hermes": {
-   "first_prompt_s": 0.13,
-   "fit_check_s": 0.01,
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "wall_s": 0.12
-   },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.2
-  },
-  "foreign-bambu-profile-split/standalone": {
-   "first_prompt_s": 0.12,
+  "core-basematerials-parts/hermes": {
+   "first_prompt_s": 0.04,
    "fit_check_s": 0.01,
    "raised_from": {
     "first_prompt_s": 0.02,
-    "wall_s": 0.15
+    "wall_s": 0.08
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.19
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.13
   },
-  "foreign-bambu-profile/hermes": {
-   "first_prompt_s": 0.01,
+  "core-basematerials-parts/standalone": {
+   "first_prompt_s": 0.04,
+   "fit_check_s": 0.01,
+   "raised_from": {
+    "first_prompt_s": 0.02,
+    "wall_s": 0.08
+   },
+   "reason": "#734 re-baseline from main CI run 41365651326: the old entry predates later pipeline changes that the old +25% +1 s limit absorbed silently; accepted as the current normal before tightening to +10% +0.5 s.",
+   "wall_s": 0.14
+  },
+  "core-colorgroup-items/hermes": {
+   "first_prompt_s": 0.02,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.05
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.09
+  },
+  "core-colorgroup-items/standalone": {
+   "first_prompt_s": 0.02,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.05
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.1
+  },
+  "core-cyclic-components/hermes": {
+   "raised_from": {
+    "wall_s": 0.01
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.02
+  },
+  "core-cyclic-components/standalone": {
+   "raised_from": {
+    "wall_s": 0.01
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.02
+  },
+  "core-dangling-build-item/hermes": {
+   "raised_from": {
+    "wall_s": 0.01
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.02
+  },
+  "core-dangling-build-item/standalone": {
+   "raised_from": {
+    "wall_s": 0.01
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.02
+  },
+  "core-inch-nested-assembly/hermes": {
+   "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
    "wall_s": 0.06
   },
-  "foreign-bambu-profile/standalone": {
+  "core-inch-nested-assembly/standalone": {
    "first_prompt_s": 0.02,
+   "fit_check_s": 0.0,
+   "wall_s": 0.07
+  },
+  "core-multiproperties-texture/hermes": {
+   "first_prompt_s": 0.02,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.07
+  },
+  "core-multiproperties-texture/standalone": {
+   "first_prompt_s": 0.02,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.07
+  },
+  "core-one-color/hermes": {
+   "first_prompt_s": 0.04,
+   "fit_check_s": 0.01,
+   "raised_from": {
+    "first_prompt_s": 0.02,
+    "wall_s": 0.06
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.12
+  },
+  "core-one-color/standalone": {
+   "first_prompt_s": 0.05,
+   "fit_check_s": 0.01,
+   "raised_from": {
+    "first_prompt_s": 0.04,
+    "wall_s": 0.08
+   },
+   "reason": "#734 re-baseline from main CI run 41365651326: the old entry predates later pipeline changes that the old +25% +1 s limit absorbed silently; accepted as the current normal before tightening to +10% +0.5 s.",
+   "wall_s": 0.12
+  },
+  "core-prefixed-namespace/hermes": {
+   "first_prompt_s": 0.02,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.02,
+    "wall_s": 0.06
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.07
+  },
+  "core-prefixed-namespace/standalone": {
+   "first_prompt_s": 0.02,
+   "fit_check_s": 0.0,
+   "wall_s": 0.07
+  },
+  "core-triangle-colors/hermes": {
+   "first_prompt_s": 0.02,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.1
+  },
+  "core-triangle-colors/standalone": {
+   "first_prompt_s": 0.02,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.07
+  },
+  "duplicate-part-names/hermes": {
+   "first_prompt_s": 0.02,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.07
+  },
+  "duplicate-part-names/standalone": {
+   "first_prompt_s": 0.02,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.08
+  },
+  "five-colors-over-slots/hermes": {
+   "first_prompt_s": 0.03,
    "fit_check_s": 0.0,
    "raised_from": {
     "first_prompt_s": 0.01,
     "wall_s": 0.06
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.06
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.11
+  },
+  "five-colors-over-slots/standalone": {
+   "first_prompt_s": 0.03,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.06
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.11
+  },
+  "foreign-bambu-profile-split/hermes": {
+   "first_prompt_s": 0.22,
+   "fit_check_s": 0.02,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.12
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.34
+  },
+  "foreign-bambu-profile-split/standalone": {
+   "first_prompt_s": 0.22,
+   "fit_check_s": 0.02,
+   "raised_from": {
+    "first_prompt_s": 0.02,
+    "wall_s": 0.15
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.33
+  },
+  "foreign-bambu-profile/hermes": {
+   "first_prompt_s": 0.03,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.06
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.12
+  },
+  "foreign-bambu-profile/standalone": {
+   "first_prompt_s": 0.03,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.06
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.12
   },
   "four-colors-one-plate/hermes": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.03,
    "fit_check_s": 0.0,
-   "wall_s": 0.06
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.06
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.11
   },
   "four-colors-one-plate/standalone": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.03,
    "fit_check_s": 0.0,
-   "wall_s": 0.06
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.06
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.11
   },
   "height-color-changes/hermes": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
-   "wall_s": 0.05
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
+   "reason": "New corpus case from #870 (height-based color changes), recorded from PR #872 CI run 41749879241 (artifact discord-timing, median of 3, CI runner).",
+   "wall_s": 0.09
   },
   "height-color-changes/standalone": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
    "raised_from": {
     "first_prompt_s": 0.01,
@@ -306,412 +415,455 @@
     "wall_s": 0.04
    },
    "reason": "New corpus case from #870 (height-based color changes), recorded from PR #872 CI run 41749879241 (artifact discord-timing, median of 3, CI runner).",
-   "wall_s": 0.05
+   "wall_s": 0.09
   },
   "islands-144-four-color/hermes": {
-   "first_prompt_s": 0.15,
-   "fit_check_s": 0.02,
+   "first_prompt_s": 0.31,
+   "fit_check_s": 0.05,
    "raised_from": {
     "first_prompt_s": 0.18,
     "fit_check_s": 0.01,
     "wall_s": 1.0
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.6
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 1.24
   },
   "islands-144-four-color/standalone": {
-   "first_prompt_s": 0.13,
-   "fit_check_s": 0.05,
+   "first_prompt_s": 0.28,
+   "fit_check_s": 0.09,
    "raised_from": {
     "first_prompt_s": 0.17,
     "fit_check_s": 0.01,
     "wall_s": 0.98
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.61
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 1.22
   },
   "loose-2c-tight/hermes": {
-   "first_prompt_s": 0.04,
+   "first_prompt_s": 0.08,
    "fit_check_s": 0.0,
    "raised_from": {
     "first_prompt_s": 0.01,
     "wall_s": 0.06
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.08
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.15
   },
   "loose-2c-tight/standalone": {
-   "first_prompt_s": 0.04,
+   "first_prompt_s": 0.08,
    "fit_check_s": 0.0,
    "raised_from": {
     "first_prompt_s": 0.01,
     "wall_s": 0.06
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.1
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.15
   },
   "loose-3c-tight/hermes": {
-   "first_prompt_s": 0.06,
-   "fit_check_s": 0.0,
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "wall_s": 0.06
-   },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.1
-  },
-  "loose-3c-tight/standalone": {
-   "first_prompt_s": 0.06,
-   "fit_check_s": 0.0,
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "wall_s": 0.06
-   },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.1
-  },
-  "loose-4c-tight/hermes": {
-   "first_prompt_s": 0.04,
-   "fit_check_s": 0.0,
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "wall_s": 0.06
-   },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.08
-  },
-  "loose-4c-tight/standalone": {
-   "first_prompt_s": 0.04,
-   "fit_check_s": 0.0,
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "wall_s": 0.06
-   },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.1
-  },
-  "many-parts/hermes": {
-   "first_prompt_s": 0.02,
-   "fit_check_s": 0.0,
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "wall_s": 0.05
-   },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.05
-  },
-  "many-parts/standalone": {
-   "first_prompt_s": 0.02,
-   "fit_check_s": 0.0,
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "wall_s": 0.05
-   },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.05
-  },
-  "missing-plate-metadata/hermes": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "wall_s": 0.04
-  },
-  "missing-plate-metadata/standalone": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "wall_s": 0.04
-   },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.05
-  },
-  "multiplate-select/hermes": {
-   "first_prompt_s": 0.12,
-   "fit_check_s": 0.0,
-   "raised_from": {
-    "first_prompt_s": 0.01,
-    "wall_s": 0.06
-   },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.17
-  },
-  "multiplate-select/standalone": {
    "first_prompt_s": 0.11,
    "fit_check_s": 0.0,
    "raised_from": {
     "first_prompt_s": 0.01,
     "wall_s": 0.06
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.21
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.19
+  },
+  "loose-3c-tight/standalone": {
+   "first_prompt_s": 0.11,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.06
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.19
+  },
+  "loose-4c-tight/hermes": {
+   "first_prompt_s": 0.08,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.06
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.16
+  },
+  "loose-4c-tight/standalone": {
+   "first_prompt_s": 0.1,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.06
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.18
+  },
+  "many-parts/hermes": {
+   "first_prompt_s": 0.03,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.05
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.09
+  },
+  "many-parts/standalone": {
+   "first_prompt_s": 0.03,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.05
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.09
+  },
+  "missing-plate-metadata/hermes": {
+   "first_prompt_s": 0.02,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.07
+  },
+  "missing-plate-metadata/standalone": {
+   "first_prompt_s": 0.02,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.07
+  },
+  "multiplate-select/hermes": {
+   "first_prompt_s": 0.21,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.06
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.3
+  },
+  "multiplate-select/standalone": {
+   "first_prompt_s": 0.21,
+   "fit_check_s": 0.01,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.06
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.31
   },
   "must-shrink/hermes": {
-   "first_prompt_s": 0.22,
-   "fit_check_s": 0.01,
+   "first_prompt_s": 0.39,
+   "fit_check_s": 0.02,
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.01,
     "wall_s": 0.06
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.26
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.47
   },
   "must-shrink/standalone": {
-   "first_prompt_s": 0.22,
-   "fit_check_s": 0.01,
+   "first_prompt_s": 0.41,
+   "fit_check_s": 0.02,
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.01,
     "wall_s": 0.05
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.26
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.49
   },
   "needs-supports/hermes": {
-   "first_prompt_s": 0.02,
+   "first_prompt_s": 0.03,
    "fit_check_s": 0.0,
    "raised_from": {
     "first_prompt_s": 0.01,
     "wall_s": 0.04
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.05
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.08
   },
   "needs-supports/standalone": {
-   "first_prompt_s": 0.02,
+   "first_prompt_s": 0.03,
    "fit_check_s": 0.0,
    "raised_from": {
     "first_prompt_s": 0.01,
     "wall_s": 0.04
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.05
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.09
   },
   "parts-512-four-color/hermes": {
-   "first_prompt_s": 0.51,
-   "fit_check_s": 0.13,
+   "first_prompt_s": 1.05,
+   "fit_check_s": 0.24,
    "raised_from": {
     "first_prompt_s": 0.68,
     "fit_check_s": 0.01,
     "wall_s": 4.74
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 2.63
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 5.35
   },
   "parts-512-four-color/standalone": {
-   "first_prompt_s": 0.52,
-   "fit_check_s": 0.12,
+   "first_prompt_s": 1.08,
+   "fit_check_s": 0.21,
    "raised_from": {
     "first_prompt_s": 0.67,
     "fit_check_s": 0.01,
     "wall_s": 4.75
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 2.71
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 5.5
   },
   "parts-one-plate/hermes": {
-   "first_prompt_s": 0.03,
-   "fit_check_s": 0.0,
+   "first_prompt_s": 0.06,
+   "fit_check_s": 0.01,
    "raised_from": {
     "first_prompt_s": 0.02,
     "wall_s": 0.06
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.07
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.14
   },
   "parts-one-plate/standalone": {
-   "first_prompt_s": 0.03,
-   "fit_check_s": 0.0,
+   "first_prompt_s": 0.06,
+   "fit_check_s": 0.01,
    "raised_from": {
     "first_prompt_s": 0.02,
     "wall_s": 0.06
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.07
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.14
   },
   "plates-multicolor/hermes": {
-   "first_prompt_s": 0.03,
+   "first_prompt_s": 0.05,
    "fit_check_s": 0.01,
    "raised_from": {
     "first_prompt_s": 0.02,
     "wall_s": 0.07
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.09
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.15
   },
   "plates-multicolor/standalone": {
-   "first_prompt_s": 0.03,
+   "first_prompt_s": 0.05,
    "fit_check_s": 0.01,
    "raised_from": {
     "first_prompt_s": 0.02,
     "wall_s": 0.07
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.08
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.15
   },
   "prime-tower-clearance/hermes": {
-   "first_prompt_s": 0.09,
+   "first_prompt_s": 0.17,
    "fit_check_s": 0.0,
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.01,
     "wall_s": 0.07
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.17
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.33
   },
   "prime-tower-clearance/standalone": {
-   "first_prompt_s": 0.09,
+   "first_prompt_s": 0.17,
    "fit_check_s": 0.0,
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.01,
     "wall_s": 0.08
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.19
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.35
   },
   "prusa-mmu-project/hermes": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
    "raised_from": {
     "first_prompt_s": 0.01,
     "wall_s": 0.04
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.05
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.08
   },
   "prusa-mmu-project/standalone": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
-   "wall_s": 0.04
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.08
   },
   "rotation-fit/hermes": {
-   "first_prompt_s": 0.07,
-   "fit_check_s": 0.01,
+   "first_prompt_s": 0.13,
+   "fit_check_s": 0.02,
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.01,
     "wall_s": 0.05
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.11
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.2
   },
   "rotation-fit/standalone": {
-   "first_prompt_s": 0.07,
-   "fit_check_s": 0.01,
+   "first_prompt_s": 0.13,
+   "fit_check_s": 0.02,
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.01,
     "wall_s": 0.05
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.11
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.2
   },
   "single-part/hermes": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
-   "wall_s": 0.04
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.07
   },
   "single-part/standalone": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
-   "wall_s": 0.04
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.07
   },
   "split-plan/hermes": {
-   "first_prompt_s": 0.12,
-   "fit_check_s": 0.01,
+   "first_prompt_s": 0.22,
+   "fit_check_s": 0.02,
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.01,
     "wall_s": 0.07
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.17
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.33
   },
   "split-plan/standalone": {
-   "first_prompt_s": 0.11,
-   "fit_check_s": 0.01,
+   "first_prompt_s": 0.22,
+   "fit_check_s": 0.02,
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.01,
     "wall_s": 0.08
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.18
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.33
   },
   "stl-ascii/hermes": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
-   "wall_s": 0.03
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.03
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.06
   },
   "stl-ascii/standalone": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
-   "wall_s": 0.03
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.03
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.06
   },
   "stl-degenerate-zero-volume/hermes": {
-   "wall_s": 0.01
+   "raised_from": {
+    "wall_s": 0.01
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.02
   },
   "stl-degenerate-zero-volume/standalone": {
-   "wall_s": 0.01
+   "raised_from": {
+    "wall_s": 0.01
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.02
   },
   "stl-inverted-normals/hermes": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
-   "wall_s": 0.03
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.06
   },
   "stl-inverted-normals/standalone": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
    "raised_from": {
     "first_prompt_s": 0.01,
     "wall_s": 0.03
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.04
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.06
   },
   "stl-must-shrink/hermes": {
-   "first_prompt_s": 0.21,
-   "fit_check_s": 0.0,
+   "first_prompt_s": 0.37,
+   "fit_check_s": 0.01,
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
     "wall_s": 0.04
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.24
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.43
   },
   "stl-must-shrink/standalone": {
-   "first_prompt_s": 0.21,
-   "fit_check_s": 0.0,
+   "first_prompt_s": 0.38,
+   "fit_check_s": 0.01,
    "raised_from": {
     "first_prompt_s": 0.01,
     "fit_check_s": 0.0,
     "wall_s": 0.04
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.24
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.43
   },
   "stl-needs-supports/hermes": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
    "raised_from": {
     "first_prompt_s": 0.01,
     "wall_s": 0.03
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.05
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.1
   },
   "stl-needs-supports/standalone": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
    "raised_from": {
     "first_prompt_s": 0.01,
     "wall_s": 0.03
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.07
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.1
   },
   "stl-open-thin-wall/hermes": {
    "first_prompt_s": 0.01,
@@ -720,63 +872,110 @@
     "first_prompt_s": 0.01,
     "wall_s": 0.03
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.05
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.09
   },
   "stl-open-thin-wall/standalone": {
+   "first_prompt_s": 0.02,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.1
+  },
+  "stl-single-part/hermes": {
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.03
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.06
+  },
+  "stl-single-part/standalone": {
+   "first_prompt_s": 0.02,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.03
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.06
+  },
+  "stl-tall/hermes": {
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.01,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.06
+  },
+  "stl-tall/standalone": {
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.01,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.07
+  },
+  "stl-text-solid-header/hermes": {
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.03
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.06
+  },
+  "stl-text-solid-header/standalone": {
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.03
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.06
+  },
+  "stl-thin-footprint/hermes": {
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.03
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.06
+  },
+  "stl-thin-footprint/standalone": {
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.03
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.06
+  },
+  "stl-tiny/hermes": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
    "raised_from": {
     "first_prompt_s": 0.01,
     "wall_s": 0.04
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
    "wall_s": 0.06
-  },
-  "stl-single-part/hermes": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "wall_s": 0.03
-  },
-  "stl-single-part/standalone": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "wall_s": 0.03
-  },
-  "stl-tall/hermes": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "wall_s": 0.04
-  },
-  "stl-tall/standalone": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "wall_s": 0.04
-  },
-  "stl-text-solid-header/hermes": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "wall_s": 0.03
-  },
-  "stl-text-solid-header/standalone": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "wall_s": 0.03
-  },
-  "stl-thin-footprint/hermes": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "wall_s": 0.03
-  },
-  "stl-thin-footprint/standalone": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "wall_s": 0.03
-  },
-  "stl-tiny/hermes": {
-   "first_prompt_s": 0.0,
-   "fit_check_s": 0.0,
-   "wall_s": 0.04
   },
   "stl-tiny/standalone": {
    "first_prompt_s": 0.01,
@@ -785,8 +984,8 @@
     "first_prompt_s": 0.01,
     "wall_s": 0.03
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.04
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.06
   },
   "stl-very-thin-wall/hermes": {
    "first_prompt_s": 0.01,
@@ -795,33 +994,58 @@
     "first_prompt_s": 0.01,
     "wall_s": 0.03
    },
-   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
-   "wall_s": 0.04
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.06
   },
   "stl-very-thin-wall/standalone": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
-   "wall_s": 0.03
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.03
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.06
   },
   "unicode-part-extra-plate/hermes": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
-   "wall_s": 0.04
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.07
   },
   "unicode-part-extra-plate/standalone": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.02,
    "fit_check_s": 0.0,
-   "wall_s": 0.04
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.05
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
+   "wall_s": 0.07
   },
   "witch-ghost-cults3d/hermes": {
-   "first_prompt_s": 0.35,
-   "fit_check_s": 0.1,
-   "wall_s": 0.96
+   "first_prompt_s": 0.56,
+   "fit_check_s": 0.16,
+   "raised_from": {
+    "first_prompt_s": 0.35,
+    "wall_s": 1.49
+   },
+   "reason": "#911 intake support pre-check: this case is flagged for support risk, so the flow runs a second speculative with-supports slice in the background before bed-clear and the mock flow slices twice. Median of 3 repeats from CI run 42128173482 on d7accd8.",
+   "wall_s": 1.61
   },
   "witch-ghost-cults3d/standalone": {
-   "first_prompt_s": 0.32,
-   "fit_check_s": 0.11,
-   "wall_s": 0.93
+   "first_prompt_s": 0.57,
+   "fit_check_s": 0.17,
+   "raised_from": {
+    "first_prompt_s": 0.33,
+    "wall_s": 1.46
+   },
+   "reason": "#911 intake support pre-check: this case is flagged for support risk, so the flow runs a second speculative with-supports slice in the background before bed-clear and the mock flow slices twice. Median of 3 repeats from CI run 42128173482 on d7accd8.",
+   "wall_s": 1.64
   }
  },
  "description": "Mock-slicer fake Discord flow (both transports), required gate in ci.yml discord-timing. Re-recorded every release from the release commit's CI artifact; see tests/README.md (Slicing-speed gate).",
