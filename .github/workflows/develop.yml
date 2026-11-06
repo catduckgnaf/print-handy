@@ -213,10 +213,10 @@ jobs:
             echo "image_id=$(docker image inspect --format '{{.Id}}' "$LOCAL_IMAGE")"
             docker image inspect --format 'platform={{.Os}}/{{.Architecture}} size={{.Size}}' "$LOCAL_IMAGE"
           } | tee evidence/identity.txt
-      - name: Headless slice with each bundled Orca channel
+      - name: Headless slice with the bundled Orca
         run: |
           set -euo pipefail
-          channels="stable preview"
+          channels="stable"
           for channel in $channels; do
             docker run --rm --network none --cpus 2 --memory 4g --pids-limit 256 \
               --cap-drop ALL --security-opt no-new-privileges:true \

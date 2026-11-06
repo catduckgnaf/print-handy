@@ -17,20 +17,21 @@ from print_handy.core import slice_guard
 
 def main():
     channel = os.environ["PRINT_HANDY_ORCA_CHANNEL"]
-    # 'alpha' is the preview channel's old name (#600), kept as an alias for
-    # at least one release; the entrypoint already normalizes it, and a direct
-    # run with the old value gets the same treatment here.
-    if channel == "alpha":
-        channel = "preview"
-    assert channel in {"stable", "preview"}
+    # The preview channel was removed (Print Handy ships one bundled Orca):
+    # 'preview' and its pre-#600 name 'alpha' mean the single stable build.
+    # The entrypoint already normalizes them, and a direct run with an old
+    # value gets the same treatment here.
+    if channel in {"alpha", "preview"}:
+        channel = "stable"
+    assert channel == "stable"
     binary = Path(f"/opt/orca-{channel}/bin/orca-slicer")
     assert binary.is_file() and os.access(binary, os.X_OK), binary
     revision = Path(f"/orca-{channel}-source-revision").read_text().strip()
     assert len(revision) == 40
-    # Resolve this channel's private libraries, not the other channel's. The
+    # Resolve the single build's private libraries. The
     # image sets no global LD_LIBRARY_PATH (Orca's bundled FFmpeg 7.0 libav*
-    # sonames would shadow the system ffmpeg's libraries), so name this
-    # channel's orca-runtime tree explicitly, mirroring upstream's env
+    # sonames would shadow the system ffmpeg's libraries), so name the
+    # build's orca-runtime tree explicitly, mirroring upstream's env
     # helper (libexec/orca-slicer-env). An operator-provided value is kept
     # last, as an override.
     env = dict(os.environ)

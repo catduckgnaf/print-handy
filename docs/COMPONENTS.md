@@ -7,8 +7,7 @@ Print Handy ships third-party software in its container image and Compose file. 
 | Component | Pin | Where | Verification |
 | --- | --- | --- | --- |
 | Base image | `debian:13-slim` (moving tag, rebuilt per release) | `Dockerfile` | Release image is inventoried by SBOM (below) |
-| OrcaSlicer (stable channel) | `2.5.0-beta`, revision `345efec6…` | `docker/orca-prebuilt.sh` | SHA256 per architecture checked before extraction |
-| OrcaSlicer (preview channel) | `2.5.0-rc`, revision `af2ffb8c…` | `docker/orca-prebuilt.sh` | SHA256 per architecture checked before extraction |
+| OrcaSlicer | `2.5.0-rc`, revision `af2ffb8c…` | `docker/orca-prebuilt.sh` | SHA256 per architecture checked before extraction |
 | go2rtc | `1.9.15`, revision `7c05066` | `docker/go2rtc-prebuilt.sh` | SHA256 per architecture checked before install |
 | BambuStudio | commit `926a7192…` (`BAMBU_REF`) | `Dockerfile` | Build fails unless `git rev-parse HEAD` equals the ref |
 | Spoolman | commit `bed3f14e…` (`SPOOLMAN_REF`) | `Dockerfile` | Build fails unless the checked-out commit equals the ref; `uv sync --locked` |

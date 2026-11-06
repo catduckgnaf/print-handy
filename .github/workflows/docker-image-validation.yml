@@ -58,12 +58,12 @@ jobs:
         id: pins
         run: |
           set -euo pipefail
-          # Orca is prebuilt-only: docker/orca-prebuilt.sh is the single pin source for both
-          # channels. The source revision is per channel (2); the SHA256 and asset
-          # name are per architecture (2 channels x 2 architectures = 4 each).
-          [ "$(grep -cE 'revision=[0-9a-f]{40}' docker/orca-prebuilt.sh)" = 2 ] || { echo "expected two pinned Orca revisions"; exit 1; }
-          [ "$(grep -cE 'sha256_(amd64|arm64)=[0-9a-f]{64}' docker/orca-prebuilt.sh)" = 4 ] || { echo "expected four pinned Orca SHA256 digests (two channels x two architectures)"; exit 1; }
-          [ "$(grep -cE 'asset_(amd64|arm64)=' docker/orca-prebuilt.sh)" = 4 ] || { echo "expected four pinned Orca assets (two channels x two architectures)"; exit 1; }
+          # Orca is prebuilt-only: docker/orca-prebuilt.sh is the single pin source for the
+          # one bundled build. The source revision is one pin; the SHA256 and asset
+          # name are per architecture (2 each).
+          [ "$(grep -cE 'revision=[0-9a-f]{40}' docker/orca-prebuilt.sh)" = 1 ] || { echo "expected one pinned Orca revision"; exit 1; }
+          [ "$(grep -cE 'sha256_(amd64|arm64)=[0-9a-f]{64}' docker/orca-prebuilt.sh)" = 2 ] || { echo "expected two pinned Orca SHA256 digests (one build x two architectures)"; exit 1; }
+          [ "$(grep -cE 'asset_(amd64|arm64)=' docker/orca-prebuilt.sh)" = 2 ] || { echo "expected two pinned Orca assets (one build x two architectures)"; exit 1; }
           mkdir -p evidence
           { echo "source_sha=$GITHUB_SHA"; grep -E 'version=|revision=|sha256_|asset_' docker/orca-prebuilt.sh
             echo "app_channel=$APP_CHANNEL architecture=$ARCHITECTURE platform=$PLATFORM with_orca=$WITH_ORCA with_go2rtc=$WITH_GO2RTC with_bambu=$WITH_BAMBU spoolman=$SPOOLMAN_MODE"
@@ -89,12 +89,12 @@ jobs:
           { echo "build_start=$start"; echo "build_end=$(date -u +%FT%TZ)"
             echo "image_id=$(docker image inspect --format '{{.Id}}' "$IMAGE")"
             docker image inspect --format 'platform={{.Os}}/{{.Architecture}} size={{.Size}}' "$IMAGE"
-            docker run --rm --entrypoint sh "$IMAGE" -c 'cat /orca-stable-build-info 2>/dev/null || echo orca-stable=absent; cat /orca-preview-build-info 2>/dev/null || echo orca-preview=absent; cat /bambu-build-info 2>/dev/null || echo bambu=absent'
+            docker run --rm --entrypoint sh "$IMAGE" -c 'cat /orca-stable-build-info 2>/dev/null || echo orca-stable=absent; cat /bambu-build-info 2>/dev/null || echo bambu=absent'
           } | tee evidence/identity.txt
-      - name: Headless slice with each bundled Orca channel
+      - name: Headless slice with the bundled Orca
         run: |
           set -euo pipefail
-          for channel in stable preview; do
+          for channel in stable; do
             docker run --rm --network none --cpus 2 --memory 4g --pids-limit 256 \
               --cap-drop ALL --security-opt no-new-privileges:true \
               --tmpfs /data:uid=1000,gid=1000,size=512m \

@@ -35,23 +35,23 @@ if [[ "$tz" == *[!A-Za-z0-9._+/-]* || "$tz" == */../* || "$tz" == ../* || ! -f "
 fi
 export TZ="$tz"
 channel="${PRINT_HANDY_ORCA_CHANNEL:-stable}"
-# 'alpha' was the preview channel's name until #600 renamed it to describe the
-# role instead of the upstream stage. It stays an accepted alias for at least
-# one release, with a startup notice; installs should switch to 'preview'.
-if [ "$channel" = alpha ]; then
-    echo "PRINT_HANDY_ORCA_CHANNEL=alpha is the old name for the 'preview' channel; it still works in this release but will be removed in a later one - set PRINT_HANDY_ORCA_CHANNEL=preview instead." >&2
-    channel=preview
+# Print Handy ships ONE bundled OrcaSlicer (the stable build); there is no
+# second channel to select. 'preview' was the second channel's name (and
+# 'alpha' its name before the #600 rename); the preview channel was removed,
+# so both old values still start on the single build, with a startup notice
+# (the #600 alias precedent: a removed channel must not break an existing
+# install's startup). Installs should drop the setting or set it to 'stable'.
+if [ "$channel" = preview ] || [ "$channel" = alpha ]; then
+    echo "PRINT_HANDY_ORCA_CHANNEL=$channel: the preview channel was removed - Print Handy now ships one bundled OrcaSlicer, so this install starts on the single (stable) build. The setting can be dropped, or set to PRINT_HANDY_ORCA_CHANNEL=stable." >&2
+    channel=stable
 fi
 export PRINT_HANDY_ORCA_CHANNEL="$channel"
 case "$channel" in
     stable)
         selected=/usr/local/bin/orca-slicer-stable
         ;;
-    preview)
-        selected=/usr/local/bin/orca-slicer-preview
-        ;;
     *)
-        echo "PRINT_HANDY_ORCA_CHANNEL must be 'stable' or 'preview'; got '$channel'" >&2
+        echo "PRINT_HANDY_ORCA_CHANNEL must be 'stable'; got '$channel' (the preview channel was removed - 'preview' and 'alpha' start on the single stable build)" >&2
         exit 2
         ;;
 esac

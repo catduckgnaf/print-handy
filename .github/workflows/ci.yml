@@ -15,11 +15,11 @@ defaults:
     shell: bash
 
 # The one place CI pins the real OrcaSlicer the slicer legs run (scripts/install-orca-flatpak.sh reads
-# these). ORCA_BUNDLE_VERSION is the build docker/orca-prebuilt.sh ships on the stable channel;
+# these). ORCA_BUNDLE_VERSION is the one build docker/orca-prebuilt.sh ships (the stable channel);
 # tests/test_orca_pins.py fails when the two disagree or a pin is copied into a job.
 env:
-  ORCA_BUNDLE_VERSION: 2.5.0-beta
-  ORCA_BUNDLE_SHA256: 2d2f6979a3379d5fe77c62bbdff0ea36ec415ef43c9557e118ed45b95d39de03
+  ORCA_BUNDLE_VERSION: 2.5.0-rc
+  ORCA_BUNDLE_SHA256: f0140100eb3d26d021b68347da9d5ce8536fe78d3e839d6abd83f40b27457175
   ORCA_RUNTIME_REF: runtime/org.gnome.Platform/x86_64/50
   # Flathub ostree commit of that runtime (Build of the GNOME Runtime from 50.6-18-g0ed65ce92,
   # 2026-10-28), recorded from `flatpak remote-info flathub runtime/org.gnome.Platform/x86_64/50`.
@@ -387,58 +387,6 @@ jobs:
     steps:
       - name: All stable slicer shards passed
         run: test "${{ needs.slicer-test-stable.result }}" = success
-
-  slicer-test-preview:
-    name: Slicer test (preview)
-    # The preview channel pins the newest upstream prerelease, ahead of
-    # production: the job-level bundle pins below override the workflow-level
-    # (stable channel) ones for this job only, so this leg installs the
-    # preview channel's build (docker/orca-prebuilt.sh) through the same
-    # installer script and runs a fast subset as the ahead-of-production
-    # smoke track. The bundle SHA256 is the upstream release asset digest of
-    # that build's x86_64 flatpak. When the channels converge again, drop the
-    # overrides. Job names describe the channel's role, not the upstream
-    # stage (#600).
-    # Flatpak plus xvfb requires a full system session and display; kept on the host runner after
-    # Debian 13 container attempts failed during actual slicer startup.
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    env:
-      ORCA_FLATPAK_APP_ID: com.orcaslicer.OrcaSlicer
-      # The preview channel's bundle pins (see the job comment above): the
-      # installer and the cache key read these from the environment, so this
-      # job caches and installs its own channel's build, not stable's.
-      ORCA_BUNDLE_VERSION: 2.5.0-rc
-      ORCA_BUNDLE_SHA256: f0140100eb3d26d021b68347da9d5ce8536fe78d3e839d6abd83f40b27457175
-      PRINT_HANDY_REAL_SLICER: "1"
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: requirements-test.txt
-      - run: python -m pip install -r requirements-test.txt
-      - name: Install flatpak and xvfb
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q flatpak xvfb
-      - name: Cache the pinned OrcaSlicer bundle and runtime
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cache/orcaslicer-v${{ env.ORCA_BUNDLE_VERSION }}.flatpak
-            ~/.local/share/flatpak
-          key: orcaslicer-flatpak-v${{ env.ORCA_BUNDLE_VERSION }}-${{ env.ORCA_RUNTIME_COMMIT }}-${{ runner.os }}-x86_64
-      - name: Install the pinned OrcaSlicer bundle and GNOME runtime
-        run: sh scripts/install-orca-flatpak.sh
-      - name: Run slicer tests (pinned Orca)
-        run: xvfb-run -a python -m pytest -v -s tests/slicer
-      - name: Run representative Discord fixtures (pinned Orca)
-        run: >-
-          xvfb-run -a python -m pytest -v -s
-          tests/corpus/test_corpus.py::test_discord_flow[single-part]
-          tests/corpus/test_corpus.py::test_discord_flow[plates-multicolor]
 
   slicer-test-bambu:
     name: Slicer test (bambu)

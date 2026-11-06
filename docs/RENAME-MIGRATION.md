@@ -45,6 +45,7 @@ The bundled OrcaSlicer channels are named for their role, not for the upstream r
 - If you set `PRINT_HANDY_ORCA_CHANNEL=alpha`, change it to `PRINT_HANDY_ORCA_CHANNEL=preview` when convenient. Nothing breaks today: `alpha` is still accepted as an alias for `preview` and the container prints a startup notice saying so, but the alias will be removed in a later release.
 - The on-disk names follow the channel: the wrapper is `/usr/local/bin/orca-slicer-preview`, the install tree is `/opt/orca-preview`, and the build record is `/orca-preview-build-info` (its `channel=` field reads `preview`; the exact pinned OrcaSlicer build is unchanged).
 - The CI jobs were renamed to match: "Slicer test (stable)", "Slicer test (preview)" and "Slicer test (bambu)". This only affects contributors; branch protection on `main` requires "Slicer test (stable)" in place of the old `real-slicer` check.
+- **Superseded by the single-Orca change:** Print Handy now ships one bundled OrcaSlicer and the preview channel itself was removed. `PRINT_HANDY_ORCA_CHANNEL=preview` and `=alpha` both start on the single stable build with a startup notice saying the preview channel was removed and the setting can be dropped; the only on-disk names are the stable ones (`/usr/local/bin/orca-slicer-stable`, `/opt/orca-stable`, `/orca-stable-build-info`), and the "Slicer test (preview)" CI job is gone.
 
 ## Printer (AD5X, ZMod)
 
