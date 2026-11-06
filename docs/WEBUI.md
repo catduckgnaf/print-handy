@@ -7,7 +7,7 @@ The Web UI is an optional local page for two jobs:
 - **Status:** whether Print Handy, its bot, printer listener and Spoolman are up, plus the doctor checks.
 - **Configuration:** a picker-based editor for the catalogued settings in the same YAML settings file Print Handy already loads.
 
-It is **off by default**. While `[webui] enabled` is false, or no port has been chosen, the standalone server does not start and nothing listens. In the combined Docker container, the supervisor likewise starts no Web UI child in that state.
+It is **off by default**. While `[webui] enabled` is false, or no port has been chosen, the standalone server does not start and nothing listens. In the combined Docker container, the supervisor likewise starts no Web UI child in that state. For access setup, continue to [First-run setup](#first-run-setup).
 
 The YAML file remains the only source of truth. The Web UI does not keep a second copy of the configuration: its status comes from the effective settings, and a confirmed configuration save writes only the settings-file layer — the file named by `PRINT_HANDY_CONFIG`, or `config/local.yaml` when no file is named. See [YAML configuration](CONFIGURATION-YAML.md) for the full precedence order.
 
@@ -138,6 +138,12 @@ With a token set, the link lands on the login page, where the token signs the br
 The published Community Applications template is separate from the in-repo template and follows the normal release-time sync; do not treat this guide as proof that a published template has already picked up a source change.
 
 ## First-run setup
+
+1. Enable the Web UI and choose an available port in the settings or deployment template.
+2. Open its local address. On first visit, set a password or explicitly choose LAN access without one.
+3. Use the status page to review service health; use Configuration to edit supported settings.
+
+The UI does not start prints. Printer control endpoints are a separate opt-in described below.
 
 A Web UI on a non-loopback bind with no access token, no `require_auth = false`, and no saved choice starts in setup mode (#708). Until a choice is made it serves only `/setup` (and `/healthz` for the container healthcheck): page visits redirect there, and API requests answer `503` with `first-run setup is not finished`. The setup page offers two forms:
 

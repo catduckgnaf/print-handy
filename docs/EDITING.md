@@ -1,5 +1,7 @@
 # Editing a prepared model from chat
 
+This guide describes confirmed model-edit operations. OrcaSlicer post-slice warning detection and its support question are separate behavior; see [Slicer warnings](SLICER-WARNINGS.md).
+
 After a model has been prepared in a channel, you can change the job in
 chat instead of starting over. Every change — typed, tapped or proposed
 by the AI lane — becomes one typed **edit plan** that is confirmed,

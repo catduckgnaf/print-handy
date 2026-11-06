@@ -25,15 +25,7 @@ and in what order.
 Recommendation: run ZMod screenless (`display_off=1`) and use HelixScreen,
 Fluidd or Mainsail as the local interface.
 
-> **Printing from chat screenless (2.2.0).** HelixScreen setups are
-> screenless too: HelixScreen runs on screenless ZMod. Print Handy starts a
-> screenless print the same way ZMod's own print-file macro does on the AD5X,
-> with one `SET_ZCOLOR` call, and checks it from Klipper alone: idle state and
-> heater targets from Moonraker, slot material and color from `zmod_color`,
-> and slot presence from `zmod_color`'s `hasFilament` (the stock firmware's
-> API does not answer screenless). This route is offline-tested only; the
-> first screenless print from chat is its live check. Report what you see on
-> the issue tracker.
+> **Printing from chat screenless.** HelixScreen setups are screenless too. Print Handy starts a screenless print the same way ZMod's own print-file macro does on the AD5X, with one `SET_ZCOLOR` call, and checks it from Klipper alone: idle state and heater targets from Moonraker, slot material and color from `zmod_color`, and slot presence from `zmod_color`'s `hasFilament` (the stock firmware's API does not answer screenless). Issues #842 and #843 were closed after the first live screenless print was reported. That is user-reported hardware evidence, not a general verification claim for every AD5X setup.
 
 Why it works better with Print Handy:
 
