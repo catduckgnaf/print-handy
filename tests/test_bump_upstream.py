@@ -47,7 +47,9 @@ def fixture_root(base):
     A trailing .txt on a fixture name is stripped on the way out: the
     guard-test excerpt is a fragment of a Python file, stored as
     .py.txt so neither the whole-tree linter nor test collection
-    mistakes the fragment for a module."""
+    mistakes the fragment for a module, and the copied HMS table is
+    stored as .json.txt so repo-wide shipped-file scans never see
+    its production name."""
     import shutil
 
     root = Path(base)
