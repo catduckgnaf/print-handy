@@ -100,7 +100,29 @@ RUN git init . && git remote add origin https://github.com/Donkie/Spoolman.git &
     test "$(git rev-parse HEAD)" = "$SPOOLMAN_REF" && \
     /opt/uv/bin/uv sync --locked --no-dev --python /usr/bin/python3 && \
     rm -rf .git client client_v2 && mkdir -p client_v2/build && \
-    printf '%s\n' 'Spoolman is managed by Print Handy; use /api/v1.' > client_v2/build/200.html && \
+    printf '%s\n' \
+        '<!DOCTYPE html>' \
+        '<html lang="en">' \
+        '<head>' \
+        '<meta charset="utf-8">' \
+        '<title>Spoolman is managed by Print Handy</title>' \
+        '</head>' \
+        '<body>' \
+        '<h1>Spoolman is managed by Print Handy</h1>' \
+        '<p>This address serves the bundled Spoolman API only. The bundled Spoolman has no web UI and is API-only; Print Handy is its interface.</p>' \
+        '<p>The Spoolman API is available under <a href="/api/v1">/api/v1</a>.</p>' \
+        '<p>To view and manage spools, open the Print Handy Web UI Spools page: <a id="spools-link" href="#">Web UI Spools page</a>.</p>' \
+        '<p id="spools-url">The Web UI Spools page is on the same host as this page, on the Web UI port (default 8088), at the path /spools: use the same protocol and host as this page, with port 8088 and path /spools (for example http://HOST:8088/spools, replacing HOST with the host used for this page).</p>' \
+        '<p>The Web UI must be enabled for that link to work, and it may use a different port; if it does, use that port instead of 8088.</p>' \
+        '<script>' \
+        'var spoolsUrl = location.protocol + "//" + location.hostname + ":8088/spools";' \
+        'var spoolsLink = document.getElementById("spools-link");' \
+        'spoolsLink.href = spoolsUrl;' \
+        'spoolsLink.textContent = spoolsUrl;' \
+        'document.getElementById("spools-url").textContent = "Web UI Spools page: " + spoolsUrl;' \
+        '</script>' \
+        '</body>' \
+        '</html>' > client_v2/build/200.html && \
     printf '%s\n' "$SPOOLMAN_REF" > source-revision
 FROM debian:13-slim AS runtime
 ARG WITH_GO2RTC=true
