@@ -3907,6 +3907,24 @@ def require_current_artifact(job, gcode):
         # The operator chose supports but an artifact was sliced without them: never print it.
         raise RuntimeError('supports were chosen but ' + ', '.join(unsupported)
                            + ' was sliced without them; re-slice before printing. Nothing uploaded or started.')
+    from . import support_clearance
+    clearance = job.get('support_clearance')
+    if clearance is None and job.get('downloaded_file'):
+        clearance = support_clearance.safe_analyze(job.get('downloaded_file'))
+    if support_clearance.risky(clearance):
+        ack = job.get('clearance_acknowledgement') or {}
+        src_path = job.get('downloaded_file')
+        src_sha = file_sha256(src_path) if src_path and Path(src_path).is_file() else None
+        binding = job.get('artifact_binding') or {}
+        rec_sha = binding.get('recipe_sha256')
+        gc_path = gcode or job.get('gcode')
+        gc_sha = file_sha256(gc_path) if gc_path and Path(gc_path).is_file() else None
+        if not (ack.get('acknowledged')
+                and (src_sha is None or ack.get('source_sha256') == src_sha)
+                and (rec_sha is None or ack.get('recipe_sha256') == rec_sha)
+                and (gc_sha is None or ack.get('gcode_sha256') == gc_sha)):
+            desc = '; '.join(support_clearance.describe(clearance)[:2]) or 'insufficient support clearance'
+            raise RuntimeError(f'insufficient support clearance: {desc}; choose a geometry repair or confirm print anyway. Nothing uploaded or started.')
     binding = job.get('artifact_binding')
     if binding is None and not job.get('color_decisions'):
         return  # Preserve legacy jobs without source-color decisions.

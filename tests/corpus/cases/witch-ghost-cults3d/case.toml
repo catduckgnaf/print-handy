@@ -37,16 +37,12 @@ question = "How many copies"
 button = "One copy"
 
 [[click]]
-question = "will not print cleanly without supports"
-button = "Print without supports"
-
-[[click]]
 question = "·"
-button = "Slice and print"
+button = "Slice and print without supports"
 
 [expect]
-# Orca reports floating regions here; the operator answered "Print without supports".
-prompts = ["will not print cleanly without supports"]
+# Orca reports floating regions here; the operator answered "Slice and print without supports" before bed-clear.
+prompts = ["floating regions found"]
 status = "STARTED"
 parts = ["body", "hat", "band", "gold", "ink", "blush"]
 gcodes = 1

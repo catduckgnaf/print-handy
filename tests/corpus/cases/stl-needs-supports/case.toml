@@ -11,12 +11,8 @@ question = "How many copies"
 button = "One copy"
 
 [[click]]
-question = "will not print cleanly without supports"
-button = "Re-slice with supports"
-
-[[click]]
 question = "·"
-button = "Slice and print"
+button = "Slice and print with supports"
 
 [expect]
 status = "STARTED"
@@ -24,9 +20,9 @@ source_kind = ".stl"
 source_size_mm = [60, 30, 40]
 gcodes = 1
 scale = 1.0
-# The operator chose "Re-slice with supports" on the slicer warning question.
+# The operator chose "Slice and print with supports" on the pre-slice summary.
 supports = true
-prompts = ["will not print cleanly without supports"]
+prompts = ["floating regions found"]
 slots = 1
 
 [model]

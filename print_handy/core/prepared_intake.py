@@ -2057,6 +2057,36 @@ async def _fetch_parts(adapter, source, key, metadata, timeout, job, parts, fold
     return Path(combined['path'])
 
 
+def _variant_estimate_str(job_data, result):
+    if not result or not job_data:
+        return 'slicing...'
+    try:
+        from print_handy.hermes import discord_print_summary as dps
+        plates = dps.plate_estimates(job_data)
+        if plates:
+            secs = sum(p['seconds'] for p in plates if p.get('seconds') is not None)
+            grams = sum(p['filament_g'] for p in plates if p.get('filament_g') is not None)
+            parts = []
+            if secs:
+                parts.append(f"~{dps.human(secs)} printing")
+            if grams:
+                parts.append(f"~{grams:g} g filament")
+            if parts:
+                return ', '.join(parts)
+    except Exception:
+        pass
+    if result and Path(result[0]).is_file():
+        try:
+            from print_handy.core import model_job as mj
+            text = Path(result[0]).read_text()
+            sec = mj.gcode_estimate_s(text)
+            if sec:
+                return f"~{mj.human_dur(sec)} printing"
+        except Exception:
+            pass
+    return 'slicing...'
+
+
 async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
                        before_start=None):
     from . import model_job as mj
@@ -2201,6 +2231,10 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             manifest.update(source_sha256=await asyncio.to_thread(mj.file_sha256, path))
         job['color_manifest'] = manifest
         job['color_schema'] = 'part_slots_v1'
+        from . import support_clearance
+        clearance_rep = await asyncio.to_thread(support_clearance.safe_analyze, path)
+        if clearance_rep:
+            job['support_clearance'] = clearance_rep
         mj.stamp_job_printer(job, printer_id)  # a new job learns its printer at creation (#334); the intake channel's printer wins (#335)
         jp = folder / 'JOB.json'
         mj.write_job(folder, job)
@@ -2889,8 +2923,8 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         early = runner_for(jp)
         binding = slice_binding(latest, decisions['source_sha256'])
         recipe_sha = binding_sha256(binding)  # the worker refuses to slice any other recipe
-        await early.start(jp, binding, lambda job_path, work, runner, copies=chosen_quantity:
-                          _heavy(mj.slice_job, str(job_path), recipe_sha256=recipe_sha, **(
+        await early.start(jp, binding, lambda job_path, work, runner, copies=chosen_quantity, **kwargs:
+                          _heavy(mj.slice_job, str(job_path), recipe_sha256=kwargs.get('recipe_sha256', recipe_sha), **(
                               {'copies': copies} if copies and int(copies) > 1 else {})))
         await early.started.wait()  # armed before the question goes up
         multi = len(manifest['parts']) > 1
@@ -2917,7 +2951,6 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         # (for Bambu Lab that means the LAN print opt-in; it is never a default there).
         enabled = delivery.methods()
         can_print = delivery.PRINTER in enabled
-        first_labels = [print_label, 'Slice only', SCALE_LABEL, cancel_label][0 if can_print else 1:]
         # 'Scale the model' repeats this question at the new size: the scale is
         # recorded, the background slice restarts for it while the question is
         # on screen, and the operator can say the bed is clear without waiting
@@ -2925,7 +2958,87 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         # bed — and a refused size offers the biggest size that does fit.
         choice = None
         scale_note = ''
+        supports_choice = None
+        clearance_ack_pending = False
+        # The Ready question is composed from the finished first slice: the
+        # with-supports offer (and the reason shown for it) depends on that
+        # slice's warnings, so a free-running slice is waited out in full.
+        # A capped wait made the offer timing-dependent — a real Orca slice
+        # slower than the cap composed the question without the slicer's
+        # floating-regions finding. A slice a test holds back (release
+        # cleared) is not waited on: it starts when the flow asks to wait
+        # for it after the question, as before.
+        if (
+            early.running()
+            and hasattr(early, 'first_slice_done')
+            and not early.first_slice_done.is_set()
+            and getattr(early, 'release', None) is not None
+            and early.release.is_set()
+        ):
+            await early.first_slice_done.wait()
         while choice is None:
+            from . import support_clearance, modeled_supports
+            clearance = latest.get('support_clearance')
+            if clearance is None and early.clearance:
+                clearance = early.clearance
+            is_flagged = bool(early.flagged or early.finding or support_clearance.risky(clearance))
+
+            if is_flagged:
+                reasons = []
+                if early.finding:
+                    reasons.append('floating regions found')
+                if support_clearance.risky(clearance):
+                    reasons.append('low clearance underside found')
+                rec_reason = ', '.join(reasons) or 'floating regions found'
+                sup_est = _variant_estimate_str(early.job_with_supports, early.supports_result)
+                nosup_est = _variant_estimate_str(early.job_no_supports, early.result)
+                flag_lines = [
+                    f"- Slice and print with supports (recommended: {rec_reason}): {sup_est}",
+                    f"- Slice and print without supports: {nosup_est}",
+                ]
+                modeled = modeled_supports.safe_describe(path)
+                if modeled:
+                    flag_lines.extend(modeled)
+                if clearance:
+                    cdesc = support_clearance.describe(clearance)
+                    if cdesc:
+                        flag_lines.extend(cdesc)
+                summary_extra = '\n' + '\n'.join(flag_lines)
+
+                sup_label = 'Slice and print with supports (bed is clear)' if can_print else 'Slice with supports'
+                nosup_label = 'Slice and print without supports (bed is clear)' if can_print else 'Slice without supports'
+
+                fix_actions = []
+                if clearance and support_clearance.risky(clearance):
+                    for f in clearance.get('findings') or []:
+                        for fix in f.get('fixes') or []:
+                            if fix.get('fix') == 'extend_underside' and not any(a['kind'] == 'extend' for a in fix_actions):
+                                fix_actions.append({'kind': 'extend', 'label': 'Extend underside to plate', 'finding': f})
+                            elif fix.get('fix') == 'sink' and not any(a['kind'] == 'sink' for a in fix_actions):
+                                fix_actions.append({'kind': 'sink', 'label': 'Flatten (sink) to plate', 'finding': f})
+
+                menu_options = [
+                    {'kind': 'sup', 'label': sup_label},
+                    {'kind': 'nosup', 'label': nosup_label},
+                ]
+                for act in fix_actions:
+                    menu_options.append(act)
+                menu_options.append({'kind': 'slice_only', 'label': 'Slice only'})
+                menu_options.append({'kind': 'scale', 'label': SCALE_LABEL})
+                menu_options.append({'kind': 'cancel', 'label': cancel_label})
+                first_labels = [opt['label'] for opt in menu_options]
+            else:
+                summary_extra = ''
+                menu_options = [
+                    {'kind': 'print', 'label': print_label},
+                    {'kind': 'slice_only', 'label': 'Slice only'},
+                    {'kind': 'scale', 'label': SCALE_LABEL},
+                    {'kind': 'cancel', 'label': cancel_label},
+                ]
+                if not can_print:
+                    menu_options = menu_options[1:]
+                first_labels = [opt['label'] for opt in menu_options]
+
             spool_text = await _spool_projection_text(mj, latest, manifest, state, chosen_quantity)
             if color_text:
                 spool_text = (spool_text + '\n' + color_text) if spool_text else color_text
@@ -2936,14 +3049,120 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                 estimate_text = ' · '.join(x for x in (f"{chosen_quantity} copies", estimate_text) if x)
             picked = await _ask(adapter, source, key,
                 ' · '.join(x for x in ('Ready to slice', names, estimate_text) if x)
+                + summary_extra
                 + ('\n' + spool_text if spool_text else '')
                 + ('\n' + scale_note if scale_note else '') + caveat,
                 first_labels, timeout,
                 on_shown=early.release.set, approval=True)
-            picked = picked if can_print else picked + 1
-            if picked != 2:
-                choice = picked
-                break
+
+            if is_flagged:
+                opt = menu_options[picked]
+                if opt['kind'] == 'sup':
+                    supports_choice = True
+                    choice = 0 if can_print else 1  # no print delivery: the slice-only path
+                    # JOB.json must be stable before the decision is recorded:
+                    # a still-running speculative slice rewrites it and would
+                    # clobber the decision (see BackgroundSlice.settle).
+                    if hasattr(early, 'settle'):
+                        await early.settle()
+                    mj.record_support_decision(folder, True)
+                    if clearance and support_clearance.risky(clearance):
+                        # Recorded after the selected variant is installed
+                        # (below), so the acknowledgement binds its hashes.
+                        clearance_ack_pending = True
+                    latest = json.loads(jp.read_text())
+                    binding = early.supports_binding or slice_binding(latest, decisions['source_sha256'])
+                    recipe_sha = binding_sha256(binding)
+                    break
+                elif opt['kind'] == 'nosup':
+                    supports_choice = False
+                    choice = 0 if can_print else 1  # no print delivery: the slice-only path
+                    if hasattr(early, 'settle'):
+                        await early.settle()
+                    mj.record_support_decision(folder, False)
+                    if clearance and support_clearance.risky(clearance):
+                        clearance_ack_pending = True
+                    latest = json.loads(jp.read_text())
+                    binding = slice_binding(latest, decisions['source_sha256'])
+                    recipe_sha = binding_sha256(binding)
+                    break
+                elif opt['kind'] == 'extend':
+                    f = opt['finding']
+                    # Stop the background slices before touching the source or
+                    # JOB.json: a running slice reads the source, and the
+                    # speculative slice's restore would clobber the repair's
+                    # manifest/clearance updates written below.
+                    await early.discard()
+                    res = support_clearance.extend_underside(path, gap_mm=f['clearance_mm']['min'])
+                    await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                       content=f"Extended underside to touch build plate ({res['modified_vertices']} vertices adjusted). Re-analyzing...")
+                    new_sha = mj.file_sha256(path)
+                    decisions['source_sha256'] = new_sha
+                    manifest['source_sha256'] = new_sha
+                    latest['color_manifest'] = manifest
+                    clearance_rep = support_clearance.safe_analyze(path)
+                    latest['support_clearance'] = clearance_rep
+                    early.clearance = clearance_rep
+                    # The repair changed the source bytes: rebind the saved
+                    # color decisions to the repaired source, or the restarted
+                    # slice refuses them for binding the old SHA256.
+                    validated = validate_decisions(manifest, decisions, state, mj.resolve_filament_selection)
+                    mj.set_color_decisions(latest, validated)
+                    mj.write_job(folder, latest)
+                    binding = slice_binding(latest, new_sha)
+                    recipe_sha = binding_sha256(binding)
+                    await early.start(jp, binding, lambda job_path, work, runner, copies=chosen_quantity, **kwargs:
+                                      _heavy(mj.slice_job, str(job_path), recipe_sha256=kwargs.get('recipe_sha256', recipe_sha), **(
+                                          {'copies': copies} if copies and int(copies) > 1 else {})))
+                    await early.started.wait()
+                    if (early.running() and not early.first_slice_done.is_set()
+                            and getattr(early, 'release', None) is not None
+                            and early.release.is_set()):
+                        await early.first_slice_done.wait()
+                    continue
+                elif opt['kind'] == 'sink':
+                    f = opt['finding']
+                    await early.discard()  # see the extend action above
+                    res = support_clearance.sink_model(path, dz=f['clearance_mm']['max'])
+                    await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                       content=f"Flattened model to plate by sinking {res['sink_mm']} mm. Re-analyzing...")
+                    new_sha = mj.file_sha256(path)
+                    decisions['source_sha256'] = new_sha
+                    manifest['source_sha256'] = new_sha
+                    latest['color_manifest'] = manifest
+                    clearance_rep = support_clearance.safe_analyze(path)
+                    latest['support_clearance'] = clearance_rep
+                    early.clearance = clearance_rep
+                    # The repair changed the source bytes: rebind the saved
+                    # color decisions to the repaired source, or the restarted
+                    # slice refuses them for binding the old SHA256.
+                    validated = validate_decisions(manifest, decisions, state, mj.resolve_filament_selection)
+                    mj.set_color_decisions(latest, validated)
+                    mj.write_job(folder, latest)
+                    binding = slice_binding(latest, new_sha)
+                    recipe_sha = binding_sha256(binding)
+                    await early.start(jp, binding, lambda job_path, work, runner, copies=chosen_quantity, **kwargs:
+                                      _heavy(mj.slice_job, str(job_path), recipe_sha256=kwargs.get('recipe_sha256', recipe_sha), **(
+                                          {'copies': copies} if copies and int(copies) > 1 else {})))
+                    await early.started.wait()
+                    if (early.running() and not early.first_slice_done.is_set()
+                            and getattr(early, 'release', None) is not None
+                            and early.release.is_set()):
+                        await early.first_slice_done.wait()
+                    continue
+                elif opt['kind'] == 'slice_only':
+                    choice = 1
+                    break
+                elif opt['kind'] == 'cancel':
+                    choice = 3
+                    break
+                elif opt['kind'] == 'scale':
+                    pass  # drops through to scaling direction question
+            else:
+                picked = picked if can_print else picked + 1
+                if picked != 2:
+                    choice = picked
+                    break
             direction = await _ask(adapter, source, key,
                                     'Scale the model bigger or smaller?',
                                     ['Bigger', 'Smaller', 'Cancel scaling'], timeout,
@@ -3053,8 +3272,8 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                           + ((' ' + ' '.join(notes)) if notes else ''))
             binding = slice_binding(latest, decisions['source_sha256'])
             recipe_sha = binding_sha256(binding)  # the worker refuses to slice any other recipe
-            await early.start(jp, binding, lambda job_path, work, runner, copies=chosen_quantity:
-                              _heavy(mj.slice_job, str(job_path), recipe_sha256=recipe_sha, **(
+            await early.start(jp, binding, lambda job_path, work, runner, copies=chosen_quantity, **kwargs:
+                              _heavy(mj.slice_job, str(job_path), recipe_sha256=kwargs.get('recipe_sha256', recipe_sha), **(
                                   {'copies': copies} if copies and int(copies) > 1 else {})))
             await early.started.wait()  # armed before the repeated question goes up
         if choice == 3:
@@ -3065,6 +3284,11 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                                content='Cancelled. Nothing was sliced, uploaded, or started.',
                                metadata=metadata)
             return {'action': 'skip', 'reason': 'operator cancelled print request'}
+        if is_flagged and hasattr(early, 'settle'):
+            # A flagged menu answered with Slice only reaches this guard with
+            # no recorded decision to settle for; the speculative slice must
+            # still be finished before JOB.json is compared to the binding.
+            await early.settle()
         latest = json.loads(jp.read_text())
         if (latest.get('intake_id') != iid or latest.get('color_decisions') != validated
                 or mj.file_sha256(latest['downloaded_file']) != decisions['source_sha256']
@@ -3080,28 +3304,52 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         mj._timing(jp, 'intake_slice_requested')
         prep_sent = False  # one combined Preparing + Uploading message after slicing, with the real estimate
         try:
-            if early.running():
-                # Still slicing: the wait goes through the same progress/Stop
-                # flow as a foreground slice (P2-58). A bare take() here gave
-                # the potentially longest wait of the intake no progress and
-                # a Stop button that did nothing.
-                out = await _with_stop(adapter, source, key, metadata,
-                                       "Waiting for the background slice to finish. Press Stop to cancel.",
-                                       _await_background_slice(early, binding),
-                                       allow_stop=True)
-            else:
-                out = await early.take(binding)  # finished while the question was up
-            if out is None and early.error is not None:
-                raise early.error
-            if out is None:
-                if chosen_quantity and chosen_quantity > 1:
-                    out = await _with_stop(adapter, source, key, metadata, "Slicing. Press Stop to cancel.",
-                                           _heavy(mj.slice_job, str(jp), copies=chosen_quantity, recipe_sha256=recipe_sha),
-                                           allow_stop=True)  # nothing uploaded yet, so Stop is safe
-                else:
-                    out = await _with_stop(adapter, source, key, metadata, "Slicing. Press Stop to cancel.",
-                                           _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha),
+            if supports_choice is True:
+                out = await early.take_supports()
+                if out is None and early.supports_error is not None:
+                    raise early.supports_error
+                if out is None:
+                    latest = json.loads(jp.read_text())
+                    binding = slice_binding(latest, decisions['source_sha256'])
+                    recipe_sha = binding_sha256(binding)
+                    out = await _with_stop(adapter, source, key, metadata,
+                                           "Slicing with supports. Press Stop to cancel.",
+                                           _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha, **(
+                                               {'copies': chosen_quantity} if chosen_quantity and chosen_quantity > 1 else {})),
                                            allow_stop=True)
+            elif supports_choice is False:
+                out = await early.take_no_supports()
+                if out is None and early.error is not None:
+                    raise early.error
+                if out is None:
+                    out = await _with_stop(adapter, source, key, metadata,
+                                           "Slicing. Press Stop to cancel.",
+                                           _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha, **(
+                                               {'copies': chosen_quantity} if chosen_quantity and chosen_quantity > 1 else {})),
+                                           allow_stop=True)
+            else:
+                if early.running():
+                    # Still slicing: the wait goes through the same progress/Stop
+                    # flow as a foreground slice (P2-58). A bare take() here gave
+                    # the potentially longest wait of the intake no progress and
+                    # a Stop button that did nothing.
+                    out = await _with_stop(adapter, source, key, metadata,
+                                           "Waiting for the background slice to finish. Press Stop to cancel.",
+                                           _await_background_slice(early, binding),
+                                           allow_stop=True)
+                else:
+                    out = await early.take(binding)  # finished while the question was up
+                if out is None and early.error is not None:
+                    raise early.error
+                if out is None:
+                    if chosen_quantity and chosen_quantity > 1:
+                        out = await _with_stop(adapter, source, key, metadata, "Slicing. Press Stop to cancel.",
+                                               _heavy(mj.slice_job, str(jp), copies=chosen_quantity, recipe_sha256=recipe_sha),
+                                               allow_stop=True)  # nothing uploaded yet, so Stop is safe
+                    else:
+                        out = await _with_stop(adapter, source, key, metadata, "Slicing. Press Stop to cancel.",
+                                               _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha),
+                                               allow_stop=True)
         except Exception as slice_error:
             logger.exception('slice failed')
             # A failed attempt has no reusable slice approval or G-code. Retry is a
@@ -3255,6 +3503,15 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                 receipt.update(status='SLICED', gcodes=gcodes,
                                gcode_sha256={g: delivery.sha256(g) for g in gcodes})
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+        if clearance_ack_pending:
+            # The selected variant's artifact is installed now: bind the
+            # clearance acknowledgement to its recipe and G-code hashes.
+            # Recording it when the operator answered captured whichever
+            # variant the background slices had on disk then, and the start
+            # guard compares the acknowledgement against the final artifact.
+            from . import support_clearance
+            support_clearance.record_clearance_acknowledgement(folder, source_file=path)
+            sliced = json.loads(jp.read_text())
         # P1-20: a plate a guard refused during slicing is never dropped
         # silently. Name every refused plate before the start question; the
         # operator's confirmed start below records the acceptance print-now

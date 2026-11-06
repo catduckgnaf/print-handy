@@ -7,6 +7,7 @@ writes after the cleanup. Nothing here uploads or starts a print.
 """
 import asyncio
 import contextlib
+import copy
 import json
 import os
 import shutil
@@ -47,7 +48,17 @@ class BackgroundSlice:
         self.result = None
         self.error = None
         self.finished_at = None
+        self.job_no_supports = None
+        self.job_with_supports = None
+        self.supports_result = None
+        self.supports_binding = None
+        self.supports_task = None
+        self.supports_error = None
+        self.flagged = False
+        self.finding = None
+        self.clearance = None
         self.started = asyncio.Event()
+        self.first_slice_done = asyncio.Event()
         self.release = asyncio.Event()
         self.release.set()  # open unless a test holds the slice until the question is on screen
 
@@ -55,7 +66,9 @@ class BackgroundSlice:
         return self.binding == binding and (self.task is not None or self.result is not None)
 
     def running(self):
-        return self.task is not None and not self.task.done()
+        return (self.task is not None and not self.task.done()) or (
+            self.supports_task is not None and not self.supports_task.done()
+        )
 
     async def start(self, job_path, binding, slice_func):
         """Start a slice for this binding, replacing any slice bound to something else."""
@@ -73,6 +86,16 @@ class BackgroundSlice:
         self.result = None
         self.error = None
         self.finished_at = None
+        self.job_no_supports = None
+        self.job_with_supports = None
+        self.supports_result = None
+        self.supports_binding = None
+        self.supports_task = None
+        self.supports_error = None
+        self.flagged = False
+        self.finding = None
+        self.clearance = None
+        self.first_slice_done = asyncio.Event()
         self.task = asyncio.get_running_loop().create_task(self._run(slice_func))
 
     async def _run(self, slice_func):
@@ -90,11 +113,101 @@ class BackgroundSlice:
             raise
         except Exception as exc:  # the caller decides whether a failed early slice is fatal
             self.error = exc
+            return
         finally:
             self.finished_at = time.time()
+            self.first_slice_done.set()
+
+        job_data = _read_job(self.job_path)
+        if job_data is None:
+            return
+        self.job_no_supports = copy.deepcopy(job_data)
+
+        # Check if flagged by Orca warnings or support clearance
+        from . import slice_warnings, support_clearance
+        finding = slice_warnings.support_finding(job_data)
+        clearance = job_data.get('support_clearance')
+        if clearance is None and job_data.get('downloaded_file'):
+            clearance = support_clearance.safe_analyze(job_data.get('downloaded_file'))
+
+        is_flagged = bool(finding) or support_clearance.risky(clearance)
+        self.flagged = is_flagged
+        self.finding = finding
+        self.clearance = clearance
+        self.first_slice_done.set()
+
+        if is_flagged:
+            try:
+                import inspect
+                from . import slice_recipe, model_job
+                sup_job = copy.deepcopy(job_data)
+                sup_job['support_decision'] = {'supports': True, 'by': 'speculative_intake'}
+                if self.job_path is not None:
+                    target = Path(self.job_path)
+                    target.write_text(json.dumps(sup_job, indent=2) + "\n")
+
+                src_sha = (sup_job.get('color_manifest') or {}).get('source_sha256') or (
+                    sup_job.get('downloaded_file') and Path(sup_job['downloaded_file']).is_file() and
+                    model_job.file_sha256(sup_job['downloaded_file'])
+                )
+                sup_binding = slice_binding(sup_job, src_sha)
+                sup_recipe_sha = slice_recipe.binding_sha256(sup_binding)
+                self.supports_binding = sup_binding
+
+                kw = {}
+                sig = inspect.signature(slice_func)
+                if any(p.kind == p.VAR_KEYWORD or p.name == 'recipe_sha256' for p in sig.parameters.values()):
+                    kw['recipe_sha256'] = sup_recipe_sha
+
+                sup_work = asyncio.ensure_future(slice_func(self.job_path, self.work, self, **kw))
+                self.supports_task = sup_work
+                self.supports_result = await asyncio.shield(sup_work)
+                self.job_with_supports = _read_job(self.job_path)
+            except asyncio.CancelledError:
+                if self.supports_task and not self.supports_task.done():
+                    self.supports_task.cancel()
+                    await owned_worker.settle(self.supports_task)
+                raise
+            except Exception as exc:
+                self.supports_error = exc
+            finally:
+                self._write_slice_job(self.job_no_supports)
+
+    def _write_slice_job(self, slice_job_data, default_supports=None):
+        if slice_job_data is None or self.job_path is None:
+            return
+        target = Path(self.job_path)
+        current = json.loads(target.read_text()) if target.exists() else {}
+        updated = copy.deepcopy(slice_job_data)
+        for field in ('support_decision', 'clearance_acknowledgement', 'copies', 'filament_selection', 'color_decisions'):
+            if field in current:
+                if (field == 'support_decision' and isinstance(current[field], dict)
+                        and current[field].get('by') == 'speculative_intake'):
+                    continue  # the speculative slice's temporary decision is not the operator's
+                updated[field] = current[field]
+        if 'support_decision' not in updated and default_supports is not None:
+            updated['support_decision'] = {'supports': default_supports, 'by': 'speculative_intake'}
+        target.write_text(json.dumps(updated, indent=2) + "\n")
+
+    async def settle(self):
+        """Wait until the slice task has fully finished, speculative slice included.
+
+        The speculative with-supports slice rewrites JOB.json while it runs
+        (support decision on, then the no-supports snapshot restored at the
+        end), so any intake write or recipe comparison made in that window
+        races it: an operator's recorded decision can be clobbered by the
+        speculative slice_job's own write-back, and the slice-approval guard
+        then refuses the handoff. Callers that record a decision or compare
+        the binding must settle first; afterwards JOB.json is stable.
+        """
+        if self.task is not None:
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.task
 
     async def take(self, binding):
         """Return the finished slice for this binding, or None when there is nothing usable."""
+        if binding == self.supports_binding and (self.supports_task is not None or self.supports_result is not None):
+            return await self.take_supports()
         if self.binding != binding or self.task is None:
             return None
         with contextlib.suppress(asyncio.CancelledError):
@@ -102,19 +215,53 @@ class BackgroundSlice:
         self.task = None
         if self.error is not None or self.result is None:
             return None
+        self._write_slice_job(self.job_no_supports)
         return self.result
+
+    async def take_no_supports(self):
+        """Return the no-supports slice result, restoring no-supports job metadata to disk."""
+        if self.task is not None:
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.task
+        self._write_slice_job(self.job_no_supports, default_supports=False)
+        return self.result
+
+    async def take_supports(self):
+        """Return the with-supports slice result, writing with-supports job metadata to disk."""
+        if self.task is not None:
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.task
+        if self.supports_task is not None:
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.supports_task
+        self._write_slice_job(self.job_with_supports, default_supports=True)
+        return self.supports_result
 
     async def discard(self):
         """Stop the running slice, if any, and remove what was written since it started."""
         task = self.task
+        sup_task = self.supports_task
         self.task = None
+        self.supports_task = None
         self.result = None
+        self.supports_result = None
         self.error = None
+        self.supports_error = None
         self.binding = None
+        self.supports_binding = None
+        self.job_no_supports = None
+        self.job_with_supports = None
+        self.flagged = False
+        self.finding = None
+        self.clearance = None
         if task is not None and not task.done():
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+        if sup_task is not None and not sup_task.done():
+            sup_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await sup_task
         if self.work is not None:  # a discarded slice leaves no G-code behind
             if self.before is None:
                 shutil.rmtree(self.work, ignore_errors=True)

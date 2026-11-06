@@ -85,6 +85,8 @@ def supports_answer(job, source=None):
     elif sliced_on:
         lines.append('The slicer reported no floating regions or cantilevers.')
     lines += modeled_supports.safe_describe(source)
+    from print_handy.core import support_clearance
+    lines += support_clearance.describe(job.get('support_clearance') or support_clearance.safe_analyze(source))
     decision = job.get('support_decision')
     if isinstance(decision, dict):
         lines.append('Decision already recorded: print '
