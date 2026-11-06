@@ -14,7 +14,7 @@ printer reports, classified:
 
 - **Known to Print Handy** — the name matches a macro entry in the
   descriptive registry (the per-firmware files under
-  [`firmware/commands/`](../firmware/commands), the same registry
+  [`print_handy/data/firmware-commands/`](../print_handy/data/firmware-commands), the same registry
   `/print-lookup` searches), **and that entry is scoped to
   this printer model**. The listing shows the registry's description and
   safety note. Scoping matters: macro names repeat across firmwares with
@@ -82,7 +82,7 @@ state-changing commands get in the allow-list.
 The Web UI's printer picker offers exactly the registered models — the
 picker's choices are derived from the printer registry, not hard-coded — so
 this matrix covers every model a user can pick. "Registry coverage" counts
-the `firmware/commands/` macro entries scoped to the model: the entries
+the `print_handy/data/firmware-commands/` macro entries scoped to the model: the entries
 `/print-macros` can use to describe that model's discovered macros.
 
 | Printer family (models) | Connection | Macro situation |
@@ -183,7 +183,7 @@ decides them, family by family:
   Prusa's fork of Marlin 2, but the layer a user meets is Prusa's own and
   Prusa publishes it: the `M862.3` / `M862.6` print checks that open the
   stock start G-code, the refusal they produce, and the XL's `M863` tool
-  remapping. Those entries sit in `firmware/commands/prusa.toml` under
+  remapping. Those entries sit in `print_handy/data/firmware-commands/prusa.toml` under
   firmware `prusa`, and the Prusa models' registry `firmware_family` is now
   `prusa`. A separate family — rather than a scope on the Marlin file — is
   what keeps Marlin's entries from describing Prusa's checks and Prusa's
@@ -273,7 +273,7 @@ Zero's behavior is named instead of assumed to be plain stock Klipper:
 
 - The **printer** is the authority on which macros exist — that is what
   `/print-macros` reads, live.
-- The **registry** (the per-firmware files under `firmware/commands/`) is the descriptive layer: it
+- The **registry** (the per-firmware files under `print_handy/data/firmware-commands/`) is the descriptive layer: it
   says what a known macro does and what to be careful about. It is advisory
   reference data, also used by `/print-lookup`; the lookup, troubleshooting
   and macro-listing code never sends an entry to a printer. The only send

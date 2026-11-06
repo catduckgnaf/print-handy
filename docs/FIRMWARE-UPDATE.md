@@ -43,7 +43,7 @@ component, and `/print-firmware update` refuses it rather than guess.
 ## Safety rules (stage 2 apply)
 
 - **Eligibility is a property of the printer profile**, from
-  the printer registry (`printers/registry/<vendor>.toml`): `firmware_family` is `zmod` or vanilla
+  the printer registry (`print_handy/data/printers-registry/<vendor>.toml`): `firmware_family` is `zmod` or vanilla
   `klipper`, the connection is Moonraker, and the vendor is not a fork
   vendor. Fork vendors — Elegoo, Creality, QIDI, Anycubic — are refused
   by vendor, even though their printers speak Moonraker. A future model

@@ -1,6 +1,6 @@
 """Guided troubleshooting flows as a pure state machine.
 
-A flow (knowledge/troubleshooting.toml) is a graph of question nodes that branch
+A flow (print_handy/knowledge/data/troubleshooting.toml) is a graph of question nodes that branch
 on the operator's answers and advice nodes that state one bounded physical check.
 This module only walks that graph. It imports nothing that can reach a printer,
 opens no socket and runs no command: following a flow can never heat, move or

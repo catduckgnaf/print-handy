@@ -3449,7 +3449,7 @@ async def macros_dispatch(event, gateway, **kwargs):
 
     Bare form (stage 1) lists what the printer actually defines: one GET of
     Moonraker's /printer/objects/list through the spool client, classified
-    against the firmware/commands/ registry. The run form (stage 2) re-discovers that
+    against the print_handy/data/firmware-commands/ registry. The run form (stage 2) re-discovers that
     set at run time and runs only a name from it — never a typed name on
     trust, never free-typed G-code, never an internal (_-prefixed) macro —
     behind the usual _confirm button, with the printer's print state checked

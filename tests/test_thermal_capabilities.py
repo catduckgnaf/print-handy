@@ -53,7 +53,7 @@ def test_every_registered_model_has_an_explicit_thermal_record(registry):
             assert thermal.chamber_heater_control == "not_supported", entry.key
     # The raw TOML spells every field out for every model (no silent defaults).
     seen = 0
-    for path in sorted((ROOT / "printers" / "registry").glob("*.toml")):
+    for path in sorted((ROOT / "print_handy" / "data" / "printers-registry").glob("*.toml")):
         with open(path, "rb") as handle:
             doc = tomllib.load(handle)
         for raw in doc.get("printer", []):

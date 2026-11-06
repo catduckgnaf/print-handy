@@ -44,7 +44,7 @@ COMPLEX_CORPUS_ROOT=~/print-handy-complex-corpus CORPUS_WORK=<disk dir> \
 `run_complex_corpus.py` drives each case through the fake-Discord harness
 (mock slicer tier) with a printer state built from the case's manifest
 target: the AD5X fixture state with printer name, bed and max height taken
-from the printer registry (`printers/registry/flashforge.toml`). 
+from the printer registry (`print_handy/data/printers-registry/flashforge.toml`). 
 
 **Honest limits of that mechanism:**
 

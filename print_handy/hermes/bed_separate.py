@@ -76,7 +76,7 @@ def printer_connection(printer_id: str | None = None) -> str | None:
         return None
 
 
-# Which part moves in Z, from the printer registry (knowledge/printers): the
+# Which part moves in Z, from the printer registry (print_handy/data/printers-registry): the
 # kinematics label, with a per-model override for CoreXY machines whose gantry
 # moves in Z (Voron 2.4 style). The live move is the same in every case
 # (Klipper Z grows away from the nozzle); only the words differ. An unknown
