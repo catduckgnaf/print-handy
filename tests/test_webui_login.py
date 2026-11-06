@@ -418,6 +418,47 @@ class LoginTests(unittest.TestCase):
                 port, "GET", "/", headers={"Cookie": cookie})
             self.assertEqual(code, 401)
 
+    def test_remembered_session_dies_when_the_token_changes(self):
+        """Credential rotation at restart (Codex P1 on PR #953): changing
+        WEBUI_ACCESS_TOKEN and restarting must not keep a session minted
+        under the old token alive for the rest of its 30 days."""
+        with tempfile.TemporaryDirectory() as tmp:
+            _httpd, port, _local, _environ = self.start(
+                tmp, environ={"WEBUI_ACCESS_TOKEN": TOKEN})
+            code, headers, _body = self.login_remember(port)
+            self.assertEqual(code, 303)
+            cookie = session_cookie_pair(headers["set-cookie"])
+            _httpd2, port2, _l, _e = self.start(
+                tmp, environ={"WEBUI_ACCESS_TOKEN": "rotated-token-54321"})
+            code, _h, _b = self.request(
+                port2, "GET", "/", headers={"Cookie": cookie})
+            self.assertEqual(code, 401)
+
+    def test_remember_login_waits_for_the_remembered_sessions_lock(self):
+        """Serialization (Codex P2 on PR #953): minting + persisting a
+        remembered session holds the shared lock, so a concurrent logout
+        or revocation cannot be overwritten by a stale snapshot."""
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd, port, _local, _environ = self.start(
+                tmp, environ={"WEBUI_ACCESS_TOKEN": TOKEN})
+            result = {}
+
+            def do_login():
+                result["response"] = self.login_remember(port)
+
+            httpd.remembered_lock.acquire()
+            try:
+                thread = threading.Thread(target=do_login, daemon=True)
+                thread.start()
+                thread.join(2)
+                self.assertTrue(thread.is_alive(),
+                                "remember login did not wait for the lock")
+            finally:
+                httpd.remembered_lock.release()
+            thread.join(10)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(result["response"][0], 303)
+
     def test_expired_remembered_entry_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             _httpd, port, _local, _environ = self.start(

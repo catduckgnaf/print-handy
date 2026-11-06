@@ -108,6 +108,7 @@ and the loopback posture is otherwise unchanged.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import hmac
 import html
@@ -158,6 +159,10 @@ SESSION_TTL_S = 12 * 60 * 60  # 12 hours
 REMEMBER_TTL_S = 30 * 24 * 60 * 60  # 30 days
 SESSIONS_FILE = "webui_sessions.json"
 _REMEMBER_TRUTHY = frozenset({"on", "true", "1", "yes"})
+# The store file's reserved key for the credential fingerprint (see
+# _load_remembered_sessions). Session keys are SHA-256 hex digests, so
+# this name can never collide with one.
+_FINGERPRINT_KEY = "__credential_sha256__"
 
 
 def sessions_path(data):
@@ -168,20 +173,42 @@ def _session_digest(session_id):
     return hashlib.sha256(session_id.encode("utf-8")).hexdigest()
 
 
-def _load_remembered_sessions(data):
+def _remember_lock(server):
+    """The server's remembered-session lock, or a no-op context when the
+    server object predates it (the mutation sites stay safe either way)."""
+    lock = getattr(server, "remembered_lock", None)
+    return lock if lock is not None else contextlib.nullcontext()
+
+
+def _load_remembered_sessions(data, fingerprint):
     """{sha256(session id): expiry epoch} from SESSIONS_FILE.
 
     A missing or unreadable file reads as no remembered sessions, exactly
-    like access._read_saved; expired entries are pruned on load."""
+    like access._read_saved; expired entries are pruned on load. The file
+    also carries the fingerprint of the credential its sessions were
+    minted under: when that no longer matches ``fingerprint`` (the token
+    was rotated in the environment, or the saved password changed) the
+    whole store is discarded and deleted — a session minted under an old
+    credential must not survive its rotation just because the rotation
+    happened while the server was stopped."""
+    path = sessions_path(data)
     try:
-        saved = json.loads(sessions_path(data).read_text(encoding="utf-8"))
+        saved = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     if not isinstance(saved, dict):
         return {}
+    if saved.get(_FINGERPRINT_KEY) != fingerprint:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as exc:
+            log.warning("webui: could not delete stale remembered sessions file: %s", exc)
+        return {}
     now = time.time()
     loaded = {}
     for digest, expiry in saved.items():
+        if digest == _FINGERPRINT_KEY:
+            continue
         try:
             expiry = float(expiry)
         except (TypeError, ValueError):
@@ -194,26 +221,35 @@ def _load_remembered_sessions(data):
 def _save_remembered_sessions(server):
     """Persist server.remembered_sessions atomically with mode 0600.
 
-    Returns True when the file was written. A failure is logged and
-    reported, never raised: a read-only state mount must not break
-    sign-in (the caller falls back to an ephemeral session)."""
+    The snapshot and the write happen under the server's remembered
+    lock, so a concurrent logout or revocation cannot be overwritten by
+    a stale snapshot (callers that mutate the store hold the same lock
+    across their mutation-through-save sequence). Returns True when the
+    file was written. A failure is logged and reported, never raised: a
+    read-only state mount must not break sign-in (the caller falls back
+    to an ephemeral session)."""
     path = sessions_path(server.settings_data)
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".webui_sessions.")
+    with _remember_lock(server):
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(dict(getattr(server, "remembered_sessions", {}) or {}), handle)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.chmod(tmp, 0o600)
-            os.replace(tmp, path)
-        except BaseException:
-            Path(tmp).unlink(missing_ok=True)
-            raise
-    except OSError as exc:
-        log.warning("webui: could not save remembered sessions to %s: %s", path, exc)
-        return False
+            payload = dict(getattr(server, "remembered_sessions", {}) or {})
+            access = getattr(server, "access", None)
+            if access is not None:
+                payload[_FINGERPRINT_KEY] = access.credential_fingerprint()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".webui_sessions.")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    json.dump(payload, handle)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.chmod(tmp, 0o600)
+                os.replace(tmp, path)
+            except BaseException:
+                Path(tmp).unlink(missing_ok=True)
+                raise
+        except OSError as exc:
+            log.warning("webui: could not save remembered sessions to %s: %s", path, exc)
+            return False
     return True
 
 # The form-token refusal for browser forms (#840): the token is
@@ -633,8 +669,9 @@ class _Handler(BaseHTTPRequestHandler):
         if expiry is None:
             return False
         if expiry <= now:
-            del remembered[digest]
-            _save_remembered_sessions(self.server)
+            with _remember_lock(self.server):
+                if remembered.pop(digest, None) is not None:
+                    _save_remembered_sessions(self.server)
             return False
         return True
 
@@ -1090,14 +1127,15 @@ class _Handler(BaseHTTPRequestHandler):
         their _rotate_form_token calls): a session minted under the old
         credential must not outlive it. Ephemeral sessions are untouched
         — they die with the process, as before."""
-        remembered = getattr(self.server, "remembered_sessions", None)
-        if remembered is not None:
-            remembered.clear()
-        try:
-            sessions_path(self.server.settings_data).unlink(missing_ok=True)
-        except OSError as exc:
-            log.warning("webui: could not delete remembered sessions file: %s", exc)
-            _save_remembered_sessions(self.server)
+        with _remember_lock(self.server):
+            remembered = getattr(self.server, "remembered_sessions", None)
+            if remembered is not None:
+                remembered.clear()
+            try:
+                sessions_path(self.server.settings_data).unlink(missing_ok=True)
+            except OSError as exc:
+                log.warning("webui: could not delete remembered sessions file: %s", exc)
+                _save_remembered_sessions(self.server)
 
     # -- first-run walkthrough (#813) -----------------------------------------
     def _walkthrough_data(self):
@@ -1191,14 +1229,18 @@ class _Handler(BaseHTTPRequestHandler):
             remembered = getattr(self.server, "remembered_sessions", None)
             if remembered is None:
                 remembered = self.server.remembered_sessions = {}
-            for stale in [d for d, expiry in remembered.items() if expiry <= now]:
-                del remembered[stale]
-            remembered[_session_digest(session_id)] = now + REMEMBER_TTL_S
-            if _save_remembered_sessions(self.server):
-                return ("Set-Cookie", f"{SESSION_COOKIE}={session_id}; HttpOnly; "
-                        f"SameSite=Strict; Path=/; Max-Age={REMEMBER_TTL_S}{flags}")
-            # Fail open to the current behavior: ephemeral, no Max-Age.
-            del remembered[_session_digest(session_id)]
+            # Mutation through persistence under the shared lock, so a
+            # concurrent logout or revocation is never overwritten by
+            # this mint's snapshot (and this mint is never lost to one).
+            with _remember_lock(self.server):
+                for stale in [d for d, expiry in remembered.items() if expiry <= now]:
+                    del remembered[stale]
+                remembered[_session_digest(session_id)] = now + REMEMBER_TTL_S
+                if _save_remembered_sessions(self.server):
+                    return ("Set-Cookie", f"{SESSION_COOKIE}={session_id}; HttpOnly; "
+                            f"SameSite=Strict; Path=/; Max-Age={REMEMBER_TTL_S}{flags}")
+                # Fail open to the current behavior: ephemeral, no Max-Age.
+                del remembered[_session_digest(session_id)]
         sessions[session_id] = now + SESSION_TTL_S
         return ("Set-Cookie", f"{SESSION_COOKIE}={session_id}; HttpOnly; SameSite=Strict; Path=/{flags}")
 
@@ -1299,8 +1341,9 @@ class _Handler(BaseHTTPRequestHandler):
         if session_id:
             self.server.sessions.pop(session_id, None)
             remembered = getattr(self.server, "remembered_sessions", None) or {}
-            if remembered.pop(_session_digest(session_id), None) is not None:
-                _save_remembered_sessions(self.server)
+            with _remember_lock(self.server):
+                if remembered.pop(_session_digest(session_id), None) is not None:
+                    _save_remembered_sessions(self.server)
         flags = "; Secure" if self._cookie_secure() else ""
         cookie = (f"{SESSION_COOKIE}=; HttpOnly; SameSite=Strict; "
                   f"Path=/; Max-Age=0{flags}")
@@ -1546,10 +1589,14 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     server.sessions = {}
     # Remembered sessions: {sha256(session id): expiry epoch}, loaded
     # from webui_sessions.json in the state folder (expired entries
-    # pruned on load) and re-saved on every change, so a browser that
-    # ticked "Keep me signed in" survives a restart. The raw id is
-    # never written to disk.
-    server.remembered_sessions = _load_remembered_sessions(data)
+    # pruned on load, and the whole store discarded when the credential
+    # fingerprint it was minted under no longer matches) and re-saved
+    # on every change, so a browser that ticked "Keep me signed in"
+    # survives a restart. The raw id is never written to disk.
+    # Mutations and persistence are serialized with remembered_lock.
+    server.remembered_lock = threading.RLock()
+    server.remembered_sessions = _load_remembered_sessions(
+        data, server.access.credential_fingerprint())
     server.login_throttle = access_module.LoginThrottle()
     server.snapshot_func = snapshot_func or (
         lambda: status_module.snapshot(data, environ=environ))
