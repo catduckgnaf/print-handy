@@ -14,6 +14,7 @@ import hashlib
 import json
 import logging
 import re
+import shutil
 from pathlib import Path
 import sys
 import time
@@ -1497,6 +1498,18 @@ async def _ask(adapter, source, key, question, choices, timeout=None, **kwargs):
     on_shown = kwargs.pop('on_shown', None)
     if on_shown is not None:  # fire as the question goes up, before the operator answers
         on_shown()
+    from . import yolo
+    if yolo.ACTIVE.get() and choices:
+        # Yolo answers every question with its go option, out loud (no silent skips).
+        pick = yolo.auto_answer(choices)
+        first = next((ln.strip() for ln in str(question or '').splitlines() if ln.strip()), 'question')
+        if len(first) > 120:
+            first = first[:117] + '...'
+        meta = {'thread_id': source.thread_id} if getattr(source, 'thread_id', None) else None
+        with contextlib.suppress(Exception):
+            await adapter.send(chat_id=source.chat_id, metadata=meta,
+                               content=f'Yolo: {first} -> {list(choices)[pick]}')
+        return pick
     return await ask(adapter, source, key, question, list(choices), timeout, live_key=live_key, **kwargs)
 
 
@@ -1656,6 +1669,23 @@ def clear_label_acceptance(job_json):
     job = json.loads(Path(job_json).read_text())
     if job.pop('label_mismatch_accepted', None) is not None:
         mj.write_job(Path(job_json).parent, job)
+
+
+async def _post_yolo_waivers(adapter, source, metadata, tail, receipt=None, receipt_path=None):
+    """Name every check a yolo start overrode, in one message (nothing skipped silently)."""
+    from . import model_job as mj
+    waived = mj.yolo_waivers(tail)
+    if not waived:
+        return
+    if receipt is not None:
+        receipt['yolo_waivers'] = waived
+        if receipt_path is not None:
+            with contextlib.suppress(Exception):
+                receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+    shown = waived[:12] + ([f'... and {len(waived) - 12} more'] if len(waived) > 12 else [])
+    with contextlib.suppress(Exception):
+        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                           content='Yolo overrode these checks:\n' + '\n'.join(f'- {w}' for w in shown))
 
 
 def _printer_rejected(raw):
@@ -2124,6 +2154,137 @@ def _variant_estimate_str(job_data, result):
 
 async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
                        before_start=None):
+    """The chat intake for one model link, upload or reprint (see the module docstring).
+
+    "yolo" in the message runs the same intake with every question answered
+    by its go option and the start made with ``print-now --yolo``
+    (core/yolo.py); only print approvers may ask for it.
+    """
+    from . import yolo
+    text = getattr(event, 'text', '') or ''
+    if yolo.ACTIVE.get() or not yolo.requested(text):
+        return await _prepare_link(event, adapter, state, root, timeout=timeout, reuse=reuse,
+                                   printer_id=printer_id, before_start=before_start)
+    source = event.source
+    metadata = {'thread_id': source.thread_id} if source.thread_id else None
+    event.text = yolo.strip(text)
+    platform = getattr(getattr(source, 'platform', None), 'value', None) or 'discord'
+    if not yolo.may_yolo(getattr(source, 'user_id', None), platform):
+        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                           content='Yolo skips every check, so only a print approver can use it. '
+                                   'Running the normal intake instead.')
+        return await _prepare_link(event, adapter, state, root, timeout=timeout, reuse=reuse,
+                                   printer_id=printer_id, before_start=before_start)
+    await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                       content='Yolo: slicing with the recommended answers and printing without '
+                               'checks. Every answer and every skipped check is posted here.')
+    token = yolo.ACTIVE.set(True)
+    try:
+        return await _prepare_link(event, adapter, state, root, timeout=timeout, reuse=reuse,
+                                   printer_id=printer_id, before_start=before_start)
+    finally:
+        yolo.ACTIVE.reset(token)
+
+
+YOLO_GCODE_LABEL = 'Print it as-is (yolo)'
+
+
+async def print_gcode_file(event, adapter, root, path, timeout=None, printer_id=None):
+    """A dropped, already-sliced G-code file (.gcode or .gcode.3mf).
+
+    Print Handy slices models itself, so a sliced file only prints as the
+    operator's explicit yolo: said in the message, or chosen on the one
+    question asked here. It then goes to ``print-now --yolo`` exactly as
+    sent: no slicing, every check reported instead of enforced.
+    """
+    from . import model_job as mj, yolo
+    source = event.source
+    metadata = {'thread_id': source.thread_id} if source.thread_id else None
+    key = (getattr(event, 'metadata', None) or {}).get('live_session_key') or source.chat_id
+    name = re.sub(r'^doc_[0-9a-f]{12}_', '', Path(path).name)
+    platform = getattr(getattr(source, 'platform', None), 'value', None) or 'discord'
+    if printer_id:
+        # A bare G-code has no job record to route it, so print-now sends it to the
+        # default printer; refuse rather than print on a printer this channel does not serve.
+        from .. import settings as _settings
+        default_id = None
+        with contextlib.suppress(Exception):
+            default_id = _settings.default_printer_id()
+        if default_id and str(printer_id).split(':')[-1] != str(default_id):
+            await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                               content=f'{name} is sliced G-code, which prints as-is only on the default '
+                                       f'printer ({default_id}) for now. Nothing was started.')
+            return {'action': 'skip', 'reason': 'yolo G-code for a non-default printer'}
+    if not yolo.may_yolo(getattr(source, 'user_id', None), platform):
+        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                           content=f'{name} is already-sliced G-code. Printing a file as-is skips every '
+                                   'check, so only a print approver can do it. Send the .stl or .3mf '
+                                   'model to have it sliced for this printer. Nothing was started.')
+        return {'action': 'skip', 'reason': 'sliced G-code from a non-approver'}
+    if not yolo.requested(getattr(event, 'text', '')):
+        pick = await _ask(adapter, source, key,
+                          f'{name} is already-sliced G-code, so it would print exactly as sent: no '
+                          'slicing for this printer and no checks (yolo). Is the bed clear?',
+                          [YOLO_GCODE_LABEL, print_next.CANCEL_LABEL], timeout, approval=True)
+        if pick != 0:
+            await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                               content='Cancelled. Nothing uploaded or started. Send the .stl or .3mf '
+                                       'model to have it sliced for this printer.')
+            return {'action': 'skip', 'reason': 'operator declined printing sliced G-code as-is'}
+    sha = mj.file_sha256(path)
+    folder = Path(mj.ARCHIVE) / f'yolo-gcode--{sha[:16]}'
+    folder.mkdir(parents=True, exist_ok=True)
+    note = ''
+    if name.lower().endswith('.gcode.3mf'):
+        try:
+            gcode, plates = await asyncio.to_thread(yolo.extract_gcode, path, folder)
+        except Exception as exc:  # noqa: BLE001 - a bad package is a plain refusal
+            await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                               content=f'Could not read the G-code inside {name}: {exc}. Nothing uploaded or started.')
+            return {'action': 'skip', 'reason': 'unreadable .gcode.3mf package'}
+        if plates > 1:
+            note = f' The package has {plates} plates; printing plate 1.'
+    else:
+        gcode = folder / name
+        if Path(path).resolve() != gcode.resolve():
+            shutil.copyfile(path, gcode)
+    gsha = mj.file_sha256(gcode)
+    root = Path(root)
+    root.mkdir(parents=True, exist_ok=True)
+    iid = mj.intake_id_from_message(source, getattr(event, 'message_id', None) or gsha)
+    receipt_path = root / (iid + '.json')
+    target = {'plan_id': f'yolo-{iid[:16]}', 'part_id': 'file', 'copy': 1, 'quantity': 1,
+              'gcode': str(gcode), 'gcode_sha256': gsha, 'reprint': True, 'yolo': True}
+    receipt = {'intake_id': iid, 'url': f'upload:{name}', 'status': 'START_REQUESTED', 'sliced': False,
+               'uploaded': False, 'started': False, 'chat_id': source.chat_id,
+               'thread_id': source.thread_id, 'owner': getattr(source, 'user_id', None),
+               'gcodes': [str(gcode)], 'gcode_sha256': {str(gcode): gsha}, 'yolo': True,
+               'bed_clear_approval': {'gcode': str(gcode), 'gcode_sha256': gsha, 'via': 'yolo',
+                                      'granted_at': time.strftime('%Y-%m-%dT%H:%M:%S%z')},
+               'retry_target': target}
+    receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+    logger.info('yolo G-code print requested file=%s sha=%s intake=%s', name, gsha[:12], iid)
+    ok, tail = await _with_stop(adapter, source, key, metadata,
+                                f'Yolo: printing {name} as sent, no checks.{note} '
+                                'Uploading to the printer. Press Stop to request cancellation.',
+                                print_next.start(target), allow_stop=True)
+    await _post_yolo_waivers(adapter, source, metadata, tail, receipt, receipt_path)
+    outcome = classify_start(ok, tail)
+    receipt.update(status=outcome.status, uploaded=outcome.started is not False or outcome.pending,
+                   started=outcome.started)
+    receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+    if outcome.status == 'STARTED':
+        content = f'Print started: {name} (yolo, sent as-is).'
+    elif outcome.pending:
+        content = start_unknown_message(tail)
+    else:
+        content = plain_start_failure(tail)
+    await adapter.send(chat_id=source.chat_id, metadata=metadata, content=content)
+    return {'action': 'skip', 'reason': f'yolo G-code {outcome.status.lower()}'}
+
+
+async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
+                        before_start=None):
     from . import model_job as mj
     from .source_colors import inventory, canonical_prompts, grouped_prompts, validate_decisions
     source = event.source
@@ -3858,6 +4019,9 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
         target = {'plan_id': plan_id, 'part_id': parts[picked_plate]['id'] if split else 'plate1', 'copy': 1,
                   'gcode': str(first), 'gcode_sha256': mj.file_sha256(first), 'reprint': False,
                   'job_json': str(jp)}
+        from . import yolo as _yolo
+        if _yolo.ACTIVE.get():
+            target['yolo'] = True
         later = (f" Plate {picked_plate + 1} of {len(parts)} only; a picker for the rest follows when it finishes."
                  if split else '')
         if choice == 1:
@@ -3921,6 +4085,7 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                 confirms = [] if ok or not start_context['color_prompt'] else color_confirm(tail)
                 label_confirms = [] if ok or not start_context['color_prompt'] else label_confirm(tail)
                 if not confirms and not label_confirms:
+                    await _post_yolo_waivers(adapter, source, metadata, tail, receipt, receipt_path)
                     break
                 if label_confirms and not confirms:
                     # A slot material-label difference gets the same ask-once

@@ -5091,9 +5091,12 @@ async def model_link_dispatch(event, gateway, **kwargs):
         return None
     from print_handy.core.link_intake import model_link
     from print_handy.core.prepared_intake import prepare_link as collect_link, model_file, reprint_request, last_job
+    from print_handy.core import yolo as _yolo
     text = getattr(event, 'text', '')
     reuse = None
-    if not (model_link(text) or model_file(event)):
+    # An already-sliced G-code drop prints only as an explicit yolo (core/yolo.py).
+    gcode_drop = None if model_link(text) else _yolo.gcode_file(event)
+    if not (model_link(text) or model_file(event) or gcode_drop):
         if _is_affirmative_followup(text):
             recent_url = _recent_model_link(source)
             if recent_url:
@@ -5169,7 +5172,11 @@ async def model_link_dispatch(event, gateway, **kwargs):
         # A link or file plus an instruction in one message (#903): an edit
         # applies inside the intake, after the job is prepared and before any
         # slice is armed or a start is offered; a question is answered after.
-        instruction = None if reuse is not None else _model_instruction(text, linked)
+        if gcode_drop is not None:
+            from print_handy.core.prepared_intake import print_gcode_file
+            return await print_gcode_file(event, adapter, root, gcode_drop, **_pkw(pid))
+        # "yolo" is a mode, not an edit or a question about the model.
+        instruction = None if reuse is not None else _model_instruction(_yolo.strip(text), linked)
         edit_hook = _instruction_edit_hook(event, gateway, source, adapter, instruction)
         result = await collect_link(event, adapter, printer_state.load(**_pkw(pid)), root,
                                     reuse=reuse, **_pkw(pid),
