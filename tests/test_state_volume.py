@@ -109,6 +109,24 @@ class TestEntrypointMigration:
         assert new.is_dir() and not new.is_symlink()
         assert (new / "state").is_dir() and (new / "logs").is_dir()
 
+    def test_state_only_empty_mountpoint_links_the_legacy_name_to_it(self, tmp_path):
+        # #938 item 4: the host maps only /data/state; Docker created it as
+        # an empty mountpoint directory and there is no /data/hermes at all.
+        # The legacy name still has to resolve, as a symlink to the new path.
+        (tmp_path / "state").mkdir()
+        result = run_entrypoint(tmp_path, ["true"])
+        legacy = tmp_path / "hermes"
+        assert legacy.is_symlink()
+        assert legacy.resolve() == (tmp_path / "state").resolve()
+        assert (tmp_path / "state").is_dir() and not (tmp_path / "state").is_symlink()
+        assert (legacy / "state").is_dir()
+        assert "/data/hermes" in result.stderr
+
+    def test_neither_volume_present_creates_no_legacy_symlink(self, tmp_path):
+        run_entrypoint(tmp_path, ["true"])
+        assert not (tmp_path / "hermes").is_symlink()
+        assert not (tmp_path / "hermes").exists()
+
     def test_fresh_install_creates_the_new_volume_layout(self, tmp_path):
         run_entrypoint(tmp_path, ["true"])
         assert (tmp_path / "state" / "state").is_dir()

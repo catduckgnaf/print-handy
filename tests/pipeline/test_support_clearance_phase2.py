@@ -239,6 +239,65 @@ def test_coverage_scales_target_heights_with_the_slice():
         ';TYPE:Outer wall\nG1 Z0.2\nG1 X1 Y1 E1\nG1 Z10\nG1 X2 Y2 E1\n') == 10.0
 
 
+def test_coverage_derives_z_scale_from_the_bounds_mapping():
+    # #938 item 1: when the caller maps the target boxes through the
+    # source/gcode bounds but supplies no explicit z_scale, the target
+    # heights follow the same (uniform) mapping scale instead of being
+    # compared against the unscaled source heights.
+    region = {'kind': 'supportable_overhang', 'part': 'P', 'bbox_mm': [[0.0, 0.0], [24.0, 6.0]],
+              'z_mm': {'min': 20.0, 'max': 20.0}}
+    bounds = {'source_bounds': (0.0, 0.0, 24.0, 6.0), 'gcode_bounds': (0.0, 0.0, 12.0, 3.0)}
+    scaled = ';TYPE:Support\nG1 Z9.8\nG1 X0 Y1.5\nG1 X12 Y1.5 E5\n'
+    result = support_clearance.verify_support_coverage([region], scaled, **bounds)
+    assert result['ok'] is True
+    unscaled = ';TYPE:Support\nG1 Z19.8\nG1 X0 Y1.5\nG1 X12 Y1.5 E5\n'
+    result = support_clearance.verify_support_coverage([region], unscaled, **bounds)
+    assert result['ok'] is False and result['regions'][0]['coverage'] == 0.0
+
+
+def test_coverage_explicit_z_scale_wins_over_the_bounds_mapping():
+    region = {'kind': 'supportable_overhang', 'part': 'P', 'bbox_mm': [[0.0, 0.0], [24.0, 6.0]],
+              'z_mm': {'min': 20.0, 'max': 20.0}}
+    gcode = ';TYPE:Support\nG1 Z19.8\nG1 X0 Y1.5\nG1 X12 Y1.5 E5\n'
+    result = support_clearance.verify_support_coverage(
+        [region], gcode, source_bounds=(0.0, 0.0, 24.0, 6.0),
+        gcode_bounds=(0.0, 0.0, 12.0, 3.0), z_scale=1.0)
+    assert result['ok'] is True
+
+
+def test_coverage_rejects_support_just_outside_a_narrow_target_box():
+    # #938 item 2: a target narrower than one cell must not absorb support
+    # paths running outside its upper bound; they used to be accepted out
+    # to the cell grid's extent and clamped into the last row/column.
+    region = {'kind': 'supportable_overhang', 'part': 'P', 'bbox_mm': [[0.0, 0.0], [2.0, 3.0]],
+              'z_mm': {'min': 20.0, 'max': 20.0}}
+    outside_x = ';TYPE:Support\nG1 Z19.8\nG1 X2.5 Y0\nG1 X2.5 Y3 E5\n'
+    result = support_clearance.verify_support_coverage([region], outside_x)
+    assert result['ok'] is False and result['regions'][0]['coverage'] == 0.0
+    region_y = {'kind': 'supportable_overhang', 'part': 'P', 'bbox_mm': [[0.0, 0.0], [3.0, 2.0]],
+                'z_mm': {'min': 20.0, 'max': 20.0}}
+    outside_y = ';TYPE:Support\nG1 Z19.8\nG1 X0 Y2.5\nG1 X3 Y2.5 E5\n'
+    result = support_clearance.verify_support_coverage([region_y], outside_y)
+    assert result['ok'] is False and result['regions'][0]['coverage'] == 0.0
+    # A path exactly on the box's upper edge still counts.
+    on_edge = ';TYPE:Support\nG1 Z19.8\nG1 X2 Y0\nG1 X2 Y3 E5\n'
+    result = support_clearance.verify_support_coverage([region], on_edge)
+    assert result['ok'] is True
+
+
+def test_coverage_counts_a_segment_crossing_a_partial_edge_cell():
+    # A target ending in a partial cell: the support line crosses the
+    # whole box, but the discrete samples along it jump over the final
+    # cell's in-box interval ([12, 12.5] here). Segments are clipped to
+    # the box before sampling, so the crossing still counts every cell
+    # (while the outside-only paths in the narrow-box test stay excluded).
+    region = {'kind': 'supportable_overhang', 'part': 'P', 'bbox_mm': [[0.0, 0.0], [12.5, 3.0]],
+              'z_mm': {'min': 20.0, 'max': 20.0}}
+    gcode = ';TYPE:Support\nG1 Z19.8\nG1 X-1 Y1.5\nG1 X14 Y1.5 E5\n'
+    result = support_clearance.verify_support_coverage([region], gcode)
+    assert result['ok'] is True and result['regions'][0]['coverage'] == 1.0
+
+
 def test_coverage_rejects_support_paths_outside_the_target_box():
     region = {'kind': 'supportable_overhang', 'part': 'P', 'bbox_mm': [[0.0, 0.0], [12.0, 3.0]],
               'z_mm': {'min': 20.0, 'max': 20.0}}
@@ -258,6 +317,49 @@ def test_stl_repairs_run_on_stl_sources(tmp_path):
     src2 = write_stl(tmp_path / 'gap2.stl', box(0, 0, 0.4, 60, 40, 6))
     sunk = support_clearance.sink_model(src2, dz=0.8)  # bottom ends 0.4 below the plate
     assert sunk['removed_volume_mm3'] == pytest.approx(60 * 40 * 0.4, rel=0.1)
+
+
+def test_stl_repairs_follow_the_finding_like_intake_does(tmp_path):
+    # #938 item 3: intake applies the finding's own fixes to the upload in
+    # place (extend with the finding's clearance minimum, sink with its
+    # clearance maximum); on an STL both must run and clear the finding.
+    src = write_stl(tmp_path / 'gap.stl', box(0, 0, 0.4, 60, 40, 6))
+    finding = next(f for f in support_clearance.analyze(src)['findings']
+                   if f['code'] == support_clearance.CODE_CLEARANCE)
+    assert [x['fix'] for x in finding['fixes']][:2] == ['extend_underside', 'sink']
+    res = support_clearance.extend_underside(src, gap_mm=finding['clearance_mm']['min'])
+    assert res['modified_vertices'] > 0
+    tris = support_clearance.leaves(src)[0]['tris']
+    assert float(tris[:, :, 2].min()) == pytest.approx(0.0, abs=1e-6)
+    assert not any(f['code'] == support_clearance.CODE_CLEARANCE
+                   for f in support_clearance.analyze(src)['findings'])
+
+    src2 = write_stl(tmp_path / 'gap2.stl', box(0, 0, 0.4, 60, 40, 6))
+    res = support_clearance.sink_model(src2, dz=finding['clearance_mm']['max'])
+    assert res['sink_mm'] == finding['clearance_mm']['max']
+    tris = support_clearance.leaves(src2)[0]['tris']
+    assert float(tris[:, :, 2].min()) == pytest.approx(0.0, abs=1e-6)
+    assert not any(f['code'] == support_clearance.CODE_CLEARANCE
+                   for f in support_clearance.analyze(src2)['findings'])
+
+
+def test_stl_extend_underside_repairs_an_ascii_stl(tmp_path):
+    # Uploads are not always binary: an ASCII STL gets the same repair.
+    lines = ['solid ascii']
+    for t in box(0, 0, 0.4, 60, 40, 6):
+        lines.append(' facet normal 0 0 0')
+        lines.append('  outer loop')
+        for v in t:
+            lines.append(f'   vertex {v[0]} {v[1]} {v[2]}')
+        lines.append('  endloop')
+        lines.append(' endfacet')
+    lines.append('endsolid ascii')
+    src = tmp_path / 'ascii.stl'
+    src.write_text('\n'.join(lines))
+    assert support_clearance.analyze(src)['risky'] is True
+    res = support_clearance.extend_underside(src, gap_mm=0.4)
+    assert res['modified_vertices'] > 0
+    assert support_clearance.analyze(src)['risky'] is False
 
 
 def test_gcode_model_bounds_ignores_support_and_purge():

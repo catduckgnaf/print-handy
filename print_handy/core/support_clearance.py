@@ -663,8 +663,46 @@ def gcode_model_height(gcode_text):
     return top
 
 
+def _clip_segment_to_box(ax, ay, az, bx, by, bz, x0, y0, x1, y1, zlo, zhi):
+    """The part of a support segment inside a target box and Z window.
+
+    Liang–Barsky clipping in XY against [x0, x1] x [y0, y1], then the
+    parameter interval is narrowed to where the segment's (linear) Z is
+    inside [zlo, zhi] (either bound None means no Z constraint). Returns
+    ((px, py), (qx, qy)) for the surviving sub-segment, or None when no
+    part of the segment is inside both.
+    """
+    dx, dy, dz = bx - ax, by - ay, bz - az
+    t0, t1 = 0.0, 1.0
+    for p, q in ((-dx, ax - x0), (dx, x1 - ax), (-dy, ay - y0), (dy, y1 - ay)):
+        if p == 0:
+            if q < 0:
+                return None
+            continue
+        t = q / p
+        if p < 0:
+            if t > t1:
+                return None
+            t0 = max(t0, t)
+        else:
+            if t < t0:
+                return None
+            t1 = min(t1, t)
+    if zlo is not None:
+        if dz == 0:
+            if not zlo <= az <= zhi:
+                return None
+        else:
+            ta, tb = (zlo - az) / dz, (zhi - az) / dz
+            t0 = max(t0, min(ta, tb))
+            t1 = min(t1, max(ta, tb))
+            if t0 > t1:
+                return None
+    return (ax + dx * t0, ay + dy * t0), (ax + dx * t1, ay + dy * t1)
+
+
 def verify_support_coverage(regions, gcode, cell_mm=3.0, source_bounds=None, gcode_bounds=None,
-                            z_scale=1.0):
+                            z_scale=None):
     """Post-slice toolpath coverage for support target regions (#922 gaps 2 and 4).
 
     ``regions`` is a report's region list (or a whole report); only
@@ -680,7 +718,11 @@ def verify_support_coverage(regions, gcode, cell_mm=3.0, source_bounds=None, gco
     rearrange the model. When ``source_bounds`` and ``gcode_bounds`` (XY
     min/max of the model in each system) are both given, target boxes are
     mapped by that translation + scale before comparison, and ``z_scale``
-    (the slice's Z scale, 1.0 when unscaled) scales the target heights.
+    scales the target heights. An explicit ``z_scale`` wins; when it is
+    None the Z scale is derived from the bounds mapping (the job scale is
+    uniform, so the mapping's XY scale is the Z scale too), or 1.0 when
+    no mapping is given (#938 item 1: heights must never be compared
+    unscaled against a slice the XY boxes were scaled for).
     Returns {'checked', 'ok', 'regions': [{..., 'coverage', ...}]}; with no
     targets, checked is False and ok is True (nothing to verify).
     """
@@ -692,7 +734,7 @@ def verify_support_coverage(regions, gcode, cell_mm=3.0, source_bounds=None, gco
         return {'checked': False, 'ok': True, 'regions': []}
     if not isinstance(gcode, str):
         gcode = Path(gcode).read_text(errors='replace')
-    points = []
+    segments = []
     current_type = ''
     pos = {'X': None, 'Y': None, 'Z': 0.0}
     for raw in gcode.splitlines():
@@ -715,17 +757,9 @@ def verify_support_coverage(regions, gcode, cell_mm=3.0, source_bounds=None, gco
                 pos[axis] = float(number)
         if extrudes and 'support' in current_type and pos['X'] is not None and pos['Y'] is not None:
             if start[0] is not None:
-                # Sample along the segment: a long straight support line
-                # covers every cell it crosses, not only its endpoints.
-                dist = max(abs(pos['X'] - start[0]), abs(pos['Y'] - start[1]))
-                steps = max(1, int(dist // (cell_mm / 2)) + 1)
-                for s in range(steps + 1):
-                    t = s / steps
-                    points.append((start[0] + (pos['X'] - start[0]) * t,
-                                   start[1] + (pos['Y'] - start[1]) * t,
-                                   start[2] + (pos['Z'] - start[2]) * t))
+                segments.append((start[0], start[1], start[2], pos['X'], pos['Y'], pos['Z']))
             else:
-                points.append((pos['X'], pos['Y'], pos['Z']))
+                segments.append((pos['X'], pos['Y'], pos['Z'], pos['X'], pos['Y'], pos['Z']))
     if source_bounds and gcode_bounds:
         sx = ((gcode_bounds[2] - gcode_bounds[0]) / (source_bounds[2] - source_bounds[0])
               if source_bounds[2] > source_bounds[0] else 1.0)
@@ -738,9 +772,16 @@ def verify_support_coverage(regions, gcode, cell_mm=3.0, source_bounds=None, gco
                      gcode_bounds[1] + (ay - source_bounds[1]) * sy],
                     [gcode_bounds[0] + (bx - source_bounds[0]) * sx,
                      gcode_bounds[1] + (by - source_bounds[1]) * sy]]
+
+        if z_scale is None:
+            # The job scale is uniform: the mapping's XY scale is the
+            # slice's Z scale as well (#938 item 1).
+            z_scale = (sx + sy) / 2.0
     else:
         def _map(box):
             return box
+    if z_scale is None:
+        z_scale = 1.0
     out = []
     ok = True
     for r in targets:
@@ -752,14 +793,31 @@ def verify_support_coverage(regions, gcode, cell_mm=3.0, source_bounds=None, gco
         nx = max(1, int(np.ceil((x1 - x0) / cell_mm)))
         ny = max(1, int(np.ceil((y1 - y0) / cell_mm)))
         covered = set()
-        for x, y, z in points:
-            # Support at the wrong height does not hold this underside up:
-            # only toolpath near the underside's own Z counts for it.
-            if zmin is not None and not (zmin - 1.0 <= z <= zmin + 0.5):
+        # Support at the wrong height does not hold this underside up:
+        # only the part of a segment near the underside's own Z counts.
+        zlo = zmin - 1.0 if zmin is not None else None
+        zhi = zmin + 0.5 if zmin is not None else None
+        for ax, ay, az, bx, by, bz in segments:
+            # Clip the segment to the target's own box before sampling
+            # (#938 item 2): a path that never enters the box contributes
+            # nothing, however narrow the box is, while a crossing still
+            # counts every cell it passes through — including a partial
+            # edge cell whose in-box interval the unclipped samples
+            # would jump over.
+            hit = _clip_segment_to_box(ax, ay, az, bx, by, bz, x0, y0, x1, y1, zlo, zhi)
+            if hit is None:
                 continue
-            # Only samples inside the target's own cell grid count; a path
-            # outside the box must not be clamped into an edge cell.
-            if x0 - 1e-9 <= x <= x0 + nx * cell_mm and y0 - 1e-9 <= y <= y0 + ny * cell_mm:
+            (px, py), (qx, qy) = hit
+            # Sample along the clipped segment: a long straight support
+            # line covers every cell it crosses, not only its endpoints.
+            dist = max(abs(qx - px), abs(qy - py))
+            steps = max(1, int(dist // (cell_mm / 2)) + 1)
+            for s in range(steps + 1):
+                t = s / steps
+                x = px + (qx - px) * t
+                y = py + (qy - py) * t
+                # A sample exactly on the box's upper edge indexes one
+                # past the last cell; the clamp keeps it in that cell.
                 i = min(nx - 1, max(0, int((x - x0) // cell_mm)))
                 j = min(ny - 1, max(0, int((y - y0) // cell_mm)))
                 covered.add((i, j))
