@@ -269,7 +269,10 @@ def test_refused_plates_are_read_from_the_final_slice():
     """A re-slice with supports can refuse different plates; disclose and accept those, not the first slice's."""
     import ast
     tree = _prepare_link_tree()
-    fn = next(n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef) and n.name == 'prepare_link')
+    # prepare_link is now a thin wrapper (the yolo dispatch); the intake
+    # body it delegates to is _prepare_link, which is where the re-slice
+    # and the refused-plate read live.
+    fn = next(n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef) and n.name == '_prepare_link')
     reads = [n.lineno for n in ast.walk(fn) if isinstance(n, ast.Assign)
              and any(getattr(t, 'id', None) == 'refused_plates' for t in n.targets)]
     reslices = [n.lineno for n in ast.walk(fn) if isinstance(n, ast.Call)
