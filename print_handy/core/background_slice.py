@@ -21,7 +21,7 @@ from . import owned_worker, slice_recipe
 # output files while leaving JOB.json claiming that G-code — verified,
 # bound and timestamped — left a discarded slice trusted by a later resume
 # or print-next (P2-24).
-SLICE_JOB_FIELDS = ('gcode', 'gcode_verified', 'provenance', 'artifact_binding', 'sliced_at',
+SLICE_JOB_FIELDS = ('gcode', 'gcode_verified', 'gcode_full_verified_sha256', 'provenance', 'artifact_binding', 'sliced_at',
                     'slice_config', 'slice_recipe', 'derived_plates', 'refused_plates',
                     'multipart_plan', 'offline_check', 'plate_merge', 'merged', 'tool_mapping')
 
