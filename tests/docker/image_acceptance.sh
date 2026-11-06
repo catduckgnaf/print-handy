@@ -118,7 +118,8 @@ template="$repo/docker/unraid/print-handy.xml"
 mapfile -t extra < <(python3 -c "
 import shlex, sys, xml.etree.ElementTree as ET
 params = shlex.split(ET.parse(sys.argv[1]).getroot().findtext('ExtraParams') or '')
-print('\n'.join(params))" "$template")
+if params:
+    print('\n'.join(params))" "$template")
 # The template ships no ExtraParams, so this runs with no extra flags:
 # every supervised module must import under the image's own defaults.
 if output=$(timeout 300 docker run --name "$project-unraid" "${probe_args[@]}" "${extra[@]}" "$image" \
