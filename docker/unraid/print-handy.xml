@@ -10,7 +10,7 @@
      can use the host render group; the container runs fine without it. See docs/DOCKER.md. -->
 <Container version="2">
   <Name>print-handy</Name>
-  <Repository>ghcr.io/catduckgnaf/print-handy@sha256:15daa36606fef923b773d1690d242584bd018df7746a545bc62ed78a825f8a56</Repository>
+  <Repository>ghcr.io/catduckgnaf/print-handy@sha256:03d88ec367004143d1a087f92cdb46a9fbf7671d49b5f25d0aa3ee7209202375</Repository>
   <Registry/>
   <Network>bridge</Network>
   <MyIP/>
