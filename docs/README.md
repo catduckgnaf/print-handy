@@ -21,7 +21,7 @@ Find the task you came to do. Print Handy runs locally, with no Print Handy clou
 - [Design a part](DESIGN.md): optional AI-assisted OpenSCAD design. Review the result before the usual approval flow.
 - [Edit a prepared model](EDITING.md): confirmed edit operations and limits. OrcaSlicer warning behavior is covered in [Slicer warnings](SLICER-WARNINGS.md).
 - [Printer profiles](PRINTER-PROFILES.md): supported delivery methods and verification limits.
-- [More than one printer](MULTI-INSTANCE.md): configure one instance to serve a printer roster, or run separate instances when you want hard process isolation. See the [multi-printer design record](MULTI-PRINTER-DESIGN.md) for implementation history.
+- [More than one printer](DOCKER.md#more-than-one-printer): one instance serves a whole printer roster — declare every printer in one config file; the full roster reference is the [Printers list](SETTINGS.md#printers-list). Running [separate instances](MULTI-INSTANCE.md) stays available when you want hard process isolation.
 
 ## Printer guides
 
