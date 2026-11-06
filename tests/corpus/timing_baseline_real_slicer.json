@@ -1,33 +1,63 @@
 {
  "cases": {
   "plates-multicolor/hermes": {
-   "first_prompt_s": 0.06,
+   "first_prompt_s": 0.1,
    "fit_check_s": 0.01,
-   "wall_s": 1.83
+   "raised_from": {
+    "first_prompt_s": 0.06,
+    "fit_check_s": 0.01,
+    "wall_s": 1.83
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The rise is inside this leg's measured runner spread (tests/corpus/timing_variance_real_slicer.json: baselines recorded on another run fail many pairings at +10% + 1.0 s), and the leg stays reporting-only.",
+   "wall_s": 1.97
   },
   "rotation-fit/hermes": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 3.88,
-   "wall_s": 8.46
+   "first_prompt_s": 0.13,
+   "fit_check_s": 4.17,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 3.88,
+    "wall_s": 8.46
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The rise is inside this leg's measured runner spread (tests/corpus/timing_variance_real_slicer.json: baselines recorded on another run fail many pairings at +10% + 1.0 s), and the leg stays reporting-only.",
+   "wall_s": 8.62
   },
   "single-part/hermes": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 5.02,
-   "wall_s": 5.65
+   "first_prompt_s": 0.02,
+   "fit_check_s": 6.02,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 5.02,
+    "wall_s": 5.65
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The rise is inside this leg's measured runner spread (tests/corpus/timing_variance_real_slicer.json: baselines recorded on another run fail many pairings at +10% + 1.0 s), and the leg stays reporting-only.",
+   "wall_s": 6.69
   },
   "stl-single-part/hermes": {
    "first_prompt_s": 0.01,
-   "fit_check_s": 5.0,
-   "wall_s": 5.63
+   "fit_check_s": 6.03,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 5.0,
+    "wall_s": 5.63
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The rise is inside this leg's measured runner spread (tests/corpus/timing_variance_real_slicer.json: baselines recorded on another run fail many pairings at +10% + 1.0 s), and the leg stays reporting-only.",
+   "wall_s": 6.69
   },
   "witch-ghost-cults3d/hermes": {
-   "first_prompt_s": 0.39,
-   "fit_check_s": 6.27,
-   "wall_s": 10.07
+   "first_prompt_s": 0.47,
+   "fit_check_s": 7.08,
+   "raised_from": {
+    "first_prompt_s": 0.39,
+    "fit_check_s": 6.27,
+    "wall_s": 10.07
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The old entry (10.07 s) was recorded 2026-11-02 from run 41376625077, before #921's dual speculative slice and the #932/#941 support-coverage verification this case exercises. The release run measured 16.95 s (attempt 1) and, after the documented re-run of the timing job, 16.28 s with tight repeats (16.26-16.28 s); the #941 PR run measured 13.2 s and the pre-#941 main run 42156215810 measured 10.76 s, so the case also carries this leg's large run-to-run spread. Accepted as the current normal for a reporting-only leg; the spread is recorded on #939 and #734.",
+   "wall_s": 16.28
   }
  },
  "description": "Real-Orca fake Discord flow (hermes transport), ci.yml slicer-timing-real, REPORTING ONLY (#734). Re-recorded every release from the release commit's CI artifact; see tests/README.md (Slicing-speed gate).",
- "recorded_from": "CI run 41376625077 (f26eab809bdcba33cf91ca322e53009fee3a5e23), artifact slicer-timing-real, median of 3; each metric keeps the tighter of this run and the previous baseline (release 2.2.4: no slowdown, sub-0.1 s runner variance not adopted)",
+ "recorded_from": "CI run 42159718217 (7e5ef651c2b096881ca91ca080a19f8f07ff141a), artifact slicer-timing-real, median of 3",
  "slack_s": 1.0,
  "tolerance": 0.1
 }

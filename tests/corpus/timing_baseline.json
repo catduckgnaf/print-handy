@@ -1,92 +1,153 @@
 {
  "cases": {
   "assembly-2c-tight/hermes": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.15,
    "fit_check_s": 0.0,
-   "wall_s": 0.07
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.07
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.25
   },
   "assembly-2c-tight/standalone": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.23,
    "fit_check_s": 0.0,
-   "wall_s": 0.07
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.07
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.27
   },
   "assembly-3c-tight/hermes": {
-   "first_prompt_s": 0.06,
+   "first_prompt_s": 0.12,
    "fit_check_s": 0.0,
-   "wall_s": 0.22
+   "raised_from": {
+    "first_prompt_s": 0.06,
+    "fit_check_s": 0.0,
+    "wall_s": 0.22
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.16
   },
   "assembly-3c-tight/standalone": {
-   "first_prompt_s": 0.2,
+   "first_prompt_s": 0.12,
    "fit_check_s": 0.0,
-   "wall_s": 0.26
+   "wall_s": 0.17
   },
   "assembly-four-color-tight/hermes": {
-   "first_prompt_s": 0.06,
+   "first_prompt_s": 0.14,
    "fit_check_s": 0.0,
-   "wall_s": 0.22
+   "raised_from": {
+    "first_prompt_s": 0.06,
+    "fit_check_s": 0.0,
+    "wall_s": 0.22
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.19
   },
   "assembly-four-color-tight/standalone": {
-   "first_prompt_s": 0.2,
+   "first_prompt_s": 0.14,
    "fit_check_s": 0.0,
-   "wall_s": 0.26
+   "wall_s": 0.2
   },
   "assembly-small-tower/hermes": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.11,
    "fit_check_s": 0.0,
-   "wall_s": 0.07
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.07
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.15
   },
   "assembly-small-tower/standalone": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.11,
    "fit_check_s": 0.0,
-   "wall_s": 0.07
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.07
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.14
   },
   "assembly-three-color-no-room/hermes": {
+   "first_prompt_s": 0.16,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.05
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.19
+  },
+  "assembly-three-color-no-room/standalone": {
+   "first_prompt_s": 0.16,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.18
+  },
+  "assembly-two-color-roomy/hermes": {
+   "first_prompt_s": 0.05,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.07
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.08
+  },
+  "assembly-two-color-roomy/standalone": {
+   "first_prompt_s": 0.05,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.07
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.09
+  },
+  "copies-multiple-plates/hermes": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
    "wall_s": 0.05
   },
-  "assembly-three-color-no-room/standalone": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "wall_s": 0.04
-  },
-  "assembly-two-color-roomy/hermes": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "wall_s": 0.07
-  },
-  "assembly-two-color-roomy/standalone": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.0,
-   "wall_s": 0.07
-  },
-  "copies-multiple-plates/hermes": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.17
-  },
   "copies-multiple-plates/standalone": {
-   "first_prompt_s": 0.15,
-   "wall_s": 0.18
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "wall_s": 0.05
   },
   "core-basematerials-parts/hermes": {
    "first_prompt_s": 0.02,
+   "fit_check_s": 0.0,
    "wall_s": 0.08
   },
   "core-basematerials-parts/standalone": {
    "first_prompt_s": 0.02,
-   "raised_from": {
-    "first_prompt_s": 0.03,
-    "wall_s": 0.07
-   },
-   "reason": "#734 re-baseline from main CI run 41365651326: the old entry predates later pipeline changes that the old +25% +1 s limit absorbed silently; accepted as the current normal before tightening to +10% +0.5 s.",
-   "wall_s": 0.08
+   "fit_check_s": 0.0,
+   "wall_s": 0.07
   },
   "core-colorgroup-items/hermes": {
    "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
    "wall_s": 0.05
   },
   "core-colorgroup-items/standalone": {
    "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
    "wall_s": 0.05
   },
   "core-cyclic-components/hermes": {
@@ -102,256 +163,491 @@
    "wall_s": 0.01
   },
   "core-inch-nested-assembly/hermes": {
-   "first_prompt_s": 0.02,
-   "wall_s": 0.06
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "wall_s": 0.04
   },
   "core-inch-nested-assembly/standalone": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.08
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "wall_s": 0.04
   },
   "core-multiproperties-texture/hermes": {
    "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
    "wall_s": 0.04
   },
   "core-multiproperties-texture/standalone": {
    "first_prompt_s": 0.01,
-   "wall_s": 0.04
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.05
   },
   "core-one-color/hermes": {
    "first_prompt_s": 0.02,
+   "fit_check_s": 0.0,
    "wall_s": 0.06
   },
   "core-one-color/standalone": {
-   "first_prompt_s": 0.04,
-   "raised_from": {
-    "first_prompt_s": 0.03,
-    "wall_s": 0.08
-   },
-   "reason": "#734 re-baseline from main CI run 41365651326: the old entry predates later pipeline changes that the old +25% +1 s limit absorbed silently; accepted as the current normal before tightening to +10% +0.5 s.",
-   "wall_s": 0.08
+   "first_prompt_s": 0.03,
+   "fit_check_s": 0.0,
+   "wall_s": 0.07
   },
   "core-prefixed-namespace/hermes": {
-   "first_prompt_s": 0.02,
-   "wall_s": 0.06
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "wall_s": 0.04
   },
   "core-prefixed-namespace/standalone": {
-   "first_prompt_s": 0.04,
-   "wall_s": 0.08
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "wall_s": 0.05
   },
   "core-triangle-colors/hermes": {
    "first_prompt_s": 0.01,
-   "wall_s": 0.04
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.06
   },
   "core-triangle-colors/standalone": {
    "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
    "wall_s": 0.04
   },
   "duplicate-part-names/hermes": {
    "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
    "wall_s": 0.04
   },
   "duplicate-part-names/standalone": {
    "first_prompt_s": 0.01,
-   "wall_s": 0.04
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.05
   },
   "five-colors-over-slots/hermes": {
    "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
    "wall_s": 0.06
   },
   "five-colors-over-slots/standalone": {
    "first_prompt_s": 0.01,
-   "wall_s": 0.06
-  },
-  "foreign-bambu-profile/hermes": {
-   "first_prompt_s": 0.01,
-   "wall_s": 0.06
-  },
-  "foreign-bambu-profile/standalone": {
-   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
    "wall_s": 0.06
   },
   "foreign-bambu-profile-split/hermes": {
-   "first_prompt_s": 0.01,
-   "wall_s": 0.12
+   "first_prompt_s": 0.13,
+   "fit_check_s": 0.01,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.12
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.2
   },
   "foreign-bambu-profile-split/standalone": {
+   "first_prompt_s": 0.12,
+   "fit_check_s": 0.01,
+   "raised_from": {
+    "first_prompt_s": 0.02,
+    "wall_s": 0.15
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.19
+  },
+  "foreign-bambu-profile/hermes": {
+   "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
+   "wall_s": 0.06
+  },
+  "foreign-bambu-profile/standalone": {
    "first_prompt_s": 0.02,
-   "wall_s": 0.15
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.06
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.06
   },
   "four-colors-one-plate/hermes": {
    "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
    "wall_s": 0.06
   },
   "four-colors-one-plate/standalone": {
    "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
    "wall_s": 0.06
   },
   "height-color-changes/hermes": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
-   "wall_s": 0.05,
-   "reason": "New corpus case from #870 (height-based color changes), recorded from PR #872 CI run 41749879241 (artifact discord-timing, median of 3, CI runner)."
+   "wall_s": 0.05
   },
   "height-color-changes/standalone": {
    "first_prompt_s": 0.01,
    "fit_check_s": 0.0,
-   "wall_s": 0.04,
-   "reason": "New corpus case from #870 (height-based color changes), recorded from PR #872 CI run 41749879241 (artifact discord-timing, median of 3, CI runner)."
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.04
+   },
+   "reason": "New corpus case from #870 (height-based color changes), recorded from PR #872 CI run 41749879241 (artifact discord-timing, median of 3, CI runner).",
+   "wall_s": 0.05
   },
   "islands-144-four-color/hermes": {
-   "first_prompt_s": 0.18,
-   "fit_check_s": 0.01,
-   "wall_s": 1.0
+   "first_prompt_s": 0.15,
+   "fit_check_s": 0.02,
+   "raised_from": {
+    "first_prompt_s": 0.18,
+    "fit_check_s": 0.01,
+    "wall_s": 1.0
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.6
   },
   "islands-144-four-color/standalone": {
-   "first_prompt_s": 0.17,
-   "fit_check_s": 0.01,
-   "wall_s": 0.98
+   "first_prompt_s": 0.13,
+   "fit_check_s": 0.05,
+   "raised_from": {
+    "first_prompt_s": 0.17,
+    "fit_check_s": 0.01,
+    "wall_s": 0.98
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.61
   },
   "loose-2c-tight/hermes": {
-   "first_prompt_s": 0.01,
-   "wall_s": 0.06
+   "first_prompt_s": 0.04,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.06
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.08
   },
   "loose-2c-tight/standalone": {
-   "first_prompt_s": 0.01,
-   "wall_s": 0.06
+   "first_prompt_s": 0.04,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.06
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.1
   },
   "loose-3c-tight/hermes": {
-   "first_prompt_s": 0.01,
-   "wall_s": 0.06
+   "first_prompt_s": 0.06,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.06
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.1
   },
   "loose-3c-tight/standalone": {
-   "first_prompt_s": 0.01,
-   "wall_s": 0.06
+   "first_prompt_s": 0.06,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.06
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.1
   },
   "loose-4c-tight/hermes": {
-   "first_prompt_s": 0.01,
-   "wall_s": 0.06
+   "first_prompt_s": 0.04,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.06
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.08
   },
   "loose-4c-tight/standalone": {
-   "first_prompt_s": 0.01,
-   "wall_s": 0.06
+   "first_prompt_s": 0.04,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.06
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.1
   },
   "many-parts/hermes": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.02,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.05
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
    "wall_s": 0.05
   },
   "many-parts/standalone": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.02,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.05
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
    "wall_s": 0.05
   },
   "missing-plate-metadata/hermes": {
    "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
    "wall_s": 0.04
   },
   "missing-plate-metadata/standalone": {
    "first_prompt_s": 0.01,
-   "wall_s": 0.04
-  },
-  "multiplate-select/hermes": {
-   "first_prompt_s": 0.01,
-   "wall_s": 0.06
-  },
-  "multiplate-select/standalone": {
-   "first_prompt_s": 0.01,
-   "wall_s": 0.06
-  },
-  "must-shrink/hermes": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.01,
-   "wall_s": 0.06
-  },
-  "must-shrink/standalone": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.01,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
    "wall_s": 0.05
   },
+  "multiplate-select/hermes": {
+   "first_prompt_s": 0.12,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.06
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.17
+  },
+  "multiplate-select/standalone": {
+   "first_prompt_s": 0.11,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.06
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.21
+  },
+  "must-shrink/hermes": {
+   "first_prompt_s": 0.22,
+   "fit_check_s": 0.01,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.01,
+    "wall_s": 0.06
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.26
+  },
+  "must-shrink/standalone": {
+   "first_prompt_s": 0.22,
+   "fit_check_s": 0.01,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.01,
+    "wall_s": 0.05
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.26
+  },
   "needs-supports/hermes": {
-   "first_prompt_s": 0.01,
-   "wall_s": 0.04
+   "first_prompt_s": 0.02,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.05
   },
   "needs-supports/standalone": {
-   "first_prompt_s": 0.01,
-   "wall_s": 0.04
+   "first_prompt_s": 0.02,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.05
   },
   "parts-512-four-color/hermes": {
-   "first_prompt_s": 0.68,
-   "fit_check_s": 0.01,
-   "wall_s": 4.74
+   "first_prompt_s": 0.51,
+   "fit_check_s": 0.13,
+   "raised_from": {
+    "first_prompt_s": 0.68,
+    "fit_check_s": 0.01,
+    "wall_s": 4.74
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 2.63
   },
   "parts-512-four-color/standalone": {
-   "first_prompt_s": 0.67,
-   "fit_check_s": 0.01,
-   "wall_s": 4.75
+   "first_prompt_s": 0.52,
+   "fit_check_s": 0.12,
+   "raised_from": {
+    "first_prompt_s": 0.67,
+    "fit_check_s": 0.01,
+    "wall_s": 4.75
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 2.71
   },
   "parts-one-plate/hermes": {
-   "first_prompt_s": 0.02,
-   "wall_s": 0.06
+   "first_prompt_s": 0.03,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.02,
+    "wall_s": 0.06
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.07
   },
   "parts-one-plate/standalone": {
-   "first_prompt_s": 0.02,
-   "wall_s": 0.06
+   "first_prompt_s": 0.03,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.02,
+    "wall_s": 0.06
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.07
   },
   "plates-multicolor/hermes": {
-   "first_prompt_s": 0.02,
-   "wall_s": 0.07
+   "first_prompt_s": 0.03,
+   "fit_check_s": 0.01,
+   "raised_from": {
+    "first_prompt_s": 0.02,
+    "wall_s": 0.07
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.09
   },
   "plates-multicolor/standalone": {
-   "first_prompt_s": 0.02,
-   "wall_s": 0.07
+   "first_prompt_s": 0.03,
+   "fit_check_s": 0.01,
+   "raised_from": {
+    "first_prompt_s": 0.02,
+    "wall_s": 0.07
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.08
   },
   "prime-tower-clearance/hermes": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.01,
-   "wall_s": 0.07
+   "first_prompt_s": 0.09,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.01,
+    "wall_s": 0.07
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.17
   },
   "prime-tower-clearance/standalone": {
-   "first_prompt_s": 0.01,
-   "fit_check_s": 0.01,
-   "wall_s": 0.08
+   "first_prompt_s": 0.09,
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.01,
+    "wall_s": 0.08
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.19
   },
   "prusa-mmu-project/hermes": {
    "first_prompt_s": 0.01,
-   "wall_s": 0.04
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.05
   },
   "prusa-mmu-project/standalone": {
    "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
    "wall_s": 0.04
   },
   "rotation-fit/hermes": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.07,
    "fit_check_s": 0.01,
-   "wall_s": 0.05
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.01,
+    "wall_s": 0.05
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.11
   },
   "rotation-fit/standalone": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.07,
    "fit_check_s": 0.01,
-   "wall_s": 0.05
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.01,
+    "wall_s": 0.05
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.11
   },
   "single-part/hermes": {
    "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
    "wall_s": 0.04
   },
   "single-part/standalone": {
    "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
    "wall_s": 0.04
   },
   "split-plan/hermes": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.12,
    "fit_check_s": 0.01,
-   "wall_s": 0.07
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.01,
+    "wall_s": 0.07
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.17
   },
   "split-plan/standalone": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.11,
    "fit_check_s": 0.01,
-   "wall_s": 0.08
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.01,
+    "wall_s": 0.08
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.18
   },
   "stl-ascii/hermes": {
    "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
    "wall_s": 0.03
   },
   "stl-ascii/standalone": {
    "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
    "wall_s": 0.03
   },
   "stl-degenerate-zero-volume/hermes": {
@@ -362,44 +658,89 @@
   },
   "stl-inverted-normals/hermes": {
    "first_prompt_s": 0.01,
-   "wall_s": 0.04
+   "fit_check_s": 0.0,
+   "wall_s": 0.03
   },
   "stl-inverted-normals/standalone": {
    "first_prompt_s": 0.01,
-   "wall_s": 0.03
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.03
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.04
   },
   "stl-must-shrink/hermes": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.21,
    "fit_check_s": 0.0,
-   "wall_s": 0.04
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.24
   },
   "stl-must-shrink/standalone": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.21,
    "fit_check_s": 0.0,
-   "wall_s": 0.04
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "fit_check_s": 0.0,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.24
   },
   "stl-needs-supports/hermes": {
    "first_prompt_s": 0.01,
-   "wall_s": 0.03
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.03
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.05
   },
   "stl-needs-supports/standalone": {
    "first_prompt_s": 0.01,
-   "wall_s": 0.03
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.03
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.07
   },
   "stl-open-thin-wall/hermes": {
    "first_prompt_s": 0.01,
-   "wall_s": 0.03
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.03
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.05
   },
   "stl-open-thin-wall/standalone": {
    "first_prompt_s": 0.01,
-   "wall_s": 0.04
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.04
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.06
   },
   "stl-single-part/hermes": {
    "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
    "wall_s": 0.03
   },
   "stl-single-part/standalone": {
    "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
    "wall_s": 0.03
   },
   "stl-tall/hermes": {
@@ -414,61 +755,73 @@
   },
   "stl-text-solid-header/hermes": {
    "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
    "wall_s": 0.03
   },
   "stl-text-solid-header/standalone": {
    "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
    "wall_s": 0.03
   },
   "stl-thin-footprint/hermes": {
    "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
    "wall_s": 0.03
   },
   "stl-thin-footprint/standalone": {
    "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
    "wall_s": 0.03
   },
   "stl-tiny/hermes": {
-   "first_prompt_s": 0.01,
+   "first_prompt_s": 0.0,
+   "fit_check_s": 0.0,
    "wall_s": 0.04
   },
   "stl-tiny/standalone": {
    "first_prompt_s": 0.01,
-   "wall_s": 0.03
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.03
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.04
   },
   "stl-very-thin-wall/hermes": {
    "first_prompt_s": 0.01,
-   "wall_s": 0.03
+   "fit_check_s": 0.0,
+   "raised_from": {
+    "first_prompt_s": 0.01,
+    "wall_s": 0.03
+   },
+   "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. Every rise in this file is a small absolute move (largest +0.22 s) on a sub-second mock flow and stays inside the gate's +10% + 0.5 s slack; no case exceeded its previous limit in the recording run. The previous baseline was recorded from a fast run (41365651326), so the rises are accepted as the current normal.",
+   "wall_s": 0.04
   },
   "stl-very-thin-wall/standalone": {
    "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
    "wall_s": 0.03
   },
   "unicode-part-extra-plate/hermes": {
    "first_prompt_s": 0.01,
+   "fit_check_s": 0.0,
    "wall_s": 0.04
   },
   "unicode-part-extra-plate/standalone": {
    "first_prompt_s": 0.01,
-   "wall_s": 0.05
+   "fit_check_s": 0.0,
+   "wall_s": 0.04
   },
   "witch-ghost-cults3d/hermes": {
    "first_prompt_s": 0.35,
-   "raised_from": {
-    "first_prompt_s": 0.35,
-    "wall_s": 0.75
-   },
-   "reason": "#911 intake support pre-check: this case is flagged for support risk, so the flow runs a second speculative with-supports slice in the background before bed-clear and the mock flow slices twice. Median of 3 repeats from CI run 42128173482 on d7accd8.",
-   "wall_s": 1.49
+   "fit_check_s": 0.1,
+   "wall_s": 0.96
   },
   "witch-ghost-cults3d/standalone": {
-   "first_prompt_s": 0.33,
-   "raised_from": {
-    "first_prompt_s": 0.33,
-    "wall_s": 0.75
-   },
-   "reason": "#911 intake support pre-check: this case is flagged for support risk, so the flow runs a second speculative with-supports slice in the background before bed-clear and the mock flow slices twice. Median of 3 repeats from CI run 42128173482 on d7accd8.",
-   "wall_s": 1.46
+   "first_prompt_s": 0.32,
+   "fit_check_s": 0.11,
+   "wall_s": 0.93
   }
  },
  "description": "Mock-slicer fake Discord flow (both transports), required gate in ci.yml discord-timing. Re-recorded every release from the release commit's CI artifact; see tests/README.md (Slicing-speed gate).",
@@ -485,7 +838,7 @@
   "stl-tall/hermes",
   "stl-tall/standalone"
  ],
- "recorded_from": "CI run 41376625077 (f26eab809bdcba33cf91ca322e53009fee3a5e23), artifact discord-timing, median of 3; each metric keeps the tighter of this run and the previous baseline (release 2.2.4: no slowdown, sub-0.1 s runner variance not adopted)",
+ "recorded_from": "CI run 42159718217 (7e5ef651c2b096881ca91ca080a19f8f07ff141a), artifact discord-timing, median of 3",
  "slack_s": 0.5,
  "tolerance": 0.1
 }
