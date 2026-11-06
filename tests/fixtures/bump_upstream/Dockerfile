@@ -1,4 +1,4 @@
-# Fixture excerpt of the production Dockerfile: the Spoolman stage.
+# Fixture excerpt of the production Dockerfile: the Spoolman and Bambu stages.
     fi
 
 # API-only Spoolman, isolated from Print Handy's Python dependencies.
@@ -18,3 +18,16 @@ RUN git init . && git remote add origin https://github.com/Donkie/Spoolman.git &
     printf '%s\n' 'Spoolman is managed by Print Handy; use /api/v1.' > client_v2/build/200.html && \
     printf '%s\n' "$SPOOLMAN_REF" > source-revision
 FROM debian:13-slim AS runtime
+
+# Bambu Studio, built from pinned source (excerpt).
+FROM debian:13-slim AS bambu-build
+ARG WITH_BAMBU=false
+ARG BAMBU_REF=926a7192574bcb9b3a732e1ec59a46d79cb45466
+ARG BAMBU_BUILD_PROFILE=release-static-fhs
+RUN if [ "$WITH_BAMBU" = true ]; then \
+      git init /cache/bambu && \
+      git -C /cache/bambu remote add origin https://github.com/bambulab/BambuStudio.git && \
+      git -C /cache/bambu fetch --depth 1 origin "$BAMBU_REF" && \
+      git -C /cache/bambu checkout --detach FETCH_HEAD && \
+      test "$(git -C /cache/bambu rev-parse HEAD)" = "$BAMBU_REF"; \
+    fi

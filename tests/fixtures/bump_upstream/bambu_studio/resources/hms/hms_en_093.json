@@ -1,0 +1,1 @@
+{"data":{"device_error":{"en":[{"ecode":"05000001","intro":"Print failed due to an error. Retry the print."}]},"device_hms":{"en":[{"ecode":"0300010000010001","intro":"The extruder is clogged. Clean it thoroughly before resuming."},{"ecode":"0500010000010002","intro":""}]}}}
