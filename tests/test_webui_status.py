@@ -488,6 +488,29 @@ class PrinterStatusTests(unittest.TestCase):
         self.assertFalse(body["ok"])
         self.assertIn("no-such-printer", body["reason"])
 
+    def test_object_keys_always_present(self):
+        # ha-print-handy #1: current_object / objects / excluded_objects
+        # follow the #708 always-present philosophy — data when the
+        # adapter reports it, None / empty defaults when it does not.
+        with tempfile.TemporaryDirectory() as tmp:
+            data = load_settings(tmp)
+            code, body = status.printer_status(
+                data, "flashforge-ad5x",
+                read=lambda adapter, view: {"state": "printing",
+                                            "current_object": "cube",
+                                            "objects": ["cube", "gear"],
+                                            "excluded_objects": ["gear"]})
+            shown = body["status"]
+            self.assertEqual(shown["current_object"], "cube")
+            self.assertEqual(shown["objects"], ["cube", "gear"])
+            self.assertEqual(shown["excluded_objects"], ["gear"])
+            code, body = status.printer_status(
+                data, "flashforge-ad5x", read=lambda adapter, view: {"state": "standby"})
+            shown = body["status"]
+            self.assertIsNone(shown["current_object"])
+            self.assertEqual(shown["objects"], [])
+            self.assertEqual(shown["excluded_objects"], [])
+
 
 class PrinterStatusRouteTests(unittest.TestCase):
     """#664: the HTTP route — same auth as /api/status, 404s, real wiring."""

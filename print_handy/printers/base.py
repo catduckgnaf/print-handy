@@ -516,6 +516,21 @@ def _int(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
+def _object_names(entries: Any) -> list[str]:
+    """Plain object names from Moonraker's exclude_object lists.
+
+    Entries are usually dicts carrying a ``name`` (the defined objects)
+    or plain strings (the excluded list); anything else is dropped, and
+    duplicates keep only their first occurrence.
+    """
+    names: list[str] = []
+    for entry in entries if isinstance(entries, list) else []:
+        name = entry.get("name") if isinstance(entry, dict) else entry
+        if isinstance(name, str) and name and name not in names:
+            names.append(name)
+    return names
+
+
 def basic_status(raw: dict) -> dict[str, Any]:
     """Plain Moonraker fields shared by every model."""
     raw = raw if isinstance(raw, dict) else {}
@@ -534,7 +549,18 @@ def basic_status(raw: dict) -> dict[str, Any]:
         "layer": _int(info.get("current_layer")),
         "total_layers": _int(info.get("total_layer")),
         "remaining_min": None,
+        # Exclude-object data (ha-print-handy #1): always present, empty
+        # when the printer reports no exclude_object status.
+        "current_object": None,
+        "objects": [],
+        "excluded_objects": [],
     }
+    exclude = raw.get("exclude_object")
+    if isinstance(exclude, dict):
+        current = exclude.get("current_object")
+        out["current_object"] = current if isinstance(current, str) and current else None
+        out["objects"] = _object_names(exclude.get("objects"))
+        out["excluded_objects"] = _object_names(exclude.get("excluded_objects"))
     # Moonraker reports no remaining time: estimate it from elapsed print time and file
     # progress (elapsed / progress - elapsed), only while printing with progress above zero.
     duration = _number(stats.get("print_duration"))

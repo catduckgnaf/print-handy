@@ -11,6 +11,19 @@ class OctoPrintAdapter(KlipperAdapter):
     def client(self):
         return OctoPrintClient(self.config['services'].get('octoprint_url', ''), os.environ.get('OCTOPRINT_API_KEY', ''))
 
+    def send_gcode(self, lines):
+        """Send raw G-code lines through the client's printer-command path.
+
+        The Web UI send-G-code route (ha-print-handy #1) calls this the
+        same way controls call set_target_temperature on other families:
+        one entry per non-empty line, in order. Blank lines are dropped
+        here as well so no caller can post an empty command.
+        """
+        commands = [str(line).strip() for line in (lines or []) if str(line).strip()]
+        if not commands:
+            raise OctoPrintError('no G-code commands to send; nothing sent')
+        return self.client().send_commands(commands)
+
     def control(self, action):
         """Pause, resume or stop the current print through OctoPrint's job API.
 

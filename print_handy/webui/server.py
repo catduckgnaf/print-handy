@@ -11,6 +11,12 @@ step) serving:
 - ``POST /api/printers/<id>/pause|resume|cancel|temperature`` — printer
   controls (#708, :mod:`print_handy.webui.controls`), off unless
   ``[webui] controls_enabled = true``; header auth only, JSON bodies;
+- ``POST /api/printers/<id>/emergency_stop|firmware_restart|
+  server_restart|gcode|exclude`` — the ha-print-handy #1 control
+  routes (same module and the same guard): the Moonraker power
+  endpoints behind ``{"confirm": true}``, raw G-code (Moonraker
+  script, OctoPrint printer commands), and Klipper exclude-object
+  through ``core.exclude_object``;
 - ``GET /api/printers/<id>/status`` — one roster printer's live status
   as JSON (:func:`print_handy.webui.status.printer_status`, #664): the
   adapter's normalized status, read live; an unknown id is a 404 and an
@@ -721,6 +727,9 @@ class _Handler(BaseHTTPRequestHandler):
     def _printer_control_route(self, rest):
         """POST /api/printers/<id>/pause|resume|cancel|temperature|target.
 
+        Also the ha-print-handy #1 verbs: emergency_stop,
+        firmware_restart, server_restart, gcode and exclude.
+
         Authorization is the access-token header only (or no token
         configured): a login-session cookie never authorizes a control
         POST, the same rule as the config POSTs. The body must be JSON,
@@ -733,10 +742,13 @@ class _Handler(BaseHTTPRequestHandler):
             self._deny_header()
             return
         segments = rest.split("/")
-        verbs = (*controls_module.ACTIONS, "temperature", "target")
+        verbs = (*controls_module.ACTIONS, "temperature", "target",
+                 *controls_module.POWER_ACTIONS, "gcode", "exclude")
         if len(segments) != 2 or not segments[0] or segments[1] not in verbs:
             self._json(404, {"ok": False, "reason": "try /api/printers/<id>/pause, resume, "
-                                                    "cancel, temperature or target"})
+                                                    "cancel, temperature, target, emergency_stop, "
+                                                    "firmware_restart, server_restart, gcode "
+                                                    "or exclude"})
             return
         content_type = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
         try:
@@ -1432,6 +1444,12 @@ def _printer_control(data, printer_id, verb, body):
         return controls_module.set_temperature(data, printer_id, body)
     if verb == "target":
         return controls_module.set_targets(data, printer_id, body)
+    if verb in controls_module.POWER_ACTIONS:
+        return controls_module.power_action(data, printer_id, verb, body)
+    if verb == "gcode":
+        return controls_module.send_gcode(data, printer_id, body)
+    if verb == "exclude":
+        return controls_module.exclude_object(data, printer_id, body)
     return controls_module.control(data, printer_id, verb, body)
 
 

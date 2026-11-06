@@ -125,3 +125,16 @@ class OctoPrintClient:
         if action not in bodies:
             raise OctoPrintError(f'{action} is unsupported by OctoPrint integration')
         return self.request('POST', '/api/job', bodies[action])
+
+    def send_commands(self, commands):
+        """Send raw G-code lines through POST /api/printer/command.
+
+        The same endpoint start() already queues its temperature waits
+        through: OctoPrint runs the commands in order on its serial
+        queue. The caller (the adapter) has already dropped empty lines;
+        an empty list is refused here rather than posted as a no-op.
+        """
+        commands = list(commands or [])
+        if not commands:
+            raise OctoPrintError('no G-code commands to send; nothing sent')
+        return self.request('POST', '/api/printer/command', {'commands': commands})
