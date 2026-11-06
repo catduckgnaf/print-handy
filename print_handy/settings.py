@@ -1804,6 +1804,14 @@ def validate(data):
             or level != int(level) or not 1 <= level <= 5:
         raise SettingsError(f"[visual_watch] sensitivity must be a whole number from 1 to 5, got {level!r}")
     data["visual_watch"]["sensitivity"] = int(level)
+    # #913: early-layer watch for risky prints, and the opt-in auto-pause.
+    for key, default, top in (("early_layers", 10, 1000), ("early_interval_s", 120, 3600)):
+        value = data["visual_watch"].setdefault(key, default)
+        if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= top:
+            raise SettingsError(f"[visual_watch] {key} must be a whole number from 1 to {top}, got {value!r}")
+    auto_pause = data["visual_watch"].setdefault("auto_pause_early", False)
+    if not isinstance(auto_pause, bool):
+        raise SettingsError("[visual_watch] auto_pause_early must be true or false")
     for key in ("question_timeout_s", "safety_confirm_timeout_s", "upload_wait_s", "cold_pull_outcome_s"):
         data["discord"][key] = _positive(data, "discord", key, int)
     _validate_bot(data)

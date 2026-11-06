@@ -354,6 +354,10 @@ def build_record_data(
         "discord_chat_id": str(context.get("discord_chat_id") or DEFAULT_CHAT_ID),
         "moonraker_state": native,
         "job_key": context.get("job_key"),
+        # #913: the camera watch schedule chosen at start (normal or
+        # early_layer) and why a print counted as risky.
+        "watch_mode": context.get("watch_mode"),
+        "watch_risk": context.get("watch_risk"),
         **_stop_fields(filename, started_at, printer=context.get("printer_id") or context.get("printer")),
     }
 
@@ -444,7 +448,7 @@ _RECORD_FIELDS = (
     "filament_used_mm", "filament_used_g", "print_duration_seconds",
     "slicer_settings", "author_directed_tree_supports", "physical_outcome",
     "follow_up", "multipart_plan_id", "part_id", "moonraker_state",
-    "discord_chat_id", "stop_reason", "stop_capture",
+    "discord_chat_id", "watch_mode", "watch_risk", "stop_reason", "stop_capture",
 )
 
 

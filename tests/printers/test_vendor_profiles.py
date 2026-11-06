@@ -60,6 +60,8 @@ def without_added(data):
         data.get("timelapse", {}).pop(key, None)
     for key in ("target_length_s", "min_fps", "max_fps", "min_length_s", "hold_last_frame_s"):
         data.get("timelapse", {}).pop(key, None)  # added by #906, after capture
+    for key in ("early_layers", "early_interval_s", "auto_pause_early"):
+        data.get("visual_watch", {}).pop(key, None)  # added by #913, after capture
     data.get("timelapse", {}).pop("encoder", None)  # added by #314, after capture
     data.get("discord", {}).pop("denied_user_ids", None)  # added by #386, after capture
     data.get("discord", {}).pop("chat_llm_enabled", None)  # added by #466, after capture

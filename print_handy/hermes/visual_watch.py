@@ -51,6 +51,84 @@ def _visual_level(level=None):
     return level
 
 
+# Early-layer watch for risky prints (#913). A print is risky when it carries
+# a slicer support finding (#911), a "print anyway" override, or an operator
+# supports decision (#904). Risky prints are checked on every layer change for
+# the first EARLY_LAYERS layers and at least every EARLY_INTERVAL_S seconds
+# until then. Normal prints keep the sensitivity schedule above.
+EARLY_LAYERS = 10
+EARLY_INTERVAL_S = 120
+# An empty-bed verdict while print_stats says printing is suspicious, not
+# healthy: it is re-checked this many seconds later (#913).
+EMPTY_IDLE_RECHECK_S = 60
+# Verdicts that count toward the opt-in early-layer auto-pause (#913).
+AUTO_PAUSE_VERDICTS = frozenset({"spaghetti", "detached", "air"})
+AUTO_PAUSE_STREAK = 2
+WATCH_MODE_NORMAL = "normal"
+WATCH_MODE_EARLY = "early_layer"
+
+
+def risky_job(job):
+    """Why this job gets the early-layer watch, or "" for a normal print (#913).
+
+    Reads only recorded facts: #911 findings (``slice_findings`` /
+    ``underside_findings``), a recorded "print anyway" override, a support
+    warning shown for the slice (top level or under a provenance's
+    ``slice_warnings`` with ``support_needed``), an operator supports
+    decision (#904, including one settled through ``orientation``), and
+    the configurable ``risky`` marker on the job.
+    """
+    if not isinstance(job, dict):
+        return ""
+    if job.get("risky") is True or job.get("watch_mode") == WATCH_MODE_EARLY:
+        return "risky marker"
+    for key in ("slice_findings", "underside_findings", "support_findings"):
+        if job.get(key):
+            return "slicer finding"
+    for key in ("print_anyway", "warning_override", "override_print_anyway"):
+        if job.get(key):
+            return "print anyway override"
+    decision = job.get("support_decision")
+    if isinstance(decision, dict) and isinstance(decision.get("supports"), bool):
+        return "supports decision"
+    warnings = job.get("slice_warnings")
+    if isinstance(warnings, dict) and (warnings.get("support") or warnings.get("support_needed")):
+        return "support warning"
+    # The shapes core/slice_warnings actually records: warnings live under
+    # each artifact's provenance (the job's, and any derived plate's) with a
+    # support_needed flag, and an operator can settle supports through the
+    # orientation choice that carried the rotation (#904).
+    orientation = job.get("orientation")
+    if (isinstance(orientation, dict) and orientation.get("rotation")
+            and isinstance(orientation.get("supports"), bool)):
+        return "supports decision"
+    provenances = [job.get("provenance")]
+    provenances += [plate.get("provenance") for plate in job.get("derived_plates") or []
+                    if isinstance(plate, dict)]
+    for prov in provenances:
+        if isinstance(prov, dict):
+            found = prov.get("slice_warnings")
+            if isinstance(found, dict) and found.get("support_needed"):
+                return "support warning"
+    return ""
+
+
+def watch_settings(cfg=None):
+    """The [visual_watch] early-layer and auto-pause settings with defaults."""
+    if cfg is None:
+        try:
+            cfg = _config.cfg()
+        except Exception:
+            cfg = {}
+    section = (cfg or {}).get("visual_watch") or {}
+    def _int(key, default):
+        value = section.get(key, default)
+        return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else default
+    return {"early_layers": _int("early_layers", EARLY_LAYERS),
+            "early_interval_s": _int("early_interval_s", EARLY_INTERVAL_S),
+            "auto_pause_early": section.get("auto_pause_early") is True}
+
+
 def _visual_profile(level=None):
     return VISUAL_SENSITIVITY[_visual_level(level)]
 
@@ -231,7 +309,26 @@ def _chat_route_configured(api_key):
         return True
 
 
-def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_streak=None):
+def _local_fallback_verdict(image, streak=None):
+    """The local detector as a backup for a failed endpoint call (#913).
+
+    Used only in early-layer mode, and only when the detector model file is
+    already present: this never downloads, and it does not need
+    ``vision.local_detector_enabled`` (that switch keeps its meaning, the
+    detector as the primary route). Returns None when it cannot stand in.
+    """
+    try:
+        if not local_vision.model_path().is_file():
+            return None
+        verdict, detail = local_vision.local_verdict(image, streak=streak)
+    except Exception as exc:
+        logger.warning("local detector fallback failed: %s: %s", type(exc).__name__, exc)
+        return None
+    return verdict, f"local detector fallback: {detail}"[:300]
+
+
+def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_streak=None,
+                   local_fallback=False):
     """Judge one frame. Returns (verdict, detail).
 
     Route order: PRINT_VISION_URL, then the chat endpoint
@@ -245,6 +342,8 @@ def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_st
 
     ``local_streak`` is the calling print watch's per-print temporal
     escalation state for the local route; the endpoint routes ignore it.
+    ``local_fallback`` (early-layer mode, #913) lets a failed configured
+    endpoint fall back to the local detector when its model is present.
     """
     endpoint = os.environ.get("PRINT_VISION_URL")
     try:
@@ -264,6 +363,15 @@ def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_st
         # in. A configured endpoint that fails does NOT fall through.
         if not endpoint and not _chat_route_configured(api_key):
             local = _local_verdict(image, local_streak)
+            if local is not None:
+                return local
+        elif local_fallback:
+            # #913: in early-layer mode a failed or timed-out endpoint call
+            # falls back to the local detector when its model is present.
+            logger.warning("vision check failed via %s: %s: %s; trying the local detector",
+                           "PRINT_VISION_URL" if endpoint else "services.vision_chat_url",
+                           type(exc).__name__, exc)
+            local = _local_fallback_verdict(image, local_streak)
             if local is not None:
                 return local
         # The returned detail stays generic on purpose (#467: raw error text
@@ -307,10 +415,65 @@ def visual_extract(image, prompt, *, chat_url, model, api_key, context):
 
 class VisualPrintWatch:
     """Pure trigger policy for periodic visual checks; never controls the printer."""
-    def __init__(self, sensitivity=None):
+    def __init__(self, sensitivity=None, *, early_layers=EARLY_LAYERS, early_interval_s=EARLY_INTERVAL_S):
         self.sensitivity = _visual_level(sensitivity)
         self.profile = VISUAL_SENSITIVITY[self.sensitivity]
+        self.early_layers = early_layers
+        self.early_interval_s = early_interval_s
         self.reset()
+
+    def set_mode(self, mode):
+        """Pick the schedule for this print: normal or early_layer (#913)."""
+        self.mode = WATCH_MODE_EARLY if mode == WATCH_MODE_EARLY else WATCH_MODE_NORMAL
+
+    def in_early_window(self, layer):
+        """True while a risky print is inside its first early_layers layers."""
+        return (self.mode == WATCH_MODE_EARLY and isinstance(layer, int)
+                and 1 <= layer <= self.early_layers)
+
+    def note_empty_idle(self, now):
+        """An empty-bed verdict while printing: re-check soon (#913).
+
+        Only the first pending verdict sets the deadline: early layers can
+        take less than the recheck interval, and letting every repeat push
+        the deadline out would postpone the recheck (and its alert) for as
+        long as the bed keeps reading empty (Codex, #920).
+        """
+        if not self.recheck_at:
+            self.recheck_at = now + EMPTY_IDLE_RECHECK_S
+
+    def note_verdict(self, verdict, layer):
+        """Track consecutive auto-pause verdicts inside the early window.
+
+        Returns the streak length. Any other verdict, or a check outside the
+        early window, resets it: only consecutive suspicious frames count.
+        """
+        if verdict in AUTO_PAUSE_VERDICTS and self.in_early_window(layer):
+            self.suspicious_streak += 1
+        else:
+            self.suspicious_streak = 0
+        return self.suspicious_streak
+
+    def tick(self, layer, now):
+        """Time-based schedule, independent of layer events (#913).
+
+        Moonraker sends print_stats only when it changes, so a 40-minute
+        layer produced no event and therefore no periodic check. A timer
+        calls this; it answers the checks owed by the clock alone.
+        """
+        if not isinstance(layer, int) or layer < 1:
+            return None
+        if self.recheck_at and now >= self.recheck_at:
+            self.recheck_at = 0.0
+            self.last_check_at = now
+            return "empty_idle_recheck"
+        if self.in_early_window(layer) and now - self.last_check_at >= self.early_interval_s:
+            self.last_check_at = now
+            return "early_periodic"
+        if now - self.last_check_at >= self.profile["periodic_s"]:
+            self.last_check_at = now
+            return "periodic"
+        return None
 
     def reset(self):
         self.last_layer = None
@@ -326,10 +489,22 @@ class VisualPrintWatch:
         # a camera problem, so the operator hears about them at most once
         # per print, never as a repeating print alert.
         self.dark_noticed = False
+        self.mode = WATCH_MODE_NORMAL
+        self.early_layer_seen = 0
+        self.recheck_at = 0.0
+        self.suspicious_streak = 0
+        self.auto_paused = False
 
     def due(self, layer, now, *, snapshot_changed=None):
         if not isinstance(layer, int) or layer < 1:
             return None
+        if self.in_early_window(layer) and layer > self.early_layer_seen:
+            # Risky print: every layer change in the early window is checked.
+            self.early_layer_seen = layer
+            self.layer2_checked = self.layer2_checked or layer >= 2
+            self.layer5_checked = self.layer5_checked or layer >= 5
+            self.last_check_at = now
+            return "early_layer"
         if layer >= 2 and not self.layer2_checked:
             self.layer2_checked = True
             self.last_check_at = now
