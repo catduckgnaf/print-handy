@@ -1,0 +1,49 @@
+name: Upstream bump readiness
+
+# Companion to upstream-bump.yml: when the CI workflow completes
+# successfully for an upstream/* branch, flip the matching bump PR
+# from draft to ready - but only when the PR carries the
+# upstream-bump label, is authored by the bot app, is still a
+# draft, and every check on its head is SUCCESS (the guards live
+# in scripts/bump_upstream.py --mark-ready and are unit-tested).
+# With the identity secrets absent this workflow no-ops.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches:
+      - "upstream/**"
+
+permissions:
+  contents: read
+
+jobs:
+  mark-ready:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check upstream bot identity
+        id: identity
+        env:
+          UPSTREAM_BOT_APP_ID: ${{ secrets.UPSTREAM_BOT_APP_ID }}
+          UPSTREAM_BOT_PRIVATE_KEY: ${{ secrets.UPSTREAM_BOT_PRIVATE_KEY }}
+        run: python3 scripts/bump_upstream.py --check-identity >> "$GITHUB_OUTPUT"
+
+      - name: Mint upstream bot token
+        id: app-token
+        if: steps.identity.outputs.configured == 'true'
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.UPSTREAM_BOT_APP_ID }}
+          private-key: ${{ secrets.UPSTREAM_BOT_PRIVATE_KEY }}
+
+      - name: Mark the bump PR ready if every guard passes
+        if: steps.identity.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: python3 scripts/bump_upstream.py --mark-ready --branch "$HEAD_BRANCH"
