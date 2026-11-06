@@ -4,9 +4,16 @@ Phase A of the upstream bump automation: the script plans and opens
 draft bump PRs for go2rtc and Spoolman, and flips them to ready
 under conservative guards. Phase B adds the Bambu Studio planner:
 a commit pin compared by dates, the recorded-surface sweep, and
-HMS table regeneration from a fixture Bambu Studio tree. Everything
-here runs on fixtures - no network, no real git (the HMS tests do
-run the repo's real generator script, in a staged temp layout).
+HMS table regeneration from a fixture Bambu Studio tree. Phase C
+adds the OrcaSlicer planner: a single-channel pin compared by
+prerelease-aware version ordering, the recorded-surface sweep, and
+the identity sweep that verifies a new bundle's vendor profiles
+against the recorded identities (the sweep-driver tests run the
+repo's real flatten pipeline against a synthetic mini-vendor tree,
+and the bundle-fetch test extracts a fake AppImage script).
+Everything here runs on fixtures - no network, no real git (the
+HMS tests do run the repo's real generator script, in a staged
+temp layout).
 """
 
 import importlib.util
@@ -39,6 +46,7 @@ NOW = datetime(2026, 11, 5, 12, 0, tzinfo=timezone.utc)
 FIXTURES = ROOT / "tests" / "fixtures" / "bump_upstream"
 GO2RTC_TEXT = (FIXTURES / "docker" / "go2rtc-prebuilt.sh").read_text()
 DOCKERFILE_TEXT = (FIXTURES / "Dockerfile").read_text()
+ORCA_TEXT = (FIXTURES / "docker" / "orca-prebuilt.sh").read_text()
 
 
 def fixture_root(base):
@@ -79,16 +87,32 @@ def asset(name, digest):
     return {"name": name, "digest": digest, "browser_download_url": f"https://example.test/dl/{name}"}
 
 
+def make_orca_release(version, age_days=10, prerelease=False, assets=None, tag=None):
+    release = make_release(version, age_days=age_days, assets=assets, tag=tag)
+    release.prerelease = prerelease
+    return release
+
+
+# The Orca asset names a bump to a version derives from the fixture pin's.
+def orca_assets(version, digests=("3" * 64, "4" * 64, "5" * 64)):
+    return [
+        asset(f"OrcaSlicer_Linux_AppImage_Ubuntu2404_V{version}.AppImage", "sha256:" + digests[0]),
+        asset(f"OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V{version}.AppImage", "sha256:" + digests[1]),
+        asset(f"OrcaSlicer-Linux-flatpak_V{version}_x86_64.flatpak", "sha256:" + digests[2]),
+    ]
+
+
 class FakeApi:
     """Records calls; serves prepared releases, tag commits and PRs."""
 
-    def __init__(self, releases=None, commits=None, compare="ahead", prs=None, download_data=b"binary", commit_dates=None):
+    def __init__(self, releases=None, commits=None, compare="ahead", prs=None, download_data=b"binary", commit_dates=None, release_lists=None):
         self.releases = releases or {}
         self.commits = commits or {}
         self.compare = compare
         self.prs = prs or []
         self.download_data = download_data
         self.commit_dates = commit_dates or {}
+        self.release_lists = release_lists or {}
         self.created = []
         self.labeled = []
         self.comments = []
@@ -98,6 +122,9 @@ class FakeApi:
 
     def get_latest_release(self, repo):
         return self.releases.get(repo)
+
+    def list_releases(self, repo):
+        return list(self.release_lists.get(repo, []))
 
     def resolve_tag_commit(self, repo, tag):
         return self.commits[(repo, tag)]
@@ -247,6 +274,16 @@ class PinSurfaces(unittest.TestCase):
         self.assertRegex(ref, r"^[0-9a-f]{40}$")
         bambu_ref = bump.parse_bambu((ROOT / "Dockerfile").read_text())
         self.assertRegex(bambu_ref, r"^[0-9a-f]{40}$")
+        orca_pin = bump.parse_orca((ROOT / "docker" / "orca-prebuilt.sh").read_text())
+        self.assertRegex(orca_pin.version, r"^\d+\.\d+\.\d+(-[A-Za-z]+\d*)?$")
+        self.assertRegex(orca_pin.revision, r"^[0-9a-f]{40}$")
+        self.assertRegex(orca_pin.sha256_amd64, r"^[0-9a-f]{64}$")
+        self.assertRegex(orca_pin.sha256_arm64, r"^[0-9a-f]{64}$")
+        self.assertTrue(orca_pin.asset_amd64.endswith(".AppImage"))
+        self.assertTrue(orca_pin.asset_arm64.endswith(".AppImage"))
+        ci_version, ci_sha = bump.parse_orca_ci((ROOT / ".github" / "workflows" / "ci.yml").read_text())
+        self.assertEqual(ci_version, orca_pin.version)
+        self.assertRegex(ci_sha, r"^[0-9a-f]{64}$")
 
 
 class Go2rtcPlanning(unittest.TestCase):
@@ -524,6 +561,436 @@ class HmsRegeneration(unittest.TestCase):
                 bump.locate_hms_dir(Path(tmp))
 
 
+class OrcaPinSurfaces(unittest.TestCase):
+    """Against the frozen fixtures; the values below are the fixture's,
+    frozen on purpose so future production bumps cannot break them."""
+
+    def test_orca_parse_fixture(self):
+        pin = bump.parse_orca(ORCA_TEXT)
+        self.assertEqual(pin.version, "2.5.0-rc")
+        self.assertEqual(pin.revision, "af2ffb8cddd2f3c0bdadc56d9cc3945fb23577ea")
+        self.assertEqual(pin.sha256_amd64, "203104a3b0a880975b476ff00cfdd3a8fd2beb95fd8bfb2a9a28fb2bcbb47159")
+        self.assertEqual(pin.sha256_arm64, "fdd29d685ed54671a1a2887684fff4d888bd98b74809154a9731a788a7c6dced")
+        self.assertEqual(pin.asset_amd64, "OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0-rc.AppImage")
+        self.assertEqual(pin.asset_arm64, "OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.0-rc.AppImage")
+
+    def test_orca_round_trip(self):
+        pin = bump.parse_orca(ORCA_TEXT)
+        # Rendering the parsed values back changes nothing at all.
+        self.assertEqual(bump.render_orca(ORCA_TEXT, pin), ORCA_TEXT)
+        pin.version = "2.5.0"
+        pin.revision = "e" * 40
+        out = bump.render_orca(ORCA_TEXT, pin)
+        again = bump.parse_orca(out)
+        self.assertEqual(again.version, "2.5.0")
+        self.assertEqual(again.revision, "e" * 40)
+        # The narrative comment inside the block is not a pin record
+        # and is not rewritten; the block's surroundings never move.
+        self.assertIn("Print Handy ships ONE bundled OrcaSlicer: v2.5.0-rc", out)
+        self.assertTrue(out.startswith(ORCA_TEXT.split("stable)")[0]))
+
+    def test_orca_missing_block_is_an_error(self):
+        with self.assertRaises(bump.BumpError):
+            bump.parse_orca("#!/bin/sh\nversion=1.0\n")
+
+    def test_orca_ci_parse_fixture(self):
+        text = (FIXTURES / ".github" / "workflows" / "ci.yml").read_text()
+        version, sha256 = bump.parse_orca_ci(text)
+        self.assertEqual(version, "2.5.0-rc")
+        self.assertEqual(sha256, "f0140100eb3d26d021b68347da9d5ce8536fe78d3e839d6abd83f40b27457175")
+
+
+class OrcaTargetSelection(unittest.TestCase):
+    def target(self, *releases):
+        return bump.select_orca_target(list(releases)).version
+
+    def test_rc_beats_beta(self):
+        self.assertEqual(
+            self.target(make_orca_release("2.5.0-beta", prerelease=True),
+                        make_orca_release("2.5.0-rc", prerelease=True)),
+            "2.5.0-rc",
+        )
+
+    def test_final_beats_its_rc(self):
+        self.assertEqual(
+            self.target(make_orca_release("2.5.0-rc", prerelease=True),
+                        make_orca_release("2.5.0")),
+            "2.5.0",
+        )
+
+    def test_newer_lines_prerelease_beats_older_final(self):
+        self.assertEqual(
+            self.target(make_orca_release("2.5.0"),
+                        make_orca_release("2.6.0-beta", prerelease=True)),
+            "2.6.0-beta",
+        )
+
+    def test_no_releases_is_an_error(self):
+        with self.assertRaises(bump.BumpError):
+            bump.select_orca_target([])
+
+
+def fake_orca_fetcher(calls):
+    """A fetch_orca_bundle stand-in: records calls and builds a fake
+    extracted bundle (resources/profiles with all six vendors'
+    packed caches, no JSON trees)."""
+
+    def fetch(api, release, asset_name, sha256, dest):
+        calls.append(asset_name)
+        profiles = Path(dest) / "squashfs-root" / "resources" / "profiles"
+        profiles.mkdir(parents=True)
+        for vendor in bump.ORCA_VENDORS.values():
+            (profiles / f"{vendor}.opc").write_bytes(b"packed")
+        return profiles.parent
+
+    return fetch
+
+
+def matched_sweep():
+    """A sweep result where every model matches in both packagings."""
+    entry = {"version": "1.0", "sha256": {}, "matched": ["a recorded identity"]}
+    return {
+        pkg: {"model-a": {"tree": dict(entry), "packed": dict(entry)}}
+        for pkg in bump.ORCA_VENDORS
+    }
+
+
+def fake_orca_source_fetcher(calls, with_tree=True):
+    """A fetch_orca_source stand-in: builds a source tree holding
+    the six vendors' JSON indexes (or an empty tree)."""
+
+    def fetch(commit, dest):
+        calls.append(commit)
+        dest = Path(dest)
+        profiles = dest / "resources" / "profiles"
+        profiles.mkdir(parents=True, exist_ok=True)
+        if with_tree:
+            for vendor in bump.ORCA_VENDORS.values():
+                (profiles / f"{vendor}.json").write_text("{}")
+                (profiles / vendor).mkdir(exist_ok=True)
+        return dest
+
+    return fetch
+
+
+class OrcaPlanning(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = fixture_root(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def api_for(self, releases, commit="e" * 40):
+        commits = {(bump.ORCA_REPO, release.tag): commit for release in releases}
+        return FakeApi(release_lists={bump.ORCA_REPO: releases}, commits=commits)
+
+    def plan(self, releases, fetcher=None, source_fetcher=None, sweeper=None):
+        return bump.plan_orca(
+            self.root, self.api_for(releases), NOW,
+            fetcher=fetcher or fake_orca_fetcher([]),
+            source_fetcher=source_fetcher or fake_orca_source_fetcher([]),
+            sweeper=sweeper or (lambda root, tree, packed: matched_sweep()),
+        )
+
+    def test_current_pin_skips(self):
+        calls = []
+        plan = self.plan([make_orca_release("2.5.0-rc", prerelease=True, age_days=2)],
+                         fetcher=fake_orca_fetcher(calls))
+        self.assertEqual(plan.action, "current")
+        self.assertEqual(calls, [])
+
+    def test_young_final_waits(self):
+        calls = []
+        plan = self.plan([make_orca_release("2.5.0", age_days=1)],
+                         fetcher=fake_orca_fetcher(calls))
+        self.assertEqual(plan.action, "too-young")
+        self.assertEqual(calls, [])
+
+    def test_young_prerelease_proceeds(self):
+        plan = self.plan([make_orca_release("2.6.0-beta", prerelease=True, age_days=0,
+                                            assets=orca_assets("2.6.0-beta"))])
+        self.assertEqual(plan.action, "bump")
+        self.assertEqual(plan.version, "2.6.0-beta")
+
+    def test_bump_moves_every_recorded_surface(self):
+        calls = []
+        plan = self.plan([make_orca_release("2.5.0", assets=orca_assets("2.5.0"))],
+                         fetcher=fake_orca_fetcher(calls))
+        self.assertEqual(plan.action, "bump")
+        self.assertEqual(calls, ["OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0.AppImage"])
+        plan.apply(self.root)
+        pin = bump.parse_orca((self.root / "docker" / "orca-prebuilt.sh").read_text())
+        self.assertEqual(pin.version, "2.5.0")
+        self.assertEqual(pin.revision, "e" * 40)
+        self.assertEqual(pin.sha256_amd64, "3" * 64)
+        self.assertEqual(pin.sha256_arm64, "4" * 64)
+        self.assertEqual(pin.asset_amd64, "OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0.AppImage")
+        ci = (self.root / ".github" / "workflows" / "ci.yml").read_text()
+        self.assertIn("ORCA_BUNDLE_VERSION: 2.5.0\n", ci)
+        self.assertIn("ORCA_BUNDLE_SHA256: " + "5" * 64, ci)
+        sha_test = (self.root / "tests" / "test_ci_bambu_workflow.py").read_text()
+        self.assertIn('ORCA_BUNDLE_SHA256 = "' + "5" * 64 + '"', sha_test)
+        guard = (self.root / "tests" / "test_docker_release.py").read_text()
+        self.assertIn("version=2.5.0", guard)
+        self.assertIn("revision=" + "e" * 40, guard)
+        self.assertIn('"2.5.0"', guard)
+        self.assertIn('"' + "e" * 40 + '"', guard)
+        self.assertIn("OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0.AppImage", guard)
+        contract = (self.root / "tests" / "test_docker_release_contract.py").read_text()
+        self.assertIn("e" * 40, contract)
+        self.assertNotIn("af2ffb8c", contract)
+        facts = (self.root / "print_handy" / "printers" / "bambulab" / "facts.py").read_text()
+        self.assertIn('("v2.5.0", "' + "e" * 40 + '")', facts)
+        p1s = (self.root / "tests" / "printers" / "test_bambulab_p1s.py").read_text()
+        self.assertIn('("v2.5.0", "' + "e" * 40 + '")', p1s)
+        components = (self.root / "docs" / "COMPONENTS.md").read_text()
+        self.assertIn("`2.5.0`, revision `eeeeeeee…`", components)
+        self.assertIn("now v2.5.0)", (self.root / "docs" / "DOCKER.md").read_text())
+        settings = (self.root / "docs" / "SETTINGS.md").read_text()
+        self.assertIn("single build (v2.5.0)", settings)
+        self.assertIn("release (v2.5.0, SHA256 verified", settings)
+        self.assertIn("bundled OrcaSlicer (v2.5.0):", (self.root / ".env.example").read_text())
+        self.assertIn("one bundled build (v2.5.0)", (self.root / "README.md").read_text())
+        unraid = (self.root / "docker" / "unraid" / "print-handy.xml").read_text()
+        self.assertIn("bundled OrcaSlicer (v2.5.0) and stable", unraid)
+        for name in ("ANYCUBIC", "CREALITY", "ELEGOO", "PRUSA", "QIDI"):
+            self.assertIn("OrcaSlicer v2.5.0 installation",
+                          (self.root / "docs" / f"{name}.md").read_text())
+        a1 = (self.root / "docs" / "BAMBU-A1-DOCKER.md").read_text()
+        self.assertIn("bundled OrcaSlicer v2.5.0", a1)
+        self.assertIn("pinned OrcaSlicer v2.5.0 AppImage", a1)
+        self.assertEqual(
+            set(plan.files),
+            {"docker/orca-prebuilt.sh", ".github/workflows/ci.yml",
+             "tests/test_ci_bambu_workflow.py", "tests/test_docker_release.py",
+             "tests/test_docker_release_contract.py",
+             "print_handy/printers/bambulab/facts.py",
+             "tests/printers/test_bambulab_p1s.py",
+             "docs/COMPONENTS.md", "docs/DOCKER.md", "docs/SETTINGS.md",
+             ".env.example", "README.md", "docker/unraid/print-handy.xml",
+             "docs/ANYCUBIC.md", "docs/CREALITY.md", "docs/ELEGOO.md",
+             "docs/PRUSA.md", "docs/QIDI.md", "docs/BAMBU-A1-DOCKER.md"},
+        )
+        self.assertTrue(any("digest field" in line for line in plan.provenance))
+        self.assertTrue(any("identity sweep: all 6 identity-checked models" in line
+                            for line in plan.provenance))
+
+    def test_drifted_recorded_surface_stops_the_bump_before_any_download(self):
+        components = self.root / "docs" / "COMPONENTS.md"
+        components.write_text(components.read_text().replace("`2.5.0-rc`, revision `af2ffb8c…`", "`2.5.0-rc`"))
+        calls = []
+        with self.assertRaises(bump.BumpError):
+            self.plan([make_orca_release("2.5.0", assets=orca_assets("2.5.0"))],
+                      fetcher=fake_orca_fetcher(calls))
+        self.assertEqual(calls, [])
+
+    def test_ci_pin_disagreement_stops_the_bump(self):
+        ci = self.root / ".github" / "workflows" / "ci.yml"
+        ci.write_text(ci.read_text().replace("ORCA_BUNDLE_VERSION: 2.5.0-rc",
+                                             "ORCA_BUNDLE_VERSION: 2.5.0-beta"))
+        calls = []
+        with self.assertRaises(bump.BumpError):
+            self.plan([make_orca_release("2.5.0", assets=orca_assets("2.5.0"))],
+                      fetcher=fake_orca_fetcher(calls))
+        self.assertEqual(calls, [])
+
+    def test_unmatched_identity_stops_and_writes_nothing(self):
+        def sweeper(root, tree, packed):
+            results = matched_sweep()
+            results["creality"]["model-a"]["tree"] = {
+                "version": "2.0", "sha256": {}, "matched": [],
+            }
+            return results
+
+        with self.assertRaises(bump.BumpError) as caught:
+            self.plan([make_orca_release("2.5.0", assets=orca_assets("2.5.0"))],
+                      sweeper=sweeper)
+        self.assertIn("creality/model-a", str(caught.exception))
+        pin = bump.parse_orca((self.root / "docker" / "orca-prebuilt.sh").read_text())
+        self.assertEqual(pin.version, "2.5.0-rc")
+
+    def test_missing_asset_is_an_error(self):
+        assets = [a for a in orca_assets("2.5.0") if "aarch64" not in a["name"]]
+        with self.assertRaises(bump.BumpError):
+            self.plan([make_orca_release("2.5.0", assets=assets)])
+
+    def test_missing_digest_falls_back_to_download_and_hash(self):
+        import hashlib
+
+        assets = orca_assets("2.5.0")
+        assets[0] = asset(assets[0]["name"], None)
+        plan = self.plan([make_orca_release("2.5.0", assets=assets)])
+        expected = hashlib.sha256(b"binary").hexdigest()
+        self.assertIn(expected, plan.changes[2])
+        self.assertTrue(any("hashed locally" in line for line in plan.provenance))
+
+    def test_moved_source_layout_stops_for_a_human(self):
+        source_calls = []
+        with self.assertRaises(bump.BumpError) as caught:
+            self.plan([make_orca_release("2.5.0", assets=orca_assets("2.5.0"))],
+                      source_fetcher=fake_orca_source_fetcher(source_calls, with_tree=False))
+        self.assertIn("layout", str(caught.exception))
+        # Nothing was written: the pin still stands.
+        pin = bump.parse_orca((self.root / "docker" / "orca-prebuilt.sh").read_text())
+        self.assertEqual(pin.version, "2.5.0-rc")
+
+
+class OrcaVerifyIdentities(unittest.TestCase):
+    def test_all_matched_summarizes(self):
+        lines = bump.verify_orca_identities(matched_sweep())
+        self.assertEqual(len(lines), len(bump.ORCA_VENDORS) + 1)
+        self.assertIn("all 6 identity-checked models", lines[-1])
+
+    def test_unmatched_model_is_named(self):
+        results = matched_sweep()
+        results["qidi"]["model-a"]["packed"]["matched"] = []
+        with self.assertRaises(bump.BumpError) as caught:
+            bump.verify_orca_identities(results)
+        self.assertIn("qidi/model-a (packed)", str(caught.exception))
+
+    def test_flatten_error_is_named(self):
+        results = matched_sweep()
+        results["prusa"]["model-a"]["tree"] = {"error": "ProfileError: boom"}
+        with self.assertRaises(bump.BumpError) as caught:
+            bump.verify_orca_identities(results)
+        self.assertIn("prusa/model-a (tree): ProfileError: boom", str(caught.exception))
+
+
+class OrcaBundleHandling(unittest.TestCase):
+    def test_stage_packed_profiles_copies_only_the_caches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            profiles = base / "resources" / "profiles"
+            profiles.mkdir(parents=True)
+            for vendor in bump.ORCA_VENDORS.values():
+                (profiles / f"{vendor}.opc").write_bytes(b"packed")
+                (profiles / vendor).mkdir()
+            staged = bump.stage_packed_profiles(base / "resources", base / "packed")
+            names = sorted(p.name for p in (staged / "profiles").iterdir())
+            self.assertEqual(names, sorted(f"{v}.opc" for v in bump.ORCA_VENDORS.values()))
+
+    def test_stage_packed_profiles_missing_cache_stops(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "resources" / "profiles").mkdir(parents=True)
+            with self.assertRaises(bump.BumpError) as caught:
+                bump.stage_packed_profiles(base / "resources", base / "packed")
+            self.assertIn("packed preset cache", str(caught.exception))
+
+    def test_fetch_verifies_and_extracts_a_fake_appimage(self):
+        import hashlib
+
+        script = b"#!/bin/sh\nmkdir -p squashfs-root/resources/profiles\n"
+        name = "OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0.AppImage"
+        release = make_orca_release("2.5.0", assets=[asset(name, None)])
+        api = FakeApi(download_data=script)
+        with tempfile.TemporaryDirectory() as tmp:
+            resources = bump.fetch_orca_bundle(
+                api, release, name, hashlib.sha256(script).hexdigest(), Path(tmp) / "bundle"
+            )
+            self.assertTrue((resources / "profiles").is_dir())
+
+    def test_fetch_rejects_a_wrong_hash(self):
+        name = "OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0.AppImage"
+        release = make_orca_release("2.5.0", assets=[asset(name, None)])
+        api = FakeApi(download_data=b"#!/bin/sh\ntrue\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(bump.BumpError):
+                bump.fetch_orca_bundle(api, release, name, "0" * 64, Path(tmp) / "bundle")
+
+    def test_locate_orca_tree_accepts_and_rejects(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            fetch = fake_orca_source_fetcher([])
+            tree = fetch("e" * 40, base / "src")
+            self.assertEqual(bump.locate_orca_tree(tree), base / "src" / "resources")
+            empty = fake_orca_source_fetcher([], with_tree=False)("e" * 40, base / "empty")
+            with self.assertRaises(bump.BumpError):
+                bump.locate_orca_tree(empty)
+
+
+def _write(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+
+
+class OrcaSweepDriver(unittest.TestCase):
+    """The real sweep driver against a synthetic package: a stub
+    print_handy whose bambulab profiles pipeline is the production
+    module copied in, one fake Creality model, and a minimal vendor
+    tree built by hand. Pass 1 records no identity, so nothing
+    matches; the test then records pass 1's own hashes as the
+    model's identity and pass 2 must match them - the plumbing
+    (enumeration, variant handling, matching) is what is proven
+    here; the non-circular proof against real data is the live
+    re-derivation of the shipped bundle's identities."""
+
+    FACTS_TEMPLATE = '''
+class _Fact:
+    def __init__(self, value):
+        self.value = value
+
+
+MODELS = {"mini": {
+    "orca_profiles": _Fact({"machine": "Mini Machine", "process": "Mini Process",
+                            "filament": "Mini Filament"}),
+    "orca_identity": _Fact(%s),
+}}
+'''
+
+    def build(self, base):
+        import shutil
+
+        root = Path(base) / "repo"
+        pkg = root / "print_handy" / "printers"
+        _write(root / "print_handy" / "__init__.py", "")
+        _write(pkg / "__init__.py", "")
+        _write(pkg / "bambulab" / "__init__.py", "")
+        _write(pkg / "creality" / "__init__.py", "")
+        _write(pkg / "bambulab" / "facts.py", "")
+        for name in ("profiles.py", "preset_cache.py"):
+            shutil.copyfile(ROOT / "print_handy" / "printers" / "bambulab" / name,
+                            pkg / "bambulab" / name)
+        profiles = Path(base) / "resources" / "profiles"
+        index = {
+            "version": "9.9.9",
+            "machine_list": [{"name": "Mini Machine", "sub_path": "mini_machine.json"}],
+            "process_list": [{"name": "Mini Process", "sub_path": "mini_process.json"}],
+            "filament_list": [{"name": "Mini Filament", "sub_path": "mini_filament.json"}],
+        }
+        _write(profiles / "Creality.json", json.dumps(index))
+        _write(profiles / "Creality" / "mini_machine.json",
+               json.dumps({"type": "machine", "name": "Mini Machine", "printer_model": "Mini"}))
+        _write(profiles / "Creality" / "mini_process.json",
+               json.dumps({"type": "process", "name": "Mini Process", "layer_height": "0.2"}))
+        _write(profiles / "Creality" / "mini_filament.json",
+               json.dumps({"type": "filament", "name": "Mini Filament", "filament_type": ["PLA"]}))
+        packed = Path(base) / "packed"
+        (packed / "profiles").mkdir(parents=True)
+        return root, Path(base) / "resources", packed
+
+    def facts_path(self, root):
+        return root / "print_handy" / "printers" / "creality" / "facts.py"
+
+    def test_driver_enumerates_flattens_and_matches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, tree, packed = self.build(tmp)
+            _write(self.facts_path(root), self.FACTS_TEMPLATE % "[]")
+            first = bump.sweep_orca_identities(root, tree, packed, families=["creality"])
+            entry = first["creality"]["mini"]["tree"]
+            self.assertEqual(entry["version"], "9.9.9")
+            self.assertEqual(entry["matched"], [])
+            self.assertEqual(sorted(entry["sha256"]), ["filament", "machine", "process"])
+            # The packed variant holds neither tree nor cache here.
+            self.assertIn("error", first["creality"]["mini"]["packed"])
+            recorded = [{"label": "fixture identity", "vendor_version": "9.9.9",
+                         "sha256": entry["sha256"]}]
+            _write(self.facts_path(root), self.FACTS_TEMPLATE % repr(recorded))
+            second = bump.sweep_orca_identities(root, tree, packed, families=["creality"])
+            self.assertEqual(second["creality"]["mini"]["tree"]["matched"], ["fixture identity"])
+
+
 class DedupeSupersede(unittest.TestCase):
     def test_same_version_open_pr_dedupes(self):
         prs = [pr_dict(7, "upstream/go2rtc-1.9.16")]
@@ -545,6 +1012,17 @@ class DedupeSupersede(unittest.TestCase):
         decision, found = bump.decide_existing(prs, "bambu", "02.10.00.01")
         self.assertEqual(decision, "supersede")
         self.assertEqual([p["number"] for p in found], [11])
+
+    def test_orca_branches_dedupe_and_supersede(self):
+        prs = [pr_dict(13, "upstream/orca-2.5.0-rc")]
+        decision, found = bump.decide_existing(prs, "orca", "2.5.0-rc")
+        self.assertEqual(decision, "dedupe")
+        self.assertEqual(found["number"], 13)
+        # The final supersedes its own open RC bump PR (prerelease-aware
+        # ordering drives the supersede decision too).
+        decision, found = bump.decide_existing(prs, "orca", "2.5.0")
+        self.assertEqual(decision, "supersede")
+        self.assertEqual([p["number"] for p in found], [13])
 
     def test_unlabeled_or_foreign_prs_are_never_touched(self):
         prs = [
@@ -692,6 +1170,20 @@ class TransportLevelApi(unittest.TestCase):
         release = api.get_latest_release("X/y")
         self.assertEqual(release.version, "1.4.0")
 
+    def test_list_releases_includes_prereleases_and_skips_drafts(self):
+        url = "https://api.github.com/repos/X/y/releases?per_page=100"
+        api = bump.GitHubApi(opener=self.canned({url: [
+            {"tag_name": "v2.5.0-rc", "name": "rc", "draft": False, "prerelease": True,
+             "published_at": "2026-11-01T00:00:00Z", "html_url": "u1", "assets": []},
+            {"tag_name": "v2.5.0-beta", "name": "draft", "draft": True, "prerelease": True,
+             "published_at": "2026-10-20T00:00:00Z", "html_url": "u2", "assets": []},
+            {"tag_name": "v2.4.2", "name": "final", "draft": False, "prerelease": False,
+             "published_at": "2026-09-01T00:00:00Z", "html_url": "u3", "assets": []},
+        ]}))
+        releases = api.list_releases("X/y")
+        self.assertEqual([(r.version, r.prerelease) for r in releases],
+                         [("2.5.0-rc", True), ("2.4.2", False)])
+
     def test_annotated_tag_dereferences_to_commit(self):
         base = "https://api.github.com/repos/X/y"
         api = bump.GitHubApi(opener=self.canned({
@@ -711,7 +1203,8 @@ class WorkflowShapes(unittest.TestCase):
         triggers = wf.get(True) or wf.get("on")  # 'on' key, however the loader spells it
         self.assertEqual(triggers["schedule"][0]["cron"], "7 15 * * 1")
         options = triggers["workflow_dispatch"]["inputs"]["component"]["options"]
-        self.assertEqual(options, ["all", "go2rtc", "spoolman", "bambu"])
+        self.assertEqual(options, ["all", "go2rtc", "spoolman", "bambu", "orca"])
+        self.assertEqual(wf["jobs"]["bump"]["timeout-minutes"], "45")
         steps = wf["jobs"]["bump"]["steps"]
         text = BUMP_WORKFLOW.read_text()
         self.assertIn("actions/create-github-app-token@v3", text)
@@ -759,6 +1252,19 @@ class PrBodyShape(unittest.TestCase):
         self.assertIn("Variables: not applicable", body)
         self.assertIn("1.9.15 -> 1.9.16", body)
         self.assertIn("pending at open time", body)
+        self.assertIn("newer final upstream release", body)
+
+    def test_prerelease_body_does_not_claim_a_final(self):
+        plan = bump.Plan(
+            "orca", "bump", version="2.5.0-rc2", files=["docker/orca-prebuilt.sh"],
+            changes=["version: 2.5.0-rc -> 2.5.0-rc2"],
+            provenance=["Release: https://example.test (published 2026-11-04)"],
+            release=make_orca_release("2.5.0-rc2", prerelease=True),
+        )
+        body = bump.build_pr_body("orca", plan)
+        self.assertIn("newer upstream prerelease", body)
+        self.assertNotIn("newer final upstream release", body)
+        self.assertNotIn("latest final upstream release", body)
 
 
 if __name__ == "__main__":

@@ -22,6 +22,29 @@ Phase B adds the Tier 2 component:
   plan is allowed to commit it; if the upstream layout has moved,
   the bump stops for a human instead of writing a hand-made table.
 
+Phase C adds the Tier 3 component:
+
+- OrcaSlicer (OrcaSlicer/OrcaSlicer): the single bundled build's
+  pin in docker/orca-prebuilt.sh (version, tag-commit revision and
+  per-arch SHA256s) plus the CI flatpak bundle pin in
+  .github/workflows/ci.yml. One channel only (the preview channel
+  and the beta pin were removed in #936), so the target is the
+  newest release overall - newest of (latest final, latest
+  prerelease) under prerelease-aware ordering. Finals wait the
+  usual 3 days; prereleases are exempt. A bump also sweeps every
+  recorded surface in the same commit and verifies the new
+  bundle's vendor profiles against the identities recorded in the
+  printer facts: Print Handy ships no vendor profiles (templates
+  are generated on the operator's machine from the installed
+  bundle), so there is no generated profile data to commit - the
+  regeneration proof is the flatten + recorded-identity match the
+  scripts/*-templates.py --check mode performs, run for both
+  packagings (the packed preset caches from the shipped AppImage
+  itself, and the JSON tree from the upstream source tree at the
+  same commit - the AppImage ships no JSON tree). Any model whose
+  profiles match no recorded identity stops the bump for a human
+  sweep; the planner never writes identity data.
+
 The script is run by .github/workflows/upstream-bump.yml with a
 GitHub App installation token (the print-handy-upstream-bot app), so
 the PRs it opens trigger CI like a human's. With no identity
@@ -82,6 +105,37 @@ BAMBU_REPO = "bambulab/BambuStudio"
 BAMBU_FILE = "Dockerfile"
 BAMBU_URL = "https://github.com/bambulab/BambuStudio.git"
 HMS_FILE = "print_handy/printers/bambulab/hms_data.json"
+ORCA_REPO = "OrcaSlicer/OrcaSlicer"
+ORCA_URL = "https://github.com/OrcaSlicer/OrcaSlicer.git"
+ORCA_FILE = "docker/orca-prebuilt.sh"
+ORCA_CI_FILE = ".github/workflows/ci.yml"
+ORCA_FLATPAK_SHA_TEST = "tests/test_ci_bambu_workflow.py"
+ORCA_GUARD_TEST = "tests/test_docker_release.py"
+ORCA_CONTRACT_TEST = "tests/test_docker_release_contract.py"
+BAMBULAB_FACTS = "print_handy/printers/bambulab/facts.py"
+BAMBULAB_P1S_TEST = "tests/printers/test_bambulab_p1s.py"
+DOC_BAMBU_A1 = "docs/BAMBU-A1-DOCKER.md"
+DOC_ENV_EXAMPLE = ".env.example"
+DOC_README = "README.md"
+DOC_UNRAID = "docker/unraid/print-handy.xml"
+ORCA_VENDOR_DOCS = (
+    "docs/ANYCUBIC.md",
+    "docs/CREALITY.md",
+    "docs/ELEGOO.md",
+    "docs/PRUSA.md",
+    "docs/QIDI.md",
+)
+# Printer family package -> the vendor name its OrcaSlicer profiles
+# ship under (docker/orca-prebuilt.sh's bundle carries profiles for
+# all six; the identity sweep checks every family's recorded models).
+ORCA_VENDORS = {
+    "bambulab": "BBL",
+    "anycubic": "Anycubic",
+    "creality": "Creality",
+    "elegoo": "Elegoo",
+    "prusa": "Prusa",
+    "qidi": "Qidi",
+}
 
 
 class BumpError(Exception):
@@ -155,6 +209,7 @@ class Release:
     published_at: datetime
     html_url: str
     assets: list = field(default_factory=list)
+    prerelease: bool = False
 
     def asset(self, name):
         for asset in self.assets:
@@ -221,6 +276,31 @@ class GitHubApi:
             html_url=latest["html_url"],
             assets=latest.get("assets") or [],
         )
+
+    def list_releases(self, repo):
+        """All published non-draft releases, prereleases included.
+
+        The API returns releases newest-first, so the first page
+        always holds the newest release by version; callers pick
+        their target by version ordering, not by list position.
+        """
+        releases = self.request("GET", f"/repos/{repo}/releases?per_page=100")
+        out = []
+        for entry in releases or []:
+            if entry.get("draft"):
+                continue
+            out.append(
+                Release(
+                    tag=entry["tag_name"],
+                    version=entry["tag_name"].lstrip("vV"),
+                    name=entry.get("name") or entry["tag_name"],
+                    published_at=_parse_time(entry["published_at"]),
+                    html_url=entry["html_url"],
+                    assets=entry.get("assets") or [],
+                    prerelease=bool(entry.get("prerelease")),
+                )
+            )
+        return out
 
     def resolve_tag_commit(self, repo, tag):
         """Full commit SHA a tag points at, dereferencing annotated tags."""
@@ -366,6 +446,81 @@ def render_bambu(text, ref):
     if count != 1:
         raise BumpError("Dockerfile has no BAMBU_REF line to update")
     return new_text
+
+
+@dataclass
+class OrcaPin:
+    version: str
+    revision: str
+    sha256_amd64: str
+    sha256_arm64: str
+    asset_amd64: str
+    asset_arm64: str
+
+
+_ORCA_KEYS = ("version", "revision", "sha256_amd64", "sha256_arm64", "asset_amd64", "asset_arm64")
+_ORCA_BLOCK_RE = re.compile(r"stable\)\n(.*?)\n[ \t]*;;", flags=re.S)
+
+
+def _orca_block(text):
+    """The single stable) case block of orca-prebuilt.sh.
+
+    Print Handy ships one bundled OrcaSlicer (#936), so the pin
+    lives in exactly one block; the watch script's parser reads it
+    the same way. A missing block fails closed - the parser exists
+    to notice pin-file reshapes, not to guess past them.
+    """
+    match = _ORCA_BLOCK_RE.search(text)
+    if not match:
+        raise BumpError("orca-prebuilt.sh has no stable) pin block")
+    return match
+
+
+def parse_orca(text):
+    block = _orca_block(text).group(1)
+    values = {}
+    for key in _ORCA_KEYS:
+        match = re.search(rf"^[ \t]*{key}=(\S+)[ \t]*$", block, flags=re.MULTILINE)
+        if not match:
+            raise BumpError(f"orca pin block is missing {key}=")
+        values[key] = match.group(1)
+    return OrcaPin(**values)
+
+
+def render_orca(text, pin):
+    match = _orca_block(text)
+    block = match.group(1)
+    for key in _ORCA_KEYS:
+        value = getattr(pin, key)
+        block, count = re.subn(
+            rf"^([ \t]*{key}=).*$",
+            lambda m, v=value: m.group(1) + v,
+            block,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        if count != 1:
+            raise BumpError(f"orca pin block has no {key}= line to update")
+    return text[: match.start(1)] + block + text[match.end(1):]
+
+
+_ORCA_CI_VERSION_RE = re.compile(r"^  ORCA_BUNDLE_VERSION: (\S+)$", flags=re.MULTILINE)
+_ORCA_CI_SHA_RE = re.compile(r"^  ORCA_BUNDLE_SHA256: ([0-9a-f]{64})$", flags=re.MULTILINE)
+
+
+def parse_orca_ci(text):
+    """(version, flatpak sha256) of the CI bundle pin in ci.yml.
+
+    CI runs the slicer legs against the same bundled build the
+    image ships, installed from the release's x86_64 flatpak bundle
+    (scripts/install-orca-flatpak.sh reads these env values); the
+    bump moves this pin with the prebuilt pin, in the same commit.
+    """
+    version = _ORCA_CI_VERSION_RE.search(text)
+    sha256 = _ORCA_CI_SHA_RE.search(text)
+    if not version or not sha256:
+        raise BumpError("ci.yml is missing the ORCA_BUNDLE_VERSION / ORCA_BUNDLE_SHA256 env pin")
+    return version.group(1), sha256.group(1)
 
 
 # --------------------------------------------------------------------------
@@ -780,7 +935,532 @@ def plan_bambu(root, api, now, fetcher=None):
                 provenance=provenance, changes=changes, release=release, edits=edits)
 
 
-PLANNERS = {"go2rtc": plan_go2rtc, "spoolman": plan_spoolman, "bambu": plan_bambu}
+def select_orca_target(releases):
+    """The newest OrcaSlicer release overall.
+
+    Single channel: the shipped build tracks prereleases (the pin
+    is v2.5.0-rc), so the target is the newest of (latest final,
+    latest prerelease) under prerelease-aware ordering - a final
+    beats its own prereleases, an rc beats a beta, and a newer
+    line's prerelease beats an older final. Publication time only
+    breaks exact-version ties.
+    """
+    if not releases:
+        raise BumpError("OrcaSlicer has no published releases")
+    return max(releases, key=lambda r: (version_key(r.version), r.published_at))
+
+
+def _orca_asset_name(old_name, old_version, new_version):
+    """The new release's asset name, derived from the pin's own.
+
+    Upstream names the AppImages after the version; deriving the
+    name from the current pin (rather than baking in a pattern)
+    means an upstream naming change stops the bump - the derived
+    name is then absent from the release and the asset lookup
+    refuses - instead of the planner guessing.
+    """
+    if old_name.count(old_version) != 1:
+        raise BumpError(
+            f"asset name {old_name!r} does not embed the pinned version "
+            f"{old_version!r} exactly once; cannot derive the new asset name"
+        )
+    return old_name.replace(old_version, new_version)
+
+
+def fetch_orca_bundle(api, release, asset_name, sha256, dest):
+    """Download the amd64 AppImage, verify it, extract it.
+
+    Returns the extracted resources folder. The download's SHA256
+    is checked against the value the plan will commit before
+    extraction - the same check docker/orca-prebuilt.sh performs
+    in the image build.
+    """
+    asset = release.asset(asset_name)
+    if asset is None:
+        raise BumpError(f"release {release.tag} has no asset named {asset_name}")
+    dest.mkdir(parents=True, exist_ok=True)
+    image = dest / asset_name
+    image.write_bytes(api.download(asset["browser_download_url"]))
+    actual = hashlib.sha256(image.read_bytes()).hexdigest()
+    if actual != sha256:
+        raise BumpError(
+            f"downloaded {asset_name} hashes to {actual}, not the recorded {sha256}"
+        )
+    image.chmod(0o755)
+    result = subprocess.run(
+        [str(image), "--appimage-extract"], cwd=dest, capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()
+        raise BumpError(f"--appimage-extract of {asset_name} failed: {detail}")
+    resources = dest / "squashfs-root" / "resources"
+    if not (resources / "profiles").is_dir():
+        raise BumpError(
+            "the extracted AppImage has no resources/profiles folder - the "
+            "upstream layout moved; stopping for a human"
+        )
+    return resources
+
+
+def fetch_orca_source(commit, dest):
+    """Fetch OrcaSlicer at an exact commit into dest, sparsely.
+
+    Only resources/profiles is materialized - the identity sweep's
+    JSON-tree variant reads the vendor indexes and profile files
+    there, and the full tree is gigabytes. A blob-less partial
+    fetch (--filter=blob:none) plus a cone sparse-checkout
+    downloads just that folder, the same shape as
+    fetch_bambu_source; the checked-out HEAD is verified against
+    the pin.
+    """
+    dest.mkdir(parents=True, exist_ok=True)
+    _git(["init", "."], dest)
+    _git(["remote", "add", "origin", ORCA_URL], dest)
+    _git(["sparse-checkout", "init", "--cone"], dest)
+    _git(["sparse-checkout", "set", "resources/profiles"], dest)
+    _git(["fetch", "--depth", "1", "--filter=blob:none", "origin", commit], dest)
+    _git(["checkout", "--detach", "FETCH_HEAD"], dest)
+    head = _git(["rev-parse", "HEAD"], dest)
+    if head != commit:
+        raise BumpError(f"fetched OrcaSlicer HEAD {head} is not the pin {commit}")
+    return dest
+
+
+def locate_orca_tree(tree):
+    """The resources folder of a fetched OrcaSlicer source tree.
+
+    The sweep's tree variant reads profiles/<Vendor>.json plus
+    profiles/<Vendor>/ for each checked vendor; if the layout has
+    moved, the bump stops for a human rather than hunting through
+    the tree for something similar.
+    """
+    resources = Path(tree) / "resources"
+    profiles = resources / "profiles"
+    missing = [
+        vendor for vendor in ORCA_VENDORS.values()
+        if not (profiles / f"{vendor}.json").is_file() or not (profiles / vendor).is_dir()
+    ]
+    if missing:
+        raise BumpError(
+            "the fetched OrcaSlicer tree has no resources/profiles JSON tree for "
+            f"{', '.join(missing)} - the upstream layout moved; stopping for a human"
+        )
+    return resources
+
+
+def stage_packed_profiles(resources, dest):
+    """A resources-shaped folder holding only the packed caches.
+
+    The bundle ships each vendor's profiles twice: the JSON tree
+    (profiles/<Vendor>/) and the packed preset cache
+    (profiles/<Vendor>.opc). The profile pipeline prefers the tree
+    when both are present, so the packed packaging is swept
+    against a staged folder where only the caches exist - the two
+    packagings flatten differently and carry separate recorded
+    identities.
+    """
+    profiles = dest / "profiles"
+    profiles.mkdir(parents=True, exist_ok=True)
+    for vendor in ORCA_VENDORS.values():
+        cache = resources / "profiles" / f"{vendor}.opc"
+        if not cache.is_file():
+            raise BumpError(
+                f"the bundle ships no packed preset cache for {vendor} "
+                f"(profiles/{vendor}.opc) - the upstream layout moved; "
+                "stopping for a human"
+            )
+        shutil.copyfile(cache, profiles / cache.name)
+    return dest
+
+
+_ORCA_SWEEP_DRIVER = '''\
+"""Identity sweep driver, written to a temp file by bump_upstream.py.
+
+For every identity-checked model of the six Orca vendors, flatten
+the model's profiles from each resources variant with the repo's
+own pipeline (print_handy.printers.bambulab.profiles - the same
+flatten the scripts/*-templates.py --check mode verifies with)
+and report which recorded identities the flattened hashes match.
+It mirrors the hand-run sweep harness used for the 2.5.0-rc bump.
+"""
+import importlib
+import json
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+variants = {"tree": Path(sys.argv[2]), "packed": Path(sys.argv[3])}
+out_path = Path(sys.argv[4])
+families = sys.argv[5].split(",") if len(sys.argv) > 5 and sys.argv[5] else None
+sys.path.insert(0, str(root))
+from print_handy.printers.bambulab import profiles as shared
+
+VENDORS = {
+    "bambulab": "BBL",
+    "anycubic": "Anycubic",
+    "creality": "Creality",
+    "elegoo": "Elegoo",
+    "prusa": "Prusa",
+    "qidi": "Qidi",
+}
+
+results = {}
+for pkg, vendor in VENDORS.items():
+    if families and pkg not in families:
+        continue
+    facts = importlib.import_module(f"print_handy.printers.{pkg}.facts")
+    models = getattr(facts, "MODELS", None) or {
+        name.lower(): obj
+        for name, obj in vars(facts).items()
+        if isinstance(obj, dict) and "orca_identity" in obj
+    }
+    results[pkg] = {}
+    for key, model in sorted(models.items()):
+        names = model["orca_profiles"].value
+        recorded = model["orca_identity"].value
+        per_variant = {}
+        for vname, resources in variants.items():
+            try:
+                upstream, version = shared.flatten(resources, names, vendor=vendor)
+                hashes = {kind: shared.sha256(upstream[kind]) for kind in shared.KINDS}
+            except Exception as exc:  # keep going: the report names every failure
+                per_variant[vname] = {"error": f"{type(exc).__name__}: {exc}"}
+                continue
+            matched = [
+                entry["label"]
+                for entry in recorded
+                if all(entry["sha256"].get(kind) == hashes[kind] for kind in shared.KINDS)
+                and entry["vendor_version"] == version
+            ]
+            per_variant[vname] = {"version": version, "sha256": hashes, "matched": matched}
+        results[pkg][key] = per_variant
+out_path.write_text(json.dumps(results, indent=1) + "\\n")
+'''
+
+
+def sweep_orca_identities(root, tree_resources, packed_resources, families=None):
+    """Run the identity sweep driver against a bundle's resources.
+
+    A subprocess on purpose: the bump script stays stdlib-only and
+    never imports print_handy itself; the driver imports the
+    repo's profile pipeline from the checkout being planned,
+    exactly like scripts/*-templates.py do. Returns the parsed
+    results: {family: {model: {variant: {version, sha256, matched}
+    or {error}}}}.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        stage = Path(tmp)
+        driver = stage / "orca_identity_sweep.py"
+        driver.write_text(_ORCA_SWEEP_DRIVER)
+        out = stage / "results.json"
+        cmd = [
+            sys.executable, str(driver), str(root),
+            str(tree_resources), str(packed_resources), str(out),
+        ]
+        if families:
+            cmd.append(",".join(families))
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0 or not out.is_file():
+            detail = (result.stderr or result.stdout).strip()
+            raise BumpError(f"the Orca identity sweep driver failed: {detail}")
+        return json.loads(out.read_text())
+
+
+def verify_orca_identities(results):
+    """Summary lines for a sweep whose every model matched.
+
+    Raises BumpError naming every model that failed to flatten or
+    matched no recorded identity in either packaging: those
+    profiles changed (or the vendor format moved), and recording
+    new identities is a human sweep's judgment, never the
+    planner's.
+    """
+    problems = []
+    lines = []
+    total = 0
+    for pkg in sorted(results):
+        models = results[pkg]
+        covered = 0
+        versions = set()
+        for key in sorted(models):
+            total += 1
+            ok = True
+            for variant, per in sorted(models[key].items()):
+                if "error" in per:
+                    problems.append(f"{pkg}/{key} ({variant}): {per['error']}")
+                    ok = False
+                elif not per.get("matched"):
+                    problems.append(
+                        f"{pkg}/{key} ({variant}): flattened profiles at vendor "
+                        f"version {per.get('version')} match no recorded identity"
+                    )
+                    ok = False
+                else:
+                    versions.add(per["version"])
+            if ok:
+                covered += 1
+        lines.append(
+            f"identity sweep: {pkg} {covered}/{len(models)} models match a recorded "
+            f"identity in both packagings (vendor profiles {', '.join(sorted(versions))})"
+        )
+    if problems:
+        raise BumpError(
+            "the new bundle's profiles are not fully covered by the recorded "
+            "identities; a human sweep must check the new bundle and record "
+            "any new identities first: " + "; ".join(problems)
+        )
+    lines.append(
+        f"identity sweep: all {total} identity-checked models across "
+        f"{len(results)} families match a recorded identity in both packagings"
+    )
+    return lines
+
+
+def _orca_surface_edits(root, pin, new_pin, ci_sha, flatpak_sha):
+    """Every recorded Orca surface, edited and drift-checked.
+
+    Planned before the bundle download: a surface that does not
+    hold the value the bump expects stops the bump for a human
+    instead of paying for the download first. Narrative records
+    that tell the release line's story (the pin comment in
+    orca-prebuilt.sh, docs/BAMBU-LAB.md, the vendor guides'
+    identity-coverage notes, the Bambu model docstrings) are not
+    pin records and are deliberately not rewritten - a mechanical
+    version swap there could assert something false, so they stay
+    a human's sentence pass on the bump PR.
+    """
+    edits = [(ORCA_FILE, render_orca((root / ORCA_FILE).read_text(), new_pin))]
+    ci_text = (root / ORCA_CI_FILE).read_text()
+    ci_text = replace_exact(
+        ci_text, f"ORCA_BUNDLE_VERSION: {pin.version}",
+        f"ORCA_BUNDLE_VERSION: {new_pin.version}", "ci.yml ORCA_BUNDLE_VERSION",
+    )
+    ci_text = replace_exact(
+        ci_text, f"ORCA_BUNDLE_SHA256: {ci_sha}",
+        f"ORCA_BUNDLE_SHA256: {flatpak_sha}", "ci.yml ORCA_BUNDLE_SHA256",
+    )
+    edits.append((ORCA_CI_FILE, ci_text))
+    edits.append((ORCA_FLATPAK_SHA_TEST, replace_exact(
+        (root / ORCA_FLATPAK_SHA_TEST).read_text(),
+        f'ORCA_BUNDLE_SHA256 = "{ci_sha}"', f'ORCA_BUNDLE_SHA256 = "{flatpak_sha}"',
+        "tests/test_ci_bambu_workflow.py ORCA_BUNDLE_SHA256 constant",
+    )))
+    guard = (root / ORCA_GUARD_TEST).read_text()
+    for old, new, what in [
+        (f"version={pin.version}", f"version={new_pin.version}", "pin line"),
+        (f"revision={pin.revision}", f"revision={new_pin.revision}", "pin line"),
+        (f"sha256_amd64={pin.sha256_amd64}", f"sha256_amd64={new_pin.sha256_amd64}", "pin line"),
+        (f"asset_amd64={pin.asset_amd64}", f"asset_amd64={new_pin.asset_amd64}", "pin line"),
+        (f"sha256_arm64={pin.sha256_arm64}", f"sha256_arm64={new_pin.sha256_arm64}", "pin line"),
+        (f"asset_arm64={pin.asset_arm64}", f"asset_arm64={new_pin.asset_arm64}", "pin line"),
+        (f'"{pin.version}"', f'"{new_pin.version}"', "expected table"),
+        (f'"{pin.revision}"', f'"{new_pin.revision}"', "expected table"),
+        (f'"{pin.asset_amd64}"', f'"{new_pin.asset_amd64}"', "expected table"),
+        (f'"{pin.sha256_amd64}"', f'"{new_pin.sha256_amd64}"', "expected table"),
+        (f'"{pin.asset_arm64}"', f'"{new_pin.asset_arm64}"', "expected table"),
+        (f'"{pin.sha256_arm64}"', f'"{new_pin.sha256_arm64}"', "expected table"),
+    ]:
+        guard = replace_exact(guard, old, new, f"tests/test_docker_release.py {what}")
+    edits.append((ORCA_GUARD_TEST, guard))
+    contract = (root / ORCA_CONTRACT_TEST).read_text()
+    for old, new in [
+        (pin.asset_amd64, new_pin.asset_amd64),
+        (pin.sha256_amd64, new_pin.sha256_amd64),
+        (pin.revision, new_pin.revision),
+        (pin.asset_arm64, new_pin.asset_arm64),
+        (pin.sha256_arm64, new_pin.sha256_arm64),
+    ]:
+        contract = replace_exact(
+            contract, old, new, "tests/test_docker_release_contract.py pin tuple"
+        )
+    edits.append((ORCA_CONTRACT_TEST, contract))
+    # Bambu Lab's ORCA_RELEASE records the release whose BBL vendor
+    # profiles were checked; it names the pin itself, so it moves
+    # with the pin once the sweep below has checked the new
+    # bundle's BBL profiles. Elegoo's and Prusa's ORCA_RELEASE
+    # constants deliberately record a different, older release
+    # (their checked profiles were derived there) and are not pin
+    # records - they are never touched.
+    old_tuple = f'("v{pin.version}", "{pin.revision}")'
+    new_tuple = f'("v{new_pin.version}", "{new_pin.revision}")'
+    edits.append((BAMBULAB_FACTS, replace_exact(
+        (root / BAMBULAB_FACTS).read_text(), old_tuple, new_tuple,
+        "print_handy/printers/bambulab/facts.py ORCA_RELEASE",
+    )))
+    edits.append((BAMBULAB_P1S_TEST, replace_exact(
+        (root / BAMBULAB_P1S_TEST).read_text(), old_tuple, new_tuple,
+        "tests/printers/test_bambulab_p1s.py ORCA_RELEASE assertion",
+    )))
+    edits.append((DOC_COMPONENTS, replace_exact(
+        (root / DOC_COMPONENTS).read_text(),
+        f"`{pin.version}`, revision `{pin.revision[:8]}…`",
+        f"`{new_pin.version}`, revision `{new_pin.revision[:8]}…`",
+        "docs/COMPONENTS.md OrcaSlicer row",
+    )))
+    edits.append((DOC_DOCKER, replace_exact(
+        (root / DOC_DOCKER).read_text(),
+        f"now v{pin.version})", f"now v{new_pin.version})",
+        "docs/DOCKER.md shipped OrcaSlicer record",
+    )))
+    settings = (root / DOC_SETTINGS).read_text()
+    settings = replace_exact(
+        settings, f"single build (v{pin.version})", f"single build (v{new_pin.version})",
+        "docs/SETTINGS.md PRINT_HANDY_ORCA_CHANNEL row",
+    )
+    settings = replace_exact(
+        settings, f"release (v{pin.version}, SHA256 verified",
+        f"release (v{new_pin.version}, SHA256 verified",
+        "docs/SETTINGS.md WITH_ORCA row",
+    )
+    edits.append((DOC_SETTINGS, settings))
+    edits.append((DOC_ENV_EXAMPLE, replace_exact(
+        (root / DOC_ENV_EXAMPLE).read_text(),
+        f"bundled OrcaSlicer (v{pin.version}):", f"bundled OrcaSlicer (v{new_pin.version}):",
+        ".env.example bundled OrcaSlicer record",
+    )))
+    edits.append((DOC_README, replace_exact(
+        (root / DOC_README).read_text(),
+        f"one bundled build (v{pin.version})", f"one bundled build (v{new_pin.version})",
+        "README.md bundled OrcaSlicer record",
+    )))
+    edits.append((DOC_UNRAID, replace_exact(
+        (root / DOC_UNRAID).read_text(),
+        f"bundled OrcaSlicer (v{pin.version}) and stable",
+        f"bundled OrcaSlicer (v{new_pin.version}) and stable",
+        "docker/unraid/print-handy.xml OrcaSlicer channel description",
+    )))
+    for relpath in ORCA_VENDOR_DOCS:
+        edits.append((relpath, replace_exact(
+            (root / relpath).read_text(),
+            f"OrcaSlicer v{pin.version} installation",
+            f"OrcaSlicer v{new_pin.version} installation",
+            f"{relpath} generator instructions",
+        )))
+    a1_doc = (root / DOC_BAMBU_A1).read_text()
+    a1_doc = replace_exact(
+        a1_doc, f"bundled OrcaSlicer v{pin.version}", f"bundled OrcaSlicer v{new_pin.version}",
+        "docs/BAMBU-A1-DOCKER.md bundled slicer record",
+    )
+    a1_doc = replace_exact(
+        a1_doc, f"pinned OrcaSlicer v{pin.version} AppImage",
+        f"pinned OrcaSlicer v{new_pin.version} AppImage",
+        "docs/BAMBU-A1-DOCKER.md pinned AppImage record",
+    )
+    edits.append((DOC_BAMBU_A1, a1_doc))
+    return edits
+
+
+def plan_orca(root, api, now, fetcher=None, source_fetcher=None, sweeper=None):
+    text = (root / ORCA_FILE).read_text()
+    pin = parse_orca(text)
+    target = select_orca_target(api.list_releases(ORCA_REPO))
+    kind = "prerelease" if target.prerelease else "final"
+    if not is_newer(target.version, pin.version):
+        return Plan("orca", "current", version=pin.version,
+                    reason=f"pin {pin.version} is at or ahead of the newest OrcaSlicer "
+                           f"release {target.version} ({kind})")
+    if not target.prerelease:
+        ok, age = _age_gate(target, now)
+        if not ok:
+            return Plan("orca", "too-young", version=target.version,
+                        reason=f"release is {age:.1f} days old; the gate is "
+                               f"{MIN_RELEASE_AGE_DAYS} days (finals wait; prereleases are exempt)")
+    revision = api.resolve_tag_commit(ORCA_REPO, target.tag)
+    asset_amd64 = _orca_asset_name(pin.asset_amd64, pin.version, target.version)
+    asset_arm64 = _orca_asset_name(pin.asset_arm64, pin.version, target.version)
+    flatpak_name = f"OrcaSlicer-Linux-flatpak_V{target.version}_x86_64.flatpak"
+    # Asset hashes come from the release payload's digest fields
+    # (the download-and-hash fallback in _asset_sha256 is the
+    # degraded path); every recorded surface is then edited and
+    # drift-checked before the one large download - the bundle
+    # itself - is fetched for the identity sweep.
+    sha_amd64, prov_amd64 = _asset_sha256(api, target, asset_amd64)
+    sha_arm64, prov_arm64 = _asset_sha256(api, target, asset_arm64)
+    sha_flatpak, prov_flatpak = _asset_sha256(api, target, flatpak_name)
+    ci_version, ci_sha = parse_orca_ci((root / ORCA_CI_FILE).read_text())
+    if ci_version != pin.version:
+        raise BumpError(
+            f"ci.yml pins ORCA_BUNDLE_VERSION {ci_version}, not the prebuilt pin "
+            f"{pin.version}; the two pins disagree - stopping for a human"
+        )
+    new_pin = OrcaPin(
+        version=target.version,
+        revision=revision,
+        sha256_amd64=sha_amd64,
+        sha256_arm64=sha_arm64,
+        asset_amd64=asset_amd64,
+        asset_arm64=asset_arm64,
+    )
+    edits = _orca_surface_edits(root, pin, new_pin, ci_sha, sha_flatpak)
+    fetch = fetcher or fetch_orca_bundle
+    fetch_source = source_fetcher or fetch_orca_source
+    sweep = sweeper or sweep_orca_identities
+    with tempfile.TemporaryDirectory() as tmp:
+        resources = fetch(api, target, asset_amd64, sha_amd64, Path(tmp) / "bundle")
+        packed = stage_packed_profiles(resources, Path(tmp) / "packed")
+        # The shipped AppImage carries the profiles only as packed
+        # preset caches (its profiles/<Vendor>/ folders hold cover
+        # images, no JSON tree), so the tree packaging is swept
+        # from the upstream source tree at the same commit - the
+        # split the hand-run 2.5.0-rc sweep used (src tree versus
+        # extracted bundle).
+        source = fetch_source(revision, Path(tmp) / "OrcaSlicer")
+        results = sweep(root, locate_orca_tree(source), packed)
+    sweep_lines = verify_orca_identities(results)
+    gate_note = (
+        "prereleases are exempt from the 3-day release-age gate (single-channel policy)"
+        if target.prerelease
+        else "the 3-day release-age gate is satisfied"
+    )
+    provenance = [
+        f"Release: {target.html_url} (published {target.published_at.date().isoformat()}, "
+        f"{kind}; {gate_note})",
+        f"revision {revision}: the full commit {target.tag} resolves to (annotated tags dereferenced)",
+        f"sha256_amd64 ({asset_amd64}): {prov_amd64}",
+        f"sha256_arm64 ({asset_arm64}): {prov_arm64}",
+        f"ORCA_BUNDLE_SHA256 ({flatpak_name}): {prov_flatpak}",
+        "Identity sweep inputs: the packed packaging from the shipped AppImage itself "
+        "(downloaded and SHA256-verified above, then extracted); the JSON-tree packaging "
+        "from the OrcaSlicer source tree at the same commit (blob-less sparse fetch of "
+        "resources/profiles, checked-out HEAD verified against the revision) - the "
+        "AppImage ships no JSON tree, only the packed caches.",
+        *sweep_lines,
+        "Identity handling: the sweep verifies the new bundle's profiles against the "
+        "identities already recorded in the printer facts, using the same flatten + "
+        "recorded-identity check the scripts/*-templates.py --check mode performs. "
+        "Print Handy ships no vendor profiles (they are generated on the operator's "
+        "machine from the installed bundle), so there is no generated profile data "
+        "to commit; the planner never writes identity data.",
+    ]
+    changes = [
+        f"version: {pin.version} -> {target.version} ({kind})",
+        f"revision: {pin.revision} -> {revision}",
+        f"sha256_amd64: {pin.sha256_amd64} -> {sha_amd64}",
+        f"sha256_arm64: {pin.sha256_arm64} -> {sha_arm64}",
+        f"asset_amd64: {pin.asset_amd64} -> {asset_amd64}",
+        f"asset_arm64: {pin.asset_arm64} -> {asset_arm64}",
+        f"ORCA_BUNDLE_SHA256 (ci.yml, the flatpak bundle the slicer legs run): {ci_sha} -> {sha_flatpak}",
+        "guard tests (tests/test_docker_release.py, tests/test_docker_release_contract.py, "
+        "tests/test_ci_bambu_workflow.py), the BBL ORCA_RELEASE provenance record and its "
+        "assertion, and the COMPONENTS/DOCKER/SETTINGS/.env.example/README/Unraid-template/"
+        "vendor-guide records updated to the same values",
+        sweep_lines[-1],
+        "narrative records that tell the release line's story (the pin comment in "
+        "docker/orca-prebuilt.sh, docs/BAMBU-LAB.md, the vendor guides' identity-coverage "
+        "notes, the Bambu model docstrings) are not pin records and are not rewritten; "
+        "a human rewords them on the bump PR when the story changes",
+    ]
+    return Plan("orca", "bump", version=target.version,
+                files=[relpath for relpath, _ in edits],
+                provenance=provenance, changes=changes, release=target, edits=edits)
+
+
+PLANNERS = {
+    "go2rtc": plan_go2rtc,
+    "spoolman": plan_spoolman,
+    "bambu": plan_bambu,
+    "orca": plan_orca,
+}
 
 
 # --------------------------------------------------------------------------
@@ -833,15 +1513,22 @@ def build_pr_body(component, plan):
     changes = "\n".join(f"- `{line}`" for line in plan.changes)
     provenance = "\n".join(f"- {line}" for line in plan.provenance)
     files = ", ".join(f"`{name}`" for name in plan.files)
+    if plan.release is not None and getattr(plan.release, "prerelease", False):
+        release_phrase = "upstream prerelease"
+        latest_phrase = ("the newest upstream release (a prerelease; the single "
+                         "bundled channel tracks prereleases)")
+    else:
+        release_phrase = "final upstream release"
+        latest_phrase = "the latest final upstream release"
     return f"""## Summary and user impact
 
-Automated bump of {component} to {plan.version}, opened by the upstream bump automation (scripts/bump_upstream.py) because a newer final upstream release exists and the repository pin is behind it. Merging stays a human decision; this PR never merges itself.
+Automated bump of {component} to {plan.version}, opened by the upstream bump automation (scripts/bump_upstream.py) because a newer {release_phrase} exists and the repository pin is behind it. Merging stays a human decision; this PR never merges itself.
 
 Upstream release: {plan.release.html_url} (published {plan.release.published_at.date().isoformat()}).
 
 ## Problem and cause
 
-Not applicable - this is routine dependency maintenance, not a bug fix. The pin is behind the latest final upstream release; see the provenance below.
+Not applicable - this is routine dependency maintenance, not a bug fix. The pin is behind {latest_phrase}; see the provenance below.
 
 ## Proposed changes
 
@@ -1084,7 +1771,7 @@ def main(argv=None, env=None, now=None, out=None, err=None):
     out = sys.stdout if out is None else out
     err = sys.stderr if err is None else err
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--component", choices=["all", "go2rtc", "spoolman", "bambu"], default="all")
+    parser.add_argument("--component", choices=["all", "go2rtc", "spoolman", "bambu", "orca"], default="all")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--repo", default=env.get("GITHUB_REPOSITORY") or DEFAULT_REPO)
     parser.add_argument("--check-identity", action="store_true")
@@ -1118,7 +1805,7 @@ def main(argv=None, env=None, now=None, out=None, err=None):
         return 0
 
     api = GitHubApi(token)
-    components = ["go2rtc", "spoolman", "bambu"] if args.component == "all" else [args.component]
+    components = ["go2rtc", "spoolman", "bambu", "orca"] if args.component == "all" else [args.component]
     return run_components(root, api, args.repo, components, args.dry_run, now,
                           log=lambda msg: print(msg, file=out))
 

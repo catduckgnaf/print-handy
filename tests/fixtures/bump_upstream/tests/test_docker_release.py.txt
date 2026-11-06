@@ -1,0 +1,39 @@
+    def test_the_single_channel_is_a_pinned_prebuilt(self):
+        helper = (ROOT / "docker" / "orca-prebuilt.sh").read_text()
+        blocks = dict(re.findall(r"(stable)\)\n(.*?)\n        ;;", helper, re.S))
+        # The one bundled build pins OrcaSlicer v2.5.0-rc (the successor of
+        # the v2.5.0-beta pinned before the single-Orca change; the beta pin
+        # and the preview block are gone).
+        for pin in ("version=2.5.0-rc", "revision=af2ffb8cddd2f3c0bdadc56d9cc3945fb23577ea",
+                    "sha256_amd64=203104a3b0a880975b476ff00cfdd3a8fd2beb95fd8bfb2a9a28fb2bcbb47159",
+                    "asset_amd64=OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0-rc.AppImage",
+                    "sha256_arm64=fdd29d685ed54671a1a2887684fff4d888bd98b74809154a9731a788a7c6dced",
+                    "asset_arm64=OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.0-rc.AppImage"):
+            with self.subTest(channel="stable", pin=pin):
+                self.assertIn(pin, blocks["stable"])
+        self.assertNotIn("2.5.0-beta", helper)
+        self.assertNotIn("preview)", helper)
+        self.assertIn("set -eu", helper)
+        self.assertIn("sha256sum --check --strict -", helper)
+        self.assertLess(helper.index("sha256sum --check"), helper.index("--appimage-extract"))
+        self.assertIn("--appimage-extract", helper)
+        self.assertNotIn("--appimage-extract-and-run", helper)
+        self.assertNotIn("cmake", helper)
+
+    def test_per_arch_pins_parse_to_the_official_assets_and_digests(self):
+        """The script's pin table, parsed not eyeballed: arch -> asset + SHA256.
+
+        The revision is shared by both architectures; the aarch64 asset
+        digest is the upstream GitHub release asset digest for the pinned
+        version, matching the amd64 pin's provenance.
+        """
+        helper = (ROOT / "docker" / "orca-prebuilt.sh").read_text()
+        blocks = dict(re.findall(r"(stable)\)\n(.*?)\n        ;;", helper, re.S))
+        self.assertEqual(set(blocks), {"stable"})
+        expected = {
+            "stable": ("2.5.0-rc", "af2ffb8cddd2f3c0bdadc56d9cc3945fb23577ea", {
+                "amd64": ("OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0-rc.AppImage",
+                          "203104a3b0a880975b476ff00cfdd3a8fd2beb95fd8bfb2a9a28fb2bcbb47159"),
+                "arm64": ("OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.0-rc.AppImage",
+                          "fdd29d685ed54671a1a2887684fff4d888bd98b74809154a9731a788a7c6dced"),
+            }),
