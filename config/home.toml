@@ -334,7 +334,7 @@ level = "INFO"
 # text: one readable line per event. json: one JSON object per line, for log shippers.
 format = "text"
 # Also write daily log files beside this path (print-handy.log becomes print-handy-YYYY-MM-DD.log).
-# Empty logs to stderr only (journald or docker logs). The Docker image sets /data/hermes/logs/print-handy.log.
+# Empty logs to stderr only (journald or docker logs). The Docker image sets /data/state/logs/print-handy.log.
 file = ""
 # Days of daily log files to keep (today counts as one); older ones are deleted.
 retention_days = 14

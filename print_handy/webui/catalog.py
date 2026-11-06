@@ -508,7 +508,7 @@ CATALOG = (
            choices=tuple(settings.LOG_FORMATS)),
     _field("logging", "retention_days", "Log retention", "number",
            "Days of daily log files kept when a log file is set (the Docker image keeps "
-           "them under /data/hermes/logs); older files are deleted.",
+           "them under /data/state/logs); older files are deleted.",
            validator="settings type check", minimum=1),
     # The Web UI itself. access_token_env is deliberately not editable here:
     # no *_env key is in the catalog (see the module docstring).

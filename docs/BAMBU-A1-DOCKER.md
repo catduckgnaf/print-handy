@@ -46,7 +46,7 @@ Paths below assume the checked-out `docker-compose.yml`, a private `.env` beside
 2. Create the data directories the five declared volumes map to, plus one more, `dot-config`, for `/data/.config`:
 
    ```bash
-   mkdir -p data/hermes data/archive data/records data/cache data/spoolman data/dot-config
+   mkdir -p data/state data/archive data/records data/cache data/spoolman data/dot-config
    sudo chown -R 1000:1000 data
    ```
 
@@ -96,13 +96,13 @@ docker compose exec combined python3 scripts/bambu-templates.py --printer a1 --r
 docker compose exec combined python3 scripts/bambu-templates.py --printer a1 --resources /opt/orca-stable/resources --check
 ```
 
-The first command reports `wrote Bambu Lab A1 Orca templates from OrcaSlicer 2.5.0-beta (BBL vendor profiles 02.08.00.16) to /data/hermes/state/orca-profiles/bambulab_a1`; `--check` writes nothing and should end with `matches; generated folder is current`. The templates live in the `hermes` volume, so they survive a recreate. Nothing is downloaded. `PRINT_HANDY_ORCA_CHANNEL=preview` currently installs the same v2.5.0-beta release as `stable`; the channels diverge again when upstream publishes a newer prerelease. (`alpha`, the preview channel's name before #600, is still accepted as an alias.)
+The first command reports `wrote Bambu Lab A1 Orca templates from OrcaSlicer 2.5.0-beta (BBL vendor profiles 02.08.00.16) to /data/state/state/orca-profiles/bambulab_a1`; `--check` writes nothing and should end with `matches; generated folder is current`. The templates live in the state volume, so they survive a recreate. Nothing is downloaded. `PRINT_HANDY_ORCA_CHANNEL=preview` currently installs the same v2.5.0-beta release as `stable`; the channels diverge again when upstream publishes a newer prerelease. (`alpha`, the preview channel's name before #600, is still accepted as an alias.)
 
 ## 3. Write the hardware record by hand
 
 **Why:** slicing, the color question and the readiness check read the installed nozzle and the loaded spool from `<hermes_home>/state/printer_hardware.json` (`print_handy/core/printer_state.py`). The `set --spool` command that normally fills it reads a Spoolman record and then writes the Moonraker active spool, neither of which exists in this setup, so the file is written by hand ([#263](https://github.com/catduckgnaf/print-handy/issues/263) covers the proper fix).
 
-Create `data/hermes/state/printer_hardware.json` on the host (the container sees it as `/data/hermes/state/printer_hardware.json`). This is a complete record for one black PETG spool with the stock 0.4 mm stainless steel nozzle:
+Create `data/state/state/printer_hardware.json` on the host (the container sees it as `/data/state/state/printer_hardware.json`). This is a complete record for one black PETG spool with the stock 0.4 mm stainless steel nozzle:
 
 ```json
 {

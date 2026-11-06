@@ -1,6 +1,28 @@
 #!/bin/bash
 set -euo pipefail
-mkdir -p "${HOME:-/data}/hermes/state" "${HOME:-/data}/hermes/logs" "${HOME:-/data}/archive" "${HOME:-/data}/records" "${HOME:-/data}/cache"
+# State volume (#914): the main state volume's neutral name is /data/state;
+# /data/hermes is its pre-2.2.5 name, kept as a legacy fallback for at
+# least two minor releases. The entrypoint runs before any service, so the
+# backward-compatible migration lives here: when the legacy volume holds
+# files and the new one holds none, the new path becomes a symlink to the
+# legacy folder and every service keeps reading the existing data through
+# /data/state. Nothing is moved or copied; an install that only maps the
+# new path never sees this, and an explicit paths.hermes_home pointing at
+# /data/hermes is honored unchanged (no symlink is needed then).
+data_root="${HOME:-/data}"
+state_home="$data_root/state"
+legacy_home="$data_root/hermes"
+_has_files() { [ -d "$1" ] && [ -n "$(find "$1" -type f -print -quit 2>/dev/null)" ]; }
+if [ -L "$state_home" ]; then
+    echo "Print Handy: state volume is /data/state, a symlink to $(readlink "$state_home") — the legacy /data/hermes volume is in use (deprecated name; it stays accepted for at least two minor releases)." >&2
+elif _has_files "$legacy_home" && ! _has_files "$state_home"; then
+    rm -rf "$state_home"
+    ln -s "$legacy_home" "$state_home"
+    echo "Print Handy: using the legacy /data/hermes state volume as /data/state (deprecated name; rename the host folder to 'state' when convenient — /data/hermes stays accepted for at least two minor releases)." >&2
+elif _has_files "$legacy_home" && _has_files "$state_home"; then
+    echo "Print Handy: WARNING both /data/state and the legacy /data/hermes state volumes hold data; using /data/state and ignoring /data/hermes." >&2
+fi
+mkdir -p "$state_home/state" "$state_home/logs" "$data_root/archive" "$data_root/records" "$data_root/cache"
 # Container timezone: TZ names an IANA zone (image default America/New_York).
 # Consumers read TZ directly, so there is nothing to relink here — the
 # entrypoint runs unprivileged and cannot rewrite /etc/localtime, which the

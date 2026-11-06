@@ -194,9 +194,9 @@ def test_docker_default_writes_logs_to_the_persistent_state_volume():
     root = Path(__file__).resolve().parents[1]
     for suffix in ("yaml", "toml"):
         cfg = settings.load(local=root / "config" / f"docker.{suffix}", user=False, environ={})
-        assert cfg["logging"]["file"] == "/data/hermes/logs/print-handy.log"
+        assert cfg["logging"]["file"] == "/data/state/logs/print-handy.log"
         assert cfg["logging"]["retention_days"] == 14
-    assert '"${HOME:-/data}/hermes/logs"' in (root / "docker" / "entrypoint.sh").read_text()
+    assert '"$state_home/logs"' in (root / "docker" / "entrypoint.sh").read_text()
 
 
 class _FixedDatetime(datetime):

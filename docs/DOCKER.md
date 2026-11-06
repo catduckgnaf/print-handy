@@ -114,7 +114,7 @@ While a print runs, the listener checks the printer camera at layer 2, layer 5 a
 
 A completely dark frame is treated as a camera problem, not a print verdict: it is never sent to the vision model and never posts as a print alert. When the watchdog reads its stills from the go2rtc fan-out and the fan-out frame is completely dark, it falls back to the direct camera snapshot once. If the frame is still dark, the check is logged and, at most once per print, a plain camera notice (with only the **Stop asking for this print** button) says the camera image is completely dark and monitoring continues. Timelapse capture applies the same rule: dark frames are skipped and counted rather than recorded, and a print whose every captured frame was dark ends with no video and a completion post that names the dark camera as the reason.
 
-It needs a Moonraker URL, a camera snapshot (`PRINT_HANDY__SERVICES__CAMERA_SNAPSHOT_URL`; derived from the Moonraker host when empty) and a way to judge frames: a vision endpoint (`PRINT_HANDY__SERVICES__VISION_CHAT_URL` plus the `CLIPROXY_API_KEY` secret in `.env`; an empty vision URL disables roasts), a `PRINT_VISION_URL` custom endpoint, or the built-in local failure detector (`PRINT_HANDY__VISION__LOCAL_DETECTOR_ENABLED=true`, #455 — an ONNX detector that runs in this container, no endpoint or key; its pinned model, about 202 MB, downloads once into `/data/hermes/models`, SHA-256 verified). With none of the three, camera checks stay off.
+It needs a Moonraker URL, a camera snapshot (`PRINT_HANDY__SERVICES__CAMERA_SNAPSHOT_URL`; derived from the Moonraker host when empty) and a way to judge frames: a vision endpoint (`PRINT_HANDY__SERVICES__VISION_CHAT_URL` plus the `CLIPROXY_API_KEY` secret in `.env`; an empty vision URL disables roasts), a `PRINT_VISION_URL` custom endpoint, or the built-in local failure detector (`PRINT_HANDY__VISION__LOCAL_DETECTOR_ENABLED=true`, #455 — an ONNX detector that runs in this container, no endpoint or key; its pinned model, about 202 MB, downloads once into `/data/state/models`, SHA-256 verified). With none of the three, camera checks stay off.
 
 The same endpoint powers the **roast**: the one-line joke added to the print-started post only (one per print, when printing begins; never on the completion post) on every platform, Telegram included. It is **enabled by default whenever an LLM/vision endpoint is available** — `PRINT_HANDY__VISION__ROAST_ENABLED` defaults to `true` in Compose and the Unraid template (`vision.roast_enabled` in YAML). Set it to `false` to turn roasts off; camera checks keep working.
 
@@ -248,7 +248,7 @@ Hardware encoding is opportunistic and never required; without a GPU everything 
 ## First-run configuration
 
 1. Copy `.env.example` to a private `.env`. Set `PRINT_HANDY_IMAGE` to a tested digest. Configure Moonraker with `PRINT_HANDY__SERVICES__MOONRAKER_URL`; do not use a real printer for offline validation.
-2. Set `PRINT_HANDY_DATA` to a persistent directory with `hermes`, `archive`, `records`, `cache` and `spoolman` subdirectories writable by UID/GID 1000:1000; `PRINT_HANDY_SPOOLMAN_DATA` can point the Spoolman data elsewhere, such as an existing Spoolman data folder. They map separately to `/data/hermes`, `/data/archive`, `/data/records`, `/data/cache`, `/data/spoolman`.
+2. Set `PRINT_HANDY_DATA` to a persistent directory with `state`, `archive`, `records`, `cache` and `spoolman` subdirectories writable by UID/GID 1000:1000; `PRINT_HANDY_SPOOLMAN_DATA` can point the Spoolman data elsewhere, such as an existing Spoolman data folder. They map separately to `/data/state`, `/data/archive`, `/data/records`, `/data/cache`, `/data/spoolman`. (The `hermes` subdirectory and `/data/hermes` are the pre-2.2.5 names, still mapped and accepted as a legacy fallback; see [State volume rename](#state-volume-rename-225).)
 3. Leave the token empty for staging. At separately authorized live cutover configure token and chat ID (allowed user IDs are optional; empty lets everyone in the channel use the bot). Stop previous consumers before enabling the replacement. Live startup never authorizes heating, movement or printing.
 4. Use `PRINT_HANDY__SECTION__KEY` scalar overrides from [SETTINGS.md](SETTINGS.md), or mount YAML/TOML and set `PRINT_HANDY_CONFIG`. The image sets `PRINT_HANDY_CONFIG=/app/config/docker.yaml`; a mounted file you point it at **replaces** `docker.yaml` rather than layering on it, so copy `config/docker.yaml`, edit the copy and mount that. Lists stay file-only except `delivery.methods`: `PRINT_HANDY__DELIVERY__METHODS=discord,bambu_handoff,printer` (comma- or space-separated, values from the vendor profile) enables the Bambu LAN print opt-in without a mounted file (#270). Never bake secrets into images or mount host source over `/app`.
 5. One Compose service, `combined`, sets no CPU, memory or process limits, so slicing can use what the host has; it does set 256 MiB of shared memory. Capabilities are dropped and logs rotate. If you add `cpus`, `mem_limit` or `pids_limit` yourself, Print Handy sizes its thread pools (OrcaSlicer, numpy, onnxruntime, Python executors) to a CPU quota when one exists, and `PRINT_HANDY_THREADS` sets the count explicitly. A `pids_limit` below 4096 can starve OrcaSlicer: at the limit new threads fail, and Print Handy reports that the container is at its process limit when a slice cannot start or times out, rather than a bare failure or timeout. `python3 -m print_handy.doctor` shows the process count against any limit.
@@ -309,6 +309,46 @@ This is the edit. It is not applied by installing this repository.
 
 An install already running a tested digest keeps that digest. Do not overwrite it with the template default just because the default changed.
 
+### State volume rename (2.2.5)
+
+The main state volume was called `/data/hermes` before 2.2.5 — a leftover
+from when Print Handy lived inside Hermes. Its neutral name is now
+`/data/state` (#914). **No upgrade action is required:** nothing is moved
+or copied, and an install that keeps mapping only the old path keeps
+working unchanged. At startup the entrypoint checks the two paths:
+
+- Only the legacy volume holds data: `/data/state` becomes a symlink to
+  it, one deprecation line is logged, and every service reads the existing
+  data through the new path.
+- Only the new volume holds data (or neither): the new path is used.
+- Both hold data: the new path wins, a warning is logged, and the legacy
+  folder is ignored.
+
+The container healthcheck and `python3 -m print_handy.doctor` report which
+path is in use. An explicit `PRINT_HANDY__PATHS__HERMES_HOME=/data/hermes`
+setting is honored unchanged. The `/data/hermes` fallback stays for at
+least two minor releases; a later release will remove it with a
+release-note warning.
+
+To adopt the new name (optional, any time before that removal):
+
+1. Stop the container.
+2. Rename the host folder: Compose installs rename
+   `${PRINT_HANDY_DATA:-./data}/hermes` to `${PRINT_HANDY_DATA:-./data}/state`;
+   Unraid installs rename `/mnt/user/appdata/print-handy/hermes` to
+   `/mnt/user/appdata/print-handy/state`.
+3. Update the mapping if yours names the paths explicitly: in
+   `docker-compose.yml` the state line already maps both names in the
+   shipped file, so nothing changes there; in the Unraid template (the
+   in-repo `docker/unraid/print-handy.xml` and the Community Applications
+   template alike) point the **State** path at `/data/state` with host
+   folder `/mnt/user/appdata/print-handy/state`, and remove the legacy
+   **State (legacy /data/hermes)** path if it is still mapped.
+4. If you set `PRINT_HANDY__PATHS__HERMES_HOME` or `logging.file`
+   explicitly, change `/data/hermes` in those values to `/data/state`.
+5. Start the container and check the startup log: the deprecation line is
+   gone, and the healthcheck's state volume row names `/data/state`.
+
 ### Rollback
 
 Rollback is the previous digest with the same data paths. Nothing in Print Handy downgrades the Spoolman database, so roll back only to an image that can read the data the current one wrote. The 2.2.3 index, which 2.2.4's release notes leave untouched, is:
@@ -332,20 +372,22 @@ the container (an image switch, an Unraid template edit, an update) throws it
 away. Print Handy therefore also writes its own log to the persistent state
 volume:
 
-- **Where:** `/data/hermes/logs/print-handy-YYYY-MM-DD.log`, one file per day
-  (local time, `TZ`), on the `/data/hermes` mount. On Unraid that is
-  `/mnt/user/appdata/print-handy/hermes/logs/`; with Compose,
-  `${PRINT_HANDY_DATA:-./data}/hermes/logs/`. Every process in the container
+- **Where:** `/data/state/logs/print-handy-YYYY-MM-DD.log`, one file per day
+  (local time, `TZ`), on the `/data/state` mount. On Unraid that is
+  `/mnt/user/appdata/print-handy/state/logs/`; with Compose,
+  `${PRINT_HANDY_DATA:-./data}/state/logs/`. (On an install that has not
+  renamed its pre-2.2.5 `hermes` folder yet, the same files are in that
+  folder — the container reads them through `/data/state`.) Every process in the container
   (bot, listeners, workers) appends to the same daily file. Stdout logging is
   unchanged, so `docker logs` still works.
 - **Retention:** 14 days by default (today counts as one), set with
   `logging.retention_days` or `PRINT_HANDY__LOGGING__RETENTION_DAYS`. Older
   dated files are deleted when a process starts and at each midnight.
 - **Turning it off or moving it:** `PRINT_HANDY__LOGGING__FILE` names the base
-  path (`/data/hermes/logs/print-handy.log` in the image); set it empty for
+  path (`/data/state/logs/print-handy.log` in the image); set it empty for
   stdout only. See `logging.*` in [SETTINGS.md](SETTINGS.md).
-- **Reading it:** `tail -f /mnt/user/appdata/print-handy/hermes/logs/print-handy-$(date +%F).log`,
-  or `grep -h "stop reason" /mnt/user/appdata/print-handy/hermes/logs/*.log`.
+- **Reading it:** `tail -f /mnt/user/appdata/print-handy/state/logs/print-handy-$(date +%F).log`,
+  or `grep -h "stop reason" /mnt/user/appdata/print-handy/state/logs/*.log`.
   `print-handy diagnostics` includes the newest file's tail.
 
 ### When a print stops
@@ -360,7 +402,7 @@ Nothing is sent to the printer; these are read-only queries.
 The capture is kept in three places, so the reason survives printer and
 container restarts:
 
-- `/data/hermes/state/stops/<file>.json`, written atomically, with each stop
+- `/data/state/state/stops/<file>.json`, written atomically, with each stop
   event (trigger, time, facts read, log lines kept) and the first real reason.
 - `STOP.json` in the job's archive folder next to `JOB.json`, when that folder
   is known.

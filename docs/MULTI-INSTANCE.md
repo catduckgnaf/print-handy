@@ -32,7 +32,7 @@ Everything below follows from those two rules.
 | --- | --- | --- |
 | Project / container name | A distinct Compose project (`-p print-handy-a1`, `-p print-handy-ad5x`, or `COMPOSE_PROJECT_NAME` in each stack's `.env`) | A distinct systemd service name per instance |
 | Configuration | Its own `.env` and its own config file (`PRINT_HANDY_CONFIG`, or a mounted override) | Its own `PRINT_HANDY_CONFIG` file |
-| Data / state | Its own `PRINT_HANDY_DATA` directory (the `hermes`, `archive`, `records` and `cache` volumes live under it) | Its own `[paths]` state, archive and cache directories |
+| Data / state | Its own `PRINT_HANDY_DATA` directory (the `state`, `archive`, `records` and `cache` volumes live under it) | Its own `[paths]` state, archive and cache directories |
 | Printer identity | Its own `[printer] model` **and** `[printer] name` (for example `Garage A1`) — the name is what messages use, so approvals say which printer they mean | Same |
 | Printer connection | Its own LAN host settings (`[bambu] lan_host`, `[prusa] link_host`, `services.moonraker_url`, …) and camera URL | Same |
 | Chat | Its own Discord channel **and** approval user (below) — or its own Telegram **bot token** and chat / Matrix room | Same |

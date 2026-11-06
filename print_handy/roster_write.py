@@ -215,7 +215,7 @@ def write_refusal(environ=None):
 def _refusal(reason):
     return RosterWriteError(
         f"{reason}, so the printer can't be added from chat. On Docker, copy the "
-        "settings file onto a mounted volume (for example /data/hermes/local.yaml), "
+        "settings file onto a mounted volume (for example /data/state/local.yaml), "
         "set PRINT_HANDY_CONFIG to that path, recreate the container, then try "
         "again, or reply `manual` for the YAML to add by hand. Nothing was changed.")
 

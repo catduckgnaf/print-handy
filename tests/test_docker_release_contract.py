@@ -508,8 +508,8 @@ class DockerReleaseContract(unittest.TestCase):
         the acceptance script kept polling the legacy flat file and reported
         'never connected' while the listener was connected."""
         acceptance = (ROOT / "tests" / "docker" / "image_acceptance.sh").read_text()
-        self.assertIn("/data/hermes/state/printers/*/listener_health.json", acceptance)
-        self.assertNotIn("/data/hermes/state/listener_health.json", acceptance)
+        self.assertIn("/data/state/state/printers/*/listener_health.json", acceptance)
+        self.assertNotIn("/data/state/state/listener_health.json", acceptance)
 
 
 if __name__ == "__main__":
