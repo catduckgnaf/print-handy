@@ -2,7 +2,7 @@
 
 # Unreleased
 
-Nothing yet.
+- Support gate dead end (#922/#932 follow-up): when a with-supports slice fails post-slice support coverage verification, or carries a low-clearance finding the with-supports choice cannot waive, intake used to say "choose Print anyway to override" and return with no button, no command and no way forward (seen on a single-hook STL whose pre-check raised nothing, so the pre-slice Print anyway option never appeared). It now asks one approval-gated question, Print anyway or Cancel, naming whichever gates failed. Print anyway records `support_override` on the receipt, bound to the G-code hashes, plus the low-clearance acknowledgement the start guard checks; Cancel keeps the slice on disk as before. The re-slice-with-supports path gets the same question. The gates themselves are unchanged; the coverage measurement problems this exposed are tracked separately.
 
 # Version 2.2.5
 
