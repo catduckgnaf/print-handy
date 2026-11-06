@@ -476,7 +476,11 @@ def test_extend_fix_rebinds_color_decisions_to_repaired_source(env, monkeypatch)
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
 
-    adapter, result, receipt = run_flow(env, [1, 0, 2, 0])
+    # After the repair the clearance finding is gone but modeled-support
+    # findings remain, so the repeated menu is answered with the explicit
+    # Print anyway waiver (index 2 there) -- "with supports" no longer
+    # waives findings and its slice owes coverage verification (#922).
+    adapter, result, receipt = run_flow(env, [1, 0, 2, 2])
     assert receipt['status'] == 'STARTED'
     job = json.loads(Path(receipt['job_json']).read_text())
     assert job['color_decisions']['source_sha256'] == model_job.file_sha256(job['downloaded_file'])
@@ -485,20 +489,21 @@ def test_extend_fix_rebinds_color_decisions_to_repaired_source(env, monkeypatch)
 def test_clearance_acknowledgement_binds_the_selected_artifact(env, monkeypatch):
     """The clearance acknowledgement must carry the selected variant's G-code
     hash, not whichever artifact was on disk when the operator answered
-    (Codex P2)."""
+    (Codex P2). Since #922 the acknowledgement comes from the explicit
+    Print anyway waiver -- "with supports" records none -- so the binding
+    is exercised through that choice."""
     assert V12_FIXTURE.is_file()
     monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
-    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
 
-    # picks: one color (1), slot 1 (0), "Slice and print with supports" (0)
-    adapter, result, receipt = run_flow(env, [1, 0, 0])
+    # picks: one color (1), slot 1 (0), "Print anyway (accept the risk)" (5)
+    adapter, result, receipt = run_flow(env, [1, 0, 5])
     assert receipt['status'] == 'STARTED'
     job = json.loads(Path(receipt['job_json']).read_text())
-    assert 'supports' in Path(job['gcode']).name
     ack = job['clearance_acknowledgement']
     assert ack['acknowledged'] is True
+    assert ack['via'] == 'print_anyway'
     assert ack['gcode_sha256'] == model_job.file_sha256(job['gcode'])
     assert ack['source_sha256'] == model_job.file_sha256(job['downloaded_file'])
 
