@@ -66,8 +66,6 @@ These are mockups built from the bot's real message text and buttons, with place
 
 ## Get started
 
-## Get started
-
 **Docker is the install path.** Choose the standard image **with AI extras** or the smaller **without AI** image in the [Docker guide](docs/DOCKER.md), then configure one of three chat sources: [Discord](docs/DISCORD-BOT-SETUP.md), [Telegram](docs/TELEGRAM-BOT-SETUP.md), or [Matrix](docs/MATRIX-BOT-SETUP.md). The optional [Web UI](docs/WEBUI.md) provides local status and settings without a chat platform. On Unraid, use the [template](docker/unraid/print-handy.xml).
 
 Pin a verified image digest rather than `:latest` or `:develop`. The [docs home](docs/README.md) links setup, printer, and troubleshooting guides.

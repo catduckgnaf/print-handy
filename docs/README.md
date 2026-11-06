@@ -28,14 +28,14 @@ Find the task you came to do. Print Handy runs locally, with no Print Handy clou
 Start with [Printer support](PRINTER-SUPPORT.md) for what support means, connection paths and the hardware checklist. A registered model or passing tests do not prove your physical printer has been verified.
 
 - [ZMod](ZMOD.md) · [Stock Flashforge](FLASHFORGE-STOCK.md) · [AD5X best practices](DEVICE-AD5X.md)
-- [Bambu Lab](BAMBU-LAB.md) · [Prusa](PRUSA.md) · [Elegoo](ELEGOO.md)
+- [Bambu Lab](BAMBU-LAB.md) · [Bambu connectivity details](BAMBU-CONNECTIVITY.md) · [Prusa](PRUSA.md) · [Elegoo](ELEGOO.md)
 - [Creality](CREALITY.md) · [Qidi](QIDI.md) · [Sovol](SOVOL.md)
 - [Anycubic](ANYCUBIC.md) · [Snapmaker](SNAPMAKER.md) · [OctoPrint and Marlin](OCTOPRINT-MARLIN.md)
 - [Device best practices](DEVICE-BEST-PRACTICES.md) · [AD5X integration contract](AD5X-CONTRACT.md)
 
 ## Troubleshooting
 
-- [Troubleshooting by symptom](TROUBLESHOOTING.md) · [Guided setup and debugging](GUIDED-SETUP-DEBUGGING.md) · [Diagnostics](DIAGNOSTICS.md)
+- [Home Assistant panic recovery](home-assistant-panic.md) · [Troubleshooting by symptom](TROUBLESHOOTING.md) · [Guided setup and debugging](GUIDED-SETUP-DEBUGGING.md) · [Diagnostics](DIAGNOSTICS.md)
 - [Intake limits](INTAKE-LIMITS.md) · [Mesh audit](MESH-AUDIT.md)
 - The `doctor` checks configuration and configured services. It may contact Moonraker or Spoolman; run it only where authorized. A clean check does not prove physical readiness.
 
