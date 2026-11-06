@@ -39,13 +39,21 @@ DOCKERFILE_TEXT = (FIXTURES / "Dockerfile").read_text()
 
 
 def fixture_root(base):
-    """Copy the fixture tree into a temp root with production layout."""
+    """Copy the fixture tree into a temp root with production layout.
+
+    A trailing .txt on a fixture name is stripped on the way out: the
+    guard-test excerpt is a fragment of a Python file, stored as
+    .py.txt so neither the whole-tree linter nor test collection
+    mistakes the fragment for a module."""
     import shutil
 
     root = Path(base)
     for src in FIXTURES.rglob("*"):
         if src.is_file():
-            dest = root / src.relative_to(FIXTURES)
+            rel = src.relative_to(FIXTURES)
+            if rel.name.endswith(".txt"):
+                rel = rel.with_name(rel.name[: -len(".txt")])
+            dest = root / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(src, dest)
     return root
