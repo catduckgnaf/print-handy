@@ -8,8 +8,12 @@ tests/test_docker_release_contract.py): <HOME>/state is /data/state and
 <HOME>/hermes is /data/hermes.
 """
 import os
+import shlex
+import shutil
 import subprocess
 from pathlib import Path
+
+import pytest
 
 from print_handy import doctor, settings, state_volume
 
@@ -21,6 +25,31 @@ def run_entrypoint(data, command):
     env = {"PATH": os.environ["PATH"], "HOME": str(data), "TZ": "Europe/London"}
     return subprocess.run(["bash", str(ENTRYPOINT), *command], cwd=data, env=env,
                           text=True, capture_output=True, check=True)
+
+
+def run_entrypoint_with_path(data, command, path_prefix):
+    env = {"PATH": str(path_prefix) + os.pathsep + os.environ["PATH"],
+           "HOME": str(data), "TZ": "Europe/London"}
+    return subprocess.run(["bash", str(ENTRYPOINT), *command], cwd=data, env=env,
+                          text=True, capture_output=True, check=True)
+
+
+def stat_shim_reporting_a_mountpoint(folder):
+    """A stat(1) shim that reports the scratch state folder as living on a
+    foreign device, so the entrypoint's mountpoint detector sees a mounted
+    /data/state; every other path delegates to the real stat. The harness
+    cannot bind-mount portably, so the detector's input is stubbed while the
+    real entrypoint runs unmodified end to end (the test below with a real
+    bind mount covers the unstubbed detector where namespaces allow it)."""
+    real_stat = shutil.which("stat")
+    folder.mkdir(parents=True, exist_ok=True)
+    shim = folder / "stat"
+    shim.write_text(
+        "#!/bin/sh\n"
+        "for last; do :; done\n"
+        f'case "$last" in */state) echo 424242 ;; *) exec {real_stat} "$@" ;; esac\n')
+    shim.chmod(0o755)
+    return folder
 
 
 def seed(folder, name="marker.json"):
@@ -132,6 +161,101 @@ class TestEntrypointMigration:
         assert (tmp_path / "state" / "state").is_dir()
         assert (tmp_path / "state" / "logs").is_dir()
         assert not (tmp_path / "state").is_symlink()
+
+    def test_legacy_data_and_a_plain_empty_state_dir_still_links(self, tmp_path):
+        # The state path exists (Docker or a template created it) but is a
+        # plain folder on the same filesystem: it is replaced by the
+        # symlink, exactly as before the mountpoint fix.
+        seed(tmp_path / "hermes" / "state", "printer_hardware.json")
+        (tmp_path / "state").mkdir()
+        run_entrypoint(tmp_path, ["true"])
+        new = tmp_path / "state"
+        assert new.is_symlink()
+        assert new.resolve() == (tmp_path / "hermes").resolve()
+
+    def test_legacy_data_and_a_mounted_state_volume_is_copied_not_linked(self, tmp_path):
+        # The shipped two-bind-mount layout mounts /data/state itself, so
+        # the migration branch cannot rm it (EBUSY) or replace it with a
+        # symlink: the legacy contents are copied into the mounted volume
+        # and the legacy volume is left untouched.
+        seed(tmp_path / "hermes" / "state", "printer_hardware.json")
+        (tmp_path / "state").mkdir()
+        shim_dir = stat_shim_reporting_a_mountpoint(tmp_path / "shim-bin")
+        result = run_entrypoint_with_path(tmp_path, ["true"], shim_dir)
+        new = tmp_path / "state"
+        assert new.is_dir() and not new.is_symlink()
+        assert (new / "state" / "printer_hardware.json").read_text() == "{}"
+        legacy = tmp_path / "hermes"
+        assert legacy.is_dir() and not legacy.is_symlink()
+        assert (legacy / "state" / "printer_hardware.json").read_text() == "{}"
+        assert "mounted" in result.stderr and "copied" in result.stderr
+        # The next start sees both volumes holding data: /data/state keeps
+        # winning with the both-hold-data warning, and nothing is linked.
+        result = run_entrypoint_with_path(tmp_path, ["true"], shim_dir)
+        assert (tmp_path / "state").is_dir() and not (tmp_path / "state").is_symlink()
+        assert "WARNING" in result.stderr and "both" in result.stderr
+
+    def test_an_interrupted_mountpoint_copy_is_completed_on_the_next_start(self, tmp_path):
+        # A copy that dies partway (full disk, killed container) must not
+        # read as a finished migration on the next start: the partial
+        # state would otherwise win over the intact legacy volume via the
+        # both-hold-data branch. The entrypoint marks the copy in
+        # progress inside the state volume and re-copies while the mark
+        # is there.
+        seed(tmp_path / "hermes" / "state", "printer_hardware.json")
+        (tmp_path / "state").mkdir()
+        mount_shim = stat_shim_reporting_a_mountpoint(tmp_path / "mount-shim")
+        dying_cp = tmp_path / "dying-cp"
+        dying_cp.mkdir()
+        script = dying_cp / "cp"
+        script.write_text(
+            "#!/bin/sh\n"
+            "for last; do :; done\n"
+            "mkdir -p \"$last/state\"\n"
+            "printf '{\"truncated' > \"$last/state/printer_hardware.json\"\n"
+            "exit 1\n")
+        script.chmod(0o755)
+        both = tmp_path / "both-shims"
+        both.mkdir()
+        for shim in (mount_shim / "stat", script):
+            (both / shim.name).symlink_to(shim)
+        with pytest.raises(subprocess.CalledProcessError):
+            run_entrypoint_with_path(tmp_path, ["true"], both)
+        state = tmp_path / "state"
+        assert (state / "state" / "printer_hardware.json").read_text() == '{"truncated'
+        result = run_entrypoint_with_path(tmp_path, ["true"], mount_shim)
+        assert state.is_dir() and not state.is_symlink()
+        assert (state / "state" / "printer_hardware.json").read_text() == "{}"
+        assert not (state / ".migration-incomplete").exists()
+        assert "did not finish" in result.stderr and "copied" in result.stderr
+
+    def test_legacy_data_and_a_real_bind_mounted_state_volume_is_copied(self, tmp_path):
+        # The unstubbed detector against a real bind mount (a folder bound
+        # onto itself, like the Compose layout's /data/state bind mount),
+        # inside a user+mount namespace; skipped where namespaces are not
+        # available. This is the condition the 2.2.5 lifecycle gate caught:
+        # pre-fix the entrypoint dies on rm -rf of the mountpoint.
+        unshare = shutil.which("unshare")
+        if unshare is None:
+            pytest.skip("unshare(1) is not available")
+        if subprocess.run([unshare, "-rm", "true"], capture_output=True).returncode != 0:
+            pytest.skip("user and mount namespaces are not available")
+        seed(tmp_path / "hermes" / "state", "printer_hardware.json")
+        state = tmp_path / "state"
+        state.mkdir()
+        inner = (
+            f"mount --bind {shlex.quote(str(state))} {shlex.quote(str(state))} && "
+            f"HOME={shlex.quote(str(tmp_path))} TZ=Europe/London "
+            f"bash {shlex.quote(str(ENTRYPOINT))} true")
+        result = subprocess.run([unshare, "-rm", "bash", "-c", inner],
+                                text=True, capture_output=True)
+        assert result.returncode == 0, result.stderr
+        assert state.is_dir() and not state.is_symlink()
+        assert (state / "state" / "printer_hardware.json").read_text() == "{}"
+        legacy = tmp_path / "hermes"
+        assert legacy.is_dir() and not legacy.is_symlink()
+        assert (legacy / "state" / "printer_hardware.json").read_text() == "{}"
+        assert "mounted" in result.stderr and "copied" in result.stderr
 
     def test_second_start_keeps_the_migration_and_repeats_the_notice(self, tmp_path):
         seed(tmp_path / "hermes" / "state")
