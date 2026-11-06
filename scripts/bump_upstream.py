@@ -9,6 +9,19 @@ mechanical:
 - Spoolman (Donkie/Spoolman): the commit pin in the Dockerfile's
   SPOOLMAN_REF argument.
 
+Phase B adds the Tier 2 component:
+
+- Bambu Studio (bambulab/BambuStudio): the commit pin in the
+  Dockerfile's BAMBU_REF argument. A commit pin has no version to
+  compare, so a release counts as newer when its publish date is
+  after the pinned commit's commit date (the upstream-watch rule).
+  The bump also regenerates the HMS error table
+  (print_handy/printers/bambulab/hms_data.json) with
+  scripts/bambu-hms.py from the new commit's own resources/hms
+  files, verified with the generator's --check mode before the
+  plan is allowed to commit it; if the upstream layout has moved,
+  the bump stops for a human instead of writing a hand-made table.
+
 The script is run by .github/workflows/upstream-bump.yml with a
 GitHub App installation token (the print-handy-upstream-bot app), so
 the PRs it opens trigger CI like a human's. With no identity
@@ -39,8 +52,10 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -63,6 +78,10 @@ GO2RTC_REPO = "AlexxIT/go2rtc"
 GO2RTC_FILE = "docker/go2rtc-prebuilt.sh"
 SPOOLMAN_REPO = "Donkie/Spoolman"
 SPOOLMAN_FILE = "Dockerfile"
+BAMBU_REPO = "bambulab/BambuStudio"
+BAMBU_FILE = "Dockerfile"
+BAMBU_URL = "https://github.com/bambulab/BambuStudio.git"
+HMS_FILE = "print_handy/printers/bambulab/hms_data.json"
 
 
 class BumpError(Exception):
@@ -221,6 +240,11 @@ class GitHubApi:
         data = self.request("GET", f"/repos/{repo}/compare/{base}...{head}")
         return (data or {}).get("status")
 
+    def get_commit_date(self, repo, ref):
+        """The committer date of a commit, as the watch script reads it."""
+        data = self.request("GET", f"/repos/{repo}/commits/{ref}")
+        return _parse_time(data["commit"]["committer"]["date"])
+
     def list_open_prs(self, repo):
         return self.request("GET", f"/repos/{repo}/pulls?state=open&per_page=100") or []
 
@@ -327,6 +351,23 @@ def render_spoolman(text, ref):
     return new_text
 
 
+_BAMBU_RE = re.compile(r"^ARG BAMBU_REF=([0-9a-f]{40})$", flags=re.MULTILINE)
+
+
+def parse_bambu(text):
+    match = _BAMBU_RE.search(text)
+    if not match:
+        raise BumpError("Dockerfile is missing the ARG BAMBU_REF pin")
+    return match.group(1)
+
+
+def render_bambu(text, ref):
+    new_text, count = _BAMBU_RE.subn(f"ARG BAMBU_REF={ref}", text)
+    if count != 1:
+        raise BumpError("Dockerfile has no BAMBU_REF line to update")
+    return new_text
+
+
 # --------------------------------------------------------------------------
 # Bump planning
 # --------------------------------------------------------------------------
@@ -336,6 +377,7 @@ GO2RTC_GUARD_TEST = "tests/test_go2rtc_container.py"
 DOC_COMPONENTS = "docs/COMPONENTS.md"
 DOC_DOCKER = "docs/DOCKER.md"
 DOC_SETTINGS = "docs/SETTINGS.md"
+DOC_BAMBU = "docs/BAMBU-CONNECTIVITY.md"
 
 
 def replace_exact(text, old, new, what, count=1):
@@ -539,7 +581,206 @@ def plan_spoolman(root, api, now):
                 provenance=provenance, changes=changes, release=release, edits=edits)
 
 
-PLANNERS = {"go2rtc": plan_go2rtc, "spoolman": plan_spoolman}
+_BAMBU_SETTINGS_RE = re.compile(
+    r"\| `BAMBU_REF` \| `([0-9a-f]{40})` \| Pinned Bambu Studio (\S+) source commit \|"
+)
+
+
+def _bambu_recorded(root, pin_ref):
+    """(recorded release text, HMS provenance commit) for the pin.
+
+    The recorded surfaces must agree with the Dockerfile and with
+    each other before anything moves: the SETTINGS.md row records
+    the full ref and the release it names, COMPONENTS.md records
+    the ref's prefix, and docs/BAMBU-CONNECTIVITY.md names the HMS
+    table's provenance commit (which is its own surface - the
+    table was generated at that commit, not necessarily at the
+    build pin). Any disagreement is drift, and drift is a human's
+    problem.
+    """
+    settings = (root / DOC_SETTINGS).read_text()
+    match = _BAMBU_SETTINGS_RE.search(settings)
+    if not match:
+        raise BumpError("docs/SETTINGS.md has no BAMBU_REF row in the expected shape")
+    if match.group(1) != pin_ref:
+        raise BumpError("docs/SETTINGS.md records a different BAMBU_REF than the Dockerfile")
+    recorded_version = match.group(2)
+    components = (root / DOC_COMPONENTS).read_text()
+    if f"commit `{pin_ref[:8]}…`" not in components:
+        raise BumpError("docs/COMPONENTS.md does not record the Dockerfile's BAMBU_REF prefix")
+    try:
+        table = json.loads((root / HMS_FILE).read_text())
+        hms_commit = table["_provenance"]["bambu_studio_commit"]
+    except (OSError, KeyError, TypeError, ValueError) as exc:
+        raise BumpError(f"cannot read the HMS table's provenance commit: {exc}")
+    connectivity = (root / DOC_BAMBU).read_text()
+    if connectivity.count(hms_commit) != 2:
+        raise BumpError(
+            "docs/BAMBU-CONNECTIVITY.md does not name the HMS provenance commit "
+            "in the two places the bump expects"
+        )
+    return recorded_version, hms_commit
+
+
+def _git(args, cwd):
+    result = subprocess.run(
+        ["git", *args], cwd=cwd, capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        raise BumpError(
+            f"git {' '.join(args)} failed: {result.stderr.strip() or result.stdout.strip()}"
+        )
+    return result.stdout.strip()
+
+
+def fetch_bambu_source(commit, dest):
+    """Fetch BambuStudio at an exact commit into dest, sparsely.
+
+    Only resources/hms is materialized: the planner needs nothing
+    else, and the full tree is gigabytes. A blob-less partial fetch
+    (--filter=blob:none) plus a cone sparse-checkout downloads just
+    that folder's files. The checked-out HEAD is verified against
+    the pin, the same check the Dockerfile's bambu-build stage
+    performs on its own full fetch.
+    """
+    dest.mkdir(parents=True, exist_ok=True)
+    _git(["init", "."], dest)
+    _git(["remote", "add", "origin", BAMBU_URL], dest)
+    _git(["sparse-checkout", "init", "--cone"], dest)
+    _git(["sparse-checkout", "set", "resources/hms"], dest)
+    _git(["fetch", "--depth", "1", "--filter=blob:none", "origin", commit], dest)
+    _git(["checkout", "--detach", "FETCH_HEAD"], dest)
+    head = _git(["rev-parse", "HEAD"], dest)
+    if head != commit:
+        raise BumpError(f"fetched BambuStudio HEAD {head} is not the pin {commit}")
+    return dest
+
+
+def locate_hms_dir(tree):
+    """The resources/hms folder of a fetched BambuStudio tree.
+
+    The generator expects hms_en_*.json files there; if the layout
+    has moved, the bump stops for a human rather than hunting
+    through the tree for something similar.
+    """
+    candidate = Path(tree) / "resources" / "hms"
+    if not candidate.is_dir() or not any(candidate.glob("hms_en_*.json")):
+        raise BumpError(
+            "the fetched Bambu Studio tree has no resources/hms/hms_en_*.json "
+            "- the upstream layout moved; stopping for a human"
+        )
+    return candidate
+
+
+def regenerate_hms(hms_dir, commit):
+    """Regenerate hms_data.json at a commit; return its exact text.
+
+    Runs the repo's own generator (scripts/bambu-hms.py) in a
+    staged mirror of its layout - the generator derives its output
+    path from its own location - then runs it again with --check
+    in the stage, so the text the plan commits is proven to be a
+    fresh generation at that commit before anything is written.
+    """
+    generator = Path(__file__).resolve().with_name("bambu-hms.py")
+    if not generator.is_file():
+        raise BumpError(f"the HMS generator is missing next to this script: {generator}")
+    with tempfile.TemporaryDirectory() as tmp:
+        stage = Path(tmp)
+        staged = stage / "scripts" / "bambu-hms.py"
+        staged.parent.mkdir(parents=True)
+        shutil.copyfile(generator, staged)
+        out = stage / "print_handy" / "printers" / "bambulab" / "hms_data.json"
+        out.parent.mkdir(parents=True)
+        for extra in ([], ["--check"]):
+            result = subprocess.run(
+                [sys.executable, str(staged), "--hms-dir", str(hms_dir),
+                 "--commit", commit, *extra],
+                capture_output=True, text=True,
+            )
+            if result.returncode != 0:
+                detail = (result.stderr or result.stdout).strip()
+                raise BumpError(f"scripts/bambu-hms.py {' '.join(extra) or 'generate'} failed: {detail}")
+        return out.read_text()
+
+
+def plan_bambu(root, api, now, fetcher=None):
+    text = (root / BAMBU_FILE).read_text()
+    pin_ref = parse_bambu(text)
+    release = api.get_latest_release(BAMBU_REPO)
+    if release is None:
+        raise BumpError("Bambu Studio has no published final release")
+    commit = api.resolve_tag_commit(BAMBU_REPO, release.tag)
+    if commit == pin_ref:
+        return Plan("bambu", "current", version=release.version,
+                    reason=f"pin already resolves to {release.tag}")
+    # A commit pin carries no version: the release is newer when it
+    # was published after the pinned commit was made (the rule the
+    # upstream-watch script uses for the same pin).
+    pin_date = api.get_commit_date(BAMBU_REPO, pin_ref)
+    if release.published_at <= pin_date:
+        return Plan("bambu", "not-newer", version=release.version,
+                    reason=f"latest final release {release.tag} was published "
+                           f"{release.published_at.date().isoformat()}, not after the pinned "
+                           f"commit's date {pin_date.date().isoformat()}; the pin is not behind")
+    ok, age = _age_gate(release, now)
+    if not ok:
+        return Plan("bambu", "too-young", version=release.version,
+                    reason=f"release is {age:.1f} days old; the gate is {MIN_RELEASE_AGE_DAYS} days")
+    recorded_version, hms_commit = _bambu_recorded(root, pin_ref)
+    # Every text surface is edited (and drift-checked) before the
+    # source fetch, so a bump a human must fix never pays for the
+    # download first.
+    settings = (root / DOC_SETTINGS).read_text()
+    settings = replace_exact(settings, f"`{pin_ref}`", f"`{commit}`",
+                             "docs/SETTINGS.md BAMBU_REF row")
+    settings = replace_exact(settings, f"Pinned Bambu Studio {recorded_version} source commit",
+                             f"Pinned Bambu Studio {release.version} source commit",
+                             "docs/SETTINGS.md Bambu version")
+    components = replace_exact(
+        (root / DOC_COMPONENTS).read_text(),
+        f"commit `{pin_ref[:8]}…`", f"commit `{commit[:8]}…`",
+        "docs/COMPONENTS.md BambuStudio row",
+    )
+    connectivity = replace_exact(
+        (root / DOC_BAMBU).read_text(), hms_commit, commit,
+        "docs/BAMBU-CONNECTIVITY.md HMS provenance records", count=2,
+    )
+    fetch = fetcher or fetch_bambu_source
+    with tempfile.TemporaryDirectory() as tmp:
+        tree = fetch(commit, Path(tmp) / "BambuStudio")
+        hms_text = regenerate_hms(locate_hms_dir(tree), commit)
+    table = json.loads(hms_text)
+    hms_codes = len(table.get("hms") or {})
+    error_codes = len(table.get("error") or {})
+    provenance = [
+        f"Release: {release.html_url} (published {release.published_at.date().isoformat()})",
+        f"BAMBU_REF: the full commit {release.tag} resolves to, {commit}",
+        f"Comparison: the release was published after the pinned commit's date "
+        f"{pin_date.date().isoformat()}, so the pin is behind (the commit-pin rule).",
+        f"hms_data.json: regenerated by scripts/bambu-hms.py from resources/hms at the new "
+        f"commit and verified with --check in the staging tree before commit "
+        f"({hms_codes} HMS codes, {error_codes} print-error codes); its provenance commit "
+        f"moves {hms_commit} -> {commit}.",
+        "The Dockerfile build fetches and verifies this exact ref, so CI is the judge of the bump.",
+    ]
+    changes = [
+        f"BAMBU_REF: {pin_ref} -> {commit}",
+        f"hms_data.json regenerated at the new commit ({hms_codes} HMS codes, {error_codes} print-error codes)",
+        "the SETTINGS.md row, COMPONENTS.md row and BAMBU-CONNECTIVITY.md provenance records updated to the same commit",
+    ]
+    edits = [
+        (BAMBU_FILE, render_bambu(text, commit)),
+        (DOC_SETTINGS, settings),
+        (DOC_COMPONENTS, components),
+        (DOC_BAMBU, connectivity),
+        (HMS_FILE, hms_text),
+    ]
+    return Plan("bambu", "bump", version=release.version,
+                files=[relpath for relpath, _ in edits],
+                provenance=provenance, changes=changes, release=release, edits=edits)
+
+
+PLANNERS = {"go2rtc": plan_go2rtc, "spoolman": plan_spoolman, "bambu": plan_bambu}
 
 
 # --------------------------------------------------------------------------
@@ -843,7 +1084,7 @@ def main(argv=None, env=None, now=None, out=None, err=None):
     out = sys.stdout if out is None else out
     err = sys.stderr if err is None else err
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--component", choices=["all", "go2rtc", "spoolman"], default="all")
+    parser.add_argument("--component", choices=["all", "go2rtc", "spoolman", "bambu"], default="all")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--repo", default=env.get("GITHUB_REPOSITORY") or DEFAULT_REPO)
     parser.add_argument("--check-identity", action="store_true")
@@ -877,7 +1118,7 @@ def main(argv=None, env=None, now=None, out=None, err=None):
         return 0
 
     api = GitHubApi(token)
-    components = ["go2rtc", "spoolman"] if args.component == "all" else [args.component]
+    components = ["go2rtc", "spoolman", "bambu"] if args.component == "all" else [args.component]
     return run_components(root, api, args.repo, components, args.dry_run, now,
                           log=lambda msg: print(msg, file=out))
 

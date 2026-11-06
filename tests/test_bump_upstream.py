@@ -2,8 +2,11 @@
 
 Phase A of the upstream bump automation: the script plans and opens
 draft bump PRs for go2rtc and Spoolman, and flips them to ready
-under conservative guards. Everything here runs on fixtures - no
-network, no real git.
+under conservative guards. Phase B adds the Bambu Studio planner:
+a commit pin compared by dates, the recorded-surface sweep, and
+HMS table regeneration from a fixture Bambu Studio tree. Everything
+here runs on fixtures - no network, no real git (the HMS tests do
+run the repo's real generator script, in a staged temp layout).
 """
 
 import importlib.util
@@ -77,12 +80,13 @@ def asset(name, digest):
 class FakeApi:
     """Records calls; serves prepared releases, tag commits and PRs."""
 
-    def __init__(self, releases=None, commits=None, compare="ahead", prs=None, download_data=b"binary"):
+    def __init__(self, releases=None, commits=None, compare="ahead", prs=None, download_data=b"binary", commit_dates=None):
         self.releases = releases or {}
         self.commits = commits or {}
         self.compare = compare
         self.prs = prs or []
         self.download_data = download_data
+        self.commit_dates = commit_dates or {}
         self.created = []
         self.labeled = []
         self.comments = []
@@ -95,6 +99,9 @@ class FakeApi:
 
     def resolve_tag_commit(self, repo, tag):
         return self.commits[(repo, tag)]
+
+    def get_commit_date(self, repo, ref):
+        return self.commit_dates[(repo, ref)]
 
     def compare_status(self, repo, base, head):
         return self.compare
@@ -211,6 +218,15 @@ class PinSurfaces(unittest.TestCase):
         self.assertEqual(bump.parse_spoolman(out), new_ref)
         self.assertEqual(out.count(new_ref), 1)
 
+    def test_bambu_parse_and_round_trip(self):
+        ref = bump.parse_bambu(DOCKERFILE_TEXT)
+        self.assertEqual(ref, "926a7192574bcb9b3a732e1ec59a46d79cb45466")
+        new_ref = "d" * 40
+        out = bump.render_bambu(DOCKERFILE_TEXT, new_ref)
+        self.assertEqual(bump.parse_bambu(out), new_ref)
+        # The Spoolman pin in the same file is untouched.
+        self.assertEqual(bump.parse_spoolman(out), "bed3f14ee77a3a571d31b14215d54b0b88a7519c")
+
     def test_missing_pin_is_an_error(self):
         with self.assertRaises(bump.BumpError):
             bump.parse_go2rtc("version=1.0\n")
@@ -227,6 +243,8 @@ class PinSurfaces(unittest.TestCase):
         self.assertTrue(pin.asset_amd64 and pin.asset_arm64)
         ref = bump.parse_spoolman((ROOT / "Dockerfile").read_text())
         self.assertRegex(ref, r"^[0-9a-f]{40}$")
+        bambu_ref = bump.parse_bambu((ROOT / "Dockerfile").read_text())
+        self.assertRegex(bambu_ref, r"^[0-9a-f]{40}$")
 
 
 class Go2rtcPlanning(unittest.TestCase):
@@ -368,6 +386,142 @@ class SpoolmanPlanning(unittest.TestCase):
         self.assertEqual(plan.action, "too-young")
 
 
+def fake_fetcher(with_tree=True):
+    """A fetch_bambu_source stand-in: records calls and builds a tree
+    from the fixture Bambu Studio files (or an empty tree)."""
+    import shutil
+
+    calls = []
+
+    def fetch(commit, dest):
+        calls.append(commit)
+        dest = Path(dest)
+        dest.mkdir(parents=True, exist_ok=True)
+        if with_tree:
+            shutil.copytree(FIXTURES / "bambu_studio", dest, dirs_exist_ok=True)
+        return dest
+
+    return fetch, calls
+
+
+class BambuPlanning(unittest.TestCase):
+    PIN_DATE = datetime(2026, 8, 21, 4, 29, tzinfo=timezone.utc)
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = fixture_root(self.tmp.name)
+        self.pin_ref = bump.parse_bambu(DOCKERFILE_TEXT)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def api_for(self, release, commit="d" * 40):
+        return FakeApi(
+            releases={bump.BAMBU_REPO: release},
+            commits={(bump.BAMBU_REPO, release.tag): commit},
+            commit_dates={(bump.BAMBU_REPO, self.pin_ref): self.PIN_DATE},
+        )
+
+    def release(self, **kwargs):
+        kwargs.setdefault("tag", "v02.09.01.70")
+        return make_release("02.09.01.70", **kwargs)
+
+    def test_pin_at_latest_release_is_current(self):
+        fetch, calls = fake_fetcher()
+        plan = bump.plan_bambu(self.root, self.api_for(self.release(), commit=self.pin_ref), NOW, fetcher=fetch)
+        self.assertEqual(plan.action, "current")
+        self.assertEqual(calls, [])
+
+    def test_release_not_after_pin_date_is_not_newer(self):
+        # Published before the pinned commit was made: not a bump,
+        # however old the release is.
+        fetch, calls = fake_fetcher()
+        plan = bump.plan_bambu(self.root, self.api_for(self.release(age_days=90)), NOW, fetcher=fetch)
+        self.assertEqual(plan.action, "not-newer")
+        self.assertEqual(calls, [])
+
+    def test_young_release_waits(self):
+        fetch, calls = fake_fetcher()
+        plan = bump.plan_bambu(self.root, self.api_for(self.release(age_days=1)), NOW, fetcher=fetch)
+        self.assertEqual(plan.action, "too-young")
+        self.assertEqual(calls, [])
+
+    def test_bump_moves_every_surface_and_regenerates_hms(self):
+        fetch, calls = fake_fetcher()
+        new_ref = "d" * 40
+        plan = bump.plan_bambu(self.root, self.api_for(self.release(), commit=new_ref), NOW, fetcher=fetch)
+        self.assertEqual(plan.action, "bump")
+        self.assertEqual(calls, [new_ref])
+        plan.apply(self.root)
+        self.assertEqual(bump.parse_bambu((self.root / "Dockerfile").read_text()), new_ref)
+        settings = (self.root / "docs" / "SETTINGS.md").read_text()
+        self.assertIn(f"`{new_ref}`", settings)
+        self.assertIn("Pinned Bambu Studio 02.09.01.70 source commit", settings)
+        self.assertNotIn(self.pin_ref, settings)
+        components = (self.root / "docs" / "COMPONENTS.md").read_text()
+        self.assertIn(f"commit `{new_ref[:8]}…`", components)
+        connectivity = (self.root / "docs" / "BAMBU-CONNECTIVITY.md").read_text()
+        self.assertEqual(connectivity.count(new_ref), 2)
+        self.assertNotIn("b94b6da251f8d5cf2773f2a78aa87c613ea9a907", connectivity)
+        table = json.loads((self.root / "print_handy" / "printers" / "bambulab" / "hms_data.json").read_text())
+        self.assertEqual(table["_provenance"]["bambu_studio_commit"], new_ref)
+        # The regenerated table is the fixture studio files' content:
+        # the tie between prefixes goes to the lowest prefix (093),
+        # the differing 094 text stays a per-model override, and the
+        # listed-but-empty text is preserved as empty.
+        self.assertEqual(table["hms"]["0300010000010001"], "The extruder is clogged.")
+        self.assertEqual(table["hms_by_model"]["094"]["0300010000010001"], "Extruder clogged with filament.")
+        self.assertEqual(table["hms"]["0500010000010002"], "")
+        self.assertEqual(table["error"]["05000001"], "Print failed due to an error.")
+        self.assertEqual(
+            set(plan.files),
+            {"Dockerfile", "docs/SETTINGS.md", "docs/COMPONENTS.md",
+             "docs/BAMBU-CONNECTIVITY.md", "print_handy/printers/bambulab/hms_data.json"},
+        )
+        self.assertTrue(any("--check" in line for line in plan.provenance))
+
+    def test_drifted_settings_row_stops_the_bump_before_any_fetch(self):
+        settings = self.root / "docs" / "SETTINGS.md"
+        settings.write_text(settings.read_text().replace(self.pin_ref, "0" * 40))
+        fetch, calls = fake_fetcher()
+        with self.assertRaises(bump.BumpError):
+            bump.plan_bambu(self.root, self.api_for(self.release()), NOW, fetcher=fetch)
+        self.assertEqual(calls, [])
+
+    def test_drifted_connectivity_record_stops_the_bump(self):
+        connectivity = self.root / "docs" / "BAMBU-CONNECTIVITY.md"
+        connectivity.write_text(connectivity.read_text().replace(
+            "b94b6da251f8d5cf2773f2a78aa87c613ea9a907", "1" * 40, 1))
+        fetch, calls = fake_fetcher()
+        with self.assertRaises(bump.BumpError):
+            bump.plan_bambu(self.root, self.api_for(self.release()), NOW, fetcher=fetch)
+        self.assertEqual(calls, [])
+
+    def test_moved_upstream_layout_stops_for_a_human(self):
+        fetch, _ = fake_fetcher(with_tree=False)
+        with self.assertRaises(bump.BumpError) as caught:
+            bump.plan_bambu(self.root, self.api_for(self.release()), NOW, fetcher=fetch)
+        self.assertIn("layout", str(caught.exception))
+        # Nothing was written: the pin still stands.
+        self.assertEqual(bump.parse_bambu((self.root / "Dockerfile").read_text()), self.pin_ref)
+
+
+class HmsRegeneration(unittest.TestCase):
+    def test_regenerate_is_deterministic_and_records_the_commit(self):
+        hms_dir = FIXTURES / "bambu_studio" / "resources" / "hms"
+        first = bump.regenerate_hms(hms_dir, "f" * 40)
+        second = bump.regenerate_hms(hms_dir, "f" * 40)
+        self.assertEqual(first, second)
+        table = json.loads(first)
+        self.assertEqual(table["_provenance"]["bambu_studio_commit"], "f" * 40)
+        self.assertEqual(table["_provenance"]["prefixes"], ["093", "094"])
+
+    def test_locate_hms_dir_rejects_a_tree_without_the_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(bump.BumpError):
+                bump.locate_hms_dir(Path(tmp))
+
+
 class DedupeSupersede(unittest.TestCase):
     def test_same_version_open_pr_dedupes(self):
         prs = [pr_dict(7, "upstream/go2rtc-1.9.16")]
@@ -380,6 +534,15 @@ class DedupeSupersede(unittest.TestCase):
         decision, found = bump.decide_existing(prs, "go2rtc", "1.9.17")
         self.assertEqual(decision, "supersede")
         self.assertEqual([p["number"] for p in found], [7])
+
+    def test_bambu_branches_dedupe_and_supersede(self):
+        prs = [pr_dict(11, "upstream/bambu-02.09.01.70")]
+        decision, found = bump.decide_existing(prs, "bambu", "02.09.01.70")
+        self.assertEqual(decision, "dedupe")
+        self.assertEqual(found["number"], 11)
+        decision, found = bump.decide_existing(prs, "bambu", "02.10.00.01")
+        self.assertEqual(decision, "supersede")
+        self.assertEqual([p["number"] for p in found], [11])
 
     def test_unlabeled_or_foreign_prs_are_never_touched(self):
         prs = [
@@ -546,7 +709,7 @@ class WorkflowShapes(unittest.TestCase):
         triggers = wf.get(True) or wf.get("on")  # 'on' key, however the loader spells it
         self.assertEqual(triggers["schedule"][0]["cron"], "7 15 * * 1")
         options = triggers["workflow_dispatch"]["inputs"]["component"]["options"]
-        self.assertEqual(options, ["all", "go2rtc", "spoolman"])
+        self.assertEqual(options, ["all", "go2rtc", "spoolman", "bambu"])
         steps = wf["jobs"]["bump"]["steps"]
         text = BUMP_WORKFLOW.read_text()
         self.assertIn("actions/create-github-app-token@v3", text)

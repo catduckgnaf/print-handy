@@ -1,8 +1,10 @@
 name: Upstream bump
 
 # Opens draft bump PRs for the manually pinned upstream tools
-# (Phase A: go2rtc and Spoolman) when a final upstream release is
-# newer than the pin and at least 3 days old. Identity comes from
+# (Phase A: go2rtc and Spoolman; Phase B: Bambu Studio, whose bump
+# also regenerates the HMS error table from the new commit's own
+# resources) when a final upstream release is newer than the pin
+# and at least 3 days old. Identity comes from
 # the print-handy-upstream-bot GitHub App so the PRs trigger CI
 # normally; until catduck adds the UPSTREAM_BOT_APP_ID /
 # UPSTREAM_BOT_PRIVATE_KEY secrets this workflow is deliberately
@@ -23,6 +25,7 @@ on:
           - all
           - go2rtc
           - spoolman
+          - bambu
         default: all
 
 permissions:
@@ -35,7 +38,10 @@ concurrency:
 jobs:
   bump:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # 30 minutes of headroom: a Bambu bump fetches the new
+    # commit's resources/hms files from Bambu Studio (a blob-less
+    # sparse fetch) to regenerate the HMS table from them.
+    timeout-minutes: 30
     steps:
       # persist-credentials: false - the checkout must not store the
       # workflow token as a git auth extraheader; that header would
