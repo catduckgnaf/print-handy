@@ -227,6 +227,39 @@ def test_coverage_maps_targets_into_sliced_coordinates():
     assert mapped['ok'] is True
 
 
+def test_coverage_scales_target_heights_with_the_slice():
+    region = {'kind': 'supportable_overhang', 'part': 'P', 'bbox_mm': [[0.0, 0.0], [12.0, 3.0]],
+              'z_mm': {'min': 20.0, 'max': 20.0}}
+    gcode = ';TYPE:Support\nG1 Z9.8\nG1 X0 Y1\nG1 X12 Y1 E5\n'
+    unscaled = support_clearance.verify_support_coverage([region], gcode)
+    assert unscaled['ok'] is False
+    scaled = support_clearance.verify_support_coverage([region], gcode, z_scale=0.5)
+    assert scaled['ok'] is True
+    assert support_clearance.gcode_model_height(
+        ';TYPE:Outer wall\nG1 Z0.2\nG1 X1 Y1 E1\nG1 Z10\nG1 X2 Y2 E1\n') == 10.0
+
+
+def test_coverage_rejects_support_paths_outside_the_target_box():
+    region = {'kind': 'supportable_overhang', 'part': 'P', 'bbox_mm': [[0.0, 0.0], [12.0, 3.0]],
+              'z_mm': {'min': 20.0, 'max': 20.0}}
+    # The support line runs parallel to the target but 2 mm beyond its edge.
+    gcode = ';TYPE:Support\nG1 Z19.8\nG1 X0 Y5\nG1 X12 Y5 E5\n'
+    result = support_clearance.verify_support_coverage([region], gcode)
+    assert result['ok'] is False and result['regions'][0]['coverage'] == 0.0
+
+
+def test_stl_repairs_run_on_stl_sources(tmp_path):
+    src = write_stl(tmp_path / 'gap.stl', box(0, 0, 0.4, 60, 40, 6))
+    assert support_clearance.analyze(src)['risky'] is True
+    res = support_clearance.extend_underside(src, gap_mm=0.4)
+    assert res['modified_vertices'] > 0 and res['added_volume_mm3'] > 0
+    assert support_clearance.analyze(src)['risky'] is False
+
+    src2 = write_stl(tmp_path / 'gap2.stl', box(0, 0, 0.4, 60, 40, 6))
+    sunk = support_clearance.sink_model(src2, dz=0.8)  # bottom ends 0.4 below the plate
+    assert sunk['removed_volume_mm3'] == pytest.approx(60 * 40 * 0.4, rel=0.1)
+
+
 def test_gcode_model_bounds_ignores_support_and_purge():
     text = (';TYPE:Support\nG1 X200 Y200 E1\n;TYPE:Outer wall\n'
             'G1 X10 Y10 E1\nG1 X50 Y40 E1\n')

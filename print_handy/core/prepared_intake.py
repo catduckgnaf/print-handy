@@ -3615,17 +3615,23 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             except OSError:
                 return None
             source_bounds = None
+            z_scale = 1.0
             try:
                 import numpy as _np
                 _tris = _np.concatenate([p['tris'].reshape(-1, 3)
                                          for p in support_clearance.leaves(path)])
                 source_bounds = (float(_tris[:, 0].min()), float(_tris[:, 1].min()),
                                  float(_tris[:, 0].max()), float(_tris[:, 1].max()))
+                _height = support_clearance.gcode_model_height(text)
+                _src_height = float(_tris[:, 2].max())
+                if _height and _src_height > 0:
+                    z_scale = _height / _src_height
             except Exception:  # noqa: BLE001 - bounds only refine the comparison
                 source_bounds = None
+                z_scale = 1.0
             result = support_clearance.verify_support_coverage(
                 report.get('regions') or [], text, source_bounds=source_bounds,
-                gcode_bounds=support_clearance.gcode_model_bounds(text))
+                gcode_bounds=support_clearance.gcode_model_bounds(text), z_scale=z_scale)
             return result if result['checked'] and not result['ok'] else None
 
         if supports_choice is True:

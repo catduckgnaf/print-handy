@@ -625,7 +625,46 @@ def gcode_model_bounds(gcode_text):
     return (lo[0], lo[1], hi[0], hi[1])
 
 
-def verify_support_coverage(regions, gcode, cell_mm=3.0, source_bounds=None, gcode_bounds=None):
+def gcode_model_height(gcode_text):
+    """Highest Z reached by model (non-support) extrusion, or None.
+
+    Both the source and the slice sit on the plate, so the ratio of this
+    height to the source model's height is the slice's Z scale.
+    """
+    has_objects = bool(_OBJ_START.search(gcode_text))
+    in_object = not has_objects
+    current_type = ''
+    z = 0.0
+    top = None
+    for raw in gcode_text.splitlines():
+        line = raw.strip()
+        if line.startswith(';TYPE:'):
+            current_type = line.split(':', 1)[1].strip().casefold()
+            continue
+        if has_objects:
+            if _OBJ_START.search(line):
+                in_object = True
+                continue
+            if _OBJ_END.search(line):
+                in_object = False
+                continue
+        move = _MOVE_RE.match(line)
+        if not move:
+            continue
+        extrudes = False
+        for axis, number in _WORD_RE.findall(move.group(1)):
+            axis = axis.upper()
+            if axis == 'E':
+                extrudes = True
+            elif axis == 'Z':
+                z = float(number)
+        if extrudes and in_object and 'support' not in current_type:
+            top = z if top is None else max(top, z)
+    return top
+
+
+def verify_support_coverage(regions, gcode, cell_mm=3.0, source_bounds=None, gcode_bounds=None,
+                            z_scale=1.0):
     """Post-slice toolpath coverage for support target regions (#922 gaps 2 and 4).
 
     ``regions`` is a report's region list (or a whole report); only
@@ -640,7 +679,8 @@ def verify_support_coverage(regions, gcode, cell_mm=3.0, source_bounds=None, gco
     Region boxes are in source coordinates; slicing may center, scale or
     rearrange the model. When ``source_bounds`` and ``gcode_bounds`` (XY
     min/max of the model in each system) are both given, target boxes are
-    mapped by that translation + scale before comparison.
+    mapped by that translation + scale before comparison, and ``z_scale``
+    (the slice's Z scale, 1.0 when unscaled) scales the target heights.
     Returns {'checked', 'ok', 'regions': [{..., 'coverage', ...}]}; with no
     targets, checked is False and ok is True (nothing to verify).
     """
@@ -706,6 +746,9 @@ def verify_support_coverage(regions, gcode, cell_mm=3.0, source_bounds=None, gco
     for r in targets:
         (x0, y0), (x1, y1) = _map(r['bbox_mm'])
         zmin = (r.get('z_mm') or {}).get('min')
+        if zmin is not None:
+            # A scaled slice scales the underside height with the model.
+            zmin = zmin * z_scale
         nx = max(1, int(np.ceil((x1 - x0) / cell_mm)))
         ny = max(1, int(np.ceil((y1 - y0) / cell_mm)))
         covered = set()
@@ -714,7 +757,9 @@ def verify_support_coverage(regions, gcode, cell_mm=3.0, source_bounds=None, gco
             # only toolpath near the underside's own Z counts for it.
             if zmin is not None and not (zmin - 1.0 <= z <= zmin + 0.5):
                 continue
-            if x0 - 1e-9 <= x <= x1 + cell_mm and y0 - 1e-9 <= y <= y1 + cell_mm:
+            # Only samples inside the target's own cell grid count; a path
+            # outside the box must not be clamped into an edge cell.
+            if x0 - 1e-9 <= x <= x0 + nx * cell_mm and y0 - 1e-9 <= y <= y0 + ny * cell_mm:
                 i = min(nx - 1, max(0, int((x - x0) // cell_mm)))
                 j = min(ny - 1, max(0, int((y - y0) // cell_mm)))
                 covered.add((i, j))
@@ -870,6 +915,18 @@ def extend_underside(source_path, dest_path=None, gap_mm=0.4, tol=1e-3):
     """
     dest_path = dest_path or source_path
     before_volume = _mesh_volume(source_path)
+    if str(source_path).lower().endswith('.stl'):
+        # An STL has no transforms to compose: its vertices are already in
+        # printer coordinates, so the same rule applies directly (#922
+        # gap 8 made STL findings offer these repairs, so they must run).
+        tris = _stl_tris(source_path)
+        mask = np.abs(tris[:, :, 2] - gap_mm) <= tol
+        modified = int(mask.sum())
+        tris[:, :, 2] = np.where(mask, 0.0, tris[:, :, 2])
+        _write_binary_stl(dest_path, tris)
+        return {'modified_vertices': modified, 'skipped_shared_vertices': 0,
+                'added_volume_mm3': round(_mesh_volume(dest_path) - before_volume, 1),
+                'output_path': str(dest_path)}
     instances = _instance_matrices(source_path)
     tmp_out = Path(dest_path).with_suffix(f'.tmp_ext_{os.getpid()}.3mf')
     modified_count = 0
@@ -918,12 +975,39 @@ def extend_underside(source_path, dest_path=None, gap_mm=0.4, tol=1e-3):
             'output_path': str(dest_path)}
 
 
+def _write_binary_stl(path, tris):
+    """Write triangles as a binary STL (the repair output for STL sources)."""
+    import struct
+    tris = np.asarray(tris, dtype='<f4').reshape(-1, 3, 3)
+    with open(path, 'wb') as fh:
+        fh.write(b'\0' * 80)
+        fh.write(struct.pack('<I', len(tris)))
+        zeros = np.zeros((len(tris), 3), dtype='<f4')
+        for tri, zero in zip(tris, zeros):
+            fh.write(zero.tobytes())
+            fh.write(tri.tobytes())
+            fh.write(struct.pack('<H', 0))
+
+
+def _stl_tris(source_path):
+    from print_handy.core import orca_adapter
+    tris = orca_adapter.read_stl_triangles(source_path)
+    return np.asarray(tris, dtype=float).reshape(-1, 3, 3)
+
+
 def sink_model(source_path, dest_path=None, dz=0.4):
     """Sink build items in the 3MF by dz mm into the build plate.
 
     The slicer clips geometry below Z=0, removing the low-clearance underside.
+    An STL source has no build items: every vertex moves down by dz instead.
     """
     dest_path = dest_path or source_path
+    if str(source_path).lower().endswith('.stl'):
+        tris = _stl_tris(source_path)
+        tris[:, :, 2] -= dz
+        _write_binary_stl(dest_path, tris)
+        return {'sink_mm': dz, 'removed_volume_mm3': round(_volume_below(dest_path, 0.0), 1),
+                'output_path': str(dest_path)}
     tmp_out = Path(dest_path).with_suffix(f'.tmp_sink_{os.getpid()}.3mf')
     with zipfile.ZipFile(source_path, 'r') as zin, zipfile.ZipFile(tmp_out, 'w', zipfile.ZIP_DEFLATED) as zout:
         for item in zin.infolist():
