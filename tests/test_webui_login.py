@@ -7,9 +7,12 @@ authorises GETs. Config POSTs still need the header or the _csrf form
 token: the cookie alone never writes. Everything runs offline against
 a temp settings file, with the server on an ephemeral loopback port.
 """
+import hashlib
 import http.client
+import json
 import os
 import re
+import stat
 import tempfile
 import threading
 import time
@@ -80,6 +83,14 @@ class LoginTests(unittest.TestCase):
         return self.request(port, "POST", "/login",
                             body=urlencode({"token": token}),
                             headers=FORM_HEADERS)
+
+    def login_remember(self, port, token=TOKEN):
+        return self.request(port, "POST", "/login",
+                            body=urlencode({"token": token, "remember": "on"}),
+                            headers=FORM_HEADERS)
+
+    def sessions_file(self, tmp):
+        return Path(tmp) / "hermes" / "state" / "webui_sessions.json"
 
     def logged_in_cookie(self, port):
         code, headers, _body = self.login(port)
@@ -309,6 +320,163 @@ class LoginTests(unittest.TestCase):
             self.assertEqual(code, 200, body)
             self.assertIn("discord.chat_id", body)
             self.assertIn("999", local.read_text())
+
+    # -- remember me ---------------------------------------------------------
+
+    def test_login_page_renders_remember_checkbox_unchecked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _httpd, port, _local, _environ = self.start(
+                tmp, environ={"WEBUI_ACCESS_TOKEN": TOKEN})
+            code, _headers, body = self.request(port, "GET", "/login")
+            self.assertEqual(code, 200)
+            self.assertIn('name="remember"', body)
+            self.assertIn("Keep me signed in on this browser", body)
+            self.assertNotIn('name="remember" value="on" checked', body)
+            self.assertIn("30 days", body)
+
+    def test_login_without_remember_does_not_survive_restart(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _httpd, port, _local, _environ = self.start(
+                tmp, environ={"WEBUI_ACCESS_TOKEN": TOKEN})
+            code, headers, _body = self.login(port)
+            self.assertEqual(code, 303)
+            self.assertNotIn("Max-Age", headers["set-cookie"])
+            cookie = session_cookie_pair(headers["set-cookie"])
+            self.assertFalse(self.sessions_file(tmp).exists())
+            _httpd2, port2, _l, _e = self.start(
+                tmp, environ={"WEBUI_ACCESS_TOKEN": TOKEN})
+            code, _h, _b = self.request(
+                port2, "GET", "/", headers={"Cookie": cookie})
+            self.assertEqual(code, 401)
+
+    def test_login_with_remember_survives_restart_and_logout_revokes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _httpd, port, _local, _environ = self.start(
+                tmp, environ={"WEBUI_ACCESS_TOKEN": TOKEN})
+            code, headers, _body = self.login_remember(port)
+            self.assertEqual(code, 303)
+            set_cookie = headers["set-cookie"]
+            self.assertIn("Max-Age=2592000", set_cookie)
+            self.assertIn("HttpOnly", set_cookie)
+            cookie = session_cookie_pair(set_cookie)
+            session_id = cookie.split("=", 1)[1]
+            path = self.sessions_file(tmp)
+            self.assertTrue(path.exists())
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            raw = path.read_text()
+            digest = hashlib.sha256(session_id.encode()).hexdigest()
+            self.assertIn(digest, raw)
+            self.assertNotIn(session_id, raw)
+            saved = json.loads(raw)
+            self.assertIn(digest, saved)
+            self.assertGreater(saved[digest], time.time())
+            # A second server over the same state accepts the cookie.
+            _httpd2, port2, _l, _e = self.start(
+                tmp, environ={"WEBUI_ACCESS_TOKEN": TOKEN})
+            code, _h, _b = self.request(
+                port2, "GET", "/", headers={"Cookie": cookie})
+            self.assertEqual(code, 200)
+            # Logout via the second server removes the persisted entry.
+            code, headers, _b = self.request(
+                port2, "POST", "/logout", body="", headers={"Cookie": cookie})
+            self.assertEqual(code, 303)
+            self.assertIn("Max-Age=0", headers["set-cookie"])
+            code, _h, _b = self.request(
+                port2, "GET", "/", headers={"Cookie": cookie})
+            self.assertEqual(code, 401)
+            saved_after = json.loads(path.read_text()) if path.exists() else {}
+            self.assertNotIn(digest, saved_after)
+
+    def test_remember_falls_back_to_ephemeral_when_the_file_cannot_be_written(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _httpd, port, _local, _environ = self.start(
+                tmp, environ={"WEBUI_ACCESS_TOKEN": TOKEN})
+            with mock.patch.object(server, "_save_remembered_sessions",
+                                   return_value=False):
+                code, headers, _body = self.login_remember(port)
+            self.assertEqual(code, 303)
+            self.assertNotIn("Max-Age", headers["set-cookie"])
+            cookie = session_cookie_pair(headers["set-cookie"])
+            code, _h, _b = self.request(
+                port, "GET", "/", headers={"Cookie": cookie})
+            self.assertEqual(code, 200)
+
+    def test_revoke_remembered_sessions_clears_the_store(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd, port, _local, _environ = self.start(
+                tmp, environ={"WEBUI_ACCESS_TOKEN": TOKEN})
+            code, headers, _body = self.login_remember(port)
+            self.assertEqual(code, 303)
+            cookie = session_cookie_pair(headers["set-cookie"])
+            self.assertTrue(self.sessions_file(tmp).exists())
+            handler = server._Handler.__new__(server._Handler)
+            handler.server = httpd
+            handler._revoke_remembered_sessions()
+            self.assertFalse(self.sessions_file(tmp).exists())
+            self.assertEqual(httpd.remembered_sessions, {})
+            code, _h, _b = self.request(
+                port, "GET", "/", headers={"Cookie": cookie})
+            self.assertEqual(code, 401)
+
+    def test_remembered_session_dies_when_the_token_changes(self):
+        """Credential rotation at restart (Codex P1 on PR #953): changing
+        WEBUI_ACCESS_TOKEN and restarting must not keep a session minted
+        under the old token alive for the rest of its 30 days."""
+        with tempfile.TemporaryDirectory() as tmp:
+            _httpd, port, _local, _environ = self.start(
+                tmp, environ={"WEBUI_ACCESS_TOKEN": TOKEN})
+            code, headers, _body = self.login_remember(port)
+            self.assertEqual(code, 303)
+            cookie = session_cookie_pair(headers["set-cookie"])
+            _httpd2, port2, _l, _e = self.start(
+                tmp, environ={"WEBUI_ACCESS_TOKEN": "rotated-token-54321"})
+            code, _h, _b = self.request(
+                port2, "GET", "/", headers={"Cookie": cookie})
+            self.assertEqual(code, 401)
+
+    def test_remember_login_waits_for_the_remembered_sessions_lock(self):
+        """Serialization (Codex P2 on PR #953): minting + persisting a
+        remembered session holds the shared lock, so a concurrent logout
+        or revocation cannot be overwritten by a stale snapshot."""
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd, port, _local, _environ = self.start(
+                tmp, environ={"WEBUI_ACCESS_TOKEN": TOKEN})
+            result = {}
+
+            def do_login():
+                result["response"] = self.login_remember(port)
+
+            httpd.remembered_lock.acquire()
+            try:
+                thread = threading.Thread(target=do_login, daemon=True)
+                thread.start()
+                thread.join(2)
+                self.assertTrue(thread.is_alive(),
+                                "remember login did not wait for the lock")
+            finally:
+                httpd.remembered_lock.release()
+            thread.join(10)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(result["response"][0], 303)
+
+    def test_expired_remembered_entry_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _httpd, port, _local, _environ = self.start(
+                tmp, environ={"WEBUI_ACCESS_TOKEN": TOKEN})
+            code, headers, _body = self.login_remember(port)
+            self.assertEqual(code, 303)
+            cookie = session_cookie_pair(headers["set-cookie"])
+            session_id = cookie.split("=", 1)[1]
+            digest = hashlib.sha256(session_id.encode()).hexdigest()
+            path = self.sessions_file(tmp)
+            saved = json.loads(path.read_text())
+            saved[digest] = time.time() - 1
+            path.write_text(json.dumps(saved))
+            _httpd2, port2, _l, _e = self.start(
+                tmp, environ={"WEBUI_ACCESS_TOKEN": TOKEN})
+            code, _h, _b = self.request(
+                port2, "GET", "/", headers={"Cookie": cookie})
+            self.assertEqual(code, 401)
 
     # -- no-token posture is unchanged -----------------------------------------
 

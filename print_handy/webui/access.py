@@ -87,6 +87,21 @@ class Access:
         """True when a request must carry a matching credential."""
         return self.mode in (TOKEN, PASSWORD)
 
+    def credential_fingerprint(self):
+        """A hash naming this exact credential configuration.
+
+        Persisted Web UI state that was minted under a credential (the
+        remembered-session store) carries this fingerprint and is
+        discarded when it no longer matches, so rotating the token in
+        the environment or changing the saved password invalidates that
+        state at the next start instead of letting it ride along. The
+        secret itself is never stored — only its hash, salt and hash
+        already being hashes in password mode."""
+        material = "\x00".join((self.mode, self._token, self.username,
+                                str(self._iterations),
+                                self._salt.hex(), self._hash.hex()))
+        return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
     @property
     def setup_pending(self):
         return self.mode == SETUP

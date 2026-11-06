@@ -53,6 +53,7 @@ CONFIRM_FIELD = "confirm"
 # back into any page, logged, or stored.
 LOGIN_TOKEN_FIELD = "token"
 LOGIN_USER_FIELD = "username"
+LOGIN_REMEMBER_FIELD = "remember"
 # First-run setup form fields (POST /setup, #708). Passwords are hashed by
 # webui.access and never rendered back.
 SETUP_CHOICE_FIELD = "choice"
@@ -235,19 +236,19 @@ def render_login_page(error=None, password=False, *, username=False,
     ``username`` adds the username field (#875), named and autocompleted
     so a browser or password manager can save and fill the pair.
     """
+    remembered = (' This browser stays signed in for 12 hours; tick '
+                  '<strong>Keep me signed in on this browser</strong> below to '
+                  'stay signed in for 30 days, including across server restarts.</p>')
     if password and username:
         intro = ('<p>Sign in with the username and password chosen during setup. '
-                 'Your browser can remember them. This browser then stays signed in '
-                 'until the session expires or the server restarts.</p>')
+                 'Your browser can remember them.' + remembered)
     elif password:
         intro = ('<p>This Web UI is protected by the password chosen during setup. '
-                 'Enter it once and this browser stays signed in until the session '
-                 'expires or the server restarts.</p>')
+                 'Enter it once.' + remembered)
     else:
         intro = ('<p>This Web UI is protected by an access token (the value of the '
                  'environment variable the <code>[webui] access_token_env</code> '
-                 'setting names). Enter it once and this browser stays signed in '
-                 'until the session expires or the server restarts.</p>')
+                 'setting names). Enter it once.' + remembered)
     parts = [intro]
     if error:
         parts.append(f'<p class="error">{_esc(error)}</p>')
@@ -261,6 +262,10 @@ def render_login_page(error=None, password=False, *, username=False,
         f'<p><label for="f-{LOGIN_TOKEN_FIELD}">{label}</label> '
         f'<input type="password" id="f-{LOGIN_TOKEN_FIELD}" '
         f'name="{LOGIN_TOKEN_FIELD}" autocomplete="current-password" required></p>'
+        f'<p><input type="checkbox" id="f-{LOGIN_REMEMBER_FIELD}" '
+        f'name="{LOGIN_REMEMBER_FIELD}" value="on"> '
+        f'<label for="f-{LOGIN_REMEMBER_FIELD}">Keep me signed in on this '
+        'browser</label></p>'
         '<p><button type="submit">Log in</button></p></form>')
     return _page("log in", "".join(parts), theme=theme, path="/login", chrome=False)
 
@@ -572,7 +577,8 @@ def attribute_error(message, changes, *, environ=None):
 
 __all__ = [
     "CONFIRM_FIELD", "CSRF_FIELD", "FIELDS_FIELD", "GROUPS",
-    "LOGIN_TOKEN_FIELD", "PROVENANCE_LABELS", "attribute_error", "parse_form",
+    "LOGIN_REMEMBER_FIELD", "LOGIN_TOKEN_FIELD", "LOGIN_USER_FIELD",
+    "PROVENANCE_LABELS", "attribute_error", "parse_form",
     "render_config_page", "render_login_page", "render_preview_page",
     "render_result_page", "validate_change_set",
 ]
