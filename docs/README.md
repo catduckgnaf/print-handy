@@ -6,7 +6,7 @@ Find the task you came to do. Print Handy runs locally, with no Print Handy clou
 
 ## Start here
 
-- [Docker](DOCKER.md): recommended install. Follow the quick start, configure a printer and chat platform, then check the setup.
+- [Docker](DOCKER.md): recommended install. Follow the quick start, configure a printer and chat platform, then check setup.
 - [Standalone bot](STANDALONE.md): run without Docker. Choose [Discord](DISCORD-BOT-SETUP.md), [Telegram](TELEGRAM-BOT-SETUP.md) or [Matrix](MATRIX-BOT-SETUP.md).
 - [Hermes installation](INSTALL.md): add Print Handy to an existing Hermes installation.
 - [Web UI](WEBUI.md): optional local status, setup and settings interface. Set access before exposing it on a network.
@@ -41,7 +41,7 @@ Start with [Printer support](PRINTER-SUPPORT.md) for what support means, connect
 
 ## Advanced setup
 
-- [Docker details](DOCKER.md): after the quick start, see image pinning, storage, optional camera features, timelapses, upgrades and rollback.
+- [Docker details](DOCKER.md): image pinning, storage, optional camera features, timelapses, upgrades and rollback.
 - [Web UI details](WEBUI.md): access, settings behavior, optional controls and limitations.
 - [Multi-instance setup](MULTI-INSTANCE.md) · [Listeners](LISTENERS.md) · [Component provenance](COMPONENTS.md)
 - [Cloudflare examples](CLOUDFLARE.md): optional hosted endpoints and network use. Examples are not proof of a live deployment.
