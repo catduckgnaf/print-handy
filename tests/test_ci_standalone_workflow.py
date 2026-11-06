@@ -112,6 +112,15 @@ class CodecovReportOnlyContract(unittest.TestCase):
         self.assertIn("--cov=print_handy", offline)
         self.assertIn("--cov-report=xml:coverage.xml", offline)
 
+    def test_upload_dependencies_are_installed_for_python312_legs(self):
+        # The Codecov action's pre-flight dependency check (curl, gpg) is not
+        # covered by fail_ci_if_error, and the slim container ships neither.
+        job = load_workflow()["jobs"]["offline-tests"]
+        step = steps_by_name(job)["Install Codecov upload dependencies (3.12 legs only)"]
+        self.assertIn("3.12", step["if"])
+        self.assertIn("curl", step["run"])
+        self.assertIn("gnupg", step["run"])
+
     def test_upload_step_is_report_only(self):
         job = load_workflow()["jobs"]["offline-tests"]
         step = steps_by_name(job)["Upload coverage to Codecov (report-only)"]

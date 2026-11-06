@@ -153,6 +153,16 @@ jobs:
         env:
           PRINT_HANDY_TEST_SHARD: ${{ matrix.shard }}/3
         run: python -m pytest -q -rs tests ${{ matrix.python-version == '3.12' && '--cov=print_handy --cov-report=xml:coverage.xml' || '' }}
+      - name: Install Codecov upload dependencies (3.12 legs only)
+        # The Codecov action checks for curl and gpg before it runs, and the
+        # slim container image ships neither; that pre-flight failure is not
+        # covered by the action's fail_ci_if_error, so the tools are installed
+        # explicitly, like git, ffmpeg and jq above.
+        if: matrix.python-version == '3.12'
+        run: |
+          command -v curl && command -v gpg || { apt-get update -q && apt-get install -y -q curl gnupg; }
+          curl --version | head -n 1
+          gpg --version | head -n 1
       - name: Upload coverage to Codecov (report-only)
         if: matrix.python-version == '3.12'
         uses: codecov/codecov-action@v7
