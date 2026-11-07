@@ -301,8 +301,9 @@ def test_flagged_v12_fixture_offers_fixes_and_clearance_warnings(env, monkeypatc
     from print_handy.core import orca_adapter
     monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
 
-    # picks: one color (1), slot 1 (0), pick choice 0 (Slice and print with supports)
-    adapter, result, receipt = run_flow(env, [1, 0, 0])
+    # picks: one color (1), slot 1 (0), pick choice 0 (Slice and print with
+    # supports), then Cancel (1) at the post-slice support override question
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 1])
     # The Ready question is not the last question in the #922 flow (the
     # blocked start sends no further question, so it still is here), but
     # find it by its choices rather than by position.
@@ -331,6 +332,65 @@ def test_flagged_v12_fixture_offers_fixes_and_clearance_warnings(env, monkeypatc
     assert receipt.get('started') is not True
     job = json.loads(Path(receipt['job_json']).read_text())
     assert not job.get('clearance_acknowledgement', {}).get('acknowledged')
+    # The refusal is a question with a real override, never a dead end.
+    override_q = adapter.questions[-1]
+    assert override_q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert 'do not cover every flagged region' in override_q['question']
+    assert 'under 1.0 mm' in override_q['question']
+    assert 'support_override' not in receipt
+    assert any('Cancelled. Nothing uploaded or started.' in m for m in adapter.sent)
+
+
+def test_flagged_v12_with_supports_print_anyway_waives_both_gates_and_starts(env, monkeypatch):
+    """With supports + failed gates + Print anyway at the override question starts (#922 dead end)."""
+    monkeypatch.setattr(model_job, 'printables_download', lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
+    from print_handy.core import orca_adapter
+    monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
+
+    # one color (1), slot 1 (0), with supports (0), Print anyway (0)
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 0])
+    assert receipt['status'] == 'STARTED'
+    override = receipt['support_override']
+    assert override['via'] == 'print_anyway'
+    assert override['support_coverage'] is True and override['low_clearance'] is True
+    assert override['gcode_sha256'] == receipt['gcode_sha256']
+    # The waiver is the clearance acknowledgement the start guard checks,
+    # bound to the artifact that actually starts.
+    job = json.loads(Path(receipt['job_json']).read_text())
+    ack = job['clearance_acknowledgement']
+    assert ack['acknowledged'] is True and ack['via'] == 'print_anyway'
+    assert ack['gcode_sha256'] == model_job.file_sha256(job['gcode'])
+
+
+def _coverage_only_report(path):
+    """A report whose only post-slice target is a non-risky supportable overhang."""
+    return {'version': 1, 'risky': False, 'findings': [], 'objects': [], 'limitations': [],
+            'regions': [{'kind': 'supportable_overhang', 'part': 'Body', 'area_mm2': 600.0,
+                         'z_mm': {'min': 5.0, 'max': 5.0}, 'bbox_mm': [[0.0, 0.0], [30.0, 20.0]]}]}
+
+
+@pytest.mark.parametrize('pick, status', [(0, 'STARTED'), (1, 'SLICED_NOT_STARTED')])
+def test_coverage_failure_without_clearance_finding_asks_instead_of_dead_ending(env, monkeypatch, pick, status):
+    """The reported dead end: a with-supports slice that fails only coverage
+    verification (no low-clearance finding, so no pre-check Print anyway
+    button) used to say "choose Print anyway" and return with no buttons."""
+    monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
+    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    # one color (1), slot 1 (0), with supports (0), then the override question
+    adapter, result, receipt = run_flow(env, [1, 0, 0, pick])
+    q = adapter.questions[-1]
+    assert q['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert 'do not cover every flagged region' in q['question']
+    assert 'under 1.0 mm' not in q['question']
+    assert receipt['support_coverage']['ok'] is False
+    assert receipt['status'] == status
+    if pick == 0:
+        assert receipt['support_override']['support_coverage'] is True
+        assert receipt['support_override']['low_clearance'] is False
+        assert 'plate_1_supports.gcode' in receipt['bed_clear_approval']['gcode']
+    else:
+        assert env.starts == []
+        assert all(Path(g).is_file() for g in receipt['gcodes'])
 
 
 def test_flagged_v12_print_anyway_records_explicit_ack_and_starts(env, monkeypatch):
