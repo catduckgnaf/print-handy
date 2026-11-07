@@ -27,6 +27,60 @@ sys.modules["bump_upstream"] = bump  # dataclasses resolve the module by name
 spec.loader.exec_module(bump)
 
 
+def test_distro_components_install_from_the_same_debian_on_both_surfaces():
+    """OpenSCAD and Tesseract are upstream-checked by parity, not by pin.
+
+    Both are Debian packages: the shipped image installs them in the
+    Dockerfile runtime stage (Debian 13), and the CI offline legs install
+    them so the design, render-preview and label-OCR tests run against
+    the same distro builds the image ships (2026-11-07 test-suite
+    cleanup, at catduck's direction). If either surface drops a package
+    or the distro bases drift apart (the runtime stage's debian:13 vs
+    the offline container's slim-trixie, which is Debian 13), CI would
+    silently prove a different tool than the image ships — this test is
+    what fails instead. scripts/bump_upstream.py enumerates both in
+    NON_BUMPED_COMPONENTS with the reason they are not auto-bumped.
+    """
+    assert set(bump.NON_BUMPED_COMPONENTS) >= {"openscad", "tesseract", "bounds-toolchain"}
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    runtime = dockerfile.split("AS runtime", 1)[1]
+    assert re.search(r"FROM debian:13-slim AS runtime", dockerfile)
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    assert "slim-trixie" in ci, "offline legs no longer run on Debian 13 (trixie)"
+    for package in ("openscad", "tesseract-ocr"):
+        assert package in runtime, f"Dockerfile runtime stage no longer installs {package}"
+        assert package in ci, f"ci.yml no longer installs {package} for the offline legs"
+
+
+def test_bounds_toolchain_pins_agree_on_every_surface():
+    """The Rust bounds toolchain is one pin set, everywhere it is built.
+
+    The extension is built in three places — the Dockerfile bounds-build
+    stage, the CI native-bounds job and the CI offline legs — with a
+    pinned rustup toolchain and a pinned maturin, and the crate's Cargo
+    dependencies are locked. A surface that drifts would build a
+    different parser than the one the image ships. Cargo dependencies
+    themselves are not auto-bumped (see NON_BUMPED_COMPONENTS in
+    scripts/bump_upstream.py); they move through Cargo.lock, and every
+    build here must use --locked so the lock is what gets built.
+    """
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    toolchains = set(re.findall(r"--default-toolchain ([\d.]+)", dockerfile + ci))
+    assert toolchains == {"1.99.1"}, f"rustup toolchain pins disagree: {toolchains}"
+    maturins = set(re.findall(r"maturin==([\d.]+)", dockerfile + ci))
+    assert maturins == {"1.16.0"}, f"maturin pins disagree: {maturins}"
+    assert "bounds-toolchain" in bump.NON_BUMPED_COMPONENTS
+    recorded = bump.NON_BUMPED_COMPONENTS["bounds-toolchain"]["pin"]
+    assert "1.99.1" in recorded and "1.16.0" in recorded, (
+        "bump_upstream.py's bounds-toolchain record no longer names the pins")
+    assert (ROOT / "native" / "bounds" / "Cargo.lock").is_file()
+    for where, text in (("Dockerfile", dockerfile), ("ci.yml", ci)):
+        builds = re.findall(r"maturin build[^\n]*", text)
+        assert builds and all("--locked" in build for build in builds), (
+            f"{where} builds the bounds wheel without --locked: {builds}")
+
+
 def _recorded_spoolman_version():
     """(version, ref) the docs record for the Dockerfile pin."""
     dockerfile = (ROOT / "Dockerfile").read_text()

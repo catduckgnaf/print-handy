@@ -88,6 +88,31 @@ is how the real-server tests run, and a harness left on the old
 version would prove the old release while the image ships the new
 one.
 
+Components this automation deliberately does NOT bump (enumerated
+2026-11-07 at catduck's direction, so the upstream check's coverage
+is explicit rather than assumed):
+
+- OpenSCAD and Tesseract OCR: shipped as Debian 13 (trixie) packages
+  in the Dockerfile runtime stage, installed from the same distro in
+  the CI offline legs. There is no repo-owned release pin for the
+  planner to move: their version is the distro's, and moving it means
+  moving the base image, a release decision a human makes. The
+  forcing function is the parity test
+  (tests/test_upstream_version_parity.py), which fails if the two
+  install surfaces or their distro bases drift apart. When a distro
+  move changes either tool's upstream version, the step-size rule
+  above classifies that change like any other bump.
+- The native bounds toolchain (Rust 1.99.1 via rustup, maturin
+  1.16.0, and the crate's Cargo dependencies locked in
+  native/bounds/Cargo.lock): the pins are repo-owned but the planner
+  cannot check them the way it checks a GitHub release - there is no
+  single upstream release artifact to fetch and verify - so they
+  move by hand, and the same parity test fails if the Dockerfile,
+  the CI jobs and this enumeration disagree on the values. Cargo
+  dependencies move only through Cargo.lock (`maturin build
+  --locked` everywhere the wheel is built), never by the planner
+  rewriting Cargo.toml.
+
 A bump PR is opened as a draft; .github/workflows/
 upstream-bump-ready.yml flips it to ready once its CI suite is
 green (see --mark-ready). Nothing here ever merges a PR.
@@ -166,6 +191,26 @@ ORCA_VENDORS = {
     "elegoo": "Elegoo",
     "prusa": "Prusa",
     "qidi": "Qidi",
+}
+
+
+# Components checked for parity but not auto-bumped (see the module
+# docstring for the reasons). The parity tests in
+# tests/test_upstream_version_parity.py read this enumeration, so a
+# component dropped here without a new home fails the suite.
+NON_BUMPED_COMPONENTS = {
+    "openscad": {
+        "surface": "Debian 13 package in the Dockerfile runtime stage and the CI offline legs",
+        "pin": "distro version (unpinned apt install on both surfaces)",
+    },
+    "tesseract": {
+        "surface": "Debian 13 package (tesseract-ocr, with its tesseract-ocr-eng language data) in the Dockerfile runtime stage and the CI offline legs",
+        "pin": "distro version (unpinned apt install on both surfaces)",
+    },
+    "bounds-toolchain": {
+        "surface": "Dockerfile bounds-build stage, CI native-bounds job and CI offline legs",
+        "pin": "rustup toolchain 1.99.1, maturin==1.16.0, native/bounds/Cargo.lock",
+    },
 }
 
 

@@ -87,6 +87,10 @@ in another shard or a dedicated job on the same PR.
 | 14 | Vestigial import guards | `pytest.importorskip("trimesh")` (3 sites), discord.py ImportError skip in `tests/corpus/test_user_stories.py:87`, zxing-cpp gates in `test_issue_514_photo_intake.py` | keep (harmless, never fire in CI) | No change | trimesh is in the `[test]` extra, discord.py and zxing-cpp are runtime dependencies in `pyproject.toml`, so CI installs all of them; the guards only help partial local environments |
 | 15 | Strict xfail register | `tests/strict_xfail_register.json`, `tests/corpus/test_corpus.py:63` | keep | No change | One registered strict xfail (corpus `known_failure` flow), owner named, expiry 2027-02-04, enforced by `scripts/check_strict_xfails.py` in the offline legs |
 | 16 | Script-style suites outside pytest | `tests/docker/` (image acceptance), `tests/corpus/time_corpus.py` / `timing_gate.py` / runner scripts | keep | No change | Run by `docker-image-validation.yml`, `develop.yml`, `docker-publish.yml` (acceptance/lifecycle) and the `discord-timing` / `slicer-timing-real` jobs in `ci.yml` |
+| 20 | Dead reference model (archive path) | `tests/pipeline/test_orca_sanitize.py` `test_real_sticker_buddy_slices` | remove-dead | Test removed (with the now-unused archive/settings lines); a comment in the file records why | Same archive-glob mechanism as #6/#7, found in the cleanup PR's own CI skip summary — the one archive-glob gate the first pass misclassified as a plain real-slicer gate. The sanitize behavior stays covered by the offline tests in the same file against synthetic 3MFs. A tree-wide re-grep for archive globs after the removal returns only test-temp archives, which are legitimate |
+| 17 | Upstream check missing a shipped tool | OpenSCAD | add to upstream check (parity) | Enumerated in `scripts/bump_upstream.py` (`NON_BUMPED_COMPONENTS`, with the reason it is not auto-bumped), a row in `docs/COMPONENTS.md`, and a parity test in `tests/test_upstream_version_parity.py` | OpenSCAD has no repo-owned release pin: it is a Debian 13 package in the Dockerfile runtime stage and now in the CI offline legs. Parity (same package, same distro base on both surfaces) is the check that fits; the bump planner's release-fetch machinery cannot move a distro package. When a base-image move changes its upstream version, the existing step-size classification applies |
+| 18 | Upstream check missing a shipped tool | Tesseract OCR (incl. language data) | add to upstream check (parity) | Same treatment as OpenSCAD: enumeration, COMPONENTS row, same parity test | `tesseract-ocr` is likewise a Debian 13 package on both surfaces; the package depends on `tesseract-ocr-eng`, so the language data the product's default OCR invocation uses is carried by the same install on both surfaces — no separate data pin exists to drift |
+| 19 | Upstream check missing a build toolchain | Native bounds extension: rustup toolchain, maturin, Cargo dependencies | add to upstream check (parity) | Enumerated as `bounds-toolchain` in `scripts/bump_upstream.py`; COMPONENTS row; parity test asserts every surface (Dockerfile bounds-build, CI native-bounds job, CI offline legs) carries toolchain 1.99.1 and `maturin==1.16.0`, that the enumeration records the same values, and that every wheel build uses `--locked` against `native/bounds/Cargo.lock` | All three build surfaces were read and agree today; the parity test is the forcing function if one moves alone. Cargo dependencies are NOT auto-bumped: the planner has no Cargo release artifact to fetch/verify, so they move by hand through Cargo.lock — recorded explicitly in the enumeration rather than silently absent |
 
 ## OpenSCAD: explicit section (catduck: "we absolutely need lots of OpenSCAD testing")
 
@@ -114,11 +118,17 @@ skip — nothing in CI skips on its account.
 
 Baseline is the screenshot job (run 42416040044, `offline-tests (3.12,
 shard 2)`, on the #1022 branch): 4 failed, 4047 passed, 72 skipped, 8244
-deselected. After numbers are quoted in the PR body from the finished CI
-logs on this PR's exact head; the skip lines for openscad, xvfb-run,
-tesseract and the native bounds extension, and the coupon, post-it and V14
-skip lines, no longer appear because those tests execute (or were removed
-as dead, per the table above).
+deselected. On this cleanup's first CI head (run 42418928950, same shard
+and Python): **0 failed, 4095 passed, 19 skipped, 8230 deselected** — and
+every one of the 19 remaining skips is a legitimate keep-gated row
+(16 real-slicer, 2 real-Spoolman, and the Sticker Buddy archive test that
+finding #20 then removed). The skip lines for openscad, xvfb-run,
+tesseract, the native bounds extension, the coupons, the post-it model
+and the V14 fixture no longer appear, because those tests execute (or
+were removed as dead, per the table above). The log also records the
+install step's own proof: `OpenSCAD version 2021.01` on the trixie leg.
+Final-head numbers are quoted in the PR body from the finished CI logs
+on that head.
 
 ## Appendix: per-file inventory
 
@@ -129,7 +139,7 @@ no skip/xfail gate. Gate notes quote the gate line so a reader can find
 the classification for that gate in the findings table or in the
 keep-gated row.
 
-Files inventoried: 538. Test functions/classes counted by AST: 7402.
+Files inventoried: 538. Test functions/classes counted by AST: 7403.
 
 | File | Tests | Status |
 |---|---|---|
@@ -420,7 +430,7 @@ Files inventoried: 538. Test functions/classes counted by AST: 7402.
 | `tests/pipeline/test_native_startup.py` | 5 | reviewed, clean |
 | `tests/pipeline/test_offset_authority.py` | 12 | reviewed, clean |
 | `tests/pipeline/test_orca_adapter.py` | 22 | reviewed, clean |
-| `tests/pipeline/test_orca_sanitize.py` | 8 | reviewed; gates: L151:@pytest.mark.skipif(REAL is None or not shutil.which('flatpak') |
+| `tests/pipeline/test_orca_sanitize.py` | 7 | reviewed, clean |
 | `tests/pipeline/test_part_families_split.py` | 9 | reviewed, clean |
 | `tests/pipeline/test_paste_login_token.py` | 30 | reviewed; gates: L157:@pytest.mark.skipif(sys.platform == 'win32', reason='POSIX permission bits'); L164:@pytest.mark.skipif(sys.platform == 'win32', reason='POSIX permission bits') |
 | `tests/pipeline/test_plate_merge.py` | 39 | reviewed, clean |
@@ -647,7 +657,7 @@ Files inventoried: 538. Test functions/classes counted by AST: 7402.
 | `tests/test_thermal_capabilities.py` | 13 | reviewed, clean |
 | `tests/test_thermal_probe.py` | 22 | reviewed, clean |
 | `tests/test_timeout_policy.py` | 2 | reviewed, clean |
-| `tests/test_upstream_version_parity.py` | 1 | reviewed, clean |
+| `tests/test_upstream_version_parity.py` | 3 | reviewed, clean |
 | `tests/test_upstream_watch.py` | 26 | reviewed, clean |
 | `tests/test_us_spelling.py` | 14 | reviewed, clean |
 | `tests/test_variables_contract.py` | 4 | reviewed, clean |
