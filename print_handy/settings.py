@@ -86,6 +86,8 @@ LEGACY_ENV = {
     "PRINT_TIMELAPSE_PLAN_CLIP_RETENTION_DAYS": ("timelapse", "plan_clip_retention_days"),
     "PRINT_TIMELAPSE_WRAPPED_ENABLED": ("timelapse", "wrapped_enabled"),
     "PRINT_TIMELAPSE_WRAPPED_AI_VIDEO": ("timelapse", "wrapped_ai_video"),
+    "PRINT_TIMELAPSE_WRAPPED_TTS_ENGINE": ("timelapse", "wrapped_tts_engine"),
+    "PRINT_TIMELAPSE_WRAPPED_MUSIC_FILE": ("timelapse", "wrapped_music_file"),
     "PRINT_TIMELAPSE_VERTICAL_SHORT": ("timelapse", "vertical_short"),
     "PRINT_TIMELAPSE_VERTICAL_SHORT_MODE": ("timelapse", "vertical_short_mode"),
     "PRINT_TIMELAPSE_VERTICAL_SHORT_OVERLAY": ("timelapse", "vertical_short_overlay"),
@@ -95,6 +97,8 @@ LEGACY_ENV = {
     "MAINTENANCE_BED_SEPARATE_MM": ("maintenance", "bed_separate_mm"),
     "HERMES_BIN": ("paths", "hermes_bin"),
     "FFMPEG_BIN": ("paths", "ffmpeg"),
+    "PIPER_BIN": ("paths", "piper"),
+    "PIPER_MODEL": ("paths", "piper_model"),
     "PRINT_HANDY_ARCHIVE": ("paths", "archive"),
     "PRINT_RECORDS_VAULT": ("paths", "records_vault"),
 }
@@ -155,6 +159,8 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("timelapse", "mode"): str, ("timelapse", "encoder"): str,
                  ("timelapse", "wrapped_enabled"): bool,
                  ("timelapse", "wrapped_ai_video"): bool,
+                 ("timelapse", "wrapped_tts_engine"): str,
+                 ("timelapse", "wrapped_music_file"): str,
                  ("services", "camera_source"): str,
                  ("live_stream", "enabled"): bool, ("live_stream", "voice_channel_id"): str,
                  ("live_stream", "auto_start_on_print"): bool, ("live_stream", "max_height"): int,
@@ -1145,6 +1151,7 @@ def _validate_webui(data):
 
 
 VERTICAL_SHORT_MODES = ("pad", "crop")
+WRAPPED_TTS_ENGINES = ("none", "piper")
 
 
 def _validate_timelapse(data):
@@ -1184,6 +1191,21 @@ def _validate_timelapse(data):
         value = timelapse.setdefault(key, default)
         if not isinstance(value, bool):
             raise SettingsError(f"[timelapse] {key} must be true or false, got {value!r}")
+    # Wrapped narration (#981 step 4): the TTS engine choice. "none" is
+    # the default and keeps the video exactly as it was before narration
+    # existed; "piper" is the local Piper binary under [paths]. There is
+    # deliberately no cloud or AI-model engine: narration never leaves
+    # this machine.
+    engine = str(timelapse.setdefault("wrapped_tts_engine", "none") or "").strip().lower()
+    if engine not in WRAPPED_TTS_ENGINES:
+        raise SettingsError(
+            f"[timelapse] wrapped_tts_engine must be one of {', '.join(WRAPPED_TTS_ENGINES)}, "
+            f"got {timelapse['wrapped_tts_engine']!r}")
+    timelapse["wrapped_tts_engine"] = engine
+    music_file = timelapse.setdefault("wrapped_music_file", "")
+    if not isinstance(music_file, str):
+        raise SettingsError(f"[timelapse] wrapped_music_file must be a file path, got {music_file!r}")
+    timelapse["wrapped_music_file"] = music_file.strip()
     short_mode = str(timelapse.setdefault("vertical_short_mode", "pad") or "").strip().lower()
     if short_mode not in VERTICAL_SHORT_MODES:
         raise SettingsError(
@@ -1794,8 +1816,11 @@ def validate(data):
         entries = [_capture_entry(data, None)]
     data["printers"] = entries
     for key, value in data["paths"].items():
-        if key == "ffmpeg" and "/" not in value:
+        if key in ("ffmpeg", "piper") and "/" not in value:
             continue  # a bare name is looked up on PATH
+        if key == "piper_model" and not str(value or "").strip():
+            data["paths"][key] = ""
+            continue  # an unset Piper voice model stays unset, not the repo root
         path = Path(value).expanduser()
         data["paths"][key] = path if path.is_absolute() else ROOT / path
     enabled = data["visual_watch"].get("enabled", True)
