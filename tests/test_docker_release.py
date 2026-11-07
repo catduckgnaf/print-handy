@@ -21,6 +21,7 @@ import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import pytest
 import yaml
 
 from print_handy import printers, settings
@@ -394,6 +395,9 @@ class ContainerTimezoneTests(unittest.TestCase):
         self.assertEqual(variables["TZ"].get("Default"), "America/New_York")
         self.assertEqual(variables["TZ"].text, "America/New_York")
 
+    # #971: runs the shipped image's entrypoint, so it is container-marked
+    # (runs in the image and in the CI offline-tests job; skips locally).
+    @pytest.mark.container
     def test_entrypoint_keeps_a_valid_tz_and_falls_back_on_an_unknown_one(self):
         script = ROOT / "docker" / "entrypoint.sh"
         with tempfile.TemporaryDirectory(dir=ROOT / ".") as data:

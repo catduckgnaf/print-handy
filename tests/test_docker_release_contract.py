@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import unittest
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -203,6 +204,9 @@ class DockerReleaseContract(unittest.TestCase):
         # The old opt-in override file is gone: Spoolman lives in the base file (#214).
         self.assertFalse((ROOT / "docker-compose.spoolman.yml").exists())
 
+    # #971: runs the shipped image's entrypoint, so it is container-marked
+    # (runs in the image and in the CI offline-tests job; skips locally).
+    @pytest.mark.container
     def test_entrypoint_selects_the_single_stable_build_and_aliases_the_removed_preview(self):
         script = ROOT / "docker" / "entrypoint.sh"
         with tempfile.TemporaryDirectory(dir=ROOT / ".") as data:

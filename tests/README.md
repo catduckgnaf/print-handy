@@ -162,6 +162,12 @@ remainder), and the Matrix message-ordering flake root cause (scope 4).
 | Weekly | `model-corpus.yml` | The downloaded public model corpus, sharded. |
 | Live only, not in CI | operator | Real printer, real Spoolman and Moonraker, real Discord, the private Duplo 3MF. |
 
+Container-marked tests (#971): tests that need the shipped container image (its entrypoint, state volumes or
+runtime layout) carry the `container` marker. Outside the image they skip instead of failing on the
+environment, so a local `pytest` run on a plain checkout can show 0 failures. Detection is
+`PRINT_HANDY_IN_CONTAINER=1`: the Dockerfile sets it in the image, and the CI `offline-tests` job sets it
+explicitly, so the marked tests keep running in CI. `tests/test_container_marker.py` pins the wiring.
+
 Journey matrix: the rows in `test_journey_matrix.py` are the combinations the intake really offers, found by running
 it. Combinations that are not offered (for example a split for a single oversized part, or a color-mode prompt for a
 one-part model) are listed in `UNSUPPORTED` with the reason instead of being invented.

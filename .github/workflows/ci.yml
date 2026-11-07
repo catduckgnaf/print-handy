@@ -157,6 +157,11 @@ jobs:
         timeout-minutes: 25
         env:
           PRINT_HANDY_TEST_SHARD: ${{ matrix.shard }}/3
+          # #971: this job is where the container-marked tests keep running
+          # in CI. The job itself runs in a container but not in the shipped
+          # image, so it opts in explicitly; local runs outside the image
+          # skip the marked tests instead of failing on the environment.
+          PRINT_HANDY_IN_CONTAINER: '1'
           COVERAGE_CORE: ${{ matrix.python-version == '3.12' && 'sysmon' || 'ctrace' }}
         run: python -m pytest -q -rs tests ${{ matrix.python-version == '3.12' && '--cov=print_handy --cov-report=xml:coverage.xml' || '' }}
       - name: Install Codecov upload dependencies (3.12 legs only)

@@ -127,7 +127,8 @@ RUN git init . && git remote add origin https://github.com/Donkie/Spoolman.git &
 FROM debian:13-slim AS runtime
 ARG WITH_GO2RTC=true
 ARG TARGETARCH
-ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PATH=/opt/venv/bin:$PATH
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PATH=/opt/venv/bin:$PATH \
+    PRINT_HANDY_IN_CONTAINER=1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-venv ca-certificates curl jq ffmpeg xvfb xauth tini tzdata openscad tesseract-ocr \
     libwebkit2gtk-4.1-0 libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 \
