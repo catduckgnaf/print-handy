@@ -3630,11 +3630,39 @@ def record_start(gcode_path, moonraker_name=None, started_at=None, print_number=
     if isinstance(print_number, int) and not isinstance(print_number, bool) and print_number > 0:
         ctx["print_number"] = print_number
     plan = (job or {}).get('multipart_plan') or {}
+    project = (job or {}).get('project') or {}
+    project_id = (job or {}).get('project_id') or plan.get('project_id') or project.get('project_id')
+    if project_id:
+        ctx.update(project_id=project_id,
+                   project_source_kind=(job or {}).get('project_source_kind') or plan.get('source_kind')
+                   or project.get('source_kind'),
+                   project_run_id=plan.get('project_run_id') or 'original',
+                   project_plate_id='plate1', project_plate_suffix='A',
+                   project_component_ids=[str(p['component_id']) for p in project.get('components') or []
+                                          if isinstance(p, dict) and p.get('component_id')])
     for part in plan.get('parts') or []:
         if part.get('gcode_path') and Path(part['gcode_path']).resolve() == g:
             # Split plates advance the same plan that /print-next reads.
             ctx.update(multipart_plan_id=plan['plan_id'], part_id=part['id'], required_parts=plan['parts'])
+            if project_id:
+                ctx.update(project_plate_id=part.get('project_plate_id') or part['id'],
+                           project_plate_suffix=part.get('project_plate_suffix') or 'A',
+                           project_part_keys=part.get('component_keys') or [])
+                # Source component IDs and slicer part keys are distinct.
+                ctx.pop('project_component_ids', None)
             break
+    if project_id:
+        # One project number for every plate, reprint and re-slice of this
+        # job: the first plate to start claims it in JOB.json with its own
+        # print number (#988 mints one per launch); later ones read it back.
+        try:
+            job_json_path = _job_record_for_gcode(g)[1]
+            claimed = print_records.claim_project_number(job_json_path, ctx.get('print_number'))
+        except Exception as exc:
+            print(f"WARNING: project number not claimed: {exc}")
+            claimed = None
+        if claimed:
+            ctx['project_number'] = claimed
     mapped = None
     current = printers.current()
     if current.multi_slot:
