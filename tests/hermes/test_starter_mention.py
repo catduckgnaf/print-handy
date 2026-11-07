@@ -181,18 +181,19 @@ def test_rest_send_ignores_a_non_numeric_mention_user_id():
 
 
 def test_listener_discord_post_threads_the_starter_mention(monkeypatch):
-    sent = {}
+    calls = []
 
     def fake_send(token, channel_id, text, **kwargs):
-        sent.update(kwargs, text=text)
+        calls.append(kwargs)
         return True, "1"
 
     monkeypatch.setattr(rest, "send", fake_send)
     monkeypatch.setattr(mel, "_bot_token", lambda: "tok")
     assert mel._post_rest_discord(f"Print complete: Widget\n<@{STARTER}>")
-    assert sent["mention_user_id"] == STARTER
+    assert calls[-1] == {"mention_user_id": STARTER}
+    # A post with no starter mention keeps the plain three-argument call.
     assert mel._post_rest_discord("Print started: Widget")
-    assert sent["mention_user_id"] is None
+    assert calls[-1] == {}
 
 
 # ------------------------------------------------------------- the record

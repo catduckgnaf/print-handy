@@ -178,9 +178,12 @@ def _post_rest_discord(message):
     from print_handy.bot import rest
     # A terminal post's starter-mention line (<@id> on its own line, written
     # by format_event for the person who started the print) is the one ping
-    # Discord is allowed to deliver; every other post mentions nobody.
-    ok, detail = rest.send(_bot_token(), announcer.DISCORD_CHAT_ID, message,
-                           mention_user_id=print_summary.mention_user_id(message))
+    # Discord is allowed to deliver; every other post mentions nobody. The
+    # kwarg is passed only when a mention exists, so the plain send call
+    # keeps its long-standing three-argument shape.
+    mention = print_summary.mention_user_id(message)
+    kwargs = {"mention_user_id": mention} if mention else {}
+    ok, detail = rest.send(_bot_token(), announcer.DISCORD_CHAT_ID, message, **kwargs)
     log(f"post rest target={DISCORD_TARGET} ok={ok} {message.splitlines()[0][:120] if message else ''!r}"
         f"{'' if ok else ' ' + str(detail)[:200]}")
     return ok
