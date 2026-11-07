@@ -4,8 +4,9 @@ Three tiers, each with its own endpoint settings under ``[ai.<tier>]``:
 
 * ``small``: the print-start roast, the camera and image check, label reading.
 * ``chat``: questions the scripted handlers cannot answer.
-* ``heavy``: model-file editing and repair, deep image work. Only the route and
-  its settings exist today; nothing calls it until the repair feature lands.
+* ``heavy``: model-file editing and repair, deep image work. The repair
+  feature (#978, ``core/ai_fix.py``) calls it: "Fix this for my printer"
+  proposals are proposed on this tier, with its fallback.
 
 A tier setting has ``chat_url``, ``model``, ``fallback_model``, ``fallback_url``,
 ``api_key_env``, ``fallback_api_key_env`` and ``timeout_s``. Nothing ships
