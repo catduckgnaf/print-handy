@@ -40,7 +40,8 @@ def without_added(data):
     for key in ("vertical_short", "vertical_short_mode", "vertical_short_overlay"):  # added by #317, after capture
         data.get("timelapse", {}).pop(key, None)
     data.get("timelapse", {}).pop("mode_explicit", None)  # added by the P2-261 fix (Codex backlog burn-down), after capture
-    for key in ("wrapped_enabled", "wrapped_ai_video"):  # added by #956, after capture
+    for key in ("wrapped_enabled", "wrapped_ai_video",
+                "wrapped_tts_engine", "wrapped_music_file"):  # added by #956 / #981 step 4, after capture
         data.get("timelapse", {}).pop(key, None)
     data.pop("webui", None)  # added by #286 stage 1, after the golden files were captured
     data.pop("live_stream", None)  # added by #311 stage 3, after the golden files were captured
@@ -53,6 +54,8 @@ def without_added(data):
     data.pop("telegram", None)  # added by #164 stage 2, after the golden files were captured
     data.pop("matrix", None)  # added by #164 stage 3, after the golden files were captured
     data.get("slicer", {}).pop("flash_studio_path", None)  # added by the Flash Studio config, after capture
+    for key in ("piper", "piper_model"):  # added by #981 step 4 (Wrapped narration), after capture
+        data.get("paths", {}).pop(key, None)
     data.get("timelapse", {}).pop("mode", None)  # added by #286 stage 3 (the type setting), after capture
     data.get("services", {}).pop("camera_source", None)  # added by #286 stage 3, after capture
     for key in ("capture_enabled", "capture_source_url"):  # added by #246 stage 1, after capture
