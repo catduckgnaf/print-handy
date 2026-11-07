@@ -2,10 +2,8 @@
 import copy
 import hashlib
 import json
-import os
 import re
 import sys
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -102,21 +100,16 @@ def test_multicolor_explicit_map_still_checks_each_tool_material():
         contract.validate_materials(text, 'PLA;PETG', st, {'0': 1, '1': 2})
 
 
-@pytest.mark.parametrize('source', ['synthetic', 'reviewed-orca'])
+# The 'reviewed-orca' variant of this test was removed in the 2026-11-07
+# test-suite cleanup: it reran this same flow against recorded Orca coupon
+# G-code from the host-only sol_recovery folder (PRINT_HANDY_COUPONS), which
+# nothing in the repo or CI provides, so it skipped everywhere. The synthetic
+# variant below covers the prepare/verify/launch flow; real Orca G-code is
+# covered by the Slicer test jobs. See tests/TEST-SUITE-AUDIT-2026-11-07.md.
 @pytest.mark.parametrize('bare_upload', [False, True])
 @pytest.mark.parametrize('n,mapping', [(3, {'0':1,'1':2,'2':4}), (4, {'0':1,'1':2,'2':3,'3':4})])
-def test_public_prepare_verify_launch(tmp_path, n, mapping, bare_upload, source):
+def test_public_prepare_verify_launch(tmp_path, n, mapping, bare_upload):
     st=state(); path=tmp_path/'coupon.gcode'; path.write_text(artifact(n))
-    if source == 'reviewed-orca':
-        name = 'three' if n == 3 else 'four'
-        original_path = Path(os.environ.get('PRINT_HANDY_COUPONS', '/nonexistent'))/name/'slice/plate_1.gcode'
-        if not original_path.is_file():
-            pytest.skip('recorded Orca coupon G-code is not shipped; set PRINT_HANDY_COUPONS to the sol_recovery folder')
-        expected = {3: 'c51764b501e1d4b1148b9b28fa1e7e6f4afd6c5b109c7b4bfd97ba631c89479e',
-                    4: '797f722c81010623644b30917e06f36934387b19d6cd1712a79f2ed098af074a'}
-        raw = original_path.read_bytes()
-        assert hashlib.sha256(raw).hexdigest() == expected[n]
-        path.write_bytes(raw)
     mapfile=tmp_path/'map.json'; mapfile.write_text(json.dumps(mapping))
     original=path.read_text(); submissions=[]
     def upload(cmd, **kwargs):
@@ -140,9 +133,6 @@ def test_public_prepare_verify_launch(tmp_path, n, mapping, bare_upload, source)
         assert job.zmod_md5_valid(path)
         from print_handy.printers.flashforge.zmod.native_startup import commands
         expected_body = original
-        if source == 'reviewed-orca':
-            expected_body = original.replace('START_PRINT BED_TEMP=60 EXTRUDER_TEMP=210 MESH=MESH_DATA',
-                                             'M190 S60\nM104 S210 T0\nSTART_PRINT BED_TEMP=60 EXTRUDER_TEMP=210 MESH=MESH_DATA', 1)
         assert commands(expected_body) == commands(path.read_text())
         cli(['verify-gcode',str(path)])
         cli(['print-now',str(path)])

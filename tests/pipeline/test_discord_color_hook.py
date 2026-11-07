@@ -14,8 +14,11 @@ PLUGIN = settings.ROOT/'plugins/print-feedback/__init__.py'
 def load_plugin(name):
     spec=importlib.util.spec_from_file_location(name,PLUGIN)
     mod=importlib.util.module_from_spec(spec);spec.loader.exec_module(mod)
-    if not hasattr(mod,'color_selection_dispatch'):
-        pytest.skip('the packaged print-feedback plugin has no color_selection_dispatch hook yet')
+    # The plugin ships color_selection_dispatch (plugins/print-feedback);
+    # a missing hook is a regression, not a skip. (The hasattr skip guard
+    # here predated the hook landing and was removed in the 2026-11-07
+    # test-suite cleanup.)
+    assert hasattr(mod,'color_selection_dispatch')
     return mod
 
 @pytest.mark.asyncio

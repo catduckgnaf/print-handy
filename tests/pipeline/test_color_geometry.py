@@ -1,13 +1,15 @@
-import json,os,re,zipfile,xml.etree.ElementTree as ET
+import json,re,zipfile,xml.etree.ElementTree as ET
 from pathlib import Path
 import pytest
 from print_handy.core import source_colors, model_job
 from print_handy.core.color_geometry import export_color_geometry, export_single_color_plate
 
-ROOT=Path(os.environ.get('PRINT_HANDY_COUPONS','/nonexistent'))
+# The coupon is a shipped corpus case (three parts, three source extruders),
+# not a host-only recording: the old PRINT_HANDY_COUPONS / sol_recovery gate
+# pointed at a folder nothing in the repo or CI provides, so every test below
+# skipped everywhere. See tests/TEST-SUITE-AUDIT-2026-11-07.md.
+COUPON=Path(__file__).parents[1]/'corpus/cases/assembly-3c-tight/model.3mf'
 STATE=Path(__file__).parent/'fixtures'/'printer_hardware.json'
-needs_coupon=pytest.mark.skipif(not (ROOT/'three/three_core_geometry.3mf').is_file(),
- reason='recorded coupon 3MF is not shipped; set PRINT_HANDY_COUPONS to the sol_recovery folder')
 
 def decisions(src,st):
  m=source_colors.inventory(src)
@@ -15,9 +17,8 @@ def decisions(src,st):
  return {'mode':'per_part','source_sha256':m['source_sha256'],'choices':{
   q['key']:model_job.resolve_filament_selection(st,dict(st['filament_slots'][str(slots[q['source_extruder']-1])],slot=slots[q['source_extruder']-1])) for q in source_colors.prompts(m)}}
 
-@needs_coupon
 def test_preserves_instances_and_transforms(tmp_path):
- src=ROOT/'three/three_core_geometry.3mf';target=tmp_path/'instances.3mf'
+ src=COUPON;target=tmp_path/'instances.3mf'
  ns={'c':'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'}
  with zipfile.ZipFile(src) as z:
   entries={n:z.read(n) for n in z.namelist()}
@@ -42,23 +43,21 @@ def test_preserves_instances_and_transforms(tmp_path):
    assert float(vb.get('x'))-float(va.get('x'))==pytest.approx(40)
    assert va.get('y')==vb.get('y') and va.get('z')==vb.get('z')
 
-@needs_coupon
 @pytest.mark.parametrize('failure',['hash','incomplete','painted','contradiction'])
 def test_invalid_geometry_mapping_refused(tmp_path,failure):
- src=ROOT/'three/three_core_geometry.3mf';st=json.loads(STATE.read_text());d=decisions(src,st)
+ src=COUPON;st=json.loads(STATE.read_text());d=decisions(src,st)
  if failure=='hash':d['source_sha256']='wrong'
  if failure=='incomplete':d['choices'].pop(next(iter(d['choices'])))
  if failure=='contradiction':
   m=source_colors.inventory(src);d['choices']['filament:1']=d['choices']['part:'+m['parts'][1]['key']]
  if failure=='painted':
-  from unittest.mock import patch
-  m=source_colors.inventory(src);m['painted']=True
-  # Painted sources are supported now; a painted flag whose decisions do not
-  # cover the painted states must still fail closed with no output.
-  with patch('print_handy.core.color_geometry.inventory',return_value=m),pytest.raises(RuntimeError):
-   export_color_geometry(src,tmp_path/'out.3mf',d)
-  assert not (tmp_path/'out.3mf').exists()
-  return
+  # Painted sources are supported now; decisions that do not cover every
+  # painted state must still fail closed with no output. The source is the
+  # real painted fixture built below (its Holder carries paint_color for
+  # filament 2), and the filament:2 decision is dropped to leave that
+  # painted state uncovered.
+  src=tmp_path/'painted.3mf';_painted_two_plate_source(src);d=decisions(src,st)
+  d['choices'].pop('filament:2')
  with pytest.raises(RuntimeError):export_color_geometry(src,tmp_path/'out.3mf',d)
  assert not (tmp_path/'out.3mf').exists()
 

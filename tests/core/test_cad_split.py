@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import math
+import shutil
 from pathlib import Path
 
 import pytest
@@ -167,6 +168,37 @@ def test_plan_without_pin_fields_generates_the_validated_dowel_defaults():
     scad = cad_split.render_openscad_script('small.stl', plan)
     assert 'DOWEL_D = 2.6000;' in scad
     assert 'DOWEL_LENGTH = 7.5000;' in scad
+
+
+@pytest.mark.skipif(not shutil.which('openscad'), reason='openscad not installed')
+def test_run_openscad_real_binary_exports_and_refuses_bad_source(tmp_path: Path):
+    """The cad_split execution seam against the real OpenSCAD binary.
+
+    Every other cad_split execution test fakes _run_openscad; this one runs
+    it (added in the 2026-11-07 test-suite cleanup, when the offline CI legs
+    started installing openscad, so the gate executes in CI). A good source
+    exports a binary STL the repo's own reader can parse with the expected
+    dimensions; a syntax-broken source raises RuntimeError and leaves no
+    output, matching the seam's fail-closed contract.
+    """
+    good = tmp_path / 'good.scad'
+    good.write_text('cube([10, 20, 30]);\n', encoding='utf-8')
+    out = tmp_path / 'good.stl'
+    cad_split._run_openscad(good, out)
+    assert out.is_file() and out.stat().st_size >= 84
+    tris = read_stl_triangles(out)
+    assert tris, 'exported STL must contain triangles'
+    xs = [v[0] for tri in tris for v in tri]
+    ys = [v[1] for tri in tris for v in tri]
+    zs = [v[2] for tri in tris for v in tri]
+    assert (max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs)) == (10.0, 20.0, 30.0)
+
+    bad = tmp_path / 'bad.scad'
+    bad.write_text('cube([10, 10, 10);\n', encoding='utf-8')
+    bad_out = tmp_path / 'bad.stl'
+    with pytest.raises(RuntimeError, match='OpenSCAD failed'):
+        cad_split._run_openscad(bad, bad_out)
+    assert not bad_out.is_file()
 
 
 def test_prepare_cad_split_resolves_a_relative_outdir_before_openscad(tmp_path: Path, monkeypatch):

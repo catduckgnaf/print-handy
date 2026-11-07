@@ -236,11 +236,17 @@ def test_printables_link_gives_up_after_bounded_retries(monkeypatch):
     assert len(calls) == 3
 
 
-@pytest.mark.skipif(not os.environ.get("COMPLEX_CORPUS_ROOT"),
+@pytest.mark.skipif(not (os.environ.get("COMPLEX_CORPUS_ROOT")
+                         or os.environ.get("PRINT_HANDY_PRIVATE_CORPUS")),
                     reason="complex corpus not fetched here - run fetch_complex_corpus.py; "
                            "the manifest contract above is what CI pins")
 def test_fetched_files_match_the_manifest():
-    root = Path(os.environ["COMPLEX_CORPUS_ROOT"])
+    # Accept the same root the model-corpus workflow and
+    # run_complex_corpus.py use (PRINT_HANDY_PRIVATE_CORPUS), not only the
+    # pytest-only COMPLEX_CORPUS_ROOT name no workflow sets (2026-11-07
+    # test-suite cleanup).
+    root = Path(os.environ.get("COMPLEX_CORPUS_ROOT")
+                or os.environ["PRINT_HANDY_PRIVATE_CORPUS"])
     for case in CASES:
         if case["tier"] != "public" or case["status"] != "ready":
             continue

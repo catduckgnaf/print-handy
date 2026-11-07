@@ -324,30 +324,38 @@ def test_clarify_receipt_never_claims_action_started():
     assert text == 'You chose: 2 copies. Nothing has started.'
 
 
-@pytest.mark.usefixtures("hermes_cli_plugins")
-def test_actual_dispatcher_applies_discord_clarify_cap():
-    from hermes_cli.plugins import _dispatch_pre_tool_call_hooks
+def test_registered_clarify_hook_applies_discord_cap():
+    """The pre_tool_call hook contract, exercised directly.
+
+    This replaces a test that dispatched through hermes_cli.plugins from the
+    external Hermes Agent checkout: nothing in this repo or CI provides that
+    package, so the old test skipped everywhere (2026-11-07 test-suite
+    cleanup; see tests/TEST-SUITE-AUDIT-2026-11-07.md). The live surface is
+    the plugin's own registered hook (register() binds
+    cap_discord_clarifications as a pre_tool_call hook), whose documented
+    return is a {'action': 'modify', 'args': ...} dict.
+    """
     args = {'questions': [{'question': 'Pick', 'choices': ['one', 'two', 'three', 'four', 'five']}]}
     with mock.patch.object(plugin, '_session', side_effect=lambda key: {
-            'HERMES_SESSION_PLATFORM': 'discord', 'HERMES_SESSION_PROFILE': '3dprinting'}.get(key, '')), mock.patch(
-        'hermes_cli.lifecycle.invoke_hook', side_effect=lambda event, **kw: [plugin.cap_discord_clarifications(**kw)]):
-        message, modified = _dispatch_pre_tool_call_hooks('clarify', args, session_id='s', turn_id='t')
-    assert message is None
-    assert modified is not None
+            'HERMES_SESSION_PLATFORM': 'discord', 'HERMES_SESSION_PROFILE': '3dprinting'}.get(key, '')):
+        result = plugin.cap_discord_clarifications(
+            tool_name='clarify', args=args, session_id='s', turn_id='t')
+    assert result is not None and result['action'] == 'modify'
+    modified = result['args']
     assert modified['questions'][0]['choices'] == ['one', 'two', 'three', 'four']
     assert 'Additional options exist' in modified['questions'][0]['question']
 
 
-@pytest.mark.usefixtures("hermes_cli_plugins")
-def test_actual_dispatcher_enforces_duplicate_guard():
-    from hermes_cli.plugins import _dispatch_pre_tool_call_hooks
-    with mock.patch.object(plugin, '_session', return_value='3dprinting'), mock.patch(
-        'hermes_cli.lifecycle.invoke_hook', side_effect=lambda event, **kw: [plugin.guard_terminal_loop(**kw)]):
+def test_registered_terminal_hook_enforces_duplicate_guard():
+    """Same replacement as above for guard_terminal_loop: the hook returns
+    None while a command is allowed and a block dict on the third repeat."""
+    with mock.patch.object(plugin, '_session', return_value='3dprinting'):
         for _ in range(2):
-            message, _ = _dispatch_pre_tool_call_hooks('terminal', {'command': 'status'}, session_id='s', turn_id='t')
-            assert message is None
-        message, _ = _dispatch_pre_tool_call_hooks('terminal', {'command': 'status'}, session_id='s', turn_id='t')
-        assert message is not None and 'repeat' in message
+            assert plugin.guard_terminal_loop(
+                tool_name='terminal', args={'command': 'status'}, session_id='s', turn_id='t') is None
+        result = plugin.guard_terminal_loop(
+            tool_name='terminal', args={'command': 'status'}, session_id='s', turn_id='t')
+        assert result is not None and result['action'] == 'block' and 'repeat' in result['message']
 
 
 @pytest.mark.parametrize('command, expected', [
