@@ -46,6 +46,10 @@ SECRETS = {"DISCORD_BOT_TOKEN", "TELEGRAM_BOT_TOKEN", "MATRIX_ACCESS_TOKEN", "LL
            "MYMINIFACTORY_OAUTH_TOKEN", "MAKERWORLD_TOKEN", "THINGIVERSE_TOKEN", "CULTS3D_TOKEN"}
 COMPOSE_VARS = {"PRINT_HANDY_IMAGE", "PRINT_HANDY_DATA", "PRINT_HANDY_SPOOLMAN_DATA", "PRINT_HANDY_CONFIG", "TZ",
                 "DISCORD_CLIENT_ID", "CLOUDFLARED_IMAGE", "SPOOLMAN_CORS_ORIGIN"}
+# NVIDIA container-runtime variables (#455): Unraid-template-only, hidden and
+# optional. Compose picks the GPU with a deploy block instead, and the image
+# carries the NVIDIA_DRIVER_CAPABILITIES default, so they are not Compose vars.
+UNRAID_GPU_VARS = {"NVIDIA_VISIBLE_DEVICES": "", "NVIDIA_DRIVER_CAPABILITIES": "compute,video,utility"}
 RUNTIME_ENV_VARS = {"PRINT_HANDY_ORCA_CHANNEL", "PRINT_HANDY_USER_CONFIG", "PRINT_HANDY_BUNDLED_SPOOLMAN", "SPOOLMAN_HOST", "SPOOLMAN_UPDATE_CHECK", "PRINT_VISION_URL", "PRINT_FUZZY_URL"}
 DATA_TARGETS = {"/data/state", "/data/hermes", "/data/archive", "/data/records", "/data/cache"}
 
@@ -583,6 +587,8 @@ class UnraidTemplateTests(unittest.TestCase):
                 elif target.startswith("PRINT_HANDY__"):
                     section, key = target[len("PRINT_HANDY__"):].lower().split("__")
                     self.assertIn((section, key), inventory())
+                elif target in UNRAID_GPU_VARS:
+                    pass  # pinned by test_unraid_gpu_variables_are_optional_and_hidden
                 else:
                     self.assertIn(target, COMPOSE_VARS)
         # The bot token may be empty: the listener and Spoolman run while the bot idles.
@@ -592,6 +598,29 @@ class UnraidTemplateTests(unittest.TestCase):
         self.assertEqual(variables["PRINT_HANDY_ORCA_CHANNEL"].text, "stable")
         self.assertEqual(compose_env["PRINT_HANDY_ORCA_CHANNEL"], "${PRINT_HANDY_ORCA_CHANNEL:-stable}")
         self.assertRegex(ENV_EXAMPLE, r"(?m)^PRINT_HANDY_ORCA_CHANNEL=stable$")
+
+    def test_unraid_gpu_variables_are_optional_and_hidden(self):
+        """#455: the NVIDIA runtime variables ship in the template so an
+        operator only fills in a GPU UUID, but they are not required, hidden
+        behind "Show more settings", grant no GPU by default, and keep the
+        "video" capability NVENC needs (the image default). The runtime flag
+        itself stays an operator Extra Parameter: ExtraParams ships empty."""
+        variables = self.configs(UNRAID, "Variable")
+        dockerfile = (ROOT / "Dockerfile").read_text()
+        for target, default in UNRAID_GPU_VARS.items():
+            with self.subTest(variable=target):
+                config = variables[target]
+                self.assertEqual(config.get("Required"), "false")
+                self.assertEqual(config.get("Display"), "advanced-hide")
+                self.assertEqual(config.get("Mask"), "false")
+                self.assertEqual(config.get("Default"), default)
+                self.assertEqual(config.text or "", default)
+                self.assertIn("--runtime=nvidia", config.get("Description"))
+        self.assertIn("video", UNRAID_GPU_VARS["NVIDIA_DRIVER_CAPABILITIES"].split(","))
+        self.assertIn(f"ENV NVIDIA_DRIVER_CAPABILITIES={UNRAID_GPU_VARS['NVIDIA_DRIVER_CAPABILITIES']}",
+                      dockerfile)
+        self.assertNotIn("--runtime", UNRAID.findtext("ExtraParams") or "")
+        self.assertNotIn("NVIDIA_VISIBLE_DEVICES", self.service.get("environment", {}))
 
 
 class WebuiContainerTests(unittest.TestCase):

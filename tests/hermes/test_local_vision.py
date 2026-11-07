@@ -749,3 +749,49 @@ def test_vision_ready_local_unavailable_stays_off(monkeypatch, process_cfg):
     lines = []
     assert vw.vision_ready(lambda: "", lines.append) is False
     assert len(lines) == 1 and "vision.local_detector_enabled" in lines[0]
+
+
+# --------------------------------------------------------------- GPU visible, CPU-only build (#455)
+
+
+def test_accelerator_hint_names_a_cpu_only_build_with_a_gpu_visible():
+    hint = lv.accelerator_hint(["CPUExecutionProvider"], device_visible=True)
+    assert "GPU device is visible" in hint and "only CPUExecutionProvider" in hint
+    assert "docs/DOCKER.md" in hint
+
+
+def test_accelerator_hint_silent_without_a_gpu_or_with_an_accelerated_build():
+    assert lv.accelerator_hint(["CPUExecutionProvider"], device_visible=False) == ""
+    assert lv.accelerator_hint(["OpenVINOExecutionProvider", "CPUExecutionProvider"],
+                               device_visible=True) == ""
+    assert lv.accelerator_hint(["CUDAExecutionProvider"], device_visible=True) == ""
+
+
+def test_gpu_device_visible_reads_render_and_nvidia_nodes(tmp_path):
+    dri, dev = tmp_path / "dri", tmp_path / "dev"
+    dri.mkdir()
+    dev.mkdir()
+    assert lv.gpu_device_visible(dri, dev) is False
+    (dev / "nvidiactl").write_text("")
+    assert lv.gpu_device_visible(dri, dev) is False
+    (dri / "renderD128").write_text("")
+    assert lv.gpu_device_visible(dri, dev) is True
+    (dri / "renderD128").unlink()
+    (dev / "nvidia0").write_text("")
+    assert lv.gpu_device_visible(dri, dev) is True
+    assert lv.gpu_device_visible(tmp_path / "missing", tmp_path / "missing") is False
+
+
+def test_status_names_the_cpu_only_build_when_a_gpu_is_visible(monkeypatch):
+    monkeypatch.setattr(lv, "_ort", _FakeOrt(["CPUExecutionProvider"]))
+    monkeypatch.setattr(lv, "gpu_device_visible", lambda *a, **k: True)
+    state, detail = lv.detector_status(cfg_with())
+    assert state == "ready" and "execution provider: CPUExecutionProvider" in detail
+    assert "GPU device is visible" in detail
+
+
+def test_status_has_no_gpu_note_without_a_gpu(monkeypatch):
+    monkeypatch.setattr(lv, "_ort", _FakeOrt(["CPUExecutionProvider"]))
+    monkeypatch.setattr(lv, "gpu_device_visible", lambda *a, **k: False)
+    state, detail = lv.detector_status(cfg_with())
+    assert state == "ready" and "GPU" not in detail

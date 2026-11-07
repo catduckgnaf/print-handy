@@ -148,6 +148,8 @@ def ffmpeg():
     user. It must resolve, run, and list the encoders the [timelapse]
     encoder options rely on: libx264 (the cpu path) and h264_vaapi (the
     VAAPI stack's encoder; the device itself needs the host passthrough).
+    The NVENC/QSV encoders are recorded, not required (#455): Debian ships
+    h264_qsv on amd64 only, and neither can open without a granted GPU.
     """
     binary = shutil.which("ffmpeg")
     if not binary:
@@ -157,9 +159,11 @@ def ffmpeg():
                               capture_output=True, text=True, timeout=60)
     listed = encoders.stdout if encoders.returncode == 0 else ""
     have = {name: (name in listed) for name in ("libx264", "h264_vaapi")}
+    gpu_optional = {name: (name in listed) for name in ("h264_nvenc", "h264_qsv")}
     ok = version.returncode == 0 and all(have.values())
     return report("ffmpeg", ok, binary=binary,
-                  version=(version.stdout or "").strip().splitlines()[:1], encoders=have)
+                  version=(version.stdout or "").strip().splitlines()[:1], encoders=have,
+                  gpu_optional_encoders=gpu_optional)
 
 
 def openscad():

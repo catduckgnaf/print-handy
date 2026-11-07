@@ -182,16 +182,24 @@ COPY --from=go2rtc-prebuilt /out/ /
 # in: NVENC/QSV activate only when the host runtime provides the device.
 # intel-media-va-driver is amd64-only (no arm64 candidate in Debian trixie),
 # so it installs behind a TARGETARCH check; the rest of the stack ships on
-# both architectures.
+# both architectures. libmfx-gen1.2 (also amd64-only) is the oneVPL GPU
+# runtime h264_qsv opens at run time (#455): Debian's ffmpeg links libvpl
+# on amd64 only, and without this runtime QSV was listed but never opened.
 RUN case "$WITH_GO2RTC" in true|false) ;; *) echo 'WITH_GO2RTC must be true or false' >&2; exit 2;; esac && \
     if [ "$WITH_GO2RTC" = true ]; then \
       apt-get update && apt-get install -y --no-install-recommends \
         mesa-va-drivers libva-drm2 vainfo && \
       if [ "$TARGETARCH" = amd64 ]; then \
-        apt-get install -y --no-install-recommends intel-media-va-driver; \
+        apt-get install -y --no-install-recommends intel-media-va-driver libmfx-gen1.2; \
       fi && \
       rm -rf /var/lib/apt/lists/*; \
     fi
+# NVENC (#455): the NVIDIA container runtime mounts the driver libraries
+# these capabilities name. Its default (compute,utility) omits "video", so
+# the NVENC encode library was never mounted and h264_nvenc could not open.
+# Inert without --runtime=nvidia / --gpus; no GPU is selected here — the
+# operator still picks one with NVIDIA_VISIBLE_DEVICES.
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
 # No global LD_LIBRARY_PATH into Orca's bundled runtime: lib/orca-runtime
 # carries FFmpeg 7.0 libav* builds whose sonames shadow the system ffmpeg
 # 7.1.5 libraries and kill it before it prints anything. The path is scoped
