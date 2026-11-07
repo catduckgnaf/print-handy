@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -391,6 +392,46 @@ class BeginTests(unittest.TestCase):
         self.assertTrue(second.directory.name.endswith("-2"))
         second.stop()
 
+    def test_reprint_of_a_long_job_key_terminates_with_a_fresh_directory(self):
+        # #1020: a key past the 100 character slug lost its "-2" suffix, so
+        # begin() found the same populated directory forever and hung the
+        # listener. Run it on a thread with a deadline so a regression fails
+        # instead of hanging the suite.
+        import threading
+        data = make_data(self.cache)
+        key = "file-3mf_print-Panel-A-Lower-V21-SELECT-COLORS_plate_1_" + "a" * 64 + ".gcode"
+        self.assertGreater(len(key), 100)
+        seen = []
+        first = timelapse_capture.begin(key, "a.gcode", data=data, fetch=lambda url: JPEG)
+        first.tick()
+        first.stop()
+        seen.append(first.directory)
+        for _ in range(3):
+            holder = {}
+            worker = threading.Thread(target=lambda: holder.update(
+                s=timelapse_capture.begin(key, "a.gcode", data=data, fetch=lambda url: JPEG)), daemon=True)
+            worker.start()
+            worker.join(5)
+            self.assertFalse(worker.is_alive(), "begin() did not return: reprint search is unbounded")
+            session = holder["s"]
+            session.tick()
+            session.stop()
+            self.assertNotIn(session.directory, seen)
+            self.assertLessEqual(len(session.directory.name), 100)
+            seen.append(session.directory)
+
+    def test_reprint_search_is_bounded(self):
+        data = make_data(self.cache)
+        root = timelapse_capture.capture_root(data)
+        key = "k" * 150
+        short = timelapse_capture._safe_slug(key)[:88].rstrip(".-")
+        for name in [timelapse_capture._safe_slug(key)] + [f"{short}-{n}" for n in range(2, 60)]:
+            frames = root / name / "frames"
+            frames.mkdir(parents=True)
+            (frames / "000001.jpg").write_bytes(JPEG)
+        chosen = timelapse_capture.unused_job_key(root, key, "a.gcode")
+        self.assertFalse(timelapse_capture._has_frames(root, chosen, "a.gcode"))
+
     def test_capture_settings_defaults_for_plain_dicts(self):
         knobs = timelapse_capture.capture_settings({})
         self.assertEqual(knobs["capture_trigger"], "interval")
@@ -730,6 +771,60 @@ class ListenerCaptureHookTests(unittest.IsolatedAsyncioTestCase):
                 post.assert_not_called()
                 warmup.assert_not_called()
                 listener._capture_end("complete")
+
+    async def test_a_timed_out_capture_begin_never_installs_the_late_session(self):
+        # #1020 review: cancelling the to_thread await does not stop the
+        # thread. Its late result must be closed, never installed over
+        # whatever the listener has moved on to.
+        self.install_config(capture_enabled=True)
+        listener = mel.Listener()
+        release = threading.Event()
+        stopped = []
+
+        class LateSession:
+            def stop(self, state="complete"):
+                stopped.append(state)
+
+        def slow_begin(*args, **kwargs):
+            release.wait(10)
+            return LateSession()
+
+        with mock.patch.object(mel, "CAPTURE_BEGIN_TIMEOUT_S", 0.2), \
+                mock.patch.object(timelapse_capture, "begin", side_effect=slow_begin):
+            await self.drive_start(listener)
+            self.assertIsNone(listener.capture_session)
+            release.set()
+            await asyncio.sleep(0.5)  # let the thread land and be disposed of
+        self.assertIsNone(listener.capture_session)
+        self.assertEqual(stopped, ["superseded"])
+
+    async def test_a_capture_begin_finishing_after_the_print_ended_is_closed_not_installed(self):
+        # #1020 review: a begin that returns after its print ended (or a
+        # newer print took over) belongs to a stale request: close the
+        # session instead of installing it.
+        self.install_config(capture_enabled=True)
+        listener = mel.Listener()
+        listener.state, listener.filename = "printing", "benchy.gcode"
+        release = threading.Event()
+        stopped = []
+
+        class LateSession:
+            def stop(self, state="complete"):
+                stopped.append(state)
+
+        def slow_begin(*args, **kwargs):
+            release.wait(10)
+            return LateSession()
+
+        with mock.patch.object(timelapse_capture, "begin", side_effect=slow_begin):
+            begin_task = asyncio.create_task(listener._begin_capture("job:1"))
+            await asyncio.sleep(0.2)  # the worker thread is inside begin()
+            listener._capture_end("complete")  # the print ended meanwhile
+            listener.state = "complete"
+            release.set()
+            await begin_task
+        self.assertIsNone(listener.capture_session)
+        self.assertEqual(stopped, ["superseded"])
 
 
 def _mjpeg_stream(*frames):

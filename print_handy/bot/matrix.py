@@ -459,6 +459,11 @@ class MatrixClient:
                 health.write(self.core.status(self.connected))
             except Exception:
                 logger.exception("heartbeat write failed")
+            try:
+                # The listener posts every alert; tell the channel when it is down (#1020).
+                await self.core.check_listener_outages()
+            except Exception:
+                logger.exception("listener outage check failed")
             await asyncio.sleep(HEARTBEAT_S)
 
     async def run(self):

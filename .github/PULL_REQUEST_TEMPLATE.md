@@ -75,6 +75,7 @@ Regression scoping reason:
 - [ ] Relevant setup, configuration and user documentation updated, or reason given below.
 - [ ] Contributor credit and third-party licenses preserved where applicable; no invented coauthors.
 - [ ] No credentials, private model files or personal runtime records included.
+- [ ] No local paths, machine or host names, private addresses or accounts appear in this PR, its commits or its comments (the Public text policy check enforces this).
 
 <!-- Leave unchecked items unchecked until verified. Use "Not applicable" with a reason rather than claiming an unrun check passed. -->
 

@@ -300,6 +300,36 @@ class MultiPrinterSupervisorTests(unittest.TestCase):
             finally:
                 self.stop_cleanly(process)
 
+    def test_hung_listener_is_killed_and_restarted_by_the_watchdog(self):
+        """#1020: a listener that never exits but whose heartbeat is stale is restarted."""
+        with tempfile.TemporaryDirectory() as directory:
+            calls = Path(directory, 'calls')
+            # First run spins (hung, never exits); the healthcheck probe
+            # (print_handy.healthcheck) fails until the second run exists.
+            listener = (f'echo "run $$" >> {calls}\n'
+                        f'if [ "$(wc -l < {calls})" -le 1 ]; then trap "echo usr1 >> {calls}" USR1; '
+                        'while true; do sleep 0.2; done; fi\n'
+                        'exec sleep 60\n')
+            env = self.environment(directory, 'exec sleep 60\n', listener)
+            # The fake python3 answers every unknown module with the listener
+            # body, so route the probe explicitly: stale until two runs exist.
+            fake = Path(directory, 'python3')
+            text = fake.read_text().replace(
+                "case \"$*\" in ",
+                f"case \"$*\" in *print_handy.healthcheck*) [ \"$(wc -l < {calls})\" -ge 2 ]; exit $?;; ", 1)
+            fake.write_text(text)
+            env['PRINT_HANDY_LISTENER_RESTART_BACKOFF_S'] = '1'
+            env['PRINT_HANDY_LISTENER_WATCHDOG_INTERVAL_S'] = '1'
+            env['PRINT_HANDY_LISTENER_WATCHDOG_GRACE_S'] = '1'
+            process = self.start(env)
+            try:
+                self.assertTrue(wait_for(lambda: calls.exists() and calls.read_text().count('run ') >= 2, 30),
+                                'the hung listener was restarted: ' + (calls.read_text() if calls.exists() else 'no calls'))
+                self.assertIn('usr1', calls.read_text(), 'the stack dump signal was sent before the kill')
+                self.assertIsNone(process.poll())
+            finally:
+                self.stop_cleanly(process)
+
     def test_listener_restart_loop_exhausts_its_budget_and_stays_down(self):
         with tempfile.TemporaryDirectory() as directory:
             calls = Path(directory, 'calls')

@@ -135,14 +135,42 @@ run_listener() {
     local backoff="${PRINT_HANDY_LISTENER_RESTART_BACKOFF_S:-5}"
     local budget="${PRINT_HANDY_LISTENER_RESTART_BUDGET:-5}"
     local window="${PRINT_HANDY_LISTENER_RESTART_WINDOW_S:-600}"
-    local restarts=0 window_start=$SECONDS child="" status=0
-    trap 'if [ -n "$child" ]; then kill -TERM "$child" 2>/dev/null || true; fi; exit 0' TERM INT
+    local watch_interval="${PRINT_HANDY_LISTENER_WATCHDOG_INTERVAL_S:-15}"
+    local watch_grace="${PRINT_HANDY_LISTENER_WATCHDOG_GRACE_S:-180}"
+    local restarts=0 window_start=$SECONDS child="" status=0 watcher=""
+    trap 'if [ -n "$watcher" ]; then kill "$watcher" 2>/dev/null || true; fi; if [ -n "$child" ]; then kill -TERM "$child" 2>/dev/null || true; fi; exit 0' TERM INT
     while true; do
         python3 -m print_handy.listeners --printer "$printer_id" &
         child=$!
         echo "$child" > "$listener_run_dir/$printer_id.pid"
         status=0
+        # Watchdog (#1020): a listener that is alive but hung (a spin or a
+        # blocked event loop) never exits, so `wait` alone never restarts it
+        # and its heartbeat just goes stale. A watcher subshell probes the
+        # heartbeat every interval after a startup grace; when it is stale it
+        # asks for a stack dump (faulthandler on SIGUSR1), then TERM, then KILL,
+        # which ends the `wait` below and falls through to the normal restart
+        # with its backoff and budget. The watcher dies with each child.
+        (
+            trap 'kill $(jobs -p) 2>/dev/null; exit 0' TERM
+            sleep "$watch_grace" & wait $!
+            while kill -0 "$child" 2>/dev/null; do
+                if ! timeout 20 python3 -m print_handy.healthcheck --printer "$printer_id" >/dev/null 2>&1; then
+                    echo "Listener for printer '$printer_id' has a stale heartbeat; dumping its stack and restarting it." >&2
+                    kill -USR1 "$child" 2>/dev/null || true
+                    sleep 2 & wait $!
+                    kill -TERM "$child" 2>/dev/null || true
+                    sleep 5 & wait $!
+                    kill -KILL "$child" 2>/dev/null || true
+                    exit 0
+                fi
+                sleep "$watch_interval" & wait $!
+            done
+        ) &
+        watcher=$!
         wait "$child" || status=$?
+        kill "$watcher" 2>/dev/null || true
+        wait "$watcher" 2>/dev/null || true
         child=""
         rm -f "$listener_run_dir/$printer_id.pid"
         if [ $((SECONDS - window_start)) -ge "$window" ]; then

@@ -1053,6 +1053,51 @@ class BotCore:
 
     # ------------------------------------------------------------------ status
 
+    async def check_listener_outages(self):
+        """Tell the print channel when a required listener goes down or recovers (#1020).
+
+        The listener is what normally posts every alert, so its death is the
+        one failure it cannot report itself. Runs from the bot heartbeat, uses
+        the bot's own send path, and never raises into the heartbeat.
+        """
+        try:
+            from . import outage_alert
+
+            statuses = await asyncio.to_thread(self._listener_statuses)
+            if not statuses:
+                return []
+            state_dir = await asyncio.to_thread(settings.state_dir, self.cfg)
+            loop = asyncio.get_running_loop()
+
+            def send(printer_id, text):
+                # The printer's own channel, shared channels included
+                # (#536): the exclusive channel map deliberately omits a
+                # shared chat, so routing resolves the claim instead.
+                chat = routing.chat_for_printer(self.cfg, self.platform_name, printer_id) or self.chat_id
+                if not chat:
+                    return False
+                future = asyncio.run_coroutine_threadsafe(
+                    self.adapter.send(chat_id=chat, content=text), loop)
+                try:
+                    result = future.result(timeout=30)
+                except Exception:
+                    logger.exception("could not post the listener outage notice for %s", printer_id)
+                    return False
+                # Adapters report a failed delivery as
+                # SendResult(success=False), not an exception: an unchecked
+                # result would persist the notice as delivered and the
+                # promised retry would never happen.
+                if result is not None and not getattr(result, "success", False):
+                    logger.warning("listener outage notice for %s was not delivered: %s",
+                                   printer_id, getattr(result, "error", None) or "send failed")
+                    return False
+                return True
+
+            return await asyncio.to_thread(outage_alert.tick, statuses, state_dir, send)
+        except Exception:
+            logger.exception("listener outage check failed")
+            return []
+
     def _listener_statuses(self):
         """Per-printer listener health (#336), aggregated over the roster.
 
