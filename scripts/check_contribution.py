@@ -47,6 +47,12 @@ def is_doc(path):
     return path.endswith(".md") or path.startswith("docs/")
 
 
+def is_test(path):
+    parts = path.split("/")
+    name = parts[-1]
+    return "tests" in parts[:-1] or name.startswith("test_") or name.endswith("_test.py")
+
+
 def check_pr(body, files):
     body = re.sub(r"<!--.*?-->", "", body or "", flags=re.S)
     errors = []
@@ -72,6 +78,19 @@ def check_pr(body, files):
         errors.append("Link the updated wiki page in Documentation impact.")
     if wiki == "deferred" and not re.search(r"https://github\.com/[^/\s]+/[^/\s]+/issues/\d+", docs):
         errors.append("Link the tracking issue for deferred wiki work in Documentation impact.")
+    testing = section(body, "Tests added and regression scoping")
+    added = field(testing, "Tests added").casefold()
+    if added not in {"added", "none"}:
+        errors.append("Tests added: must be 'added' or 'none'.")
+    if not meaningful(field(testing, "Tests added detail")):
+        errors.append("Tests added detail: name the new or updated tests and what each pins, or explain why no test was added.")
+    if added == "added" and not any(is_test(f) for f in files):
+        errors.append("Tests added says added but no test file changed.")
+    scoping = field(testing, "Regression scoping").casefold()
+    if scoping not in {"checked", "not applicable"}:
+        errors.append("Regression scoping: must be 'checked' or 'not applicable'.")
+    if not meaningful(field(testing, "Regression scoping reason")):
+        errors.append("Regression scoping reason: state how the change was scoped against the full suite and existing regression tests, what was left out and why, or why scoping does not apply.")
     surfaces = section(body, "Surfaces and variables")
     variables = field(surfaces, "Variables").casefold()
     if variables not in {"checked", "not applicable"}:
