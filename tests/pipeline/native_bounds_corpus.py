@@ -8,7 +8,8 @@ exactness). EXPECTED[i] is the frozen outcome of CASES[i] under that
 parser - ("ok", bounds-dict) or ("raise", exact message) - recorded
 from the Python implementation at the #952 deep-dive base and frozen
 here so BOTH implementations are pinned against data, not against
-each other. If the Python semantics ever change deliberately,
+each other. API 2 changed one frozen outcome on purpose: case 92
+(G20 then a move) now refuses as inch units. If the Python semantics ever change deliberately,
 regenerate these expectations in the same change and say so in the PR.
 """
 
@@ -223,7 +224,7 @@ EXPECTED = [
     ('ok', {'x': (1.0, 1.0), 'y': (1.0, 1.0), 'z': (1.0, 1.0)}),
     ('ok', {'x': (1.0, 1.0), 'y': (1.0, 1.0), 'z': (1.0, 1.0)}),
     ('ok', {'x': (1.0, 1.0), 'y': (1.0, 1.0), 'z': (1.0, 1.0)}),
-    ('ok', {'x': (1.0, 1.0), 'y': (1.0, 1.0), 'z': (1.0, 1.0)}),
+    ('raise', 'line 1: inch units (G20) are unsupported by the bounds verifier'),  # API 2 (#952 phase 2): was ok under API 1
     ('ok', {'x': (1.0, 1.0), 'y': (1.0, 1.0), 'z': (1.0, 1.0)}),
     ('ok', {'x': (0.30000000000000004, 0.30000000000000004), 'y': (1.0, 1.0), 'z': (1.0, 1.0)}),
     ('ok', {'x': (1.2345678901234568e+29, 1.2345678901234568e+29), 'y': (1.0, 1.0), 'z': (1.0, 1.0)}),
