@@ -1066,22 +1066,32 @@ class BotCore:
             statuses = await asyncio.to_thread(self._listener_statuses)
             if not statuses:
                 return []
-            channels = {pid: chat for chat, pid in self.channel_printers.items()}
             state_dir = await asyncio.to_thread(settings.state_dir, self.cfg)
             loop = asyncio.get_running_loop()
 
             def send(printer_id, text):
-                chat = channels.get(printer_id) or self.chat_id
+                # The printer's own channel, shared channels included
+                # (#536): the exclusive channel map deliberately omits a
+                # shared chat, so routing resolves the claim instead.
+                chat = routing.chat_for_printer(self.cfg, self.platform_name, printer_id) or self.chat_id
                 if not chat:
                     return False
                 future = asyncio.run_coroutine_threadsafe(
                     self.adapter.send(chat_id=chat, content=text), loop)
                 try:
-                    future.result(timeout=30)
-                    return True
+                    result = future.result(timeout=30)
                 except Exception:
                     logger.exception("could not post the listener outage notice for %s", printer_id)
                     return False
+                # Adapters report a failed delivery as
+                # SendResult(success=False), not an exception: an unchecked
+                # result would persist the notice as delivered and the
+                # promised retry would never happen.
+                if result is not None and not getattr(result, "success", False):
+                    logger.warning("listener outage notice for %s was not delivered: %s",
+                                   printer_id, getattr(result, "error", None) or "send failed")
+                    return False
+                return True
 
             return await asyncio.to_thread(outage_alert.tick, statuses, state_dir, send)
         except Exception:

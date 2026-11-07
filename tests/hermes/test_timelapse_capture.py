@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -770,6 +771,60 @@ class ListenerCaptureHookTests(unittest.IsolatedAsyncioTestCase):
                 post.assert_not_called()
                 warmup.assert_not_called()
                 listener._capture_end("complete")
+
+    async def test_a_timed_out_capture_begin_never_installs_the_late_session(self):
+        # #1020 review: cancelling the to_thread await does not stop the
+        # thread. Its late result must be closed, never installed over
+        # whatever the listener has moved on to.
+        self.install_config(capture_enabled=True)
+        listener = mel.Listener()
+        release = threading.Event()
+        stopped = []
+
+        class LateSession:
+            def stop(self, state="complete"):
+                stopped.append(state)
+
+        def slow_begin(*args, **kwargs):
+            release.wait(10)
+            return LateSession()
+
+        with mock.patch.object(mel, "CAPTURE_BEGIN_TIMEOUT_S", 0.2), \
+                mock.patch.object(timelapse_capture, "begin", side_effect=slow_begin):
+            await self.drive_start(listener)
+            self.assertIsNone(listener.capture_session)
+            release.set()
+            await asyncio.sleep(0.5)  # let the thread land and be disposed of
+        self.assertIsNone(listener.capture_session)
+        self.assertEqual(stopped, ["superseded"])
+
+    async def test_a_capture_begin_finishing_after_the_print_ended_is_closed_not_installed(self):
+        # #1020 review: a begin that returns after its print ended (or a
+        # newer print took over) belongs to a stale request: close the
+        # session instead of installing it.
+        self.install_config(capture_enabled=True)
+        listener = mel.Listener()
+        listener.state, listener.filename = "printing", "benchy.gcode"
+        release = threading.Event()
+        stopped = []
+
+        class LateSession:
+            def stop(self, state="complete"):
+                stopped.append(state)
+
+        def slow_begin(*args, **kwargs):
+            release.wait(10)
+            return LateSession()
+
+        with mock.patch.object(timelapse_capture, "begin", side_effect=slow_begin):
+            begin_task = asyncio.create_task(listener._begin_capture("job:1"))
+            await asyncio.sleep(0.2)  # the worker thread is inside begin()
+            listener._capture_end("complete")  # the print ended meanwhile
+            listener.state = "complete"
+            release.set()
+            await begin_task
+        self.assertIsNone(listener.capture_session)
+        self.assertEqual(stopped, ["superseded"])
 
 
 def _mjpeg_stream(*frames):
