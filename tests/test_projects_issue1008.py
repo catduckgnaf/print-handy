@@ -100,22 +100,81 @@ def test_single_print_record_still_uses_old_integer_name(tmp_path, monkeypatch):
     assert "project_id" not in output and "print_attempt_id" not in output
 
 
-def test_two_plates_and_reprinted_plate_get_distinct_receipt_paths(tmp_path, monkeypatch):
+def test_plates_keep_one_file_per_print_number_and_share_the_project_label(tmp_path, monkeypatch):
+    """Since #988 every plate launch has its own print number (#82, #83):
+    records stay print-NNNN.json, one per print, and the readable plate
+    label uses the PROJECT's number (82A, 82B), not each plate's own."""
     monkeypatch.setattr(print_records, "PRINTS_DIR", tmp_path)
-    base = {"print_number": 82, "project_id": "project-intake-123",
-            "project_number": 82, "project_run_id": "original"}
-    a = dict(base, gcode_file="center.gcode", job_key="center.gcode",
-             started_at="2026-11-07T07:00:00Z", project_plate_suffix="A")
-    b = dict(base, gcode_file="arm.gcode", job_key="arm.gcode",
-             started_at="2026-11-07T08:00:00Z", project_plate_suffix="B")
-    assert print_records._record_path_for(a, print_records._record_id(a)).name == "print-0082-A.json"
-    assert print_records._record_path_for(b, print_records._record_id(b)).name == "print-0082-B.json"
-    print_records._write_json_record(print_records._record_path_for(a, print_records._record_id(a)), a)
-    reprinted = dict(a, started_at="2026-11-08T07:00:00Z")
-    path = print_records._avoid_collision(
-        print_records._record_path_for(reprinted, print_records._record_id(reprinted)),
-        print_records._record_id(reprinted))
-    assert path.name.startswith("print-0082-A-") and path.name.endswith(".json")
+    monkeypatch.setattr(print_records, "_registry_print_number", lambda _: None)
+    base = {"project_id": "project-intake-123", "project_run_id": "original", "project_number": 82,
+            "project_source_kind": "uploaded_files"}
+    a = print_records.build_record_data("center.gcode", stats={"state": "complete"}, context=dict(
+        base, job_key="center.gcode", print_number=82, project_plate_suffix="A",
+        started_at="2026-11-07T07:00:00Z"))
+    b = print_records.build_record_data("arm.gcode", stats={"state": "complete"}, context=dict(
+        base, job_key="arm.gcode", print_number=83, project_plate_suffix="B",
+        started_at="2026-11-07T08:00:00Z"))
+    assert (a["print_number"], a["project_number"], a["project_plate_ref"]) == (82, 82, "82A")
+    assert (b["print_number"], b["project_number"], b["project_plate_ref"]) == (83, 82, "82B")
+    assert print_records._record_path_for(a, print_records._record_id(a)).name == "print-0082.json"
+    assert print_records._record_path_for(b, print_records._record_id(b)).name == "print-0083.json"
+    # A reprint of plate A is a new launch with its own number; it keeps the 82A label.
+    again = print_records.build_record_data("center.gcode", stats={"state": "complete"}, context=dict(
+        base, job_key="center.gcode", print_number=90, project_plate_suffix="A",
+        started_at="2026-11-09T07:00:00Z"))
+    assert (again["print_number"], again["project_plate_ref"]) == (90, "82A")
+    assert print_records._record_path_for(again, print_records._record_id(again)).name == "print-0090.json"
+    assert print_records._record_json(again)["print_attempt_id"] != print_records._record_json(a)["print_attempt_id"]
+
+
+def test_the_first_plate_claims_the_project_number_once(tmp_path):
+    job = tmp_path / "JOB.json"
+    job.write_text(json.dumps({"title": "Rack", "project_id": "project-intake-123"}))
+    assert print_records.claim_project_number(job, 82) == 82      # plate A starts as #82
+    assert print_records.claim_project_number(job, 83) == 82      # plate B (#83) reads it back
+    assert print_records.claim_project_number(job, 90) == 82      # a reprint or re-slice too
+    assert print_records.claim_project_number(job, None) == 82    # a failed mint still gets the label
+    saved = json.loads(job.read_text())
+    assert saved["project_number"] == 82 and saved["title"] == "Rack"   # nothing else touched
+    assert not job.with_suffix(".json.lock").exists()
+    # No file, or nothing to claim: nothing is invented.
+    assert print_records.claim_project_number(tmp_path / "missing.json", 91) == 91
+    other = tmp_path / "other.json"
+    other.write_text(json.dumps({"title": "x"}))
+    assert print_records.claim_project_number(other, None) is None
+    assert "project_number" not in json.loads(other.read_text())
+
+
+def test_concurrent_first_plates_claim_one_number(tmp_path):
+    import threading
+    job = tmp_path / "JOB.json"
+    job.write_text(json.dumps({"project_id": "project-intake-123"}))
+    got = []
+    threads = [threading.Thread(target=lambda n=n: got.append(print_records.claim_project_number(job, n)))
+               for n in range(100, 108)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(set(got)) == 1 and got[0] == json.loads(job.read_text())["project_number"]
+
+
+def test_a_later_plate_completion_never_renumbers_the_project(tmp_path, monkeypatch):
+    monkeypatch.setattr(print_records, "PLANS_DIR", tmp_path)
+    (tmp_path / "plan-z.json").write_text(json.dumps({
+        "plan_id": "plan-z", "project_id": "project-intake-123", "project_number": 82,
+        "parts": [{"id": "plate1", "label": "Center", "quantity": 1, "completed_quantity": 1,
+                   "status": "completed", "gcode_file": "center.gcode"},
+                  {"id": "plate2", "label": "Arm", "quantity": 1, "completed_quantity": 0,
+                   "gcode_file": "arm.gcode"}]}))
+    name, done = print_records.update_multipart_plan({
+        "multipart_plan_id": "plan-z", "part_id": "plate2", "project_id": "project-intake-123",
+        "project_number": 83, "gcode_file": "arm.gcode", "job_key": "arm.gcode",
+        "started_at": "2026-11-07T08:00:00Z", "completed_at": "2026-11-07T09:00:00Z", "success": True})
+    saved = json.loads((tmp_path / "plan-z.json").read_text())
+    assert (name, done) == ("plan-z", True)
+    assert saved["project_number"] == 82
+    assert [p["display_ref"] for p in saved["parts"]] == ["82A", "82B"]
 
 
 def test_completed_plan_keeps_project_metadata_and_adds_82a_labels(tmp_path, monkeypatch):
@@ -205,3 +264,42 @@ def test_one_success_followed_by_failure_does_not_finish_project(tmp_path, monke
     assert print_records.update_multipart_plan(second) == ("mixed", False)
     saved = json.loads(p.read_text())["parts"]
     assert [r["completed_quantity"] for r in saved] == [1, 0]
+
+
+def test_record_start_gives_every_plate_the_first_plates_project_number(tmp_path, monkeypatch):
+    """End to end through record_start: plate A starts as print #82 and
+    claims the project number; plate B starts as #83 and gets 82 too, so
+    its records read 82B. The claim lives in the job's JOB.json."""
+    from unittest import mock
+    from print_handy.core import model_job
+
+    job_dir = tmp_path / "archive" / "rack"
+    job_dir.mkdir(parents=True)
+    plates = []
+    for name in ("center.gcode", "arm.gcode"):
+        g = job_dir / name
+        g.write_text("G1 X1\n")
+        plates.append(g)
+    plan = {"plan_id": "plan-rack", "project_id": "project-intake-123", "parts": [
+        {"id": "plate1", "gcode_path": str(plates[0].resolve()), "project_plate_suffix": "A"},
+        {"id": "plate2", "gcode_path": str(plates[1].resolve()), "project_plate_suffix": "B"}]}
+    job = {"title": "Rack", "project_id": "project-intake-123", "multipart_plan": plan}
+    job_json = job_dir / "JOB.json"
+    job_json.write_text(json.dumps(job))
+    monkeypatch.setattr(print_records, "PRINTS_DIR", tmp_path / "Prints")
+    monkeypatch.setattr(print_records, "PLANS_DIR", tmp_path / "Plans")
+    context_path = tmp_path / "print_handy_context.json"
+    with mock.patch.object(model_job, "_job_for_gcode", return_value=job), \
+         mock.patch.object(model_job, "_job_record_for_gcode", return_value=(job, job_json)), \
+         mock.patch.object(model_job.printers, "current",
+                           return_value=mock.Mock(multi_slot=False, native_or_none=None)), \
+         mock.patch.object(model_job, "CONTEXT", context_path):
+        model_job.record_start(str(plates[0]), started_at="2026-11-07T07:00:00Z", print_number=82)
+        model_job.record_start(str(plates[1]), started_at="2026-11-07T09:00:00Z", print_number=83)
+    jobs = json.loads(context_path.read_text())["jobs"]
+    assert (jobs["center.gcode"]["print_number"], jobs["center.gcode"]["project_number"]) == (82, 82)
+    assert (jobs["arm.gcode"]["print_number"], jobs["arm.gcode"]["project_number"]) == (83, 82)
+    assert json.loads(job_json.read_text())["project_number"] == 82
+    starts = {p.name for p in (tmp_path / "Prints").glob("*.json")}
+    assert starts == {"print-0082.json", "print-0083.json"}
+    assert json.loads((tmp_path / "Prints" / "print-0083.json").read_text())["project_plate_ref"] == "82B"

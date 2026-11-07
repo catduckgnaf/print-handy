@@ -336,14 +336,18 @@ def build_record_data(
     number = _valid_print_number(context.get("print_number")) or _registry_print_number(context)
     project_id = context.get("project_id")
     suffix = context.get("project_plate_suffix")
+    # The plate label uses the project's number (claimed by its first plate,
+    # see claim_project_number), never this launch's own: plate B of
+    # project 82 is print #83 but still "82B".
+    project_number = (_valid_print_number(context.get("project_number")) or number) if project_id else None
     return {
         "print_number": number,
         "project_id": project_id,
-        "project_number": number if project_id else None,
+        "project_number": project_number,
         "project_run_id": context.get("project_run_id") if project_id else None,
         "project_plate_id": context.get("project_plate_id") if project_id else None,
         "project_plate_suffix": suffix if project_id else None,
-        "project_plate_ref": projects.project_ref(number, suffix) if project_id else None,
+        "project_plate_ref": projects.project_ref(project_number, suffix) if project_id else None,
         "project_source_kind": context.get("project_source_kind") if project_id else None,
         "project_component_ids": context.get("project_component_ids") if project_id else None,
         "project_part_keys": context.get("project_part_keys") if project_id else None,
@@ -512,9 +516,10 @@ def _record_json(data: Mapping[str, Any], cleanup_status: str = "pending") -> di
 def _record_path_for(data: Mapping[str, Any], digest: str) -> Path:
     number = _valid_print_number(data.get("print_number"))
     if number is not None:
-        suffix = data.get("project_plate_suffix") if data.get("project_id") else None
-        if isinstance(suffix, str) and re.fullmatch(r"[A-Z]+", suffix):
-            return PRINTS_DIR / f"print-{number:04d}-{suffix}.json"
+        # One file per print number, project plates included: since #988 every
+        # launch has its own number, so plates never collide, and readers that
+        # find a record by number (the #1013 repair, roast lookups) keep
+        # working. The plate label (82A) is the project_plate_ref field.
         return PRINTS_DIR / f"print-{number:04d}.json"
     stamp = str(data.get("started_at") or data.get("completed_at") or utc_now())
     slug = _safe_slug(Path(str(data.get("gcode_file") or "print")).stem)
@@ -804,6 +809,44 @@ def _credit_multipart_part(part: dict, data: Mapping[str, Any], completed_units:
     return True
 
 
+def claim_project_number(json_path: Any, number: Any) -> int | None:
+    """A project's display number, claimed once and stored in ``json_path``.
+
+    Since #988 every launch mints its own print number, so the plates of one
+    project have different numbers (#82, #83, ...). The readable plate labels
+    (82A, 82B) need ONE number: the first plate to start claims it with its
+    own print number, and every later plate, reprint or re-slice of the same
+    project reads it back. ``json_path`` is the job's JOB.json (the project
+    id is per job). The claim is serialized with a lock file, so two printers
+    starting plates of one project at once cannot both claim it.
+
+    A file that already holds a valid ``project_number`` keeps it. A missing
+    or unreadable file claims nothing and returns ``number`` unchanged; no
+    number to claim returns what is held (or None). Never invents a number.
+    """
+    number = _valid_print_number(number)
+    if not json_path:
+        return number
+    path = Path(str(json_path))
+    from . import print_control
+
+    with print_control._RegistryLock(path):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, OSError, json.JSONDecodeError):
+            return number
+        if not isinstance(data, dict):
+            return number
+        held = _valid_print_number(data.get("project_number"))
+        if held is not None:
+            return held
+        if number is None:
+            return None
+        data["project_number"] = number
+        _atomic_write(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+        return number
+
+
 def update_multipart_plan(data: Mapping[str, Any]) -> tuple[str | None, bool]:
     plan_id = data.get("multipart_plan_id")
     required = _plan_parts(data.get("required_parts"))
@@ -857,7 +900,8 @@ def update_multipart_plan(data: Mapping[str, Any]) -> tuple[str | None, bool]:
         _credit_multipart_part(parts[0], data, completed_units)
     _bind_same_job_plates(parts, data)
     from ..core import projects
-    number = _valid_print_number(data.get("project_number"))
+    held = _valid_print_number(existing.get("project_number")) if isinstance(existing, dict) else None
+    number = held or _valid_print_number(data.get("project_number"))
     for idx, part in enumerate(parts):
         suffix = part.setdefault('project_plate_suffix', projects.plate_suffix(idx))
         display = projects.project_ref(number, suffix)
@@ -867,7 +911,8 @@ def update_multipart_plan(data: Mapping[str, Any]) -> tuple[str | None, bool]:
         "plan_id": plan_id,
         "title": existing.get("title") if isinstance(existing, dict) else None,
         "project_id": data.get("project_id") or (existing.get("project_id") if isinstance(existing, dict) else None),
-        "project_number": number or (existing.get("project_number") if isinstance(existing, dict) else None),
+        # First claim wins: a later plate's completion never renumbers the project.
+        "project_number": (_valid_print_number(existing.get("project_number")) if isinstance(existing, dict) else None) or number,
         "project_run_id": data.get("project_run_id") or (existing.get("project_run_id") if isinstance(existing, dict) else None),
         "source_kind": data.get("project_source_kind") or (existing.get("source_kind") if isinstance(existing, dict) else None),
         "source_url": data.get("source_url"),

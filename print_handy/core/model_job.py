@@ -3618,6 +3618,18 @@ def record_start(gcode_path, moonraker_name=None, started_at=None, print_number=
                 # Source component IDs and slicer part keys are distinct.
                 ctx.pop('project_component_ids', None)
             break
+    if project_id:
+        # One project number for every plate, reprint and re-slice of this
+        # job: the first plate to start claims it in JOB.json with its own
+        # print number (#988 mints one per launch); later ones read it back.
+        try:
+            job_json_path = _job_record_for_gcode(g)[1]
+            claimed = print_records.claim_project_number(job_json_path, ctx.get('print_number'))
+        except Exception as exc:
+            print(f"WARNING: project number not claimed: {exc}")
+            claimed = None
+        if claimed:
+            ctx['project_number'] = claimed
     mapped = None
     current = printers.current()
     if current.multi_slot:

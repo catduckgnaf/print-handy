@@ -35,18 +35,23 @@ kind, and a list of required source components. A project is not a plate:
 three separate STL files may fit on **one physical print plate**.
 
 When one project is sliced into multiple G-code plates, `multipart_plan`
-preserves a plate id and alphabetic suffix (A, B, ... Z, AA, AB). Existing
-integer `print_number` remains the authoritative permanent job number.
-Once that number is known, a corresponding physical print record may show
-a `project_plate_ref`, for example `82A`. The suffix is a display
-label, not a replacement for the G-code hash, project id, or physical print
-attempt id. `print_attempt_id` distinguishes printed copies/retries.
+preserves a plate id and alphabetic suffix (A, B, ... Z, AA, AB).
 
-The separate JSON print receipts for project plates use names such as
-`print-0082-A.json` and `print-0082-B.json`, preserving the old
-`print-0082.json` naming for an ordinary one-file print. If the same
-plate is deliberately printed again, an attempt hash suffix prevents
-overwriting the previous receipt.
+Every print still gets its own permanent `print_number` (since #988 a
+number names one print, not a job), so the plates of one project have
+different print numbers: the center tray might be print #82 and an arm
+#83. The project gets **one** readable number, the print number of the
+first plate that starts. It is stored in the plan (`project_number`) and
+never changes afterwards, so every plate's record carries the same project
+label: `project_plate_ref` is `82A` for the tray and `82B` for the arm,
+even though the arm's own print number is 83. A reprint of a plate is a new
+print with a new print number and keeps its plate label (`82A`);
+`print_attempt_id` tells the attempts apart. The label is for people: the
+project id, the plate id and the print number stay the real identifiers.
+
+Print records keep their usual names, one file per print number
+(`print-0082.json`, `print-0083.json`), so every tool that finds a record
+by its number keeps working; the plate label is a field inside the record.
 
 These fields are additive. Old `JOB.json` and print records without
 `project_id` still load; their integer IDs are never renumbered.

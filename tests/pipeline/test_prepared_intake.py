@@ -2547,6 +2547,23 @@ def test_multiple_stl_attachments_are_one_project_and_preserve_left_right(env, m
     assert 'arm left, arm right and base' in adapter.questions[0]['question']
 
 
+def test_two_uploads_with_the_same_name_stay_two_parts(env, monkeypatch):
+    """Two attachments that share a file name (Discord keeps both, under
+    different cache prefixes) are two components, each copied to its own
+    folder, never one overwriting the other."""
+    def no_site(*a, **kw):
+        raise AssertionError('a local multi-file upload must not contact a model website')
+    monkeypatch.setattr(model_job, 'printables_inventory', no_site)
+    monkeypatch.setattr(model_job, 'printables_download', no_site)
+    adapter, job = _uploaded_parts(env, ['arm.stl', 'arm.stl', 'base.stl'], [0, 1, 0, 3])
+    names = [x['name'] for x in job['selected_sources']]
+    assert names.count('arm.stl') == 2 and 'base.stl' in names
+    copies = [Path(x['downloaded_file']) for x in job['selected_sources']]
+    assert len(set(copies)) == 3 and all(p.is_file() for p in copies)
+    assert len(job['combined_objects']) == 3
+    assert [c['name'] for c in job['project']['components']].count('arm.stl') == 2
+
+
 def test_uploaded_file_alternatives_are_selected_without_dropping_required_parts(env):
     adapter, job = _uploaded_parts(env, UNO_FILES, [1, 1, 0, 3])
     assert sorted(x['name'] for x in job['selected_sources']) == sorted([
