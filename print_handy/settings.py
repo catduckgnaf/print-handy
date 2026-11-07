@@ -178,6 +178,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("discord", "chat_llm_enabled"): bool,
                  ("discord", "approval_all_users"): bool,
                  ("discord", "clarify_ui"): bool,
+                 ("discord", "mention_starter_on_complete"): bool,
                  ("elegoo_sdcp", "host"): str,
                  ("purge", "flush_multiplier"): float}
 # List settings that may also come from the environment, as a comma- or space-separated value
@@ -1633,6 +1634,14 @@ def _validate_bot(data):
     clarify_ui = discord.setdefault("clarify_ui", False)
     if not isinstance(clarify_ui, bool):
         raise SettingsError(f"[discord] clarify_ui must be true or false, got {clarify_ui!r}")
+    # Mention the starter when a print ends: on by default, so a terminal
+    # post (complete / cancelled / error) on Discord @mentions only the user
+    # who started that print — the one person who needs the notification.
+    # False restores the previous behavior: terminal posts mention nobody.
+    # Prints with no recorded starter never mention anyone either way.
+    mention_starter = discord.setdefault("mention_starter_on_complete", True)
+    if not isinstance(mention_starter, bool):
+        raise SettingsError(f"[discord] mention_starter_on_complete must be true or false, got {mention_starter!r}")
     _validate_telegram(data)
     _validate_matrix(data)
     llm = data.setdefault("llm", {})
