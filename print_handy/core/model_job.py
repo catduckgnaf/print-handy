@@ -3439,6 +3439,11 @@ def record_start(gcode_path, moonraker_name=None, started_at=None):
 # post starts only for prints nobody claimed (started outside Print Handy).
 START_CLAIMS = Path(os.environ.get("PRINT_HANDY_START_CLAIMS", settings.state_dir()/"print_handy_start_claims.json"))
 START_CLAIM_TTL_S = settings.current()["listener"]["start_claim_ttl_s"]
+# Intake receipts (#970): the chat intake records each job it slices in
+# <state>/model-link-intakes/<intake_id>.json. A CLI print-now start is
+# out-of-band for that flow, so print_now reconciles the receipt itself
+# (see _record_intake_receipt_started).
+INTAKE_RECEIPTS = Path(os.environ.get("PRINT_HANDY_INTAKE_RECEIPTS", settings.state_dir()/"model-link-intakes"))
 
 
 def _write_claims(claims):
@@ -8410,6 +8415,172 @@ def yolo_waivers(tail):
             for line in str(tail or "").splitlines() if YOLO_WAIVED_MARK in line]
 
 
+# Intake receipt reconciliation (#970). The chat intake leaves a sliced job's
+# receipt at SLICED_NOT_STARTED until its own button flow starts it. Starting
+# the same artifact out-of-band with `model_job print-now` used to leave the
+# receipt there: chat could then offer to start a job already on the printer,
+# and the receipt history was wrong (intake 16fd2142…, printing as print #83,
+# still "not started"). A confirmed print-now start therefore moves the
+# owning receipt to STARTED itself, records that the start was manual
+# (started_via: print-now) and the print id, and settles the chat one-start
+# claim so a later chat start of the same target is refused as a duplicate.
+
+# Receipt statuses a print-now start may settle: the intake sliced the job
+# and no start has been recorded as confirmed. Terminal receipts (cancelled,
+# expired, slice-failed, …) are history and are never rewritten by a start.
+_RECEIPT_STARTABLE_STATUSES = frozenset(
+    {"SLICED", "SLICED_NOT_STARTED", "START_REQUESTED", "START_REFUSED", "START_PENDING"})
+
+
+def _start_confirmed(out):
+    """Whether a print_now outcome dict confirms the printer took the start."""
+    if not isinstance(out, dict):
+        return False
+    if out.get("started") is True:
+        return True
+    return bool(out.get("accepted")) and str(out.get("phase") or "") in ("executing", "preparing")
+
+
+def _start_pending(out):
+    """Whether a print_now outcome was accepted but is not yet confirmed.
+
+    Mirrors prepared_intake.classify_start: an accepted start in an
+    unresolved phase is START_PENDING (started unknown), never STARTED.
+    """
+    if not isinstance(out, dict) or _start_confirmed(out):
+        return False
+    return bool(out.get("accepted")) and str(out.get("phase") or "") in (
+        "awaiting_confirmation", "preparing_or_unresolved", "submitted_unconfirmed")
+
+
+def _find_intake_receipt(job, job_path, gcode, sha):
+    """(path, receipt) of the intake receipt owning this exact artifact, else (None, None).
+
+    A receipt owns the artifact when the hash it recorded for this G-code
+    (``gcode_sha256``) equals the artifact's hash. A candidate tied to this
+    job — by its intake_id, its JOB.json or its G-code list — whose recorded
+    hash differs (or that records no hash for the artifact) is a mismatch:
+    it is logged and that receipt is left alone (#970).
+    """
+    iid = job.get("intake_id") if isinstance(job, dict) else None
+    gname = str(gcode)
+    resolved = str(Path(gcode).resolve())
+    job_json = str(Path(job_path).resolve()) if job_path is not None else None
+    candidates = []
+    if isinstance(iid, str) and re.fullmatch(r"[a-f0-9]{64}", iid):
+        candidates.append(INTAKE_RECEIPTS / f"{iid}.json")
+    try:
+        rest = sorted(INTAKE_RECEIPTS.glob("*.json"))
+    except OSError:
+        rest = []
+    candidates.extend(p for p in rest if p not in candidates)
+    for path in candidates:
+        try:
+            receipt = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        if not isinstance(receipt, dict):
+            continue
+        hashes = receipt.get("gcode_sha256") or {}
+        recorded = None
+        for key in (gname, resolved):
+            if key in hashes:
+                recorded = hashes[key]
+                break
+        tied = bool((iid and receipt.get("intake_id") == iid)
+                    or (job_json and receipt.get("job_json") == job_json)
+                    or gname in (receipt.get("gcodes") or [])
+                    or resolved in (receipt.get("gcodes") or []))
+        if recorded is not None:
+            if recorded == sha:
+                return path, receipt
+            logger.warning("intake receipt hash mismatch: receipt %s recorded %s for %s, "
+                           "artifact hash is %s; receipt left unchanged",
+                           path.name, recorded, gname, sha)
+        elif tied:
+            logger.warning("intake receipt hash mismatch: receipt %s records no hash for %s, "
+                           "artifact hash is %s; receipt left unchanged", path.name, gname, sha)
+    return None, None
+
+
+def _settle_intake_start_claim(receipt, gcode, sha):
+    """Settle the chat one-start claim for this intake target as started (#970).
+
+    The chat start path (print_next.start) claims (plan, part, copy, hash)
+    before spawning print-now; an out-of-band CLI start takes no claim, so
+    without this a later chat tap on the same target would not be refused
+    as a duplicate. Best effort: any failure is logged, never raised.
+    """
+    try:
+        iid = str(receipt.get("intake_id") or "")
+        if not re.fullmatch(r"[a-f0-9]{64}", iid):
+            return
+        target = None
+        saved = receipt.get("retry_target")
+        if isinstance(saved, dict) and saved.get("gcode_sha256") == sha and saved.get("plan_id"):
+            target = {"plan_id": saved["plan_id"], "part_id": saved.get("part_id") or "plate1",
+                      "copy": int(saved.get("copy") or 1), "gcode": str(gcode), "gcode_sha256": sha}
+        if target is None:
+            gcodes = receipt.get("gcodes") or []
+            part_id = "plate1"
+            if len(gcodes) > 1:
+                resolved = [str(Path(x).resolve()) for x in gcodes]
+                if str(Path(gcode).resolve()) in resolved:
+                    part_id = f"plate{resolved.index(str(Path(gcode).resolve())) + 1}"
+            plan_id = (f"yolo-{iid[:16]}" if receipt.get("yolo")
+                       else (receipt.get("split_plan") or f"intake-{iid[:16]}"))
+            target = {"plan_id": plan_id, "part_id": part_id, "copy": 1,
+                      "gcode": str(gcode), "gcode_sha256": sha}
+        print_next = _external.load("print_next")
+        path = print_next.claim_path(target)
+        if print_next._take_claim(path, target) is None:
+            print_next._settle_claim(path, "started", release=False)
+    except Exception as exc:
+        logger.warning("intake start claim settle failed: %s", exc)
+
+
+def _record_intake_receipt_started(job, job_path, gcode, sha, out):
+    """Move the intake receipt owning this started artifact to started (#970).
+
+    Confirmed starts become STARTED with started=True; accepted but
+    unconfirmed starts become START_PENDING with started=None, exactly as
+    the chat intake classifies its own starts. Records started_via as
+    'print-now' and the print id print-now assigned. Best effort: the print
+    already started, so a receipt problem is logged, never raised. Returns
+    the updated receipt path, or None when no receipt was updated.
+    """
+    confirmed, pending = _start_confirmed(out), _start_pending(out)
+    if not (confirmed or pending):
+        return None
+    try:
+        path, receipt = _find_intake_receipt(job, job_path, gcode, sha)
+        if path is None:
+            return None
+        if receipt.get("started") is True or receipt.get("status") == "STARTED":
+            return None  # a start is already recorded; history stays as written
+        if receipt.get("status") not in _RECEIPT_STARTABLE_STATUSES:
+            logger.info("intake receipt %s left at %s by print-now start", path.name, receipt.get("status"))
+            return None
+        print_number = out.get("print_number") if isinstance(out, dict) else None
+        if confirmed:
+            receipt.update(status="STARTED", started=True, uploaded=True)
+        else:
+            receipt.update(status="START_PENDING", started=None, uploaded=True,
+                           start_outcome="unknown")
+        receipt.update(started_via="print-now", started_gcode=str(gcode),
+                       started_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"))
+        if print_number is not None:
+            receipt.update(print_number=print_number, print_id=print_number)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(receipt, indent=2) + "\n")
+        os.replace(tmp, path)
+    except Exception as exc:
+        logger.warning("intake receipt update failed for %s: %s", gcode, exc)
+        return None
+    _settle_intake_start_claim(receipt, gcode, sha)
+    return path
+
+
 def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None,
               yolo=False):
     """Bed is confirmed clear: verify, upload, start, confirm, record. One command.
@@ -8433,12 +8604,25 @@ def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, r
         if yolo:
             print("YOLO: the operator chose to print without checks; failed checks are reported, "
                   "not enforced.", flush=True)
-        return _print_now_locked(target, wait_s=wait_s,
-                                 accept_default_z_offset=accept_default_z_offset,
-                                 reprint=reprint or bool(yolo), remap_slot_num=remap_slot_num)
+        out = _print_now_locked(target, wait_s=wait_s,
+                                accept_default_z_offset=accept_default_z_offset,
+                                reprint=reprint or bool(yolo), remap_slot_num=remap_slot_num)
     finally:
         _YOLO.reset(token)
         lock.release()
+    # The start happened: reconcile the intake receipt that owns this
+    # artifact (#970). Best effort — it never fails a started print.
+    if _start_confirmed(out) or _start_pending(out):
+        try:
+            g = Path(resolve_print_target(target)).expanduser().resolve()
+            job, job_path = _owning_job(g)
+            if g.name == "JOB.json" and isinstance(job, dict) and job.get("gcode"):
+                g = Path(job["gcode"]).expanduser().resolve()
+            if g.is_file():
+                _record_intake_receipt_started(job, job_path, g, file_sha256(g), out)
+        except Exception as exc:
+            logger.warning("intake receipt reconciliation failed: %s", exc)
+    return out
 
 
 def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None):
