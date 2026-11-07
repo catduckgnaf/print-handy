@@ -151,6 +151,8 @@ GROUP_OF = {
     "timelapse.ssh_key": "timelapse",
     "timelapse.wrapped_enabled": "timelapse",
     "timelapse.wrapped_ai_video": "timelapse",
+    "timelapse.wrapped_tts_engine": "timelapse",
+    "timelapse.wrapped_music_file": "timelapse",
     "logging.level": "logging",
     "logging.format": "logging",
     "logging.retention_days": "logging",
@@ -519,12 +521,25 @@ CATALOG = (
            "while off, the Data and Wrapped pages are not in the navigation and "
            "their routes refuse by name.",
            validator="settings timelapse check"),
-    _field("timelapse", "wrapped_ai_video", "Wrapped AI video", "toggle",
-           "The on-demand Wrapped video compile (#956): AI commentary (when an AI "
-           "route is configured, with the local deterministic script as the "
-           "fallback) plus a local video of stat cards and the year's timelapses. "
-           "Off by default, and it needs the Data tab and Wrapped switch above on. "
+    _field("timelapse", "wrapped_ai_video", "Wrapped video", "toggle",
+           "The on-demand Wrapped video compile (#956): a local video of the "
+           "year's slides, the local commentary and the year's timelapses. No "
+           "AI model is used (the setting keeps its original name). Off by "
+           "default, and it needs the Data tab and Wrapped switch above on. "
            "The video is generated only when the operator asks, and never sent anywhere.",
+           validator="settings timelapse check"),
+    _field("timelapse", "wrapped_tts_engine", "Wrapped narration", "picker",
+           "Spoken narration for the Wrapped video (#981): none (default; no "
+           "narration) or piper (the local Piper binary, paths.piper with the "
+           "voice model at paths.piper_model). No AI model and no cloud "
+           "service: the narration never leaves this machine.",
+           choices=tuple(settings.WRAPPED_TTS_ENGINES),
+           validator="settings timelapse check"),
+    _field("timelapse", "wrapped_music_file", "Wrapped music file", "text",
+           "An audio file you supply, used as the Wrapped video music bed "
+           "instead of the synthesized bed. Empty keeps the synthesized bed; "
+           "a missing file is named in the video result and the synthesized "
+           "bed is used.",
            validator="settings timelapse check"),
     # Logging.
     _field("logging", "level", "Log level", "picker",

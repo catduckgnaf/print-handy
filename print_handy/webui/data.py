@@ -208,7 +208,29 @@ def wrapped_view(data, year=None, *, records_vault=None):
                  "timelapse_clips_by_print": clips_by_print,
                  "longest_print_clip": longest_clip,
                  "maintenance": _maintenance(data, records_vault, int(year), tz),
+                 "video_available": wrapped_video_path(data, int(year),
+                                                       records_vault=records_vault) is not None,
                  "ai_video_enabled": ai_video_enabled(data)}
+
+
+def wrapped_video_path(data, year, *, records_vault=None, out_dir=None):
+    """The compiled video file for ``year``, or None.
+
+    The only file the video route may serve: exactly
+    ``wrapped-<year>.mp4`` inside the wrapped outputs folder, for a
+    whole-number year, and only while Wrapped is enabled. The name
+    is constructed here from the integer year, never taken from a
+    request, so path traversal has no input to work with.
+    """
+    if not wrapped_enabled(data):
+        return None
+    try:
+        year = int(year)
+    except (TypeError, ValueError):
+        return None
+    folder = Path(out_dir) if out_dir is not None else _vault(data, records_vault) / "wrapped"
+    candidate = folder / f"wrapped-{year}.mp4"
+    return candidate if candidate.is_file() else None
 
 
 def _current_year(tz=None):
@@ -216,7 +238,8 @@ def _current_year(tz=None):
     return datetime.now(tz or timezone.utc).year
 
 
-def make_video(data, year, *, records_vault=None, out_dir=None, **video_kwargs):
+def make_video(data, year, *, records_vault=None, out_dir=None, export_silent=False,
+               **video_kwargs):
     """(code, body) for POST /wrapped/video: the on-demand compile."""
     if not wrapped_enabled(data):
         return 403, {"ok": False, "reason": OFF_REASON}
@@ -232,7 +255,8 @@ def make_video(data, year, *, records_vault=None, out_dir=None, **video_kwargs):
         return 400, {"ok": False, "reason": "year must be a whole number. Nothing was compiled."}
     target_dir = Path(out_dir) if out_dir is not None else _vault(data, records_vault) / "wrapped"
     result = video_module.build_wrapped_video(
-        int(year), wrapped, target_dir, data=data, **video_kwargs)
+        int(year), wrapped, target_dir, data=data, export_silent=export_silent,
+        **video_kwargs)
     if not result.get("ok"):
         return 502, {"ok": False, "reason": result.get("reason") or "the video compile failed",
                      "script_path": result.get("script_path"), "notes": result.get("notes") or []}
@@ -740,24 +764,33 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
             f'<form method="post" action="/wrapped/video">'
             f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'
             f'<input type="hidden" name="year" value="{year}">'
+            '<label><input type="checkbox" name="export_silent" value="1"> '
+            "Export silent (no music, no narration — add music in the "
+            "app you post to)</label> "
             '<button type="submit" data-busy="Compiling…">Make my Wrapped video</button>'
             "<p>Compiling runs on this machine, on demand, from stat cards, "
             "this commentary as on-screen text, and the year's timelapses "
-            "where they are found. The commentary lines above, with their "
-            "numbers, are first sent to the configured AI route to be "
-            "rewritten; if no route is configured, the local lines above "
-            "are used as-is and nothing leaves this machine. There is no "
-            "spoken narration.</p></form>")
+            "where they are found. The commentary is the local lines above, "
+            "never rewritten by an AI model, and nothing leaves this "
+            "machine. Narration: "
+            "with [timelapse] wrapped_tts_engine set to piper, the slide "
+            "lines are spoken by the local Piper binary and nothing is "
+            "sent anywhere; with none (the default) there is no spoken "
+            "narration.</p></form>")
     else:
         parts.append("<h2>Wrapped video</h2><p>The video step is off: set "
-                     "[timelapse] wrapped_ai_video = true to turn on the AI "
-                     "commentary and the on-demand video compile.</p>")
+                     "[timelapse] wrapped_ai_video = true to turn on the "
+                     "on-demand video compile.</p>")
+    if payload.get("video_available"):
+        # The video is an embed inside the scrolling page (#981
+        # comment 6702782262), served by GET /wrapped/video-file.
+        parts.append(
+            "<h2>Your Wrapped video</h2>"
+            f'<video controls preload="metadata" '
+            f'src="/wrapped/video-file?year={year}"></video>')
     parts.append(_share_panel(year, form_token, payload.get("share_exports") or [],
                               payload.get("share_registry_note")))
-    # Finale: the share card is the last section of the scroll. (No
-    # <video> embed: the Web UI has no route serving the compiled
-    # file, so there is no natural embed wiring in this step — the
-    # embed-in-export behavior belongs to the sharing phase.)
+    # Finale: the share card is the last section of the scroll.
     if archetype.get("name"):
         share_top = _esc(highlights.get("top_color") or "unknown")
         parts.append(
@@ -810,4 +843,4 @@ def render_share_result(data, payload, *, theme=shell.DEFAULT_THEME):
 __all__ = ["EXTRA_NAV", "OFF_REASON", "VIDEO_OFF_REASON", "ai_video_enabled",
            "data_view", "export_share", "make_video", "nav_for", "render_data_page",
            "render_share_result", "render_video_result", "render_wrapped_page",
-           "wrapped_enabled", "wrapped_view"]
+           "wrapped_enabled", "wrapped_video_path", "wrapped_view"]
