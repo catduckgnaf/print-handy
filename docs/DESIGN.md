@@ -164,3 +164,17 @@ with, kept for the same 14 days — so it lists sessions even while
 `[design]` is switched off. It has no actions: nothing there deletes,
 slices or prints. Slicing a design still happens from chat, through the
 normal confirmation flow.
+
+## Multi-part engineering checks (#998, groundwork)
+
+`print_handy/core/assembly_check.py` measures a multi-part project's exported STLs and judges them against stated rules, never against a model's own claims. Every finding carries its measured evidence:
+
+- **Each part:** watertight, manifold, consistent winding, one shell, positive volume, measured extents.
+- **Bed fit on the real printer:** both flat orientations are tried. An edge margin under 5 mm is a *warning*: it is unproven until a real slice shows the skirt, brim, purge and bed exclusion zones fit.
+- **Rack ears:** checked against the EIA-310 panel clearance, not just the unit pitch. A 2U ear may be 88.106 mm, not 88.9 mm.
+- **Mirrored left/right pairs** must match.
+- **Project shape:** at least two structural printable parts. Test coupons and geometry marked not-for-printing never count.
+
+Against the issue #998 reference design (the fixture in `tests/corpus/design/mac_mini_rack_issue_998/`), it fails both 88.5 mm ears on panel clearance and warns on the 214 mm tray's 3 mm bed margin.
+
+Not checked yet (and said so in every summary): assembly transforms and part-to-part collisions, fastener fit, load and heat, and slicer toolpaths. The design engine does not call these checks yet; wiring them into multi-part design sessions is the next phase of #998.
