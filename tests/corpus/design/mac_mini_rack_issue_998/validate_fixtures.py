@@ -25,7 +25,7 @@ for name, expected in stls.items():
     if not f.is_file():
         errors.append("Missing STL: " + name)
         continue
-    mesh = trimesh.load(str(f), force="mesh", process=False)
+    mesh = trimesh.load(str(f), force="mesh", process=True)
     dims = tuple(float(x) for x in mesh.extents)
     if not mesh.is_watertight:
         errors.append(f"{name}: mesh is not watertight")
