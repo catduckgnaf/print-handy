@@ -339,14 +339,26 @@
    "wall_s": 0.11
   },
   "parts-512-four-color/hermes": {
-   "first_prompt_s": 0.73,
-   "fit_check_s": 0.18,
-   "wall_s": 3.77
+   "first_prompt_s": 1.0,
+   "fit_check_s": 0.2,
+   "raised_from": {
+    "first_prompt_s": 0.73,
+    "fit_check_s": 0.18,
+    "wall_s": 3.77
+   },
+   "reason": "Re-recorded for 2.2.6 with one case corrected off the fast runner group. The release run on main (42346828094, 53034f5) measured this case at 3.77 s on attempt 1 and about 3.4 s on the documented re-run of the same job \u2014 both attempts landed on the fast runner group (tests/README.md: the groups sit about 1.5x apart) \u2014 while every neighboring run measures 5.11-5.42 s (2.2.5-era runs), 5.35/5.5 s (the 2.2.5 baseline) and 5.20/5.21 s (this PR's first CI run, 42351741798, same code, median of 3 repeats). Freezing the fast value failed this PR's own timing gate on an ordinary runner, so this entry records the representative measurement from run 42351741798 instead; all other entries record run 42346828094 as usual.",
+   "wall_s": 5.2
   },
   "parts-512-four-color/standalone": {
-   "first_prompt_s": 0.73,
-   "fit_check_s": 0.16,
-   "wall_s": 3.79
+   "first_prompt_s": 0.99,
+   "fit_check_s": 0.19,
+   "raised_from": {
+    "first_prompt_s": 0.73,
+    "fit_check_s": 0.16,
+    "wall_s": 3.79
+   },
+   "reason": "Re-recorded for 2.2.6 with one case corrected off the fast runner group. The release run on main (42346828094, 53034f5) measured this case at 3.77 s on attempt 1 and about 3.4 s on the documented re-run of the same job \u2014 both attempts landed on the fast runner group (tests/README.md: the groups sit about 1.5x apart) \u2014 while every neighboring run measures 5.11-5.42 s (2.2.5-era runs), 5.35/5.5 s (the 2.2.5 baseline) and 5.20/5.21 s (this PR's first CI run, 42351741798, same code, median of 3 repeats). Freezing the fast value failed this PR's own timing gate on an ordinary runner, so this entry records the representative measurement from run 42351741798 instead; all other entries record run 42346828094 as usual.",
+   "wall_s": 5.21
   },
   "parts-one-plate/hermes": {
    "first_prompt_s": 0.04,
