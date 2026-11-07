@@ -776,9 +776,7 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
             "are used as-is and nothing leaves this machine. Narration: "
             "with [timelapse] wrapped_tts_engine set to piper, the slide "
             "lines are spoken by the local Piper binary and nothing is "
-            "sent anywhere; with it set to cloud, the slide lines above, "
-            "with their numbers, are sent to the configured speech route "
-            "to be spoken; with none (the default) there is no spoken "
+            "sent anywhere; with none (the default) there is no spoken "
             "narration.</p></form>")
     else:
         parts.append("<h2>Wrapped video</h2><p>The video step is off: set "

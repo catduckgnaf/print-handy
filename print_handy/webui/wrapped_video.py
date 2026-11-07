@@ -37,10 +37,10 @@ Step 4 (#981): the presentation is the spec'd slide arc (see
 :func:`build_slides`) over operator-image backgrounds, with a music
 bed (an operator file, or a locally synthesized lavfi pad — no audio
 assets are ever bundled) whose failures slide gets a slow minor pad
-and a descending sad sting, and optional narration: Piper-first
+and a descending sad sting, and optional narration by local Piper
 (``[timelapse] wrapped_tts_engine``, the binary under ``[paths]
-piper`` with its voice model at ``[paths] piper_model``), or the
-opt-in cloud speech client (:mod:`print_handy.wrapped_speech`).
+piper`` with its voice model at ``[paths] piper_model``). Narration
+never uses an AI model or a cloud service.
 ``export_silent`` produces a video with no audio inputs at all.
 """
 from __future__ import annotations
@@ -564,7 +564,7 @@ def _narration_lines(slides):
             if slide.get("spoken")]
 
 
-def _prepare_narration(slides, data, work, *, tts_call, speech_call):
+def _prepare_narration(slides, data, work, *, tts_call):
     """(files, note): {slide_index: audio path} for the chosen engine.
 
     Engine none returns ({}, None) — today's behavior. Every failure
@@ -598,21 +598,6 @@ def _prepare_narration(slides, data, work, *, tts_call, speech_call):
         except Exception as exc:
             return {}, f"narration: piper unavailable ({type(exc).__name__}: {exc})"
         return files, f"narration: piper narration for {len(files)} slides"
-    if engine == "cloud":
-        files = {}
-        try:
-            for index, text in lines:
-                target = out_dir / f"line-{index:02d}.mp3"
-                if speech_call is not None:
-                    audio = speech_call(text)
-                else:
-                    from .. import wrapped_speech
-                    audio = wrapped_speech.synthesize_speech(text, cfg=data)
-                Path(target).write_bytes(audio)
-                files[index] = Path(target)
-        except Exception as exc:
-            return {}, f"narration: cloud speech unavailable ({type(exc).__name__}: {exc})"
-        return files, f"narration: cloud speech narration for {len(files)} slides"
     return {}, f"narration: unknown engine {engine!r}; video has no narration"
 
 
@@ -698,7 +683,7 @@ def _audio_command(ffmpeg_bin, silent, target, *, total, timeline, narration,
 
 def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
                         runner=None, find_clips=None, ai_call=None, use_ai=True,
-                        export_silent=False, tts_call=None, speech_call=None):
+                        export_silent=False, tts_call=None):
     """Compile one Wrapped video. Returns {ok, path, script_path, notes}.
 
     ``wrapped`` is a :func:`print_handy.core.print_stats.build_wrapped`
@@ -843,7 +828,7 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
             shutil.copyfile(silent, target)
         else:
             narration, narration_note = _prepare_narration(
-                slides, data, work, tts_call=tts_call, speech_call=speech_call)
+                slides, data, work, tts_call=tts_call)
             if narration_note:
                 notes.append(narration_note)
             music_setting = str(((data or {}).get("timelapse") or {}).get(

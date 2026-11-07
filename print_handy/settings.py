@@ -185,7 +185,6 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
 # only. [delivery] methods is here so a Docker operator can opt into the Bambu LAN print button without
 # replacing the image's docker.yaml (#270); the value is validated exactly like the YAML list.
 # The keys of one [ai.<tier>] table (#818); the tables are file only, so they are not in OPTIONAL_KEYS.
-AI_SPEECH_KEYS = ("chat_url", "model", "api_key_env", "timeout_s")
 AI_TIER_KEYS = ("chat_url", "model", "fallback_model", "fallback_url", "api_key_env",
                 "fallback_api_key_env", "timeout_s")
 ENV_LISTS = {("delivery", "methods"), ("zmod", "plugins")}
@@ -1152,7 +1151,7 @@ def _validate_webui(data):
 
 
 VERTICAL_SHORT_MODES = ("pad", "crop")
-WRAPPED_TTS_ENGINES = ("none", "piper", "cloud")
+WRAPPED_TTS_ENGINES = ("none", "piper")
 
 
 def _validate_timelapse(data):
@@ -1194,9 +1193,9 @@ def _validate_timelapse(data):
             raise SettingsError(f"[timelapse] {key} must be true or false, got {value!r}")
     # Wrapped narration (#981 step 4): the TTS engine choice. "none" is
     # the default and keeps the video exactly as it was before narration
-    # existed; "piper" is the local Piper binary under [paths];
-    # "cloud" is the opt-in OpenAI-compatible speech route
-    # (print_handy.wrapped_speech, configured under [ai.speech]).
+    # existed; "piper" is the local Piper binary under [paths]. There is
+    # deliberately no cloud or AI-model engine: narration never leaves
+    # this machine.
     engine = str(timelapse.setdefault("wrapped_tts_engine", "none") or "").strip().lower()
     if engine not in WRAPPED_TTS_ENGINES:
         raise SettingsError(
@@ -1551,40 +1550,6 @@ def _validate_ai(data):
             timeout = values["timeout_s"]
             if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
                 raise SettingsError(f"[ai.{tier}] timeout_s must be a positive number of seconds, got {timeout!r}")
-
-    # The cloud speech route (#981 step 4): a table like a tier's, but
-    # with only the keys a speech endpoint needs (no fallback model —
-    # print_handy.wrapped_speech documents why it is not an ai tier).
-    speech = ai.setdefault("speech", {})
-    if not isinstance(speech, dict):
-        raise SettingsError(f"[ai] speech must be a table, got {speech!r}")
-    unknown = sorted(set(speech) - set(AI_SPEECH_KEYS))
-    if unknown:
-        raise SettingsError(f"[ai.speech] unknown setting {', '.join(unknown)} "
-                            f"(known: {', '.join(AI_SPEECH_KEYS)})")
-    for key in AI_SPEECH_KEYS:
-        if key == "timeout_s":
-            continue
-        value = speech.get(key, "")
-        if value is None:
-            value = ""
-        if not isinstance(value, str):
-            raise SettingsError(f"[ai.speech] {key} must be text, got {value!r}")
-        value = value.strip()
-        if key.endswith("_url") and value and not value.startswith(("http://", "https://")):
-            raise SettingsError(f"[ai.speech] {key} must be a URL, got {value!r}")
-        if key.endswith("_env") and value and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
-            raise SettingsError(f"[ai.speech] {key} must be an environment variable name, got {value!r}")
-        if value:
-            speech[key] = value
-        else:
-            speech.pop(key, None)
-    if speech.get("chat_url") and not speech.get("model"):
-        raise SettingsError("[ai.speech] model is required when chat_url is set")
-    if "timeout_s" in speech:
-        timeout = speech["timeout_s"]
-        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
-            raise SettingsError(f"[ai.speech] timeout_s must be a positive number of seconds, got {timeout!r}")
 
 
 def _validate_logging(data):

@@ -292,9 +292,9 @@ timelapse:
   # commentary when a route is configured, the local script otherwise).
   # Off by default, and it needs wrapped_enabled above on.
   wrapped_ai_video: false
-  # Wrapped narration (#981): none (default, no narration), piper (local
-  # Piper binary, paths.piper + paths.piper_model), or cloud (the opt-in
-  # OpenAI-compatible speech route under [ai.speech]).
+  # Wrapped narration (#981): none (default, no narration) or piper (the
+  # local Piper binary, paths.piper + paths.piper_model). No AI model and
+  # no cloud service: nothing is sent anywhere.
   wrapped_tts_engine: none
   # Wrapped music file (#981): an audio file you supply, used as the
   # video music bed instead of the synthesized bed. Empty = synthesized.

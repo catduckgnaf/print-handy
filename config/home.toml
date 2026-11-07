@@ -317,7 +317,7 @@ vertical_short_overlay = true
 # Data tab and Wrapped AI video (#956): off by default.
 wrapped_enabled = false
 wrapped_ai_video = false
-# Wrapped narration (#981): none | piper | cloud. See home.yaml notes.
+# Wrapped narration (#981): none | piper (local, nothing sent). See home.yaml notes.
 wrapped_tts_engine = "none"
 wrapped_music_file = ""
 # In-container timelapse capture (#246): off by default; existing behaviour

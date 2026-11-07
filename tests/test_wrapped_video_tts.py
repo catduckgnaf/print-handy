@@ -15,7 +15,6 @@ from types import SimpleNamespace
 
 from print_handy import settings
 from print_handy.webui import catalog, data as data_module, wrapped_video
-from print_handy import wrapped_speech
 
 
 WRAPPED = {
@@ -249,87 +248,28 @@ class PiperTests(unittest.TestCase):
         self.assertFalse(any("narration:" in n for n in result["notes"]))
 
 
-class CloudSpeechTests(unittest.TestCase):
-    def test_request_shape_against_fake_transport(self):
-        seen = {}
+class NoCloudNarrationTests(unittest.TestCase):
+    """Narration is local Piper or nothing: no AI model, no cloud service."""
 
-        class Response:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *exc):
-                return False
-
-            def read(self):
-                return b"mp3-bytes"
-
-        def opener(request, timeout=None):
-            seen["url"] = request.full_url
-            seen["body"] = json.loads(request.data.decode())
-            seen["auth"] = request.headers.get("Authorization")
-            return Response()
-
-        cfg = {"ai": {"speech": {"chat_url": "https://speech.example/v1",
-                                 "model": "tts-x", "api_key_env": "SPEECH_KEY_TEST"}}}
-        import os
-        os.environ["SPEECH_KEY_TEST"] = "test-key-not-real"
-        try:
-            audio = wrapped_speech.synthesize_speech(
-                "Hello year.", cfg=cfg, opener=opener)
-        finally:
-            del os.environ["SPEECH_KEY_TEST"]
-        self.assertEqual(audio, b"mp3-bytes")
-        self.assertEqual(seen["url"], "https://speech.example/v1/audio/speech")
-        self.assertEqual(seen["body"]["model"], "tts-x")
-        self.assertEqual(seen["body"]["input"], "Hello year.")
-        self.assertEqual(seen["auth"], "Bearer test-key-not-real")
-
-    def test_chat_key_never_goes_to_a_different_speech_host(self):
-        """A speech URL on another host without api_key_env must not get
-        the chat tier's key (it would be sent as a Bearer token there)."""
-        from unittest import mock
-        from print_handy import ai_routes
-        route = SimpleNamespace(primary=SimpleNamespace(
-            url="https://openrouter.example/api/v1/chat/completions",
-            key="chat-key-not-real"))
-        other_host = {"ai": {"speech": {"chat_url": "https://speech.other.example/v1"}}}
-        same_host = {"ai": {"speech": {"chat_url": "https://openrouter.example/api/v1"}}}
-        with mock.patch.object(ai_routes, "_resolve", return_value=route), \
-                mock.patch.object(ai_routes, "keyless_ok", return_value=False):
-            with self.assertRaises(wrapped_speech.SpeechKeyMissing):
-                wrapped_speech._resolve_speech(other_host)
-            _url, _model, key, _timeout = wrapped_speech._resolve_speech(same_host)
-            self.assertEqual(key, "chat-key-not-real")
-            # No speech URL at all: speech reuses the chat endpoint and its key.
-            _url, _model, key, _timeout = wrapped_speech._resolve_speech({"ai": {}})
-            self.assertEqual(key, "chat-key-not-real")
-
-    def test_cloud_engine_uses_speech_call_seam(self):
-        calls = []
-
-        def fake_speech(text):
-            calls.append(text)
-            return b"mp3"
-
+    def test_cloud_engine_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
-            result, runner = _build(
-                tmp, data={"timelapse": {"wrapped_tts_engine": "cloud"}},
-                speech_call=fake_speech)
-            self.assertTrue(result["ok"], result)
-        self.assertEqual(len(calls), len(wrapped_video.build_slides(WRAPPED)))
-        self.assertTrue(any("narration: cloud" in n for n in result["notes"]))
+            bad = Path(tmp) / "cloud.yaml"
+            bad.write_text("timelapse:\n  wrapped_tts_engine: cloud\n")
+            with self.assertRaises(settings.SettingsError):
+                settings.load(local=bad, environ={})
 
-    def test_cloud_unconfigured_is_named_and_video_still_produced(self):
-        def boom(text):
-            raise RuntimeError("no speech route configured")
+    def test_no_speech_client_or_speech_table(self):
+        import importlib.util
+        self.assertIsNone(importlib.util.find_spec("print_handy.wrapped_speech"))
+        data = {}
+        settings._validate_ai(data)
+        self.assertNotIn("speech", data["ai"])
 
+    def test_an_unknown_engine_reaching_the_compiler_is_named_and_silent(self):
         with tempfile.TemporaryDirectory() as tmp:
-            result, _runner = _build(
-                tmp, data={"timelapse": {"wrapped_tts_engine": "cloud"}},
-                speech_call=boom)
+            result, _runner = _build(tmp, data={"timelapse": {"wrapped_tts_engine": "cloud"}})
             self.assertTrue(result["ok"], result)
-        self.assertTrue(any(n.startswith("narration: cloud speech unavailable")
-                            for n in result["notes"]))
+        self.assertTrue(any(n.startswith("narration: unknown engine") for n in result["notes"]))
 
 
 class SettingsSurfaceTests(unittest.TestCase):
@@ -357,7 +297,7 @@ class SettingsSurfaceTests(unittest.TestCase):
         engine = catalog.field_by_id("timelapse.wrapped_tts_engine")
         self.assertIsNotNone(engine)
         self.assertEqual(engine.kind, "picker")
-        self.assertEqual(list(engine.choices), ["none", "piper", "cloud"])
+        self.assertEqual(list(engine.choices), ["none", "piper"])
         music = catalog.field_by_id("timelapse.wrapped_music_file")
         self.assertIsNotNone(music)
         # Path settings mirror paths.ffmpeg: no catalog field.
@@ -405,7 +345,7 @@ class EmbedRouteTests(unittest.TestCase):
             self.assertIn("<video controls", page)
             self.assertIn("/wrapped/video-file?year=2026", page)
             self.assertIn("narration", page.lower())
-            self.assertIn("speech", page.lower())
+            self.assertNotIn("speech route", page.lower())
             self.assertIn('name="export_silent"', page)
 
 

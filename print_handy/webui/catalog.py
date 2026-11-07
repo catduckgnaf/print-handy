@@ -530,10 +530,9 @@ CATALOG = (
            validator="settings timelapse check"),
     _field("timelapse", "wrapped_tts_engine", "Wrapped narration", "picker",
            "Spoken narration for the Wrapped video (#981): none (default; no "
-           "narration), piper (local Piper binary, paths.piper with the voice "
-           "model at paths.piper_model), or cloud (the OpenAI-compatible "
-           "speech route under [ai.speech]; the slide lines are sent there "
-           "to be spoken).",
+           "narration) or piper (the local Piper binary, paths.piper with the "
+           "voice model at paths.piper_model). No AI model and no cloud "
+           "service: the narration never leaves this machine.",
            choices=tuple(settings.WRAPPED_TTS_ENGINES),
            validator="settings timelapse check"),
     _field("timelapse", "wrapped_music_file", "Wrapped music file", "text",
