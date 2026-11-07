@@ -42,6 +42,7 @@ this file when a suite is added, moved, or starts/stops pinning an area.
 | Bambu HMS table content integrity across regenerations | `tests/printers/test_bambu_hms.py`, `tests/printers/test_bambu_hms_generator.py` |
 | Docker image, release contracts, supervisor, healthcheck | `tests/test_docker_release*.py`, `tests/docker/`, `tests/test_combined_supervisor.py`, `tests/test_go2rtc_container.py`, `tests/test_native_release_acceptance.py` |
 | Web UI (status, config, login, roster) | `tests/test_webui_*.py` |
+| Wrapped / Data tab (#956, #981 v1.1 + v2: watchdog events, receipt/JOB joins, per-color grams, timelapse name join) | `tests/test_print_stats_wrapped.py`, `tests/test_wrapped_v2.py`, `tests/test_wrapped_video_real_ffmpeg.py` |
 | Doctor / bot check surfaces | `tests/test_doctor.py`, `tests/bot/test_health_and_transport.py` |
 | Settings / config loading | `tests/test_settings.py`, `tests/test_print_handy_cfg.py`, `tests/test_webui_config*.py` |
 | Docs / contribution policy / post-release surfaces / pre-release checklist | `tests/test_docs_index_contract.py`, `tests/test_contribution_policy.py`, `tests/test_post_release_surfaces_workflow.py`, `tests/test_pre_release_checklist.py` |
