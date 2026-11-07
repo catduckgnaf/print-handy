@@ -38,22 +38,22 @@ for name in steps + pngs:
     if not (ROOT / name).is_file() or (ROOT / name).stat().st_size < 100:
         errors.append("Missing/empty artifact: " + name)
 for name in pngs:
-    if (ROOT/name).is_file() and (ROOT/name).read_bytes()[:8] != b"\\x89PNG\\r\\n\\x1a\\n":
+    if (ROOT/name).is_file() and (ROOT/name).read_bytes()[:8] != b"\x89PNG\r\n\x1a\n":
         errors.append("Invalid PNG header: " + name)
 # RECORD known fixture flaws explicitly. Do not confuse passing STL tests with safety.
 (ROOT / "WARNING_NOT_VALIDATED.txt").write_text(
-    "REFERENCE CORPUS ONLY, NOT A VERIFIED RACK MOUNT.\\n"
-    "Known issue A: 88.5mm tall ears may exceed nominal 2U panel clearance ~88.11mm.\\n"
-    "Known issue B: source assembly translates tray +10mm Z; mating faces/bolt holes do not register.\\n"
-    "Known issue C: 214mm tray on 220mm bed leaves only 3mm nominal per edge.\\n"
-    "Known issue D: no PLA mechanical, creep or actual print tests.\\n",
+    "REFERENCE CORPUS ONLY, NOT A VERIFIED RACK MOUNT.\n"
+    "Known issue A: 88.5mm tall ears may exceed nominal 2U panel clearance ~88.11mm.\n"
+    "Known issue B: source assembly translates tray +10mm Z; mating faces/bolt holes do not register.\n"
+    "Known issue C: 214mm tray on 220mm bed leaves only 3mm nominal per edge.\n"
+    "Known issue D: no PLA mechanical, creep or actual print tests.\n",
     encoding="utf8",
 )
 hashable = sorted(p for p in ROOT.iterdir() if p.is_file() and p.suffix.lower() in (".stl",".step",".png"))
 (ROOT / "SHA256SUMS.txt").write_text(
-    "".join(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\\n" for p in hashable),
+    "".join(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n" for p in hashable),
     encoding="utf8",
 )
 if errors:
-    raise SystemExit("\\n".join(errors))
+    raise SystemExit("\n".join(errors))
 print("Reference geometry/file validation passed (NOT mechanical validation).")
