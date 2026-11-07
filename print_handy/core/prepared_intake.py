@@ -3657,38 +3657,71 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
             logger.warning('support coverage unverified for intake %s: %s',
                            iid, result.get('unverified'))
 
+        async def _support_override(cov_failure, low_clearance, resliced=False):
+            """Ask Print anyway / Cancel for the post-slice support gates.
+
+            True when the operator waives them, False after a Cancel (already
+            answered in chat). The gates stay strict; this is the explicit
+            override they name, so they never end in a dead end. Only print
+            approvers may answer (approval=True), as for every safety waiver.
+            """
+            lines = []
+            if cov_failure is not None:
+                worst = min(cov_failure['regions'], key=lambda r: r['coverage'])
+                lines.append(('Re-sliced' if resliced else 'Sliced') + ' with supports, but the support '
+                             'toolpaths do not cover every flagged region (worst region: '
+                             f"{worst['coverage'] * 100:.0f}% of its 3 mm cells covered).")
+            if low_clearance:
+                lines.append('This print has a low-clearance underside (under 1.0 mm) that slicer '
+                             'supports cannot fix.')
+            lines.append('Nothing is uploaded yet. Print anyway to accept the risk, or cancel and '
+                         'repair the geometry (extend or sink).')
+            receipt.update(status='SLICED_NOT_STARTED', started=False)
+            if cov_failure is not None:
+                receipt['support_coverage'] = cov_failure
+            receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+            pick = await _ask(adapter, source, key, '\n'.join(lines),
+                              [PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL], timeout, approval=True)
+            if pick != 0:
+                await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                   content='Cancelled. Nothing uploaded or started. The slice stays on disk.')
+                return False
+            # Bound to the exact G-code bytes the operator saw the warning for.
+            receipt['support_override'] = {
+                'via': 'print_anyway',
+                'support_coverage': cov_failure is not None,
+                'low_clearance': bool(low_clearance),
+                'gcode_sha256': dict(receipt.get('gcode_sha256') or {}),
+            }
+            receipt.update(status='SLICED')
+            receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+            return True
+
         if supports_choice is True:
             cov_result = _coverage_result(gcodes)
             if cov_result is not None and cov_result.get('unverified'):
                 _record_coverage_unverified(cov_result)
-            if cov_result is not None and cov_result['checked'] and not cov_result['ok']:
-                worst = min(cov_result['regions'], key=lambda r: r['coverage'])
-                receipt.update(status='SLICED_NOT_STARTED', started=False, support_coverage=cov_result)
-                receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
-                await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                                   content='Sliced with supports, but the support toolpaths do not cover every '
-                                           f"flagged region (worst region: {worst['coverage'] * 100:.0f}% of its "
-                                           '3 mm cells covered). Nothing was uploaded or started. The slice '
-                                           'stays on disk; repair the geometry or choose Print anyway to override.')
-                return {'action': 'skip', 'reason': 'support coverage verification failed'}
-        if supports_choice is True:
+            cov_failure = (cov_result if cov_result is not None and cov_result['checked']
+                           and not cov_result['ok'] else None)
             report = sliced.get('support_clearance') or clearance
             # Only a low-clearance finding is unwaivable by a with-supports
             # choice (#922 gap 2); other findings (modeled supports) keep
-            # their Phase 1 behavior.
+            # their Phase 1 behavior. Print anyway is the explicit waiver.
+            low_clearance = False
             if any(f.get('code') == support_clearance.CODE_CLEARANCE
                    for f in (report or {}).get('findings') or []):
                 ack = sliced.get('clearance_acknowledgement') or {}
-                if not ack.get('acknowledged') \
-                        or ack.get('via', 'print_anyway') not in ('print_anyway', 'geometry_repair'):
-                    receipt.update(status='SLICED_NOT_STARTED', started=False)
-                    receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
-                    await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                                       content='This print has a low-clearance underside (under 1.0 mm) that '
-                                               'slicer supports cannot fix. Nothing was uploaded or started. '
-                                               'Repair the geometry (extend or sink) or choose Print anyway '
-                                               'to accept the risk explicitly.')
-                    return {'action': 'skip', 'reason': 'low clearance not waived by supports choice'}
+                low_clearance = (not ack.get('acknowledged')
+                                 or ack.get('via', 'print_anyway') not in ('print_anyway', 'geometry_repair'))
+            if cov_failure is not None or low_clearance:
+                if not await _support_override(cov_failure, low_clearance):
+                    return {'action': 'skip',
+                            'reason': ('support coverage verification failed' if cov_failure is not None
+                                       else 'low clearance not waived by supports choice')}
+                if low_clearance:
+                    # Recorded below, once the final artifact is installed,
+                    # so the start guard sees an acknowledgement bound to it.
+                    clearance_ack_pending = 'print_anyway'
         provenance = sliced.get('provenance') or {}
         if not provenance and (sliced.get('derived_plates') or []):
             provenance = (sliced['derived_plates'][0].get('provenance') or {})
@@ -3755,15 +3788,8 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                     logger.warning('support coverage unverified for intake %s: %s',
                                    iid, cov_result.get('unverified'))
                 if cov_result is not None and cov_result['checked'] and not cov_result['ok']:
-                    worst = min(cov_result['regions'], key=lambda r: r['coverage'])
-                    receipt.update(status='SLICED_NOT_STARTED', started=False, support_coverage=cov_result)
-                    receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
-                    await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                                       content='Re-sliced with supports, but the support toolpaths do not cover '
-                                               f"every flagged region (worst region: {worst['coverage'] * 100:.0f}% "
-                                               'of its 3 mm cells covered). Nothing was uploaded or started. '
-                                               'The slice stays on disk.')
-                    return {'action': 'skip', 'reason': 'support coverage verification failed'}
+                    if not await _support_override(cov_result, False, resliced=True):
+                        return {'action': 'skip', 'reason': 'support coverage verification failed'}
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
         if clearance_ack_pending:
             # The selected variant's artifact is installed now: bind the
