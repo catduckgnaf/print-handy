@@ -425,6 +425,22 @@ class ArchetypeTests(unittest.TestCase):
         arch = self.archetype(records)
         self.assertNotEqual(arch["name"], "Spaghetti Magnet")
 
+    def test_wrapped_page_is_scroll_first_in_section_order(self):
+        """#981 comment 6702782262: the scrolling page is the primary
+        Wrapped format. Sections run hero, volume, colors/materials,
+        time patterns, repeats, personality, pasta/failure, and the
+        finale share card last. No story player is the lead view."""
+        wrapped = print_stats.build_wrapped(RECORDS, 2025)
+        data = {"timelapse": {"wrapped_enabled": True, "wrapped_ai_video": False}}
+        page = data_module.render_wrapped_page(
+            data, {"ok": True, **wrapped, "ai_video_enabled": False})
+        markers = ["wrapped-hero", "By the numbers", "Colors and materials",
+                   "Time patterns", "Repeats", "Your printing personality",
+                   "Pasta, failures and stops", "share-card"]
+        positions = [page.index(marker) for marker in markers]
+        self.assertEqual(positions, sorted(positions))
+        self.assertNotIn("story-player", page)
+
     def test_share_card_and_archetype_on_wrapped_page(self):
         records = [_arch_rec(i) for i in range(1, 5)]
         wrapped = print_stats.build_wrapped(records, 2025)
