@@ -40,8 +40,15 @@ def _scope(chat_id, thread_id=None):
     return f"{chat_id}:{thread_id or ''}"
 
 
-def remember(chat_id, url, thread_id=None, now=None):
-    """Record the newest model link for a channel (or thread). Failures are ignored."""
+def remember(chat_id, url, thread_id=None, now=None, user_id=None, printer_id=None):
+    """Record the newest model link for a channel (or thread). Failures are ignored.
+
+    The row also records who posted the link and the printer the post's
+    channel routes to, when known (#979): the store is still scoped per
+    channel, but a future incident — or a future scoping change — should
+    never again have to guess a link's provenance. Rows written before
+    provenance existed ({"url", "at"} only) load and recall unchanged.
+    """
     if not url or not chat_id:
         return
     now = time.time() if now is None else now
@@ -54,7 +61,12 @@ def remember(chat_id, url, thread_id=None, now=None):
             at = _timestamp(v.get("at", 0))
             if at is not None and now - at < TTL_S:
                 data[k] = v
-        data[_scope(chat_id, thread_id)] = {"url": str(url), "at": now}
+        row = {"url": str(url), "at": now}
+        if user_id is not None:
+            row["user_id"] = str(user_id)
+        if printer_id is not None:
+            row["printer_id"] = str(printer_id)
+        data[_scope(chat_id, thread_id)] = row
         if len(data) > LIMIT:
             data = dict(sorted(data.items(), key=lambda kv: _timestamp(kv[1].get("at", 0)) or 0.0)[-LIMIT:])
         try:

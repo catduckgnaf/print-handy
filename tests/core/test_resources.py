@@ -61,6 +61,20 @@ def test_no_cgroup_files_means_no_budget(tmp_path):
     assert resources.thread_budget({}, tmp_path) is None
 
 
+def test_cpuset_only_limit_budgets_from_affinity(tmp_path, monkeypatch):
+    # No quota anywhere, but the process may only run on 2 of the host's 8
+    # CPUs (--cpuset-cpus / AllowedCPUs): the pools follow the affinity (#952).
+    monkeypatch.setattr(resources, 'affinity_cpus', lambda: [0, 1])
+    monkeypatch.setattr(resources, '_host_cpu_count', lambda: 8)
+    assert resources.thread_budget({}, tmp_path) == 2
+
+
+def test_full_affinity_means_no_cpuset_budget(tmp_path, monkeypatch):
+    monkeypatch.setattr(resources, 'affinity_cpus', lambda: list(range(8)))
+    monkeypatch.setattr(resources, '_host_cpu_count', lambda: 8)
+    assert resources.thread_budget({}, tmp_path) is None
+
+
 def test_override_wins_and_bad_override_is_ignored(tmp_path):
     write(tmp_path, 'cpu.max', '200000 100000\n')
     assert resources.thread_budget({'PRINT_HANDY_THREADS': '3'}, tmp_path) == 3
