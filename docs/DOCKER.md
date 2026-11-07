@@ -272,7 +272,7 @@ NVIDIA:
 
 1. Install the **Nvidia-Driver** plugin from Community Applications and reboot when it asks. Its page shows your GPU's UUID (`GPU-…`).
 2. Edit the container, switch to **Advanced View**, and add `--runtime=nvidia` to **Extra Parameters**.
-3. Add a Variable: key `NVIDIA_VISIBLE_DEVICES`, value your GPU UUID (or `all`). The image already sets `NVIDIA_DRIVER_CAPABILITIES=compute,video,utility`. If you add that Variable yourself, keep `video` in it (or use `all`), or NVENC cannot load.
+3. Click **Show more settings** and set **NVIDIA visible devices** (`NVIDIA_VISIBLE_DEVICES`) to your GPU UUID, or `all`. The template ships it empty, which grants no GPU. **NVIDIA driver capabilities** (`NVIDIA_DRIVER_CAPABILITIES`) ships as `compute,video,utility`, the same as the image default. If you change it, keep `video` in it (or use `all`), or NVENC cannot load. Both variables are optional and hidden, and do nothing without `--runtime=nvidia`.
 4. Apply, then check: `docker exec print-handy ls /dev/nvidia0` and `docker exec print-handy sh -c 'ldconfig -p | grep libnvidia-encode'`.
 5. Leave **Timelapse capture encoder** on `auto`, or set `nvenc`.
 
