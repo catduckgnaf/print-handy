@@ -142,6 +142,23 @@ the edit (with its confirmation and re-slice) or answers the question
 against the job that intake just prepared. Plain intake text such as
 "print this" is not treated as an instruction.
 
+## "Fix this for my printer" (#978)
+
+"fix this", "repair this" or "make this printable" after a file or job is
+not an edit: it starts the repair flow. The heavy AI tier (`ai.heavy`)
+reads the problem — a slice failure or refusal, a failed post-slice gate,
+or a damaged uploaded mesh — and proposes changes from the same edit
+vocabulary, a bounded geometry repair (sink or extend an underside by at
+most 5 mm), and/or a mesh repair (welded vertices, degenerate and duplicate
+triangles dropped, holes filled, inverted winding fixed). The proposal is
+shown in chat first, with a preview for geometry and mesh changes; applying
+it works on a copy, never the source file, and the job re-slices through
+the full intake so every gate runs again. A fix is never a waiver and never
+skips a check, and starting the fixed print needs the normal approvals.
+The same offer appears on slice failures, slice refusals and post-slice
+gate failures; with no AI configured there is no offer, only a one-line
+note that a fix is available when AI is set up.
+
 ## Edit corpus tests
 
 The edit pipeline is covered by a dedicated 3-shard test suite in `tests/corpus/edit/` and weekly external corpus sweeps in `tests/corpus/run_external_edit_corpus.py`. See [Discord flow corpus in PROJECT-REFERENCE.md](PROJECT-REFERENCE.md#edit-corpus-journeys) for runner details and case authoring conventions.
