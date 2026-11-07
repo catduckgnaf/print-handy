@@ -197,6 +197,37 @@ jobs:
       - name: All offline shards passed
         run: test "${{ needs.offline-tests.result }}" = success
 
+  bounds-image-stage:
+    # Builds the Dockerfile's bounds-build stage on PRs (#952 phase 2): no
+    # other PR check builds the image, so the pinned rustup-init checksum,
+    # the toolchain and the maturin wheel build were first exercised at
+    # publish time, and arm64 never before a release. Each architecture
+    # builds on its own native runner (no emulation), then the wheel is
+    # checked to carry the extension at the path the runtime stage
+    # extracts, and that extraction is run exactly as the Dockerfile does.
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: ["ubuntu-24.04", "ubuntu-24.04-arm"]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the bounds-build stage
+        run: docker build --target bounds-build -t bounds-build:ci .
+      - name: The wheel carries the extension where the runtime stage extracts it
+        run: |
+          set -euo pipefail
+          id=$(docker create bounds-build:ci)
+          mkdir -p "$RUNNER_TEMP/out" && docker cp "$id:/out/." "$RUNNER_TEMP/out/" && docker rm "$id"
+          cd "$RUNNER_TEMP/out"
+          ls *.whl
+          python3 -m zipfile -l *.whl
+          python3 -m zipfile -e *.whl x
+          so=$(ls x/print_handy/core/_bounds_native*.so)
+          test -s "$so"
+          echo "extension: $so"
+
   native-bounds:
     # Builds the Rust/PyO3 bounds extension (#952, D1) and runs the
     # equivalence corpus against the native path. The wheel's extension

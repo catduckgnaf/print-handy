@@ -138,8 +138,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-venv build-essential curl ca-certificates && \
     rm -rf /var/lib/apt/lists/* && python3 -m venv /opt/venv && \
     pip install --no-cache-dir "maturin==1.16.0" && \
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
-      sh -s -- -y --profile minimal --default-toolchain 1.99.1
+    case "$(uname -m)" in \
+      x86_64) target=x86_64-unknown-linux-gnu; sum=20a06e644b0d9bd2fbdbfd52d42540bdde820ea7df86e92e533c073da0cdd43c ;; \
+      aarch64) target=aarch64-unknown-linux-gnu; sum=e3853c5a252fca15252d07cb23a1bdd9377a8c6f3efa01531109281ae47f841c ;; \
+      *) echo "unsupported architecture for the bounds build: $(uname -m)" >&2; exit 1 ;; \
+    esac && \
+    curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/rustup-init \
+      "https://static.rust-lang.org/rustup/archive/1.28.2/$target/rustup-init" && \
+    echo "$sum  /tmp/rustup-init" | sha256sum -c - && \
+    chmod +x /tmp/rustup-init && \
+    /tmp/rustup-init -y --profile minimal --default-toolchain 1.99.1 && rm /tmp/rustup-init
 WORKDIR /src
 COPY native/bounds/ ./native/bounds/
 # maturin places the extension at the module path only when the target
@@ -207,11 +215,17 @@ RUN pip install --no-cache-dir .
 # The native bounds wheel (#952) installs the compiled extension into
 # the venv's site-packages; only the .so ships, no build toolchain.
 COPY --from=bounds-build /out/*.whl /tmp/bounds-wheel/
-RUN pip install --no-cache-dir /tmp/bounds-wheel/*.whl && rm -rf /tmp/bounds-wheel
 COPY . .
-# The app also imports print_handy from /app (the working copy), so the
-# extension is mirrored next to the source package as well.
-RUN cp /opt/venv/lib/python3.*/site-packages/print_handy/core/_bounds_native*.so /app/print_handy/core/
+# Only the compiled extension leaves the wheel: the wheel also carries the
+# package skeleton maturin needed (print_handy/__init__.py and
+# core/__init__.py), which must never overwrite the installed package's
+# own files. The app imports print_handy from both site-packages and /app
+# (the working copy), so the one .so goes to both.
+RUN set -e; cd /tmp/bounds-wheel && python -m zipfile -e *.whl x && \
+    so=$(ls x/print_handy/core/_bounds_native*.so) && \
+    site=$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])') && \
+    cp "$so" "$site/print_handy/core/" && cp "$so" /app/print_handy/core/ && \
+    cd / && rm -rf /tmp/bounds-wheel
 ENV TZ=America/New_York
 ENV PRINT_HANDY_ORCA_CMD=/usr/local/bin/orca-slicer-stable
 ENV PRINT_HANDY_CONFIG=/app/config/docker.yaml HOME=/data PRINT_HANDY__BOT__MODE=standalone \
