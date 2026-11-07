@@ -757,6 +757,32 @@ def _bind_same_job_plates(parts: list[dict[str, Any]], data: Mapping[str, Any]) 
             part["gcode_path"] = matches[0]
 
 
+def _credit_multipart_part(part: dict, data: Mapping[str, Any], completed_units: int) -> bool:
+    """Credit a verified physical print once, even after duplicate listener delivery.
+
+    The stable started_at instant is required for attempt identity; old plan
+    migration fixtures without it retain their historical counter behavior.
+    """
+    attempt = _record_id(data) if data.get("started_at") else None
+    credited = part.get("completed_attempt_ids") or []
+    if attempt and attempt in credited:
+        return False
+    quantity = part.get("quantity", 1)
+    if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity < 1:
+        quantity = 1
+    already = part.get("completed_quantity", 0)
+    if isinstance(already, bool) or not isinstance(already, int):
+        already = 0
+    part["quantity"] = quantity
+    part["completed_quantity"] = min(quantity, max(0, already) + completed_units)
+    part["status"] = "completed" if part["completed_quantity"] >= quantity else "planned"
+    part["completed_at"] = data.get("completed_at")
+    part["last_gcode_file"] = data.get("gcode_file")
+    if attempt:
+        part.setdefault("completed_attempt_ids", []).append(attempt)
+    return True
+
+
 def update_multipart_plan(data: Mapping[str, Any]) -> tuple[str | None, bool]:
     plan_id = data.get("multipart_plan_id")
     required = _plan_parts(data.get("required_parts"))
@@ -766,6 +792,10 @@ def update_multipart_plan(data: Mapping[str, Any]) -> tuple[str | None, bool]:
         plan_id = _safe_slug(data.get("gcode_file"), "print-plan")
     plan_id = _safe_slug(str(plan_id), "print-plan")
     json_path = PLANS_DIR / f"{plan_id}.json"
+    # A cancelled/failed/unknown physical outcome is never a completed
+    # component. Real print records carry success=True/False/None.
+    if "success" in data and data.get("success") is not True:
+        return plan_id, plan_is_complete(plan_id)
     try:
         existing = json.loads(json_path.read_text(encoding="utf-8"))
     except (FileNotFoundError, OSError, json.JSONDecodeError):
@@ -793,47 +823,17 @@ def update_multipart_plan(data: Mapping[str, Any]) -> tuple[str | None, bool]:
         artifact_stems = {Path(name).stem for name in artifact_names if name}
         matches_artifact = bool(current_artifact) and (str(data.get("gcode_file")) in artifact_names or current_artifact in artifact_stems)
         if matches_id or matches_artifact:
-            quantity = part.get("quantity", 1)
-            if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity < 1:
-                quantity = 1
-            already_completed = part.get("completed_quantity", 0)
-            if isinstance(already_completed, bool) or not isinstance(already_completed, int):
-                already_completed = 0
-            part["quantity"] = quantity
-            part["completed_quantity"] = min(quantity, max(0, already_completed) + completed_units)
-            part["status"] = "completed" if part["completed_quantity"] >= quantity else "planned"
-            part["completed_at"] = data.get("completed_at")
-            part["last_gcode_file"] = data.get("gcode_file")
+            _credit_multipart_part(part, data, completed_units)
             matched = True
     if not matched and parts:
         artifact_matches = [part for part in parts
                             if current_artifact and Path(str(part.get("id") or "")).stem == current_artifact]
         if len(artifact_matches) == 1:
             part = artifact_matches[0]
-            quantity = part.get("quantity", 1)
-            if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity < 1:
-                quantity = 1
-            already_completed = part.get("completed_quantity", 0)
-            if isinstance(already_completed, bool) or not isinstance(already_completed, int):
-                already_completed = 0
-            part["quantity"] = quantity
-            part["completed_quantity"] = min(quantity, max(0, already_completed) + completed_units)
-            part["status"] = "completed" if part["completed_quantity"] >= quantity else "planned"
-            part["completed_at"] = data.get("completed_at")
-            part["last_gcode_file"] = data.get("gcode_file")
+            _credit_multipart_part(part, data, completed_units)
             matched = True
     if not matched and parts and len(parts) == 1:
-        quantity = parts[0].get("quantity", 1)
-        if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity < 1:
-            quantity = 1
-        already_completed = parts[0].get("completed_quantity", 0)
-        if isinstance(already_completed, bool) or not isinstance(already_completed, int):
-            already_completed = 0
-        parts[0]["quantity"] = quantity
-        parts[0]["completed_quantity"] = min(quantity, max(0, already_completed) + completed_units)
-        parts[0]["status"] = "completed" if parts[0]["completed_quantity"] >= quantity else "planned"
-        parts[0]["completed_at"] = data.get("completed_at")
-        parts[0]["last_gcode_file"] = data.get("gcode_file")
+        _credit_multipart_part(parts[0], data, completed_units)
     _bind_same_job_plates(parts, data)
     from ..core import projects
     number = _valid_print_number(data.get("project_number"))
