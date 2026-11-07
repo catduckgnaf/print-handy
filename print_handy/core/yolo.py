@@ -39,6 +39,12 @@ _PREFERRED = (
     'Re-slice with supports',
 )
 _NEGATIVE = re.compile(r'^(cancel|stop|no\b|do not|don\'t|not now|skip)|\(cancel\)', re.I)
+# Choices yolo never takes on its own: they act on the printer or change the
+# model (a forced restart wipes Resume; a rescale changes the part). A question
+# offering one of these, and none of the go labels above, goes to a person.
+_NEVER = re.compile(r'restart|reboot|firmware|bigger|smaller|scale|delete|wipe|discard', re.I)
+# Largest plate G-code yolo extracts from a .gcode.3mf package (zip-bomb guard).
+MAX_GCODE_BYTES = 1024 * 1024 * 1024
 
 
 def requested(text):
@@ -63,11 +69,17 @@ def gcode_file(event):
 
 
 def auto_answer(choices):
-    """The index a yolo run picks: a preferred go label, else the first non-cancel choice."""
+    """The index a yolo run picks: a preferred go label, else the first non-cancel choice.
+
+    None when a person must answer: the question offers a printer action or
+    a model change (``_NEVER``) and none of the go labels.
+    """
     labels = [str(c) for c in choices]
     for want in _PREFERRED:
         if want in labels:
             return labels.index(want)
+    if any(_NEVER.search(label) for label in labels):
+        return None
     for i, label in enumerate(labels):
         if not _NEGATIVE.search(label.strip()):
             return i
@@ -105,5 +117,17 @@ def extract_gcode(package, dest_dir):
         dest_dir.mkdir(parents=True, exist_ok=True)
         stem = re.sub(r'\.gcode\.3mf$', '', Path(package).name, flags=re.I)
         out = dest_dir / f'{stem}.gcode'
-        out.write_bytes(archive.read(plates[0]))
+        info = archive.getinfo(plates[0])
+        if info.file_size > MAX_GCODE_BYTES:
+            raise ValueError(f'{plates[0]} is {info.file_size} bytes uncompressed, over the '
+                             f'{MAX_GCODE_BYTES} byte limit')
+        written = 0
+        with archive.open(info) as src, open(out, 'wb') as dst:
+            while chunk := src.read(1 << 20):
+                written += len(chunk)
+                if written > MAX_GCODE_BYTES:  # a lying header does not get past the cap
+                    dst.close()
+                    out.unlink(missing_ok=True)
+                    raise ValueError(f'{plates[0]} expands past the {MAX_GCODE_BYTES} byte limit')
+                dst.write(chunk)
     return out, len(plates)

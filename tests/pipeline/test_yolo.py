@@ -62,6 +62,47 @@ def test_gcode_file_and_package_extraction(tmp_path):
     assert plates == 2 and out.name == 'hook.gcode' and out.read_text() == 'G1 X1\n'
 
 
+
+@pytest.mark.parametrize('choices', [
+    ['Force restart printer now', 'Cancel restart'],
+    ['Bigger', 'Smaller', 'Cancel scaling'],
+])
+def test_auto_answer_leaves_printer_actions_and_rescales_to_a_person(choices):
+    assert yolo.auto_answer(choices) is None
+
+
+def test_ask_under_yolo_hands_a_restart_question_to_a_person(monkeypatch):
+    asked = []
+
+    async def ask(adapter, source, key, question, choices, timeout, **kwargs):
+        asked.append(list(choices))
+        return 1
+    monkeypatch.setattr(prepared_intake, 'ask', ask)
+    sent = []
+
+    class _A:
+        async def send(self, chat_id, content, metadata=None):
+            sent.append(content)
+    token = yolo.ACTIVE.set(True)
+    try:
+        pick = asyncio.run(prepared_intake._ask(_A(), S(chat_id='c', thread_id=None), 'k', 'Printer stuck?',
+                                                ['Force restart printer now', 'Cancel restart'], 1))
+    finally:
+        yolo.ACTIVE.reset(token)
+    assert pick == 1 and asked == [['Force restart printer now', 'Cancel restart']]
+    assert any('a person has to' in m for m in sent)
+
+
+def test_package_extraction_refuses_an_oversized_plate(tmp_path, monkeypatch):
+    monkeypatch.setattr(yolo, 'MAX_GCODE_BYTES', 64)
+    pkg = tmp_path / 'bomb.gcode.3mf'
+    with zipfile.ZipFile(pkg, 'w', zipfile.ZIP_DEFLATED) as z:
+        z.writestr('Metadata/plate_1.gcode', 'G1 X1\n' * 100)
+    with pytest.raises(ValueError, match='limit'):
+        yolo.extract_gcode(pkg, tmp_path / 'out')
+    assert not (tmp_path / 'out' / 'bomb.gcode').exists()
+
+
 # ---------------------------------------------------------------- model_job gates
 
 def test_waive_refuses_normally_and_reports_under_yolo(capsys):

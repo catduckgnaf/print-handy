@@ -1506,10 +1506,15 @@ async def _ask(adapter, source, key, question, choices, timeout=None, **kwargs):
         if len(first) > 120:
             first = first[:117] + '...'
         meta = {'thread_id': source.thread_id} if getattr(source, 'thread_id', None) else None
+        if pick is not None:
+            with contextlib.suppress(Exception):
+                await adapter.send(chat_id=source.chat_id, metadata=meta,
+                                   content=f'Yolo: {first} -> {list(choices)[pick]}')
+            return pick
+        # A printer action or a model change: yolo never answers these itself.
         with contextlib.suppress(Exception):
             await adapter.send(chat_id=source.chat_id, metadata=meta,
-                               content=f'Yolo: {first} -> {list(choices)[pick]}')
-        return pick
+                               content=f'Yolo does not answer this one; a person has to: {first}')
     return await ask(adapter, source, key, question, list(choices), timeout, live_key=live_key, **kwargs)
 
 
@@ -3825,8 +3830,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                    content='Cancelled. Nothing uploaded or started. The slice stays on disk.')
                 return False
             # Bound to the exact G-code bytes the operator saw the warning for.
+            from . import yolo as _yolo
             receipt['support_override'] = {
-                'via': 'print_anyway',
+                # A yolo auto-answer is recorded apart from a person's Print anyway.
+                'via': 'yolo' if _yolo.ACTIVE.get() else 'print_anyway',
                 'support_coverage': cov_failure is not None,
                 'low_clearance': bool(low_clearance),
                 'gcode_sha256': dict(receipt.get('gcode_sha256') or {}),
