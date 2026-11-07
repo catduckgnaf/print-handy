@@ -1,15 +1,25 @@
-"""Load, validate and search the root-level registries (issue #169).
+"""Load, validate and search the package registries (issue #169).
 
-The data lives at the repository root so both the bot and a person browsing the
-repo can find it without knowing the package layout:
+The data lives inside the package, beside the code that loads it, so an
+installed copy carries it too (root cleanup PR-3; it used to sit in
+``knowledge/``, ``firmware/`` and ``printers/`` directories at the
+repository root):
 
-    knowledge/symptoms.toml         what users report, and the flow that works it
-    knowledge/troubleshooting.toml  the guided flows (see flows.py)
-    firmware/commands/              one file per firmware family (zmod.toml,
+    print_handy/knowledge/data/symptoms.toml
+                                    what users report, and the flow that works it
+    print_handy/knowledge/data/troubleshooting.toml
+                                    the guided flows (see flows.py)
+    print_handy/data/firmware-commands/
+                                    one file per firmware family (zmod.toml,
                                     klipper.toml, marlin.toml, prusa.toml):
                                     commands, macros and errors for that family
-    printers/registry/<vendor>.toml  one entry per registered printer model,
+    print_handy/data/printers-registry/<vendor>.toml
+                                    one entry per registered printer model,
                                     one file per vendor package
+
+``load_registry(root)`` resolves those paths under ``root``, which is the
+``print_handy`` package directory by default (tests pass a copied package
+tree rooted the same way).
 
 This module is read-only. It opens no socket, imports no printer adapter and can
 never turn a lookup into a printer action; a lookup returns registry text, and
@@ -25,7 +35,10 @@ from pathlib import Path
 from ..core import fuzzy
 from .flows import Flow, Node, Option
 
-ROOT = Path(__file__).resolve().parents[2]
+# The registry data root: the print_handy package directory itself. The
+# registries resolve under it (knowledge/data/, data/firmware-commands/,
+# data/printers-registry/), in the checkout and in an installed wheel alike.
+ROOT = Path(__file__).resolve().parents[1]
 FIRMWARES = ("zmod", "klipper", "marlin", "prusa")
 # Mirrors print_handy.printers.base.COLOR_SYSTEMS (kept local so this read-only
 # loader imports no printer code); the registry drift test asserts the two agree.
@@ -202,11 +215,11 @@ def _load_printers(root):
     """Every raw printer entry, paired with the vendor file it came from.
 
     The printer registry is one ``<vendor>.toml`` per vendor package under
-    ``printers/registry/``; the files are merged in sorted filename order into
-    one logical registry. A missing or empty directory is an error, never a
-    silently empty registry.
+    ``print_handy/data/printers-registry/``; the files are merged in sorted
+    filename order into one logical registry. A missing or empty directory
+    is an error, never a silently empty registry.
     """
-    registry_dir = root / "printers" / "registry"
+    registry_dir = root / "data" / "printers-registry"
     files = sorted(registry_dir.glob("*.toml")) if registry_dir.is_dir() else []
     if not files:
         raise RegistryError(f"printer registry missing or empty: {registry_dir}")
@@ -313,7 +326,7 @@ def _firmware_entry(raw, file_firmware, problems):
     """Build one FirmwareEntry, appending schema problems found.
 
     `file_firmware` is the firmware the file the entry sits in is named for
-    (firmware/commands/<firmware>.toml): an entry whose firmware field
+    (print_handy/data/firmware-commands/<firmware>.toml): an entry whose firmware field
     disagrees with its file is a problem, so the per-firmware partition the
     files claim is the partition the loader enforces (issue #644).
     """
@@ -329,7 +342,7 @@ def _firmware_entry(raw, file_firmware, problems):
         problems.append(f"{where}: firmware must be one of {FIRMWARES}")
     elif entry.firmware != file_firmware:
         problems.append(f"{where}: firmware {entry.firmware!r} disagrees with the file it sits in "
-                        f"(firmware/commands/{file_firmware}.toml); move it to its own firmware's file")
+                        f"(print_handy/data/firmware-commands/{file_firmware}.toml); move it to its own firmware's file")
     if entry.kind not in ENTRY_KINDS:
         problems.append(f"{where}: kind must be one of {ENTRY_KINDS}")
     if not entry.id.startswith(entry.firmware + "."):
@@ -344,22 +357,23 @@ def _firmware_entry(raw, file_firmware, problems):
 
 
 def _load_firmware_entries(root, problems):
-    """Load every firmware/commands/*.toml and merge, family files first.
+    """Load every data/firmware-commands/*.toml and merge, family files first.
 
     Files are read in FIRMWARES order (any further *.toml files after them,
     in sorted filename order), which reproduces the family sequence the
-    single firmware/commands.toml used. That order is observable: the macro
-    name index keeps the first entry that claims a name, and a bare
-    START_PRINT must keep resolving to the ZMod entry it resolved to when
-    the registry was one file (the #645 Creality/Sovol START_PRINT entries
-    are reached through their printer scopes, not the unscoped name).
+    single commands.toml used before the split. That order is observable:
+    the macro name index keeps the first entry that claims a name, and a
+    bare START_PRINT must keep resolving to the ZMod entry it resolved to
+    when the registry was one file (the #645 Creality/Sovol START_PRINT
+    entries are reached through their printer scopes, not the unscoped
+    name).
 
     The merged entries are the same logical registry the single
-    firmware/commands.toml used to hold (issue #644); duplicate ids are
-    rejected across files exactly as they were within the one file, by the
-    caller's shared seen-ids pass.
+    commands.toml used to hold (issue #644); duplicate ids are rejected
+    across files exactly as they were within the one file, by the caller's
+    shared seen-ids pass.
     """
-    commands_dir = root / "firmware" / "commands"
+    commands_dir = root / "data" / "firmware-commands"
     if not commands_dir.is_dir():
         raise RegistryError(f"registry file missing: {commands_dir}")
     by_name = {path.stem: path for path in commands_dir.glob("*.toml")}
@@ -440,8 +454,8 @@ def load_registry(root=ROOT) -> Registry:
     problems: list[str] = []
 
     firmware_entries = _load_firmware_entries(root, problems)
-    symptoms_doc = _load(root / "knowledge" / "symptoms.toml")
-    flows_doc = _load(root / "knowledge" / "troubleshooting.toml")
+    symptoms_doc = _load(root / "knowledge" / "data" / "symptoms.toml")
+    flows_doc = _load(root / "knowledge" / "data" / "troubleshooting.toml")
     printer_raws = _load_printers(root)
 
     entries: list[FirmwareEntry] = []
@@ -527,7 +541,7 @@ def load_registry(root=ROOT) -> Registry:
             profile=str(raw.get("profile", "")).strip(), notes=str(raw.get("notes", "")).strip(),
             color_system=str(raw.get("color_system", "")).strip(), thermal=thermal)
         if printer.key.split(".", 1)[0] != vendor_file or printer.vendor != vendor_file:
-            problems.append(f"{where}: filed in printers/registry/{vendor_file}.toml, but the "
+            problems.append(f"{where}: filed in print_handy/data/printers-registry/{vendor_file}.toml, but the "
                             f"key prefix and vendor field must both be '{vendor_file}'")
         if printer.firmware_family not in (*FIRMWARES, "none"):
             problems.append(f"{where}: firmware_family must be one of {FIRMWARES} or 'none'")
@@ -550,7 +564,7 @@ def load_registry(root=ROOT) -> Registry:
     for entry in entries:
         for key in entry.printers:
             if key != "*" and key not in printer_keys:
-                problems.append(f"firmware entry {entry.id}: printer {key!r} is not in the printer registry (printers/registry/)")
+                problems.append(f"firmware entry {entry.id}: printer {key!r} is not in the printer registry (print_handy/data/printers-registry/)")
 
     if problems:
         raise RegistryError("invalid registries:\n- " + "\n- ".join(problems))

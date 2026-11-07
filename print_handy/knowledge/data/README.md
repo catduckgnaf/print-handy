@@ -1,6 +1,6 @@
 # Knowledge registry
 
-Root-level troubleshooting knowledge for Print Handy (issue #169). These files are
+Package troubleshooting knowledge for Print Handy (issue #169). These files are
 data, read by `print_handy/knowledge/` and surfaced through `/print-lookup` and
 `/print-troubleshoot`. They are advisory only: nothing here is ever sent to a
 printer by the lookup or troubleshooting code.
@@ -23,7 +23,7 @@ One `[[symptom]]` per entry:
 | `title` | The symptom as a person would state it. |
 | `aliases` | Other phrasings lookups should match. |
 | `flow` | A flow `id` from `troubleshooting.toml`, or `""` when no flow should walk the user through it (heater errors stop at advice on purpose). |
-| `firmware_entries` | Entry ids from the per-firmware files in `../firmware/commands/`. |
+| `firmware_entries` | Entry ids from the per-firmware files in `../../data/firmware-commands/`. |
 | `summary` | One or two sentences: the likely shape of the problem. |
 | `first_checks` | Read-only observations to make first. Never printer actions. |
 

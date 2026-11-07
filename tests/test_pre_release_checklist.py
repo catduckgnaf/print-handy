@@ -73,7 +73,7 @@ def sample_range():
                 "files": [
                     {"filename": "print_handy/printers/example/adapter.py",
                      "status": "added"},
-                    {"filename": "printers/registry/example.toml", "status": "added"},
+                    {"filename": "print_handy/data/printers-registry/example.toml", "status": "added"},
                     {"filename": "docs/PRINTER-SUPPORT.md", "status": "modified"},
                 ],
             },

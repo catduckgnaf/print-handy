@@ -5,9 +5,9 @@ person browsing the repository and the bot read the same source (issue #169):
 
 | Registry | What is in it |
 | --- | --- |
-| [`knowledge/`](../knowledge/README.md) | Symptom index and guided troubleshooting flows (first layer, clogs, heat creep, bed levelling/mesh, ringing). |
-| [`firmware/`](../firmware/README.md) | Commands, macros and error codes for ZMod, Klipper and Marlin. |
-| [`printers/`](../printers/README.md) | One data entry per registered printer model: hardware facts, firmware family, and the profile module that is the source of truth. |
+| [`print_handy/knowledge/data/`](../print_handy/knowledge/data/README.md) | Symptom index and guided troubleshooting flows (first layer, clogs, heat creep, bed levelling/mesh, ringing). |
+| [`print_handy/data/firmware-commands/`](../print_handy/data/firmware-commands/README.md) | Commands, macros and error codes for ZMod, Klipper and Marlin. |
+| [`print_handy/data/printers-registry/`](../print_handy/data/printers-registry/README.md) | One data entry per registered printer model: hardware facts, firmware family, and the profile module that is the source of truth. |
 
 The executable printer profiles did not move: they stay in
 `print_handy/printers/`, and tests check the root printer registry against them.

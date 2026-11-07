@@ -1,6 +1,6 @@
 # Printer registry
 
-Root-level data index of the printers Print Handy knows about (issue #169).
+Package data index of the printers Print Handy knows about (issue #169).
 
 The executable printer profiles stay where they are —
 `print_handy/printers/<vendor>/<printer>.py`, one `MODEL` per file, discovered by
@@ -24,7 +24,7 @@ The table below is the schema for every entry, whichever file it sits in:
 | `label` | Display name, identical to `MODEL.label`. |
 | `vendor` | The vendor package name under `print_handy/printers/`. |
 | `firmware` | The firmware string from the model's own defaults. |
-| `firmware_family` | Lookup family in `../firmware/commands/`: `zmod`, `klipper`, `marlin`, or `none` when no command registry exists for it yet. |
+| `firmware_family` | Lookup family in `../firmware-commands/`: `zmod`, `klipper`, `marlin`, or `none` when no command registry exists for it yet. |
 | `connection` | How Print Handy reaches the printer (the vendor profile's connection). |
 | `kinematics` | Motion system, or `unspecified` for the generic placeholder profiles. |
 | `bed_mm`, `max_height_mm` | Usable print area and height from the model's defaults. |

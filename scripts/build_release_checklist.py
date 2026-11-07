@@ -130,8 +130,8 @@ def registry_paths(files):
     matched = []
     for name in _names(files):
         if (
-            name.startswith("printers/registry")
-            or name.startswith("firmware/commands")
+            name.startswith("print_handy/data/printers-registry")
+            or name.startswith("print_handy/data/firmware-commands")
             or name.startswith("print_handy/knowledge/")
             or name
             in ("docs/MACROS.md", "docs/PRINTER-SUPPORT.md", "docs/PRINTER-PROFILES.md")
@@ -416,7 +416,7 @@ def build_checklist(data):
     lines.append(
         "- [ ] `docs/PRINTER-SUPPORT.md`, `docs/PRINTER-PROFILES.md` "
         "and the model lists (README, Web UI printer picker, Unraid "
-        "template) match `printers/registry/`; the registry drift and "
+        "template) match `print_handy/data/printers-registry/`; the registry drift and "
         "parity tests pass on the release candidate."
     )
     lines.append("")
