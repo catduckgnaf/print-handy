@@ -182,7 +182,7 @@ def test_discord_bot_check_llm_row_pins_every_mode(cfg, monkeypatch):
     assert rows["llm"] == (True, "off (discord.chat_llm_enabled is false: no chat LLM; "
                                  "unmatched messages get the short not-understood reply)")
     # The roast row is a separate gate and does not follow the chat switch.
-    assert rows["roast"][0] is True and rows["roast"][1].startswith("on (luna-latest at ")
+    assert rows["roast"][0] is True and rows["roast"][1].startswith("on (local corpus, ")
 
 
 def test_chat_llm_off_leaves_design_roast_and_watchdog_gates_alone(no_llm_cfg):
@@ -191,7 +191,7 @@ def test_chat_llm_off_leaves_design_roast_and_watchdog_gates_alone(no_llm_cfg):
 
     * chat fallback — [discord] chat_llm_enabled (this issue), off here;
     * /print-design — [design] inheriting [llm], resolved independently;
-    * the roast — vision.roast_enabled on the vision endpoint;
+    * the roast — vision.roast_enabled, local corpus, no endpoint (#1002);
     * the camera watchdog — visual_watch.enabled on the vision endpoint.
     """
     resolved = design.resolve_http_config(no_llm_cfg)

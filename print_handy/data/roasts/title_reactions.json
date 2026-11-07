@@ -1,0 +1,87 @@
+{
+ "_about": "Keyword (matched through core.fuzzy, typo tolerant) -> lines about that kind of object.",
+ "_phase": "seed-v0 (#1002 attachment 1, 2026-11-07)",
+ "_license": "Original to Print Handy; MIT with the project.",
+ "entries": {
+  "benchy": [
+   "Ah, {title} — the little boat that judges every printer and finds most of them merely adequate.",
+   "{title} has docked at last, ready to be photographed from exactly one flattering angle.",
+   "Every printer must face {title} eventually, like a tiny floating exam with a smokestack."
+  ],
+  "box": [
+   "{title} is a container with big dreams, mostly involving containing slightly smaller containers.",
+   "A fresh {title} joins the eternal quest to put things inside other things, neatly.",
+   "{title} is empty right now, but give it a week and it will contain pure mystery."
+  ],
+  "bracket": [
+   "{title} is here to hold things up, emotionally unavailable but structurally extremely supportive.",
+   "Nobody celebrates {title} at parties, yet everything it holds would fall apart without it.",
+   "{title}: the unsung hero whose entire personality is two holes and quiet reliability."
+  ],
+  "dragon": [
+   "{title} has hatched, and it is already acting like it owns the treasure and the shelf.",
+   "Behold {title}, a fearsome dragon whose main power is looking cool next to dice.",
+   "{title} arrived with wings, attitude, and absolutely no plans to guard anything but the desk."
+  ],
+  "gear": [
+   "{title} is ready to mesh, spin, and take credit for the whole machine working.",
+   "One more {title} for the collection, because a single gear is just a round decoration.",
+   "{title} has teeth, purpose, and strong opinions about meshing with its neighbors."
+  ],
+  "helmet": [
+   "{title} is complete, sized for a hero, a costume, or a very confident houseplant.",
+   "Behold {title}, protection for a head that has clearly made some ambitious plans.",
+   "{title} looks ready for battle, provided the battle is indoors and mostly posing."
+  ],
+  "hook": [
+   "{title} is small, curved, and about to carry far more responsibility than it signed up for.",
+   "Behold {title}, the tiny wall hero that will hold keys, coats, and household chaos.",
+   "{title} will spend its life hanging around, which is either lazy or literally the job."
+  ],
+  "mask": [
+   "{title} is ready for a mysterious entrance at a party nobody has planned yet.",
+   "With {title} complete, someone can now look dramatic while remaining completely anonymous at the store.",
+   "{title}: instant intrigue, zero actual secrets, and a very committed eye-hole game."
+  ],
+  "organizer": [
+   "{title} promises this is the year the desk finally stays tidy for a full week.",
+   "Behold {title}, a tiny city planner for pens, cables, and good intentions.",
+   "{title} will organize everything perfectly, right up until someone opens a drawer nearby."
+  ],
+  "phone stand": [
+   "{title} is ready to hold a phone at the perfect angle for ignoring notifications comfortably.",
+   "With {title} on duty, the phone finally has a throne worthy of its screen time.",
+   "{title} exists so a phone can recline like royalty while its owner does actual work."
+  ],
+  "planter": [
+   "{title} is ready for a plant that will either thrive or be dramatically replaced monthly.",
+   "A new home for greenery: {title}, now accepting one plant and unlimited optimism.",
+   "{title} gives a houseplant the fancy apartment it has been manifesting all spring."
+  ],
+  "skull": [
+   "{title} has emerged, spooky on the outside and completely hollow where it counts.",
+   "Behold {title}, the only skull in the house that improves with shelf lighting.",
+   "{title} looks like it has ancient secrets, but it mostly just holds pens now."
+  ],
+  "star": [
+   "{title} has arrived, five points of pure confidence and zero plans to twinkle responsibly.",
+   "Behold {title}, a celebrity among shapes, ready for its close-up on the highest shelf.",
+   "{title} proves that being pointy in five directions is a complete personality."
+  ],
+  "sword": [
+   "{title} has been forged, more or less, in the ancient fires of a warm nozzle.",
+   "With {title} complete, someone is now legally required to make swooshing noises while holding it.",
+   "{title}: all the drama of a legendary blade, none of the sharpening responsibilities."
+  ],
+  "toy": [
+   "{title} is officially too cute to be called a test print, whatever anyone says.",
+   "A wild {title} appears, and productivity in the room drops by a measurable amount.",
+   "{title} was made for play, but it will mostly supervise from the shelf, judging quietly."
+  ],
+  "vase": [
+   "{title} is ready to hold flowers, water, and the secret that it is mostly decorative confidence.",
+   "A new {title} enters the home, immediately promoted to chief dust collector with excellent curves.",
+   "{title} proves once again that a container with no lid can still contain unlimited style."
+  ]
+ }
+}

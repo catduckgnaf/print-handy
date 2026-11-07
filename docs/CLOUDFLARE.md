@@ -45,7 +45,7 @@ Keep the token in the variable (`LLM_API_KEY`, or whatever `llm.api_key_env` nam
 - **Design inherits.** `/print-design` uses `llm.chat_url`, `llm.model` and `llm.api_key_env` unless `design.chat_url`, `design.model` or `design.api_key_env` are set ([SETTINGS.md](SETTINGS.md)). A common split is the 8B model for chat and `design.model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast"` for design. Design is on automatically once an endpoint is configured; `design.enabled: false` turns it off.
 - **Discord only for chat.** Chat in plain language is a Discord feature; `discord.chat_llm_enabled: false` turns it off while design keeps the endpoint.
 - **Timeouts.** `llm.timeout_s` defaults to 20 seconds and `design.timeout_s` to 180. Raise `llm.timeout_s` if chat replies time out on the 70B model.
-- **Roasts are separate.** The print-started roast uses `services.vision_chat_url` with `CLIPROXY_API_KEY`, not `llm.*`, and this guide does not cover pointing it at Cloudflare.
+- **Roasts need no endpoint.** Roasts come from the local roast corpus (#1002) and never call a model, so nothing here affects them.
 
 ## 2. Camera watchdog through the vision-verdict Worker
 

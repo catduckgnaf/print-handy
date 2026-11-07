@@ -22,7 +22,7 @@ Print Handy is that phone experience for everybody else, Bambu included. Klipper
 
 **Local-first, on purpose.** Print Handy is one program running on your hardware: the slicer, the spool records, the print history and the camera checks all stay on your network, and your printers are reached at their local addresses. There is no Print Handy account and no Print Handy cloud. One honest exception: the chat app you pick carries what you send through it — a model file, a photo, a timelapse — over that provider's servers, exactly like any other message in Discord or Telegram. Print Handy adds no cloud of its own on top of that, and its local surfaces (the doctor, the Web UI, a self-hosted Matrix room) never leave the house. A model endpoint is just an optional extra you can point at a server in your own house: with none configured at all, Print Handy still slices, prints, tracks spools and reports back. The chat platform is the remote control you pick for that flow (Discord, Telegram or Matrix, all running against your local install), and the local-only surfaces — the doctor and the Web UI — need no chat platform at all.
 
-It is also a little mean. Every print start comes with a one-line roast of your model (another articulated dragon? bold choice), the camera watchdog asks whether that's spaghetti or modern art, and nothing prints until a human says so. Usually you. Possibly someone with better taste.
+It is also a little mean. Every finished print comes with a one-line roast of your model (another articulated dragon? bold choice), the camera watchdog asks whether that's spaghetti or modern art, and nothing prints until a human says so. Usually you. Possibly someone with better taste.
 
 *Not affiliated with Bambu Lab. We just liked their app enough to want it on every other printer.*
 
@@ -45,7 +45,7 @@ That's the whole idea: the convenience of printing from chat, with a human — y
 
 <img src="assets/screenshots/discord-02-copies-and-confirm.png" alt="Print Handy in Discord: choose the number of copies, then confirm the estimate with Slice and print now, Slice only, Stop with colors saved or Cancel print request" width="720">
 
-**The print starts — and yes, it roasts you a little.** When a model endpoint is configured, the print-started post can end with a one-line roast of your model.
+**The print starts — and when it finishes, it roasts you a little.** The completion post ends with a one-line roast of your model, written by Print Handy itself: no AI service needed.
 
 <img src="assets/screenshots/discord-03-print-start.png" alt="Print Handy in Discord: the print started post, ending with a one-line roast of the model" width="720">
 
@@ -59,7 +59,7 @@ That's the whole idea: the convenience of printing from chat, with a human — y
 5. **Change a spool, guided.** Pick the slot, pick the new spool, decide what happens to the old one, confirm. ![Changing a spool, guided](assets/screenshots/discord-09-spool-change.png)
 6. **A spool added in Spoolman gets offered for a slot.** ![New spool prompt and load flow](assets/screenshots/discord-07-new-spool.png)
 
-These are mockups built from the bot's real message text and buttons, with placeholder names; the roast line is an example of the style, since real roasts are generated per print. Sources for every line are in [assets/screenshots](assets/screenshots/README.md).
+These are mockups built from the bot's real message text and buttons, with placeholder names; the roast line is an example of the style, since real roasts are drawn per print from the local roast corpus. Sources for every line are in [assets/screenshots](assets/screenshots/README.md).
 
 </details>
 
@@ -120,7 +120,7 @@ Print Handy groups printers by **how they connect**, because that is what decide
 The same bot, with the same prompts and safety gates, runs on **Discord, Telegram or Matrix** — only the transport changes. Setup: [Discord](docs/DISCORD-BOT-SETUP.md) · [Telegram](docs/TELEGRAM-BOT-SETUP.md) · [Matrix](docs/MATRIX-BOT-SETUP.md).
 
 - On Discord you can alternatively run Print Handy as a Hermes plugin instead of the standalone bot. Use only one mode with a given bot token.
-- The Telegram and Matrix bots are pure bots with no LLM chat: send a message that isn't a command and you get the command list back. (Their roasts, camera checks and design still work — those use the vision and design endpoints, not chat.)
+- The Telegram and Matrix bots are pure bots with no LLM chat: send a message that isn't a command and you get the command list back. (Their roasts, camera checks and design still work — roasts are local, and the others use the vision and design endpoints, not chat.)
 - Discord is a choice, not a requirement: the same local-first install serves Telegram or Matrix instead, and the doctor and the local Web UI need no chat platform at all.
 
 ## What you can do
@@ -149,7 +149,7 @@ Point Print Handy at any OpenAI-compatible chat endpoint — a local model serve
 - **Chat in plain language (Discord).** Ask for things the way you'd say them, and Print Handy turns the reply into one of its own checked commands — the model can only ever pick from the same command list, never invent an action. Turn it off with `discord.chat_llm_enabled` and Discord becomes a pure bot too, while the endpoint stays available for design.
 - **Camera watchdog.** While a print runs, Print Handy keeps an eye on the printer camera — at layer 2, layer 5 and then periodically — and a vision model classifies each frame. If it sees spaghetti, a detached part, an empty bed, a stalled print, or a frame it can't classify, it posts the photo with **Pause** and **It's fine** buttons. Tap Pause, and the paused post offers Resume and Cancel. The watchdog itself never touches the printer — it only alerts; every printer action is your tap. Tune how readily it alerts with `visual_watch.sensitivity` from 1 (quietest) to 5 (most alerts, default 3) — env `PRINT_HANDY__VISUAL_WATCH__SENSITIVITY` — or turn it off with `visual_watch.enabled`. It needs a camera snapshot and a vision endpoint (`services.vision_chat_url`) — or, with no endpoint at all, the built-in local failure detector (`vision.local_detector_enabled`), which judges frames on this machine and needs no LLM and no cloud service. With neither configured, camera checks stay off rather than guessing. See the [Docker guide](docs/DOCKER.md#camera-watch-visual_watch).
 - **Design a part in chat.** `/print-design` (or `/design`) turns a plain-language description into an OpenSCAD part, shows you a preview with the real dimensions, and lets you ask for changes (up to 10 turns) before it joins the normal prepare-and-confirm flow. Works on Discord, Telegram and Matrix whenever a model endpoint is configured. See [AI design](docs/DESIGN.md).
-- **The roast.** When printing begins, the print-started post can end with a one-line roast of your model (exactly one per print; completion posts never carry one). Roasts are on by default whenever an LLM/vision endpoint is available, on every platform, and `vision.roast_enabled` (env `PRINT_HANDY__VISION__ROAST_ENABLED`) turns them off without affecting camera checks.
+- **The roast.** When a print finishes, the completion post ends with a one-line roast of your model (exactly one per print), and you can ask for one any time: "roast my last print", "roast print 84". Roasts come from a local corpus that ships with Print Handy — no LLM, no endpoint, no cloud — on every platform, and `vision.roast_enabled` (env `PRINT_HANDY__VISION__ROAST_ENABLED`) turns them off without affecting camera checks.
 
 Printer-specific capabilities and the full command list are in the [project reference](docs/PROJECT-REFERENCE.md).
 
