@@ -1,0 +1,23 @@
+{
+ "_about": "Completed prints of a job printed at least twice ({times} is how many).",
+ "_phase": "seed-v0 (#1002 attachment 1, 2026-11-07)",
+ "_license": "Original to Print Handy; MIT with the project.",
+ "entries": [
+  "Print number {times} of {title} — at this point, the printer can make this one from memory.",
+  "{title} returns for appearance number {times}, and the crowd of previous copies welcomes its newest sibling.",
+  "Copy number {times} of {title} has arrived, and the earlier copies are pretending not to notice.",
+  "{printer} has printed {title} {times} times now, which legally makes it a production facility.",
+  "At print number {times}, {title} is no longer a project; it is a recurring character.",
+  "{title} number {times} is done, and the shelf is starting to look like a reunion photo.",
+  "Another {title}, number {times} in the saga, and each one arrives slightly more confident than the last.",
+  "{times} prints of {title} means either it is very useful or someone keeps losing them.",
+  "{title} has been printed {times} times, and at this point the slicer just sighs and complies.",
+  "Print {times} of {title} complete — the original copy has started charging the others rent.",
+  "Number {times} off the line: {title} again, because one was clearly just the trailer.",
+  "{title} print number {times} joins the collection, and the collection is now basically a fan club.",
+  "This is {title}, round number {times}, and the rematch keeps ending exactly the same way.",
+  "With {times} copies, {title} could start a small club and elect its first copy president.",
+  "{printer} finished {title} number {times}, then immediately checked whether another one was queued behind it.",
+  "Print number {times}: {title} once more, proving demand is high or storage is very forgiving."
+ ]
+}

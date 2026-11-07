@@ -282,11 +282,11 @@ def test_bot_check_rows_for_telegram(cfg, monkeypatch):
 
 def test_bot_check_roast_row_for_telegram(cfg, monkeypatch):
     """The roast is not the chat LLM fallback: Telegram stays a pure bot, and
-    its check still reports the roast — on by default when an LLM/vision
-    endpoint is available, off when vision.roast_enabled is false."""
+    its check still reports the roast — on by default from the local corpus
+    (no LLM, #1002), off when vision.roast_enabled is false."""
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
     rows = {label: (ok, detail) for label, ok, detail in bot_main.checks(cfg)}
-    assert rows["roast"][0] is True and rows["roast"][1].startswith("on (luna-latest at ")
+    assert rows["roast"][0] is True and rows["roast"][1].startswith("on (local corpus, ")
     cfg["vision"]["roast_enabled"] = False
     rows = {label: (ok, detail) for label, ok, detail in bot_main.checks(cfg)}
     assert rows["roast"] == (True, "off (vision.roast_enabled is false)")
