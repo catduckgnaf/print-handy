@@ -163,6 +163,67 @@ def _add_breakdown(table, label, record):
         row["print_duration_seconds"] += seconds
 
 
+def _print_identity(record):
+    """The conservative repeat identity of one record, or None.
+
+    Two records are the same print only when BOTH the normalized title
+    and the normalized G-code file name match exactly. Normalization
+    is deliberately shallow: surrounding whitespace is stripped, runs
+    of whitespace collapse, case folds, and the G-code value is reduced
+    to its file name (paths differ between the slicer, the archive and
+    the printer for the same job). Nothing fuzzier is attempted: a
+    same-title print from a different file, and a renamed print from
+    the same file, count as different prints, and a record missing
+    either field is never grouped with anything — undercounting
+    repeats is honest, merging two different prints into one is not.
+    """
+    title = record.get("title")
+    gcode = record.get("gcode_file")
+    if not isinstance(title, str) or not isinstance(gcode, str):
+        return None
+    title_key = " ".join(title.split()).casefold()
+    gcode_key = " ".join(gcode.replace("\\", "/").rsplit("/", 1)[-1].split()).casefold()
+    if not title_key or not gcode_key:
+        return None
+    return title_key, gcode_key
+
+
+def _repeats(rows):
+    """The repeats breakdown for ``rows`` (see :func:`_print_identity`)."""
+    groups: dict[tuple[str, str], dict] = {}
+    ungrouped = 0
+    for record in rows:
+        identity = _print_identity(record)
+        if identity is None:
+            ungrouped += 1
+            continue
+        group = groups.setdefault(identity, {
+            "title": str(record.get("title")).strip(),
+            "gcode_file": identity[1], "count": 0,
+            "total_seconds": 0.0, "total_filament_g": 0.0})
+        group["count"] += 1
+        seconds = _num(record.get("print_duration_seconds"))
+        if seconds is not None:
+            group["total_seconds"] += seconds
+        grams = _num(record.get("filament_used_g"))
+        if grams is not None:
+            group["total_filament_g"] += grams
+    repeated = [g for g in groups.values() if g["count"] >= 2]
+    repeated.sort(key=lambda g: (-g["count"], g["title"].casefold()))
+    reprint_count = sum(g["count"] - 1 for g in repeated)
+    most = [{"title": g["title"], "gcode_file": g["gcode_file"], "count": g["count"],
+             "total_hours": round(g["total_seconds"] / 3600, 2),
+             "total_filament_g": round(g["total_filament_g"], 1)}
+            for g in repeated[:5]]
+    return {
+        "distinct_prints": len(groups) + ungrouped,
+        "repeated_prints": len(repeated),
+        "reprint_count": reprint_count,
+        "reprint_share": round(reprint_count / len(rows), 4) if rows else None,
+        "most_reprinted": most,
+    }
+
+
 def _top(rows, key, limit=5):
     scored = []
     for record in rows:
@@ -257,6 +318,8 @@ def aggregate(records, year=None, tz=None):
             stop_reasons[reason.strip()] = stop_reasons.get(reason.strip(), 0) + 1
     flagged = [r for r in rows if r.get("watch_risk")]
     monthly: dict[str, int] = {}
+    by_hour: dict[str, int] = {}
+    by_weekday: dict[str, int] = {}
     night_prints = 0
     for record in rows:
         parsed = _parse_started(record.get("started_at"))
@@ -265,8 +328,15 @@ def aggregate(records, year=None, tz=None):
         local = _local(parsed, resolved)
         key = local.strftime("%Y-%m")
         monthly[key] = monthly.get(key, 0) + 1
+        hour_key = local.strftime("%H")
+        by_hour[hour_key] = by_hour.get(hour_key, 0) + 1
+        weekday_key = local.strftime("%A")
+        by_weekday[weekday_key] = by_weekday.get(weekday_key, 0) + 1
         if local.hour < 5:  # 00:00-04:59 in the bucket timezone counts as late night
             night_prints += 1
+    weekday_order = ["Monday", "Tuesday", "Wednesday", "Thursday",
+                     "Friday", "Saturday", "Sunday"]
+    by_weekday = {day: by_weekday[day] for day in weekday_order if day in by_weekday}
 
     return {
         "year": year,
@@ -299,7 +369,30 @@ def aggregate(records, year=None, tz=None):
         "risk_flagged": len(flagged),
         # Deprecated alias of risk_flagged (the #956 name); same value.
         "watchdog_flagged": len(flagged),
+        # Pasta, failed and stopped are three separate headline numbers
+        # (#981), never merged into one "problems" count. Pasta means
+        # watchdog spaghetti events; those events are not recorded yet
+        # (the v2 events file does not exist), so pasta is honestly
+        # None in a named not-recorded state — the risk-flag count
+        # above is a different thing and is never presented as pasta.
+        "outcomes": {
+            "completed": completed,
+            "failed": failed,
+            "stopped": canceled,
+            "in_progress": in_progress,
+            "pasta": None,
+            "pasta_state": "not_recorded",
+            "pasta_note": ("Pasta (spaghetti) events are not recorded yet: "
+                           "the camera watchdog's detections are not persisted, "
+                           "so no pasta count exists until event recording begins."),
+            "stopped_note": ("Stopped counts records with status canceled/cancelled. "
+                             "The records do not say whether a person or the printer "
+                             "stopped the print, so no finer split is shown."),
+        },
+        "repeats": _repeats(rows),
         "monthly": dict(sorted(monthly.items())),
+        "by_hour": dict(sorted(by_hour.items())),
+        "by_weekday": by_weekday,
         "night_prints": night_prints,
         "top_by_duration": _top(rows, "print_duration_seconds"),
         "top_by_filament": _top(rows, "filament_used_g"),
@@ -336,6 +429,68 @@ def _failure_streak(records):
     return best
 
 
+def _archetype(stats, highlights, rows):
+    """The year's one printing personality (#981 design spec).
+
+    Exactly one archetype is always returned — a failed-heavy year
+    earns a fun one, never a shaming one, and the neutral fallback
+    guarantees every year gets one. Rules are checked in this
+    documented precedence order (most specific signal first), and
+    every rule is data-gated on the number named in its fact:
+
+    1. Spaghetti Magnet — the most pasta (spaghetti) events, and at
+       least 3. GATED OFF in this step: pasta events are not recorded
+       yet (``outcomes.pasta`` is None), so this rule can never fire
+       here, and it never reads risk flags as pasta.
+    2. The Perfectionist — success rate at least 95% on at least 20
+       finished prints.
+    3. Reprint Machine — reprints are at least 25% of finished prints.
+    4. Marathoner — the longest print is at least 3 times the median
+       print duration and at least 2 hours.
+    5. Night Owl — at least 30% of timed starts fall in the local
+       night hours (00:00-04:59 in the bucket timezone).
+    6. One-Color Loyalist — the top color covers over 50% of prints.
+    7. The Regular — the fallback, when no signal above is strong.
+    """
+    outcomes = stats["outcomes"]
+    pasta = outcomes.get("pasta")
+    if isinstance(pasta, (int, float)) and pasta >= 3:
+        return {"name": "Spaghetti Magnet",
+                "fact": f"{int(pasta)} pasta events were recorded this year."}
+    finished = stats["finished"]
+    if (finished >= 20 and stats["success_rate"] is not None
+            and stats["success_rate"] >= 0.95):
+        return {"name": "The Perfectionist",
+                "fact": f"{round(stats['success_rate'] * 100):g}% success across "
+                        f"{finished} finished prints."}
+    reprints = stats["repeats"]["reprint_count"]
+    if finished and reprints and reprints / finished >= 0.25:
+        return {"name": "Reprint Machine",
+                "fact": f"{reprints} of {finished} finished prints were reprints."}
+    durations = sorted(v for r in rows
+                       if (v := _num(r.get("print_duration_seconds"))) is not None)
+    longest = stats["longest_print"]
+    if durations and longest and longest.get("seconds"):
+        median = durations[len(durations) // 2] if len(durations) % 2 else \
+            (durations[len(durations) // 2 - 1] + durations[len(durations) // 2]) / 2
+        if median and longest["seconds"] >= 3 * median and longest["seconds"] >= 7200:
+            return {"name": "Marathoner",
+                    "fact": f"Your longest print ran {longest['seconds'] / 3600:.1f} hours, "
+                            f"at least three times your median print."}
+    timed = sum(stats["by_hour"].values())
+    if timed and stats["night_prints"] / timed >= 0.30:
+        return {"name": "Night Owl",
+                "fact": f"{stats['night_prints']} of {timed} prints started between "
+                        "midnight and 5 a.m. local time."}
+    total = stats["total_prints"]
+    if highlights["top_color"] and total and highlights["top_color_prints"] / total > 0.5:
+        return {"name": "One-Color Loyalist",
+                "fact": f"{highlights['top_color']} covered "
+                        f"{highlights['top_color_prints']} of {total} prints."}
+    return {"name": "The Regular",
+            "fact": f"A steady year: {total} prints, no single habit took over."}
+
+
 def build_wrapped(records, year, tz=None):
     """The Wrapped payload for one year: headline stats, highlights, script.
 
@@ -362,6 +517,13 @@ def build_wrapped(records, year, tz=None):
     else:
         busiest_count = 0
     biggest = stats["top_by_filament"][0] if stats["top_by_filament"] else None
+    most_reprinted = stats["repeats"]["most_reprinted"][0] if stats["repeats"]["most_reprinted"] else None
+    peak_hour = None
+    if stats["by_hour"]:
+        peak_hour = int(max(stats["by_hour"].items(), key=lambda kv: kv[1])[0])
+    peak_weekday = None
+    if stats["by_weekday"]:
+        peak_weekday = max(stats["by_weekday"].items(), key=lambda kv: kv[1])[0]
     highlights = {
         "top_color": top_color, "top_color_prints": top_color_count,
         "top_material": top_material, "top_printer": top_printer,
@@ -373,15 +535,26 @@ def build_wrapped(records, year, tz=None):
         "watchdog_flagged": stats["watchdog_flagged"], "failed": stats["failed"],
         "worst_failure_streak": _failure_streak(rows),
         "night_prints": stats["night_prints"],
+        "most_reprinted": most_reprinted,
+        "reprint_count": stats["repeats"]["reprint_count"],
+        "peak_hour": peak_hour, "peak_weekday": peak_weekday,
     }
+    highlights["archetype"] = _archetype(stats, highlights, rows)
     script = _script(year, stats, highlights, tz=resolved)
     return {"year": year, "stats": stats, "headline": {
                 "total_prints": stats["total_prints"], "completed": stats["completed"],
                 "failed": stats["failed"], "canceled": stats["canceled"],
+                # Pasta/failed/stopped stay separate (#981): stopped is
+                # the canceled count under its plain name, pasta is the
+                # honest not-recorded state (None) until watchdog event
+                # recording exists.
+                "stopped": stats["outcomes"]["stopped"],
+                "pasta": None, "pasta_state": stats["outcomes"]["pasta_state"],
                 "success_rate": stats["success_rate"], "total_hours": stats["total_hours"],
                 "total_filament_used_g": stats["total_filament_used_g"],
                 "total_filament_used_kg": stats["total_filament_used_kg"]},
             "highlights": highlights, "script": script,
+            "archetype": highlights["archetype"],
             "years_available": stats["years_available"]}
 
 
@@ -415,6 +588,14 @@ def _script(year, stats, highlights, tz=None):
         lines.append(f"Your top material was {highlights['top_material']}. It knows the way to the bed by now.")
     if highlights["top_printer"]:
         lines.append(f"Your hardest-working printer was {highlights['top_printer']}. It has earned a nozzle check.")
+    most_reprinted = highlights.get("most_reprinted")
+    if most_reprinted and most_reprinted["count"] >= 3:
+        lines.append(f"You printed {most_reprinted['title']} {most_reprinted['count']} times. "
+                     "If it works, print it again. And again.")
+    if highlights.get("peak_hour") is not None and highlights.get("peak_weekday"):
+        lines.append(f"Your busiest hour was {highlights['peak_hour']:02d}:00 and your "
+                     f"busiest weekday was {highlights['peak_weekday']}. The printer "
+                     "keeps your hours now.")
     failed = stats["failed"]
     if failed > 0:
         lines.append(f"{failed} print{'s' if failed != 1 else ''} failed this year. "
@@ -451,6 +632,9 @@ def _script(year, stats, highlights, tz=None):
         if spool_count and total and spool_count / total > 0.5:
             lines.append(f"Spool {highlights['top_spool']} carried {spool_count} of {total} "
                          "prints. One spool did the heavy lifting.")
+    archetype = highlights.get("archetype")
+    if archetype:
+        lines.append(f"Your printing personality: {archetype['name']}. {archetype['fact']}")
     lines.append(f"That was {year}. Same printer, new year: print something weird.")
     return lines
 

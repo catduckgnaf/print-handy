@@ -158,7 +158,15 @@ def _card_filter(text):
 
 
 def _card_texts(wrapped):
+    """The card sequence, data-led (#981): headline numbers, the
+    separate failed/stopped counts, the most-reprinted print, the top
+    color and material, then the commentary lines. Every card is
+    gated on its number being present in the payload. This builder is
+    the seam a later presentation rework swaps; the pacing contract
+    (segment frame rate/timebase) lives in the segment commands, not
+    here."""
     headline = wrapped.get("headline") or {}
+    highlights = wrapped.get("highlights") or {}
     texts = [f"Print Handy Wrapped {wrapped.get('year')}"]
     if headline.get("total_prints"):
         texts.append(f"{headline['total_prints']} prints")
@@ -168,6 +176,25 @@ def _card_texts(wrapped):
         texts.append(f"{headline['total_filament_used_kg']:g} kg of filament")
     if headline.get("success_rate") is not None:
         texts.append(f"Success rate {round(headline['success_rate'] * 100):g}%")
+    if headline.get("failed"):
+        texts.append(f"{headline['failed']} failed print"
+                     f"{'s' if headline['failed'] != 1 else ''}")
+    stopped = headline.get("stopped", headline.get("canceled"))
+    if stopped:
+        texts.append(f"{stopped} stopped print{'s' if stopped != 1 else ''}")
+    most_reprinted = highlights.get("most_reprinted")
+    if most_reprinted and most_reprinted.get("count"):
+        texts.append(f"{most_reprinted.get('title') or 'One print'} printed "
+                     f"{most_reprinted['count']} times")
+    if highlights.get("top_color"):
+        texts.append(f"Top color {highlights['top_color']}")
+    if highlights.get("top_material"):
+        texts.append(f"Top material {highlights['top_material']}")
+    archetype = wrapped.get("archetype") or highlights.get("archetype")
+    if archetype and archetype.get("name"):
+        # The personality card sits mid-sequence, never last: the
+        # commentary (ending on the closing line) follows it.
+        texts.append(f"Your printing personality: {archetype['name']}")
     texts.extend(str(line) for line in (wrapped.get("script") or []))
     return texts
 
@@ -213,6 +240,10 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
         clips = []
     if not clips:
         notes.append("timelapses: none found")
+    else:
+        # #981: these are clips from this year, in the order the finder
+        # returned them — never a best-hits or highlights selection.
+        notes.append(f"timelapses: {len(clips)} clips from this year")
     work = out_dir / f".wrapped-{year}-parts"
     work.mkdir(parents=True, exist_ok=True)
     segments = []

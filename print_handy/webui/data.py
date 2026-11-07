@@ -184,6 +184,34 @@ def _rate(rate):
     return "unknown" if rate is None else f"{round(rate * 100):g}%"
 
 
+def _bar_chart(title, items):
+    """One server-rendered inline SVG horizontal bar chart.
+
+    ``items`` is a list of (label, value) pairs read from the same
+    aggregate payload the tables render — there is no second counting
+    path. Every bar carries its label and value as SVG text, and the
+    figure carries an aria label, so the chart stays readable as text
+    without SVG (the tables on this page carry the same numbers).
+    """
+    items = [(str(label), float(value)) for label, value in items]
+    peak = max((value for _label, value in items), default=0.0) or 1.0
+    width, row_h, label_w, value_w = 560, 22, 150, 70
+    height = max(len(items), 1) * row_h + 4
+    summary = ", ".join(f"{label}: {value:g}" for label, value in items) or "nothing recorded"
+    rows = []
+    for index, (label, value) in enumerate(items):
+        y = index * row_h + 4
+        bar_w = (width - label_w - value_w) * (value / peak)
+        rows.append(
+            f'<text x="0" y="{y + 13}">{_esc(label)}</text>'
+            f'<rect x="{label_w}" y="{y}" width="{bar_w:.1f}" height="16" fill="#7a9e7e"></rect>'
+            f'<text x="{label_w + bar_w + 6:.1f}" y="{y + 13}">{value:g}</text>')
+    return (f'<figure><figcaption>{_esc(title)}</figcaption>'
+            f'<svg role="img" aria-label="{_esc(title)}: {_esc(summary)}" '
+            f'width="{width}" height="{height}" viewBox="0 0 {width} {height}">'
+            f'{"".join(rows)}</svg></figure>')
+
+
 def render_data_page(data, payload, *, theme=shell.DEFAULT_THEME):
     """GET /data as HTML, from a :func:`data_view` success payload."""
     stats = payload
@@ -207,6 +235,37 @@ def render_data_page(data, payload, *, theme=shell.DEFAULT_THEME):
     parts.append(f"<h2>Failures and risk flags</h2><p>Failed: {failures['failed']}. "
                  f"Risk-flagged prints: {failures['risk_flagged']}. "
                  f"Stop reasons: {stop}.</p>")
+    outcomes = stats["outcomes"]
+    parts.append(
+        "<h2>Outcomes</h2><p>"
+        f"Failed: {outcomes['failed']}. "
+        f"Stopped: {outcomes['stopped']}. "
+        "Pasta: not recorded yet — the camera watchdog's detections are not "
+        "persisted, so no pasta count exists until event recording begins. "
+        "These three numbers are always shown separately, never merged. "
+        f"{_esc(outcomes['stopped_note'])}</p>")
+    repeats = stats["repeats"]
+    repeat_rows = "".join(
+        f"<tr><td>{_esc(entry['title'])}</td><td>{entry['count']}</td>"
+        f"<td>{entry['total_hours']:g} h</td><td>{entry['total_filament_g']:g} g</td></tr>"
+        for entry in repeats["most_reprinted"])
+    parts.append(
+        f"<h2>Repeats</h2><p>Distinct prints: {repeats['distinct_prints']}. "
+        f"Reprints (prints beyond the first of the same print): {repeats['reprint_count']}. "
+        "A print counts as the same print only when both its title and its "
+        "G-code file name match exactly.</p>"
+        + (f"<div class=\"table-scroll\"><table><tr><th>print</th><th>times printed</th>"
+           f"<th>time</th><th>filament</th></tr>{repeat_rows}</table></div>"
+           if repeat_rows else "<p>(no print was repeated)</p>"))
+    hour_rows = "".join(f"<tr><td>{_esc(hour)}:00</td><td>{count}</td></tr>"
+                        for hour, count in stats["by_hour"].items())
+    weekday = ", ".join(f"{_esc(day)}: {count}"
+                        for day, count in stats["by_weekday"].items()) or "none recorded"
+    parts.append(
+        f"<h2>Time of prints</h2><p>By weekday: {weekday}. "
+        "Hours and weekdays are in the configured display timezone.</p>"
+        + (f"<div class=\"table-scroll\"><table><tr><th>hour</th><th>prints</th></tr>"
+           f"{hour_rows}</table></div>" if hour_rows else "<p>(nothing recorded)</p>"))
     for title, key in (("Printer", "by_printer"), ("Printer profile", "by_printer_profile"),
                        ("Material", "by_material"), ("Color", "by_color"),
                        ("Vendor", "by_vendor"), ("Spool", "by_spool"), ("Nozzle", "by_nozzle")):
@@ -215,6 +274,29 @@ def render_data_page(data, payload, *, theme=shell.DEFAULT_THEME):
                       for month, count in stats["monthly"].items())
     parts.append(f"<h2>Activity by month</h2><table><tr><th>month</th><th>prints</th></tr>"
                  f"{monthly}</table>" if monthly else "<h2>Activity by month</h2><p>(nothing recorded)</p>")
+    charts = ["<h2>Graphs</h2>"]
+    charts.append(_bar_chart("Prints per month", list(stats["monthly"].items())))
+    charts.append(_bar_chart(
+        "Filament per material (g)",
+        [(label, round(row["filament_used_g"], 1))
+         for label, row in stats["breakdowns"]["by_material"].items()]))
+    charts.append(_bar_chart("Outcome split", [
+        ("Completed", stats["completed"]), ("Failed", stats["failed"]),
+        ("Stopped", outcomes["stopped"]), ("In progress", stats["in_progress"]),
+        ("Risk-flagged", stats["risk_flagged"])]))
+    charts.append("<p>Pasta: not recorded yet — no pasta segment is drawn, "
+                  "because no pasta count exists until watchdog event "
+                  "recording begins.</p>")
+    charts.append(_bar_chart(
+        "Top colors", [(label, row["count"]) for label, row in
+                       list(stats["breakdowns"]["by_color"].items())[:5]]))
+    charts.append(_bar_chart(
+        "Top materials", [(label, row["count"]) for label, row in
+                          list(stats["breakdowns"]["by_material"].items())[:5]]))
+    charts.append(_bar_chart(
+        "Hour of day", [(f"{hour:02d}:00", stats["by_hour"].get(f"{hour:02d}", 0))
+                        for hour in range(24)]))
+    parts.append("".join(charts))
     for title, rows, key, unit in (("Top prints by duration", stats["top_by_duration"],
                                     "seconds", "s"),
                                    ("Top prints by filament", stats["top_by_filament"],
@@ -261,6 +343,22 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
     facts.append(f"<li>Failed prints: {highlights['failed']}</li>")
     facts.append(f"<li>Worst failure run: {highlights['worst_failure_streak']}</li>")
     parts.append(f"<h2>Highlights</h2><ul>{''.join(facts)}</ul>")
+    archetype = payload.get("archetype") or highlights.get("archetype") or {}
+    if archetype.get("name"):
+        parts.append(
+            f"<h2>Your printing personality</h2>"
+            f"<p><strong>{_esc(archetype['name'])}</strong> — "
+            f"{_esc(archetype.get('fact') or '')}</p>")
+        share_top = _esc(highlights.get("top_color") or "unknown")
+        parts.append(
+            '<section class="card share-card"><p class="eyebrow">'
+            f"Print Handy Wrapped {year}</p>"
+            f"<h2>{_esc(archetype['name'])}</h2>"
+            f"<p>{headline['total_prints']} prints · "
+            f"{headline['total_hours']:g} hours · "
+            f"{headline['total_filament_used_kg']:g} kg · "
+            f"success rate {_rate(headline['success_rate'])} · "
+            f"top color {share_top}</p></section>")
     lines = "".join(f'<p class="card">{_esc(line)}</p>' for line in payload["script"])
     parts.append(f"<h2>Commentary</h2>{lines}")
     if payload.get("ai_video_enabled"):
