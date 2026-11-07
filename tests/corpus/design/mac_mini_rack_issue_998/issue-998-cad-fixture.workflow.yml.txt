@@ -1,3 +1,13 @@
+REFERENCE COPY - NOT AN ACTIVE WORKFLOW.
+This is the generator workflow that produced the committed binaries on the
+fixtures/issue-998-mac-mini-rack branch (successful run:
+https://github.com/catduckgnaf/print-handy/actions/runs/42350036422).
+It was removed from .github/workflows/ once the assets were committed so a
+branch-specific, self-committing workflow with contents: write does not
+live on main permanently. To regenerate, restore this file to
+.github/workflows/issue-998-cad-fixture.yml on a scratch branch, or follow
+the manual recipe in FIXTURE_README.md.
+---
 # Generates and commits the complete, reproducible binary fixture for issue #998.
 # Does not assert this mount is structurally safe or print-tested.
 name: Issue 998 Mac mini CAD reference fixture
