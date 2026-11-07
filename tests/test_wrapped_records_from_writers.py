@@ -1,0 +1,159 @@
+"""Wrapped records-from-writers tests (testing-hardening pass, E8).
+
+The existing Wrapped tests aggregate HAND-WRITTEN record dicts
+(``tests/test_print_stats_wrapped.py``'s RECORDS). That is the fixture
+realism drift pattern: if the real record writer's shape drifts from
+the hand-written shape, the aggregate tests stay green while the Data
+tab reads garbage. These tests build every record through the real
+writers (``print_records.build_record_data`` /
+``write_completed_record``), persist them into a synthetic vault, and
+aggregate what ``print_stats.load_records`` reads back.
+
+Two known defects from the #981 deep dive are pinned as STRICT xfails
+(registered in ``tests/strict_xfail_register.json``), with the fixes
+owned by the Wrapped v1.1 lane (PR #986):
+
+* bucketing is UTC-only today: a print started Dec 31 19:00 in the
+  configured America/New_York timezone is stored by the writer as
+  2027-01-01T00:00Z and aggregates into 2027, though the operator's
+  year is 2026 (catduck's settled direction: bucket in the configured
+  local display timezone);
+* the video compile's mixed-fps pacing: cards render at the lavfi
+  default rate, clips keep their source rate, and the stream-copy
+  concat then mis-times the result — two 4 s clips at 30 fps and
+  10 fps plus three 3 s cards measure 15.6 s instead of 17 s with a
+  real ffmpeg (reproduced deterministically on this code).
+"""
+import shutil
+import subprocess
+
+import pytest
+
+from print_handy.core import print_stats
+from print_handy.hermes import print_records as records
+
+SPOOL = {"vendor": "Generic", "material": "PLA", "color": "Black",
+         "spool_id": 3, "id": 3}
+
+
+@pytest.fixture()
+def vault(tmp_path, monkeypatch):
+    prints = tmp_path / "Prints"
+    plans = tmp_path / "Plans"
+    prints.mkdir()
+    plans.mkdir()
+    monkeypatch.setattr(records, "PRINTS_DIR", prints)
+    monkeypatch.setattr(records, "PLANS_DIR", plans)
+    return tmp_path
+
+
+def write_print(vault, number, filename, *, state, started_at,
+                duration=3600.0, used_mm=1000.0):
+    data = records.build_record_data(
+        filename,
+        stats={"state": state, "print_duration": duration,
+               "filament_used": used_mm},
+        context={"print_number": number, "title": f"Print {number}",
+                 "started_at": started_at, "printer": "AD5X",
+                 "active_spool": SPOOL})
+    records.write_completed_record(data)
+    return data
+
+
+def test_aggregates_come_from_writer_produced_records(vault):
+    write_print(vault, 1, "benchy.gcode", state="complete",
+                started_at="2026-03-04T15:00:00Z")
+    write_print(vault, 2, "clip.gcode", state="complete",
+                started_at="2026-03-05T16:00:00Z")
+    write_print(vault, 3, "vase.gcode", state="error",
+                started_at="2026-04-01T02:30:00Z")
+    loaded, skipped = print_stats.load_records(vault)
+    assert skipped == [] and len(loaded) == 3
+    agg = print_stats.aggregate(loaded, year=2026)
+    assert agg["total_prints"] == 3
+    assert agg["completed"] == 2 and agg["failed"] == 1
+    assert agg["success_rate"] == round(2 / 3, 4)
+    assert agg["monthly"] == {"2026-03": 2, "2026-04": 1}
+    # The writer's spool fields feed the breakdowns unchanged.
+    assert agg["breakdowns"]["by_color"]["Black"]["count"] == 3
+    assert agg["breakdowns"]["by_material"]["PLA"]["count"] == 3
+
+
+def test_a_start_record_finalizes_in_place_through_the_writers(vault):
+    path = records.write_start_record(
+        {"job_key": "job-9", "print_number": 9, "title": "Hook",
+         "started_at": "2026-05-01T12:00:00Z", "printer": "AD5X"})
+    loaded, _ = print_stats.load_records(vault)
+    assert len(loaded) == 1 and loaded[0]["status"] == "printing"
+    data = records.build_record_data(
+        "job-9",  # the start record's identity is the job key, as in the real flow
+        stats={"state": "complete", "print_duration": 60.0},
+        context={"print_number": 9, "title": "Hook", "job_key": "job-9",
+                 "started_at": "2026-05-01T12:00:00Z", "printer": "AD5X",
+                 "record_path": path})
+    records.write_completed_record(data)
+    loaded, skipped = print_stats.load_records(vault)
+    assert skipped == [] and len(loaded) == 1  # finalized, not duplicated
+    assert loaded[0]["status"] == "completed"
+    agg = print_stats.aggregate(loaded, year=2026)
+    assert agg["completed"] == 1 and agg["in_progress"] == 0
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "#981: Wrapped buckets in UTC; a Dec 31 19:00 print in the configured "
+    "America/New_York zone aggregates into the next year. PR #986 (v1.1) "
+    "owns the timezone fix — remove marker + register entry when it lands."))
+def test_new_years_eve_print_buckets_into_the_local_year(vault):
+    write_print(vault, 4, "nye.gcode", state="complete",
+                started_at="2026-12-31T19:00:00-05:00")
+    loaded, skipped = print_stats.load_records(vault)
+    assert skipped == [] and len(loaded) == 1
+    agg = print_stats.aggregate(loaded, year=2026)
+    assert agg["total_prints"] == 1, (
+        "the operator's Dec 31 evening print must count in their 2026")
+    assert agg["monthly"] == {"2026-12": 1}
+
+
+# ------------------------------------------------------------- ffmpeg pacing
+
+ffmpeg = shutil.which("ffmpeg")
+ffprobe = shutil.which("ffprobe")
+
+
+@pytest.mark.skipif(not (ffmpeg and ffprobe),
+                    reason="ffmpeg/ffprobe not on PATH")
+@pytest.mark.xfail(strict=True, reason=(
+    "#981 pacing: mixed-fps clips + stream-copy concat mis-time the "
+    "Wrapped video (measured 15.6s vs 17s expected). PR #986 (v1.1) owns "
+    "the pacing fix — remove marker + register entry when it lands."))
+def test_wrapped_video_duration_matches_its_segments(tmp_path):
+    from print_handy.webui import wrapped_video
+
+    def make_clip(name, rate):
+        path = tmp_path / name
+        subprocess.run(
+            [ffmpeg, "-y", "-v", "error", "-f", "lavfi", "-i",
+             f"testsrc=size=640x360:rate={rate}:duration=5",
+             "-c:v", "libx264", "-pix_fmt", "yuv420p", str(path)],
+            check=True)
+        return path
+
+    clips = [make_clip("clip30.mp4", 30), make_clip("clip10.mp4", 10)]
+    wrapped = {"script": ["Your year in prints", "Second card"],
+               "headline": {}, "highlights": {}}
+    out_dir = tmp_path / "out"
+    result = wrapped_video.build_wrapped_video(
+        2026, wrapped, out_dir, use_ai=False,
+        find_clips=lambda year: clips)
+    assert result["ok"], result.get("reason")
+    probe = subprocess.run(
+        [ffprobe, "-v", "error", "-show_entries", "format=duration",
+         "-of", "csv=p=0", result["path"]],
+        capture_output=True, text=True, check=True)
+    measured = float(probe.stdout.strip())
+    cards = len(wrapped_video._card_texts(wrapped))
+    expected = (cards * wrapped_video.CARD_SECONDS
+                + len(clips) * wrapped_video.CLIP_SECONDS)
+    assert abs(measured - expected) <= 0.75, (
+        f"compiled video runs {measured:.2f}s for segments totaling "
+        f"{expected:.2f}s — the mixed-fps concat pacing is off")

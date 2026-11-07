@@ -59,6 +59,22 @@ the value the bump expects, planning fails for a human instead of
 guessing. Historical records that name old versions on purpose
 (acceptance reports, migration notes) are never rewritten.
 
+Step size (catduck's policy): a bump whose first or second version
+component changes is a MAJOR step; a change confined to later
+components is a MINOR step. The comparison uses normalized numeric
+tuples, never string order (Bambu's 02.09.01.70 form defeats string
+comparison). A minor step's PR keeps the standard body; a major
+step's PR gains a "Major step - deep dive required before merge"
+section naming the upstream range and the Print Handy surfaces a
+human must re-examine against the upstream changes since the last
+major version, because targeted regression tests around the touched
+surface are not enough for a major step. The Spoolman plan also
+moves the test-harness pins (the CI spoolman job's release zip and
+scripts/run_spoolman_native.sh) with the shipped pin: the harness
+is how the real-server tests run, and a harness left on the old
+version would prove the old release while the image ships the new
+one.
+
 A bump PR is opened as a draft; .github/workflows/
 upstream-bump-ready.yml flips it to ready once its CI suite is
 green (see --mark-ready). Nothing here ever merges a PR.
@@ -173,6 +189,69 @@ def version_key(text):
 
 def is_newer(candidate, current):
     return version_key(candidate) > version_key(current)
+
+
+def numeric_tuple(text):
+    """The normalized numeric tuple of a version's core.
+
+    Leading zeros vanish (02.09.01.70 -> (2, 9, 1, 70)) and a
+    prerelease suffix is not part of the core, so step size is
+    judged on the release line the step moves along, never on
+    string order.
+    """
+    core = str(text).strip().lstrip("vV").partition("-")[0]
+    nums = []
+    for part in core.split("."):
+        match = re.match(r"\d+", part)
+        nums.append(int(match.group()) if match else 0)
+    return tuple(nums)
+
+
+def classify_step(old_version, new_version):
+    """'major' or 'minor' for a bump from one version to another.
+
+    A change in the first or second numeric component is a major
+    step; a change confined to later components is minor. Equal
+    cores (a prerelease promotion like 2.5.0-rc -> 2.5.0, or a
+    prerelease-to-prerelease move on one core) are minor: the
+    release line itself did not move.
+    """
+    old, new = numeric_tuple(old_version), numeric_tuple(new_version)
+    width = max(len(old), len(new), 3)
+    old += (0,) * (width - len(old))
+    new += (0,) * (width - len(new))
+    for index, (before, after) in enumerate(zip(old, new)):
+        if before != after:
+            return "major" if index < 2 else "minor"
+    return "minor"
+
+
+# Print Handy surfaces a major step's deep dive must re-examine, per
+# component: the places the upstream tool's behavior reaches into
+# this repo, named in the major-step PR body's scaffold section.
+STEP_SURFACE_HINTS = {
+    "go2rtc": [
+        "the asset names and per-arch digests recorded in docker/go2rtc-prebuilt.sh",
+        "the go2rtc container contract test's pinned table",
+        "the camera and timelapse consumers of the go2rtc fan-out",
+    ],
+    "spoolman": [
+        "the Spoolman API surface Print Handy calls (spool, filament and field endpoints, the ph_slot extra field)",
+        "the test-harness pins this bump moves with the shipped pin (the CI spoolman job and scripts/run_spoolman_native.sh)",
+        "Spoolman's migrations against an existing operator database",
+        "any new outbound behavior the upstream release adds (update checks, telemetry) against Print Handy's local-first posture",
+    ],
+    "bambu": [
+        "the regenerated print_handy/printers/bambulab/hms_data.json (code counts, per-model override prefixes, any new device prefix and what model it names)",
+        "the Bambu Lab printer facts and profiles derived from the Bambu Studio tree",
+        "the CI Bambu fallback leg's recorded generation verdict (tests/test_ci_bambu_workflow.py)",
+    ],
+    "orca": [
+        "the identity sweep results in the provenance below, for all six vendors",
+        "the printer facts' recorded Orca identities",
+        "the CI bundle pin and the flatpak slicer legs",
+    ],
+}
 
 
 # --------------------------------------------------------------------------
@@ -550,6 +629,7 @@ class Plan:
     component: str
     action: str  # "bump" plans carry the fields below; others are skips
     version: str = ""
+    old_version: str = ""  # the version being replaced, for step classification
     reason: str = ""
     files: list = field(default_factory=list)
     provenance: list = field(default_factory=list)
@@ -653,7 +733,7 @@ def plan_go2rtc(root, api, now):
         (DOC_SETTINGS, settings_doc),
     ]
     changes.append("guard test (tests/test_go2rtc_container.py) and the COMPONENTS/DOCKER/SETTINGS doc records updated to the same values")
-    return Plan("go2rtc", "bump", version=release.version,
+    return Plan("go2rtc", "bump", version=release.version, old_version=pin.version,
                 files=[relpath for relpath, _ in edits],
                 provenance=provenance, changes=changes, release=release, edits=edits)
 
@@ -681,6 +761,82 @@ def _spoolman_recorded_version(root, pin_ref):
     if sentence not in docker_doc:
         raise BumpError("docs/DOCKER.md's Spoolman build sentence does not match the SETTINGS.md record and the Dockerfile pin")
     return version
+
+
+SPOOLMAN_CI_FILE = ".github/workflows/ci.yml"
+SPOOLMAN_NATIVE_SCRIPT = "scripts/run_spoolman_native.sh"
+SPOOLMAN_ZIP_ASSET = "spoolman.zip"
+_SPOOLMAN_ZIP_URL_RE = re.compile(
+    r"releases/download/v(\d+\.\d+\.\d+)/spoolman\.zip"
+)
+_SPOOLMAN_ZIP_SHA_RE = re.compile(r"echo '([0-9a-f]{64})  '\"\$archive\"")
+
+
+def _spoolman_harness_edits(root, api, release, old_version):
+    """(edits, changes, provenance) moving the test-harness pins.
+
+    The real-server tests run against a Spoolman the harness itself
+    installs: the CI spoolman job downloads a release zip and checks
+    its SHA256, and scripts/run_spoolman_native.sh does the same for
+    local runs. Both are recorded surfaces of the shipped pin - if
+    they stay on the old version, the suite proves the old release
+    while the image ships the new one. A harness pin that does not
+    record the version being replaced is drift, and planning stops
+    for a human instead of guessing which surface is right.
+    """
+    zip_sha, zip_prov = _asset_sha256(api, release, SPOOLMAN_ZIP_ASSET)
+    ci_text = (root / SPOOLMAN_CI_FILE).read_text()
+    ci_match = _SPOOLMAN_ZIP_URL_RE.search(ci_text)
+    if not ci_match:
+        raise BumpError("ci.yml's spoolman job has no release-zip download to move")
+    if ci_match.group(1) != old_version:
+        raise BumpError(
+            f"ci.yml's spoolman harness pins v{ci_match.group(1)}, not the recorded "
+            f"pin version {old_version}; the harness drifted from the shipped pin"
+        )
+    ci_sha_match = _SPOOLMAN_ZIP_SHA_RE.search(ci_text)
+    if not ci_sha_match:
+        raise BumpError("ci.yml's spoolman job has no zip SHA256 check to move")
+    ci_text = replace_exact(
+        ci_text, f"download/v{old_version}/spoolman.zip",
+        f"download/v{release.version}/spoolman.zip", "ci.yml spoolman harness version")
+    ci_text = replace_exact(
+        ci_text, f"echo '{ci_sha_match.group(1)}  '\"$archive\"",
+        f"echo '{zip_sha}  '\"$archive\"", "ci.yml spoolman harness zip sha256")
+    native = (root / SPOOLMAN_NATIVE_SCRIPT).read_text()
+    native_match = _SPOOLMAN_ZIP_URL_RE.search(native)
+    if not native_match:
+        raise BumpError("scripts/run_spoolman_native.sh has no release-zip download to move")
+    if native_match.group(1) != old_version:
+        raise BumpError(
+            f"scripts/run_spoolman_native.sh pins v{native_match.group(1)}, not the "
+            f"recorded pin version {old_version}; the harness drifted from the shipped pin"
+        )
+    native_sha_match = _SPOOLMAN_ZIP_SHA_RE.search(native)
+    if not native_sha_match:
+        raise BumpError("scripts/run_spoolman_native.sh has no zip SHA256 check to move")
+    native = replace_exact(
+        native, f"Launch isolated Spoolman {old_version} natively",
+        f"Launch isolated Spoolman {release.version} natively",
+        "run_spoolman_native.sh header version")
+    native = replace_exact(
+        native, f"print-handy-spoolman-{old_version}",
+        f"print-handy-spoolman-{release.version}",
+        "run_spoolman_native.sh cache directory version")
+    native = replace_exact(
+        native, f"download/v{old_version}/spoolman.zip",
+        f"download/v{release.version}/spoolman.zip", "run_spoolman_native.sh harness version")
+    native = replace_exact(
+        native, f"echo '{native_sha_match.group(1)}  '\"$archive\"",
+        f"echo '{zip_sha}  '\"$archive\"", "run_spoolman_native.sh zip sha256")
+    edits = [(SPOOLMAN_CI_FILE, ci_text), (SPOOLMAN_NATIVE_SCRIPT, native)]
+    changes = [
+        "the test-harness pins (CI spoolman job zip and scripts/run_spoolman_native.sh) "
+        f"updated to v{release.version} with the release zip's SHA256, so the real-server "
+        "tests run against the version the image ships"
+    ]
+    provenance = [f"spoolman.zip sha256 ({SPOOLMAN_ZIP_ASSET}): {zip_prov}"]
+    return edits, changes, provenance
 
 
 def plan_spoolman(root, api, now):
@@ -725,13 +881,18 @@ def plan_spoolman(root, api, now):
         f"Spoolman {release.version} is built from exact upstream revision `{commit}`",
         "docs/DOCKER.md Spoolman build sentence",
     )
+    harness_edits, harness_changes, harness_provenance = _spoolman_harness_edits(
+        root, api, release, old_version)
     edits = [
         (SPOOLMAN_FILE, render_spoolman(text, commit)),
         (DOC_SETTINGS, settings),
         (DOC_DOCKER, docker_doc),
+        *harness_edits,
     ]
     changes.append("the SETTINGS.md row and DOCKER.md build sentence updated to the same version and ref")
-    return Plan("spoolman", "bump", version=release.version,
+    changes.extend(harness_changes)
+    provenance.extend(harness_provenance)
+    return Plan("spoolman", "bump", version=release.version, old_version=old_version,
                 files=[relpath for relpath, _ in edits],
                 provenance=provenance, changes=changes, release=release, edits=edits)
 
@@ -930,7 +1091,7 @@ def plan_bambu(root, api, now, fetcher=None):
         (DOC_BAMBU, connectivity),
         (HMS_FILE, hms_text),
     ]
-    return Plan("bambu", "bump", version=release.version,
+    return Plan("bambu", "bump", version=release.version, old_version=recorded_version,
                 files=[relpath for relpath, _ in edits],
                 provenance=provenance, changes=changes, release=release, edits=edits)
 
@@ -1483,7 +1644,7 @@ def plan_orca(root, api, now, fetcher=None, source_fetcher=None, sweeper=None):
         "notes, the Bambu model docstrings) are not pin records and are not rewritten; "
         "a human rewords them on the bump PR when the story changes",
     ]
-    return Plan("orca", "bump", version=target.version,
+    return Plan("orca", "bump", version=target.version, old_version=pin.version,
                 files=[relpath for relpath, _ in edits],
                 provenance=provenance, changes=changes, release=target, edits=edits)
 
@@ -1546,6 +1707,31 @@ def build_pr_body(component, plan):
     changes = "\n".join(f"- `{line}`" for line in plan.changes)
     provenance = "\n".join(f"- {line}" for line in plan.provenance)
     files = ", ".join(f"`{name}`" for name in plan.files)
+    step = classify_step(plan.old_version, plan.version) if plan.old_version else "minor"
+    step_line = (
+        f"Step size: {step} (`{plan.old_version}` -> `{plan.version}`, classified on "
+        "normalized numeric tuples: a first- or second-component change is major, a "
+        "later-component-only change is minor)."
+        if plan.old_version else
+        "Step size: not classified (the plan records no replaced version)."
+    )
+    major_section = ""
+    if step == "major":
+        hints = "\n".join(
+            f"- {hint}" for hint in STEP_SURFACE_HINTS.get(component, [])
+        ) or "- the surfaces this component's pin feeds (no recorded hints for this component)"
+        major_section = f"""
+## Major step — deep dive required before merge
+
+This bump is a **major step** (`{plan.old_version}` -> `{plan.version}`): the first or second version component changed. Targeted regression tests around the touched surface are the minor-step standard and are NOT sufficient here. Before this PR is merged, a human (or a dedicated deep-dive pass) must:
+
+- Read the upstream changelog / release notes for the full range `{plan.old_version}` -> `{plan.version}` - every major version in between, not just the target release.
+- Report what changed upstream that Print Handy should change, improve, or look into as a result, and either fold the needed changes into this PR, file them as follow-ups, or record a deliberate no-action verdict per item.
+- Re-examine at least these Print Handy surfaces for this component:
+{hints}
+
+Upstream release notes: {plan.release.html_url}
+"""
     if plan.release is not None and getattr(plan.release, "prerelease", False):
         release_phrase = "upstream prerelease"
         latest_phrase = ("the newest upstream release (a prerelease; the single "
@@ -1565,11 +1751,13 @@ Not applicable - this is routine dependency maintenance, not a bug fix. The pin 
 
 ## Proposed changes
 
+{step_line}
+
 - {files} updated:
 {changes}
 
 No other files change. Confirmation, readiness, profile, clearance and artifact guards are untouched.
-
+{major_section}
 ## Type of change
 
 - [ ] Bug fix
