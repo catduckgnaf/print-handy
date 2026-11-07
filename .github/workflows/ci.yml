@@ -220,9 +220,11 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.99.1
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - run: python -m pip install ".[test]" "maturin==1.16.0"
-      - name: Build and install the native bounds wheel
+      - name: Build the native bounds wheel
         working-directory: native/bounds
-        run: maturin develop --release
+        run: maturin build --release
+      - name: Install the native bounds wheel
+        run: python -m pip install native/bounds/target/wheels/*.whl
       - name: Run the bounds corpus against the native path
         env:
           PRINT_HANDY_BOUNDS_IMPL: native
