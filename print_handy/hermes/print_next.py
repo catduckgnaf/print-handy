@@ -513,6 +513,8 @@ async def start(target: Mapping[str, Any], model_job: Path | None = None,
         argv.append("--accept-spool-change")
     if target.get("reprint"):
         argv.append("--reprint")
+    if target.get("yolo"):
+        argv.append("--yolo")
     spawn = asyncio.create_task(asyncio.create_subprocess_exec(
         *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
         cwd=str(settings.ROOT)))

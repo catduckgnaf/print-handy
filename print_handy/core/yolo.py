@@ -1,0 +1,133 @@
+"""Yolo: "print it, skip the checks" (operator-vouched files).
+
+Saying ``yolo`` with a file (or a model link) is the operator's explicit
+statement that the file is good and the bed is clear. Two paths use it:
+
+- An already-sliced G-code file (``.gcode`` or a ``.gcode.3mf`` package)
+  goes straight to ``print-now --yolo``: no slicing, no questions.
+- A model (STL/3MF or a link) runs the normal intake, but every question is
+  answered automatically with its go option (a waiver such as Print anyway
+  first, else the recommended first choice, never Cancel), and the start
+  runs ``print-now --yolo``.
+
+Every check still runs and every auto-answer is posted in chat, so nothing is
+skipped silently; a failed check is reported instead of refusing (see
+``model_job._waive``). Mechanics are never waived: a printer that is already
+printing, the control lock, the launch lease, the upload checksum and the
+start readback. Only print approvers may yolo (``may_yolo``).
+"""
+
+import contextvars
+import re
+import zipfile
+from pathlib import Path
+
+YOLO_RE = re.compile(r'(?<![\w-])yolo(?![\w-])', re.I)
+GCODE_SUFFIXES = ('.gcode', '.gcode.3mf')
+
+# Set for the whole of one yolo intake (prepared_intake.prepare_link).
+ACTIVE = contextvars.ContextVar('print_handy_yolo', default=False)
+
+# Labels a yolo run takes over any other choice, most preferred first: the
+# explicit waivers, then the start buttons.
+_PREFERRED = (
+    'Print anyway (accept the risk)',
+    'Print anyway',
+    'Start next plate · bed is clear',
+    'Slice and print now (bed is clear)',
+    'Slice and print with supports (bed is clear)',
+    'Re-slice with supports',
+)
+_NEGATIVE = re.compile(r'^(cancel|stop|no\b|do not|don\'t|not now|skip)|\(cancel\)', re.I)
+# Choices yolo never takes on its own: they act on the printer or change the
+# model (a forced restart wipes Resume; a rescale changes the part). A question
+# offering one of these, and none of the go labels above, goes to a person.
+_NEVER = re.compile(r'restart|reboot|firmware|bigger|smaller|scale|delete|wipe|discard', re.I)
+# Largest plate G-code yolo extracts from a .gcode.3mf package (zip-bomb guard).
+MAX_GCODE_BYTES = 1024 * 1024 * 1024
+
+
+def requested(text):
+    """True when the message says yolo as a word."""
+    return bool(YOLO_RE.search(str(text or '')))
+
+
+def strip(text):
+    """The message without the yolo word, so the rest still parses as intake text."""
+    return re.sub(r'\s{2,}', ' ', YOLO_RE.sub(' ', str(text or ''))).strip()
+
+
+def is_gcode_name(name):
+    low = str(name or '').lower()
+    return low.endswith(GCODE_SUFFIXES)
+
+
+def gcode_file(event):
+    """The single dropped G-code file (.gcode or .gcode.3mf), else None."""
+    hits = [Path(str(p)) for p in (getattr(event, 'media_urls', None) or []) if is_gcode_name(p)]
+    return hits[0] if len(hits) == 1 and hits[0].is_file() else None
+
+
+def auto_answer(choices):
+    """The index a yolo run picks: a preferred go label, else the first non-cancel choice.
+
+    None when a person must answer: the question offers a printer action or
+    a model change (``_NEVER``) and none of the go labels.
+    """
+    labels = [str(c) for c in choices]
+    for want in _PREFERRED:
+        if want in labels:
+            return labels.index(want)
+    if any(_NEVER.search(label) for label in labels):
+        return None
+    for i, label in enumerate(labels):
+        if not _NEGATIVE.search(label.strip()):
+            return i
+    return 0
+
+
+def may_yolo(user_id, platform='discord', cfg=None):
+    """Whether this sender may skip checks: the same rule as answering a print approval.
+
+    With approval users configured on the platform, only they may; with none
+    configured (or ``approval_all_users``), every authorized user may.
+    """
+    from .. import settings as _settings
+    if cfg is None:
+        from ..hermes import _config
+        cfg = _config.cfg()
+    section = (cfg or {}).get(str(platform or 'discord')) or {}
+    approvers = _settings.approver_ids(section)
+    return bool(not approvers or section.get('approval_all_users') is True
+                or (user_id is not None and str(user_id) in approvers))
+
+
+def extract_gcode(package, dest_dir):
+    """The plate G-code inside a .gcode.3mf package, written next to dest_dir.
+
+    Returns (gcode_path, plate_count). Plate 1 is used when the package holds
+    several plates; the caller says so.
+    """
+    with zipfile.ZipFile(package) as archive:
+        plates = sorted((n for n in archive.namelist() if re.fullmatch(r'Metadata/plate_\d+\.gcode', n)),
+                        key=lambda n: int(re.search(r'(\d+)', n.rsplit('/', 1)[1]).group(1)))
+        if not plates:
+            raise ValueError(f'{Path(package).name} has no plate G-code inside (Metadata/plate_N.gcode)')
+        dest_dir = Path(dest_dir)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        stem = re.sub(r'\.gcode\.3mf$', '', Path(package).name, flags=re.I)
+        out = dest_dir / f'{stem}.gcode'
+        info = archive.getinfo(plates[0])
+        if info.file_size > MAX_GCODE_BYTES:
+            raise ValueError(f'{plates[0]} is {info.file_size} bytes uncompressed, over the '
+                             f'{MAX_GCODE_BYTES} byte limit')
+        written = 0
+        with archive.open(info) as src, open(out, 'wb') as dst:
+            while chunk := src.read(1 << 20):
+                written += len(chunk)
+                if written > MAX_GCODE_BYTES:  # a lying header does not get past the cap
+                    dst.close()
+                    out.unlink(missing_ok=True)
+                    raise ValueError(f'{plates[0]} expands past the {MAX_GCODE_BYTES} byte limit')
+                dst.write(chunk)
+    return out, len(plates)

@@ -361,7 +361,11 @@ def test_launch_guard_only_informs_when_the_mode_is_unknown_or_two(monkeypatch, 
 
 def test_the_mapped_start_runs_the_launch_guard_before_any_printer_write():
     body = inspect.getsource(model_job.print_mapped_native)
-    guard, upload = body.index('purge.require_launch_safe('), body.index('_zmod_upload_artifact(')
+    # The guard is handed to _gate as a callable (_gate("purge",
+    # purge.require_launch_safe, ...)), so match the reference, not a
+    # direct call: _gate runs it at this point and re-raises its refusal
+    # unless a yolo run reports it instead.
+    guard, upload = body.index('purge.require_launch_safe'), body.index('_zmod_upload_artifact(')
     assert guard < upload
 
 

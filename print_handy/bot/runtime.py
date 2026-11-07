@@ -1006,12 +1006,14 @@ class BotCore:
                 pass
 
     async def save_attachments(self, message):
-        """Save dropped .3mf/.stl (and .scad, for design) files where readers look. Others are ignored."""
+        """Save dropped .3mf/.stl/.gcode (and .scad, for design) files where readers look. Others are ignored."""
         self.prune_uploads()
         paths = []
         for attachment in getattr(message, "attachments", None) or []:
             name = safe_name(getattr(attachment, "filename", ""))
-            if Path(name).suffix.lower() not in MODEL_FILE_EXTS:
+            # Sliced G-code is saved too: it prints only as an explicit yolo
+            # (core/yolo.py), and is never silently dropped.
+            if Path(name).suffix.lower() not in MODEL_FILE_EXTS and not name.lower().endswith(".gcode"):
                 continue
             if int(getattr(attachment, "size", 0) or 0) > MAX_UPLOAD_BYTES:
                 logger.warning("skipping %s: larger than %d bytes", name, MAX_UPLOAD_BYTES)

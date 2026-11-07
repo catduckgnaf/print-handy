@@ -16,7 +16,7 @@ print stay separate unless --print-now is given, which means the operator clicke
 "bed clear" for exactly this job. `python3 -m print_handy.core.model_job print-now FILE|JOB.json` starts an
 already sliced job the same way.
 """
-import argparse, base64, hashlib, html, http.client, ipaddress, json, logging, math, os, re, shutil, socket, subprocess, sys, time, urllib.parse, urllib.request, zipfile
+import argparse, base64, contextvars, hashlib, html, http.client, ipaddress, json, logging, math, os, re, shutil, socket, subprocess, sys, time, urllib.parse, urllib.request, zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -7225,7 +7225,7 @@ def _check_mapped_slot_color(slot, tool, live_raw, expected, accepted=frozenset(
 def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
     """Native explicit mapping route; exactly one SET_ZCOLOR submission, no fallback."""
     adapter = _job_adapter(job)
-    require_current_artifact(job, g)
+    _gate("current artifact", require_current_artifact, job, g)
     display_off = mesh.get('display_off')
     if display_off not in (0, 1):
         raise SystemExit(f"REFUSED: ZMod reports an unknown screen mode (display_off={display_off!r}), "
@@ -7238,9 +7238,10 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
     screenless = display_off == 1
     text = g.read_text()
     _embedded = adapter.native.embedded_mapping
-    _embedded(text, st)  # refuses a spool swapped since slicing, before any printer I/O
-    purge.require_launch_safe(text, st)  # a towerless G-code on a Nopoop printer would purge nowhere (#832)
-    validate_saved_mesh_start(text, mesh)
+    _gate("spool since slicing", _embedded, text, st)  # refuses a spool swapped since slicing, before any printer I/O
+    # A towerless G-code on a Nopoop printer would purge nowhere (#832).
+    _gate("purge", purge.require_launch_safe, text, st)
+    _gate("saved-mesh start", validate_saved_mesh_start, text, mesh)
     response = _mr(st, '/printer/objects/query?webhooks&print_stats&extruder&heater_bed&zmod_color&filament_switch_sensor%20head_switch_sensor')
     status = response['result']['status']
     def read_moonraker():
@@ -7261,7 +7262,8 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
     require_idle()
     status = response['result']['status']
     sensor = status.get('filament_switch_sensor head_switch_sensor', {})
-    if sensor.get('enabled') is not True:
+    if sensor.get('enabled') is not True and not _waive(
+            "head filament sensor", 'head filament sensor protection is disabled or unknown'):
         raise RuntimeError('head filament sensor protection is disabled or unknown')
     # Idle nozzle engagement is not feeder occupancy. Genuine native errors and
     # installed runout/jam protections stay intact; do not actuate sensor overrides.
@@ -7283,8 +7285,9 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
         # The native slot label is coarser than Spoolman's material: family match
         # (PLA == PLA+), or the screen's own type for it (SILK for Silk PLA).
         if len(matches) != 1:
-            raise SystemExit(f"REFUSED: printer slot {slot} is missing from the printer's slot list (T{tool}). "
-                             "Nothing uploaded or started.")
+            _refuse("slot list", f"REFUSED: printer slot {slot} is missing from the printer's slot list (T{tool}). "
+                                 "Nothing uploaded or started.")
+            continue
         label = matches[0].get('Material')
         if not label_matches(label, expected['material']):
             # A stale or blank native label gets the #795 ask-once treatment
@@ -7307,11 +7310,12 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
         if occupancy.get(slot) is not True:
             # Operator-confirmed loaded feeders supersede idle false occupancy,
             # never unknown telemetry or an actual native error/activity.
-            if occupancy.get(slot) is not False or expected.get('physical_loading_verified') is not True:
+            if (occupancy.get(slot) is not False or expected.get('physical_loading_verified') is not True) \
+                    and not _waive("slot occupancy", f'T{tool} slot {slot} occupancy is unknown or unconfirmed'):
                 raise RuntimeError(f'T{tool} slot {slot} occupancy is unknown or unconfirmed')
     if found_segments:
         # One refusal naming every mismatched slot, so the intake asks once (#795).
-        raise SystemExit('REFUSED: ' + '; '.join(found_segments) + '. Nothing uploaded or started.')
+        _refuse("slot color/label", 'REFUSED: ' + '; '.join(found_segments) + '. Nothing uploaded or started.')
     sha = file_sha256(g)
     remote = remote_name(g, sha, job)
     upload_path, upload_sha, remote, delivery = _zmod_upload_artifact(adapter, st, g, sha, remote)
@@ -7322,7 +7326,7 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
     try:
         # Again inside the lease: the first read may predate another job's start.
         require_idle()
-        if job_path is not None:
+        if job_path is not None and not yolo_active():
             _consume_approval(job_path, job, g, reprint=reprint)
         _require_launch_checkpoint_clear(checkpoint, reprint, remote=remote)
         slots_used = sorted(set(mapped.values()))
@@ -8356,23 +8360,84 @@ def partial_job_refusal(job):
             "after it shows you this list)")
 
 
-def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None):
+# Yolo (print now, skip the checks): the operator vouches for the file. Every
+# waivable gate still runs, but a failure prints one `YOLO WAIVED: <gate>:
+# <reason>` line instead of refusing, so the chat can say exactly what was
+# overridden. Mechanics are never waived: the control lock, a printer that is
+# already printing, the launch lease and duplicate-start claim, the upload
+# SHA256 check and the start readback.
+YOLO_WAIVED_MARK = "YOLO WAIVED:"
+_YOLO = contextvars.ContextVar("print_now_yolo", default=False)
+
+
+def yolo_active():
+    """True inside a print_now(yolo=True) run."""
+    return _YOLO.get()
+
+
+def _waive(gate, reason):
+    """Yolo: report a gate that would have refused. Otherwise the caller refuses."""
+    if not _YOLO.get():
+        return False
+    reason = " ".join(str(reason).split())
+    reason = re.sub(r"^REFUSED:\s*", "", reason)
+    reason = re.sub(r"\s*Nothing (?:was )?uploaded(?: or started)?\.?$", "", reason).rstrip(" .;")
+    print(f"{YOLO_WAIVED_MARK} {gate}: {reason}", flush=True)
+    return True
+
+
+def _refuse(gate, message):
+    """Raise SystemExit(message) unless a yolo run waives this gate."""
+    if not _waive(gate, message):
+        raise SystemExit(message)
+
+
+def _gate(gate, fn, *args, **kwargs):
+    """Run a check; in a yolo run its refusal is reported instead of raised."""
+    try:
+        return fn(*args, **kwargs)
+    except (RuntimeError, ValueError, SystemExit, MultiColorUnsupported) as exc:
+        if isinstance(exc, SystemExit) and not isinstance(exc.code, str):
+            raise
+        if not _waive(gate, exc):
+            raise
+        return None
+
+
+def yolo_waivers(tail):
+    """The `YOLO WAIVED:` lines of one print-now output, without the mark."""
+    return [line.split(YOLO_WAIVED_MARK, 1)[1].strip()
+            for line in str(tail or "").splitlines() if YOLO_WAIVED_MARK in line]
+
+
+def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, remap_slot_num=None,
+              yolo=False):
     """Bed is confirmed clear: verify, upload, start, confirm, record. One command.
 
     The whole start holds the printer's interprocess control lock (P1-33):
     a purge, slot load or nozzle change from any other process — a
     standalone CLI, the listener, another bot — refuses instead of
     overlapping the start, and the start refuses while one is in flight.
+
+    ``yolo`` is the operator's explicit "print it, skip the checks": every
+    waivable gate reports instead of refusing (see ``_waive``) and the
+    single-use bed-clear approval is not required, because saying yolo is
+    that confirmation. A yolo run is also a deliberate reprint.
     """
     lock = _print_now_control_lock(target)
     if not lock.acquire(blocking=False):
         raise SystemExit("REFUSED: another printer control action (purge, slot load or nozzle change) "
                          "is in flight for this printer. Nothing uploaded or started.")
+    token = _YOLO.set(bool(yolo))
     try:
+        if yolo:
+            print("YOLO: the operator chose to print without checks; failed checks are reported, "
+                  "not enforced.", flush=True)
         return _print_now_locked(target, wait_s=wait_s,
                                  accept_default_z_offset=accept_default_z_offset,
-                                 reprint=reprint, remap_slot_num=remap_slot_num)
+                                 reprint=reprint or bool(yolo), remap_slot_num=remap_slot_num)
     finally:
+        _YOLO.reset(token)
         lock.release()
 
 
@@ -8391,12 +8456,12 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
     if (cur and cur.parent != g.parent and cur.is_file() and isinstance(job, dict)
             and not job.get("derived_plates")):
         # A file from an earlier slice of this job (2026-10-10: the bot reran the pre-reslice name).
-        raise SystemExit(f"REFUSED: {g.name} is an older slice of this job. The current slice is {cur}; "
-                         f"run print-now {job_path} instead. Nothing uploaded or started.")
+        _refuse("older slice", f"REFUSED: {g.name} is an older slice of this job. The current slice is {cur}; "
+                               f"run print-now {job_path} instead. Nothing uploaded or started.")
     partial = partial_job_refusal(job)
     if partial:
-        raise SystemExit(f"REFUSED: {partial}. Nothing uploaded or started.")
-    require_current_artifact(job, g)
+        _refuse("partial job", f"REFUSED: {partial}. Nothing uploaded or started.")
+    _gate("current artifact", require_current_artifact, job, g)
     if not g.is_file(): raise SystemExit(f"REFUSED: no G-code at {g}")
     # The job's printer (#334): a recorded printer_id resolves the roster entry, its adapter
     # and its hardware record; a record written before the upgrade has no id and prints on
@@ -8410,14 +8475,14 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
             raise SystemExit(f"REFUSED: {exc}. Nothing uploaded or started.")
         have = printers.job_model(job)
         if have != entry["model"]:
-            raise SystemExit(f"REFUSED: this job was prepared for {have}, but printer {printer_id!r} is an "
-                             f"{entry['model']}. Nothing uploaded or started.")
+            _refuse("printer model", f"REFUSED: this job was prepared for {have}, but printer {printer_id!r} is an "
+                                     f"{entry['model']}. Nothing uploaded or started.")
         adapter = printers.get(entry["model"], _pb_settings.view_for(printer_id))
     else:
         try:
             if isinstance(job, dict): printers.check_job_model(job)
         except printers.JobModelMismatch as exc:
-            raise SystemExit(f"REFUSED: {exc}. Reslice it for the configured printer; nothing uploaded or started.")
+            _refuse("printer model", f"REFUSED: {exc}. Reslice it for the configured printer; nothing uploaded or started.")
         adapter = printers.current()
     _timing(job_path, 'print_now_start')
     # accept_default_z_offset is kept for CLI compatibility only. With display_off=0 ZMod applies the
@@ -8477,27 +8542,28 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
     state,fn,busy=_require_idle(st)
     mesh=mesh_readiness(st)
     if mesh["problem"]:
-        raise SystemExit(f"REFUSED: {mesh['problem']}. Nothing uploaded or started.")
+        _refuse("bed mesh", f"REFUSED: {mesh['problem']}. Nothing uploaded or started.")
+    selection = job.get("filament_selection") if isinstance(job, dict) else None
+    mapping = None
     try:
         # Pre-upload checks. Report them as one REFUSED line so print_next releases the plate's
         # claim and the operator can retry after fixing the cause (a traceback kept it held).
-        _verify_routed(g, adapter, st, printer_id, job=job)
-        selection = job.get("filament_selection") if isinstance(job, dict) else None
+        _gate("G-code safety checks", _verify_routed, g, adapter, st, printer_id, job=job)
         _timing(job_path, 'preflight_verify_done')
         if adapter.multi_slot:
             embedded_mapping = adapter.native.embedded_mapping
             normalize_mapping = adapter.native.normalize_mapping
-            raw_mapping = embedded_mapping(g.read_text(), st)
-            mapping = normalize_mapping(raw_mapping, st) if raw_mapping is not None else None
+            raw_mapping = _gate("slot mapping", embedded_mapping, g.read_text(), st)
+            mapping = (_gate("slot mapping", normalize_mapping, raw_mapping, st)
+                       if raw_mapping is not None else None)
         else:
-            _refuse_multicolor(g.read_text())
-            mapping = None
+            _gate("multicolor", _refuse_multicolor, g.read_text())
     except (RuntimeError, MultiColorUnsupported) as exc:
         raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
     if mapping is not None:
         return print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint)
     try:
-        _verify_filament_readiness(st, selection, adapter=adapter)
+        _gate("filament readiness", _verify_filament_readiness, st, selection, adapter=adapter)
     except RuntimeError as exc:
         if adapter.multi_slot: raise
         raise SystemExit("REFUSED: " + " ".join(str(exc).split()) + ". Nothing uploaded or started.")
@@ -8507,18 +8573,19 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
         try:
             validate_saved_mesh_start(text, mesh)
         except RuntimeError as exc:
-            raise SystemExit(f'REFUSED: {exc}. Reslice with the reviewed machine profile; nothing uploaded.') from exc
+            _refuse("saved-mesh start", f'REFUSED: {exc}. Reslice with the reviewed machine profile; nothing uploaded.')
     if mesh.get('display_off') == 0:
         try:
             validate_native_start(read_stock_detail(st), selection)
         except Exception as exc:
-            raise SystemExit(f'REFUSED: native preflight: {exc}. Nothing uploaded or started.') from exc
+            _refuse("native preflight", f'REFUSED: native preflight: {exc}. Nothing uploaded or started.')
     upload_path, upload_sha, remote, delivery = _zmod_upload_artifact(adapter, st, g, sha, remote)
     lease=launch_state.acquire(_printer_key(st, job), job_json=job_path, gcode_sha256=sha, remote=remote, observed_file=fn,
                                started_files=lambda: _moonraker_started_files(st))
     try:
         _require_idle(st)  # again inside the lease: the first read may predate another job's start
-        if job_path is not None: _consume_approval(job_path, job, g, reprint=reprint)
+        # Yolo is its own bed-clear confirmation: no single-use button approval is owed.
+        if job_path is not None and not yolo_active(): _consume_approval(job_path, job, g, reprint=reprint)
         _timing(job_path, 'upload_begin')
         r=subprocess.run([str(MOONRAKERCTL),"upload",str(upload_path),remote,upload_sha],text=True,capture_output=True,timeout=300,
                          env=_moonrakerctl_env(st))
@@ -8718,6 +8785,7 @@ def _main():
     remap.add_argument("--tool", type=str, default="0", help="logical tool index (default: 0)")
     pn=sub.add_parser("print-now",help="bed confirmed clear: verify, upload, start, confirm, record (G-code or JOB.json)"); pn.add_argument("target")
     pn.add_argument("--accept-spool-change",action="store_true",help="operator confirmed printing with the spool now in a slot that changed since slicing (same material family only)")
+    pn.add_argument("--yolo",action="store_true",help="the operator vouches for the file: report failed checks instead of refusing, no bed-clear approval owed (mechanics are never waived)")
     pn.add_argument("--remap-slot", "--slot", dest="remap_slot", type=int, default=None, help="remap T0 to another physical IFS slot (1-4) without physical spool changes")
     for x in (pn,f,s):
         x.add_argument("--accept-default-z-offset",action="store_true",help="the operator accepted the printer default Z offset for this start")
@@ -8861,6 +8929,7 @@ def _main():
     if a.cmd=="routine-status":
         print(routine_phase(printer_state.load())); return
     pn_kw=dict(accept_default_z_offset=getattr(a,"accept_default_z_offset",False),reprint=getattr(a,"reprint",False),remap_slot_num=getattr(a,"remap_slot",None))
+    if a.cmd=="print-now" and getattr(a,"yolo",False): pn_kw["yolo"]=True
     if a.cmd=="remap-slot":
         res = remap_slot(a.target, a.slot, a.tool)
         print("SLOT REMAPPED " + json.dumps(res, indent=2))
