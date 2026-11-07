@@ -150,6 +150,6 @@ def test_print_again_x3_question_and_start_post_quote_all_copies(cfg, archive):
         "Confirm the bed is clear.")
     assert started[0]["copies"] == 3
     assert discord.sent == ["Preparing to start Newer Widget. A reprint of print #2; it gets its own new print number when it starts. "
-                            "estimated print time ~1m, plus warmup ~6m total for this copy; "
+                            "Estimated print time ~1m, plus warmup ~6m total for this copy; "
                             "all 3 copies: ~3m printing (plus ~5m warmup per copy), ~3 g filament.",
                             "Print started: Print\nPrint #2\nEstimated total: unknown"]
