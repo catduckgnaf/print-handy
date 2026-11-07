@@ -168,13 +168,37 @@ class SettingsParityTests(unittest.TestCase):
                 self.assertRegex(ENV_EXAMPLE, rf"(?m)^#? ?{name}=$")
 
 
+def _parse_dotted_quad(raw):
+    """IP address for a dotted-quad match, or None when it is not an address.
+
+    The scan regex also matches dotted version strings -- Bambu Studio's
+    02.09.01.70 pin (PR #990) is the standing example -- whose leading
+    zeros make ipaddress raise ValueError. Retry with the zeros stripped:
+    a zero-padded real address (192.168.001.1) still parses and is checked
+    below, while a string that is not an address even after stripping
+    returns None and is skipped instead of crashing the scan.
+    """
+    try:
+        return ipaddress.ip_address(raw)
+    except ValueError:
+        pass
+    stripped = ".".join(str(int(octet)) for octet in raw.split("."))
+    try:
+        return ipaddress.ip_address(stripped)
+    except ValueError:
+        return None
+
+
 class SanitizedExamplesTests(unittest.TestCase):
     def test_no_lan_addresses_machine_paths_ids_or_credentials(self):
         for path in DEPLOYMENT_FILES:
             text = (ROOT / path).read_text()
             with self.subTest(file=path):
                 for raw in re.findall(r"(?<![\d.])(\d{1,3}(?:\.\d{1,3}){3})(?![\d.])", text):
-                    address = ipaddress.ip_address(raw)
+                    address = _parse_dotted_quad(raw)
+                    if address is None:
+                        # Not an IP address (a version string, above).
+                        continue
                     # The unspecified address (0.0.0.0) is a bind wildcard for
                     # the optional Web UI (#286), not a machine's LAN address.
                     self.assertFalse(address.is_private and not address.is_loopback
