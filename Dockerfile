@@ -150,7 +150,7 @@ COPY print_handy/__init__.py ./native/bounds/print_handy/__init__.py
 COPY print_handy/core/__init__.py ./native/bounds/print_handy/core/__init__.py
 COPY README.md ./README.md
 RUN mkdir -p /out && cd native/bounds && \
-    maturin build --release -m pyproject.toml -i python3 --out /out
+    maturin build --release --locked -m pyproject.toml -i python3 --out /out
 
 FROM debian:13-slim AS runtime
 ARG WITH_GO2RTC=true

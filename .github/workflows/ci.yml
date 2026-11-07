@@ -233,7 +233,7 @@ jobs:
           cp print_handy/core/__init__.py native/bounds/print_handy/core/__init__.py
       - name: Build the native bounds wheel
         working-directory: native/bounds
-        run: maturin build --release
+        run: maturin build --release --locked
       - name: Install the native bounds wheel
         run: python -m pip install native/bounds/target/wheels/*.whl
       - name: Mirror the extension into the source package

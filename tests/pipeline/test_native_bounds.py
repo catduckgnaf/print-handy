@@ -350,3 +350,73 @@ def test_native_setting_raises_when_the_module_is_missing(monkeypatch):
     model_job._reset_native_bounds_cache()
     with pytest.raises(RuntimeError, match="native bounds parser required but unavailable"):
         model_job.gcode_motion_bounds(TEXT)
+
+
+class _FakePanic(BaseException):
+    """Stands in for PyO3's PanicException, which is a BaseException."""
+
+
+def test_a_native_panic_falls_back_and_sticks(monkeypatch):
+    fake = _fake_module()
+    real = fake.parse_bounds
+    state = {"armed": False}
+
+    def panicking(text):
+        if state["armed"]:
+            raise _FakePanic("rust panicked")
+        return real(text)
+
+    fake.parse_bounds = panicking
+    _install_fake(monkeypatch, fake)
+    assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
+    state["armed"] = True
+    assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
+    assert model_job._native_bounds_broken
+
+
+def test_a_panic_during_the_self_check_falls_back(monkeypatch):
+    def panicking(text):
+        raise _FakePanic("rust panicked")
+
+    _install_fake(monkeypatch, _fake_module(parse_bounds=panicking))
+    assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
+
+
+def test_keyboard_interrupt_is_never_swallowed(monkeypatch):
+    fake = _fake_module()
+    real = fake.parse_bounds
+    state = {"armed": False}
+
+    def interrupted(text):
+        if state["armed"]:
+            raise KeyboardInterrupt
+        return real(text)
+
+    fake.parse_bounds = interrupted
+    _install_fake(monkeypatch, fake)
+    assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
+    state["armed"] = True
+    with pytest.raises(KeyboardInterrupt):
+        model_job.gcode_motion_bounds(TEXT)
+
+
+def test_native_setting_stays_strict_after_a_failure(monkeypatch):
+    fake = _fake_module()
+    real = fake.parse_bounds
+    state = {"armed": False}
+
+    def flaky(text):
+        if state["armed"]:
+            raise ValueError("boom")
+        return real(text)
+
+    fake.parse_bounds = flaky
+    _install_fake(monkeypatch, fake)
+    monkeypatch.setenv("PRINT_HANDY_BOUNDS_IMPL", "native")
+    assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
+    state["armed"] = True
+    with pytest.raises(RuntimeError, match="native bounds parser required but failed"):
+        model_job.gcode_motion_bounds(TEXT)
+    # Later calls never degrade silently to the Python parser.
+    with pytest.raises(RuntimeError, match="disabled after an earlier failure"):
+        model_job.gcode_motion_bounds(TEXT)
