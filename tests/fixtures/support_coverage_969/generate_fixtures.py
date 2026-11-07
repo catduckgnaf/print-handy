@@ -8,9 +8,9 @@ when this was written (Tailscale approval expired; SSH probe timed
 out). The fixtures below faithfully reproduce the two scenarios exactly
 as documented in issues #963 and #969, in the marker and feature-type
 format OrcaSlicer stable actually emits, so the grading in #966 is
-pinned against them. When the real archives are reachable, run
-scripts/probe_support_coverage.py against them and replace these
-directories with trimmed real G-code + source bounds.
+pinned against them. The real-archive tasks were skipped at catduck's direction
+(2026-11-06); scripts/probe_support_coverage.py remains available if
+catduck ever wants the real run and a fixture swap.
 
 Regenerate with:  python3 generate_fixtures.py   (from this directory)
 Output is deterministic; do not hand-edit the generated files.
