@@ -247,7 +247,15 @@ def find_job(filename, archive=None, context_path=None):
 
 
 def _print_number(job):
-    """Read the permanent job number without assigning one from a listener render."""
+    """Read the print's number without assigning one from a listener render.
+
+    A job dict that carries this launch's own number (a start record context)
+    wins; otherwise the job's first-print number from the registry.
+    """
+    if isinstance(job, dict):
+        own = job.get('print_number')
+        if isinstance(own, int) and not isinstance(own, bool) and own > 0:
+            return own
     path = job.get('_job_path') if isinstance(job, dict) else None
     if not path:
         return None

@@ -347,56 +347,210 @@ def _launch_records(archive: Path) -> list[Path]:
 
 
 def printed_jobs(archive: Path | None = None, numbers_path: Path | None = None) -> list[dict[str, Any]]:
-    """Archived jobs that were actually sent to the printer, most recent first.
+    """Archived prints that were actually sent to the printer, most recent first.
 
-    Each job carries a permanent print number: assigned once, oldest launch first,
-    and never reused or renumbered. New jobs get the next number. Only writes the
-    number registry, and only when a job is seen for the first time.
+    One row per PRINT (launch), not per job: printing the same job again is a
+    new print with its own permanent number. Numbers are assigned oldest
+    launch first and never reused or renumbered. A job's first print keeps
+    the number the pre-launch-numbering registry gave it, so old numbers and
+    'print 84' lookups keep resolving to the same job. Only writes the number
+    registry, and only when a launch is seen for the first time.
     """
     archive = (archive or ARCHIVE).resolve()
-    rows: list[dict[str, Any]] = []
-    first_launch: dict[Path, float] = {}
-    seen: set[Path] = set()
+    # Group the launch records by artifact: a launch and its upload record are
+    # two files for one print, while a later reprint of the same artifact
+    # rewrites those same files (only its newest launch survives on disk —
+    # earlier launches of it survive as registry launch entries, below).
+    groups: dict[str, dict[str, Any]] = {}
     for record in _launch_records(archive):
-        job_path = _job_for(_artifact_for(record).resolve(), archive)
+        artifact = _artifact_for(record).resolve()
+        job_path = _job_for(artifact, archive)
         if job_path is None:
             continue
         mtime = record.stat().st_mtime
-        first_launch[job_path] = min(first_launch.get(job_path, mtime), mtime)
-        if job_path in seen:
+        group = groups.get(str(artifact))
+        if group is None:
+            groups[str(artifact)] = {"job_json": job_path, "record": record,
+                                     "launched_at": mtime, "artifact": str(artifact)}
+        else:
+            group["launched_at"] = max(group["launched_at"], mtime)
+            if mtime >= group["record"].stat().st_mtime:
+                group["record"] = record
+    if not groups:
+        return []
+    first_launch: dict[Path, float] = {}
+    for group in groups.values():
+        job_path = group["job_json"]
+        first_launch[job_path] = min(first_launch.get(job_path, group["launched_at"]),
+                                     group["launched_at"])
+    numbers = assign_print_numbers(first_launch, numbers_path)
+    registry = _load_number_registry(numbers_path)
+    launches: list[dict[str, Any]] = registry["launches"]
+    dirty = False
+    # Seed a launch entry for every job the registry already numbers: its
+    # number belongs to the job's earliest surviving launch group.
+    for job_key, number in sorted(numbers.items(), key=lambda item: item[1]):
+        if any(entry["number"] == number for entry in launches):
             continue
-        seen.add(job_path)
+        job_groups = sorted((g for g in groups.values() if str(g["job_json"]) == job_key),
+                            key=lambda g: (g["launched_at"], g["artifact"]))
+        if not job_groups:
+            continue
+        first = job_groups[0]
+        launches.append({"number": number, "job": job_key, "artifact": first["artifact"],
+                         "at": first["launched_at"]})
+        dirty = True
+    # Number every surviving launch group, oldest first. A group matches the
+    # newest launch entry for its artifact when the entry was minted around
+    # the launch (minting happens seconds before or after the record lands);
+    # a group newer than every entry for its artifact is a launch nobody
+    # minted (printer screen, family path) and gets the next number.
+    next_number = max([*numbers.values(), *(e["number"] for e in launches)], default=0) + 1
+    group_number: dict[str, int] = {}
+    used_entries: set[int] = set()
+    for group in sorted(groups.values(), key=lambda g: (g["launched_at"], g["artifact"])):
+        # An entry names this group when it was minted for the same artifact,
+        # or — for mints that did not record an artifact — for the same job at
+        # the same time. Each entry can name only one group.
+        entries = sorted((e for e in launches
+                          if e["number"] not in used_entries
+                          and (e.get("artifact") == group["artifact"]
+                               or (not e.get("artifact") and e.get("job") == str(group["job_json"])))),
+                         key=lambda e: e["at"])
+        matched = entries[-1] if entries and entries[-1]["at"] >= group["launched_at"] - LAUNCH_MATCH_WINDOW_S else None
+        if matched is not None:
+            group_number[group["artifact"]] = matched["number"]
+            used_entries.add(matched["number"])
+            continue
+        entry = {"number": next_number, "job": str(group["job_json"]),
+                 "artifact": group["artifact"], "at": group["launched_at"]}
+        next_number += 1
+        launches.append(entry)
+        group_number[group["artifact"]] = entry["number"]
+        dirty = True
+    if dirty:
+        _save_number_registry(registry, numbers_path)
+
+    def title_of(job_path: Path) -> str:
         try:
             title = json.loads(job_path.read_text(encoding="utf-8")).get("title")
         except (OSError, ValueError):
             title = None
-        rows.append({"title": str(title or job_path.parent.name),
-                     "job_json": job_path, "record": record, "launched_at": mtime})
-    numbers = assign_print_numbers(first_launch, numbers_path)
-    for row in rows:
-        row["index"] = numbers[str(row["job_json"])]
+        return str(title or job_path.parent.name)
+
+    rows: list[dict[str, Any]] = []
+    matched_numbers: set[int] = set()
+    for group in groups.values():
+        number = group_number[group["artifact"]]
+        matched_numbers.add(number)
+        rows.append({"title": title_of(group["job_json"]), "job_json": group["job_json"],
+                     "record": group["record"], "launched_at": group["launched_at"],
+                     "index": number})
+    # Earlier launches of an artifact whose record file was later rewritten
+    # by a reprint: still real prints with their own numbers. Their reprint
+    # target is the same job/artifact, reached through its surviving record.
+    for entry in launches:
+        if entry["number"] in matched_numbers:
+            continue
+        group = groups.get(str(entry.get("artifact") or ""))
+        job_path = Path(str(entry.get("job") or ""))
+        if group is None and job_path:
+            job_groups = [g for g in groups.values() if str(g["job_json"]) == str(job_path)]
+            group = max(job_groups, key=lambda g: g["launched_at"]) if job_groups else None
+        if group is None or not job_path.is_file():
+            continue
+        matched_numbers.add(entry["number"])
+        rows.append({"title": title_of(job_path), "job_json": job_path,
+                     "record": group["record"], "launched_at": float(entry["at"]),
+                     "index": entry["number"]})
+    rows.sort(key=lambda r: (-r["launched_at"], -r["index"]))
     return rows
 
 
-def assign_print_numbers(first_launch: dict[Path, float], numbers_path: Path | None = None) -> dict[str, int]:
-    """Permanent job numbers. Existing numbers never change; new jobs append in launch order."""
+# A launch entry minted at start time and the launch record file for the same
+# print land seconds apart (the record is written just before the mint on the
+# generic path, just after it on the mapped path). An entry this close to a
+# surviving record group is that group's launch; anything older is history.
+LAUNCH_MATCH_WINDOW_S = 3600.0
+
+
+def _load_number_registry(numbers_path: Path | None = None) -> dict[str, Any]:
+    """The print-number registry: {'numbers': {job: first number}, 'launches': [...]}.
+
+    'numbers' is the original per-job map and keeps its meaning (a job's FIRST
+    print number) so every existing reader keeps working. 'launches' is the
+    per-print ledger: one entry per launch, minted in launch order.
+    """
     path = Path(numbers_path or PRINT_NUMBERS)
     try:
-        numbers = json.loads(path.read_text(encoding="utf-8")).get("numbers") or {}
-    except (OSError, ValueError, AttributeError):
-        numbers = {}
-    numbers = {str(k): int(v) for k, v in numbers.items()}
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    numbers = data.get("numbers") or {}
+    numbers = {str(k): int(v) for k, v in numbers.items()
+               if isinstance(v, int) and not isinstance(v, bool) and v > 0}
+    launches: list[dict[str, Any]] = []
+    for entry in data.get("launches") or []:
+        if not isinstance(entry, dict):
+            continue
+        number = entry.get("number")
+        if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
+            continue
+        try:
+            at = float(entry.get("at") or 0)
+        except (TypeError, ValueError):
+            at = 0.0
+        launches.append({"number": number, "job": str(entry.get("job") or ""),
+                         "artifact": str(entry.get("artifact") or ""), "at": at})
+    launches.sort(key=lambda e: (e["number"]))
+    return {"numbers": numbers, "launches": launches}
+
+
+def _save_number_registry(registry: dict[str, Any], numbers_path: Path | None = None) -> None:
+    path = Path(numbers_path or PRINT_NUMBERS)
+    payload = {"numbers": registry["numbers"],
+               "launches": sorted(registry["launches"], key=lambda e: e["number"])}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def assign_print_numbers(first_launch: dict[Path, float], numbers_path: Path | None = None) -> dict[str, int]:
+    """Permanent FIRST-print numbers per job. Existing numbers never change; new jobs append in launch order."""
+    registry = _load_number_registry(numbers_path)
+    numbers = registry["numbers"]
     fresh = sorted((p for p in first_launch if str(p) not in numbers), key=lambda p: (first_launch[p], str(p)))
     if fresh:
-        nxt = max(numbers.values(), default=0) + 1
+        nxt = max([*numbers.values(), *(e["number"] for e in registry["launches"])], default=0) + 1
         for p in fresh:
             numbers[str(p)] = nxt
             nxt += 1
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(json.dumps({"numbers": numbers}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        os.replace(tmp, path)
+        _save_number_registry(registry, numbers_path)
     return numbers
+
+
+def mint_launch_number(job_path: Path, at: float | None = None, artifact: Any = None,
+                       numbers_path: Path | None = None) -> int:
+    """Mint the next permanent print number for ONE launch of a job.
+
+    Every launch mints its own number, including a reprint of a job that
+    already has one. The job's first mint also becomes its legacy 'numbers'
+    entry, so old readers (and the number itself, for 'print N' lookups of
+    that first print) keep working unchanged.
+    """
+    registry = _load_number_registry(numbers_path)
+    numbers, launches = registry["numbers"], registry["launches"]
+    number = max([*numbers.values(), *(e["number"] for e in launches)], default=0) + 1
+    key = str(Path(job_path))
+    launches.append({"number": number, "job": key,
+                     "artifact": str(artifact) if artifact else "", "at": float(at or time.time())})
+    if key not in numbers:
+        numbers[key] = number
+    _save_number_registry(registry, numbers_path)
+    return number
 
 
 def _fold(text: str) -> str:
