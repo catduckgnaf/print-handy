@@ -14,6 +14,7 @@
 //!   so `G1X10`, `G10`, `G92.1` and `G90;comment` do NOT match.
 //! * The words after a command run to the first `;`, `\r` or `\n`.
 //! * `G90`/`G91` switch absolute/relative positioning (no `M82`/`M83`).
+//! * `G20` (inch units) refuses with its line number (API 2).
 //! * `G28`, `G53`, `FORCE_MOVE`, `MANUAL_STEPPER`, `STEPPER_BUZZ` and
 //!   `SET_KINEMATIC_POSITION` refuse with their line number; `G2`/`G02`/
 //!   `G3`/`G03` arcs refuse; `G92` refuses only when its words contain an
@@ -45,7 +46,7 @@ use pyo3::types::PyDict;
 /// Version handshake between this extension and the Python dispatcher.
 /// Bump on any semantic change; the dispatcher falls back to the Python
 /// parser when the constant does not match its expectation.
-pub const API_VERSION: u32 = 1;
+pub const API_VERSION: u32 = 2; // 2: G20 refused (#952 phase 2)
 
 create_exception!(
     _bounds_native,
@@ -174,7 +175,7 @@ fn axis_index(c: u8) -> Option<usize> {
 
 /// Commands in the Python pattern's alternation order.
 const COMMANDS: &[&str] = &[
-    "G90", "G91", "G00", "G0", "G01", "G1", "G02", "G2", "G03", "G3", "G92", "G28", "G53",
+    "G90", "G91", "G00", "G0", "G01", "G1", "G02", "G2", "G03", "G3", "G92", "G28", "G53", "G20",
     "FORCE_MOVE", "MANUAL_STEPPER", "STEPPER_BUZZ", "SET_KINEMATIC_POSITION",
 ];
 
@@ -275,6 +276,11 @@ pub fn parse(s: &[u8]) -> Result<[[f64; 2]; 3], String> {
                         "line {lineno}: arc motion is unsupported by the bounds verifier"
                     ));
                 }
+                "G20" => {
+                    // Inch coordinates read as millimetres would shrink every
+                    // bound about 25x and pass a print that cannot fit.
+                    return Err(format!("line {lineno}: inch units (G20) are unsupported by the bounds verifier"));
+                }
                 "G92" => {
                     let mut found = false;
                     let mut k = words_start;
@@ -354,7 +360,11 @@ pub fn parse(s: &[u8]) -> Result<[[f64; 2]; 3], String> {
 /// exact message on a refusal.
 #[pyfunction]
 fn parse_bounds(py: Python<'_>, text: &str) -> PyResult<Py<PyDict>> {
-    match parse(text.as_bytes()) {
+    // The parse touches no Python object: release the GIL so the bot's
+    // other threads keep running while a large plate is verified.
+    let bytes = text.as_bytes();
+    let outcome = py.detach(|| parse(bytes));
+    match outcome {
         Ok(b) => {
             let dict = PyDict::new(py);
             dict.set_item("x", (b[0][0], b[0][1]))?;
