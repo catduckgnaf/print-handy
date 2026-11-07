@@ -823,6 +823,16 @@
    "reason": "Re-recorded for 2.2.5 from CI run 42159718217 (7e5ef65), the release commit's run. The run's first discord-timing attempt landed on a fast runner (parts-512-four-color wall 2.63 s against 5.11-5.42 s on the neighboring main and PR runs) and its proposal failed this gate on an ordinary runner, so, per the re-run rule in tests/README.md, the job was re-run on the same run and the recorded attempt is the one that measured on a representative runner: its medians sit at or above the neighboring runs' values on the heavy cases. Rises against the 2.2.4-era baseline (largest +0.75 s, parts-512-four-color/standalone wall) are accepted as the current normal.",
    "wall_s": 0.06
   },
+  "stl-large-plate/hermes": {
+   "first_prompt_s": 0.06,
+   "fit_check_s": 0.0,
+   "wall_s": 0.1
+  },
+  "stl-large-plate/standalone": {
+   "first_prompt_s": 0.06,
+   "fit_check_s": 0.0,
+   "wall_s": 0.1
+  },
   "stl-must-shrink/hermes": {
    "first_prompt_s": 0.37,
    "fit_check_s": 0.01,
