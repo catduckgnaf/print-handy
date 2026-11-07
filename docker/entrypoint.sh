@@ -112,7 +112,8 @@ case "$channel" in
         exit 2
         ;;
 esac
-export PRINT_HANDY_ORCA_CMD="$selected"
+: "${PRINT_HANDY_ORCA_CMD:=/usr/local/bin/orca-slicer-stable}"
+export PRINT_HANDY_ORCA_CMD
 # Thread pools follow a cgroup CPU quota (or PRINT_HANDY_THREADS) when one exists; with neither,
 # nothing is exported and pools keep their defaults. A quota does not shrink the CPU count that
 # BLAS and OpenMP see, so without this they size to every host CPU.
