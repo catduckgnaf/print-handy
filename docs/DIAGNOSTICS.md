@@ -735,3 +735,15 @@ each row as it changes it.
 | Container healthcheck (`docker/healthcheck.py`) | One row per subsystem with a reason string | Mostly meets bar; rows get markers in Stage 5 | 5 |
 | Doctor (`doctor.py`) | `FAIL <check>: <detail>`; several details already include the remedy (e.g. the #384 platform row) | Mostly meets bar; new detectable modes get rows in Stage 5 | 5 |
 | Web UI status (`webui/status.py`) | Status/health JSON for the same checks | Stage 5 adds equivalents for new doctor rows where a surface exists | 5 |
+
+## Listener watchdog and outage notices (#1020)
+
+Every print alert is posted by the per-printer listener, so a listener that hangs silences everything while the Discord bot still looks connected. Three layers now cover that:
+
+1. **Bounded work.** The timelapse capture start picks a fresh directory with a bounded search that keeps its suffix inside the 100 character name, and it runs off the event loop with a 20 second deadline. A long job key can no longer spin the listener.
+2. **Supervisor watchdog.** `docker/supervise.sh` probes each listener's heartbeat (`python3 -m print_handy.healthcheck --printer <id>`) every 15 seconds after a 180 second startup grace. A stale heartbeat gets a stack dump (SIGUSR1, written to the container log by `faulthandler`), then SIGTERM, then SIGKILL, and the existing restart backoff and budget apply. Tune with `PRINT_HANDY_LISTENER_WATCHDOG_INTERVAL_S` and `PRINT_HANDY_LISTENER_WATCHDOG_GRACE_S`.
+3. **Outage notices.** The bot reads the same per-printer listener health every heartbeat and posts to that printer's channel when a required listener has been down for 3 minutes, again hourly while it stays down, and once when it recovers. State lives in `listener_outage_alerts.json` in the state folder, so a bot restart neither repeats nor loses a notice. The notice is sent by the bot, not the listener.
+
+## Public text in issues and pull requests (#1020)
+
+Issues, pull requests, comments and commit messages are public, and edit history keeps old versions. `scripts/check_public_text.py` (workflow `public-text.yml`) flags home and NAS paths, private IP addresses, local hostnames, MAC addresses, email addresses, SSH targets, chat or account IDs, tokens and any names in the `PUBLIC_TEXT_DENYLIST` repository secret (a comma or newline separated list of machine names). It reports the category and line, never the value. Put `public-text-ok` on a line that is a deliberate example. `scripts/check_issue_policy.py` (workflow `issue-policy.yml`) labels a bug report `needs-info` until it carries the sanitized diagnostics bundle or sanitization report, the version and evidence.
