@@ -474,6 +474,7 @@ These configure the Compose deployment, not Print Handy itself. Set them in `.en
 | `PRINT_HANDY_USER_CONFIG` | `$HOME/.config/print-handy/settings.yaml` | Your own settings file, layered over `PRINT_HANDY_CONFIG` and under environment variables. Optional (the default location may be absent), but a path set here must exist or startup stops; image updates never replace it. In Docker `HOME=/data`, so it is `/data/.config/print-handy/settings.yaml`, which the Unraid template maps to appdata `dot-config` |
 | `PRINT_HANDY_BUNDLED_SPOOLMAN` | `true` | `true` runs the bundled Spoolman API; `false` uses `services.spoolman_url` only |
 | `SPOOLMAN_HOST` | `127.0.0.1` | Bundled Spoolman bind address; widen it only together with an approved port mapping, see docs/DOCKER.md |
+| `SPOOLMAN_UPDATE_CHECK` | `FALSE` | Bundled Spoolman's outbound update check (upstream's own default is true since Spoolman 0.27.1). The supervisor exports `FALSE` for the bundled instance: the bundled Spoolman is updated by Print Handy's pins, and Print Handy is local-first, so it never polls api.github.com. An external Spoolman you run yourself keeps its own setting |
 | `PRINT_VISION_URL` | empty | Custom vision endpoint for camera checks; takes precedence over `services.vision_chat_url` and needs no key. See [Custom vision endpoint](#custom-vision-endpoint-print_vision_url) |
 | `PRINT_FUZZY_URL` | empty | Opt-in semantic endpoint consulted only when a `/print-lookup` query matches nothing locally; stateless, no key sent. See [Semantic lookup endpoint](#semantic-lookup-endpoint-print_fuzzy_url) |
 
@@ -488,12 +489,12 @@ Image build inputs (`docker build --build-arg NAME=value`), not runtime settings
 | `APP_CHANNEL` | `development` | Application provenance label, `stable` or `development`; it does not change the source checkout |
 | `WITH_ORCA` | `false` | `true` installs the one pinned official prebuilt OrcaSlicer release (v2.5.0-rc, SHA256 verified in `docker/orca-prebuilt.sh`; the single bundled build - earlier two-channel builds pinned v2.5.0-alpha in #356 and v2.5.0-beta after it); OrcaSlicer is never built from source; `false` omits it and slicing fails closed |
 | `WITH_GO2RTC` | `true` | `true` installs the pinned official go2rtc prebuilt (v1.9.15, SHA256 verified in `docker/go2rtc-prebuilt.sh`) and the VAAPI driver stack for in-container timelapse capture (#246); the published images set it; `false` omits both |
-| `SPOOLMAN_REF` | `bed3f14ee77a3a571d31b14215d54b0b88a7519c` | Pinned Spoolman v0.27.0 source commit; only its Python API backend is installed, never the web UI |
+| `SPOOLMAN_REF` | `ff8efd517b76a4b2783f29c89e9b9fbcd8cd167b` | Pinned Spoolman v0.27.1 source commit; only its Python API backend is installed, never the web UI |
 | `ORCA_BUILD_JOBS` | `auto` | Bambu Studio source build only: parallel compile jobs, `auto` (memory-aware, below the CPU count) or a whole number from 1 to 64 |
 | `ORCA_BUILD_MEM_PER_JOB_MIB` | `2560` | Bambu Studio source build only: memory budgeted per job by `auto`, at least 256 |
 | `ORCA_CCACHE_MAXSIZE` | `5G` | Bambu Studio source build only: size cap of the compiler cache inside the build cache |
 | `WITH_BAMBU` | `false` | `true` builds Bambu Studio from pinned source into `/usr/bin/bambu-studio`; `false` omits it and Bambu Lab slicing fails closed |
-| `BAMBU_REF` | `926a7192574bcb9b3a732e1ec59a46d79cb45466` | Pinned Bambu Studio 2.8.2 source commit |
+| `BAMBU_REF` | `56a57d00a591360cf41bf21383915ee5bf357be5` | Pinned Bambu Studio 02.09.01.70 source commit |
 | `BAMBU_BUILD_PROFILE` | `release-static-fhs` | Names the Bambu Studio build options; rename it to reset the build trees |
 
 ## Secrets

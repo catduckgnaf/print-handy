@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import gcode_3mf
+from .print_stats import record_key
 
 # Receipt statuses that mean the intake was sliced but the print never
 # started (prepared_intake's lifecycle): these are the "prints you
@@ -249,6 +250,12 @@ def build_enrichments(records, *, archive_dir=None, receipts_dir=None):
     # Per-color grams for archived jobs, and the stop sidecar detail —
     # both keyed by the record's own print number.
     per_color_by_print: dict[int, dict] = {}
+    # The same joins keyed by each record's own identity: print_number is
+    # not unique in pre-#988 history (a reprint reused the original's
+    # number), so the by-number maps above merge two prints. Readers use
+    # these first; the by-number maps stay for compatibility.
+    per_color_by_record: dict[str, dict] = {}
+    stop_by_record: dict[str, dict] = {}
     jobs_for_number = dict(jobs_by_number)
     for receipt in receipts:
         job = receipt_job(receipt)
@@ -262,6 +269,7 @@ def build_enrichments(records, *, archive_dir=None, receipts_dir=None):
         detail = _stop_detail(record)
         if detail is not None:
             per_print.setdefault(number, {})["stop_detail"] = detail
+            stop_by_record[record_key(record)] = detail
         if _native_color_rows(record) is not None:
             continue  # the record carries it natively; never double-count
         job = jobs_for_number.get(number)
@@ -273,10 +281,13 @@ def build_enrichments(records, *, archive_dir=None, receipts_dir=None):
                 merged[color] = merged.get(color, 0.0) + grams
         if merged:
             per_color_by_print[number] = merged
+            per_color_by_record[record_key(record)] = merged
 
     return {
         "per_print": per_print,
         "per_color_grams_by_print": per_color_by_print,
+        "per_color_grams_by_record": per_color_by_record,
+        "stop_detail_by_record": stop_by_record,
         "support_waiver_print_numbers": sorted(waivers),
         "almost_made": {
             "count": almost_count,

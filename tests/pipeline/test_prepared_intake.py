@@ -1601,7 +1601,7 @@ def test_reprint_offers_last_model_and_never_downloads(env, monkeypatch):
         raise AssertionError('reprint must not contact any site')
     for name in ('maker_inventory', 'maker_download', 'printables_inventory', 'printables_download'):
         monkeypatch.setattr(model_job, name, boom)
-    prev = prepared_intake.last_job()
+    prev = prepared_intake.newest_archived_job()
     assert prev and prev['title'] == 'Ghost Stand'
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='again',
               text='print the previous print in black')
@@ -1618,7 +1618,7 @@ def test_reprint_offers_last_model_and_never_downloads(env, monkeypatch):
 
 def test_reprint_after_restart_explains_interrupted_slice_and_asks_again(env):
     run_flow(env, [1, 0, 0], mid='first')
-    prev = prepared_intake.last_job()
+    prev = prepared_intake.newest_archived_job()
     folder = Path(prev['downloaded_file']).parents[1]
     # Left by a Print Handy process that stopped mid-slice.
     (folder / 'WORKER.json').write_text(json.dumps({'state': 'running', 'step': 'slicing', 'started_at': 1.0,
@@ -1636,13 +1636,71 @@ def test_reprint_after_restart_explains_interrupted_slice_and_asks_again(env):
 
 def test_declined_reprint_does_nothing(env):
     run_flow(env, [1, 0, 0], mid='first')
-    prev = prepared_intake.last_job()
+    prev = prepared_intake.newest_archived_job()
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='no',
               text='reprint that')
     adapter = Adapter([1])
     result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1, reuse=prev))
     assert result['reason'] == 'reprint declined' and len(env.sliced) == 1 and len(env.starts) == 1
     assert 'Nothing was sliced or started' in adapter.sent[-1]
+
+
+# Issue 979 Step 5: a follow-up-born intake names its target before anything else ----
+
+def _followup_receipt(env, mid):
+    import hashlib
+    name = hashlib.sha256(json.dumps(['3dprinting', 'c1', '', mid]).encode()).hexdigest() + '.json'
+    return json.loads((env.root / name).read_text())
+
+
+def test_followup_intake_names_its_target_before_color_questions(env):
+    # The intake exists because the dispatcher prepended a remembered link to
+    # "print it" — the user never typed the link in this message. The Ghost
+    # Stand job is a bare title (no summary/estimate), the case where the
+    # best-effort preview names nothing, so the naming question is the gate.
+    # The dispatcher's follow-up prepend is already in the text, exactly as
+    # model_link_dispatch hands it over; confirm_target is what marks it.
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='followup',
+              text='https://www.printables.com/model/1-ghost print it')
+    adapter = Adapter([0, 1, 0, 0])  # yes at the naming gate, then the normal flow's picks
+    result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1,
+                                                      confirm_target=True))
+    assert adapter.questions[0]['question'].startswith('Print Ghost Stand?')
+    assert len(adapter.questions) >= 4  # the color and start questions still follow
+    assert len(env.sliced) == 1 and len(env.starts) == 1
+    assert _followup_receipt(env, 'followup')['status'] == 'STARTED'
+
+
+def test_followup_intake_declined_at_the_naming_gate_starts_nothing(env):
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'), message_id='followup-no',
+              text='https://www.printables.com/model/1-ghost print it')
+    adapter = Adapter([1])  # No at the naming question
+    result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1,
+                                                      confirm_target=True))
+    assert result['reason'] == 'followup target declined'
+    assert len(adapter.questions) == 1 and not env.sliced and not env.starts
+    assert _followup_receipt(env, 'followup-no')['status'] == 'DECLINED_FOLLOWUP'
+
+
+def test_followup_naming_gate_goes_to_a_person_even_under_yolo(env):
+    """Yolo vouches for a file the operator named; a remembered link nobody
+    named in this message still gets the naming question from a person
+    (#979 review), and declining it starts nothing."""
+    from print_handy.core import yolo
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+              message_id='followup-yolo', text='https://www.printables.com/model/1-ghost print it')
+    adapter = Adapter([1])  # a person says No at the naming question
+    token = yolo.ACTIVE.set(True)
+    try:
+        result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root,
+                                                          timeout=1, confirm_target=True))
+    finally:
+        yolo.ACTIVE.reset(token)
+    assert result['reason'] == 'followup target declined'
+    assert len(adapter.questions) == 1
+    assert adapter.questions[0]['question'].startswith('Print Ghost Stand?')
+    assert any('Yolo does not answer this one' in str(m) for m in adapter.sent)
+    assert not env.sliced and not env.starts
 
 
 

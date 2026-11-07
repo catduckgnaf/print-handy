@@ -74,7 +74,10 @@ def test_repair_fills_a_hole_and_keeps_the_source_untouched(tmp_path):
     assert facts["watertight"] is False and facts["boundary_edges"] == 4
     out = tmp_path / "open-fixed.stl"
     report = ai_fix.repair_mesh(src, out)
-    assert report["holes_filled"] == 1
+    # A 10 mm square, flat rim reads as a designed opening (#978 follow-up):
+    # closed by default, and named as an opening rather than a damage hole.
+    assert report["holes_filled"] == 0 and report["openings_closed"] == 1
+    assert report["openings"][0]["closed"] is True
     assert report["after"]["watertight"] is True
     assert report["after"]["signed_volume_mm3"] == pytest.approx(1000.0, abs=1.0)
     assert src.read_bytes() == before_bytes  # the source file is never overwritten

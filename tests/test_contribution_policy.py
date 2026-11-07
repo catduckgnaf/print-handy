@@ -17,6 +17,11 @@ class PolicyTests(unittest.TestCase):
 A new option for operators.
 ## Verification and test results
 Ran the focused offline tests: 4 passed.
+## Tests added and regression scoping
+Tests added: none
+Tests added detail: No new test was added because the existing settings tests in tests/test_settings.py already cover this option's behavior.
+Regression scoping: checked
+Regression scoping reason: The settings and defaults regression tests were considered; the focused run covers them and CI runs the full suite on this head.
 ## Documentation impact
 Documentation: updated
 Reason: New configuration option documented in docs/CONFIGURATION-YAML.md.
@@ -69,7 +74,11 @@ Variables reason: The new option was checked on every surface: defaults tree, en
                   .replace("Wiki: updated | not applicable | deferred", "Wiki: not applicable")
                   .replace("Wiki reason:\n", "Wiki reason: Versioned docs are authoritative for this change.\n")
                   .replace("Variables: checked | not applicable", "Variables: not applicable")
-                  .replace("Variables reason:\n", "Variables reason: This change adds or changes no variables at all.\n"))
+                  .replace("Variables reason:\n", "Variables reason: This change adds or changes no variables at all.\n")
+                  .replace("Tests added: added | none", "Tests added: none")
+                  .replace("Tests added detail:\n", "Tests added detail: No new test: the existing settings tests already cover this option.\n")
+                  .replace("Regression scoping: checked | not applicable", "Regression scoping: checked")
+                  .replace("Regression scoping reason:\n", "Regression scoping reason: Neighboring regression suites were considered and CI runs the full suite on this head.\n"))
         filled = filled.replace("## Summary and user impact\n", "## Summary and user impact\nA new option for operators.\n")
         filled = filled.replace("## Verification and test results\n", "## Verification and test results\nRan the focused offline tests: 4 passed.\n")
         self.assertEqual([], self.policy.check_pr(filled, ["docs/README.md"]))
@@ -101,6 +110,54 @@ Variables reason: The new option was checked on every surface: defaults tree, en
         body = body.replace("Wiki reason: Versioned docs are authoritative; no separate wiki page exists.",
                             "Wiki reason: Versioned docs are authoritative; tracked in https://github.com/catduckgnaf/print-handy/issues/120")
         self.assertEqual([], self.policy.check_pr(body, ["docs/README.md"]))
+
+    def test_missing_testing_section_rejected(self):
+        body = self.body().split("## Tests added and regression scoping")[0] + "## Documentation impact" + self.body().split("## Documentation impact", 1)[1]
+        errors = self.policy.check_pr(body, ["docs/README.md"])
+        self.assertTrue(any("Tests added" in e for e in errors), errors)
+        self.assertTrue(any("Regression scoping" in e for e in errors), errors)
+
+    def test_bad_tests_added_literal_rejected(self):
+        body = self.body().replace("Tests added: none", "Tests added: some")
+        self.assertTrue(any("Tests added: must be" in e for e in self.policy.check_pr(body, ["docs/README.md"])))
+
+    def test_tests_none_without_reason_rejected(self):
+        body = self.body().replace(
+            "No new test was added because the existing settings tests in tests/test_settings.py already cover this option's behavior.", "TODO")
+        errors = self.policy.check_pr(body, ["docs/README.md"])
+        self.assertTrue(any("Tests added detail" in e for e in errors), errors)
+
+    def test_tests_none_with_specific_reason_passes(self):
+        self.assertEqual([], self.policy.check_pr(self.body(), ["print_handy/settings.py", "docs/CONFIGURATION-YAML.md"]))
+
+    def test_tests_added_without_test_file_rejected(self):
+        body = self.body().replace("Tests added: none", "Tests added: added").replace(
+            "No new test was added because the existing settings tests in tests/test_settings.py already cover this option's behavior.",
+            "Added test_option_default in tests/test_settings.py, pinning the new option's default value.")
+        errors = self.policy.check_pr(body, ["print_handy/settings.py", "docs/CONFIGURATION-YAML.md"])
+        self.assertTrue(any("no test file changed" in e for e in errors), errors)
+
+    def test_tests_added_with_test_file_passes(self):
+        body = self.body().replace("Tests added: none", "Tests added: added").replace(
+            "No new test was added because the existing settings tests in tests/test_settings.py already cover this option's behavior.",
+            "Added test_option_default in tests/test_settings.py, pinning the new option's default value.")
+        self.assertEqual([], self.policy.check_pr(body, ["print_handy/settings.py", "tests/test_settings.py", "docs/CONFIGURATION-YAML.md"]))
+
+    def test_bad_regression_scoping_literal_rejected(self):
+        body = self.body().replace("Regression scoping: checked", "Regression scoping: done")
+        self.assertTrue(any("Regression scoping: must be" in e for e in self.policy.check_pr(body, ["docs/README.md"])))
+
+    def test_regression_scoping_without_reason_rejected(self):
+        body = self.body().replace(
+            "The settings and defaults regression tests were considered; the focused run covers them and CI runs the full suite on this head.", "TODO")
+        errors = self.policy.check_pr(body, ["docs/README.md"])
+        self.assertTrue(any("Regression scoping reason" in e for e in errors), errors)
+
+    def test_regression_scoping_not_applicable_with_reason_passes(self):
+        body = self.body().replace("Regression scoping: checked", "Regression scoping: not applicable").replace(
+            "The settings and defaults regression tests were considered; the focused run covers them and CI runs the full suite on this head.",
+            "This change touches no code or behavior, so there is no regression surface to scope.")
+        self.assertEqual([], self.policy.check_pr(body, ["print_handy/settings.py", "docs/CONFIGURATION-YAML.md"]))
 
     def test_missing_surfaces_section_rejected(self):
         body = self.body().split("## Surfaces and variables")[0]

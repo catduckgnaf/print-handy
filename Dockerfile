@@ -34,7 +34,7 @@ RUN mkdir -p /out && \
 
 FROM debian:13-slim AS bambu-build
 ARG WITH_BAMBU=false
-ARG BAMBU_REF=926a7192574bcb9b3a732e1ec59a46d79cb45466
+ARG BAMBU_REF=56a57d00a591360cf41bf21383915ee5bf357be5
 ARG BAMBU_BUILD_PROFILE=release-static-fhs
 ARG ORCA_BUILD_JOBS=auto
 ARG ORCA_BUILD_MEM_PER_JOB_MIB=2560
@@ -88,7 +88,7 @@ RUN --mount=type=cache,id=print-handy-bambu-${TARGETARCH}-${BAMBU_REF}-${BAMBU_B
 
 # API-only Spoolman, isolated from Print Handy's Python dependencies.
 FROM debian:13-slim AS spoolman-build
-ARG SPOOLMAN_REF=bed3f14ee77a3a571d31b14215d54b0b88a7519c
+ARG SPOOLMAN_REF=ff8efd517b76a4b2783f29c89e9b9fbcd8cd167b
 ENV UV_PYTHON_DOWNLOADS=0 UV_NO_DEV=1 UV_LINK_MODE=copy
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-venv python3-dev build-essential libpq-dev libffi-dev git ca-certificates && \
@@ -124,6 +124,34 @@ RUN git init . && git remote add origin https://github.com/Donkie/Spoolman.git &
         '</body>' \
         '</html>' > client_v2/build/200.html && \
     printf '%s\n' "$SPOOLMAN_REF" > source-revision
+# Native G-code bounds parser (#952, D1): the Rust/PyO3 crate in
+# native/bounds, built as an abi3-py312 wheel so one wheel per arch
+# serves the runtime's Python 3.13. Only the built wheel leaves this
+# stage; no Rust toolchain reaches the runtime image. The Python parser
+# remains the permanent fallback wherever the extension is absent, so
+# this stage only accelerates Print Handy in the image; it is never
+# load bearing for correctness.
+FROM debian:13-slim AS bounds-build
+ENV DEBIAN_FRONTEND=noninteractive CARGO_HOME=/opt/cargo RUSTUP_HOME=/opt/rustup \
+    PATH=/opt/cargo/bin:/opt/venv/bin:$PATH
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-venv build-essential curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && python3 -m venv /opt/venv && \
+    pip install --no-cache-dir "maturin==1.16.0" && \
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+      sh -s -- -y --profile minimal --default-toolchain 1.99.1
+WORKDIR /src
+COPY native/bounds/ ./native/bounds/
+# maturin places the extension at the module path only when the target
+# package's directories exist beside the crate (mixed layout), so the
+# real package __init__ files are staged into the crate first; the
+# wheel then carries print_handy/core/_bounds_native.abi3.so.
+COPY print_handy/__init__.py ./native/bounds/print_handy/__init__.py
+COPY print_handy/core/__init__.py ./native/bounds/print_handy/core/__init__.py
+COPY README.md ./README.md
+RUN mkdir -p /out && cd native/bounds && \
+    maturin build --release --locked -m pyproject.toml -i python3 --out /out
+
 FROM debian:13-slim AS runtime
 ARG WITH_GO2RTC=true
 ARG TARGETARCH
@@ -176,7 +204,14 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY print_handy/__init__.py ./print_handy/__init__.py
 RUN pip install --no-cache-dir .
+# The native bounds wheel (#952) installs the compiled extension into
+# the venv's site-packages; only the .so ships, no build toolchain.
+COPY --from=bounds-build /out/*.whl /tmp/bounds-wheel/
+RUN pip install --no-cache-dir /tmp/bounds-wheel/*.whl && rm -rf /tmp/bounds-wheel
 COPY . .
+# The app also imports print_handy from /app (the working copy), so the
+# extension is mirrored next to the source package as well.
+RUN cp /opt/venv/lib/python3.*/site-packages/print_handy/core/_bounds_native*.so /app/print_handy/core/
 ENV TZ=America/New_York
 ENV PRINT_HANDY_ORCA_CMD=/usr/local/bin/orca-slicer-stable
 ENV PRINT_HANDY_CONFIG=/app/config/docker.yaml HOME=/data PRINT_HANDY__BOT__MODE=standalone \

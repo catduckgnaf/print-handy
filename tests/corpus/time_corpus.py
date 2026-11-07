@@ -3,10 +3,11 @@
     python3 -m tests.corpus.time_corpus [--transport hermes|standalone|both] [--case NAME ...]
                                         [--json out.json] [--real-slicer]
 
-For each case and transport it records pass/fail against case.toml, total wall time, and the
-phase split from the run's timed event log: time to the first Discord question, time to the
-slicer start, and time from slicer start to the end of the flow. Nothing reaches Discord,
-Moonraker or a printer; the mock tier fakes the Orca CLI exactly as the corpus tests do.
+For each case and transport it records pass/fail against case.toml, total wall time, the
+total size of the G-code the flow produced (gcode_bytes), and the phase split from the run's
+timed event log: time to the first Discord question, time to the slicer start, and time from
+slicer start to the end of the flow. Nothing reaches Discord, Moonraker or a printer; the
+mock tier fakes the Orca CLI exactly as the corpus tests do.
 """
 from __future__ import annotations
 
@@ -71,6 +72,9 @@ def run_one(case, transport, real_slicer, root):
     try:
         run = harness.run_case(case, work, real_slicer=real_slicer, transport=transport)
         row["wall_s"] = time.monotonic() - start
+        # What the flow actually produced: the large-plate timing case (#952) is defined by its
+        # output size, so the artifact records it instead of leaving it to be inferred from timings.
+        row["gcode_bytes"] = sum(p.stat().st_size for p in run.gcodes if p.is_file())
         row.update(_phases(run))
         try:
             harness.check_expectations(case, run)

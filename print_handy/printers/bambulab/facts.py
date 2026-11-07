@@ -801,3 +801,79 @@ A2L = {
     # Open frame.
     "enclosed": Fact(False, "BAMBU", False),
 }
+
+
+# --- H3C: initial support (facts only — NOT a registered model) ----------------------
+# The H3C is Bambu Lab's nine-tool Swaptek tool changer, launched 2026-11-03 alongside
+# Bambu Studio 02.09.01.70 (the first Studio release carrying it). What is recorded here
+# was read directly from Bambu Studio at the pinned commit 56a57d00a591360cf41bf21383915ee5bf357be5
+# (the BAMBU_REF PR #990 pins): resources/printers/N10.json (the H3C's device definition:
+# display_name, model_id "N10", sn_prefix, nozzle/bed temperature ranges, default nozzle
+# count) and resources/profiles/BBL/machine/Bambu Lab H3C*.json (the model profile and
+# the four nozzle machine profiles). Spec-page values that could not be read from
+# bambulab.com directly are marked unverified, like the other models' BAMBU facts.
+#
+# There is deliberately NO orca_profiles / orca_filaments / orca_identity here, and no
+# MODEL module, registry entry or adapter for the H3C: the pinned OrcaSlicer v2.5.0-rc
+# (ORCA_RELEASE above; resources/profiles/BBL at af2ffb8cddd2f3c0bdadc56d9cc3945fb23577ea)
+# carries no H3C profiles at all — its BBL index and machine folder were checked and
+# contain none — so no identity can be computed with Print Handy's flatten + sha256
+# pipeline, and registration without an identity is not a supported shape (the profile
+# checks index the identity fact directly and would fail open-endedly, and every
+# registered-model test contract assumes one). This is the H2C/A2L situation before
+# #356, one step further back: the H2C waited unregistered while Orca had no profile
+# for it, and was registered only when the Orca 2.5 line brought one. Full H3C
+# registration is blocked on an OrcaSlicer release carrying H3C BBL profiles; when one
+# is pinned, the model lands the #356 way (identities computed over that tree and its
+# packed cache, a MODEL module, a registry entry, family tests).
+#
+# What this block already wires up: the serial prefix. An H3C's serial starts with
+# "32X" (N10.json's sn_prefix), and the HMS table regenerated from Studio 02.09.01.70
+# (PR #990) carries 32X per-model override sections. The HMS decode path is
+# serial-driven, not model-driven (adapter._hms_prefix takes the configured serial's
+# first three characters and consults the table's per-model sections), so no decode
+# code waits on registration: the recorded prefix here is the reference the H3C's
+# own registration will use, and the resolution path is test-pinned against a
+# synthetic 32X table in tests/printers/test_bambu_hms.py.
+
+H3C = {
+    # printer_model as Bambu Studio's machine profile writes it; the device
+    # definition (resources/printers/N10.json) names the same display name.
+    "printer_model": Fact("Bambu Lab H3C", "BAMBU", True),
+    # The first three characters of an H3C serial number: N10.json's "sn_prefix",
+    # read at the pinned Studio commit above. This is the HMS per-model prefix.
+    "serial_prefix": Fact("32X", "BAMBU", True),
+    # printable_area 0x0..330x320 and printable_height 325 in the Studio machine
+    # profile; Bambu's spec pages publish the same 330 x 320 x 325 mm volume.
+    "bed_mm": Fact((330.0, 320.0), "BAMBU", True),
+    "max_print_height_mm": Fact(325.0, "BAMBU", True),
+    # The Studio machine profile's bed_exclude_area is empty.
+    "bed_exclude_area": Fact((), "BAMBU", True),
+    # The Studio machine profile's default_bed_type.
+    "default_plate": Fact("Textured PEI Plate", "BAMBU", True),
+    # No motion envelope or travel headroom: those are DERIVED from the vendor
+    # G-code templates of a model's Orca profiles, and no Orca profiles exist yet.
+    # The fitted tool is a 0.4 mm hardened steel PrintTool (Bambu's H3C pages, via
+    # launch coverage; not read from bambulab.com directly, so unverified).
+    "stock_nozzle": Fact((0.4, "hardened_steel"), "BAMBU", False),
+    # The model profile offers 0.2, 0.4, 0.6 and 0.8 mm, one machine profile each.
+    "nozzle_sizes_mm": Fact((0.2, 0.4, 0.6, 0.8), "BAMBU", True),
+    # N10.json's nozzle_temp_range / bed_temp_range upper bounds.
+    "max_hotend_c": Fact(350, "BAMBU", True),
+    "max_bed_c": Fact(120, "BAMBU", True),
+    # The filament families with dedicated @BBL H3C profiles at the pinned Studio
+    # commit (PLA, PETG, TPU, ABS, ASA, PC and PA families, CF/GF fills included).
+    "ideal_materials": Fact(("PLA", "PETG", "TPU", "ABS", "ASA", "PC", "PA"), "BAMBU", False),
+    "not_recommended_materials": Fact((), "BAMBU", False),
+    # Nine PrintTools on the Swaptek rack (N10.json's default_nozzle_count; the
+    # machine profile's extruder_max_nozzle_count agrees). This is recorded as
+    # "tools", NOT "extruders": the extruders fact counts a profile's
+    # nozzle_diameter entries for the extruder-aware identity/guard checks, and
+    # the H3C's tools share the toolhead's single FlexFeed extruder — claiming an
+    # extruder count would misstate the architecture those checks assume.
+    "tools": Fact(9, "BAMBU", True),
+    # AMS 3H: nine slots on top of the machine, two of them drying slots (Bambu's
+    # H3C pages, via launch coverage; unverified). Not driven by Print Handy.
+    "ams": Fact(("AMS 3H", 9), "BAMBU", False),
+    "enclosed": Fact(True, "BAMBU", False),
+}

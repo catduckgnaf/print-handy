@@ -46,7 +46,7 @@ SECRETS = {"DISCORD_BOT_TOKEN", "TELEGRAM_BOT_TOKEN", "MATRIX_ACCESS_TOKEN", "LL
            "MYMINIFACTORY_OAUTH_TOKEN", "MAKERWORLD_TOKEN", "THINGIVERSE_TOKEN", "CULTS3D_TOKEN"}
 COMPOSE_VARS = {"PRINT_HANDY_IMAGE", "PRINT_HANDY_DATA", "PRINT_HANDY_SPOOLMAN_DATA", "PRINT_HANDY_CONFIG", "TZ",
                 "DISCORD_CLIENT_ID", "CLOUDFLARED_IMAGE", "SPOOLMAN_CORS_ORIGIN"}
-RUNTIME_ENV_VARS = {"PRINT_HANDY_ORCA_CHANNEL", "PRINT_HANDY_USER_CONFIG", "PRINT_HANDY_BUNDLED_SPOOLMAN", "SPOOLMAN_HOST", "PRINT_VISION_URL", "PRINT_FUZZY_URL"}
+RUNTIME_ENV_VARS = {"PRINT_HANDY_ORCA_CHANNEL", "PRINT_HANDY_USER_CONFIG", "PRINT_HANDY_BUNDLED_SPOOLMAN", "SPOOLMAN_HOST", "SPOOLMAN_UPDATE_CHECK", "PRINT_VISION_URL", "PRINT_FUZZY_URL"}
 DATA_TARGETS = {"/data/state", "/data/hermes", "/data/archive", "/data/records", "/data/cache"}
 
 
@@ -168,13 +168,52 @@ class SettingsParityTests(unittest.TestCase):
                 self.assertRegex(ENV_EXAMPLE, rf"(?m)^#? ?{name}=$")
 
 
+def _parse_dotted_quad(raw):
+    """IP address for a dotted-quad match, or None when it is not an address.
+
+    The scan regex also matches dotted version strings -- Bambu Studio's
+    02.09.01.70 pin (PR #990) is the standing example -- whose leading
+    zeros make ipaddress raise ValueError. Retry with the zeros stripped:
+    a zero-padded real address (192.168.001.1) still parses and is checked
+    below, while a string that is not an address even after stripping
+    returns None and is skipped instead of crashing the scan.
+    """
+    try:
+        return ipaddress.ip_address(raw)
+    except ValueError:
+        pass
+    stripped = ".".join(str(int(octet)) for octet in raw.split("."))
+    try:
+        return ipaddress.ip_address(stripped)
+    except ValueError:
+        return None
+
+
 class SanitizedExamplesTests(unittest.TestCase):
+    def test_dotted_quad_helper_distinguishes_versions_from_addresses(self):
+        # Direct pins for _parse_dotted_quad (landed with PR #990): the
+        # deployment-file scan below proves the version tolerance against
+        # the real files, but the positive direction — a real LAN
+        # address, including a zero-padded one, still parses and would
+        # be flagged — was asserted nowhere.
+        assert _parse_dotted_quad("192.168.250.135").is_private
+        assert _parse_dotted_quad("192.168.001.1").is_private
+        # The Bambu version string zero-strips to a valid PUBLIC address
+        # (2.9.1.70), so the scan parses it and does not flag it — that,
+        # not a parse failure, is what unblocked PR #990.
+        version = _parse_dotted_quad("02.09.01.70")
+        assert str(version) == "2.9.1.70" and not version.is_private
+        assert not _parse_dotted_quad("8.8.8.8").is_private
+
     def test_no_lan_addresses_machine_paths_ids_or_credentials(self):
         for path in DEPLOYMENT_FILES:
             text = (ROOT / path).read_text()
             with self.subTest(file=path):
                 for raw in re.findall(r"(?<![\d.])(\d{1,3}(?:\.\d{1,3}){3})(?![\d.])", text):
-                    address = ipaddress.ip_address(raw)
+                    address = _parse_dotted_quad(raw)
+                    if address is None:
+                        # Not an IP address (a version string, above).
+                        continue
                     # The unspecified address (0.0.0.0) is a bind wildcard for
                     # the optional Web UI (#286), not a machine's LAN address.
                     self.assertFalse(address.is_private and not address.is_loopback
@@ -362,12 +401,30 @@ class OrcaPrebuiltTests(unittest.TestCase):
 
 class RuntimeImageTests(unittest.TestCase):
     def test_every_stage_uses_debian_stable(self):
-        """Debian 13 slim for every stage (Orca, go2rtc, Bambu, Spoolman, runtime); no stock UID 1000 user, so handy takes 1000."""
+        """Debian 13 slim for every stage (Orca, go2rtc, Bambu, Spoolman, bounds, runtime); no stock UID 1000 user, so handy takes 1000."""
         self.assertEqual(re.findall(r"^FROM (debian:13-slim)(?: AS [\w-]+)?$", DOCKERFILE, re.M),
-                         ["debian:13-slim"] * 5)
+                         ["debian:13-slim"] * 6)
         runtime = DOCKERFILE.split("FROM debian:13-slim AS runtime", 1)[1]
         self.assertIn("useradd --uid 1000 --create-home handy", runtime)
         self.assertNotIn("ubuntu", DOCKERFILE)
+
+
+class NativeBoundsStageTests(unittest.TestCase):
+    """The bounds-build stage (#952): maturin only places the extension
+    at print_handy/core/_bounds_native when the package skeleton is
+    staged beside the crate; without those copies the wheel silently
+    ships a top-level package the dispatcher can never import."""
+
+    def test_stage_stages_the_package_skeleton_and_ships_only_the_wheel(self):
+        stage = DOCKERFILE.split("FROM debian:13-slim AS bounds-build", 1)[1].split("FROM debian:13-slim AS runtime", 1)[0]
+        self.assertIn("COPY print_handy/__init__.py ./native/bounds/print_handy/__init__.py", stage)
+        self.assertIn("COPY print_handy/core/__init__.py ./native/bounds/print_handy/core/__init__.py", stage)
+        self.assertIn("maturin build --release", stage)
+        runtime = DOCKERFILE.split("FROM debian:13-slim AS runtime", 1)[1]
+        self.assertIn("pip install --no-cache-dir /tmp/bounds-wheel/*.whl", runtime)
+        self.assertIn("site-packages/print_handy/core/_bounds_native*.so /app/print_handy/core/", runtime)
+        self.assertNotIn("cargo", runtime)
+        self.assertNotIn("rustup", runtime)
 
 
 class ContainerTimezoneTests(unittest.TestCase):

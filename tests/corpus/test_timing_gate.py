@@ -181,6 +181,9 @@ def test_real_slicer_leg_is_reporting_only_and_skips_the_slow_case():
     cases = job["env"]["TIMING_CASES"].split("--case")
     names = {c.strip() for c in cases if c.strip()}
     assert names and "must-shrink" not in names and "stl-must-shrink" not in names
+    # The large-plate case (#952, decision D4) stays in the leg: removing it silently would
+    # reopen the gap where no timed case exercises a 50 MB class slice.
+    assert "stl-large-plate" in names
     real = json.loads((Path(__file__).parent / "timing_baseline_real_slicer.json").read_text())
     assert {k.split("/")[0] for k in real["cases"]} <= names
     from tests.corpus import harness

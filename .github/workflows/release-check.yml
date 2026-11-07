@@ -1,0 +1,120 @@
+name: Release check
+
+# Fail-closed release gate for a version bump (docs/RELEASE-CHECKLIST.md).
+# Runs the checks past releases taught us the hard way:
+# - scripts/check_release.py: version surfaces agree (__version__,
+#   README "Current release", the INTERNAL_RELEASE_NOTES section), every
+#   merged PR in the previous-tag..HEAD ancestry range is mentioned in
+#   the draft release notes and the internal notes, and the draft notes
+#   pass the US-spelling scan in full (the CI spelling job only scans
+#   PR-diff lines, so release notes were never scanned before).
+# - the variables parity contract and the Docker release contracts,
+#   run explicitly so a release never ships on a stale local run.
+# Pages drift is NOT duplicated here: the docker-publish surfaces gate
+# (scripts/check_release_surfaces.py) owns it, using the docs repo's
+# own check-sync definition.
+#
+# Dispatch it by hand against the bump PR's branch (or let the pull
+# request trigger run it when the bump touches the release surfaces).
+# The draft notes are read from .github/release-notes-draft.md when it
+# exists in the checkout; dispatch inputs can point elsewhere.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Target version (MAJOR.MINOR.PATCH)"
+        type: string
+        required: true
+      from_ref:
+        description: "Previous release tag (blank = latest tag)"
+        type: string
+        required: false
+        default: ""
+      notes_path:
+        description: "Draft release notes path in the checkout"
+        type: string
+        required: false
+        default: ".github/release-notes-draft.md"
+  pull_request:
+    paths:
+      - "print_handy/__init__.py"
+      - "README.md"
+      - "docs/INTERNAL_RELEASE_NOTES.md"
+      - ".github/release-notes-draft.md"
+      - "scripts/check_release.py"
+      - ".github/workflows/release-check.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  release-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: python -m pip install -e ".[test]"
+      - name: Resolve version and range
+        id: resolve
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_FROM: ${{ inputs.from_ref }}
+          INPUT_NOTES: ${{ inputs.notes_path }}
+        run: |
+          set -euo pipefail
+          version="$INPUT_VERSION"
+          if [ -z "$version" ]; then
+            version="$(python3 -c "from print_handy import __version__; print(__version__)")"
+          fi
+          from_ref="$INPUT_FROM"
+          if [ -z "$from_ref" ]; then
+            from_ref="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || git tag --sort=-v:refname | grep -E "^[0-9]+\.[0-9]+\.[0-9]+$" | grep -vx "$version" | head -1)"
+          fi
+          to_ref="HEAD"
+          if [ "$from_ref" = "$version" ]; then
+            # HEAD is already past this release (a post-release PR touching
+            # the release surfaces): step back to the previous tag and cap
+            # the range at this release's tag, so the check covers exactly
+            # the PRs the release shipped.
+            from_ref="$(git tag --sort=-v:refname | grep -E "^[0-9]+\.[0-9]+\.[0-9]+$" | grep -vx "$version" | head -1)"
+            to_ref="$version^"
+          fi
+          notes="${INPUT_NOTES:-.github/release-notes-draft.md}"
+          {
+            echo "version=$version"
+            echo "from_ref=$from_ref"
+            echo "to_ref=$to_ref"
+            echo "notes=$notes"
+          } >> "$GITHUB_OUTPUT"
+          echo "Release check: $from_ref..$to_ref for $version, notes at $notes"
+      - name: Release check (version surfaces, notes coverage, spelling)
+        if: hashFiles(steps.resolve.outputs.notes) != ''
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+          FROM_REF: ${{ steps.resolve.outputs.from_ref }}
+          TO_REF: ${{ steps.resolve.outputs.to_ref }}
+          NOTES: ${{ steps.resolve.outputs.notes }}
+        run: |
+          python3 scripts/check_release.py \
+            --version "$VERSION" --from-ref "$FROM_REF" --to-ref "$TO_REF" \
+            --notes "$NOTES"
+      - name: Release check (no draft notes in this checkout — script tests only)
+        if: hashFiles(steps.resolve.outputs.notes) == ''
+        run: |
+          echo "No draft release notes file in this checkout; running the checker's own tests."
+          python -m pytest -q tests/test_release_check.py
+      - name: Variables parity and Docker contract suites
+        run: |
+          python -m pytest -q \
+            tests/test_variables_contract.py \
+            tests/test_docker_release.py \
+            tests/test_docker_release_contract.py \
+            tests/test_release_surfaces_gate.py \
+            tests/test_release_check.py
