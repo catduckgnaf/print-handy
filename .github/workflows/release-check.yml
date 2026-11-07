@@ -75,13 +75,13 @@ jobs:
           fi
           from_ref="$INPUT_FROM"
           if [ -z "$from_ref" ]; then
-            from_ref="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || git tag --sort=-v:refname | grep -vx "$version" | head -1)"
+            from_ref="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || git tag --sort=-v:refname | grep -E "^[0-9]+\.[0-9]+\.[0-9]+$" | grep -vx "$version" | head -1)"
           fi
           if [ "$from_ref" = "$version" ]; then
             # HEAD is already past this release (a post-release PR touching
             # the release surfaces): step back to the previous tag so the
             # ancestry range is this release's own, not empty.
-            from_ref="$(git tag --sort=-v:refname | grep -vx "$version" | head -1)"
+            from_ref="$(git tag --sort=-v:refname | grep -E "^[0-9]+\.[0-9]+\.[0-9]+$" | grep -vx "$version" | head -1)"
           fi
           notes="${INPUT_NOTES:-.github/release-notes-draft.md}"
           {
