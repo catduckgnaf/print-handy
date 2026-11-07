@@ -210,7 +210,8 @@ def test_mesh_repair_is_vectorized_on_a_large_mesh(tmp_path):
 def test_mesh_repair_refuses_a_mesh_past_the_size_cap(tmp_path, monkeypatch):
     from test_ai_fix_chat_978 import _open_cube
     src = _open_cube(tmp_path / "cube.stl")
-    monkeypatch.setattr(ai_fix, "MAX_REPAIR_TRIANGLES", 5)
+    from print_handy.core import mesh_repair
+    monkeypatch.setattr(mesh_repair, "MAX_REPAIR_TRIANGLES", 5)
     with pytest.raises(ai_fix.FixError, match="more than"):
         ai_fix.repair_mesh(src, tmp_path / "out.stl")
 
@@ -235,7 +236,11 @@ def test_chat_fix_restores_the_job_when_reentry_fails(fix_env, monkeypatch):
     monkeypatch.setattr(edit_chat, "_edit_reenter", broken_reenter)
     result = asyncio.run(plugin.edit_dispatch(_event("fix this"), fix_env.gateway))
     assert result["reason"] == "repair re-entry failed"
-    assert json.loads(fix_env.job_path.read_text()) == before
+    after = json.loads(fix_env.job_path.read_text())
+    # The fix request itself stays counted against the job's budget; the
+    # job is otherwise exactly as it was.
+    assert len(after.pop("ai_fix_attempts")) == 1
+    assert after == before
     assert not any("Fix applied" in (m or "") for m in fix_env.adapter.sent)
     assert any("job above is unchanged" in (m or "") for m in fix_env.adapter.sent)
 
