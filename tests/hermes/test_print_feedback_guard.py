@@ -212,12 +212,13 @@ def test_print_again_success_posts_its_own_start_announcement(monkeypatch):
          mock.patch.object(pc, 'queue_copies') as queued, \
          mock.patch.object(print_next, 'start', side_effect=accepted), \
          mock.patch.object(summary, 'gcode_metadata', return_value=(60, 1.0)), \
-         mock.patch.object(summary, '_print_number', return_value=8):
+         mock.patch.object(pc, 'latest_number_for_job', return_value=8):
         result = asyncio.run(plugin.print_again_dispatch(event, gateway))
 
     assert result['reason'] == 'deterministic print again handled'
     queued.assert_called_once()
-    assert adapter.sent[0] == 'Preparing to start Widget. Print #8; estimated print time ~1m, plus warmup ~6m total.'
+    assert adapter.sent[0] == ('Preparing to start Widget. A reprint of print #8; it gets its own new print '
+                               'number when it starts. estimated print time ~1m, plus warmup ~6m total.')
     assert any(message.startswith('Print started') for message in adapter.sent)
 
 

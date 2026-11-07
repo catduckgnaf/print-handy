@@ -235,12 +235,12 @@ def _registry_print_number(context: Mapping[str, Any]) -> int | None:
         return None
     try:
         from . import print_control
-        numbers = json.loads(print_control.PRINT_NUMBERS.read_text(encoding="utf-8")).get("numbers") or {}
+        # The job's newest print -- the one this record describes (#979
+        # review: numbers name prints, so a reprint is never its job's first
+        # number). record_start normally carries the exact number already.
+        return _valid_print_number(print_control.latest_number_for_job(job_path))
     except (OSError, ValueError, AttributeError, ImportError):
         return None
-    if not isinstance(numbers, dict):
-        return None
-    return _valid_print_number(numbers.get(str(job_path.resolve())))
 
 
 def _spool_fields(spool: Any) -> dict[str, Any]:
@@ -449,6 +449,7 @@ _RECORD_FIELDS = (
     "slicer_settings", "author_directed_tree_supports", "physical_outcome",
     "follow_up", "multipart_plan_id", "part_id", "moonraker_state",
     "discord_chat_id", "watch_mode", "watch_risk", "stop_reason", "stop_capture",
+    "print_number_was",
 )
 
 
@@ -896,3 +897,119 @@ def update_cleanup_record(record_path: str, status: str, session_id: str | None 
 def native_option_labels() -> tuple[str, str, str]:
     """Canonical Discord picker labels; callers must render these as buttons."""
     return NATIVE_PRINT_OPTIONS
+
+
+# ---------------------------------------------------------------- duplicate-number repair
+#
+# Until #979's review a print number named a job, so every start of an
+# archived job after the first (a "/print-again 84", a re-run plate) was
+# recorded under the job's existing number: print-0084.json and
+# print-0084-<digest>.json are two different prints. This finds those and,
+# on --apply, gives each later print the next free number, in start order,
+# keeping the old one as print_number_was. Read only without --apply.
+
+def _record_job_path(record: Mapping[str, Any]) -> Path | None:
+    settings = record.get("slicer_settings")
+    local = settings.get("local_gcode") if isinstance(settings, Mapping) else None
+    if not local:
+        return None
+    return next((parent / "JOB.json" for parent in Path(str(local)).parents
+                 if (parent / "JOB.json").is_file()), None)
+
+
+def duplicate_print_numbers(prints_dir: Path | None = None) -> list[dict[str, Any]]:
+    """Records that share a print number with an EARLIER, different print.
+
+    One entry per later print, in start order: {path, record_id, title,
+    started_at, print_number, status}. The earliest print keeps its number.
+    A record still printing is listed with status "printing" and is never
+    renumbered (its completion is about to rewrite it).
+    """
+    prints_dir = Path(prints_dir or PRINTS_DIR)
+    groups: dict[int, dict[str, dict[str, Any]]] = {}
+    for path in sorted(prints_dir.glob("*.json")):
+        data = _read_json_record(path)
+        number = _valid_print_number((data or {}).get("print_number"))
+        if data is None or number is None:
+            continue
+        rid = str(data.get("record_id") or path.stem)
+        groups.setdefault(number, {}).setdefault(rid, {
+            "path": str(path), "record_id": rid, "title": data.get("title"),
+            "started_at": data.get("started_at") or data.get("completed_at") or "",
+            "print_number": number, "status": data.get("status")})
+    later = []
+    for number, by_id in groups.items():
+        if len(by_id) < 2:
+            continue
+        ordered = sorted(by_id.values(), key=lambda r: (str(r["started_at"]), r["path"]))
+        later.extend(ordered[1:])
+    return sorted(later, key=lambda r: (str(r["started_at"]), r["path"]))
+
+
+def renumber_duplicate_prints(apply: bool = False, prints_dir: Path | None = None,
+                              numbers_path: Path | None = None) -> list[dict[str, Any]]:
+    """Plan (and with apply=True, perform) the duplicate-number repair.
+
+    Returns the planned changes: each later print with its new_number (None
+    on a dry run or when skipped) and, when skipped, why.
+    """
+    from . import print_control
+    prints_dir = Path(prints_dir or PRINTS_DIR)
+    plan = duplicate_print_numbers(prints_dir)
+    for entry in plan:
+        entry["new_number"] = None
+        if entry["status"] == "printing":
+            entry["skipped"] = "still printing; run again after it finishes"
+            continue
+        if not apply:
+            continue
+        path = Path(entry["path"])
+        data = _read_json_record(path)
+        if data is None:
+            entry["skipped"] = "record unreadable"
+            continue
+        job_path = _record_job_path(data) or (prints_dir / f"record-{entry['record_id']}")
+        started = normalize_utc(entry["started_at"])
+        at = None
+        if started:
+            try:
+                at = datetime.fromisoformat(started.replace("Z", "+00:00")).timestamp()
+            except ValueError:
+                at = None
+        new = print_control.allocate_print_number(job_path, numbers_path, at=at)
+        data["print_number_was"] = entry["print_number"]
+        data["print_number"] = new
+        target = _avoid_collision(prints_dir / f"print-{new:04d}.json", entry["record_id"])
+        _atomic_write(target, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+        if target != path:
+            path.unlink(missing_ok=True)
+        entry["new_number"] = new
+        entry["new_path"] = str(target)
+    return plan
+
+
+def _renumber_cli(argv: list[str] | None = None) -> int:
+    import argparse
+    parser = argparse.ArgumentParser(
+        prog="python -m print_handy.hermes.print_records",
+        description="Find (and with --apply, fix) prints recorded under another print's number.")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    cmd = sub.add_parser("renumber-duplicates", help="duplicate print numbers from reprints (#979)")
+    cmd.add_argument("--apply", action="store_true", help="renumber; without it, only list")
+    args = parser.parse_args(argv)
+    plan = renumber_duplicate_prints(apply=args.apply)
+    if not plan:
+        print("No duplicate print numbers.")
+        return 0
+    for entry in plan:
+        tail = (f"-> #{entry['new_number']}" if entry.get("new_number")
+                else f"(skipped: {entry['skipped']})" if entry.get("skipped") else "(would renumber)")
+        print(f"#{entry['print_number']} {entry['started_at']} {entry['title']} {tail}")
+    if not args.apply:
+        print("Dry run. Re-run with --apply to renumber.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_renumber_cli())
+

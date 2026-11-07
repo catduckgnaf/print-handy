@@ -3421,6 +3421,13 @@ def record_start(gcode_path, moonraker_name=None, started_at=None):
     ctx['watch_mode'] = 'early_layer' if why else 'normal'
     if why:
         ctx['watch_risk'] = why
+    # The start record and, through the context sidecar, the completion
+    # record carry THIS print's own number (#979 review). Issued here so every
+    # printer family's start is numbered, and before the record is written so
+    # the record never falls back to the job's earlier number.
+    number = _assign_print_number(_print_job_path(g))
+    if number:
+        ctx["print_number"] = number
     ctx["record_path"]=print_records.write_start_record(ctx)
     record_path=ctx["record_path"]
     try: side=json.loads(CONTEXT.read_text())
@@ -3651,20 +3658,50 @@ def mesh_line(mesh):
     return line
 
 
+# The number already issued to THIS process's launch, per job: one print-now
+# process is one start, and several steps of that one start ask for its number
+# (the mapped-start readback, record_start, the generic start message). They
+# must all get the same number, and the next start -- a new process -- a new one.
+_LAUNCH_PRINT_NUMBERS = {}
+
+
 def _assign_print_number(job_path):
-    """Permanent print number from the shared /print-again registry; None on any failure."""
+    """This start's permanent print number from the shared registry; None on any failure.
+
+    A print number names one print, not a job (#979 review): every start of
+    a job gets a new number -- "print 84 again" is print #85 -- and the
+    number is issued once per start, however many steps ask for it.
+    """
     if job_path is None:
         return None
     try:
         print_control = _external.load("print_control")
-        ARCHIVE, assign_print_numbers = print_control.ARCHIVE, print_control.assign_print_numbers
         key = Path(job_path).resolve()
-        if not key.is_relative_to(ARCHIVE.resolve()):
+        if key.name != "JOB.json":
+            key = key / "JOB.json"
+        if not key.is_relative_to(print_control.ARCHIVE.resolve()):
             return None  # scratch and test jobs are not prints
-        return assign_print_numbers({key: time.time()}).get(str(key))
+        if str(key) not in _LAUNCH_PRINT_NUMBERS:
+            _LAUNCH_PRINT_NUMBERS[str(key)] = print_control.allocate_print_number(key)
+        return _LAUNCH_PRINT_NUMBERS[str(key)]
     except Exception as e:
         print(f"WARNING: print number not assigned: {e}")
         return None
+
+
+def _print_job_path(g):
+    """The JOB.json that owns started G-code g: the job that references it, else
+    its nearest archived ancestor (an older slice of the same job)."""
+    _job, job_path = _job_record_for_gcode(g)
+    if job_path is not None:
+        return job_path
+    archive = ARCHIVE.resolve()
+    for parent in Path(g).resolve().parents:
+        if parent == archive or not parent.is_relative_to(archive):
+            return None
+        if (parent / "JOB.json").is_file():
+            return parent / "JOB.json"
+    return None
 
 
 def _maintenance_detail_line():
@@ -8595,6 +8632,9 @@ def print_now(target, wait_s=25, accept_default_z_offset=False, reprint=False, r
     single-use bed-clear approval is not required, because saying yolo is
     that confirmation. A yolo run is also a deliberate reprint.
     """
+    # A new start: its print number is issued fresh, never carried over from
+    # an earlier start made in the same process (#979 review).
+    _LAUNCH_PRINT_NUMBERS.clear()
     lock = _print_now_control_lock(target)
     if not lock.acquire(blocking=False):
         raise SystemExit("REFUSED: another printer control action (purge, slot load or nozzle change) "

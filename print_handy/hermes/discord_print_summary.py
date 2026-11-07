@@ -247,15 +247,19 @@ def find_job(filename, archive=None, context_path=None):
 
 
 def _print_number(job):
-    """Read the permanent job number without assigning one from a listener render."""
+    """The job's newest print number -- the print in progress or just finished --
+    read without assigning one (a listener render never mints a number).
+
+    Numbers name prints, not jobs (#979 review): a job printed twice has #84
+    and #85, and its current print is the newest. ``_job_path`` may be the
+    JOB.json or its folder; both are accepted.
+    """
     path = job.get('_job_path') if isinstance(job, dict) else None
     if not path:
         return None
     try:
         from . import print_control
-        numbers = json.loads(print_control.PRINT_NUMBERS.read_text(encoding='utf-8')).get('numbers') or {}
-        number = numbers.get(str(Path(path).resolve()))
-        return int(number) if isinstance(number, int) and not isinstance(number, bool) and number > 0 else None
+        return print_control.latest_number_for_job(path)
     except (OSError, ValueError, AttributeError, ImportError):
         return None
 

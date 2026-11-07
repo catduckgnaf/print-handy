@@ -346,57 +346,224 @@ def _launch_records(archive: Path) -> list[Path]:
     return sorted(records, key=lambda p: p.stat().st_mtime, reverse=True)
 
 
-def printed_jobs(archive: Path | None = None, numbers_path: Path | None = None) -> list[dict[str, Any]]:
-    """Archived jobs that were actually sent to the printer, most recent first.
+# ---------------------------------------------------------------- print numbers
+#
+# A print number names ONE print -- one start on the printer -- not a job.
+# Until #979's review it named a job: every start of an archived job (a
+# "/print-again 84", a multi-copy plate run again) reused the job's number,
+# so print #85 was recorded, announced and summarized as #84 a second time,
+# and the history (records, Wrapped, the Data tab) carried duplicate numbers.
+#
+# The registry (print_numbers.json) now holds:
+#   "numbers": {JOB.json path: n}  -- the number of that job's FIRST print
+#                                     (the pre-#979 shape; kept so existing
+#                                     numbers never change), and
+#   "prints":  [{"n", "job", "at"}] -- one entry per numbered print.
+# Every number is unique across both, the counter continues from the highest,
+# and numbers are never reused or renumbered.
 
-    Each job carries a permanent print number: assigned once, oldest launch first,
-    and never reused or renumbered. New jobs get the next number. Only writes the
-    number registry, and only when a job is seen for the first time.
+PRINT_NUMBER_ADOPT_S = 15 * 60  # a backfill this recent is the in-flight start's own number
+
+
+def _valid_number(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
+
+
+def _load_numbers(path: Path) -> tuple[dict[str, int], list[dict[str, Any]]]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    raw = data.get("numbers") if isinstance(data.get("numbers"), dict) else {}
+    numbers = {str(k): int(v) for k, v in raw.items() if _valid_number(v)}
+    prints = [dict(p) for p in data.get("prints") or []
+              if isinstance(p, dict) and _valid_number(p.get("n")) and p.get("job")]
+    return numbers, prints
+
+
+def _save_numbers(path: Path, numbers: dict[str, int], prints: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps({"numbers": numbers, "prints": sorted(prints, key=lambda p: p["n"])},
+                              indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+class _NumbersLock:
+    """A cross-process lock for allocating numbers (two printers starting at
+    once must not mint the same number). An O_EXCL lock file, waited on for a
+    few seconds; a lock older than a minute is a crashed holder and is broken."""
+
+    def __init__(self, path: Path, wait_s: float = 10.0, stale_s: float = 60.0):
+        self.lock = path.with_suffix(path.suffix + ".lock")
+        self.wait_s, self.stale_s = wait_s, stale_s
+        self.held = False
+
+    def __enter__(self):
+        self.lock.parent.mkdir(parents=True, exist_ok=True)
+        deadline = time.monotonic() + self.wait_s
+        while True:
+            try:
+                fd = os.open(self.lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.close(fd)
+                self.held = True
+                return self
+            except FileExistsError:
+                try:
+                    if time.time() - self.lock.stat().st_mtime > self.stale_s:
+                        self.lock.unlink(missing_ok=True)
+                        continue
+                except OSError:
+                    continue
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"print number registry is locked: {self.lock}")
+                time.sleep(0.05)
+
+    def __exit__(self, *exc):
+        if self.held:
+            self.lock.unlink(missing_ok=True)
+        return False
+
+
+def _used_numbers(numbers: dict[str, int], prints: list[dict[str, Any]]) -> set[int]:
+    return set(numbers.values()) | {p["n"] for p in prints}
+
+
+def allocate_print_number(job_path: Path | str, numbers_path: Path | None = None,
+                          at: float | None = None) -> int:
+    """A NEW permanent number for one print of ``job_path`` (its JOB.json).
+
+    Every call is a new print: the counter continues from the highest number
+    ever issued. A job's first print also keeps the legacy job key, so every
+    pre-existing lookup by job still finds a number.
+
+    One exception keeps a print from getting two numbers: a /print-again
+    list taken while this job's FIRST start was in flight backfills a number
+    from its fresh launch record. When the job's only numbers are such a
+    recent backfill, this start adopts it instead of minting another.
+    """
+    path = Path(numbers_path or PRINT_NUMBERS)
+    key = str(Path(job_path).resolve())
+    with _NumbersLock(path):
+        numbers, prints = _load_numbers(path)
+        mine = [p for p in prints if p["job"] == key]
+        if mine and all(p.get("backfilled") for p in mine):
+            recent = [p for p in mine if time.time() - float(p.get("at") or 0) < PRINT_NUMBER_ADOPT_S]
+            if recent:
+                adopted = max(recent, key=lambda p: p["n"])
+                adopted.pop("backfilled", None)
+                _save_numbers(path, numbers, prints)
+                return adopted["n"]
+        n = max(_used_numbers(numbers, prints), default=0) + 1
+        if key not in numbers:
+            numbers[key] = n
+        prints.append({"n": n, "job": key, "at": float(at if at is not None else time.time())})
+        _save_numbers(path, numbers, prints)
+    return n
+
+
+def numbers_for_job(job_path: Path | str, numbers_path: Path | None = None) -> list[int]:
+    """Every print number of one job, oldest first."""
+    path = Path(numbers_path or PRINT_NUMBERS)
+    key = str(_job_json(job_path).resolve())
+    numbers, prints = _load_numbers(path)
+    found = {p["n"] for p in prints if p["job"] == key}
+    if key in numbers:
+        found.add(numbers[key])
+    return sorted(found)
+
+
+def latest_number_for_job(job_path: Path | str, numbers_path: Path | None = None) -> int | None:
+    """The newest print number of one job (the print in progress or just finished), else None."""
+    found = numbers_for_job(job_path, numbers_path)
+    return found[-1] if found else None
+
+
+def _job_json(job_path: Path | str) -> Path:
+    """A JOB.json path from either the JOB.json or its job folder (both forms are in use)."""
+    p = Path(job_path)
+    return p / "JOB.json" if p.name != "JOB.json" else p
+
+
+def printed_jobs(archive: Path | None = None, numbers_path: Path | None = None) -> list[dict[str, Any]]:
+    """Every numbered print of an archived job, newest number first.
+
+    One row PER PRINT, each with its own permanent number (#979 review): a
+    job printed twice is two rows, #84 and #85, both pointing at the job's
+    newest launch record (what a reprint relaunches). Jobs launched before
+    per-print numbering, and never numbered, are backfilled with one number
+    for their first launch (a start in flight adopts that number, see
+    allocate_print_number). Only writes the number registry, and only when
+    backfilling.
     """
     archive = (archive or ARCHIVE).resolve()
-    rows: list[dict[str, Any]] = []
-    first_launch: dict[Path, float] = {}
-    seen: set[Path] = set()
-    for record in _launch_records(archive):
+    path = Path(numbers_path or PRINT_NUMBERS)
+    jobs: dict[Path, dict[str, Any]] = {}
+    for record in _launch_records(archive):  # newest first
         job_path = _job_for(_artifact_for(record).resolve(), archive)
         if job_path is None:
             continue
         mtime = record.stat().st_mtime
-        first_launch[job_path] = min(first_launch.get(job_path, mtime), mtime)
-        if job_path in seen:
-            continue
-        seen.add(job_path)
-        try:
-            title = json.loads(job_path.read_text(encoding="utf-8")).get("title")
-        except (OSError, ValueError):
-            title = None
-        rows.append({"title": str(title or job_path.parent.name),
-                     "job_json": job_path, "record": record, "launched_at": mtime})
-    numbers = assign_print_numbers(first_launch, numbers_path)
-    for row in rows:
-        row["index"] = numbers[str(row["job_json"])]
+        entry = jobs.get(job_path)
+        if entry is None:
+            try:
+                title = json.loads(job_path.read_text(encoding="utf-8")).get("title")
+            except (OSError, ValueError):
+                title = None
+            jobs[job_path] = {"title": str(title or job_path.parent.name), "record": record,
+                              "newest": mtime, "first": mtime}
+        else:
+            entry["first"] = min(entry["first"], mtime)
+    numbers, prints = _load_numbers(path)
+    known = set(numbers) | {p["job"] for p in prints}
+    backfill = {jp: info["first"] for jp, info in jobs.items() if str(jp) not in known}
+    if backfill:
+        assign_print_numbers(backfill, path)
+        numbers, prints = _load_numbers(path)
+    at_by_number = {p["n"]: p.get("at") for p in prints}
+    rows: list[dict[str, Any]] = []
+    for jp, info in jobs.items():
+        for n in numbers_for_job(jp, path):
+            at = at_by_number.get(n)
+            rows.append({"title": info["title"], "job_json": jp, "record": info["record"],
+                         "launched_at": float(at) if isinstance(at, (int, float)) else info["first"],
+                         "index": n})
+    rows.sort(key=lambda r: r["index"], reverse=True)
     return rows
 
 
 def assign_print_numbers(first_launch: dict[Path, float], numbers_path: Path | None = None) -> dict[str, int]:
-    """Permanent job numbers. Existing numbers never change; new jobs append in launch order."""
+    """Backfill: one number for each never-numbered job, for its FIRST print,
+    in launch order. Existing numbers never change. Returns the job -> first
+    number map (the legacy shape)."""
     path = Path(numbers_path or PRINT_NUMBERS)
-    try:
-        numbers = json.loads(path.read_text(encoding="utf-8")).get("numbers") or {}
-    except (OSError, ValueError, AttributeError):
-        numbers = {}
-    numbers = {str(k): int(v) for k, v in numbers.items()}
-    fresh = sorted((p for p in first_launch if str(p) not in numbers), key=lambda p: (first_launch[p], str(p)))
-    if fresh:
-        nxt = max(numbers.values(), default=0) + 1
-        for p in fresh:
-            numbers[str(p)] = nxt
-            nxt += 1
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(json.dumps({"numbers": numbers}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        os.replace(tmp, path)
+    with _NumbersLock(path):
+        numbers, prints = _load_numbers(path)
+        known = set(numbers) | {p["job"] for p in prints}
+        fresh = sorted((p for p in first_launch if str(p) not in known),
+                       key=lambda p: (first_launch[p], str(p)))
+        if fresh:
+            nxt = max(_used_numbers(numbers, prints), default=0) + 1
+            for p in fresh:
+                numbers[str(p)] = nxt
+                prints.append({"n": nxt, "job": str(p), "at": float(first_launch[p]), "backfilled": True})
+                nxt += 1
+            _save_numbers(path, numbers, prints)
     return numbers
+
+
+def _dedupe_by_job(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One row per job (its newest print) -- for name searches, where two
+    prints of the same model are one answer, not an ambiguity."""
+    seen: set[Path] = set()
+    out = []
+    for row in rows:
+        if row["job_json"] not in seen:
+            seen.add(row["job_json"])
+            out.append(row)
+    return out
 
 
 def _fold(text: str) -> str:
@@ -482,9 +649,10 @@ def resolve_print(query: str = "", archive: Path | None = None) -> dict[str, Any
         if hit is None:
             raise NextPlateError(f"there is no print #{n}. Type /print-again list")
         return _target_from_record(hit["record"], archive)
-    hits = match_printed(query, rows)
+    by_job = _dedupe_by_job(rows)
+    hits = match_printed(query, by_job)
     if not hits:
-        near = fuzzy_printed(query, rows)
+        near = fuzzy_printed(query, by_job)
         if near:
             options = "\n".join(f"{r['index']}. {r['title']} ({_et(r['launched_at'])})" for r in near[:AGAIN_LIST_LIMIT])
             raise NextPlateError(

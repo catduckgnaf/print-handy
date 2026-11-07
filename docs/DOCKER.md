@@ -87,6 +87,8 @@ external app required:
 }
 ```
 
+Every print gets its own number, including a reprint of the same model: "print 57 again" starts print #58, and both records keep their own number. Installs that reprinted archived jobs before 2.2.6 recorded those reprints under the first print's number (`print-0057.json` and `print-0057-<id>.json`). List them with `python -m print_handy.hermes.print_records renumber-duplicates`, and give each its own new number with `--apply`; the old number is kept in the record as `print_number_was`.
+
 Fields the system does not know are omitted, never invented (`print_number`
 is present as `null` for prints that never went through a Print Handy
 launch, which instead get a dated filename). A record starts as

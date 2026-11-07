@@ -81,7 +81,7 @@ def drive(cfg, text, confirm_label):
     return discord, core, out, confirm, start, started, ask
 
 
-@pytest.mark.parametrize("text", ["print 2", "print #2", "/print-again 2"])
+@pytest.mark.parametrize("text", ["print 2", "print #2", "/print-again 2", "reprint 2", "print 2 again"])
 def test_print_number_forms_all_offer_the_same_print(cfg, archive, text):
     _older, newer = archive
     cfg["llm"].update(chat_url="http://llm.invalid/v1", model="m")  # configured, must not be used
@@ -92,7 +92,10 @@ def test_print_number_forms_all_offer_the_same_print(cfg, archive, text):
     assert confirm.await_args.args[4] == "Print Newer Widget again from the start?\nConfirm the bed is clear."
     start.assert_called_once()
     assert started[0]["title"] == "Newer Widget" and started[0]["gcode"] == str(newer.resolve())
-    assert discord.sent == ["Preparing to start Newer Widget. Print #2; "
+    # The reprint gets its own new number when it starts (#979 review): the
+    # confirmation names the print it repeats instead of reusing its number.
+    assert discord.sent == ["Preparing to start Newer Widget. A reprint of print #2; it gets its own "
+                            "new print number when it starts. "
                             "estimated print time ~1m, plus warmup ~6m total.",
                             # The handler posts the start announcement itself:
                             # the start claim suppresses the listener's (P2-56).
@@ -149,7 +152,8 @@ def test_print_again_x3_question_and_start_post_quote_all_copies(cfg, archive):
         "All 3 copies: ~3m printing (plus ~5m warmup per copy), ~3 g filament.\n"
         "Confirm the bed is clear.")
     assert started[0]["copies"] == 3
-    assert discord.sent == ["Preparing to start Newer Widget. Print #2; "
+    assert discord.sent == ["Preparing to start Newer Widget. A reprint of print #2; it gets its own "
+                            "new print number when it starts. "
                             "estimated print time ~1m, plus warmup ~6m total for this copy; "
                             "all 3 copies: ~3m printing (plus ~5m warmup per copy), ~3 g filament.",
                             "Print started: Print\nPrint #2\nEstimated total: unknown"]
