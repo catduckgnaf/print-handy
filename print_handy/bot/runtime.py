@@ -1053,6 +1053,41 @@ class BotCore:
 
     # ------------------------------------------------------------------ status
 
+    async def check_listener_outages(self):
+        """Tell the print channel when a required listener goes down or recovers (#1020).
+
+        The listener is what normally posts every alert, so its death is the
+        one failure it cannot report itself. Runs from the bot heartbeat, uses
+        the bot's own send path, and never raises into the heartbeat.
+        """
+        try:
+            from . import outage_alert
+
+            statuses = await asyncio.to_thread(self._listener_statuses)
+            if not statuses:
+                return []
+            channels = {pid: chat for chat, pid in self.channel_printers.items()}
+            state_dir = await asyncio.to_thread(settings.state_dir, self.cfg)
+            loop = asyncio.get_running_loop()
+
+            def send(printer_id, text):
+                chat = channels.get(printer_id) or self.chat_id
+                if not chat:
+                    return False
+                future = asyncio.run_coroutine_threadsafe(
+                    self.adapter.send(chat_id=chat, content=text), loop)
+                try:
+                    future.result(timeout=30)
+                    return True
+                except Exception:
+                    logger.exception("could not post the listener outage notice for %s", printer_id)
+                    return False
+
+            return await asyncio.to_thread(outage_alert.tick, statuses, state_dir, send)
+        except Exception:
+            logger.exception("listener outage check failed")
+            return []
+
     def _listener_statuses(self):
         """Per-printer listener health (#336), aggregated over the roster.
 

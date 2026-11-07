@@ -214,6 +214,11 @@ class PrintHandyBot(ext_commands.Bot):
             except Exception:
                 logger.exception("heartbeat write failed")
             try:
+                # The listener posts every alert; tell the channel when it is down (#1020).
+                await self.core.check_listener_outages()
+            except Exception:
+                logger.exception("listener outage check failed")
+            try:
                 # Debug log mode (#478) is shared state; observe it here so
                 # a session started from the CLI or Web UI reaches the bot.
                 from .. import debug_mode
