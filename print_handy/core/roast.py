@@ -1,0 +1,438 @@
+"""Local print roasts: a curated corpus and a small deterministic engine (#1002).
+
+Roasts are no-LLM at all: no model call, no model fallback, no endpoint.
+One short line per print is drawn from the JSON banks in
+``print_handy/data/roasts/`` and filled from facts about *this* print
+(title, duration, material, color, grams, printer, finish hour, how many
+times this job has printed). The corpus grows the way the fuzzy vocabulary
+did, in reviewed phases with validation gates (tests/test_roast_corpus.py);
+the engine stays small.
+
+Selection, in order:
+
+1. **Status first.** A failed, cancelled or spaghetti print draws only from
+   its status bank; success language never reaches a failed print. (Only
+   completed prints are wired in Phase 1; the status banks are shipped and
+   validated so the wiring can follow.)
+2. **Title reaction** (a known keyword in the title, completed prints only),
+   then **context** banks (overnight, long, heavy, repeat, short — each only
+   when the fact it talks about is actually known), then the **generic**
+   templates and one-liners.
+3. Inside a bank: a persisted **shuffle bag** (no entry again until the bag
+   empties) plus a **history window** of recent entries across all banks. An
+   exhausted bank falls through to the next. When everything eligible is in
+   the history window, the least recently used eligible entry is taken —
+   bounded work, never a loop.
+4. **Contract** after filling: one sentence, at most 20 words, no quotes,
+   no hashtags, bounded length. A line that fails is skipped, never trimmed.
+5. **One roast per print.** With a ``key`` the chosen line is stored, so a
+   retried or replayed delivery returns the same line without advancing the
+   bag twice.
+
+Any failure (missing corpus, broken state file, nothing eligible) returns
+"" and the post goes out unchanged, exactly the best-effort contract the
+LLM roast had. Stdlib only; ``rng`` is injectable so tests pin draws.
+"""
+from __future__ import annotations
+
+import functools
+import hashlib
+import json
+import os
+import random
+import re
+import tempfile
+import time
+from importlib import resources
+from pathlib import Path
+from typing import Any, Mapping
+
+CORPUS_PACKAGE = "print_handy"
+CORPUS_DIR = ("data", "roasts")
+SLOTS = ("title", "duration", "material", "color", "grams", "printer",
+         "copies", "print_number", "times", "hour")
+STATUSES = ("completed", "failed", "cancelled", "spaghetti")
+STATUS_BANKS = {"failed": "failed", "cancelled": "cancelled", "spaghetti": "spaghetti"}
+# Context banks in precedence order, each with the fact it is about.
+CONTEXT_BANKS = ("overnight", "long_print", "heavy_filament", "repeat_print", "short_print")
+TEMPLATE_BANKS = ("generic",) + CONTEXT_BANKS + tuple(STATUS_BANKS.values())
+
+MAX_WORDS = 20
+MAX_CHARS = 200
+TITLE_MAX_CHARS = 40
+TITLE_MAX_WORDS = 6
+HISTORY_WINDOW = 200
+CHOSEN_KEEP = 200
+LONG_PRINT_S = 6 * 3600
+SHORT_PRINT_S = 30 * 60
+OVERNIGHT_HOURS = range(0, 6)
+OVERNIGHT_MIN_S = 2 * 3600
+HEAVY_GRAMS = 150
+
+_SLOT_RE = re.compile(r"\{(\w+)\}")
+_HASHTAG_RE = re.compile(r"#(?!\d)\w")
+_SENTENCE_BREAK_RE = re.compile(r"[.!?]\s+\S")
+
+
+class CorpusError(RuntimeError):
+    """The roast corpus is missing or malformed."""
+
+
+# ---------------------------------------------------------------- corpus
+
+def entry_id(bank: str, text: str) -> str:
+    """Stable id of one entry: its bank and a hash of its text."""
+    return f"{bank}:{hashlib.sha1(text.encode('utf-8')).hexdigest()[:10]}"
+
+
+def _read_bank(name: str) -> Any:
+    ref = resources.files(CORPUS_PACKAGE).joinpath(*CORPUS_DIR, f"{name}.json")
+    payload = json.loads(ref.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or "entries" not in payload:
+        raise CorpusError(f"roast bank {name}.json has no 'entries'")
+    return payload["entries"]
+
+
+@functools.lru_cache(maxsize=1)
+def load_corpus() -> dict[str, Any]:
+    """The whole corpus: {"banks": {name: [(id, text)]}, "title_reactions":
+    {keyword: [(id, text)]}, "fragments": {...}, "blocklist": [...], "version"}."""
+    banks: dict[str, list[tuple[str, str]]] = {}
+    for name in TEMPLATE_BANKS + ("one_liners",):
+        rows = _read_bank(name)
+        if not isinstance(rows, list) or not all(isinstance(r, str) and r.strip() for r in rows):
+            raise CorpusError(f"roast bank {name}.json must be a list of non-empty strings")
+        banks[name] = [(entry_id(name, r), r) for r in rows]
+    reactions_raw = _read_bank("title_reactions")
+    if not isinstance(reactions_raw, dict):
+        raise CorpusError("title_reactions.json entries must map keyword -> list")
+    reactions = {str(k).lower(): [(entry_id(f"title:{k}", r), r) for r in v]
+                 for k, v in reactions_raw.items()}
+    fragments = _read_bank("fragments")
+    blocklist = [str(w).lower() for w in _read_bank("blocklist")]
+    digest = hashlib.sha1(json.dumps([banks, reactions, fragments], sort_keys=True)
+                          .encode("utf-8")).hexdigest()[:12]
+    return {"banks": banks, "title_reactions": reactions, "fragments": fragments,
+            "blocklist": blocklist, "version": digest}
+
+
+def corpus_size() -> int:
+    """Entries a roast can actually be drawn from (templates, one-liners, reactions)."""
+    corpus = load_corpus()
+    return (sum(len(v) for v in corpus["banks"].values())
+            + sum(len(v) for v in corpus["title_reactions"].values()))
+
+
+# ---------------------------------------------------------------- context
+
+_MARKUP_RE = re.compile(r"[*_~`|>\[\]()<{}\\#]")
+_URL_RE = re.compile(r"(?i)\b(?:https?://|www\.)\S+")
+_MENTION_RE = re.compile(r"(?i)@(?:everyone|here)\b|<[@#!&][^>]*>|@\w+")
+_EXT_RE = re.compile(r"(?i)(?:\.(?:gcode|bgcode|3mf|stl|step|stp|obj))+$")
+
+
+def scrub_title(title: Any) -> str:
+    """A title safe to put inside a sentence on every chat platform, or "".
+
+    Strips URLs, mentions (including @everyone/@here), chat markup, control
+    characters, file extensions and runs of whitespace, then bounds it to a
+    few words at a word boundary. Never invents a title.
+    """
+    text = str(title or "")
+    text = "".join(ch if ch.isprintable() else " " for ch in text)
+    text = _URL_RE.sub(" ", text)
+    text = _MENTION_RE.sub(" ", text)
+    text = _EXT_RE.sub("", text.strip())
+    text = _MARKUP_RE.sub(" ", text).replace('"', " ")
+    text = re.sub(r"[_]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip(" -.,;:!?'")
+    words = text.split()
+    if len(words) > TITLE_MAX_WORDS:
+        words = words[:TITLE_MAX_WORDS]
+    out = ""
+    for word in words:
+        candidate = f"{out} {word}".strip()
+        if len(candidate) > TITLE_MAX_CHARS:
+            break
+        out = candidate
+    return out
+
+
+def _clean_value(value: Any, limit: int = 24) -> str:
+    text = scrub_title(value)
+    return text if 0 < len(text) <= limit else ""
+
+
+def human_duration(seconds: float) -> str:
+    seconds = int(seconds)
+    hours, rem = divmod(seconds, 3600)
+    minutes = rem // 60
+    if hours:
+        return f"{hours}h {minutes}m" if minutes else f"{hours}h"
+    return f"{max(minutes, 1)}m"
+
+
+def hour_label(hour: int) -> str:
+    suffix = "AM" if hour < 12 else "PM"
+    shown = hour % 12 or 12
+    return f"{shown} {suffix}"
+
+
+def build_context(title: Any, *, duration_s: Any = None, material: Any = None, color: Any = None,
+                  grams: Any = None, printer: Any = None, copies: Any = None,
+                  print_number: Any = None, times: Any = None,
+                  finish_hour: Any = None) -> dict[str, Any]:
+    """The roast context: slot strings plus the raw facts the banks gate on.
+
+    A fact that is unknown, zero or unusable is simply absent, so no
+    template that needs it is eligible — nothing is invented.
+    """
+    ctx: dict[str, Any] = {"_facts": {}}
+    facts = ctx["_facts"]
+    clean = scrub_title(title)
+    if clean:
+        ctx["title"] = clean
+    if isinstance(duration_s, (int, float)) and not isinstance(duration_s, bool) and duration_s >= 60:
+        ctx["duration"] = human_duration(duration_s)
+        facts["duration_s"] = float(duration_s)
+    for slot, value in (("material", material), ("color", color), ("printer", printer)):
+        cleaned = _clean_value(value)
+        if cleaned:
+            ctx[slot] = cleaned
+    if isinstance(grams, (int, float)) and not isinstance(grams, bool) and grams >= 1:
+        ctx["grams"] = str(int(round(grams)))
+        facts["grams"] = float(grams)
+    if isinstance(copies, int) and not isinstance(copies, bool) and copies >= 2:
+        ctx["copies"] = str(copies)
+    if isinstance(print_number, int) and not isinstance(print_number, bool) and print_number > 0:
+        ctx["print_number"] = f"#{print_number}"
+    if isinstance(times, int) and not isinstance(times, bool) and times >= 2:
+        ctx["times"] = str(times)
+        facts["times"] = times
+    if isinstance(finish_hour, int) and not isinstance(finish_hour, bool) and 0 <= finish_hour <= 23:
+        ctx["hour"] = hour_label(finish_hour)
+        facts["hour"] = finish_hour
+    return ctx
+
+
+def _context_banks(ctx: Mapping[str, Any]) -> list[str]:
+    facts = ctx.get("_facts") or {}
+    duration = facts.get("duration_s")
+    out = []
+    if facts.get("hour") in OVERNIGHT_HOURS and (duration or 0) >= OVERNIGHT_MIN_S:
+        out.append("overnight")
+    if duration is not None and duration >= LONG_PRINT_S:
+        out.append("long_print")
+    if (facts.get("grams") or 0) >= HEAVY_GRAMS:
+        out.append("heavy_filament")
+    if (facts.get("times") or 0) >= 2:
+        out.append("repeat_print")
+    if duration is not None and duration < SHORT_PRINT_S:
+        out.append("short_print")
+    return out
+
+
+def _title_keywords(ctx: Mapping[str, Any], corpus: Mapping[str, Any]) -> list[str]:
+    """Title-reaction keywords this title names, best first.
+
+    Matching goes through the shared fuzzy layer (core.fuzzy), the same
+    fold and typo handling every other matcher in Print Handy uses: the
+    title is folded with ``typo_fold`` (casefold, accents, the curated
+    misspelling table), keywords match on word boundaries with an
+    optional plural, and a single-word keyword also matches a bounded
+    misspelling through ``token_match`` ("Benchie", "dragn"). Short words
+    match exactly only, as everywhere in fuzzy.
+    """
+    from . import fuzzy
+
+    raw = str(ctx.get("title") or "")
+    if not raw:
+        return []
+    folded = fuzzy.typo_fold(raw)
+    singles = {fuzzy.norm(k) for k in corpus["title_reactions"] if " " not in k}
+    # The plain-language task router's second pass: misspelled words fixed
+    # against this vocabulary (bounded, unique nearest word only).
+    corrected = fuzzy.correct_typos(folded, singles)
+    hits = []
+    for keyword in corpus["title_reactions"]:
+        key = fuzzy.norm(keyword)
+        pattern = rf"(?<![a-z0-9]){re.escape(key)}(?:s|es)?(?![a-z0-9])"
+        if re.search(pattern, folded) or re.search(pattern, corrected):
+            hits.append(keyword)
+        elif " " not in key and len(key) >= 5 and fuzzy.token_match(folded, [key])[1] == key:
+            hits.append(keyword)
+    return sorted(hits, key=lambda k: (-len(k), k))
+
+
+def candidate_pools(ctx: Mapping[str, Any], status: str = "completed",
+                    corpus: Mapping[str, Any] | None = None) -> list[tuple[str, list[tuple[str, str]]]]:
+    """Ordered (pool name, entries) to draw from for this print."""
+    corpus = corpus or load_corpus()
+    if status not in STATUSES:
+        return []
+    if status != "completed":
+        bank = STATUS_BANKS[status]
+        return [(bank, corpus["banks"][bank])]
+    pools = [(f"title:{k}", corpus["title_reactions"][k]) for k in _title_keywords(ctx, corpus)]
+    pools += [(name, corpus["banks"][name]) for name in _context_banks(ctx)]
+    pools.append(("generic", corpus["banks"]["generic"] + corpus["banks"]["one_liners"]))
+    return pools
+
+
+# ---------------------------------------------------------------- rendering
+
+def render(text: str, ctx: Mapping[str, Any]) -> str | None:
+    """Fill a template from ``ctx``; None when it needs a slot ctx lacks."""
+    needed = set(_SLOT_RE.findall(text))
+    if not needed <= {k for k in ctx if not k.startswith("_")}:
+        return None
+    try:
+        return text.format(**{k: v for k, v in ctx.items() if not k.startswith("_")})
+    except (KeyError, IndexError, ValueError):
+        return None
+
+
+def contract_problem(line: str, blocklist: list[str] | tuple[str, ...] = ()) -> str | None:
+    """Why a filled line breaks the roast contract, or None when it holds."""
+    if not line or not line.strip():
+        return "empty"
+    if len(line) > MAX_CHARS:
+        return "too long"
+    if len(line.split()) > MAX_WORDS:
+        return "over 20 words"
+    if '"' in line or "“" in line or "”" in line:
+        return "quotes"
+    if _HASHTAG_RE.search(line):
+        return "hashtag"
+    if "\n" in line or "\r" in line:
+        return "multi-line"
+    if _SENTENCE_BREAK_RE.search(line.strip()):
+        return "more than one sentence"
+    low = line.lower()
+    for word in blocklist:
+        if re.search(rf"(?<![a-z]){re.escape(word)}(?![a-z])", low):
+            return f"blocklisted word {word!r}"
+    return None
+
+
+# ---------------------------------------------------------------- state
+
+def _load_state(path: Path | None) -> dict[str, Any]:
+    if path is None:
+        return {}
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _save_state(path: Path | None, state: Mapping[str, Any]) -> None:
+    if path is None:
+        return
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".roast-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(state, handle, ensure_ascii=False)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _normalized(state: Mapping[str, Any], version: str) -> dict[str, Any]:
+    bags = state.get("bags") if isinstance(state.get("bags"), dict) else {}
+    if state.get("corpus") != version:
+        bags = {}  # entries changed: rebuild bags, keep history (ids are content hashes)
+    raw_history = state.get("history")
+    history = [h for h in (raw_history if isinstance(raw_history, list) else [])
+               if isinstance(h, str)][-HISTORY_WINDOW:]
+    chosen = state.get("chosen") if isinstance(state.get("chosen"), dict) else {}
+    return {"version": 1, "corpus": version, "bags": dict(bags), "history": history,
+            "chosen": dict(chosen)}
+
+
+# ---------------------------------------------------------------- selection
+
+def _draw(pool_name: str, entries: list[tuple[str, str]], ctx: Mapping[str, Any],
+          state: dict[str, Any], rng: random.Random, blocklist: list[str],
+          ignore_history: bool = False) -> tuple[str, str] | None:
+    recent = set(state["history"])
+    eligible: dict[str, str] = {}
+    for eid, text in entries:
+        line = render(text, ctx)
+        if line is not None and contract_problem(line, blocklist) is None:
+            eligible[eid] = line
+    if not eligible:
+        return None
+    if ignore_history:
+        # Least recently used first: bounded, deterministic relaxation.
+        order = {eid: i for i, eid in enumerate(state["history"])}
+        eid = min(eligible, key=lambda e: (order.get(e, -1), e))
+        return eid, eligible[eid]
+    fresh = [eid for eid in eligible if eid not in recent]
+    if not fresh:
+        return None
+    bag = [eid for eid in state["bags"].get(pool_name) or [] if eid in fresh]
+    if not bag:
+        bag = sorted(fresh)
+        rng.shuffle(bag)
+    eid = bag.pop()
+    state["bags"][pool_name] = bag
+    return eid, eligible[eid]
+
+
+def roast(ctx: Mapping[str, Any], *, status: str = "completed", key: str | None = None,
+          state_path: Path | str | None = None, rng: random.Random | None = None) -> str:
+    """One roast line for this print, or "" (best-effort, never raises)."""
+    try:
+        return _roast(ctx, status=status, key=key,
+                      state_path=Path(state_path) if state_path else None, rng=rng)
+    except Exception:
+        return ""
+
+
+def _roast(ctx, *, status, key, state_path, rng):
+    corpus = load_corpus()
+    state = _normalized(_load_state(state_path), corpus["version"])
+    if key:
+        previous = state["chosen"].get(key)
+        if isinstance(previous, dict) and isinstance(previous.get("line"), str):
+            return previous["line"]
+    rng = rng or random.Random()
+    pools = candidate_pools(ctx, status, corpus)
+    picked = None
+    for name, entries in pools:
+        picked = _draw(name, entries, ctx, state, rng, corpus["blocklist"])
+        if picked:
+            break
+    if picked is None and pools:
+        # Everything eligible is in the history window: take the least
+        # recently used line from the broadest pool rather than nothing.
+        name, entries = pools[-1]
+        picked = _draw(name, entries, ctx, state, rng, corpus["blocklist"], ignore_history=True)
+    if picked is None:
+        return ""
+    eid, line = picked
+    state["history"] = [h for h in state["history"] if h != eid][-(HISTORY_WINDOW - 1):] + [eid]
+    if key:
+        state["chosen"][key] = {"line": line, "id": eid, "at": int(time.time())}
+        if len(state["chosen"]) > CHOSEN_KEEP:
+            oldest = sorted(state["chosen"].items(), key=lambda kv: kv[1].get("at", 0))
+            for old_key, _ in oldest[: len(state["chosen"]) - CHOSEN_KEEP]:
+                state["chosen"].pop(old_key, None)
+    try:
+        _save_state(state_path, state)
+    except OSError:
+        pass  # the line still goes out; only repeat-avoidance memory is lost
+    return line
+
+
+__all__ = ["SLOTS", "STATUSES", "CorpusError", "build_context", "candidate_pools",
+           "contract_problem", "corpus_size", "entry_id", "load_corpus", "render",
+           "roast", "scrub_title"]

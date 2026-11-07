@@ -14,7 +14,7 @@ Print Handy is an automated 3D printing pipeline driven from a Discord channel, 
 
 Print Handy is almost entirely Python. Downloading, plate merging, color matching, slicing, job start, printer monitoring, spool sync, timelapses, and print records are all plain scripts with fixed rules, so they are fast and make no LLM calls.
 
-The Discord side runs one of two ways. As a **standalone bot** (`python3 -m print_handy.bot`), Print Handy talks to Discord itself with a bot token: links, files, buttons, slash commands, slicing, print start and printer alerts need no Hermes and no LLM; an OpenAI-compatible model can optionally word replies to free text. See [Standalone bot](../docs/STANDALONE.md). Or the conversation runs on [Hermes Agent](https://github.com/NousResearch/hermes-agent) using Luna at medium reasoning, with the same handlers loaded as a Hermes plugin. Two optional extras also call a model: the camera watchdog asks a vision model to classify a print frame, and the "print started" post adds a one line roast. Leave `services.vision_chat_url` empty and the roast never runs; the watchdog then runs only if `PRINT_VISION_URL` is set or the built-in local failure detector is enabled (`vision.local_detector_enabled`, #455 — see [SETTINGS.md](SETTINGS.md#local-failure-detector)). The roast is its own switch, `vision.roast_enabled`, **on by default whenever an LLM/vision endpoint is available**, and it applies on every platform — the Telegram and Matrix bots are pure bots for chat (no `[llm]` fallback), but their print-started posts carry the roast just like Discord's (completion posts never do). Set `vision.roast_enabled` to `false` to turn roasts off while keeping camera checks.
+The Discord side runs one of two ways. As a **standalone bot** (`python3 -m print_handy.bot`), Print Handy talks to Discord itself with a bot token: links, files, buttons, slash commands, slicing, print start and printer alerts need no Hermes and no LLM; an OpenAI-compatible model can optionally word replies to free text. See [Standalone bot](../docs/STANDALONE.md). Or the conversation runs on [Hermes Agent](https://github.com/NousResearch/hermes-agent) using Luna at medium reasoning, with the same handlers loaded as a Hermes plugin. One optional extra calls a model: the camera watchdog asks a vision model to classify a print frame. The watchdog runs only if `services.vision_chat_url` or `PRINT_VISION_URL` is set or the built-in local failure detector is enabled (`vision.local_detector_enabled`, #455 — see [SETTINGS.md](SETTINGS.md#local-failure-detector)). The completion post's one-line roast needs no model at all: it comes from the local roast corpus (#1002), on every platform, and `vision.roast_enabled` (on by default) is its switch. Set `vision.roast_enabled` to `false` to turn roasts off while keeping camera checks.
 
 Supported printers:
 * **Sovol** on stock Klipper, where Print Handy started, plus any other Klipper printer with Moonraker. Single extruder.
@@ -376,7 +376,7 @@ Failures are named in chat with the cause and the remedy: the host could not be 
 | | `hermes_bin`, `hermes_agent`, `hermes_restart_helper`, `ffmpeg` | | Tool locations |
 | `services` | `moonraker_url`, `moonraker_ws_url`, `camera_snapshot_url` | empty | Printer and camera; websocket is derived when empty |
 | | `spoolman_url` | empty | Spoolman service |
-| | `vision_chat_url` | empty | OpenAI compatible endpoint for vision checks and roasts; empty disables both |
+| | `vision_chat_url` | empty | OpenAI compatible endpoint for vision checks; empty disables them (roasts are local, #1002) |
 | | `stock_api_port` | `8898` | Flashforge stock API for IFS presence |
 | `discord` | `chat_id`, `approval_user_id` | empty | Channel and approver IDs |
 | | `upload_max_bytes` | `9500000` | Largest upload before video is shrunk |
@@ -399,8 +399,8 @@ Failures are named in chat with the cause and the remedy: the host could not be 
 | | `ifs_presence_poll_s` | `15` | IFS spool presence poll |
 | | `spool_nag_s` | `600` | Reminder interval for an unanswered spool question |
 | | `start_claim_ttl_s` | `1800` | How long a start button stays claimed |
-| `vision` | `model`, `roast_model` | `gemini-latest`, `luna-latest` | Models for camera checks and roasts |
-| | `roast_enabled` | `true` | The print-post roast switch: on by default whenever an LLM/vision endpoint is available, on every platform including Telegram; `false` turns roasts off, camera checks unaffected |
+| `vision` | `model`, `roast_model` | `gemini-latest`, `luna-latest` | Model for camera checks; `roast_model` is legacy and unused (roasts are local, #1002) |
+| | `roast_enabled` | `true` | The roast switch: one line per print on the completion post and on request in chat, from the local corpus with no LLM, on every platform; `false` turns roasts off, camera checks unaffected |
 | `visual_watch` | `enabled`, `sensitivity` | `true`, `3` | Camera monitoring switch; sensitivity from 1 to 5 |
 | | `early_layers`, `early_interval_s` | `10`, `120` | Early-layer mode window (layers) and interval (seconds) for risky prints (#913) |
 | | `auto_pause_early` | `false` | Opt-in auto-pause after 2 suspicious checks during early layers (never cancels) (#913) |
