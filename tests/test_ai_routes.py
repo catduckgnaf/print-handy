@@ -217,17 +217,20 @@ def test_llm_is_unconfigured_until_a_chat_route_exists():
     assert llm.configured(cfg(ai={"small": {}, "heavy": {}, "chat": {"chat_url": URL, "model": "m"}}))
 
 
-def test_the_roast_goes_through_the_small_tier_and_falls_back(monkeypatch):
+def test_the_roast_never_goes_through_the_small_tier(monkeypatch, tmp_path):
+    """Roasts are local since #1002: a fully configured small tier (with a
+    fallback) is never called for one."""
     config = mel._config.cfg()
     monkeypatch.setitem(config, "ai", {"chat": {}, "heavy": {},
                                        "small": {"chat_url": LOCAL_URL, "model": "roast-a", "fallback_model": "roast-b"}})
     monkeypatch.setitem(config["services"], "vision_chat_url", "")
     monkeypatch.setattr(mel, "_profile_env_value", lambda name: "test-key")
     monkeypatch.setattr(mel, "log", lambda line: None)
-    endpoint = Endpoint(answer='"A fine stand."', fail={"roast-a"})
+    monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast.json")
+    endpoint = Endpoint(answer='"A fine stand."')
     patch_urlopen(monkeypatch, endpoint)
-    assert mel.generate_roast("Stand") == "A fine stand."
-    assert endpoint.models == ["roast-a", "roast-b"]
+    assert mel.generate_roast("Stand")
+    assert endpoint.models == [] and endpoint.requests == []
 
 
 def test_the_vision_check_uses_an_ai_small_endpoint_when_no_vision_url_is_set(monkeypatch):
@@ -314,7 +317,7 @@ def test_a_configured_tier_timeout_beats_the_caller_default_and_the_default_appl
     assert [r["timeout"] for r in endpoint.requests] == [9, 4]
 
 
-def test_the_roast_and_vision_calls_pass_their_legacy_timeouts_as_defaults(monkeypatch):
+def test_the_vision_call_passes_its_legacy_timeout_as_default(monkeypatch):
     config = mel._config.cfg()
     monkeypatch.setitem(config, "ai", {"chat": {}, "heavy": {}, "small": {"chat_url": LOCAL_URL, "model": "m",
                                                                             "timeout_s": 15}})
@@ -323,10 +326,10 @@ def test_the_roast_and_vision_calls_pass_their_legacy_timeouts_as_defaults(monke
     monkeypatch.delenv("PRINT_VISION_URL", raising=False)
     endpoint = Endpoint(answer='{"verdict": "ok", "reason": "x"}')
     patch_urlopen(monkeypatch, endpoint)
-    mel.generate_roast("Stand")
+    # The roast's old 4 s small-tier default is gone with the roast's model
+    # call (#1002); the vision check keeps its own.
     vw.visual_verdict(b"\xff\xd8", "p", chat_url=lambda: "", model="m", api_key=lambda: "", context="")
-    assert [r["timeout"] for r in endpoint.requests] == [15, 15]
+    assert [r["timeout"] for r in endpoint.requests] == [15]
     config["ai"]["small"].pop("timeout_s")
-    mel.generate_roast("Stand")
     vw.visual_verdict(b"\xff\xd8", "p", chat_url=lambda: "", model="m", api_key=lambda: "", context="")
-    assert [r["timeout"] for r in endpoint.requests[2:]] == [4, 60]
+    assert [r["timeout"] for r in endpoint.requests[1:]] == [60]

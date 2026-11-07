@@ -1,0 +1,27 @@
+{
+ "_about": "Completed prints under 30 minutes.",
+ "_phase": "seed-v0 (#1002 attachment 1, 2026-11-07)",
+ "_license": "Original to Print Handy; MIT with the project.",
+ "entries": [
+  "{title} finished in {duration} — blink, and the entire epic saga was already over.",
+  "After all that setup, {title} printed faster than the warm-up small talk about printing it.",
+  "{title}: {duration} of printing, three days of deciding whether it was worth printing.",
+  "The build plate spent longer getting ready than {title} spent becoming a finished object.",
+  "{printer} cleared its throat, printed {title}, and was basically done before the fan found its rhythm.",
+  "{title} used {grams} grams and {duration} — a snack-sized print with main-character confidence.",
+  "Somewhere, a {duration} timer is jealous of how quickly {title} wrapped up its whole career.",
+  "{title} in {color} {material} arrived so fast, the completion post feels like a drumroll for a sneeze.",
+  "That was less a print and more {printer} briefly thinking about {title} really, really hard.",
+  "{title} finished before the coffee cooled, which is efficient, adorable, and slightly suspicious.",
+  "A whole {duration} for {title} — the printer barely had time to feel important about it.",
+  "{title} is done already, and the slicer spent longer naming the file than printing it.",
+  "The legend of {title} began, printed, and concluded within a single snack break.",
+  "{printer} printed {title} in {duration} and immediately looked around for a bigger assignment.",
+  "{title} came off the plate so quickly, it should legally be considered a magic trick.",
+  "All that anticipation for {title}, and it was over before the progress bar got comfortable.",
+  "{title} took {duration} — plenty of time if you are plastic, less if you are waiting.",
+  "Tiny job, tiny timeline: {title} finished before anyone could even brag about starting it.",
+  "{title} in {material} is complete, and the grand total of patience required was almost none.",
+  "{printer} made {title} so fast that quality control was mostly just surprised nodding."
+ ]
+}

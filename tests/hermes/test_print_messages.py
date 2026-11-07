@@ -150,31 +150,20 @@ def test_listener_start_post_has_no_roast(job, monkeypatch):
     assert len(posted) == 1 and "Roast" not in posted[0] and calls == []
 
 
-def test_generate_roast_runs_by_default_and_stops_when_the_switch_is_off(monkeypatch):
-    """[vision] roast_enabled: on by default when an LLM/vision endpoint is
-    available (the conftest endpoint + key); off means no LLM call at all."""
+def test_generate_roast_runs_by_default_and_stops_when_the_switch_is_off(monkeypatch, tmp_path):
+    """[vision] roast_enabled: on by default, and the roast is local (#1002):
+    no LLM call is made, endpoint or not; off means no roast at all."""
     calls = []
-
-    class Resp:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *exc):
-            return False
-
-        def read(self):
-            return json.dumps({"choices": [{"message": {"content": "A very roastable stand."}}]}).encode()
-
-    monkeypatch.setattr(mel, "_profile_env_value", lambda name: "test-key")
+    monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast.json")
     monkeypatch.setattr(mel, "log", lambda line: None)
-    monkeypatch.setattr("urllib.request.urlopen", lambda req, timeout=0: calls.append(req) or Resp())
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **kw: calls.append(a) or None)
     assert mel.roast_enabled() is True
-    assert mel.generate_roast(TITLE) == "A very roastable stand."
-    assert len(calls) == 1
+    line = mel.generate_roast(TITLE)
+    assert line and len(line.split()) <= 20 and '"' not in line
+    assert calls == []  # never a model call
     monkeypatch.setitem(mel._config.cfg()["vision"], "roast_enabled", False)
     assert mel.roast_enabled() is False
     assert mel.generate_roast(TITLE) == ""
-    assert len(calls) == 1  # the switch short-circuits before any LLM call
 
 
 def _claimed_listener(monkeypatch, tmp_path, job, *, message_id="777", edit_ok=True, claim_ts=1000):
@@ -812,83 +801,59 @@ def test_model_link_receipt_is_sent_before_slow_intake(monkeypatch):
     assert adapter.sent == []
 
 
-# --- #391 expansion: generate_roast's fail-soft branches (#374's contract) ---
+# --- #391 expansion, after #1002: generate_roast's fail-soft branches ---
 #
-# #374 made the roast best-effort by design: one roast per print, and a
-# roast problem must never break the start post it decorates. #380 pinned
-# the success path and the off switch; these pin every refusal/failure
-# branch returning "" without an LLM call where the refusal is local.
+# #374 made the roast best-effort: one roast per print, and a roast problem
+# never breaks the post it decorates. Since #1002 the roast is local, so
+# these pin the local refusals and that no branch ever reaches a model.
 
 
-class _FakeResp:
-    def __init__(self, payload):
-        self._payload = payload
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
-
-    def read(self):
-        return self._payload
+def _exploding_network(monkeypatch):
+    def boom(*a, **kw):
+        raise AssertionError("the roast must never make a network call")
+    monkeypatch.setattr("urllib.request.urlopen", boom)
+    from print_handy import ai_routes
+    monkeypatch.setattr(ai_routes, "call", boom)
 
 
-def _roast_env(monkeypatch, *, key="test-key", url="http://llm.test/chat"):
-    calls = []
-    monkeypatch.setattr(mel, "_profile_env_value", lambda name: key)
+def test_generate_roast_refuses_an_empty_title(monkeypatch, tmp_path):
+    monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast.json")
     monkeypatch.setattr(mel, "log", lambda line: None)
-    monkeypatch.setattr(mel._config, "service_url", lambda name: url)
-    return calls
-
-
-def test_generate_roast_refuses_an_empty_title_without_calling(monkeypatch):
-    calls = _roast_env(monkeypatch)
-    monkeypatch.setattr("urllib.request.urlopen",
-                        lambda req, timeout=0: calls.append(req) or _FakeResp(b"{}"))
+    _exploding_network(monkeypatch)
     assert mel.generate_roast("") == ""
     assert mel.generate_roast("   ") == ""
     assert mel.generate_roast(None) == ""
-    assert calls == []
 
 
-def test_generate_roast_without_an_api_key_makes_no_call(monkeypatch):
-    calls = _roast_env(monkeypatch, key="")
-    monkeypatch.setattr("urllib.request.urlopen",
-                        lambda req, timeout=0: calls.append(req) or _FakeResp(b"{}"))
-    assert mel.generate_roast(TITLE) == ""
-    assert calls == []
+def test_generate_roast_needs_no_key_and_no_endpoint(monkeypatch, tmp_path):
+    monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast.json")
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "_profile_env_value", lambda name: "")
+    monkeypatch.setattr(mel._config, "service_url", lambda name: "")
+    _exploding_network(monkeypatch)
+    assert mel.generate_roast(TITLE)
 
 
-def test_generate_roast_without_a_chat_url_makes_no_call(monkeypatch):
-    calls = _roast_env(monkeypatch, url="")
-    monkeypatch.setattr("urllib.request.urlopen",
-                        lambda req, timeout=0: calls.append(req) or _FakeResp(b"{}"))
-    assert mel.generate_roast(TITLE) == ""
-    assert calls == []
+def test_generate_roast_with_a_configured_endpoint_still_never_calls_it(monkeypatch, tmp_path):
+    monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast.json")
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "_profile_env_value", lambda name: "test-key")
+    monkeypatch.setattr(mel._config, "service_url", lambda name: "http://llm.test/chat")
+    _exploding_network(monkeypatch)
+    assert mel.generate_roast(TITLE)
 
 
-def test_generate_roast_swallows_an_llm_http_failure(monkeypatch):
-    _roast_env(monkeypatch)
-
-    def boom(req, timeout=0):
-        raise OSError("connection refused")
-    monkeypatch.setattr("urllib.request.urlopen", boom)
-    assert mel.generate_roast(TITLE) == ""
-
-
-def test_generate_roast_swallows_a_malformed_llm_payload(monkeypatch):
-    _roast_env(monkeypatch)
-    monkeypatch.setattr("urllib.request.urlopen",
-                        lambda req, timeout=0: _FakeResp(b'{"unexpected": true}'))
-    assert mel.generate_roast(TITLE) == ""
-    monkeypatch.setattr("urllib.request.urlopen",
-                        lambda req, timeout=0: _FakeResp(b"not json"))
-    assert mel.generate_roast(TITLE) == ""
+def test_generate_roast_survives_a_broken_state_file(monkeypatch, tmp_path):
+    state = tmp_path / "roast.json"
+    state.write_text("{not json")
+    monkeypatch.setattr(mel, "ROAST_STATE", state)
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    assert mel.generate_roast(TITLE)
 
 
-def test_generate_roast_strips_quotes_and_whitespace_from_the_reply(monkeypatch):
-    _roast_env(monkeypatch)
-    payload = json.dumps({"choices": [{"message": {"content": '  "A very roastable stand."  '}}]}).encode()
-    monkeypatch.setattr("urllib.request.urlopen", lambda req, timeout=0: _FakeResp(payload))
-    assert mel.generate_roast(TITLE) == "A very roastable stand."
+def test_generate_roast_same_key_same_line(monkeypatch, tmp_path):
+    """A retried or replayed delivery of one print repeats its line."""
+    monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast.json")
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    first = mel.generate_roast(TITLE, facts={"duration_s": 3600}, key="job@1")
+    assert first and all(mel.generate_roast(TITLE, key="job@1") == first for _ in range(5))

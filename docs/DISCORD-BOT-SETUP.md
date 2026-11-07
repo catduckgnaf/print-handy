@@ -115,8 +115,8 @@ with no LLM — or, when `[llm]` is set up for `/print-design`, set `discord.cha
 (or `PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED=false`) to run Discord with no chat LLM while design keeps
 its endpoint; `bot check` names the switch on its llm row. See
 [Running Discord with no chat LLM](STANDALONE.md#running-discord-with-no-chat-llm). Separate from that chat LLM, the print-started post carries the
-one-line **roast** whenever an LLM/vision endpoint is configured (`services.vision_chat_url` plus
-`CLIPROXY_API_KEY`): `vision.roast_enabled` is on by default, and setting it `false` (or
+one-line **roast** from the local roast corpus, no LLM needed (#1002): `vision.roast_enabled` is
+on by default, and setting it `false` (or
 `PRINT_HANDY__VISION__ROAST_ENABLED=false`) turns roasts off. See
 [The roast](TELEGRAM-BOT-SETUP.md#the-roast).
 

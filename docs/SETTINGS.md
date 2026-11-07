@@ -68,7 +68,7 @@ Schema, validation limits and TOML migration: [CONFIGURATION-YAML.md](CONFIGURAT
 | `services.camera_source` | `PRINT_HANDY__SERVICES__CAMERA_SOURCE` | `auto` | Which camera still images come from (#294): `auto` follows the printer vendor's rule, or pin one source. The pin is honored by the go2rtc fan-out source selection, the camera watchdog's stills and the Bambu camera paths: `moonraker` uses the Moonraker webcam snapshot only, `bambu` the printer's own Bambu camera, `go2rtc` the go2rtc fan-out only (a stream source, not a stills-only URL), and `none` turns camera images off — no stills, no timelapse capture, no fan-out. A path the pin excludes refuses and names the pin instead of silently using another source |
 | `services.camera_snapshot_url` | `PRINT_HANDY__SERVICES__CAMERA_SNAPSHOT_URL` | empty | Camera snapshot URL; derived from the Moonraker host when empty |
 | `services.spoolman_url` | `PRINT_HANDY__SERVICES__SPOOLMAN_URL` | empty | Spoolman URL. The Docker config and Compose default to `http://127.0.0.1:8000`, the bundled Spoolman API in the same container. Set another URL, plus `PRINT_HANDY_BUNDLED_SPOOLMAN=false`, to use an existing external Spoolman instead |
-| `services.vision_chat_url` | `PRINT_HANDY__SERVICES__VISION_CHAT_URL` | empty | OpenAI-compatible endpoint for camera checks and roasts; empty disables both. Needs a vision-capable model. See [Model endpoints](#model-endpoints) |
+| `services.vision_chat_url` | `PRINT_HANDY__SERVICES__VISION_CHAT_URL` | empty | OpenAI-compatible endpoint for camera checks; empty disables them (roasts are local and never use it, #1002). Needs a vision-capable model. See [Model endpoints](#model-endpoints) |
 | `services.stock_api_port` | `PRINT_HANDY__SERVICES__STOCK_API_PORT` | `8898` | Flashforge stock API port for IFS presence |
 | `services.octoprint_url` | `PRINT_HANDY__SERVICES__OCTOPRINT_URL` | empty | Printer URL for OctoPrint, including Sovol Marlin keys and an OctoPi that is not the printer. API key: `OCTOPRINT_API_KEY` secret |
 | `discord.chat_id` | `PRINT_HANDY__DISCORD__CHAT_ID` | empty | Discord channel ID |
@@ -115,10 +115,10 @@ Schema, validation limits and TOML migration: [CONFIGURATION-YAML.md](CONFIGURAT
 | `agent.timeout_s` | `PRINT_HANDY__AGENT__TIMEOUT_S` | `120` | Agent request timeout; one attempt, no retries. Longer than `llm.timeout_s` because an agent turn does real work |
 | `ai.allowed_users` | file only | empty | Who may use the AI edit lane (#902): a list of chat user IDs. Empty keeps the lane open to every user the gateway already authorizes. A refused user gets the edit vocabulary; nothing is sent to the AI endpoint |
 | `ai.edit_requests_per_hour` | `PRINT_HANDY__AI__EDIT_REQUESTS_PER_HOUR` | 20 | Per-user limit on AI edit-lane requests in any rolling hour (#902). 0 turns the limit off. Over the limit, the request falls back to the edit vocabulary |
-| `ai.small` | file only | empty | Optional small AI tier (#818): the print-start roast, the camera and image check and spool label reading. A table with `chat_url`, `model`, `fallback_model`, `fallback_url`, `api_key_env`, `fallback_api_key_env` and `timeout_s`; every key is optional and empty keeps the settings the install already had. See [AI tiers](#ai-tiers) |
+| `ai.small` | file only | empty | Optional small AI tier (#818): the camera and image check and spool label reading (roasts are local since #1002). A table with `chat_url`, `model`, `fallback_model`, `fallback_url`, `api_key_env`, `fallback_api_key_env` and `timeout_s`; every key is optional and empty keeps the settings the install already had. See [AI tiers](#ai-tiers) |
 | `ai.chat` | file only | empty | Optional chat AI tier (#818): questions the scripted handlers cannot answer. Same keys as `ai.small`; empty keeps `llm.*` |
 | `ai.heavy` | file only | empty | Optional heavy AI tier (#818): model-file editing and repair, deep image work. Same keys as `ai.small`; empty uses `design.*`, which inherits `llm.*`. The "Fix this for my printer" repair (#978) calls this tier; with no AI configured anywhere in the chain the fix is not offered and intake behaves as before, with a one-line note |
-| `design.enabled` | `PRINT_HANDY__DESIGN__ENABLED` | unset (auto) | `/print-design` / `/design` AI design (#388). Unset = auto: on whenever a design/LLM endpoint is configured (like roasts); `false` forces off (the command answers "not set up"); `true` forces on (an unconfigured endpoint is then reported, not silent) |
+| `design.enabled` | `PRINT_HANDY__DESIGN__ENABLED` | unset (auto) | `/print-design` / `/design` AI design (#388). Unset = auto: on whenever a design/LLM endpoint is configured; `false` forces off (the command answers "not set up"); `true` forces on (an unconfigured endpoint is then reported, not silent) |
 | `design.chat_url` | `PRINT_HANDY__DESIGN__CHAT_URL` | empty (inherit) | Design model endpoint; empty uses `llm.chat_url`. Wins in Hermes mode too — the profile's `auxiliary.print_design` block is the fallback only when no endpoint is configured |
 | `design.model` | `PRINT_HANDY__DESIGN__MODEL` | empty (inherit) | Design model name; empty uses `llm.model`. Point this at a stronger model than chat if the endpoint offers one |
 | `design.api_key_env` | `PRINT_HANDY__DESIGN__API_KEY_ENV` | empty (inherit) | Environment variable holding the design endpoint's key; empty uses `llm.api_key_env` |
@@ -129,8 +129,8 @@ Schema, validation limits and TOML migration: [CONFIGURATION-YAML.md](CONFIGURAT
 | `listener.spool_nag_s` | `PRINT_HANDY__LISTENER__SPOOL_NAG_S` | `600` | Reminder interval for an unanswered spool question |
 | `listener.start_claim_ttl_s` | `PRINT_HANDY__LISTENER__START_CLAIM_TTL_S` | `1800` | How long a start button stays claimed |
 | `vision.model` | `PRINT_HANDY__VISION__MODEL` | `gemini-latest` | Model for camera checks. The default is a CLIProxyAPI alias: set your own server's vision model name |
-| `vision.roast_model` | `PRINT_HANDY__VISION__ROAST_MODEL` | `luna-latest` | Model for the print-start roast. The default is a CLIProxyAPI alias: set your own server's model name |
-| `vision.roast_enabled` | `PRINT_HANDY__VISION__ROAST_ENABLED` | `true` | The one-line roast on the print-started post only (never on the completion post), on every platform (Telegram included). On by default: it runs whenever an LLM/vision endpoint is available (`services.vision_chat_url` plus `CLIPROXY_API_KEY`); `false` turns roasts off without disabling camera checks |
+| `vision.roast_model` | `PRINT_HANDY__VISION__ROAST_MODEL` | `luna-latest` | Legacy, unused: roasts come from the local roast corpus with no model since #1002. Kept so older configs load unchanged |
+| `vision.roast_enabled` | `PRINT_HANDY__VISION__ROAST_ENABLED` | `true` | The one-line roast: exactly one per print on the completion post, plus on request in chat ("roast my last print", "roast print 84"), on every platform. Drawn from the local roast corpus (`print_handy/data/roasts/`) with no LLM and no endpoint (#1002). `false` turns roasts off without disabling camera checks |
 | `vision.local_detector_enabled` | `PRINT_HANDY__VISION__LOCAL_DETECTOR_ENABLED` | `false` | Built-in local failure detector for the camera watchdog (#455): when `true`, frames are judged by an ONNX detector on this machine whenever no vision endpoint route is configured, so a no-LLM, no-cloud install still gets bad-print detection. Off by default; see [Local failure detector](#local-failure-detector) |
 | `vision.local_model_path` | `PRINT_HANDY__VISION__LOCAL_MODEL_PATH` | empty | Path of the local detector's ONNX model file. Empty uses the default location (a `models` folder under the Hermes home) and the pinned model; set it to a file you placed yourself to run fully offline |
 | `vision.auto_light_off_minutes` | `PRINT_HANDY__VISION__AUTO_LIGHT_OFF_MINUTES` | `0` | Auto light-off (#516) for Moonraker, Bambu Lab and Elegoo SDCP printers: `0` is off (the default). When set (30 is the suggested value), the light turns on at print start and off again after the plate has been seen empty for that many minutes. Needs a vision endpoint, like the camera watchdog — the local failure detector does not count, because it cannot certify an empty plate; on SDCP the turn-on works but auto-off waits on a verified camera source; see [Auto light-off](#auto-light-off) |
@@ -229,7 +229,6 @@ reads these settings directly.
 | Plain-language chat (Discord) | `llm.chat_url` | `llm.model` | the variable named by `llm.api_key_env` (default `LLM_API_KEY`), optional |
 | AI design (`/print-design`) | `design.chat_url`, else `llm.chat_url` | `design.model`, else `llm.model` | `design.api_key_env`, else `llm.api_key_env` |
 | Camera watchdog, spool label photos | `services.vision_chat_url` | `vision.model` | `CLIPROXY_API_KEY` |
-| Print-start roast | `services.vision_chat_url` | `vision.roast_model` | `CLIPROXY_API_KEY` |
 
 ### AI tiers
 
@@ -240,14 +239,14 @@ behaves exactly as before. Each tier is a table under `ai` in the YAML (or
 
 | Tier | Used for | Default route when the tier is empty |
 | --- | --- | --- |
-| `small` | print-start roast, camera and image check, spool label reading | `services.vision_chat_url`, `vision.model` (`vision.roast_model` for the roast), `CLIPROXY_API_KEY` |
+| `small` | camera and image check, spool label reading | `services.vision_chat_url`, `vision.model`, `CLIPROXY_API_KEY` |
 | `chat` | questions the scripted handlers cannot answer | `llm.*` |
 | `heavy` | model-file editing and repair, deep image work (route only, not used yet) | `design.*`, inheriting `llm.*` |
 
 Keys of a tier table: `chat_url` and `model` (set together), `fallback_model`,
 `fallback_url`, `api_key_env`, `fallback_api_key_env` and `timeout_s`. A value
 you set replaces the default route one field at a time, so `model` alone
-changes only the model. `model` also replaces the roast model for `small`.
+changes only the model.
 
 - **One retry, on the fallback.** When the primary request fails or times out,
   the same request is sent once to `fallback_model` on `fallback_url` (the

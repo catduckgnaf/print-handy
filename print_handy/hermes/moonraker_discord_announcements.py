@@ -561,10 +561,67 @@ def pending_roast_subject(state, message=None):
     return str(value.get("title") or ""), str(value.get("summary") or "")
 
 
-def set_pending_roast_subject(state, title, summary="", message=""):
+def set_pending_roast_subject(state, title, summary="", message="", facts=None, key=""):
     _pending_set(state, "pending_roast_subjects", "pending_roast_subject",
                  {"title": str(title or ""), "summary": str(summary or ""),
-                  "message": str(message or "")})
+                  "message": str(message or ""),
+                  "facts": dict(facts or {}), "key": str(key or "")})
+
+
+def pending_roast_facts(state, message=None):
+    """(facts, key) recorded with the pending roast subject, or ({}, None).
+
+    Same exact-message guard as pending_roast_subject: an older delivery
+    never gets the newer print's facts.
+    """
+    value = _pending_get(state, "pending_roast_subjects", "pending_roast_subject")
+    if not isinstance(value, dict):
+        return {}, None
+    if message is not None and value.get("message") and value.get("message") != message:
+        return {}, None
+    facts = value.get("facts") if isinstance(value.get("facts"), dict) else {}
+    return dict(facts), (str(value.get("key")) or None) if value.get("key") else None
+
+
+def roast_facts(job, plate, stats=None, now=None):
+    """What is actually known about a finished print, for the local roast.
+
+    Only facts with a source: the printer's own print duration (else the
+    sliced estimate), the plate's material, color and sliced grams, the
+    roster printer name, how many times this job has been launched (the
+    per-launch number registry), and the local finish hour. Missing stays
+    missing. Never raises.
+    """
+    facts = {}
+    try:
+        stats = stats or {}
+        duration = stats.get("print_duration")
+        if not isinstance(duration, (int, float)) or duration <= 0:
+            duration = (plate or {}).get("seconds")
+        if isinstance(duration, (int, float)) and duration > 0:
+            facts["duration_s"] = float(duration)
+        for key in ("material", "color"):
+            value = (plate or {}).get(key)
+            if value:
+                facts[key] = str(value)
+        grams = (plate or {}).get("filament_g")
+        if isinstance(grams, (int, float)) and grams > 0:
+            facts["grams"] = float(grams)
+        name = print_summary.announcement_printer_name(job)
+        if name:
+            facts["printer"] = str(name)
+        job_path = (job or {}).get("_job_path")
+        if job_path:
+            from . import print_control
+            launches = print_control._load_number_registry()["launches"]
+            times = sum(1 for entry in launches if entry.get("job") == str(job_path))
+            if times >= 2:
+                facts["times"] = times
+        now = now or datetime.now(_config.tz())
+        facts["finish_hour"] = int(now.hour)
+    except Exception as exc:
+        print(f"Roast facts incomplete: {exc}", file=sys.stderr)
+    return facts
 
 
 def clear_pending_roast_subject(state):
@@ -809,10 +866,12 @@ def main():
         # the roast generator itself.
         message = print_summary.format_event("complete", filename)
         try:
-            roast_job, _roast_plate = print_summary.find_job(filename)
+            roast_job, roast_plate = print_summary.find_job(filename)
             set_pending_roast_subject(
                 previous, (roast_job or {}).get("title") or Path(str(filename or "")).stem,
-                (roast_job or {}).get("summary") or "")
+                (roast_job or {}).get("summary") or "",
+                facts=roast_facts(roast_job, roast_plate, payload.get("stats") or {}),
+                key=f"{job_key}@{previous.get('print_started_at') or ''}")
         except Exception as exc:
             print(f"Completion roast subject unavailable: {exc}", file=sys.stderr)
         try:
