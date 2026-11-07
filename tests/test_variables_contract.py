@@ -113,6 +113,10 @@ EXEMPTIONS = {
     ("paths", "archive"): (frozenset({"webui"}), "#657"),
     ("paths", "cache"): (frozenset({"webui"}), "#657"),
     ("paths", "ffmpeg"): (frozenset({"webui"}), "#657"),
+    # The Piper binary and voice model (#981 step 4) mirror paths.ffmpeg:
+    # path settings have no catalog fields in this codebase.
+    ("paths", "piper"): (frozenset({"webui"}), "#981"),
+    ("paths", "piper_model"): (frozenset({"webui"}), "#981"),
     ("paths", "hermes_agent"): (frozenset({"webui", "consumer"}), "#657"),
     ("paths", "hermes_bin"): (frozenset({"webui"}), "#657"),
     ("paths", "hermes_home"): (frozenset({"webui"}), "#657"),

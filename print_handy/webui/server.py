@@ -775,6 +775,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(200, self.server.snapshot_func())
             elif path in ("/data", "/wrapped", "/api/data", "/api/wrapped"):
                 self._data_route(path)
+            elif path == "/wrapped/video-file":
+                self._wrapped_video_file_route()
             elif path == "/readyz":
                 # Readiness per component (Spoolman, slicer, each printer),
                 # behind the same auth as /api/status; /healthz stays the
@@ -881,6 +883,36 @@ class _Handler(BaseHTTPRequestHandler):
             data, payload, form_token=self.server.form_token, theme=self._theme(),
             notice=done or None), "text/html; charset=utf-8")
 
+    def _wrapped_video_file_route(self):
+        """GET /wrapped/video-file?year=<year> (#981 step 4).
+
+        Serves the compiled Wrapped video so the Wrapped page can
+        embed it. Behind the same login as every other route here
+        (do_GET has already authorized), plus the wrapped_enabled
+        gate. Only the one file data.py constructs for a whole-number
+        year inside the wrapped outputs can be served — the request
+        never supplies a file name, so traversal has no input.
+        """
+        data = self.server.settings_data
+        if not data_module.wrapped_enabled(data):
+            self._json(403, {"ok": False, "reason": data_module.OFF_REASON})
+            return
+        year, error = self._year_param()
+        if error:
+            self._json(error[0], error[1])
+            return
+        if year is None:
+            self._json(400, {"ok": False,
+                             "reason": "year must be a whole number. Nothing shown."})
+            return
+        target = data_module.wrapped_video_path(data, year)
+        if target is None:
+            self._json(404, {"ok": False,
+                             "reason": "no compiled Wrapped video for that year. "
+                                       "Compile it from the Wrapped page first."})
+            return
+        self._send(200, target.read_bytes(), "video/mp4")
+
     def _wrapped_video_post(self):
         """POST /wrapped/video (#956): the Wrapped page's video form.
 
@@ -903,7 +935,9 @@ class _Handler(BaseHTTPRequestHandler):
             self._html_refusal(400, "year must be a whole number. Nothing was compiled.",
                                "/wrapped")
             return
-        code, payload = data_module.make_video(self.server.settings_data, year)
+        code, payload = data_module.make_video(
+            self.server.settings_data, year,
+            export_silent=bool((form.get("export_silent") or [""])[0]))
         if code != 200:
             self._html_refusal(code, payload.get("reason", "the video compile failed"),
                                "/wrapped")

@@ -78,6 +78,8 @@ records_vault = "~/Documents/3D Printing Records"
 cache = "~/.hermes/cache"
 hermes_bin = "~/.local/bin/hermes"
 ffmpeg = "ffmpeg"
+piper = "piper"
+piper_model = ""
 # Hermes checkout. Added to sys.path only when hermes_state / hermes_cli must be imported.
 hermes_agent = "~/.hermes/hermes-agent"
 # Safe gateway restart helper run by bin/restart_gateway_after_print.sh (HERMES_RESTART_HELPER overrides).
@@ -312,6 +314,12 @@ vertical_short = false
 # pad = blurred background fill (default); crop = centre crop.
 vertical_short_mode = "pad"
 vertical_short_overlay = true
+# Data tab and Wrapped video (#956, local, no AI model): off by default.
+wrapped_enabled = false
+wrapped_ai_video = false
+# Wrapped narration (#981): none | piper (local, nothing sent). See home.yaml notes.
+wrapped_tts_engine = "none"
+wrapped_music_file = ""
 # In-container timelapse capture (#246): off by default; existing behaviour
 # (printer-rendered timelapses only) is unchanged while this is false.
 capture_enabled = false
