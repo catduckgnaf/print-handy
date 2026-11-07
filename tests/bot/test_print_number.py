@@ -92,8 +92,8 @@ def test_print_number_forms_all_offer_the_same_print(cfg, archive, text):
     assert confirm.await_args.args[4] == "Print Newer Widget again from the start?\nConfirm the bed is clear."
     start.assert_called_once()
     assert started[0]["title"] == "Newer Widget" and started[0]["gcode"] == str(newer.resolve())
-    assert discord.sent == ["Preparing to start Newer Widget. Print #2; "
-                            "estimated print time ~1m, plus warmup ~6m total.",
+    assert discord.sent == ["Preparing to start Newer Widget. A reprint of print #2; it gets its own new print number when it starts. "
+                            "Estimated print time ~1m, plus warmup ~6m total.",
                             # The handler posts the start announcement itself:
                             # the start claim suppresses the listener's (P2-56).
                             "Print started: Print\nPrint #2\nEstimated total: unknown"]
@@ -149,7 +149,7 @@ def test_print_again_x3_question_and_start_post_quote_all_copies(cfg, archive):
         "All 3 copies: ~3m printing (plus ~5m warmup per copy), ~3 g filament.\n"
         "Confirm the bed is clear.")
     assert started[0]["copies"] == 3
-    assert discord.sent == ["Preparing to start Newer Widget. Print #2; "
-                            "estimated print time ~1m, plus warmup ~6m total for this copy; "
+    assert discord.sent == ["Preparing to start Newer Widget. A reprint of print #2; it gets its own new print number when it starts. "
+                            "Estimated print time ~1m, plus warmup ~6m total for this copy; "
                             "all 3 copies: ~3m printing (plus ~5m warmup per copy), ~3 g filament.",
                             "Print started: Print\nPrint #2\nEstimated total: unknown"]

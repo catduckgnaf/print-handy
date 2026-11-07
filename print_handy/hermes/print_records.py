@@ -219,11 +219,14 @@ def _valid_print_number(value: Any) -> int | None:
 
 
 def _registry_print_number(context: Mapping[str, Any]) -> int | None:
-    """The permanent number the launch registry already assigned this job, or None.
+    """The number the launch registry minted for THIS print, or None.
 
-    Read-only: numbers are minted at launch (print_control.assign_print_numbers);
+    Read-only: numbers are minted at launch (print_control.mint_launch_number);
     a record never assigns one. The job is located through the slicer settings'
-    local G-code path, whose parent chain holds the job's JOB.json.
+    local G-code path, whose parent chain holds the job's JOB.json, and the
+    launch by the record's start time. A job printed several times has several
+    numbers: a record never takes the job's first one unless that launch is
+    this print (a reprint must not be recorded as the original again).
     """
     settings = context.get("slicer_settings")
     local = settings.get("local_gcode") if isinstance(settings, Mapping) else None
@@ -233,14 +236,31 @@ def _registry_print_number(context: Mapping[str, Any]) -> int | None:
                      if (parent / "JOB.json").is_file()), None)
     if job_path is None:
         return None
+    at = _timestamp(context.get("started_at") or context.get("completed_at"))
     try:
         from . import print_control
-        numbers = json.loads(print_control.PRINT_NUMBERS.read_text(encoding="utf-8")).get("numbers") or {}
+        if at is None:
+            # No start time to match a launch: only an unambiguous job (one
+            # print, or legacy) has a number that is certainly this print's.
+            registry = print_control._load_number_registry()
+            key = str(job_path.resolve())
+            own = [e["number"] for e in registry["launches"] if e.get("job") == key]
+            if len(own) > 1:
+                return None
+            return _valid_print_number(own[0] if own else registry["numbers"].get(key))
+        return _valid_print_number(print_control.number_for_launch(job_path, at))
     except (OSError, ValueError, AttributeError, ImportError):
         return None
-    if not isinstance(numbers, dict):
+
+
+def _timestamp(value: Any) -> float | None:
+    text = normalize_utc(value) if value else None
+    if not text:
         return None
-    return _valid_print_number(numbers.get(str(job_path.resolve())))
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
 
 
 def _spool_fields(spool: Any) -> dict[str, Any]:
@@ -449,6 +469,7 @@ _RECORD_FIELDS = (
     "slicer_settings", "author_directed_tree_supports", "physical_outcome",
     "follow_up", "multipart_plan_id", "part_id", "moonraker_state",
     "discord_chat_id", "watch_mode", "watch_risk", "stop_reason", "stop_capture",
+    "print_number_was",
 )
 
 
@@ -896,3 +917,130 @@ def update_cleanup_record(record_path: str, status: str, session_id: str | None 
 def native_option_labels() -> tuple[str, str, str]:
     """Canonical Discord picker labels; callers must render these as buttons."""
     return NATIVE_PRINT_OPTIONS
+
+
+# ---------------------------------------------------------------- duplicate-number repair
+#
+# Before per-launch numbering (#979/#988) a print number named a job, so every
+# start of an archived job after the first (a "print 84 again", a re-run plate)
+# was recorded under the job's existing number: print-0084.json and
+# print-0084-<digest>.json are two different prints. This finds those and, on
+# --apply, gives each later print its own number, in start order, keeping the
+# old one as print_number_was. A later print that the launch registry already
+# numbered (a /print-again list backfilled it) gets THAT number; otherwise a
+# new one is minted. Read-only without --apply.
+
+def _record_job_path(record: Mapping[str, Any]) -> Path | None:
+    settings = record.get("slicer_settings")
+    local = settings.get("local_gcode") if isinstance(settings, Mapping) else None
+    if not local:
+        return None
+    return next((parent / "JOB.json" for parent in Path(str(local)).parents
+                 if (parent / "JOB.json").is_file()), None)
+
+
+def duplicate_print_numbers(prints_dir: Path | None = None) -> list[dict[str, Any]]:
+    """Records that share a print number with an EARLIER, different print.
+
+    One entry per later print, in start order: {path, record_id, title,
+    started_at, print_number, status}. The earliest print keeps its number.
+    A record still printing is listed but never renumbered (its completion is
+    about to rewrite it).
+    """
+    prints_dir = Path(prints_dir or PRINTS_DIR)
+    groups: dict[int, dict[str, dict[str, Any]]] = {}
+    for path in sorted(prints_dir.glob("*.json")):
+        data = _read_json_record(path)
+        number = _valid_print_number((data or {}).get("print_number"))
+        if data is None or number is None:
+            continue
+        rid = str(data.get("record_id") or path.stem)
+        groups.setdefault(number, {}).setdefault(rid, {
+            "path": str(path), "record_id": rid, "title": data.get("title"),
+            "started_at": data.get("started_at") or data.get("completed_at") or "",
+            "print_number": number, "status": data.get("status")})
+    later = []
+    for by_id in groups.values():
+        if len(by_id) < 2:
+            continue
+        ordered = sorted(by_id.values(), key=lambda r: (str(r["started_at"]), r["path"]))
+        later.extend(ordered[1:])
+    return sorted(later, key=lambda r: (str(r["started_at"]), r["path"]))
+
+
+def renumber_duplicate_prints(apply: bool = False, prints_dir: Path | None = None,
+                              numbers_path: Path | None = None) -> list[dict[str, Any]]:
+    """Plan (and with apply=True, perform) the duplicate-number repair.
+
+    Returns the planned changes: each later print with its new_number (None
+    on a dry run or when skipped) and, when skipped, why. Holds the registry
+    lock for the whole apply, so a start meanwhile cannot take a number twice.
+    """
+    from . import print_control
+    prints_dir = Path(prints_dir or PRINTS_DIR)
+    plan = duplicate_print_numbers(prints_dir)
+    for entry in plan:
+        entry["new_number"] = None
+        if entry["status"] == "printing":
+            entry["skipped"] = "still printing; run again after it finishes"
+    if not apply:
+        return plan
+    with print_control._RegistryLock(numbers_path):
+        taken = {n for path in prints_dir.glob("*.json")
+                 if (n := _valid_print_number((_read_json_record(path) or {}).get("print_number")))}
+        for entry in plan:
+            if entry.get("skipped"):
+                continue
+            path = Path(entry["path"])
+            data = _read_json_record(path)
+            if data is None:
+                entry["skipped"] = "record unreadable"
+                continue
+            job_path = _record_job_path(data)
+            job_path = job_path.resolve() if job_path is not None else None
+            at = _timestamp(entry["started_at"])
+            new = None
+            if job_path is not None and at is not None:
+                new = print_control.number_for_launch(job_path, at, numbers_path, exclude=taken)
+            if new is None:
+                artifact = (data.get("slicer_settings") or {}).get("local_gcode") if isinstance(
+                    data.get("slicer_settings"), Mapping) else None
+                new = print_control._mint_launch_number_locked(
+                    job_path or (prints_dir / f"record-{entry['record_id']}" / "JOB.json"),
+                    at, artifact, numbers_path)
+            taken.add(new)
+            data["print_number_was"] = entry["print_number"]
+            data["print_number"] = new
+            target = _avoid_collision(prints_dir / f"print-{new:04d}.json", entry["record_id"])
+            _atomic_write(target, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+            if target != path:
+                path.unlink(missing_ok=True)
+            entry["new_number"] = new
+            entry["new_path"] = str(target)
+    return plan
+
+
+def _renumber_cli(argv: list[str] | None = None) -> int:
+    import argparse
+    parser = argparse.ArgumentParser(
+        prog="python -m print_handy.hermes.print_records",
+        description="Find (and with --apply, fix) prints recorded under another print's number.")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    cmd = sub.add_parser("renumber-duplicates", help="duplicate print numbers from reprints (#979)")
+    cmd.add_argument("--apply", action="store_true", help="renumber; without it, only list")
+    args = parser.parse_args(argv)
+    plan = renumber_duplicate_prints(apply=args.apply)
+    if not plan:
+        print("No duplicate print numbers.")
+        return 0
+    for entry in plan:
+        tail = (f"-> #{entry['new_number']}" if entry.get("new_number")
+                else f"(skipped: {entry['skipped']})" if entry.get("skipped") else "(would renumber)")
+        print(f"#{entry['print_number']} {entry['started_at']} {entry['title']} {tail}")
+    if not args.apply:
+        print("Dry run. Re-run with --apply to renumber.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_renumber_cli())

@@ -264,7 +264,7 @@ def rig(monkeypatch, tmp_path):
     monkeypatch.setattr(delivery, "bambu_handoff", lambda job, gcodes, config=None: [package])
     monkeypatch.setattr(launch_state, "acquire", lambda *a, **kw: events.append("acquire") or _Lease(events))
     monkeypatch.setattr(model_job, "_consume_approval", lambda *a, **kw: events.append("consume_approval"))
-    monkeypatch.setattr(model_job, "record_start", lambda g, remote: "/records/1")
+    monkeypatch.setattr(model_job, "record_start", lambda g, remote, **kw: "/records/1")
     clock = FakeClock()
     monkeypatch.setattr(model_job, "_confirm_clock", clock)
     monkeypatch.setattr(model_job, "_confirm_sleep", clock.sleep)

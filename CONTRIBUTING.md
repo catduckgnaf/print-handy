@@ -21,7 +21,7 @@ Thanks for helping improve Print Handy. This guide describes the repository work
 ## Prepare a change
 
 - Use a branch for your change and keep commits focused and clearly named.
-- Add or update tests for changed behavior. For a bug fix, include a regression test where practical.
+- Add or update tests for changed behavior. For a bug fix, include a regression test where practical. Every pull request answers for this in its `Tests added and regression scoping` section: which tests were added, why none were added when that is the case, and how the change was scoped against the full suite and the existing regression tests.
 - Follow the existing Python and configuration patterns. Do not weaken printer readiness, artifact validation, bed bounds, or confirmation gates to make a test pass.
 - For public model fixtures, use only redistributable models and record exact provenance and license in the case manifest. Keep private or non redistributable files outside the repository.
 - Update documentation when user visible behavior, setup, configuration, or supported capabilities change. Do not claim support beyond what code and tests establish.
@@ -70,7 +70,7 @@ A line that must keep a British spelling (quoted upstream text, an exact identif
 
 Use [the documentation home](docs/README.md) for user guidance. Keep the root README focused on purpose, compatibility and the first setup step; put detailed reference material in `docs/`. Check relative links from the file that contains them. Follow [the release-note guide](docs/RELEASE-NOTES.md): user capabilities first, fixes next, implementation details and PR references last. Keep pending changes separate from shipped releases, and preserve the detailed internal history.
 
-Before a non-nightly version is tagged, its pre-release checklist must exist. Dispatch the pre-release checklist workflow (`.github/workflows/pre-release-checklist.yml`, #657) with the target version; it opens (or updates) the single `Release checklist: X.Y.Z` issue from the previous release tag's merged-PR range, combining the document surfaces below with variables verified on every surface, adapter and connection coverage, the registry and docs matrices, Docker/GHCR, both Unraid template repos (this repo's `docker/unraid/` template and `catduck-unraid-templates`) and the live checks the range's PRs still owe. No non-nightly release is tagged until every fix-first item on that issue is resolved or explicitly deferred by catduck on the issue. Nightly builds are exempt: the nightly workflow never opens a checklist and is never gated by one.
+The full release procedure lives in [the release checklist](docs/RELEASE-CHECKLIST.md), including the automated Release check workflow and the audit of past release catches and misses. Before a non-nightly version is tagged, its pre-release checklist must exist. Dispatch the pre-release checklist workflow (`.github/workflows/pre-release-checklist.yml`, #657) with the target version; it opens (or updates) the single `Release checklist: X.Y.Z` issue from the previous release tag's merged-PR range, combining the document surfaces below with variables verified on every surface, adapter and connection coverage, the registry and docs matrices, Docker/GHCR, both Unraid template repos (this repo's `docker/unraid/` template and `catduck-unraid-templates`) and the live checks the range's PRs still owe. No non-nightly release is tagged until every fix-first item on that issue is resolved or explicitly deferred by catduck on the issue. Nightly builds are exempt: the nightly workflow never opens a checklist and is never gated by one.
 
 Every non-nightly release also re-records the slicing-speed baselines (#734). After the release commit's `ci.yml` run on `main` is green, take the `proposed-baseline.json` from its `discord-timing` and `slicer-timing-real` artifacts, copy them over `tests/corpus/timing_baseline.json` and `tests/corpus/timing_baseline_real_slicer.json`, give every raised entry a `reason`, and merge that as its own reviewed PR before tagging. The checklist issue's "Slicing-speed baselines" section tracks it, and [tests/README.md](tests/README.md) (Slicing-speed gate) has the commands, the thresholds and why they were chosen. The mock-slicer leg is a blocking check; the real-Orca leg reports warnings only until a few releases of data justify promoting it.
 
@@ -96,6 +96,14 @@ changes, is reopened or has its description edited, including fork PRs. It check
    and summary against the feature; otherwise say why it is not applicable.
 4. Local Markdown file destinations in changed Markdown files. External URLs,
    heading anchors and semantic accuracy remain human review responsibilities.
+5. `Tests added: added` with the new or updated tests named in the detail and
+   at least one test file in the PR, or `none` with a specific reason no new
+   test is appropriate; plus `Regression scoping: checked` (or
+   `not applicable`) with a reason stating how the change was scoped against
+   the full suite and the existing regression tests, what was left out, and
+   why. Running a focused test is verification, recorded above; this section
+   is about what the PR leaves in the suite and whether broader regression
+   coverage was considered, not only the tests that were touched.
 
 Fill the `Documentation impact` fields in the PR template literally. For example:
 
@@ -104,6 +112,15 @@ Documentation: updated
 Reason: Added the new setting and its default to docs/CONFIGURATION-YAML.md.
 Wiki: not applicable
 Wiki reason: Versioned docs are authoritative; no separate wiki page describes this setting.
+```
+
+Fill the `Tests added and regression scoping` fields literally too. For example:
+
+```text
+Tests added: added
+Tests added detail: Added test_option_default in tests/test_settings.py, pinning the new option's default value.
+Regression scoping: checked
+Regression scoping reason: The settings and defaults regression tests were considered; the focused run covers them and CI runs the full suite on this head.
 ```
 
 Existing PRs can add this section when revising their descriptions. The check

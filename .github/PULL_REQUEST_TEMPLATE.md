@@ -28,6 +28,20 @@
 - Checks run:
 - Checks not run and why:
 
+## Tests added and regression scoping
+
+<!-- Required by contribution-policy. Every PR must answer both parts. "Verification and test results" above says what you ran for this PR; this section says what this PR adds to the suite permanently, and whether broader testing was scoped. -->
+
+Tests added: added | none
+Tests added detail:
+
+<!-- When "added": name each new or updated test (file and test or case) and the behavior or regression it pins. "Added" with no test file in this PR fails the check. When "none": the detail is the reason — why no new test is appropriate for this change (for example a docs-only or template-only change, or behavior already covered by an existing test, which you name). "None" without a specific reason fails the check. -->
+
+Regression scoping: checked | not applicable
+Regression scoping reason:
+
+<!-- When "checked": say how this change was scoped against the full suite and the existing regression tests — which neighboring areas and regression suites were considered, which were run here or are covered by CI on this head, and anything deliberately left out, with why. Do not claim the full suite is comprehensive for an area it does not cover; name the gap instead. When "not applicable": say why no scoping applies (for example a change that touches no code or behavior). -->
+
 ## Risks, limitations, and follow up
 
 <!-- Note known risks, limitations, rollback or compatibility considerations, or write \"None known.\" Remove irrelevant prompts. -->
@@ -95,6 +109,8 @@ Variables reason:
 - [ ] User-visible behavior, configuration and limitations match the docs and release note.
 - [ ] Documentation impact and wiki impact were reviewed, including any exemption or deferral.
 - [ ] Tests cover the changed behavior; reported checks match actual evidence.
+- [ ] Tests added are named in the Tests added section, or the reason for adding none is specific and credible; added tests pin the changed behavior or regression, not only the happy path.
+- [ ] Regression scoping is credible: the full suite and neighboring regression areas were considered, and any exclusion or coverage gap is named with its reason.
 - [ ] Safety/authorization guards and contributor attribution are preserved.
 - [ ] Behavior changes were checked against every adapter/connection in their scope (the printer-scope rule: a change for one printer family is verified for all families it touches, not only the one at hand).
 - [ ] Registry/data changes keep their parity and drift tests green, or the exemption list is updated with a tracking reference.

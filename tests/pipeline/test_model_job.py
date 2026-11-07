@@ -2220,7 +2220,10 @@ class AnnouncePrintNameTests(unittest.TestCase):
             self.assertEqual(model_job._announce_print_name(st, job, [2], Path("/b/p1.gcode")), "Holder 2/2 (Pink)")
 
 
-def test_assign_print_number_appends_once_and_ignores_scratch_jobs(tmp_path, monkeypatch):
+def test_assign_print_number_mints_per_launch_and_ignores_scratch_jobs(tmp_path, monkeypatch):
+    """Every launch gets its own number: a second launch of the same job is
+    the NEXT number, while the job's legacy registry entry keeps the FIRST
+    launch's number, so old 'print N' lookups keep meaning the same job."""
     print_control = external('print_control')
     archive = tmp_path / 'archive'
     job = archive / 'ghost--abc' / 'JOB.json'
@@ -2231,7 +2234,10 @@ def test_assign_print_number_appends_once_and_ignores_scratch_jobs(tmp_path, mon
     monkeypatch.setattr(print_control, 'ARCHIVE', archive)
     monkeypatch.setattr(print_control, 'PRINT_NUMBERS', numbers)
     assert model_job._assign_print_number(job) == 5
-    assert model_job._assign_print_number(job) == 5
+    assert model_job._assign_print_number(job) == 6
+    registry = json.loads(numbers.read_text())
+    assert registry['numbers'][str(job.resolve())] == 5
+    assert [entry['number'] for entry in registry['launches']] == [5, 6]
     scratch = tmp_path / 'scratch' / 'JOB.json'
     scratch.parent.mkdir()
     scratch.write_text('{}')

@@ -1,0 +1,6 @@
+# Pinned Rust toolchain for the bounds crate (#952, D1). The Dockerfile's
+# bounds-build stage installs this exact toolchain; dependency versions
+# are pinned separately by Cargo.lock.
+[toolchain]
+channel = "1.99.1"
+profile = "minimal"

@@ -26,7 +26,7 @@ def test_resume_reuses_saved_color_decisions(env):
     """P1-38: a resume whose JOB.json already holds color decisions must reuse
     them, not rebuild them from an unassigned ``mode`` (UnboundLocalError)."""
     run_flow(env, [1, 0, 0], mid='first')
-    prev = prepared_intake.last_job()
+    prev = prepared_intake.newest_archived_job()
     saved = prev['color_decisions']
     assert saved['mode'] == 'single_color'
     event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),

@@ -39,6 +39,15 @@ spec.loader.exec_module(bump)
 
 NOW = datetime(2026, 11, 5, 12, 0, tzinfo=timezone.utc)
 
+# Shape-valid private key fixture: header/footer only; not a real key.
+VALID_KEY = (
+    "-----BEGIN RSA PRIVATE KEY-----\n"
+    "ZmFrZS1rZXktbWF0ZXJpYWw=\n"
+    "-----END RSA PRIVATE KEY-----\n"
+)
+
+BOT_ENV = {"UPSTREAM_BOT_APP_ID": "123456", "UPSTREAM_BOT_PRIVATE_KEY": VALID_KEY}
+
 # Frozen fixture copies of the pin surfaces (tests/fixtures/bump_upstream).
 # Parser and planner tests run against these, never against the live
 # production pins: every bump PR changes the production files, so a
@@ -382,6 +391,16 @@ class SpoolmanPlanning(unittest.TestCase):
         self.tmp.cleanup()
 
     def api_for(self, release, commit, compare="ahead"):
+        # The planner hashes the release's spoolman.zip for the
+        # test-harness pins; serve a digest for it unless the test
+        # already provided the asset.
+        if not any(a.get("name") == "spoolman.zip" for a in release.assets):
+            release = bump.Release(
+                tag=release.tag, version=release.version, name=release.name,
+                published_at=release.published_at, html_url=release.html_url,
+                assets=[*release.assets, asset("spoolman.zip", "sha256:" + "9" * 64)],
+                prerelease=release.prerelease,
+            )
         return FakeApi(
             releases={bump.SPOOLMAN_REPO: release},
             commits={(bump.SPOOLMAN_REPO, release.tag): commit},
@@ -396,6 +415,7 @@ class SpoolmanPlanning(unittest.TestCase):
         new_ref = "e" * 40
         plan = bump.plan_spoolman(self.root, self.api_for(make_release("0.27.1"), new_ref), NOW)
         self.assertEqual(plan.action, "bump")
+        self.assertEqual(plan.old_version, "0.27.0")
         plan.apply(self.root)
         self.assertEqual(bump.parse_spoolman((self.root / "Dockerfile").read_text()), new_ref)
         # The recorded surfaces move with the pin.
@@ -404,7 +424,44 @@ class SpoolmanPlanning(unittest.TestCase):
         self.assertIn("Pinned Spoolman v0.27.1 source commit", settings)
         docker_doc = (self.root / "docs" / "DOCKER.md").read_text()
         self.assertIn(f"Spoolman 0.27.1 is built from exact upstream revision `{new_ref}`", docker_doc)
-        self.assertEqual(set(plan.files), {"Dockerfile", "docs/SETTINGS.md", "docs/DOCKER.md"})
+        # The test-harness pins move with the shipped pin: the CI job
+        # and the native runner must install the version being shipped,
+        # with the new release zip's SHA256.
+        ci_text = (self.root / ".github" / "workflows" / "ci.yml").read_text()
+        self.assertIn("download/v0.27.1/spoolman.zip", ci_text)
+        self.assertIn("9" * 64, ci_text)
+        native = (self.root / "scripts" / "run_spoolman_native.sh").read_text()
+        self.assertIn("Spoolman 0.27.1 natively", native)
+        self.assertIn("print-handy-spoolman-0.27.1", native)
+        self.assertIn("download/v0.27.1/spoolman.zip", native)
+        self.assertIn("9" * 64, native)
+        self.assertEqual(set(plan.files), {"Dockerfile", "docs/SETTINGS.md", "docs/DOCKER.md",
+                                           ".github/workflows/ci.yml",
+                                           "scripts/run_spoolman_native.sh"})
+
+    def test_harness_drift_stops_the_bump(self):
+        # A harness pin that no longer records the shipped version is
+        # drift: the planner must refuse, not guess which is right.
+        ci_path = self.root / ".github" / "workflows" / "ci.yml"
+        ci_path.write_text(ci_path.read_text().replace("v0.27.0", "v0.26.0"))
+        with self.assertRaises(bump.BumpError):
+            bump.plan_spoolman(self.root, self.api_for(make_release("0.27.1"), "e" * 40), NOW)
+
+    def test_native_harness_drift_stops_the_bump(self):
+        native_path = self.root / "scripts" / "run_spoolman_native.sh"
+        native_path.write_text(native_path.read_text().replace("0.27.0", "0.26.0"))
+        with self.assertRaises(bump.BumpError):
+            bump.plan_spoolman(self.root, self.api_for(make_release("0.27.1"), "e" * 40), NOW)
+
+    def test_missing_zip_asset_stops_the_bump(self):
+        release = make_release("0.27.1")
+        api = FakeApi(
+            releases={bump.SPOOLMAN_REPO: release},
+            commits={(bump.SPOOLMAN_REPO, release.tag): "e" * 40},
+            compare="ahead",
+        )
+        with self.assertRaises(bump.BumpError):
+            bump.plan_spoolman(self.root, api, NOW)
 
     def test_disagreeing_recorded_surfaces_stop_the_bump(self):
         settings = self.root / "docs" / "SETTINGS.md"
@@ -1143,7 +1200,7 @@ class IdentityGate(unittest.TestCase):
         self.assertEqual(out.getvalue().strip(), "configured=false")
         self.assertIn("not configured", err.getvalue())
         out, err = io.StringIO(), io.StringIO()
-        bump.check_identity({"UPSTREAM_BOT_APP_ID": "1", "UPSTREAM_BOT_PRIVATE_KEY": "k"}, out, err)
+        bump.check_identity({"UPSTREAM_BOT_APP_ID": "1", "UPSTREAM_BOT_PRIVATE_KEY": VALID_KEY}, out, err)
         self.assertEqual(out.getvalue().strip(), "configured=true")
 
     def test_write_mode_without_token_is_inert(self):
@@ -1157,6 +1214,171 @@ class IdentityGate(unittest.TestCase):
         rc = bump.main(["--mark-ready", "--branch", "upstream/go2rtc-1.9.16"], env={}, out=io.StringIO(), err=err)
         self.assertEqual(rc, 0)
         self.assertIn("inert", err.getvalue())
+
+
+class IdentityShapeValidation(unittest.TestCase):
+    def test_numeric_app_id_ok(self):
+        self.assertTrue(bump.valid_app_identifier("123456"))
+        self.assertTrue(bump.valid_app_identifier("1"))
+
+    def test_client_ids_ok(self):
+        self.assertTrue(bump.valid_app_identifier("Iv1.abcdefgh"))
+        self.assertTrue(bump.valid_app_identifier("Iv23liabdefgh123"))
+
+    def test_slug_garbage_and_empty_rejected(self):
+        self.assertFalse(bump.valid_app_identifier("print-handy-upstream-bot"))
+        self.assertFalse(bump.valid_app_identifier("not an id"))
+        self.assertFalse(bump.valid_app_identifier(""))
+        self.assertFalse(bump.valid_app_identifier(None))
+        self.assertFalse(bump.valid_app_identifier("Iv"))
+        self.assertFalse(bump.valid_app_identifier("Iv1.x"))
+
+    def test_pem_with_begin_and_end_ok(self):
+        self.assertTrue(bump.valid_private_key(VALID_KEY))
+        self.assertTrue(bump.valid_private_key(
+            "-----BEGIN PRIVATE KEY-----\nZm9v\n-----END PRIVATE KEY-----\n"))
+
+    def test_truncated_and_garbage_keys_rejected(self):
+        self.assertFalse(bump.valid_private_key("k"))
+        self.assertFalse(bump.valid_private_key(""))
+        self.assertFalse(bump.valid_private_key(
+            "-----BEGIN RSA PRIVATE KEY-----\nZm9v\n"))  # no footer
+        self.assertFalse(bump.valid_private_key(
+            "-----BEGIN RSA PRIVATE KEY-----\nZm9v\n"
+            "-----END EC PRIVATE KEY-----\n"))  # mismatched footer
+
+    def test_check_identity_malformed_key_returns_2(self):
+        bad_key = "not-a-pem-secret-value"
+        out, err = io.StringIO(), io.StringIO()
+        rc = bump.check_identity(
+            {"UPSTREAM_BOT_APP_ID": "123456", "UPSTREAM_BOT_PRIVATE_KEY": bad_key},
+            out, err)
+        self.assertEqual(rc, 2)
+        self.assertEqual(out.getvalue().strip(), "configured=false")
+        self.assertIn("UPSTREAM_BOT_PRIVATE_KEY", err.getvalue())
+        self.assertIn("malformed", err.getvalue())
+        # The secret material is never echoed.
+        self.assertNotIn(bad_key, out.getvalue() + err.getvalue())
+
+    def test_check_identity_malformed_id_returns_2(self):
+        out, err = io.StringIO(), io.StringIO()
+        rc = bump.check_identity(
+            {"UPSTREAM_BOT_APP_ID": "some-slug-value", "UPSTREAM_BOT_PRIVATE_KEY": VALID_KEY},
+            out, err)
+        self.assertEqual(rc, 2)
+        self.assertEqual(out.getvalue().strip(), "configured=false")
+        self.assertIn("UPSTREAM_BOT_APP_ID", err.getvalue())
+        self.assertNotIn("some-slug-value", err.getvalue())
+
+    def test_check_identity_client_id_and_pem_ok(self):
+        out, err = io.StringIO(), io.StringIO()
+        rc = bump.check_identity(
+            {"UPSTREAM_BOT_APP_ID": "Iv1.abcdefgh", "UPSTREAM_BOT_PRIVATE_KEY": VALID_KEY},
+            out, err)
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.getvalue().strip(), "configured=true")
+
+
+class DiagnoseIdentity(unittest.TestCase):
+    def opener_for(self, app, installation):
+        """app/installation: (status, body) served by the fake opener."""
+        import urllib.error
+
+        def serve(status, body, url):
+            if status != 200:
+                raise urllib.error.HTTPError(url, status, "error", {}, None)
+
+            class Resp:
+                def read(self):
+                    return json.dumps(body).encode()
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *a):
+                    return False
+
+            return Resp()
+
+        def opener(req):
+            if req.full_url.endswith("/installation"):
+                return serve(installation[0], installation[1], req.full_url)
+            if req.full_url.endswith("/app"):
+                return serve(app[0], app[1], req.full_url)
+            raise AssertionError(f"unexpected URL {req.full_url}")
+
+        return opener
+
+    def signer(self, captured):
+        def sign(signing_input, private_key):
+            captured.append(signing_input)
+            return b"fake-signature-bytes"
+
+        return sign
+
+    def app_body(self, slug="print-handy-upstream-bot"):
+        return {"id": 123456, "slug": slug, "name": "Print Handy Upstream Bot",
+                "owner": {"login": "catduckgnaf"}}
+
+    def run_diagnose(self, app, installation, env=None, now=None):
+        out, err = io.StringIO(), io.StringIO()
+        captured = []
+        rc = bump.diagnose_identity(
+            env or BOT_ENV, "catduckgnaf/print-handy", out, err,
+            opener=self.opener_for(app, installation),
+            signer=self.signer(captured), now=now)
+        return rc, out.getvalue() + err.getvalue(), captured
+
+    def test_installed_app_returns_0(self):
+        rc, text, _ = self.run_diagnose(
+            (200, self.app_body()),
+            (200, {"id": 987, "repository_selection": "selected"}))
+        self.assertEqual(rc, 0)
+        self.assertIn("print-handy-upstream-bot", text)
+        self.assertIn("987", text)
+        self.assertIn("selected", text)
+
+    def test_installation_404_names_both_causes_with_real_slug(self):
+        rc, text, _ = self.run_diagnose((200, self.app_body()), (404, {}))
+        self.assertEqual(rc, 3)
+        self.assertIn("print-handy-upstream-bot", text)
+        self.assertIn("Installations", text)
+        self.assertIn("Repository access", text)
+        self.assertIn("secrets belong to the wrong app", text)
+
+    def test_app_401_gives_wrong_key_guidance(self):
+        rc, text, _ = self.run_diagnose((401, {}), (200, {}))
+        self.assertNotEqual(rc, 0)
+        self.assertIn("private key does not belong to the identifier", text)
+
+    def test_slug_mismatch_is_called_out(self):
+        rc, text, _ = self.run_diagnose(
+            (200, self.app_body(slug="totally-other-app")),
+            (200, {"id": 987, "repository_selection": "all"}))
+        self.assertEqual(rc, 0)
+        self.assertIn("totally-other-app", text)
+        self.assertIn("differently-named app", text)
+
+    def test_jwt_claims_shape(self):
+        import base64
+
+        epoch = 1_700_000_000
+        rc, _, captured = self.run_diagnose(
+            (200, self.app_body()),
+            (200, {"id": 987, "repository_selection": "selected"}),
+            now=epoch)
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(captured), 1)
+        header_b64, claims_b64 = captured[0].decode().split(".")
+
+        def decode(segment):
+            return json.loads(base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4)))
+
+        self.assertEqual(decode(header_b64), {"alg": "RS256", "typ": "JWT"})
+        claims = decode(claims_b64)
+        self.assertEqual(claims["iss"], "123456")
+        self.assertEqual(claims["iat"], epoch - 60)
+        self.assertEqual(claims["exp"], epoch + 600)
 
 
 class ReadyDecision(unittest.TestCase):
@@ -1287,6 +1509,22 @@ class WorkflowShapes(unittest.TestCase):
         self.assertIn("UPSTREAM_BOT_PRIVATE_KEY", text)
         token_step = next(s for s in steps if s.get("id") == "app-token")
         self.assertIn("configured", token_step["if"])
+        # The token step uses the non-deprecated client-id input, and
+        # the deprecated app-id input remains nowhere in either
+        # workflow (#950).
+        self.assertIn("UPSTREAM_BOT_APP_ID", token_step["with"]["client-id"])
+        self.assertNotIn("app-id:", text)
+        self.assertNotIn("app-id:", READY_WORKFLOW.read_text())
+        ready_steps = self.load(READY_WORKFLOW)["jobs"]["mark-ready"]["steps"]
+        ready_token = next(s for s in ready_steps if s.get("id") == "app-token")
+        self.assertIn("UPSTREAM_BOT_APP_ID", ready_token["with"]["client-id"])
+        # The diagnose step exists, is gated on the identity check,
+        # and runs before the token mint so a broken identity fails
+        # with the diagnosis instead of the mint's bare 404.
+        diagnose_step = next(
+            s for s in steps if "--diagnose-identity" in s.get("run", ""))
+        self.assertIn("configured", diagnose_step["if"])
+        self.assertLess(steps.index(diagnose_step), steps.index(token_step))
         run_step = next(s for s in steps if "bump_upstream.py --component" in s.get("run", ""))
         self.assertIn("configured", run_step["if"])
         # The checkout must not persist the workflow token as a git
@@ -1325,9 +1563,28 @@ class PrBodyShape(unittest.TestCase):
         self.assertIn("Documentation: not needed", body)
         self.assertIn("Wiki: not applicable", body)
         self.assertIn("Variables: not applicable", body)
+        self.assertIn("Tests added: none", body)
+        self.assertIn("Regression scoping: checked", body)
         self.assertIn("1.9.15 -> 1.9.16", body)
         self.assertIn("pending at open time", body)
         self.assertIn("newer final upstream release", body)
+
+    def test_generated_body_passes_contribution_policy(self):
+        """Bot bodies are PR bodies: the whole generated body must stay
+        clean under scripts/check_contribution.py, including the Tests
+        added and regression scoping verdicts."""
+        plan = bump.Plan(
+            "go2rtc", "bump", version="1.9.16", files=["docker/go2rtc-prebuilt.sh"],
+            changes=["version: 1.9.15 -> 1.9.16"],
+            provenance=["Release: https://example.test (published 2026-10-26)"],
+            release=make_release("1.9.16"),
+        )
+        body = bump.build_pr_body("go2rtc", plan)
+        policy_spec = importlib.util.spec_from_file_location(
+            "check_contribution", ROOT / "scripts" / "check_contribution.py")
+        policy = importlib.util.module_from_spec(policy_spec)
+        policy_spec.loader.exec_module(policy)
+        self.assertEqual([], policy.check_pr(body, plan.files))
 
     def test_prerelease_body_does_not_claim_a_final(self):
         plan = bump.Plan(
@@ -1340,6 +1597,59 @@ class PrBodyShape(unittest.TestCase):
         self.assertIn("newer upstream prerelease", body)
         self.assertNotIn("newer final upstream release", body)
         self.assertNotIn("latest final upstream release", body)
+
+
+class StepClassification(unittest.TestCase):
+    def test_numeric_tuple_normalizes_leading_zeros(self):
+        self.assertEqual(bump.numeric_tuple("02.09.01.70"), (2, 9, 1, 70))
+        self.assertEqual(bump.numeric_tuple("v2.8.2"), (2, 8, 2))
+        self.assertEqual(bump.numeric_tuple("2.5.0-rc"), (2, 5, 0))
+
+    def test_first_or_second_component_change_is_major(self):
+        self.assertEqual(bump.classify_step("1.9.15", "2.0.0"), "major")
+        self.assertEqual(bump.classify_step("2.8.2", "02.09.01.70"), "major")
+        self.assertEqual(bump.classify_step("0.27.0", "0.28.0"), "major")
+        self.assertEqual(bump.classify_step("2.5.0-rc", "2.6.0-alpha"), "major")
+
+    def test_later_component_change_is_minor(self):
+        self.assertEqual(bump.classify_step("0.27.0", "0.27.1"), "minor")
+        self.assertEqual(bump.classify_step("1.9.15", "1.9.16"), "minor")
+        self.assertEqual(bump.classify_step("2.9.1.70", "2.9.1.71"), "minor")
+
+    def test_equal_cores_are_minor_promotions(self):
+        self.assertEqual(bump.classify_step("2.5.0-rc", "2.5.0"), "minor")
+        self.assertEqual(bump.classify_step("2.5.0-rc", "2.5.0-rc2"), "minor")
+        self.assertEqual(bump.classify_step("2.5.0", "2.5.0"), "minor")
+
+
+class StepBodyShape(unittest.TestCase):
+    def test_minor_step_body_has_no_deep_dive_section(self):
+        plan = bump.Plan(
+            "spoolman", "bump", version="0.27.1", old_version="0.27.0",
+            files=["Dockerfile"], changes=["SPOOLMAN_REF: a -> b"],
+            provenance=["Release: https://example.test (published 2026-10-26)"],
+            release=make_release("0.27.1"),
+        )
+        body = bump.build_pr_body("spoolman", plan)
+        self.assertIn("Step size: minor", body)
+        self.assertNotIn("Major step", body)
+
+    def test_major_step_body_requires_a_deep_dive(self):
+        plan = bump.Plan(
+            "bambu", "bump", version="02.09.01.70", old_version="2.8.2",
+            files=["Dockerfile"], changes=["BAMBU_REF: a -> b"],
+            provenance=["Release: https://example.test (published 2026-10-26)"],
+            release=make_release("02.09.01.70"),
+        )
+        body = bump.build_pr_body("bambu", plan)
+        self.assertIn("Step size: major", body)
+        self.assertIn("## Major step — deep dive required before merge", body)
+        self.assertIn("`2.8.2` -> `02.09.01.70`", body)
+        self.assertIn("hms_data.json", body)  # the bambu surface hints ride along
+
+    def test_major_step_hints_exist_for_every_component(self):
+        for component in ("go2rtc", "spoolman", "bambu", "orca"):
+            self.assertTrue(bump.STEP_SURFACE_HINTS[component], component)
 
 
 if __name__ == "__main__":

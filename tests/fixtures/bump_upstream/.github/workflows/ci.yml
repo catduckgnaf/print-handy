@@ -4,3 +4,10 @@
 env:
   ORCA_BUNDLE_VERSION: 2.5.0-rc
   ORCA_BUNDLE_SHA256: f0140100eb3d26d021b68347da9d5ce8536fe78d3e839d6abd83f40b27457175
+jobs:
+  spoolman:
+    steps:
+      - name: Install Debian tools and pinned Spoolman server
+        run: |
+          curl -fL --retry 3 https://github.com/Donkie/Spoolman/releases/download/v0.27.0/spoolman.zip -o "$archive"
+          echo 'bcc961af4c20d7ad7f1740f5609cd3efd94c4556baafaeba5036122dd7e46704  '"$archive" | sha256sum -c -

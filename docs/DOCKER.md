@@ -30,7 +30,7 @@ The `moonraker` and `bambulab_lan` domains have listener implementations today; 
 
 ## Included Spoolman
 
-Spoolman 0.27.0 is built from exact upstream revision `bed3f14ee77a3a571d31b14215d54b0b88a7519c` with its committed uv.lock, isolated from Print Handy dependencies. No third-party source is patched. No Node, npm or web UI assets are built or copied. A local static placeholder satisfies upstream's static-directory check. Print Handy spool commands and slicing lookups are the interface; `/api/v1` remains available.
+Spoolman 0.27.1 is built from exact upstream revision `ff8efd517b76a4b2783f29c89e9b9fbcd8cd167b` with its committed uv.lock, isolated from Print Handy dependencies. No third-party source is patched. No Node, npm or web UI assets are built or copied. A local static placeholder satisfies upstream's static-directory check. Print Handy spool commands and slicing lookups are the interface; `/api/v1` remains available.
 
 Default bind is `127.0.0.1:8000` inside the container. Print Handy defaults to `http://127.0.0.1:8000`. Compose publishes no port by default, and with no port mapped Spoolman stays loopback-only and unexposed.
 
@@ -287,12 +287,12 @@ As of 2.2.2 the shipped Docker default model is `klipper.generic` (it was `flash
 
 ## Pinning the image
 
-`:latest`, `:develop` and `:nightly` are moving tags. A pull of any of them can replace a working container with a different build, including one that was never released. A release tag such as `:2.2.5` is safer, but it is immutable only until someone republishes it. The thing that does not move is the multi-arch index digest.
+`:latest`, `:develop` and `:nightly` are moving tags. A pull of any of them can replace a working container with a different build, including one that was never released. A release tag such as `:2.2.6` is safer, but it is immutable only until someone republishes it. The thing that does not move is the multi-arch index digest.
 
-The current release is 2.2.5. Its index digest, read from GHCR on 2026-11-06, is the same digest `:latest` pointed at that day:
+The current release is 2.2.6. Its index digest, read from GHCR on 2026-11-07, is the same digest `:latest` pointed at that day:
 
 ```text
-ghcr.io/catduckgnaf/print-handy@sha256:03d88ec367004143d1a087f92cdb46a9fbf7671d49b5f25d0aa3ee7209202375
+ghcr.io/catduckgnaf/print-handy@sha256:4b7889bea042c15ab90477dc7528a2cf135b022c2bce5ca8e0d40685adad47ac
 ```
 
 That digest is the amd64 and arm64 index, not one architecture's image. The in-repo Unraid template's `Repository` is this value. Compose has no default image: set `PRINT_HANDY_IMAGE` in `.env` to the same digest.
@@ -300,7 +300,7 @@ That digest is the amd64 and arm64 index, not one architecture's image. The in-r
 Confirm a tag still points where you think before you pin it:
 
 ```bash
-docker buildx imagetools inspect ghcr.io/catduckgnaf/print-handy:2.2.5
+docker buildx imagetools inspect ghcr.io/catduckgnaf/print-handy:2.2.6
 ```
 
 The `Digest:` line of the index is the value to pin. The per-architecture lines under `Manifests:` are not.
@@ -313,7 +313,7 @@ This is the edit. It is not applied by installing this repository.
 2. Change only the `Repository` element, from the moving tag to the digest:
 
 ```xml
-<Repository>ghcr.io/catduckgnaf/print-handy@sha256:03d88ec367004143d1a087f92cdb46a9fbf7671d49b5f25d0aa3ee7209202375</Repository>
+<Repository>ghcr.io/catduckgnaf/print-handy@sha256:4b7889bea042c15ab90477dc7528a2cf135b022c2bce5ca8e0d40685adad47ac</Repository>
 ```
 
 3. Leave every path, port, variable and `ExtraParams` value as it is. In particular do not drop a volume: the five appdata paths and any extra mounts (account tokens, timelapse archive) stay.
@@ -368,10 +368,10 @@ To adopt the new name (optional, any time before that removal):
 
 ### Rollback
 
-Rollback is the previous digest with the same data paths. Nothing in Print Handy downgrades the Spoolman database, so roll back only to an image that can read the data the current one wrote. The 2.2.4 index, which 2.2.5's release notes leave untouched, is:
+Rollback is the previous digest with the same data paths. Nothing in Print Handy downgrades the Spoolman database, so roll back only to an image that can read the data the current one wrote. The 2.2.5 index, which 2.2.6's release notes leave untouched, is:
 
 ```text
-ghcr.io/catduckgnaf/print-handy@sha256:a43e48f1eea57c9d053ff9cf8bc535e22acf010cf987a699efc44a87472c33ec
+ghcr.io/catduckgnaf/print-handy@sha256:03d88ec367004143d1a087f92cdb46a9fbf7671d49b5f25d0aa3ee7209202375
 ```
 
 Put that value back in `Repository` (or in `PRINT_HANDY_IMAGE`) and recreate. If the container will not start on the new digest, put the digest you copied out of the template backup back instead of guessing a tag.
@@ -509,6 +509,8 @@ All OS stages use Debian 13 slim. `APP_CHANNEL=stable|development` labels proven
 The official prebuilt archives are downloaded and extracted only inside approved hosted image builds, never installed on a Hermes host. The bundled build's version and source revision (shared by both architectures) and each architecture's asset name and SHA256 are pinned by `docker/orca-prebuilt.sh`, and the SHA256 is verified before extraction; any architecture other than amd64 or arm64 fails closed in that script. `ORCA_BUILD_JOBS=auto` bounds CPU/memory usage for the optional Bambu Studio source build only; explicit values accept 1 through 64. See [SETTINGS.md](SETTINGS.md#build-arguments).
 
 `WITH_BAMBU=false` is the publication default; enabling pinned source-built Bambu Studio needs its own runtime acceptance. OpenSCAD (`openscad`) is included for CAD splitting and AI design (`/print-design`, #388).
+
+The `bounds-build` stage compiles the optional Rust/PyO3 native bounds parser (#952, `native/bounds/`) into an abi3 wheel and the runtime stage installs it; only the compiled extension ships — no Rust toolchain is in the runtime image. The parser is an accelerator only: the Python implementation remains the permanent fallback wherever the extension is absent or fails its startup self-check, so an image built without this stage behaves identically, just slower on plate-scale G-code. See `native/bounds/README.md`.
 
 ## Validation and publication
 

@@ -1,9 +1,12 @@
-"""Fuzzy phase 2: real misspellings resolve, real words never get rewritten.
+"""Fuzzy phases 2-3: real misspellings resolve, real words stay as typed.
 
-The pairs are the curated set mined from the operator's own chat history
-(aggregate misspelling -> correction counts only). Each must resolve through
-``fuzzy.canonical`` and score as a match; each real English word near the
-vocabulary must stay exactly as typed.
+The phase-2 pairs are the curated set mined from the operator's own chat
+history (aggregate misspelling -> correction counts only). The phase-3
+groups add published common misspellings, keyboard-realistic variants
+generated over the vocabulary's own target words, and one more mined
+pair. Each pair must resolve through ``fuzzy.canonical`` and score as a
+match; each real English word near the vocabulary must stay exactly as
+typed.
 """
 import pytest
 
@@ -68,8 +71,182 @@ GENERIC_TYPOS = {
     "temperture": "temperature", "temprature": "temperature",
     "untill": "until", "warpping": "warping", "wich": "which",
 }
+# Phase 3, mined round 2: the operator asked for this one by name (the
+# singular companion to the phase-2 spegattis -> spaghettis) and typed it
+# again in the post-snapshot messages the second mining pass covered.
+PHASE3_MINED = {
+    "spegatti": "spaghetti",
+}
+
+# Phase 3: published common English misspellings (the classic
+# high-frequency lists), each still held to the non-word rule - entries
+# that turned out to be real words (calender, loosing) were dropped.
+PHASE3_COMMON = {
+    "accomodate": "accommodate", "accomodated": "accommodated", "accomodation": "accommodation",
+    "acheive": "achieve", "acheived": "achieved", "adress": "address",
+    "adressed": "addressed", "apparantly": "apparently", "arguement": "argument",
+    "assasination": "assassination", "basicly": "basically", "beginer": "beginner",
+    "beleive": "believe", "beleived": "believed", "carachter": "character",
+    "cemetary": "cemetery", "changable": "changeable", "cheif": "chief",
+    "collegue": "colleague", "commited": "committed", "completly": "completely",
+    "concious": "conscious", "definate": "definite", "desireable": "desirable",
+    "dilemna": "dilemma", "dissapear": "disappear", "dissapeared": "disappeared",
+    "dissapoint": "disappoint", "dissapointed": "disappointed", "embarass": "embarrass",
+    "embarassed": "embarrassed", "enviromental": "environmental", "equiptment": "equipment",
+    "existance": "existence", "experiance": "experience", "experianced": "experienced",
+    "familar": "familiar", "finaly": "finally", "fourty": "forty",
+    "freind": "friend", "freinds": "friends", "gaurd": "guard",
+    "goverment": "government", "grammer": "grammar", "greatful": "grateful",
+    "happend": "happened", "harrass": "harass", "hierachy": "hierarchy",
+    "humerous": "humorous", "ignor": "ignore", "immediatly": "immediately",
+    "immitate": "imitate", "independant": "independent", "jelous": "jealous",
+    "knowlege": "knowledge", "knowlegeable": "knowledgeable", "liason": "liaison",
+    "libary": "library", "lonley": "lonely", "managable": "manageable",
+    "millenium": "millennium", "mispell": "misspell", "morgage": "mortgage",
+    "neccessary": "necessary", "neigbour": "neighbor", "nothern": "northern",
+    "noticable": "noticeable", "occassion": "occasion", "occurence": "occurrence",
+    "occurences": "occurrences", "ommited": "omitted", "opose": "oppose",
+    "paralel": "parallel", "pasttime": "pastime", "pavillion": "pavilion",
+    "peice": "piece", "persevear": "persevere", "posession": "possession",
+    "posessive": "possessive", "prefered": "preferred", "pronounciation": "pronunciation",
+    "publically": "publicly", "quantaty": "quantity", "questionaire": "questionnaire",
+    "readible": "readable", "realy": "really", "recieveing": "receiving",
+    "refered": "referred", "refering": "referring", "rember": "remember",
+    "remberance": "remembrance", "requirment": "requirement", "rythm": "rhythm",
+    "saftey": "safety", "secretery": "secretary", "sieze": "seize",
+    "siezed": "seized", "similiar": "similar", "sincerly": "sincerely",
+    "speach": "speech", "speachless": "speechless", "strenght": "strength",
+    "succesful": "successful", "successfuly": "successfully", "supercede": "supersede",
+    "tatoo": "tattoo", "tecnical": "technical", "tendancy": "tendency",
+    "thier": "their", "threshhold": "threshold", "tommorow": "tomorrow",
+    "tounge": "tongue", "transfered": "transferred", "truely": "truly",
+    "underate": "underrate", "unforseeable": "unforeseeable", "unfortunatly": "unfortunately",
+    "univesity": "university", "useage": "usage", "vaccum": "vacuum",
+    "vaccuum": "vacuum", "vegeterian": "vegetarian", "vigilence": "vigilance",
+    "wierd": "weird", "writen": "written", "writting": "writing",
+    "yeild": "yield",
+}
+
+# Phase 3: keyboard-realistic variants generated over the vocabulary's
+# own domain target words, bot command words and core printing terms
+# (adjacent-key substitution, letter drop, doubling, transposition,
+# vowel swap; at most four variants per target word). Ambiguous forms -
+# plausibly a typo of two different words - were dropped, not guessed.
+PHASE3_DOMAIN = {
+    "aclibrate": "calibrate", "adheison": "adhesion", "adhesino": "adhesion",
+    "adhesoin": "adhesion", "adhseion": "adhesion", "alyer": "layer",
+    "apaghetti": "spaghetti", "apaghettis": "spaghettis", "bridgign": "bridging",
+    "bridgnig": "bridging", "bridigng": "bridging", "brigding": "bridging",
+    "caemra": "camera", "cailbrate": "calibrate", "calbirate": "calibrate",
+    "calibraiton": "calibration", "calibratino": "calibration", "calibratoin": "calibration",
+    "calibrtaion": "calibration", "camear": "camera", "camrea": "camera",
+    "claibrate": "calibrate", "clgoging": "clogging", "cloggign": "clogging",
+    "cloggnig": "clogging", "clogigng": "clogging", "cmaera": "camera",
+    "confgiure": "configure", "configrue": "configure", "configuer": "configure",
+    "configuraiton": "configuration", "configuratino": "configuration", "configuratoin": "configuration",
+    "configurtaion": "configuration", "confiugre": "configure", "cooilng": "cooling",
+    "coolign": "cooling", "coolnig": "cooling", "detacehd": "detached",
+    "detachde": "detached", "detahced": "detached", "detcahed": "detached",
+    "detcetor": "detector", "deteciton": "detection", "detecotr": "detector",
+    "detectino": "detection", "detectoin": "detection", "detectro": "detector",
+    "detetcion": "detection", "detetcor": "detector", "dpaghetti": "spaghetti",
+    "dpaghettis": "spaghettis", "eetraction": "retraction", "ehight": "height",
+    "ertraction": "retraction", "etraction": "retraction", "exrtuder": "extruder",
+    "extrduer": "extruder", "extrduing": "extruding", "extrsuion": "extrusion",
+    "extrudnig": "extruding", "extrudre": "extruder", "extruedr": "extruder",
+    "extruidng": "extruding", "extruison": "extrusion", "extrusino": "extrusion",
+    "extrusoin": "extrusion", "exturding": "extruding", "failrue": "failure",
+    "failrues": "failures", "failuers": "failures", "failurse": "failures",
+    "faiulre": "failure", "faiulres": "failures", "faliure": "failure",
+    "fetraction": "retraction", "fialure": "failure", "filaemnt": "filament",
+    "filametn": "filament", "filamont": "filament", "gcdoe": "gcode",
+    "gcoda": "gcode", "gcoed": "gcode", "gocde": "gcode",
+    "heaitng": "heating", "heatign": "heating", "heatnig": "heating",
+    "hegiht": "height", "heigth": "height", "heihgt": "height",
+    "iflament": "filament", "iwdth": "width", "laeyr": "layer",
+    "laeyrs": "layers", "layesr": "layers", "layre": "layer",
+    "layres": "layers", "leveilng": "leveling", "levelign": "leveling",
+    "levelnig": "leveling", "levleing": "leveling", "lsiced": "sliced",
+    "lsicer": "slicer", "lyaer": "layer", "lyaers": "layers",
+    "mainteannce": "maintenance", "maintenacne": "maintenance", "maintenanec": "maintenance",
+    "maintennace": "maintenance", "nozlze": "nozzle", "nozzla": "nozzle",
+    "nzozle": "nozzle", "ocoling": "cooling", "onzzle": "nozzle",
+    "ooizng": "oozing", "oozign": "oozing", "ooznig": "oozing",
+    "ovehrang": "overhang", "overahng": "overhang", "overhagn": "overhang",
+    "ovrehang": "overhang", "ozoing": "oozing", "paghetti": "spaghetti",
+    "paghettis": "spaghettis", "porfile": "profile", "prfoile": "profile",
+    "priimng": "priming", "primign": "priming", "primnig": "priming",
+    "prmiing": "priming", "profiel": "profile", "profiels": "profiles",
+    "profilse": "profiles", "proflies": "profiles", "proifle": "profile",
+    "proifles": "profiles", "psaghetti": "spaghetti", "psaghettis": "spaghettis",
+    "pseed": "speed", "pseeds": "speeds", "purgi": "purge",
+    "purgo": "purge", "purgu": "purge", "rertact": "retract",
+    "retarct": "retract", "retratc": "retract", "retrcat": "retract",
+    "satlled": "stalled", "seped": "speed", "sepeds": "speeds",
+    "setitngs": "settings", "settigns": "settings", "settinsg": "settings",
+    "settnigs": "settings", "silced": "sliced", "silcer": "slicer",
+    "slciing": "slicing", "slicar": "slicer", "slicde": "sliced",
+    "slicign": "slicing", "slicnig": "slicing", "sliecd": "sliced",
+    "sliecr": "slicer", "sliicng": "slicing", "snaphsot": "snapshot",
+    "snapshto": "snapshot", "snapsoht": "snapshot", "snasphot": "snapshot",
+    "spede": "speed", "spedes": "speeds", "speesd": "speeds",
+    "speid": "speed", "staleld": "stalled", "stallde": "stalled",
+    "stlaled": "stalled", "strigning": "stringing", "stringign": "stringing",
+    "stringnig": "stringing", "strinigng": "stringing", "tarvel": "travel",
+    "temperatrue": "temperature", "temperatuer": "temperature", "temperautre": "temperature",
+    "tempertaure": "temperature", "timealpse": "timelapse", "timelapes": "timelapse",
+    "timelaspe": "timelapse", "timelpase": "timelapse", "traevl": "travel",
+    "travle": "travel", "troublehsoot": "troubleshoot", "troubleshooitng": "troubleshooting",
+    "troubleshootign": "troubleshooting", "troubleshootnig": "troubleshooting", "troubleshoto": "troubleshoot",
+    "troubleshotoing": "troubleshooting", "troublesohot": "troubleshoot", "troublsehoot": "troubleshoot",
+    "trvael": "travel", "uprge": "purge", "wadth": "width",
+    "wapring": "warping", "waripng": "warping", "warpign": "warping",
+    "watcdhog": "watchdog", "watchdgo": "watchdog", "watchodg": "watchdog",
+    "wathcdog": "watchdog", "wedth": "width", "wiipng": "wiping",
+    "wipign": "wiping", "wipnig": "wiping", "witdh": "width",
+    "wpiing": "wiping", "wraping": "warping",
+}
+
+# Phase 3: the same generation over the remaining dictionary vocabulary
+# words from TOKEN_FORMS values and PHRASE_FORMS words.
+PHASE3_GENERATED = {
+    "abmboo": "bamboo", "acble": "cable", "acceleraiton": "acceleration",
+    "acceleratino": "acceleration", "acceleratoin": "acceleration", "accelermoeter": "accelerometer",
+    "acceleroemter": "accelerometer", "acceleromeetr": "accelerometer", "acceleromteer": "accelerometer",
+    "accelertaion": "acceleration", "adavnce": "advance", "advacne": "advance",
+    "advanec": "advance", "adventruer": "adventurer", "adventuerr": "adventurer",
+    "adventurre": "adventurer", "advenutrer": "adventurer", "advnace": "advance",
+    "aluimnum": "aluminum", "aluminmu": "aluminum", "alumiunm": "aluminum",
+    "alumnium": "aluminum", "analyez": "analyze", "analzye": "analyze",
+    "anaylze": "analyze", "anlayze": "analyze", "aotmic": "atomic",
+    "aqiula": "aquila", "aquial": "aquila", "aqulia": "aquila",
+    "artilelry": "artillery", "artilleyr": "artillery", "artillrey": "artillery",
+    "artlilery": "artillery", "assisatnt": "assistant", "assistatn": "assistant",
+    "assistnat": "assistant", "assitsant": "assistant", "atmoic": "atomic",
+    "atoimc": "atomic", "atomci": "atomic", "auqila": "aquila",
+    "auxiilary": "auxiliary", "auxilairy": "auxiliary", "auxiliayr": "auxiliary",
+    "auxiliray": "auxiliary", "babmoo": "bamboo", "backalsh": "backlash",
+    "backlahs": "backlash", "backlsah": "backlash", "baclkash": "backlash",
+    "baecon": "beacon", "beacno": "beacon", "beaocn": "beacon",
+    "becaon": "beacon", "behaivor": "behavior", "behaviro": "behavior",
+    "behavoir": "behavior", "behvaior": "behavior", "bemboo": "bamboo",
+    "berak": "break", "biemtal": "bimetal", "bimeatl": "bimetal",
+    "bimetla": "bimetal", "bimteal": "bimetal", "birdge": "bridge",
+    "biuld": "build", "blcok": "block", "blokc": "block",
+    "bmaboo": "bamboo", "boadr": "board", "boerd": "board",
+    "bolck": "block", "borad": "board", "braek": "break",
+    "brdige": "bridge", "breakotu": "breakout", "breakuot": "breakout",
+    "breaokut": "breakout", "breka": "break", "brekaout": "breakout",
+    "brideg": "bridge", "brigde": "bridge", "buidl": "build",
+    "bulid": "build", "cabla": "cable", "cailber": "caliber",
+    "calbe": "cable", "calbier": "caliber", "caliebr": "caliber",
+    "capacitiev": "capacitive", "capacitvie": "capacitive", "cbale": "cable",
+    "claiber": "caliber", "lbock": "block", "obard": "board",
+    "rbeak": "break", "ubild": "build",
+}
 ALL_PAIRS = {**CURATED_PAIRS, **VARIANTS, **CARD_TYPOS, **OPERATOR_MINED_2,
-             **GENERIC_TYPOS}
+             **GENERIC_TYPOS, **PHASE3_MINED, **PHASE3_COMMON,
+             **PHASE3_DOMAIN, **PHASE3_GENERATED}
 
 
 @pytest.mark.parametrize("typo,word", sorted(ALL_PAIRS.items()))

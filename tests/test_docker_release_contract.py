@@ -152,6 +152,28 @@ class DockerReleaseContract(unittest.TestCase):
         self.assertNotRegex(stage, r"\b(npm|node|vite)\b")
         self.assertIn("COPY --from=spoolman-build /opt/spoolman /opt/spoolman", dockerfile)
 
+    def test_bundled_spoolman_update_check_is_disabled(self):
+        """Spoolman 0.27.1's outbound update check stays off for the bundled instance.
+
+        Upstream defaults SPOOLMAN_UPDATE_CHECK to true, which would make
+        the bundled Spoolman poll api.github.com - wrong for a local-first
+        product whose bundled copy is updated by Print Handy's own pins.
+        The supervisor is the one launcher of the bundled instance (the
+        Compose service and the Unraid template run this same container
+        and never launch Spoolman themselves), so its exported default
+        is the contract; the operator surfaces document the same value.
+        """
+        supervisor = (ROOT / "docker" / "supervise.sh").read_text()
+        self.assertIn('export SPOOLMAN_UPDATE_CHECK="${SPOOLMAN_UPDATE_CHECK:-FALSE}"',
+                      supervisor)
+        # The export must land before the bundled launch uses the env.
+        self.assertLess(supervisor.index("SPOOLMAN_UPDATE_CHECK"),
+                        supervisor.index("uvicorn spoolman.main:app"))
+        env_example = (ROOT / ".env.example").read_text()
+        self.assertIn("# SPOOLMAN_UPDATE_CHECK=FALSE", env_example)
+        settings = (ROOT / "docs" / "SETTINGS.md").read_text()
+        self.assertIn("| `SPOOLMAN_UPDATE_CHECK` | `FALSE` |", settings)
+
     def test_spoolman_stub_page_points_at_the_api_and_the_web_ui_spools_page(self):
         """#940: the bundled Spoolman's root serves a stub page, not a web UI.
 
