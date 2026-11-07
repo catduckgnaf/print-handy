@@ -906,6 +906,37 @@ def test_preparation_metadata_mismatch_never_blocks_start(env, monkeypatch):
     assert any(msg.startswith('Preparing to start') and '#unknown' not in msg for msg in adapter.log)
 
 
+def test_preparing_line_never_shows_the_jobs_first_number_as_this_starts(env, monkeypatch):
+    """#1017: JOB.json keeps the job's FIRST print number, and this start mints
+    its own at print-now. A job printed before is named as a reprint of its
+    newest earlier print (from the launch registry); a fresh job shows none."""
+    from print_handy.hermes import print_control
+
+    async def preparing(target):
+        env.starts.append(target)
+        return True, REAL_AWAITING
+    monkeypatch.setattr(print_next, 'start', preparing)
+    monkeypatch.setattr(print_control, 'latest_number_for_job', lambda _path: 7)
+    adapter, _result, receipt = run_flow(env, [1, 0, 0], mid='again')
+    assert receipt['status'] == 'STARTED'
+    prep = [msg for msg in adapter.log if msg.startswith('Preparing to start')]
+    assert prep and 'A reprint of print #7; it gets its own new print number' in prep[0]
+    assert 'Print #7' not in prep[0]
+
+
+def test_preparing_line_for_a_fresh_job_names_no_number(env, monkeypatch):
+    from print_handy.hermes import print_control
+
+    async def preparing(target):
+        env.starts.append(target)
+        return True, REAL_AWAITING
+    monkeypatch.setattr(print_next, 'start', preparing)
+    monkeypatch.setattr(print_control, 'latest_number_for_job', lambda _path: None)
+    adapter, _result, _receipt = run_flow(env, [1, 0, 0], mid='fresh')
+    prep = [msg for msg in adapter.log if msg.startswith('Preparing to start')]
+    assert prep and '#' not in prep[0].splitlines()[0]
+
+
 def test_duplicate_event_does_not_start_twice(env):
     run_flow(env, [1, 0, 0], mid='dup')
     adapter = Adapter([])

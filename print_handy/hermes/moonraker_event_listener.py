@@ -2570,6 +2570,26 @@ def _visual_verdict(image, prompt, streak=None, local_fallback=False):
         local_streak=streak, local_fallback=local_fallback)
 
 
+def _record_watchdog_event(filename, verdict, *, streak=None, action="none",
+                           recorder=None):
+    """Record one print-watch verdict in the #981 events file.
+
+    Best-effort beside the watch loop: the recorder
+    (``watchdog_events.record_for_file``) never raises by contract, and
+    this wrapper swallows even a broken injected recorder, so event
+    recording can never break a watch check or a print.
+    """
+    try:
+        if recorder is None:
+            from . import watchdog_events
+            recorder = watchdog_events.record_for_file
+        return recorder(filename=filename, verdict=verdict, streak=streak,
+                        action=action)
+    except Exception as exc:
+        log(f"watchdog event record failed file={filename!r}: {exc!r}")
+        return False
+
+
 def _auto_pause_early(filename, identity):
     """Send PAUSE through the alert pause path (#837) for the early-layer auto-pause (#913).
 
@@ -3512,12 +3532,19 @@ class Listener:
                     self.visual_frames[filename] = prior
                 await self._dark_frame_check(reason, layer)
                 return
+            # #981: what the watch did with this verdict, for the
+            # always-on event recording after the alert block below.
+            event_action = "none"
+            event_discarded = False
+            pause_now = False
             if suspicious and image is not None:
                 from . import print_alert_buttons as pab
                 if await asyncio.to_thread(pab.visual_muted, filename, identity):
                     log(f"visual alert suppressed for muted print {filename!r}")
+                    event_action = "suppressed"
                 elif stale():
                     log(f"visual alert discarded file={filename!r} reason={reason}: the print changed before the alert")
+                    event_discarded = True
                 else:
                     pause_now = (streak >= _visual_watch.AUTO_PAUSE_STREAK and not self.visual_watch.auto_paused
                                  and _visual_watch.watch_settings(_config.cfg())["auto_pause_early"])
@@ -3533,6 +3560,7 @@ class Listener:
                                  "in the early layers, so I am pausing the print. It is not cancelled.")
                     await asyncio.to_thread(_visual_alert, filename, image, text,
                                             identity=identity)
+                    event_action = "auto_pause" if pause_now else "alert"
                     if pause_now:
                         # #913: the only automatic printer action, opt-in, once per print
                         # (reserved above, before the alert await).
@@ -3541,6 +3569,13 @@ class Listener:
                         log(f"auto-pause early layers file={filename!r}: {reply}")
                         await asyncio.to_thread(post, _with_printer_name(
                             f"Auto-pause: {clean(filename)}\n{reply}"))
+            if not event_discarded:
+                # #981: always-on watchdog event recording — best-effort
+                # and append-only (hermes/watchdog_events carries the
+                # rule); a recording failure never reaches this loop.
+                await asyncio.to_thread(
+                    _record_watchdog_event, filename, verdict,
+                    streak=streak, action=event_action)
         except Exception as exc:
             log(f"visual check failed file={filename!r} reason={reason}: {exc!r}")
             if image is not None:
