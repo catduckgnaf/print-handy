@@ -3364,6 +3364,33 @@ def copies_supported(job, multi_plate=None):
                 or (job.get('color_decisions') or {}).get('mode') == 'per_part')
 
 
+def _per_tool_filament_settings(text):
+    """The per-tool filament split for slicer_settings (#981 v2).
+
+    ``filament_used_g_list`` (per-tool grams, the name
+    core/spool_lifecycle.py already uses for the same header list)
+    plus the aligned ``filament_color_list``, both from the G-code's
+    own header via gcode_3mf.plate_metadata(). Records used to flatten
+    a multi-color print to one color/grams total; carrying the split
+    in slicer_settings lets future records answer per-color grams
+    natively. A header that names no per-tool usage yields {} — the
+    keys stay absent, exactly like every other sparse record field.
+    """
+    try:
+        filaments = gcode_3mf.plate_metadata(text).get("filaments") or []
+    except Exception:
+        return {}
+    rows = [row for row in filaments if isinstance(row, dict)]
+    if not rows or any(not isinstance(row.get("used_g"), (int, float))
+                       or isinstance(row.get("used_g"), bool) for row in rows):
+        return {}
+    out = {"filament_used_g_list": [float(row["used_g"]) for row in rows]}
+    colors = [row.get("color") for row in rows]
+    if all(isinstance(c, str) and c for c in colors):
+        out["filament_color_list"] = colors
+    return out
+
+
 def record_start(gcode_path, moonraker_name=None, started_at=None):
     """Write the JSON start record plus the completion sidecar for a started print."""
     print_records = _external.load("print_records")
@@ -3380,6 +3407,7 @@ def record_start(gcode_path, moonraker_name=None, started_at=None):
          "estimated_time":cfg("estimated printing time (normal mode)") or _bambu_total_estimated_time(text),"estimated_filament_g":cfg("total filament used [g]") or _filament_total_g(text),
          "filament_diameter_mm":st["spool"]["diameter_mm"],"filament_density":st["spool"]["density"],
          "slicer_settings":{**{k:cfg(k) for k in RECORD_KEYS if cfg(k) is not None},
+                            **_per_tool_filament_settings(text),
                             "source_profile":src.get("title"),"source_file":(job or {}).get("downloaded_file"),"local_gcode":str(g)},
          "active_spool":{"id":st["spool"]["spoolman_id"],"material":st["spool"]["material"],"color":st["spool"]["name"]}}
     plan = (job or {}).get('multipart_plan') or {}
