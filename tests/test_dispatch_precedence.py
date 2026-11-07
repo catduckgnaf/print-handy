@@ -19,15 +19,16 @@ This file pins the claim surface three ways:
    recorded AS overlaps — the corpus is the map a precedence fix must
    update deliberately, never a claim that today's overlaps are right.
    Known gaps are labeled in the corpus, not hidden.
-2. A characterization of the two resolvers over one synthetic archive,
-   proving they currently name different targets for the same archive.
-   The #979 fix (decision D2: launch-record selection) changes
-   ``last_job``; when it lands, this test fails and must be rewritten to
-   assert agreement — the divergence can never be invisible again.
-3. The desired dispatch outcome for "print it again" as a STRICT xfail:
-   with a remembered link AND an archived job, the reprint route must
-   win. Registered in ``tests/strict_xfail_register.json``; the #979 fix
-   PR removes the marker.
+2. The two last-print resolvers over one synthetic archive: since #988
+   (#979 decision D2, launch-record selection) the natural-language
+   resolver ``last_printed_job`` and ``/print-again``'s
+   ``resolve_last_print`` name the SAME target, while
+   ``newest_archived_job`` (record recency, the renamed ``last_job``)
+   still names the newest record — the divergence can never return
+   unnoticed.
+3. The dispatch outcome for "print it again": with a remembered link AND
+   an archived job, the reprint route wins (was a strict xfail until #988
+   landed).
 """
 import asyncio
 import importlib.util
@@ -78,10 +79,9 @@ CORPUS = {
     "reprint that": {"reprint"},
     "print another": {"reprint"},
     "print the previous one in black": {"reprint"},
-    # KNOWN GAP (#979): bare "print again" is claimed by NO deterministic
-    # text hook (only "/print-again" and "print <number>" reach the
-    # reprint flow). Decision D6 claims it deterministically.
-    "print again": set(),
+    # Bare "print again" is claimed deterministically (#979 decision D6,
+    # landed in #988).
+    "print again": {"reprint"},
     # A link in the message suppresses the reprint reading entirely.
     f"print it again {URL}": {"affirmative"},
     "fix this": {"repair"},
@@ -165,7 +165,10 @@ def test_the_two_last_print_resolvers_name_different_targets(tmp_path):
         "downloaded_file": str(shield_src), "intake_id": "shield",
     }, mtime=1_800_000_000)
 
-    assert prepared_intake.last_job(archive)["title"] == "Shield"
+    # Record recency still names the newest record (it is not "last print").
+    assert prepared_intake.newest_archived_job(archive)["title"] == "Shield"
+    # Both last-PRINT resolvers agree on the job that actually printed.
+    assert prepared_intake.last_printed_job(archive)["title"] == "Panel A"
     target = print_control.resolve_last_print(archive)
     assert target["title"] == "Panel A"
     assert target["reprint"] is True
@@ -173,10 +176,6 @@ def test_the_two_last_print_resolvers_name_different_targets(tmp_path):
 
 # -------------------------------------------- the desired dispatch win
 
-@pytest.mark.xfail(strict=True, reason=(
-    "#979 H1: 'print it again' is claimed by the remembered-link route "
-    "before the reprint check; PR #988 (Fixes #979) makes the reprint "
-    "route win — remove this marker and the register entry when it lands."))
 def test_print_it_again_reprints_instead_of_refetching_the_link(monkeypatch):
     """Full dispatch outcome: a channel with a remembered link and an
     archived last job. "print it again" must reach the intake as a REUSE
@@ -192,9 +191,9 @@ def test_print_it_again_reprints_instead_of_refetching_the_link(monkeypatch):
         return {"action": "skip", "reason": "recorded"}
 
     monkeypatch.setattr(prepared_intake, "prepare_link", fake_prepare_link)
-    monkeypatch.setattr(prepared_intake, "last_job",
-                        lambda archive=None: {"title": "Panel A",
-                                              "intake_id": "panel"})
+    monkeypatch.setattr(prepared_intake, "last_printed_job",
+                        lambda archive=None, printer_id=None: {"title": "Panel A",
+                                                               "intake_id": "panel"})
     monkeypatch.setattr(printer_state, "load", lambda **kw: object())
     monkeypatch.setattr(plugin, "_is_hosting_profile", lambda value: True)
     monkeypatch.setattr(plugin, "_recent_model_link", lambda source: URL)
