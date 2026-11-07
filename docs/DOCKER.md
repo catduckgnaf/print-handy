@@ -242,21 +242,55 @@ When a print finishes, the captured frames are assembled into the timelapse the 
 
 ### GPU passthrough and supported combinations
 
-Hardware encoding is opportunistic and never required; without a GPU everything falls back to CPU encoding, and the container starts and runs with no GPU present:
+Hardware encoding is opportunistic and never required. With no GPU the container starts, runs and encodes every timelapse on the CPU (`libx264`). A GPU that is missing, not accessible or failing never fails a timelapse: the encode moves to the next candidate and ends on the CPU, and the log names why (#455). Examples: `timelapse encode: no GPU encoder available (vaapi: no /dev/dri in the container …)`, `timelapse encode with h264_nvenc failed: ffmpeg exited 1: …` and `timelapse encode fell back to CPU (libx264) after GPU failure: …`.
 
-| Combination | What you grant | Notes |
-|---|---|---|
-| Intel iGPU / AMD GPU (VAAPI) | `/dev/dri` passthrough (below) | The baseline. The image carries the VAAPI drivers; `vainfo` in the image reports what the granted device supports. |
-| NVIDIA (NVENC) | The host NVIDIA driver plus the NVIDIA container toolkit passthrough | No CUDA toolkit or driver is baked into the image; Debian's ffmpeg already carries the `h264_nvenc` encoder, which activates only when the host runtime provides the device and driver. |
-| Intel Quick Sync (QSV) | `/dev/dri` passthrough | The `h264_qsv` encoder is in Debian's ffmpeg; it activates only when the host device/driver supports it. |
-| Anything else | Nothing | CPU (`libx264`) encoding, as today. |
+What the published image carries, per vendor (Debian trixie packages):
 
-**Not verified on real hardware:** no GPU path above has been run on physical hardware yet. The plumbing is covered by offline contract tests (pins, gates, loopback binds, image contents), and Stage 3's VAAPI/NVENC/QSV encoding is pinned by command-construction tests with the CPU fallback proven — but no hardware encode has been executed on a real GPU, and this section will say so until one has.
+| GPU | Encoder | In the image | What you grant |
+|---|---|---|---|
+| Intel iGPU / Arc | `h264_vaapi` (preferred), `h264_qsv` | VAAPI: `intel-media-va-driver` (amd64), `libva-drm2`, `vainfo`. QSV: Debian's ffmpeg links oneVPL on amd64 only; the oneVPL GPU runtime `libmfx-gen1.2` ships on amd64 | `/dev/dri` plus its group |
+| AMD Radeon / APU | `h264_vaapi` | `mesa-va-drivers` (radeonsi, built with every video codec, H.264 encode included) | `/dev/dri` plus its group |
+| NVIDIA | `h264_nvenc` | ffmpeg's NVENC encoder (amd64 and arm64). No CUDA toolkit or driver is baked in: the NVIDIA runtime mounts the host driver's libraries. The image sets `NVIDIA_DRIVER_CAPABILITIES=compute,video,utility`, because the runtime's default omits `video` and NVENC then cannot load `libnvidia-encode.so.1` | The NVIDIA runtime and one GPU |
+| Anything else | `libx264` | Always | Nothing |
 
-**Security note:** granting `/dev/dri` widens the container's access to the host — a device is not a network port, and a compromised container with GPU device access has more host surface than one without. That is why passthrough is opt-in and off by default in both deployment files, exactly like a host capability the operator chooses to grant.
+AMD's AMF encoders are not in Debian's ffmpeg build and need AMD's proprietary runtime, so AMD encodes through VAAPI. QSV is amd64-only. On an Intel generation where the free `intel-media-va-driver` has no H.264 encode entry point, `vainfo` shows no `VAEntrypointEncSlice`/`VAEntrypointEncSliceLP` line for H.264, and the encode falls back to CPU.
 
-- Compose: uncomment the `devices:` / `group_add:` block in `docker-compose.yml` and set `group_add` to the host's render group GID (`getent group render`).
-- Unraid: add `--device=/dev/dri` to the template's Extra Parameters and make sure the container user can use the host render group; the shipped template passes no device.
+`timelapse.capture_encoder` picks the preference: `auto` tries VAAPI, then NVENC, then QSV, then CPU. A GPU counts only when it is really usable: an Intel/AMD GPU needs a `/dev/dri/renderD*` node the container user (uid 1000) can read and write. A `/dev/dri` mapped without its group is reported as such instead of being tried. An NVIDIA GPU needs a `/dev/nvidia*` device from the NVIDIA runtime.
+
+**Security note:** granting `/dev/dri` or an NVIDIA GPU widens the container's access to the host. A device is not a network port, and a compromised container with GPU access has more host surface than one without. That is why passthrough is opt-in and off by default in both deployment files, exactly like a host capability the operator chooses to grant.
+
+#### Unraid
+
+Intel iGPU or AMD GPU:
+
+1. In the Unraid terminal, check the device exists and note its group: `ls -l /dev/dri` and `stat -c %g /dev/dri/renderD128`. On an Intel iGPU with no `/dev/dri`, install the **Intel GPU TOP** plugin (it loads the `i915` driver). AMD GPUs normally load `amdgpu` by themselves, or use the **Radeon TOP** plugin.
+2. Edit the container, switch to **Advanced View**, and add to **Extra Parameters**: `--device=/dev/dri --group-add=GID`, with the GID from step 1. The container runs as uid 1000, not root, so without `--group-add` the device is visible but unusable.
+3. Apply, then check from the Unraid terminal: `docker exec print-handy vainfo --display drm --device /dev/dri/renderD128`. It should list an H.264 `VAEntrypointEncSlice` (or `…EncSliceLP`) line.
+4. Leave **Timelapse capture encoder** on `auto`, or set `vaapi` (Intel or AMD) or `qsv` (Intel, amd64).
+
+NVIDIA:
+
+1. Install the **Nvidia-Driver** plugin from Community Applications and reboot when it asks. Its page shows your GPU's UUID (`GPU-…`).
+2. Edit the container, switch to **Advanced View**, and add `--runtime=nvidia` to **Extra Parameters**.
+3. Add a Variable: key `NVIDIA_VISIBLE_DEVICES`, value your GPU UUID (or `all`). The image already sets `NVIDIA_DRIVER_CAPABILITIES=compute,video,utility`. If you add that Variable yourself, keep `video` in it (or use `all`), or NVENC cannot load.
+4. Apply, then check: `docker exec print-handy ls /dev/nvidia0` and `docker exec print-handy sh -c 'ldconfig -p | grep libnvidia-encode'`.
+5. Leave **Timelapse capture encoder** on `auto`, or set `nvenc`.
+
+A host with both an iGPU and an NVIDIA card can grant either one or both. `auto` tries VAAPI (the iGPU) first, and `nvenc` moves NVIDIA first.
+
+#### Docker Compose
+
+- Intel or AMD: uncomment the `devices:` / `group_add:` block in `docker-compose.yml` and set `group_add` to the GID that owns `/dev/dri/renderD128` on the host (`stat -c %g /dev/dri/renderD128`; `getent group render` names the same group on most distributions).
+- NVIDIA: install the NVIDIA driver and the NVIDIA Container Toolkit on the host (`nvidia-ctk runtime configure --runtime=docker`, then restart Docker), and uncomment the `deploy:` block, which reserves one GPU. Plain `docker run` does the same with `--gpus 1`.
+- Check from the host the same way as on Unraid: `docker compose exec combined vainfo --display drm --device /dev/dri/renderD128`, or `docker compose exec combined ls /dev/nvidia0`.
+
+#### What is verified
+
+The selection, the device checks, the named fallback notes and the CPU fallback are covered by offline tests with simulated devices and a faked ffmpeg. The CPU path is also exercised end to end with the real ffmpeg. **No GPU encode has been run on real hardware**: VAAPI, QSV and NVENC are pinned by command-construction and image-contents tests only, and this section will say so until an operator run on a real GPU proves each one.
+
+#### GPU and the local failure detector
+
+Passing a GPU through accelerates **encoding only** today. The local failure detector (`vision.local_detector_enabled`, #455) runs on ONNX Runtime, and the image installs the PyPI `onnxruntime` wheel, which is the CPU build. The detector's provider selection would use CUDA, OpenVINO or ROCm if the installed build offered them, but this image's build never does. When a GPU device is visible and the build is CPU-only, `bot check`'s **local detector** row says so. On CPU, one check of the pinned model takes roughly 0.2–0.3 s, and the watchdog checks only every few minutes, so CPU detection works without a GPU. GPU inference builds are a later #455 stage.
 
 ## First-run configuration
 

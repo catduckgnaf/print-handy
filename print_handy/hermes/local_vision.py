@@ -314,6 +314,35 @@ def selected_provider(cfg=None) -> str | None:
         return None
 
 
+def gpu_device_visible(dri_dir="/dev/dri", dev_dir="/dev") -> bool:
+    """Whether a GPU device node is visible in this process: an Intel/AMD
+    render node or an NVIDIA device. Presence only — never opens one."""
+    try:
+        return any(Path(dri_dir).glob("renderD*")) or any(Path(dev_dir).glob("nvidia[0-9]*"))
+    except Exception:  # noqa: BLE001 - status helpers must never raise
+        return False
+
+
+def accelerator_hint(available, *, device_visible=None) -> str:
+    """A named note when a GPU device is visible but the installed
+    onnxruntime build offers no accelerated provider (#455), else "".
+
+    The published image installs the PyPI ``onnxruntime`` wheel, which is
+    the CPU build: passing a GPU through for timelapse encoding does not
+    accelerate the detector. Saying so keeps the operator from reading a
+    granted GPU as an accelerated watchdog.
+    """
+    offered = set(available or ())
+    if any(p in offered for p in PROVIDER_PREFERENCE if p != "CPUExecutionProvider"):
+        return ""
+    visible = gpu_device_visible() if device_visible is None else device_visible
+    if not visible:
+        return ""
+    return ("a GPU device is visible, but this onnxruntime build offers only "
+            "CPUExecutionProvider, so detection runs on the CPU (GPU inference "
+            "needs an accelerated onnxruntime build; see docs/DOCKER.md, GPU passthrough)")
+
+
 def active_provider(cfg=None) -> str | None:
     """The execution provider the live session for the configured model
     actually runs on in this process, or None before the first session
@@ -595,6 +624,13 @@ def detector_status(cfg=None) -> tuple[str, str]:
         return "unavailable", _remembered_failure(f"session:{path}")
     provider = active_provider(cfg) or selected_provider(cfg)
     suffix = f"; execution provider: {provider}" if provider else ""
+    if provider == "CPUExecutionProvider":
+        try:
+            hint = accelerator_hint(_runtime().get_available_providers())
+        except Exception:  # noqa: BLE001 - status surfaces must never raise
+            hint = ""
+        if hint:
+            suffix += f" ({hint})"
     if path.is_file():
         return "ready", f"{MODEL_NAME} present at {path}{suffix}"
     return "ready", (f"model downloads on first use (~{MODEL_SIZE_BYTES // 1_000_000} MB "

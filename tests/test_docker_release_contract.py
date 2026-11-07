@@ -580,10 +580,29 @@ class DockerReleaseContract(unittest.TestCase):
         code = "\n".join(line for line in runtime.splitlines() if not line.lstrip().startswith("#"))
         self.assertEqual(code.count("intel-media-va-driver"), 1)
         self.assertRegex(runtime, r'if \[ "\$TARGETARCH" = amd64 \]; then \\\n'
-                                  r'\s+apt-get install -y --no-install-recommends intel-media-va-driver;')
+                                  r'\s+apt-get install -y --no-install-recommends intel-media-va-driver'
+                                  r' libmfx-gen1\.2;')
         unconditional = re.search(r"apt-get install -y --no-install-recommends \\\n"
                                   r"\s+mesa-va-drivers libva-drm2 vainfo", runtime)
         self.assertIsNotNone(unconditional)
+
+    def test_gpu_encoder_runtimes_ship_for_qsv_and_nvenc(self):
+        """#455: the encoders ffmpeg lists must be able to open on a granted GPU.
+
+        h264_qsv needs the oneVPL GPU runtime (libmfx-gen1.2, amd64-only like
+        the Intel VA driver, so it sits in the same amd64 branch), and
+        h264_nvenc needs the NVIDIA runtime to mount libnvidia-encode, which
+        it does only when NVIDIA_DRIVER_CAPABILITIES names "video". Neither
+        selects or requires a GPU: without one, both are inert.
+        """
+        dockerfile = (ROOT / "Dockerfile").read_text()
+        runtime = dockerfile.split("AS runtime", 1)[1]
+        code = "\n".join(line for line in runtime.splitlines() if not line.lstrip().startswith("#"))
+        self.assertEqual(code.count("libmfx-gen1.2"), 1)
+        capabilities = re.search(r"(?m)^ENV NVIDIA_DRIVER_CAPABILITIES=(\S+)$", runtime)
+        self.assertIsNotNone(capabilities)
+        self.assertIn("video", capabilities.group(1).split(","))
+        self.assertNotIn("NVIDIA_VISIBLE_DEVICES", code)  # the operator picks the GPU
 
     def test_probe_runs_orca_from_a_writable_cwd(self):
         """2.1.5 release blocker: Orca writes 00000.log into its working

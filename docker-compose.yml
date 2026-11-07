@@ -152,11 +152,25 @@ services:
     # and set group_add to the host's render group GID (`getent group render`
     # on the host; the name "render" also works on hosts that name it so).
     # Granting a device widens the container's host access; see
-    # docs/DOCKER.md "Timelapse capture (go2rtc)".
+    # docs/DOCKER.md "GPU passthrough and supported combinations".
+    # The GID must be the group that owns /dev/dri/renderD128 on the host
+    # (`stat -c %g /dev/dri/renderD128`); without it the device is visible
+    # but unusable and encoding stays on CPU with a named log line.
     # devices:
     #   - /dev/dri:/dev/dri
     # group_add:
     #   - "992"
+    # NVIDIA (NVENC, #455) instead: needs the host NVIDIA driver and the
+    # NVIDIA Container Toolkit. The image already sets
+    # NVIDIA_DRIVER_CAPABILITIES=compute,video,utility, so this block only
+    # picks the GPU. Uncomment it as a whole:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu, video]
     init: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]

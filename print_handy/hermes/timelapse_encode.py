@@ -30,7 +30,11 @@ both attempts — falls through to the next candidate; CPU is always the
 last candidate, and a total failure returns None. Nothing here raises
 into the listener: a failed encode degrades the completion post to the
 printer-rendered video or to text, never to a failed announcement (the
-#235 posture). GPU paths are software-verified only: no VAAPI/NVENC/QSV
+#235 posture). Every move off the GPU is logged with a named reason
+(#455): :func:`selection_note` when the plan does not start on the GPU
+(device missing, render node not accessible, encoder not built), and
+:func:`ffmpeg_failure`'s exit code plus last stderr line when a GPU
+encode fails. GPU paths are software-verified only: no VAAPI/NVENC/QSV
 encode in this module has been run on real hardware (docs/DOCKER.md
 says so too).
 """
@@ -54,6 +58,92 @@ PLAYBACK_FPS = 30
 # The encoder names a probe can report; anything else in `ffmpeg
 # -encoders` output is not an H.264 candidate for this pipeline.
 _H264_ENCODERS = ("h264_vaapi", "h264_nvenc", "h264_qsv", "libx264")
+# GPU vendor -> its H.264 encoder, in the default candidate order (#455).
+GPU_ENCODERS = (("vaapi", "h264_vaapi"), ("nvenc", "h264_nvenc"), ("qsv", "h264_qsv"))
+DRI_DIR = Path("/dev/dri")
+
+
+def dri_status(dri_dir=None, *, access=None) -> tuple[bool, str]:
+    """(usable, note) for the Intel/AMD render device (#455).
+
+    Usable only when a ``renderD*`` node exists AND this process can read
+    and write it: a /dev/dri mapped without the device's group (the usual
+    Unraid/Compose mistake) is named as such instead of being tried and
+    failing inside ffmpeg. Never raises.
+    """
+    dri_dir = Path(dri_dir) if dri_dir is not None else DRI_DIR
+    access = access or os.access
+    try:
+        if not dri_dir.is_dir():
+            return False, f"no {dri_dir} in the container (the GPU is not passed through)"
+        nodes = sorted(dri_dir.glob("renderD*"))
+        if not nodes:
+            return False, f"{dri_dir} has no renderD* render node"
+        for node in nodes:
+            if access(str(node), os.R_OK | os.W_OK):
+                return True, f"{node} is usable"
+        uid = os.getuid() if hasattr(os, "getuid") else "?"
+        return False, (f"{nodes[0]} is not readable and writable by uid {uid} "
+                       f"(add the device's group: group_add / --group-add)")
+    except Exception as exc:  # noqa: BLE001 - a status probe must never fail an encode
+        return False, f"{dri_dir} could not be checked: {exc}"
+
+
+def nvidia_status(dev_dir=None) -> tuple[bool, str]:
+    """(present, note) for an NVIDIA device granted by the NVIDIA container runtime. Never raises."""
+    dev_dir = Path(dev_dir) if dev_dir is not None else Path("/dev")
+    try:
+        nodes = sorted(dev_dir.glob("nvidia[0-9]*"))
+    except Exception:  # noqa: BLE001
+        nodes = []
+    if nodes:
+        return True, f"{nodes[0]} is present"
+    return False, ("no /dev/nvidia* device (the NVIDIA runtime is not granted: "
+                   "--runtime=nvidia with NVIDIA_VISIBLE_DEVICES)")
+
+
+def gpu_notes(probe, *, dri_note=None, nvidia_note=None) -> tuple:
+    """One named reason per GPU encoder that is not a candidate under ``probe``.
+
+    ``dri_note`` / ``nvidia_note`` override the device explanations (tests);
+    otherwise they come from :func:`dri_status` / :func:`nvidia_status`,
+    read only when the probe says the device is missing.
+    """
+    encoders, dri, nvidia = live_stream._coerce_probe(probe, None, None)
+    notes = []
+    for vendor, encoder in GPU_ENCODERS:
+        if encoder not in encoders:
+            notes.append(f"{vendor}: {encoder} is not in this ffmpeg build")
+        elif vendor in ("vaapi", "qsv") and not dri:
+            if dri_note is None:
+                dri_note = dri_status()[1]
+            notes.append(f"{vendor}: {dri_note}")
+        elif vendor == "nvenc" and not nvidia:
+            if nvidia_note is None:
+                nvidia_note = nvidia_status()[1]
+            notes.append(f"{vendor}: {nvidia_note}")
+    return tuple(notes)
+
+
+def ffmpeg_failure(exc) -> str:
+    """A short named reason for a failed ffmpeg run: exit code plus the last stderr line.
+
+    ``{exc!r}`` of a CalledProcessError carries the argv but not what
+    ffmpeg said, so a missing driver (``Cannot load libnvidia-encode.so.1``,
+    ``Failed to initialise VAAPI connection``) was invisible in the log.
+    """
+    if isinstance(exc, subprocess.CalledProcessError):
+        stderr = exc.stderr or b""
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode("utf-8", "replace")
+        lines = [line.strip() for line in str(stderr).splitlines() if line.strip()]
+        detail = f": {lines[-1][:300]}" if lines else ""
+        return f"ffmpeg exited {exc.returncode}{detail}"
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return f"ffmpeg timed out after {exc.timeout}s"
+    if isinstance(exc, FileNotFoundError):
+        return f"ffmpeg not found ({exc.filename or exc})"
+    return repr(exc)
 
 
 def probe_ffmpeg(ffmpeg, *, run=None, dri_present=None, nvidia_present=None) -> live_stream.EncoderProbe:
@@ -62,6 +152,8 @@ def probe_ffmpeg(ffmpeg, *, run=None, dri_present=None, nvidia_present=None) -> 
     Every input is injectable for tests. A probe that cannot run yields
     an empty encoder set — candidate selection then still offers CPU,
     and the encode itself reports the real failure if ffmpeg is broken.
+    The Intel/AMD device counts only when a render node is accessible
+    (:func:`dri_status`), not merely when /dev/dri exists.
     """
     run = run or subprocess.run
     encoders = set()
@@ -73,9 +165,9 @@ def probe_ffmpeg(ffmpeg, *, run=None, dri_present=None, nvidia_present=None) -> 
     except Exception:
         encoders = set()
     if dri_present is None:
-        dri_present = Path("/dev/dri").is_dir()
+        dri_present = dri_status()[0]
     if nvidia_present is None:
-        nvidia_present = any(Path("/dev").glob("nvidia[0-9]*"))
+        nvidia_present = nvidia_status()[0]
     return live_stream.EncoderProbe(encoders=frozenset(encoders),
                                     dri_present=bool(dri_present),
                                     nvidia_present=bool(nvidia_present))
@@ -407,28 +499,72 @@ def assemble_frames(frames_dir, target, *, max_bytes, preference="auto", fps=PLA
         partial.unlink(missing_ok=True)
 
 
+def selection_note(preference, ordered, probe, *, dri_note=None, nvidia_note=None) -> str:
+    """The named note for an encode that will not start on the GPU, or "" (#455).
+
+    - an explicit GPU preference that is unavailable names why;
+    - ``auto`` with no GPU candidate at all names each vendor's reason;
+    - ``cpu`` (the operator's choice) and a GPU-led plan need no note.
+    """
+    preference = str(preference or "auto").strip().lower()
+    if preference == "cpu" or not ordered:
+        return ""
+    gpu_led = ordered[0].vendor != "cpu"
+    if preference in dict(GPU_ENCODERS) and ordered[0].vendor != preference:
+        reasons = [n for n in gpu_notes(probe, dri_note=dri_note, nvidia_note=nvidia_note)
+                   if n.startswith(f"{preference}:")]
+        why = reasons[0].split(": ", 1)[1] if reasons else "not available"
+        return (f"timelapse encoder preference {preference} unavailable ({why}); "
+                f"using {ordered[0].encoder}")
+    if not gpu_led:
+        notes = gpu_notes(probe, dri_note=dri_note, nvidia_note=nvidia_note)
+        return (f"timelapse encode: no GPU encoder available ({'; '.join(notes) or 'none probed'}); "
+                f"using CPU (libx264)")
+    return ""
+
+
 def _assemble(frames_dir, target, partial, frames, kbps, max_bytes, preference, fps,
               probe, ffmpeg, run, log, validate):
-    for candidate in candidates(preference, probe, ffmpeg=ffmpeg, run=run):
+    if probe is None:
+        probe = probe_ffmpeg(ffmpeg, run=run)
+    ordered = candidates(preference, probe, ffmpeg=ffmpeg, run=run)
+    note = selection_note(preference, ordered, probe)
+    if note:
+        log(note)
+    gpu_failures = []
+    for candidate in ordered:
         for attempt_kbps in (kbps, int(kbps * 0.7)):
             try:
                 _encode_frames_once(frames_dir, partial, attempt_kbps, candidate.vendor,
                                     fps=fps, ffmpeg=ffmpeg, run=run)
             except Exception as exc:
-                log(f"timelapse encode with {candidate.encoder} failed: {exc!r}")
+                reason = ffmpeg_failure(exc)
+                log(f"timelapse encode with {candidate.encoder} failed: {reason}")
+                if candidate.vendor != "cpu":
+                    gpu_failures.append(f"{candidate.encoder}: {reason}")
                 break  # this encoder is done; fall through to the next candidate
             if partial.is_file() and 0 < partial.stat().st_size <= max_bytes:
                 if not validate(partial):
                     log(f"timelapse encode with {candidate.encoder} produced an undecodable "
                         f"video; discarding it")
+                    if candidate.vendor != "cpu":
+                        gpu_failures.append(f"{candidate.encoder}: undecodable output")
                     break
                 os.replace(partial, target)
+                if candidate.vendor == "cpu" and gpu_failures:
+                    log("timelapse encode fell back to CPU (libx264) after GPU failure: "
+                        + "; ".join(gpu_failures))
                 log(f"timelapse assembled {len(frames)} frame(s) -> {target} "
                     f"({target.stat().st_size} bytes, {candidate.encoder} at {attempt_kbps}k)")
                 return target
             partial.unlink(missing_ok=True)
         else:
+            if candidate.vendor != "cpu":
+                gpu_failures.append(f"{candidate.encoder}: output over the {max_bytes}-byte cap")
             continue
+    if gpu_failures:
+        log("timelapse encode falling back to CPU (libx264, constant quality) after: "
+            + "; ".join(gpu_failures))
     fitted = _assemble_quality_fallback(frames_dir, target, partial, frames, max_bytes, fps,
                                         ffmpeg, run, log, validate)
     if fitted is not None:
