@@ -1,0 +1,27 @@
+# Native G-code motion-bounds parser for Print Handy (#952, D1).
+#
+# This crate is a separate build unit on purpose: the main package's
+# setuptools pyproject stays pure Python, and installs that never build
+# this crate simply run without the extension (the Python parser in
+# print_handy/core/model_job.py is the permanent fallback and oracle).
+# The Dockerfile's bounds-build stage is the only place the wheel is
+# built for a shipped artifact.
+[package]
+name = "print_handy_bounds"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Native motion-bounds parser for Print Handy G-code verification"
+rust-version = "1.85"
+
+[lib]
+# The importable module name inside print_handy.core; maturin's
+# module-name in pyproject.toml places it there.
+name = "_bounds_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.27", features = ["abi3-py312", "extension-module"] }
+
+[profile.release]
+opt-level = 3

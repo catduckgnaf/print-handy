@@ -25,3 +25,7 @@ config/after-update.sh
 # context — left unignored it would be packaged into the published image,
 # so what ships would not be the image acceptance ran against (P2-87).
 evidence
+# Rust build artifacts for the native bounds crate (#952): the
+# bounds-build stage compiles from source; a local target/ must never
+# enter the build context.
+native/bounds/target

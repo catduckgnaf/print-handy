@@ -2102,7 +2102,7 @@ _GCODE_XYZ_RE_I = re.compile(r'([XYZ])\s*(' + NUMBER + r')', re.I)
 _FAST_COMMANDS = frozenset({"G0", "G00", "G1", "G01", "G90", "G91", "G92"})
 
 
-def gcode_motion_bounds(text):
+def _gcode_motion_bounds_python(text):
     """Return fail-closed XYZ bounds for ordinary slicer G-code.
 
     Same single finditer pass and same outcomes as the original scan
@@ -2185,6 +2185,152 @@ def gcode_motion_bounds(text):
     if missing:
         raise RuntimeError("missing bounded motion for axis " + ", ".join(missing))
     return {"x": (low_x, high_x), "y": (low_y, high_y), "z": (low_z, high_z)}
+
+
+# --- Native acceleration (#952, D1) ---------------------------------------
+# The Rust/PyO3 extension in native/bounds parses the same semantics an
+# order of magnitude faster. It is an accelerator only, never load
+# bearing: _gcode_motion_bounds_python above stays forever as the
+# fallback and the test oracle, and every install without the built
+# extension (pip-from-clone, raw checkouts) runs it exactly as before.
+# The dispatcher uses the native path only when ALL of these hold:
+#   * the PRINT_HANDY_BOUNDS_IMPL setting allows it ("auto"/"native";
+#     "python" forces the fallback; unset means "auto"),
+#   * the input text is pure ASCII — the Python patterns are
+#     Unicode-aware and the crate implements the ASCII subset, so any
+#     non-ASCII input takes the Python parser and equivalence at this
+#     API is exact by construction,
+#   * the extension imports, its API_VERSION matches
+#     _BOUNDS_NATIVE_API_VERSION, and a golden self-check (known inputs
+#     with known outcomes, refusals included) passes on first use.
+# A native refusal (BoundsRefusal, a RuntimeError) propagates unchanged.
+# Any other native error falls back to the Python parser for that input,
+# is logged, and disables the native path for the rest of the process.
+_BOUNDS_NATIVE_API_VERSION = 1
+_BOUNDS_SELF_CHECK_OK = (
+    ("G90\nG1 X1 Y2 Z3\n", {"x": (1.0, 1.0), "y": (2.0, 2.0), "z": (3.0, 3.0)}),
+    ("G90\nG1 X-5 Y2 Z3\nG91\nG1 X5\n", {"x": (-5.0, 0.0), "y": (2.0, 2.0), "z": (3.0, 3.0)}),
+)
+_BOUNDS_SELF_CHECK_REFUSAL = (
+    "G90\nG2 X1 Y1\n", "line 2: arc motion is unsupported by the bounds verifier")
+_native_bounds_module = None
+_native_bounds_broken = False
+# A Rust panic inside the extension reaches Python as PyO3's
+# PanicException, which derives from BaseException, not Exception: the
+# fallback must catch it too, or a native defect would escape the
+# verifier instead of degrading to the Python parser. Only these are
+# never swallowed.
+_BOUNDS_NEVER_SWALLOW = (KeyboardInterrupt, SystemExit, GeneratorExit)
+
+
+def _bounds_impl_setting():
+    return os.environ.get("PRINT_HANDY_BOUNDS_IMPL", "auto").strip().lower()
+
+
+def _load_native_bounds():
+    """Return the verified native module, or None when unavailable.
+
+    The result is cached after the first successful verification; a
+    module that fails the import, the version handshake or the golden
+    self-check is never retried in this process.
+    """
+    global _native_bounds_module, _native_bounds_broken
+    if _native_bounds_module is not None or _native_bounds_broken:
+        return _native_bounds_module
+    try:
+        from . import _bounds_native as module
+        if module.API_VERSION != _BOUNDS_NATIVE_API_VERSION:
+            raise ValueError(
+                f"native bounds API version {module.API_VERSION!r} "
+                f"!= expected {_BOUNDS_NATIVE_API_VERSION}")
+        for text, expected in _BOUNDS_SELF_CHECK_OK:
+            if module.parse_bounds(text) != expected:
+                raise ValueError(f"native bounds self-check mismatch for {text!r}")
+        text, message = _BOUNDS_SELF_CHECK_REFUSAL
+        try:
+            module.parse_bounds(text)
+        except module.BoundsRefusal as refusal:
+            if str(refusal) != message:
+                raise ValueError(f"native bounds self-check refusal mismatch: {refusal}")
+        else:
+            raise ValueError("native bounds self-check refusal did not raise")
+    except BaseException as exc:
+        if isinstance(exc, _BOUNDS_NEVER_SWALLOW):
+            raise
+        _native_bounds_broken = True
+        if _bounds_impl_setting() == "native":
+            raise RuntimeError(f"native bounds parser required but unavailable: {exc}") from exc
+        logger.debug("native bounds parser unavailable, using Python parser: %s", exc)
+        return None
+    _native_bounds_module = module
+    return module
+
+
+def _reset_native_bounds_cache():
+    """Forget the cached native module (tests only)."""
+    global _native_bounds_module, _native_bounds_broken
+    _native_bounds_module = None
+    _native_bounds_broken = False
+
+
+def _native_bounds_result(module, text):
+    """Run the native parser and shape-check its result.
+
+    Returns the bounds dict, or None when the native result is
+    malformed (the caller then falls back). BoundsRefusal propagates:
+    it is a legitimate verifier refusal, identical to the Python one.
+    """
+    result = module.parse_bounds(text)
+    if not isinstance(result, dict) or set(result) != {"x", "y", "z"}:
+        return None
+    bounds = {}
+    for axis in "xyz":
+        low, high = result[axis]
+        bounds[axis] = (float(low), float(high))
+    return bounds
+
+
+def gcode_motion_bounds(text):
+    """Return fail-closed XYZ bounds for ordinary slicer G-code.
+
+    Dispatches to the native parser when it is verified available and
+    the input is pure ASCII; otherwise (and on any unexpected native
+    error) runs the Python implementation, whose outcomes — results and
+    refusal messages alike — are the contract both paths meet.
+    """
+    global _native_bounds_broken
+    setting = _bounds_impl_setting()
+    required = setting == "native"
+    if setting != "python" and text.isascii():
+        if _native_bounds_broken and required:
+            # "native" means native or nothing, for every call, not only
+            # the first: never degrade silently after an earlier failure.
+            raise RuntimeError(
+                "native bounds parser required but unavailable: "
+                "disabled after an earlier failure in this process")
+        module = None if _native_bounds_broken else _load_native_bounds()
+        if module is not None:
+            try:
+                bounds = _native_bounds_result(module, text)
+            except module.BoundsRefusal:
+                raise
+            except BaseException as exc:
+                if isinstance(exc, _BOUNDS_NEVER_SWALLOW):
+                    raise
+                _native_bounds_broken = True
+                if required:
+                    raise RuntimeError(f"native bounds parser required but failed: {exc!r}") from exc
+                logger.warning(
+                    "native bounds parser failed (%r); using the Python parser", exc)
+            else:
+                if bounds is not None:
+                    return bounds
+                _native_bounds_broken = True
+                if required:
+                    raise RuntimeError("native bounds parser required but returned a malformed result")
+                logger.warning(
+                    "native bounds parser returned a malformed result; using the Python parser")
+    return _gcode_motion_bounds_python(text)
 
 
 BOUNDS_CACHE = Path(os.environ.get("PRINT_HANDY_BOUNDS_CACHE", settings.state_dir()/"gcode-bounds-cache"))
