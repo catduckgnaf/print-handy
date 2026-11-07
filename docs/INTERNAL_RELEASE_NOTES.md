@@ -2,7 +2,7 @@
 
 # Unreleased
 
-Nothing yet.
+- Roasts without an LLM (#1002, Phase 1): the completion post's one-line roast now comes from a local roast corpus (`print_handy/data/roasts/`, the 554-entry seed: generic, context, status and title-reaction banks plus fragments) through a small stdlib engine (`core/roast.py`). No model call, no model fallback and no endpoint, so roasts work on every install. Lines are filled from facts about that print (duration, material, color, grams, printer, finish hour, times printed) and a line needing an unknown fact is never drawn; a failed or cancelled print only ever gets its status bank; a shuffle bag plus a 200-entry history window keep lines from repeating, and one roast is stored per print so a retried delivery repeats it. Titles are scrubbed (mentions, markup, URLs) before they reach a template and every line is checked after filling (one sentence, at most 20 words). Ask in plain words too — "roast my last print", "roast print 84", "roast the dragon" — typo tolerant through the shared fuzzy layer, resolved like `print 84` and `/print-again <name>`. `bot check` reports the corpus size; `vision.roast_model` is legacy and unused.
 
 # Version 2.2.6
 
