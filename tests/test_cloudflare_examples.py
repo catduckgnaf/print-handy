@@ -47,4 +47,8 @@ def test_worker_node_tests_pass():
     assert len(files) == 2, files
     result = subprocess.run(["node", "--test", *files], cwd=ROOT, capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
-    assert re.search(r"^# fail 0$", result.stdout, re.M), result.stdout[-2000:]
+    # The summary line's format depends on the host's Node version: TAP
+    # ("# fail 0") on older Node, the spec reporter ("ℹ fail 0") on newer
+    # Node (#971: a local run outside the container must not fail on the
+    # host's Node version when the worker tests themselves pass).
+    assert re.search(r"^(?:#|ℹ) fail 0$", result.stdout, re.M), result.stdout[-2000:]

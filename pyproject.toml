@@ -68,6 +68,13 @@ print_handy = ["templates/**/*.json", "data/*.toml", "data/*.json", "data/*/*.to
 # (tests/corpus/conftest.py); slicer cases run under this limit.
 timeout = 120
 timeout_func_only = true
+markers = [
+    # #971: tests that need the shipped container image (its entrypoint,
+    # state volumes or runtime layout). tests/conftest.py skips them unless
+    # PRINT_HANDY_IN_CONTAINER=1, which the Dockerfile sets in the image and
+    # the CI offline-tests job sets explicitly, so CI keeps running them.
+    "container: needs the shipped container image; skipped unless PRINT_HANDY_IN_CONTAINER=1 (set in the Dockerfile and in the CI offline-tests job)",
+]
 
 # Conservative check for the whole Python tree. Style and format stay out:
 # a format pass would be an unrelated diff. This catches syntax errors and

@@ -20,6 +20,12 @@ from print_handy import doctor, settings, state_volume
 ROOT = settings.ROOT
 ENTRYPOINT = ROOT / "docker" / "entrypoint.sh"
 
+# #971: this suite exercises the shipped image's entrypoint and its /data
+# state volumes, so it is container-marked: it runs inside the image and in
+# the CI offline-tests job (both set PRINT_HANDY_IN_CONTAINER=1) and skips
+# on a plain local checkout instead of failing on the environment.
+pytestmark = pytest.mark.container
+
 
 def run_entrypoint(data, command):
     env = {"PATH": os.environ["PATH"], "HOME": str(data), "TZ": "Europe/London"}

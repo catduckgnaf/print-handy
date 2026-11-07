@@ -139,11 +139,31 @@ def pytest_ignore_collect(collection_path, config):
     return None
 
 
+# #971: tests marked `container` need the shipped container image (its
+# entrypoint, state volumes or runtime layout). Outside the image they are
+# environment-only failures, so they skip instead of failing; inside the
+# image (the Dockerfile sets PRINT_HANDY_IN_CONTAINER=1) and in CI (the
+# offline-tests job in ci.yml sets it explicitly) they run as before.
+CONTAINER_ENV = "PRINT_HANDY_IN_CONTAINER"
+
+
+def in_container(environ=None):
+    """True when running inside the shipped image (or a CI job that opts in)."""
+    return (environ if environ is not None else os.environ).get(CONTAINER_ENV) == "1"
+
+
 # CI splits a long suite across parallel jobs with PRINT_HANDY_TEST_SHARD="<index>/<count>" (0 based).
 # Items are dealt round robin in collection order, so every shard gets a slice of each module and the slow
 # corpus cases spread evenly instead of landing in one shard. Unset (local runs) collects everything.
 @pytest.hookimpl(trylast=True)
 def pytest_collection_modifyitems(config, items):
+    if not in_container():
+        skip_container = pytest.mark.skip(
+            reason=f"needs the shipped container image: {CONTAINER_ENV} is not 1 "
+                   "(set in the Dockerfile; the CI offline-tests job sets it explicitly)")
+        for item in items:
+            if "container" in item.keywords:
+                item.add_marker(skip_container)
     spec = os.environ.get("PRINT_HANDY_TEST_SHARD", "").strip()
     if not spec:
         return
