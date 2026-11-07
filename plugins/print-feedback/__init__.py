@@ -4583,11 +4583,14 @@ async def print_resume_dispatch(event, gateway, **kwargs):
     return {'action': 'skip', 'reason': 'deterministic print resume handled'}
 
 
-_PLAIN_PRINT_NUMBER_RE = re.compile(r"print\s+#?(\d+)\s*[.!]?", re.I)
+# "print 57", "print #57", and (#979 review) "reprint 57", "re-print #57",
+# "print 57 again": a reprint phrase that names a print number is that
+# exact numbered print, never "the last print".
+_PLAIN_PRINT_NUMBER_RE = re.compile(r"(?:re-?print|print)\s+#?(\d+)(?:\s+again)?\s*[.!]?", re.I)
 
 
 def _plain_print_number(text):
-    """'print 57' / 'print #57' -> 57 (#436), else None.
+    """'print 57' / 'print #57' / 'reprint 57' / 'print 57 again' -> 57 (#436, #979), else None.
 
     The plain-text twin of '/print-again <N>': deterministic, exact number
     only. A bare number with no 'print' is not a print request, and no other
@@ -5077,6 +5080,12 @@ def _is_affirmative_followup(text: str) -> bool:
         return False
     import re
     t = text.strip().lower()
+    # "don't print it", "do not do it", "did you print it?", "why did it
+    # print it": negations and questions about what happened are not a
+    # go-ahead, so they never pull in the remembered link (#979 review).
+    from print_handy.core.prepared_intake import _REPRINT_NEGATION_RE, _REPRINT_QUESTION_RE
+    if _REPRINT_NEGATION_RE.search(t) or _REPRINT_QUESTION_RE.match(t):
+        return False
     patterns = [
         r"\b(let's|lets)\s+(do\s+it|print\s+(it|this|that))\b",
         r"\bprint\s+(it|this|that|now)\b",
@@ -5109,6 +5118,11 @@ async def model_link_dispatch(event, gateway, **kwargs):
     # An already-sliced G-code drop prints only as an explicit yolo (core/yolo.py).
     gcode_drop = None if model_link(text) else _yolo.gcode_file(event)
     if not (model_link(text) or model_file(event) or gcode_drop):
+        if reprint_request(text) and _plain_print_number(text) is not None:
+            # "reprint 57" / "print #57 again" names an exact print: that is
+            # print_again_dispatch's numbered reprint (#436), never "the last
+            # print" (#979 review). This hook runs first, so it steps aside.
+            return None
         if reprint_request(text):
             # "Again" wins over "it" (#979): a reprint phrase refers to the
             # print history, never to the channel's remembered link, so it is
@@ -5119,17 +5133,30 @@ async def model_link_dispatch(event, gateway, **kwargs):
             # job owned by another printer is never offered here).
             # "print the previous one in black" lands here too: selection is
             # by launch, execution still re-slices from the saved source.
-            reuse = last_printed_job(printer_id=_channel_printer_id(source, gateway))
+            from print_handy.core.prepared_intake import LastPrintNotReusable
+            refusal = None
+            try:
+                reuse = last_printed_job(printer_id=_channel_printer_id(source, gateway))
+            except LastPrintNotReusable as exc:
+                # The newest print cannot be re-sliced (its source file is
+                # gone). Never fall back to an older model (#979: ask or
+                # refuse, do not guess): name it and point at the exact
+                # G-code reprint instead.
+                reuse = None
+                refusal = (f'The last print, {exc.title}, cannot be prepared again: {exc.reason}. '
+                           'Use /print-again to reprint its exact G-code. Nothing uploaded or started.',
+                           'last print not re-sliceable')
             if reuse is None:
                 adapter = _adapter_for(gateway, source)
                 if adapter is None:
                     return {'action': 'skip', 'reason': 'reprint refusal delivery unavailable'}
+                content, reason = refusal or (
+                    'Nothing to print again: no archived print has been started yet. '
+                    'Nothing uploaded or started.', 'reprint requested with no printed job')
                 await adapter.send(
-                    chat_id=source.chat_id,
-                    content='Nothing to print again: no archived print has been started yet. '
-                            'Nothing uploaded or started.',
+                    chat_id=source.chat_id, content=content,
                     metadata={'thread_id': source.thread_id} if source.thread_id else None)
-                return {'action': 'skip', 'reason': 'reprint requested with no printed job'}
+                return {'action': 'skip', 'reason': reason}
         elif _is_affirmative_followup(text):
             recent_url = _recent_model_link(source)
             if recent_url:

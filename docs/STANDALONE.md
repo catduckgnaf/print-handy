@@ -148,7 +148,7 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
 ## What you get
 
 * Post a MakerWorld, Printables, Thingiverse, MyMiniFactory, Creality Cloud, Thangs or Nexprint link, or drop one `.3mf` or `.stl`: the same intake as under Hermes, with the same
-  buttons. "print it" after a link prints that link (the intake names the model and asks first); "print the last one again" and "print again" reprint the last job that actually printed. "print 57" (or "print #57") reprints
+  buttons. "print it" after a link prints that link (the intake names the model and asks first); "print the last one again" and "print again" reprint the last job that actually printed (when that job's source model is gone, the bot names it and points to `/print-again` rather than picking an older model). "print 57" (or "print #57", "reprint 57", "print 57 again") reprints
   print #57 behind the same bed-clear button as `/print-again 57`; an unknown number gets a "no such print"
   reply pointing at `/print-again list`, not the help text. A bare number on its own is not a print request.
 * `/spool` walks you through spools with buttons: it asks whether you are adding a **new** spool or

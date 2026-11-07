@@ -345,3 +345,73 @@ def test_bare_print_again_command_resolves_the_channel_printers_own_last_print(
     assert questions and expected in questions[0]
     other = "Workshop Jig" if expected == "Garage Bracket" else "Garage Bracket"
     assert other not in questions[0]
+
+
+# --------------------------------------------------------------- #979 review follow-ups
+
+@pytest.mark.parametrize("phrase,number", [("reprint 57", 57), ("reprint #57", 57),
+                                           ("re-print 57", 57), ("print 57 again", 57),
+                                           ("Print #57 again.", 57)])
+def test_numbered_reprints_are_the_numbered_print_not_the_last_one(
+        cfg, intake, stub_last_print, phrase, number):
+    """A reprint phrase naming a print number is that exact print (#436),
+    so the last-print branch steps aside for print_again_dispatch."""
+    assert plugin._plain_print_number(phrase) == number
+    out, _adapter = dispatch(phrase)
+    assert out is None and intake == []
+
+
+def test_unreusable_last_print_is_named_never_replaced_by_an_older_one(cfg, intake, tmp_path, monkeypatch):
+    """The newest print's source is gone: refuse, naming it and /print-again,
+    instead of silently re-slicing an older, different model (#979)."""
+    arch = tmp_path / "archive"
+    arch.mkdir()
+    _arch_job(arch, "older--a", "Older Bracket", launch_age_s=7200, job_age_s=7200)
+    newest = _arch_job(arch, "panel-a--b", "Panel A Lower V21", launch_age_s=600, job_age_s=600)
+    os.remove(newest["downloaded_file"])
+    monkeypatch.setattr(model_job, "ARCHIVE", arch)
+    with pytest.raises(prepared_intake.LastPrintNotReusable) as info:
+        prepared_intake.last_printed_job(archive=arch)
+    assert info.value.title == "Panel A Lower V21"
+    out, adapter = dispatch("print it again")
+    assert out["reason"] == "last print not re-sliceable"
+    assert intake == []
+    assert any("Panel A Lower V21" in m and "/print-again" in m for m in adapter.sent)
+    assert not any("Older Bracket" in m for m in adapter.sent)
+
+
+@pytest.mark.parametrize("phrase", ["don't print it again", "never print that again",
+                                    "do not reprint", "why did it print again",
+                                    "did it print again?"])
+def test_negated_or_questioning_reprint_phrases_are_not_requests(phrase):
+    assert prepared_intake.reprint_request(phrase) is False
+
+
+@pytest.mark.parametrize("phrase", ["can you print it again?", "could you reprint that",
+                                    "print it again", "print again"])
+def test_ordinary_reprint_requests_still_count(phrase):
+    assert prepared_intake.reprint_request(phrase) is True
+
+
+@pytest.mark.parametrize("phrase", ["don't print it", "do not do it", "did you print it?",
+                                    "why did it print it", "don't print it again"])
+def test_negations_and_questions_never_pull_in_the_remembered_link(cfg, intake, stub_last_print, phrase):
+    seed_link(60)
+    out, _adapter = dispatch(phrase)
+    assert out is None and intake == []
+    assert recent_links.recall("chan") == SHIELD_URL  # untouched, not consumed
+
+
+def test_a_declined_followup_is_not_the_channels_current_job_for_edits(tmp_path, monkeypatch):
+    """After "No, cancel" at the naming gate, "make it bigger" / "fix this"
+    must not act on the declined model (#979 review)."""
+    from print_handy.bot import edit_chat
+    root = tmp_path / "model-link-intakes"
+    root.mkdir()
+    job = tmp_path / "shield" / "JOB.json"
+    job.parent.mkdir()
+    job.write_text(json.dumps({"title": "NVIDIA Shield Remote Holder"}))
+    (root / "r.json").write_text(json.dumps({"chat_id": "chan", "thread_id": None,
+                                             "job_json": str(job), "status": "DECLINED_FOLLOWUP"}))
+    source = runtime.make_source(OPERATOR, "chan", platform_name="discord")
+    assert edit_chat._edit_current_job(root, source) is None

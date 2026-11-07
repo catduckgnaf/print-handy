@@ -1190,10 +1190,42 @@ REPRINT_RE = re.compile(
     r"|(?:print|slice|make|do) (?:the )?(?:last|previous) one|(?:print|make) (?:another|one more))\b", re.I)
 
 
+# "don't print it again", "never print that again", "no need to reprint":
+# a negated reprint phrase is the opposite of a request (#979 review).
+_REPRINT_NEGATION_RE = re.compile(
+    r"\b(?:don'?t|do not|never|no need to|not|stop|without)\s+(?:\w+\s+){0,2}?"
+    r"(?:re-?print|print|do|make|slice)\b", re.I)
+# "why did it print again?", "did it print again?", "how come it printed again":
+# a question about what happened is not a request to print (#979 review).
+# "can you print it again?" / "could you reprint that?" stay requests.
+_REPRINT_QUESTION_RE = re.compile(
+    r"^\s*(?:why|how come|what|when|where|did|was|is|does|has|have|were)\b", re.I)
+
+
 def reprint_request(text):
-    """'print the previous print in black', 'reprint that', 'print it again'. Never when a link is present."""
+    """'print the previous print in black', 'reprint that', 'print it again'.
+
+    Never when a link is present, never when the phrase is negated ("don't
+    print it again"), and never in a question about what happened ("why did
+    it print again?").
+    """
     text = str(text or '')
-    return 'http' not in text.lower() and bool(REPRINT_RE.search(text))
+    if 'http' in text.lower() or not REPRINT_RE.search(text):
+        return False
+    return not (_REPRINT_NEGATION_RE.search(text) or _REPRINT_QUESTION_RE.match(text))
+
+
+class LastPrintNotReusable(LookupError):
+    """The most recent print cannot be prepared again (#979 review).
+
+    Raised instead of silently falling back to an older print: the operator
+    asked for the last print, and an older model is not it.
+    """
+
+    def __init__(self, title, reason):
+        super().__init__(f'{title}: {reason}')
+        self.title = title
+        self.reason = reason
 
 
 def newest_archived_job(archive=None):
@@ -1226,12 +1258,15 @@ def last_printed_job(archive=None, printer_id=None):
 
     Selection follows launch records — the same source /print-again resolves
     from — so natural-language reprints name the job that printed last, not
-    whichever archived record was rewritten most recently (#979). A launch
-    whose job can no longer be re-sliced (no selected source, or the source
-    file is gone) is skipped in favor of the next older launch, because the
-    reuse flow re-slices from the saved source. With printer_id, only
-    launches whose job record belongs to that printer count. Local files
-    only; read only.
+    whichever archived record was rewritten most recently (#979). With
+    printer_id, only launches whose job record belongs to that printer count.
+
+    Only the newest launch is ever the answer. When its job can no longer be
+    re-sliced (no selected source, or the source file is gone) this raises
+    LastPrintNotReusable naming it -- it never falls back to an older launch,
+    which would be a different model than the one the operator meant (the
+    #979 failure itself). /print-again can still reprint that job's exact
+    G-code. Local files only; read only.
     """
     from ..hermes import print_control as pc
     from . import model_job as mj
@@ -1246,9 +1281,13 @@ def last_printed_job(archive=None, printer_id=None):
             continue
         if printer_id is not None and str(mj._job_printer_id(job)) != str(printer_id):
             continue
+        title = str(job.get('title') or job_path.parent.name)
+        if not job.get('selected_source'):
+            raise LastPrintNotReusable(title, 'it has no saved source model to slice again')
         f = Path(job.get('downloaded_file') or '')
-        if job.get('selected_source') and f.is_file() and f.stat().st_size > 0:
-            return job
+        if not (f.is_file() and f.stat().st_size > 0):
+            raise LastPrintNotReusable(title, 'its source model file is no longer on disk')
+        return job
     return None
 
 
@@ -2429,10 +2468,25 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # names the target and lets the user stop the wrong model before
             # any profile, color or fit question. The preview alone is not a
             # gate: it sends nothing at all for a bare-title job.
-            pick = await _ask(adapter, source, key,
-                              f"Print {job.get('title') or 'the linked model'}? "
-                              'That is the model from the link shared earlier in this channel.',
-                              ['Yes, print it', 'No, cancel'], timeout)
+            question = (f"Print {job.get('title') or 'the linked model'}? "
+                        'That is the model from the link shared earlier in this channel.')
+            from . import yolo as _yolo
+            if _yolo.ACTIVE.get():
+                # Yolo vouches for a file the operator named. Here nobody
+                # named it -- the dispatcher supplied a remembered link -- so
+                # the target question goes to a person even under yolo
+                # (#979 review); every later question stays yolo's.
+                await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                   content='Yolo does not answer this one; a person has to '
+                                           'confirm which model to print.')
+                # (_prepare_link has a local named `ask`; use the prompt by another name.)
+                from .link_intake import ask as _person_ask
+                pick = await _person_ask(adapter, source, key, question,
+                                         ['Yes, print it', 'No, cancel'], timeout,
+                                         live_key=_LIVE_KEY.get() or key)
+            else:
+                pick = await _ask(adapter, source, key, question, ['Yes, print it', 'No, cancel'],
+                                  timeout)
             if pick != 0:
                 receipt.update(status='DECLINED_FOLLOWUP')
                 receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')

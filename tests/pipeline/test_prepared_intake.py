@@ -1682,6 +1682,27 @@ def test_followup_intake_declined_at_the_naming_gate_starts_nothing(env):
     assert _followup_receipt(env, 'followup-no')['status'] == 'DECLINED_FOLLOWUP'
 
 
+def test_followup_naming_gate_goes_to_a_person_even_under_yolo(env):
+    """Yolo vouches for a file the operator named; a remembered link nobody
+    named in this message still gets the naming question from a person
+    (#979 review), and declining it starts nothing."""
+    from print_handy.core import yolo
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+              message_id='followup-yolo', text='https://www.printables.com/model/1-ghost print it')
+    adapter = Adapter([1])  # a person says No at the naming question
+    token = yolo.ACTIVE.set(True)
+    try:
+        result = asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root,
+                                                          timeout=1, confirm_target=True))
+    finally:
+        yolo.ACTIVE.reset(token)
+    assert result['reason'] == 'followup target declined'
+    assert len(adapter.questions) == 1
+    assert adapter.questions[0]['question'].startswith('Print Ghost Stand?')
+    assert any('Yolo does not answer this one' in str(m) for m in adapter.sent)
+    assert not env.sliced and not env.starts
+
+
 
 # Issue 16: plate choice and one bed-clear confirmation per plate -------------------------
 
