@@ -3771,34 +3771,57 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                        gcode_sha256={g: delivery.sha256(g) for g in gcodes})
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
 
-        def _coverage_failure(gcode_list):
-            """The failed post-slice support coverage result, or None (#922 gaps 2 and 4)."""
+        def _coverage_result(gcode_list):
+            """The post-slice support coverage result for these plates (#922 gaps 2 and 4).
+
+            Coverage is graded per plate with each plate's own bounds
+            (#963 item 4), and the job's recorded scale / placement drive
+            the source-to-slice mapping when they are recorded (#963
+            item 5). Nothing fails open silently (#963 item 7): an
+            unreadable plate file, unreadable source bounds or a failed
+            check comes back as a named entry in the result's
+            'unverified' list, for the caller to record in the receipt —
+            never as a silent pass and never as a hard refusal.
+            """
             report = sliced.get('support_clearance') or clearance
             if not report:
                 return None
-            try:
-                text = '\n'.join(Path(g).read_text(errors='replace') for g in gcode_list)
-            except OSError:
-                return None
+            fit = sliced.get('fit') or {}
+            recorded = sliced.get('scale') or fit.get('scale')
+            placement = fit.get('placement_mm')
             source_bounds = None
-            z_scale = 1.0
+            source_height = None
+            bounds_note = None
             try:
                 import numpy as _np
                 _tris = _np.concatenate([p['tris'].reshape(-1, 3)
                                          for p in support_clearance.leaves(path)])
                 source_bounds = (float(_tris[:, 0].min()), float(_tris[:, 1].min()),
                                  float(_tris[:, 0].max()), float(_tris[:, 1].max()))
-                _height = support_clearance.gcode_model_height(text)
-                _src_height = float(_tris[:, 2].max())
-                if _height and _src_height > 0:
-                    z_scale = _height / _src_height
-            except Exception:  # noqa: BLE001 - bounds only refine the comparison
-                source_bounds = None
-                z_scale = 1.0
-            result = support_clearance.verify_support_coverage(
-                report.get('regions') or [], text, source_bounds=source_bounds,
-                gcode_bounds=support_clearance.gcode_model_bounds(text), z_scale=z_scale)
-            return result if result['checked'] and not result['ok'] else None
+                source_height = float(_tris[:, 2].max()) or None
+            except Exception as exc:  # noqa: BLE001 - named below, not silent
+                bounds_note = (f'source bounds unreadable ({exc}); coverage compared '
+                               'without a source-to-slice mapping')
+            plates = []
+            for g in gcode_list:
+                plate = {'gcode': str(g), 'source_bounds': source_bounds,
+                         'source_height': source_height}
+                if recorded:
+                    plate['recorded_scale'] = float(recorded)
+                if placement:
+                    plate['placement_mm'] = tuple(float(v) for v in placement)
+                if bounds_note:
+                    plate['unverified_reason'] = bounds_note
+                plates.append(plate)
+            return support_clearance.verify_coverage_by_plate(
+                report.get('regions') or [], plates)
+
+        def _record_coverage_unverified(result):
+            """Name an unverified coverage state in the receipt and the log (#963 item 7)."""
+            receipt.update(support_coverage=result)
+            receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+            logger.warning('support coverage unverified for intake %s: %s',
+                           iid, result.get('unverified'))
 
         async def _support_override(cov_failure, low_clearance, resliced=False):
             """Ask Print anyway / Cancel for the post-slice support gates.
@@ -3843,7 +3866,11 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             return True
 
         if supports_choice is True:
-            cov_failure = _coverage_failure(gcodes)
+            cov_result = _coverage_result(gcodes)
+            if cov_result is not None and cov_result.get('unverified'):
+                _record_coverage_unverified(cov_result)
+            cov_failure = (cov_result if cov_result is not None and cov_result['checked']
+                           and not cov_result['ok'] else None)
             report = sliced.get('support_clearance') or clearance
             # Only a low-clearance finding is unwaivable by a with-supports
             # choice (#922 gap 2); other findings (modeled supports) keep
@@ -3921,9 +3948,15 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 sliced = json.loads(jp.read_text())
                 receipt.update(status='SLICED', gcodes=gcodes,
                                gcode_sha256={g: delivery.sha256(g) for g in gcodes})
-                cov_failure = _coverage_failure(gcodes)
-                if cov_failure is not None:
-                    if not await _support_override(cov_failure, False, resliced=True):
+                cov_result = _coverage_result(gcodes)
+                if cov_result is not None and cov_result.get('unverified'):
+                    # Same receipt pattern as the first slice: the dict
+                    # update persists with this block's receipt writes.
+                    receipt.update(support_coverage=cov_result)
+                    logger.warning('support coverage unverified for intake %s: %s',
+                                   iid, cov_result.get('unverified'))
+                if cov_result is not None and cov_result['checked'] and not cov_result['ok']:
+                    if not await _support_override(cov_result, False, resliced=True):
                         return {'action': 'skip', 'reason': 'support coverage verification failed'}
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
         if clearance_ack_pending:

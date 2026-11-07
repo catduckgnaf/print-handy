@@ -30,6 +30,13 @@ risky at pre-check, but the required targets for post-slice
 ``sloped_wedge_root`` entries: narrow sloped strips rooting into a
 zero-clearance anchor edge, excluded from the clearance finding.
 
+Every region persists a compact ``footprint`` (#963): the underside's
+occupied cells aggregated to about 1 mm (``footprint_mm`` pitch, capped,
+each entry ``[x, y, share]``), so post-slice coverage grades the cells the
+underside actually occupies instead of its bounding box. Low-clearance
+regions carry ``flagged``: True only when the region met the finding
+thresholds, and only flagged regions are post-slice coverage targets.
+
 Each region also carries fix estimates (extend the underside down, sink the
 part, reorient, print anyway). These are screening thresholds, not a promise
 of printability: the post-slice toolpath check consumes ``regions``.
@@ -72,6 +79,9 @@ CONTACT_WINDOW_MM = 0.6  # a support top this far below an overhang still counts
 MIN_OVERHANG_MM2 = 20.0  # smaller overhang regions are not checked for modeled supports
 CELL_MM = 0.5            # ray grid pitch
 MAX_CELLS = 1_500_000    # the grid pitch grows past CELL_MM to stay under this
+FOOTPRINT_MM = 1.0       # persisted underside footprint pitch (#963 item 1)
+FOOTPRINT_SHARE_MIN = 0.25  # a footprint/grading cell must hold at least this share of underside
+FOOTPRINT_MAX_CELLS = 2048  # the footprint pitch doubles until a region fits under this cap
 LINK_DZ = 0.6            # neighboring rays within this Z belong to one surface
 
 SUPPORT_NAME = re.compile(r'\bsupports?\b', re.IGNORECASE)
@@ -426,9 +436,26 @@ def _analyze_parts(parts, source_sha256, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_
             width, length = float(ext.min()), float(ext.max())
         else:
             width = length = cell
+        # The persisted underside footprint (#963 item 1): the occupied
+        # ray cells aggregated to about 1 mm cells with the share of each
+        # cell the underside covers, pitch doubled until under the cap.
+        fpitch = FOOTPRINT_MM
+        while True:
+            kx = np.floor(cx / fpitch).astype(np.int64)
+            ky = np.floor(cy / fpitch).astype(np.int64)
+            rows, counts = np.unique(np.stack([kx, ky], axis=1), axis=0, return_counts=True)
+            if len(rows) <= FOOTPRINT_MAX_CELLS or fpitch > 32.0:
+                break
+            fpitch *= 2.0
+        foot = [[round(float(r[0]) * fpitch + fpitch / 2, 2),
+                 round(float(r[1]) * fpitch + fpitch / 2, 2),
+                 round(min(1.0, float(c) * area_cell / (fpitch * fpitch)), 3)]
+                for r, c in zip(rows, counts)
+                if c * area_cell >= FOOTPRINT_SHARE_MIN * fpitch * fpitch]
         p = parts[int(leaf[idx[0]])]
         zv = zz[idx]
         return {'object': p['object'], 'part': p['name'], 'item': p['item'], 'material': p['material'],
+                'footprint': foot, 'footprint_mm': fpitch,
                 'area_mm2': round(len(cells) * area_cell, 1),
                 'z_mm': {'min': round(float(zv.min()), 3), 'max': round(float(zv.max()), 3)},
                 'clearance_mm': {'min': round(float(cl.min()), 3), 'median': round(float(np.median(cl)), 3),
@@ -463,6 +490,10 @@ def _analyze_parts(parts, source_sha256, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_
             continue
         trigger = 'area' if r['area_mm2'] >= area_mm2 else 'span' if r['span_mm'] >= span_mm else None
         r['kind'] = 'low_clearance'
+        # Only a region that met the finding thresholds is a post-slice
+        # coverage target (#963 item 2); sub-threshold regions are recorded
+        # but never graded.
+        r['flagged'] = trigger is not None
         report['regions'].append(r)
         if not trigger:
             continue
@@ -488,6 +519,7 @@ def _analyze_parts(parts, source_sha256, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_
             r.pop('_cells')
             if r['area_mm2'] >= area_mm2 or r['span_mm'] >= span_mm:
                 r['kind'] = 'supportable_overhang'
+                r['flagged'] = True   # a coverage target by definition (#963 item 2)
                 report['regions'].append(r)
 
     # SINGLE-MESH CANTILEVER (#922 gap 3): one unnamed mesh can bake its
@@ -625,6 +657,84 @@ def gcode_model_bounds(gcode_text):
     return (lo[0], lo[1], hi[0], hi[1])
 
 
+def gcode_object_bounds(gcode_text):
+    """XY bounds of each object instance in a G-code text (#963 item 3).
+
+    Returns [{'name': name or None, 'bounds': (x0, y0, x1, y1)}] in file
+    order, one entry per object block (``EXCLUDE_OBJECT_START`` /
+    ``; printing object`` ... matching end marker). Copies of one object
+    appear as separate instances with the same name. Only non-support
+    extrusion inside a block counts, mirroring ``gcode_model_bounds``.
+    """
+    instances = []
+    current = None
+    current_type = ''
+    pos = {'X': None, 'Y': None}
+
+    def close():
+        nonlocal current
+        if current is not None and current['lo'][0] is not None:
+            instances.append({'name': current['name'],
+                              'bounds': (current['lo'][0], current['lo'][1],
+                                         current['hi'][0], current['hi'][1])})
+        current = None
+
+    for raw in gcode_text.splitlines():
+        line = raw.strip()
+        if line.startswith(';TYPE:'):
+            current_type = line.split(':', 1)[1].strip().casefold()
+            continue
+        if _OBJ_START.search(line):
+            close()
+            name = None
+            m = re.search(r'printing object\s+([^;]+)', line, re.I)
+            if m:
+                name = re.split(r'\s+id\s*:', m.group(1).strip())[0].strip() or None
+            else:
+                m = re.search(r'NAME=([^\s;]+)', line)
+                if m:
+                    name = m.group(1)
+            current = {'name': name, 'lo': [None, None], 'hi': [None, None]}
+            continue
+        if _OBJ_END.search(line):
+            close()
+            continue
+        if current is None:
+            continue
+        move = _MOVE_RE.match(line)
+        if not move:
+            continue
+        extrudes = False
+        for axis, number in _WORD_RE.findall(move.group(1)):
+            axis = axis.upper()
+            if axis == 'E':
+                extrudes = True
+            elif axis in pos:
+                pos[axis] = float(number)
+        if extrudes and 'support' not in current_type and pos['X'] is not None and pos['Y'] is not None:
+            for k, v in enumerate((pos['X'], pos['Y'])):
+                current['lo'][k] = v if current['lo'][k] is None else min(current['lo'][k], v)
+                current['hi'][k] = v if current['hi'][k] is None else max(current['hi'][k], v)
+    close()
+    return instances
+
+
+def _norm_object_name(value):
+    return re.sub(r'[^a-z0-9]+', '', str(value or '').casefold())
+
+
+def _object_match(instance_name, region):
+    """Whether an object instance plausibly is a region's source object."""
+    n = _norm_object_name(instance_name)
+    if len(n) < 3:
+        return False
+    for candidate in (region.get('object'), region.get('part')):
+        c = _norm_object_name(candidate)
+        if c and (n == c or n in c or c in n):
+            return True
+    return False
+
+
 def gcode_model_height(gcode_text):
     """Highest Z reached by model (non-support) extrusion, or None.
 
@@ -701,40 +811,79 @@ def _clip_segment_to_box(ax, ay, az, bx, by, bz, x0, y0, x1, y1, zlo, zhi):
     return (ax + dx * t0, ay + dy * t0), (ax + dx * t1, ay + dy * t1)
 
 
+_SUPPORT_TYPE_RE = re.compile(r';\s*support_type\s*=\s*([^\n;]+)', re.I)
+
+
 def verify_support_coverage(regions, gcode, cell_mm=3.0, source_bounds=None, gcode_bounds=None,
-                            z_scale=None):
+                            z_scale=None, object_bounds=None, matched_only=False,
+                            recorded_scale=None, placement_mm=None, support_style=None):
     """Post-slice toolpath coverage for support target regions (#922 gaps 2 and 4).
 
-    ``regions`` is a report's region list (or a whole report); only
-    ``supportable_overhang`` and ``low_clearance`` regions are targets.
-    ``gcode`` is G-code text or a path. Each target's bounding box is cut
-    into ``cell_mm`` cells; a cell counts as covered when support toolpath
-    (``;TYPE:Support`` / ``;TYPE:Support interface`` extruding moves,
-    sampled along the whole segment, not just endpoints) passes through it
-    at a height that can hold the underside up: within 1.0 mm below the
-    region's ``z_mm`` minimum. Acceptance is 100% of cells.
+    ``regions`` is a report's region list (or a whole report). Targets are
+    ``supportable_overhang`` regions and *flagged* ``low_clearance``
+    regions (#963 item 2: a low-clearance region that never met the
+    finding thresholds is recorded but not graded; regions from reports
+    predating the ``flagged`` field are treated as flagged). Excluded
+    regions are named in the result's ``excluded_targets``.
 
-    Region boxes are in source coordinates; slicing may center, scale or
-    rearrange the model. When ``source_bounds`` and ``gcode_bounds`` (XY
-    min/max of the model in each system) are both given, target boxes are
-    mapped by that translation + scale before comparison, and ``z_scale``
+    Grading (#963 item 1): a region carrying a persisted ``footprint``
+    is graded on the ``cell_mm`` cells that hold a meaningful share of
+    its underside (at least ``FOOTPRINT_SHARE_MIN`` of the cell), not on
+    every cell of its bounding box; regions without a footprint keep the
+    bounding-box grading. A grading cell counts as covered when support
+    toolpath (``;TYPE:Support`` / ``;TYPE:Support interface`` extruding
+    moves, sampled along the whole segment, not just endpoints) passes
+    through it at a height that can hold the underside up: within 1.0 mm
+    below the region's ``z_mm`` minimum. Acceptance is 100% of cells.
+
+    Acceptance by support style (#963 item 6): grid/normal supports tile
+    the underside, so every support toolpath counts. Tree supports do
+    not tile — their branches only touch the underside through the
+    interface layer — so for a tree slice (``support_style`` or the
+    G-code's own ``support_type`` setting) only ``Support interface``
+    segments count when the file has any; tree acceptance on the
+    interface is still 100% of footprint cells. The style and basis are
+    named in the result (``support_style`` / ``acceptance_basis``).
+
+    Mapping: region boxes are in source coordinates; slicing may center,
+    scale or rearrange the model. With ``recorded_scale`` (the job's
+    recorded scale, #963 item 5) the mapping uses that scale and anchors
+    at ``placement_mm`` when given, else at the G-code bounds' minimum;
+    ``scale_source`` in the result names which mapping ran. Otherwise,
+    when ``source_bounds`` and ``gcode_bounds`` are both given, the
+    mapping is the translation + scale between them, and ``z_scale``
     scales the target heights. An explicit ``z_scale`` wins; when it is
-    None the Z scale is derived from the bounds mapping (the job scale is
-    uniform, so the mapping's XY scale is the Z scale too), or 1.0 when
-    no mapping is given (#938 item 1: heights must never be compared
-    unscaled against a slice the XY boxes were scaled for).
-    Returns {'checked', 'ok', 'regions': [{..., 'coverage', ...}]}; with no
+    None the Z scale follows the mapping scale (the job scale is
+    uniform), or 1.0 with no mapping (#938 item 1).
+
+    Copies (#963 item 3): when ``object_bounds`` (from
+    ``gcode_object_bounds``) is given, a region whose object matches one
+    or more object instances is graded once per instance against that
+    instance's own bounds — every copy must be covered. With
+    ``matched_only``, regions matching no instance are skipped (named in
+    ``not_on_plate``); without it they fall back to the whole-model
+    mapping. Returns {'checked', 'ok', 'regions': [...], ...}; with no
     targets, checked is False and ok is True (nothing to verify).
     """
     if isinstance(regions, dict):
         regions = regions.get('regions') or []
-    targets = [r for r in regions or []
-               if r.get('kind') in ('supportable_overhang', 'low_clearance') and r.get('bbox_mm')]
+    targets, excluded = [], []
+    for r in regions or []:
+        if r.get('kind') not in ('supportable_overhang', 'low_clearance') or not r.get('bbox_mm'):
+            continue
+        if r.get('kind') == 'low_clearance' and r.get('flagged') is False:
+            excluded.append({'kind': r['kind'], 'part': r.get('part'),
+                             'reason': 'low_clearance below the finding thresholds; '
+                                       'not a coverage target'})
+            continue
+        targets.append(r)
+    scale_source = 'recorded' if recorded_scale else 'bounds' if (source_bounds and gcode_bounds) else 'none'
     if not targets:
-        return {'checked': False, 'ok': True, 'regions': []}
+        return {'checked': False, 'ok': True, 'regions': [], 'excluded_targets': excluded,
+                'scale_source': scale_source}
     if not isinstance(gcode, str):
         gcode = Path(gcode).read_text(errors='replace')
-    segments = []
+    segments = []          # (ax, ay, az, bx, by, bz, is_interface)
     current_type = ''
     pos = {'X': None, 'Y': None, 'Z': 0.0}
     for raw in gcode.splitlines():
@@ -756,78 +905,243 @@ def verify_support_coverage(regions, gcode, cell_mm=3.0, source_bounds=None, gco
             elif axis in pos:
                 pos[axis] = float(number)
         if extrudes and 'support' in current_type and pos['X'] is not None and pos['Y'] is not None:
-            if start[0] is not None:
-                segments.append((start[0], start[1], start[2], pos['X'], pos['Y'], pos['Z']))
-            else:
-                segments.append((pos['X'], pos['Y'], pos['Z'], pos['X'], pos['Y'], pos['Z']))
-    if source_bounds and gcode_bounds:
-        sx = ((gcode_bounds[2] - gcode_bounds[0]) / (source_bounds[2] - source_bounds[0])
-              if source_bounds[2] > source_bounds[0] else 1.0)
-        sy = ((gcode_bounds[3] - gcode_bounds[1]) / (source_bounds[3] - source_bounds[1])
-              if source_bounds[3] > source_bounds[1] else 1.0)
-
-        def _map(box):
-            (ax, ay), (bx, by) = box
-            return [[gcode_bounds[0] + (ax - source_bounds[0]) * sx,
-                     gcode_bounds[1] + (ay - source_bounds[1]) * sy],
-                    [gcode_bounds[0] + (bx - source_bounds[0]) * sx,
-                     gcode_bounds[1] + (by - source_bounds[1]) * sy]]
-
-        if z_scale is None:
-            # The job scale is uniform: the mapping's XY scale is the
-            # slice's Z scale as well (#938 item 1).
-            z_scale = (sx + sy) / 2.0
+            seg = (start[0] if start[0] is not None else pos['X'],
+                   start[1] if start[1] is not None else pos['Y'],
+                   start[2], pos['X'], pos['Y'], pos['Z'])
+            segments.append(seg + ('interface' in current_type,))
+    if support_style:
+        style = str(support_style).casefold()
     else:
-        def _map(box):
-            return box
-    if z_scale is None:
-        z_scale = 1.0
-    out = []
+        m = _SUPPORT_TYPE_RE.search(gcode)
+        style = 'tree' if (m and 'tree' in m.group(1).casefold()) else 'grid'
+    has_interface = any(s[6] for s in segments)
+    if style == 'tree' and has_interface:
+        basis, grading_segments = 'interface', [s[:6] for s in segments if s[6]]
+    elif style == 'tree':
+        basis, grading_segments = 'all_support_fallback', [s[:6] for s in segments]
+    else:
+        basis, grading_segments = 'all_support', [s[:6] for s in segments]
+
+    def _mapping(gb):
+        """(map_point, sx, sy) from source coordinates into a slice whose
+        model bounds are gb (or one object instance's bounds)."""
+        if recorded_scale:
+            rs = float(recorded_scale)
+            anchor = placement_mm if placement_mm is not None else (gb[0], gb[1]) if gb else (0.0, 0.0)
+            ref = (source_bounds[0], source_bounds[1]) if source_bounds else (0.0, 0.0)
+            return (lambda x, y: (anchor[0] + (x - ref[0]) * rs, anchor[1] + (y - ref[1]) * rs)), rs, rs
+        if source_bounds and gb:
+            sx = ((gb[2] - gb[0]) / (source_bounds[2] - source_bounds[0])
+                  if source_bounds[2] > source_bounds[0] else 1.0)
+            sy = ((gb[3] - gb[1]) / (source_bounds[3] - source_bounds[1])
+                  if source_bounds[3] > source_bounds[1] else 1.0)
+            return (lambda x, y: (gb[0] + (x - source_bounds[0]) * sx,
+                                  gb[1] + (y - source_bounds[1]) * sy)), sx, sy
+        return (lambda x, y: (x, y)), 1.0, 1.0
+
+    out, not_on_plate = [], []
     ok = True
     for r in targets:
-        (x0, y0), (x1, y1) = _map(r['bbox_mm'])
-        zmin = (r.get('z_mm') or {}).get('min')
-        if zmin is not None:
-            # A scaled slice scales the underside height with the model.
-            zmin = zmin * z_scale
-        nx = max(1, int(np.ceil((x1 - x0) / cell_mm)))
-        ny = max(1, int(np.ceil((y1 - y0) / cell_mm)))
-        covered = set()
-        # Support at the wrong height does not hold this underside up:
-        # only the part of a segment near the underside's own Z counts.
-        zlo = zmin - 1.0 if zmin is not None else None
-        zhi = zmin + 0.5 if zmin is not None else None
-        for ax, ay, az, bx, by, bz in segments:
-            # Clip the segment to the target's own box before sampling
-            # (#938 item 2): a path that never enters the box contributes
-            # nothing, however narrow the box is, while a crossing still
-            # counts every cell it passes through — including a partial
-            # edge cell whose in-box interval the unclipped samples
-            # would jump over.
-            hit = _clip_segment_to_box(ax, ay, az, bx, by, bz, x0, y0, x1, y1, zlo, zhi)
-            if hit is None:
+        instances = [None]
+        if object_bounds:
+            matches = [ob for ob in object_bounds if _object_match(ob.get('name'), r)]
+            if matches:
+                instances = matches
+            elif matched_only:
+                not_on_plate.append({'kind': r['kind'], 'part': r.get('part'),
+                                     'reason': 'no matching object instance on this plate'})
                 continue
-            (px, py), (qx, qy) = hit
-            # Sample along the clipped segment: a long straight support
-            # line covers every cell it crosses, not only its endpoints.
-            dist = max(abs(qx - px), abs(qy - py))
-            steps = max(1, int(dist // (cell_mm / 2)) + 1)
-            for s in range(steps + 1):
-                t = s / steps
-                x = px + (qx - px) * t
-                y = py + (qy - py) * t
-                # A sample exactly on the box's upper edge indexes one
-                # past the last cell; the clamp keeps it in that cell.
-                i = min(nx - 1, max(0, int((x - x0) // cell_mm)))
-                j = min(ny - 1, max(0, int((y - y0) // cell_mm)))
-                covered.add((i, j))
-        total = nx * ny
-        cov = len(covered) / total if total else 1.0
-        ok = ok and cov >= 1.0
-        out.append({'kind': r['kind'], 'part': r.get('part'), 'z_mm': r.get('z_mm'),
-                    'bbox_mm': r['bbox_mm'], 'coverage': round(cov, 4),
-                    'covered_cells': len(covered), 'total_cells': total})
-    return {'checked': True, 'ok': ok, 'regions': out}
+        for instance in instances:
+            gb = instance['bounds'] if instance else gcode_bounds
+            _map_point, sx, sy = _mapping(gb)
+            zs = z_scale
+            if zs is None:
+                # The job scale is uniform: the mapping's scale is the
+                # slice's Z scale as well (#938 item 1).
+                zs = recorded_scale if recorded_scale else (sx + sy) / 2.0 if (source_bounds and gb) else 1.0
+            (x0, y0) = _map_point(*r['bbox_mm'][0])
+            (x1, y1) = _map_point(*r['bbox_mm'][1])
+            zmin = (r.get('z_mm') or {}).get('min')
+            if zmin is not None:
+                # A scaled slice scales the underside height with the model.
+                zmin = zmin * zs
+            nx = max(1, int(np.ceil((x1 - x0) / cell_mm)))
+            ny = max(1, int(np.ceil((y1 - y0) / cell_mm)))
+            covered = set()
+            # Support at the wrong height does not hold this underside up:
+            # only the part of a segment near the underside's own Z counts.
+            zlo = zmin - 1.0 if zmin is not None else None
+            zhi = zmin + 0.5 if zmin is not None else None
+            for ax, ay, az, bx, by, bz in grading_segments:
+                # Clip the segment to the target's own box before sampling
+                # (#938 item 2): a path that never enters the box contributes
+                # nothing, however narrow the box is, while a crossing still
+                # counts every cell it passes through — including a partial
+                # edge cell whose in-box interval the unclipped samples
+                # would jump over.
+                hit = _clip_segment_to_box(ax, ay, az, bx, by, bz, x0, y0, x1, y1, zlo, zhi)
+                if hit is None:
+                    continue
+                (px, py), (qx, qy) = hit
+                # Sample along the clipped segment: a long straight support
+                # line covers every cell it crosses, not only its endpoints.
+                dist = max(abs(qx - px), abs(qy - py))
+                steps = max(1, int(dist // (cell_mm / 2)) + 1)
+                for s in range(steps + 1):
+                    t = s / steps
+                    x = px + (qx - px) * t
+                    y = py + (qy - py) * t
+                    # A sample exactly on the box's upper edge indexes one
+                    # past the last cell; the clamp keeps it in that cell.
+                    i = min(nx - 1, max(0, int((x - x0) // cell_mm)))
+                    j = min(ny - 1, max(0, int((y - y0) // cell_mm)))
+                    covered.add((i, j))
+            graded = 'bbox'
+            total = nx * ny
+            hit_cells = covered
+            footprint = r.get('footprint')
+            if footprint:
+                fpitch = float(r.get('footprint_mm') or FOOTPRINT_MM)
+                area_by_cell = {}
+                for fx, fy, share in footprint:
+                    mx, my = _map_point(float(fx), float(fy))
+                    i = min(nx - 1, max(0, int((mx - x0) // cell_mm)))
+                    j = min(ny - 1, max(0, int((my - y0) // cell_mm)))
+                    area_by_cell[(i, j)] = (area_by_cell.get((i, j), 0.0)
+                                            + float(share) * fpitch * fpitch * abs(sx * sy))
+                target_cells = {c for c, a in area_by_cell.items()
+                                if a >= FOOTPRINT_SHARE_MIN * cell_mm * cell_mm}
+                if target_cells:
+                    graded = 'footprint'
+                    total = len(target_cells)
+                    hit_cells = covered & target_cells
+            cov = len(hit_cells) / total if total else 1.0
+            ok = ok and cov >= 1.0
+            entry = {'kind': r['kind'], 'part': r.get('part'), 'z_mm': r.get('z_mm'),
+                     'bbox_mm': r['bbox_mm'], 'coverage': round(cov, 4),
+                     'covered_cells': len(hit_cells), 'total_cells': total,
+                     'graded': graded, 'support_style': style, 'acceptance_basis': basis}
+            if instance:
+                entry['object_instance'] = instance.get('name')
+                entry['mapping'] = 'object_instance'
+            out.append(entry)
+    result = {'checked': True, 'ok': ok, 'regions': out, 'excluded_targets': excluded,
+              'scale_source': scale_source, 'support_style': style, 'acceptance_basis': basis}
+    if not_on_plate:
+        result['not_on_plate'] = not_on_plate
+    return result
+
+
+def verify_coverage_by_plate(regions, plates):
+    """Per-plate post-slice coverage (#963 items 4 and 7).
+
+    ``plates`` is a list of {'gcode': text or path, ...} dicts; every
+    other key is forwarded to ``verify_support_coverage`` for that plate
+    (``source_bounds``, ``z_scale`` or ``source_height`` — the plate's Z
+    scale is derived from its own model height — ``recorded_scale``,
+    ``placement_mm``, ``support_style``, ``cell_mm``; ``gcode_bounds``
+    defaults to the plate's own model bounds). A region is graded only
+    on plates whose G-code carries a matching object instance, with that
+    plate's own bounds, so one plate's support can never cover another
+    plate's region. When any plate's G-code has no object markers,
+    attribution is impossible and the plates fall back to one grading
+    over the concatenated text, named ``concatenated_fallback``.
+
+    Nothing fails open silently: an unreadable plate file, a plate whose
+    check raises, a caller-supplied ``unverified_reason`` (for example
+    unreadable source bounds) and a target region matched by no plate
+    all come back as named ``unverified`` entries, with ``ok`` left True
+    for whatever could not be checked — the caller records them in the
+    receipt instead of treating them as a pass or a refusal.
+    """
+    plates = list(plates or [])
+    if not plates:
+        return {'checked': False, 'ok': True, 'regions': [], 'unverified': [], 'plate_mode': 'none'}
+    keys = ('source_bounds', 'gcode_bounds', 'z_scale', 'recorded_scale',
+            'placement_mm', 'support_style', 'cell_mm')
+    read, unverified = [], []
+    for i, plate in enumerate(plates):
+        kw = {k: plate[k] for k in keys if plate.get(k) is not None}
+        g = plate.get('gcode')
+        label = plate.get('label')
+        try:
+            if isinstance(g, str) and '\n' not in g or not isinstance(g, str):
+                text = Path(g).read_text(errors='replace')
+                label = label or Path(g).name
+            else:
+                text = g
+        except OSError as exc:
+            unverified.append({'plate': i + 1,
+                               'reason': f'plate {i + 1} G-code unreadable ({label or g}): {exc}'})
+            continue
+        if plate.get('source_height'):
+            height = gcode_model_height(text)
+            if height:
+                kw.setdefault('z_scale', height / float(plate['source_height']))
+        read.append((i + 1, text, kw, plate))
+        if plate.get('unverified_reason'):
+            unverified.append({'plate': i + 1, 'reason': str(plate['unverified_reason'])})
+    if not read:
+        return {'checked': False, 'ok': True, 'regions': [], 'unverified': unverified,
+                'plate_mode': 'single' if len(plates) == 1 else 'per_plate'}
+
+    def _run(i, text, kw, matched_only):
+        try:
+            result = verify_support_coverage(
+                regions, text, object_bounds=gcode_object_bounds(text) or None,
+                matched_only=matched_only, **kw)
+        except Exception as exc:  # noqa: BLE001 - a failed check is named, never a silent pass
+            unverified.append({'plate': i, 'reason': f'plate {i} coverage check failed: {exc}'})
+            return None
+        for entry in result['regions']:
+            entry['plate'] = i
+        return result
+
+    results = []
+    if len(read) == 1:
+        i, text, kw, _plate = read[0]
+        kw.setdefault('gcode_bounds', gcode_model_bounds(text))
+        result = _run(i, text, kw, matched_only=False)
+        if result is not None:
+            results.append(result)
+        mode = 'single'
+    elif all(gcode_object_bounds(text) for _i, text, _kw, _p in read):
+        mode = 'per_plate'
+        graded_parts = set()
+        for i, text, kw, _plate in read:
+            kw.setdefault('gcode_bounds', gcode_model_bounds(text))
+            result = _run(i, text, kw, matched_only=True)
+            if result is None:
+                continue
+            results.append(result)
+            graded_parts.update(e['part'] for e in result['regions'])
+        target_parts = {r.get('part') for r in (regions.get('regions') if isinstance(regions, dict)
+                                                else regions) or []
+                        if r.get('kind') in ('supportable_overhang', 'low_clearance')
+                        and r.get('bbox_mm')
+                        and not (r.get('kind') == 'low_clearance' and r.get('flagged') is False)}
+        for part in sorted(target_parts - graded_parts, key=str):
+            unverified.append({'plate': None,
+                               'reason': f'region {part} matched no object instance on any '
+                                         'plate; its coverage is unverified'})
+    else:
+        mode = 'concatenated_fallback'
+        text = '\n'.join(t for _i, t, _kw, _p in read)
+        kw = dict(read[0][2])
+        kw['gcode_bounds'] = gcode_model_bounds(text)
+        result = _run(read[0][0], text, kw, matched_only=False)
+        if result is not None:
+            results.append(result)
+    out = [entry for result in results for entry in result['regions']]
+    checked = any(result['checked'] for result in results)
+    result = {'checked': checked,
+              'ok': all(result['ok'] for result in results if result['checked']),
+              'regions': out, 'unverified': unverified, 'plate_mode': mode,
+              'plates': [{'checked': r['checked'], 'ok': r['ok']} for r in results]}
+    for key in ('excluded_targets', 'scale_source', 'support_style', 'acceptance_basis'):
+        if results and key in results[0]:
+            result[key] = results[0][key]
+    return result
 
 
 def _mesh_volume(source):
