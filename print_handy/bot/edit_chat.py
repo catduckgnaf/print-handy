@@ -5,6 +5,7 @@ plugin's gate, confirm, state and design helpers without importing the
 plugin file.
 """
 import asyncio
+import contextlib
 import contextvars
 import copy
 import json
@@ -463,7 +464,9 @@ def instruction_after_model(text, url=None):
     rest = re.sub(r'https?://\S+', ' ', rest).strip()
     if not rest:
         return None
-    from print_handy.core import edit_plan, model_questions
+    from print_handy.core import ai_fix, edit_plan, model_questions
+    if ai_fix.looks_like_repair(rest):
+        return rest  # "fix this" beside a file is the #978 repair flow
     if model_questions.classify(rest) is not None:
         return rest
     try:
@@ -498,6 +501,114 @@ def _edit_count(job_path):
         return 0
 
 
+async def _repair_flow(event, gateway, source, adapter):
+    """AI repair of the channel's current job (#978): "fix this" / "repair
+    this" / "make this printable".
+
+    The heavy tier proposes the fix; every change is shown (with a render
+    preview for geometry/mesh changes) and confirmed before anything is
+    applied. The confirmation is NOT an approval question -- any authorized
+    user may ask for a fix; starting the fixed print keeps the intake's own
+    approver gate. Repairs write a copy of the source (the original file is
+    never overwritten, and the swap is recorded in the job's ``ai_fixes``),
+    then the job re-enters the intake, which re-slices and re-runs every
+    post-slice gate on the fixed model.
+    """
+    from print_handy.core import ai_fix, edit_plan, model_job as mj
+    metadata = {'thread_id': source.thread_id} if source.thread_id else None
+
+    async def say(content):
+        await adapter.send(chat_id=source.chat_id, metadata=metadata, content=content)
+
+    if not ai_fix.heavy_ready():
+        await say(ai_fix.UNCONFIGURED_NOTE + ' Nothing was changed.')
+        return {'action': 'skip', 'reason': 'repair: AI not configured'}
+    root = _h()._state_dir() / 'model-link-intakes'
+    found = _edit_current_job(root, source)
+    if found is None:
+        await say('There is no current model job in this channel to fix. Send a model link '
+                  'or drop the file first, and I will prepare it.')
+        return {'action': 'skip', 'reason': 'repair: no current job'}
+    _receipt, job_path, job = found
+    source_path = Path(job.get('downloaded_file') or '')
+    if not source_path.is_file():
+        await say('The model file for this job is no longer on disk, so I cannot fix it.')
+        return {'action': 'skip', 'reason': 'repair: source file missing'}
+    text = str(getattr(event, 'text', '') or '')
+    mesh = None
+    with contextlib.suppress(Exception):
+        mesh = ai_fix.mesh_facts(source_path)
+    try:
+        proposal = await asyncio.to_thread(ai_fix.propose_fix, text, job, mesh=mesh)
+    except Exception as exc:  # noqa: BLE001 - a failed proposal changes nothing
+        logger.warning('repair proposal failed: %r', exc)
+        detail = str(exc) if isinstance(exc, ai_fix.FixError) else 'the AI endpoint did not answer'
+        await say(f'No AI fix could be prepared ({detail}), so nothing was changed.')
+        return {'action': 'skip', 'reason': 'repair proposal failed'}
+    try:
+        enriched = [edit_plan.enrich_plan(plan, job, source_path) for plan in proposal.plans]
+    except edit_plan.PlanError as exc:
+        await say(f'The AI proposed a fix that cannot be applied ({exc}), so nothing was changed.')
+        return {'action': 'skip', 'reason': 'repair plan refused'}
+    fixed_path, report = None, {}
+    if proposal.geometry or proposal.mesh_repair:
+        try:
+            fixed_path, report = await asyncio.to_thread(
+                ai_fix.build_fixed_copy, source_path, proposal, job_path.parent)
+        except Exception as exc:  # noqa: BLE001 - an unbuildable fix changes nothing
+            logger.warning('repair could not be built: %r', exc)
+            await say('That fix could not be built, so nothing was changed.')
+            return {'action': 'skip', 'reason': 'repair could not be built'}
+        with contextlib.suppress(Exception):
+            from print_handy.core.render_preview import render
+            image_path = await asyncio.to_thread(render, fixed_path)
+            await say('Preview of the fixed model (the original file is unchanged).\nMEDIA:'
+                      + image_path)
+    lines = ['AI fix proposed' + (f': {proposal.summary}' if proposal.summary else '') + ':']
+    lines += [f'- {line}' for line in proposal.describe()]
+    if report.get('mesh'):
+        mesh_report = report['mesh']
+        lines.append(f"- mesh after repair: {mesh_report['after']['triangles']} triangles, "
+                     f"{'watertight' if mesh_report['after']['watertight'] else 'still not watertight'} "
+                     f"({mesh_report['holes_filled']} hole(s) filled, "
+                     f"{mesh_report['dropped_degenerate'] + mesh_report['dropped_duplicates']} "
+                     'broken triangle(s) dropped)')
+    lines.append('Nothing is overwritten: the fix works on a copy, and applying it re-slices '
+                 'and runs every check again.')
+    timeout = _config.question_timeout_s()
+    answer = await _h()._confirm(adapter, source, metadata, 'model-fix',
+                                 '\n'.join(lines), [ai_fix.APPLY_LABEL, 'Cancel'], timeout,
+                                 live_key=gateway._session_key_for_source(source))
+    if answer != ai_fix.APPLY_LABEL:
+        await say('No fix applied.')
+        return {'action': 'skip', 'reason': 'repair declined'}
+    actor = f"{_h()._platform_value(source) or 'discord'}:{getattr(source, 'user_id', '')}"
+    if fixed_path is not None:
+        job.setdefault('ai_fixes', []).append({
+            'at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'actor': actor, 'lane': 'ai_fix',
+            'problem': text[:300], 'geometry': proposal.geometry,
+            'mesh_repair': proposal.mesh_repair, 'report': report,
+            'source_file_before': str(source_path), 'source_file_after': str(fixed_path),
+            'source_sha256_before': edit_plan.file_sha256(source_path),
+            'source_sha256_after': edit_plan.file_sha256(fixed_path)})
+        job['downloaded_file'] = str(fixed_path)
+        if job.get('sources'):
+            job['sources'] = [dict(job['sources'][0], path=str(fixed_path),
+                                   name=fixed_path.name)]
+        if isinstance(job.get('selected_source'), dict):
+            job['selected_source'] = dict(job['selected_source'], path=str(fixed_path),
+                                          name=fixed_path.name)
+    for plan in enriched:
+        edit_plan.record_edit(job, plan, actor=actor, lane='ai_fix',
+                              source_sha256=edit_plan.file_sha256(source_path))
+        edit_plan.apply_plan(job, plan)
+    mj.write_job(job_path.parent, job)
+    result = await _edit_reenter(event, gateway, source, adapter, job)
+    await say('Fix applied: the fixed model was re-sliced above and every check ran again. '
+              'The original file is unchanged.')
+    return result if isinstance(result, dict) else {'action': 'skip', 'reason': 'repair applied'}
+
+
 async def _follow_up(event, gateway, source, adapter, instruction):
     """Run the instruction against the job the intake just prepared, through
     the same edit and question path a separate message would take."""
@@ -530,6 +641,9 @@ async def _dispatch(event, gateway, **kwargs):
     question_kind = None if undo else model_questions.classify(text)
     if question_kind is not None:
         return await _edit_question(event, gateway, source, adapter, question_kind)
+    from print_handy.core import ai_fix as _ai_fix
+    if not undo and _ai_fix.looks_like_repair(text):
+        return await _repair_flow(event, gateway, source, adapter)
     resolve_error = None
     try:
         resolved = None if undo else edit_plan.resolve_request(text)
