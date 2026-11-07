@@ -523,7 +523,12 @@ jobs:
       - name: Slicer tests and Discord flow corpus with real Orca
         env:
           PRINT_HANDY_TEST_SHARD: ${{ matrix.shard }}/3
-        run: xvfb-run -a python -m pytest -v -s tests/slicer tests/corpus
+        # tests/pipeline/test_first_layer_workflow.py is named explicitly:
+        # its two real_slicer tests are the only pipeline tests with that
+        # mark, and no other job runs tests/pipeline with a real slicer, so
+        # without this path they skipped in every job (2026-11-07
+        # test-suite cleanup, finding #21).
+        run: xvfb-run -a python -m pytest -v -s tests/slicer tests/corpus tests/pipeline/test_first_layer_workflow.py
 
   slicer-test-stable-result:
     if: always()
