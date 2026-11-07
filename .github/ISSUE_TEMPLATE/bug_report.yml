@@ -75,7 +75,7 @@ body:
     id: diagnostics_bundle
     attributes:
       label: Diagnostics bundle
-      description: Run `/print-handy bundle` in Discord (or `python3 -m print_handy.diagnostics_bundle` on the host) and attach the generated diagnostics-bundle.md file to this issue, or paste its Doctor section here. The bundle is redacted — it contains versions, a configuration summary with secret values removed, the printer roster, doctor output and a bounded log tail. Review it before attaching.
+      description: Run `/print-handy bundle` in Discord (or `python3 -m print_handy.diagnostics_bundle` on the host) and attach the generated diagnostics-bundle.md file to this issue, or paste its Doctor section here. The bundle is redacted — it contains versions, a configuration summary with secret values removed, the printer roster, doctor output and a bounded log tail. Review it before attaching. Required for bug reports: the Issue policy check labels a report `needs-info` until a bundle or sanitization report is present. Do not paste local paths, host names, private addresses or accounts; the Public text policy check flags them.
     validations:
       required: false
   - type: input

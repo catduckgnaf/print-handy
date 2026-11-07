@@ -3060,6 +3060,7 @@ class Listener:
         self.display_off = None  # live ZMod display mode from the last presence poll; None until read
         self.presence_failure = None  # last presence poll failure, logged once until it changes
         self.capture_session = None  # #246 stage 2: active timelapse_capture session, if any
+        self._capture_generation = 0  # bumped per capture begin/end; a stale begin installs nothing (#1020)
         self._capture_task = None  # in-flight scheduled capture fetch (P2-133)
         self.shutdown_alerted = None  # filename whose firmware-stop alert fired for THIS attempt (P2-57)
         self.print_identity = None  # this print's identity, fixed at its fresh start
@@ -3693,7 +3694,10 @@ class Listener:
             # (re)connected): open the #246 stage 2 capture session,
             # replacing any session a missed end left open. A resume keeps
             # the session the pause left open.
-            self._capture_begin(identity)
+            # Off the event loop with a deadline (#1020): this touches disk
+            # and the camera, and a stall here once froze the heartbeat and
+            # every alert. A capture that cannot start in time is skipped.
+            await self._begin_capture(identity)
             # #913: pick this print's watch schedule before the first check.
             self.visual_watch.reset()
             self.local_streak.reset()
@@ -4071,17 +4075,72 @@ class Listener:
     # and nothing here changes any existing behaviour.
 
     def _capture_begin(self, job_key):
-        """Open a capture session for the job that just started. Never raises."""
-        self._capture_end("superseded")
+        """Open a capture session for the job that just started; return it. Never raises.
+
+        Runs in a worker thread (#1020): it touches no listener state, so a
+        thread that outlives its deadline cannot install anything. The
+        caller (:meth:`_begin_capture`) installs the returned session on
+        the event loop only if the start is still the current one, and
+        closes it otherwise.
+        """
         try:
-            self.capture_session = timelapse_capture.begin(
+            return timelapse_capture.begin(
                 job_key, self.filename, data=_config.cfg(), log=log)
         except Exception as exc:  # begin() already fails soft; belt and braces
-            self.capture_session = None
             log(f"timelapse capture begin failed file={self.filename!r}: {exc!r}")
+            return None
+
+    async def _begin_capture(self, job_key):
+        """Install the capture session for a fresh start, with a deadline (#1020).
+
+        Cancelling the awaited thread call does not stop the thread, so a
+        start that times out abandons its request: the late result is
+        closed by a completion callback instead of being installed over
+        whatever the listener has moved on to (a print that ended, or a
+        newer print's own session).
+        """
+        self._capture_end("superseded")  # a session a missed end left open
+        self._capture_generation += 1
+        generation = self._capture_generation
+        worker = asyncio.ensure_future(asyncio.to_thread(self._capture_begin, job_key))
+        try:
+            session = await asyncio.wait_for(asyncio.shield(worker), CAPTURE_BEGIN_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            worker.add_done_callback(self._dispose_late_capture)
+            log(f"timelapse capture begin timed out after {CAPTURE_BEGIN_TIMEOUT_S}s; this print runs without a capture")
+            return
+        except asyncio.CancelledError:
+            worker.add_done_callback(self._dispose_late_capture)
+            raise
+        if generation != self._capture_generation or self.state != "printing":
+            self._close_capture_session(session)
+            return
+        self.capture_session = session
+
+    def _close_capture_session(self, session):
+        """Close a session that was opened but never installed. Never raises."""
+        if session is None:
+            return
+        try:
+            session.stop("superseded")
+        except Exception as exc:  # stop() already fails soft; belt and braces
+            log(f"timelapse capture close of an uninstalled session failed file={self.filename!r}: {exc!r}")
+
+    def _dispose_late_capture(self, worker):
+        """Close a capture session whose start was abandoned (a timeout).
+
+        A done callback on the event loop: the session is never installed,
+        whatever the listener has moved on to since.
+        """
+        if worker.cancelled():
+            return
+        if worker.exception() is not None:
+            return  # _capture_begin never raises; a failure opened nothing
+        self._close_capture_session(worker.result())
 
     def _capture_end(self, state):
         """Close the active capture session, if any. Never raises."""
+        self._capture_generation += 1  # a begin still in flight for this print is now stale
         session, self.capture_session = self.capture_session, None
         if session is not None:
             try:
@@ -4484,12 +4543,31 @@ class Listener:
             await asyncio.gather(beating, return_exceptions=True)
 
 
+#: Longest the capture start may take before the print runs without one.
+CAPTURE_BEGIN_TIMEOUT_S = 20
+
+
+def _install_stack_dump_handler():
+    """Dump every thread's stack to stderr on SIGUSR1 (#1020).
+
+    The container supervisor sends SIGUSR1 to a listener whose heartbeat went
+    stale, just before it restarts it, so the log names the line that hung.
+    """
+    try:
+        import faulthandler
+        import signal
+        faulthandler.register(signal.SIGUSR1, all_threads=True, chain=False)
+    except (ImportError, AttributeError, ValueError, OSError):
+        pass
+
+
 def main():
     if not WS_URL:
         raise SystemExit("services.moonraker_url is not configured (or services.moonraker_ws_url). "
                          "Set it in config/local.yaml or config/local.toml; the listener has nothing to connect to.")
     route = "PRINT_VISION_URL" if os.environ.get("PRINT_VISION_URL") else (_VISION_BASE or "not configured")
     logs.configure()
+    _install_stack_dump_handler()
     log(f"listener starting (Print Handy {__version__}); camera watchdog initialized route={route} model={_VISION_MODEL}")
     asyncio.run(Listener().forever())
 
