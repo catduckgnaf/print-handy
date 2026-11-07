@@ -50,6 +50,19 @@ GitHub App installation token (the print-handy-upstream-bot app), so
 the PRs it opens trigger CI like a human's. With no identity
 configured it is deliberately inert: --check-identity reports
 configured=false and write mode exits 0 without changing anything.
+When both secrets are present, --check-identity also validates
+their shape (the identifier must be the numeric App ID or a Client
+ID in Iv1.../Iv23... form, and the private key must carry a PEM
+PRIVATE KEY header and matching footer): a present-but-malformed
+value reports configured=false, names the malformed secret without
+ever printing its value, and exits 2, so a wrong-but-nonempty pair
+cannot sail through to an opaque API failure. --diagnose-identity
+goes further: it builds an app JWT from the configured pair, asks
+GitHub which app the pair actually identifies (GET /app), and
+whether that app is installed on this repository
+(GET /repos/<repo>/installation), printing the named cause - wrong
+key or ID, or the app not installed / not granted this repository -
+instead of the bare HTTP 404 the token-mint step reports (#950).
 
 A bump moves every surface that records the pin in the same commit
 - for go2rtc the container contract test and three doc records,
@@ -71,6 +84,7 @@ changing anything (read-only; needs no identity).
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -79,6 +93,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -180,6 +195,11 @@ def is_newer(candidate, current):
 # --------------------------------------------------------------------------
 
 
+EXPECTED_APP_SLUG = "print-handy-upstream-bot"
+_CLIENT_ID_RE = re.compile(r"^Iv[0-9][A-Za-z0-9._-]{6,}$")
+_PEM_HEADER_RE = re.compile(r"-----BEGIN (?:([A-Za-z0-9 ]+?) )?PRIVATE KEY-----")
+
+
 def identity_configured(env):
     """True only when both upstream-bot secrets are present."""
     return bool(env.get("UPSTREAM_BOT_APP_ID")) and bool(
@@ -187,12 +207,241 @@ def identity_configured(env):
     )
 
 
+def valid_app_identifier(value):
+    """Shape check for UPSTREAM_BOT_APP_ID (no value is ever logged).
+
+    GitHub accepts either form as the app JWT issuer and the
+    create-github-app-token client-id input accepts either through
+    the same code path: the numeric App ID (digits only) or the
+    Client ID (Iv1... / Iv23...). Anything else - a slug, a name, a
+    pasted token - is malformed.
+    """
+    value = (value or "").strip()
+    if not value:
+        return False
+    return value.isdigit() or bool(_CLIENT_ID_RE.match(value))
+
+
+def valid_private_key(value):
+    """Shape check for UPSTREAM_BOT_PRIVATE_KEY (shape only).
+
+    Well-formed means a PEM block: a -----BEGIN <label> PRIVATE
+    KEY----- header with the matching -----END footer. The key
+    material itself is never inspected beyond that and never logged.
+    """
+    value = value or ""
+    match = _PEM_HEADER_RE.search(value)
+    if not match:
+        return False
+    label = match.group(1)
+    footer = f"-----END {label} PRIVATE KEY-----" if label else "-----END PRIVATE KEY-----"
+    return footer in value
+
+
+def identity_shape_problems(env):
+    """Precise, non-secret errors for present-but-malformed secrets."""
+    problems = []
+    if not valid_app_identifier(env.get("UPSTREAM_BOT_APP_ID")):
+        problems.append(
+            "UPSTREAM_BOT_APP_ID is malformed: expected the numeric App ID "
+            "(digits only) or a Client ID in Iv1.../Iv23... form. "
+            "The secret value itself is not printed."
+        )
+    if not valid_private_key(env.get("UPSTREAM_BOT_PRIVATE_KEY")):
+        problems.append(
+            "UPSTREAM_BOT_PRIVATE_KEY is malformed: expected a PEM private "
+            "key containing a -----BEGIN ... PRIVATE KEY----- header and a "
+            "matching -----END ... PRIVATE KEY----- footer. "
+            "The key material is not printed."
+        )
+    return problems
+
+
 def check_identity(env, out, err):
-    """Print configured=true|false for $GITHUB_OUTPUT; notice on stderr."""
-    configured = identity_configured(env)
-    if not configured:
+    """Print configured=true|false for $GITHUB_OUTPUT; notice on stderr.
+
+    Absent secrets keep the inert behavior (configured=false, exit
+    0). Present-but-malformed secrets also print configured=false
+    but exit 2 with a precise error naming which value is malformed,
+    so the workflow fails loudly instead of minting against a
+    wrong-but-nonempty pair and reporting a bare 404 (#950).
+    """
+    if not identity_configured(env):
         print(INERT_NOTICE, file=err)
-    print(f"configured={'true' if configured else 'false'}", file=out)
+        print("configured=false", file=out)
+        return 0
+    problems = identity_shape_problems(env)
+    if problems:
+        for problem in problems:
+            print(f"error: {problem}", file=err)
+        print("configured=false", file=out)
+        return 2
+    print("configured=true", file=out)
+    return 0
+
+
+def _b64url(data):
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _now_epoch(now):
+    if now is None:
+        return int(time.time())
+    if isinstance(now, datetime):
+        return int(now.timestamp())
+    return int(now)
+
+
+def _openssl_sign(signing_input, private_key):
+    """Default JWT signer: RS256 via openssl, key in a 0600 temp file.
+
+    The key file is deleted immediately after signing, and the key
+    material never reaches a log or an argument list.
+    """
+    fd, path = tempfile.mkstemp(prefix="upstream-bot-key-")
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w") as handle:
+            handle.write(private_key)
+        result = subprocess.run(
+            ["openssl", "dgst", "-sha256", "-sign", path],
+            input=signing_input,
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            raise BumpError(
+                "openssl could not sign the app JWT with "
+                "UPSTREAM_BOT_PRIVATE_KEY (the key is not usable as an "
+                "RSA private key; its material is not printed)"
+            )
+        return result.stdout
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+def build_app_jwt(identifier, private_key, signer=None, now=None):
+    """An RS256 app JWT: iss=<identifier>, iat=now-60, exp=now+600."""
+    epoch = _now_epoch(now)
+    header = {"alg": "RS256", "typ": "JWT"}
+    claims = {"iss": identifier, "iat": epoch - 60, "exp": epoch + 600}
+    signing_input = (
+        _b64url(json.dumps(header, separators=(",", ":")).encode())
+        + "."
+        + _b64url(json.dumps(claims, separators=(",", ":")).encode())
+    ).encode("ascii")
+    signature = (signer or _openssl_sign)(signing_input, private_key)
+    return signing_input.decode("ascii") + "." + _b64url(signature)
+
+
+def _http_status(exc):
+    match = re.search(r"HTTP (\d{3})", str(exc))
+    return int(match.group(1)) if match else None
+
+
+def diagnose_identity(env, repo, out, err, opener=None, signer=None, now=None):
+    """Name the exact identity failure instead of a bare 404 (#950).
+
+    Builds an app JWT from the configured pair, then asks GitHub
+    who the pair identifies (GET /app) and whether that app is
+    installed on this repository (GET /repos/<repo>/installation).
+    Returns 0 when the app is installed on the repo, 3 when the
+    installation lookup 404s, 2 for missing/malformed secrets, and
+    a nonzero code for authentication or other API failures. Secret
+    values and key material are never printed.
+    """
+    if not identity_configured(env):
+        print(INERT_NOTICE, file=err)
+        print("diagnosis: the upstream bot identity is not configured.", file=out)
+        return 2
+    problems = identity_shape_problems(env)
+    if problems:
+        for problem in problems:
+            print(f"error: {problem}", file=err)
+            print(f"diagnosis: {problem}", file=out)
+        return 2
+    identifier = env["UPSTREAM_BOT_APP_ID"].strip()
+    try:
+        jwt_token = build_app_jwt(
+            identifier, env["UPSTREAM_BOT_PRIVATE_KEY"], signer=signer, now=now
+        )
+    except BumpError as exc:
+        print(f"diagnosis: {exc}", file=out)
+        print(f"error: {exc}", file=err)
+        return 4
+    api = GitHubApi(token=jwt_token, opener=opener)
+    try:
+        app = api.request("GET", "/app") or {}
+    except BumpError as exc:
+        status = _http_status(exc)
+        if status == 401:
+            message = (
+                "diagnosis: GitHub rejected the app JWT (HTTP 401): the "
+                "private key does not belong to the identifier - "
+                "UPSTREAM_BOT_PRIVATE_KEY is not the private key for "
+                "UPSTREAM_BOT_APP_ID (wrong key or wrong ID). Regenerate "
+                "the key on the app's settings page and store the pair "
+                "from the same app."
+            )
+            print(message, file=out)
+            print(message, file=err)
+            return 4
+        message = f"diagnosis: GET /app failed: HTTP {status}" if status else f"diagnosis: GET /app failed: {exc}"
+        print(message, file=out)
+        print(message, file=err)
+        return 5
+    slug = app.get("slug") or ""
+    owner = (app.get("owner") or {}).get("login") or ""
+    print(
+        f"app: id={app.get('id')} slug={slug} name={app.get('name')} owner={owner}",
+        file=out,
+    )
+    if slug != EXPECTED_APP_SLUG:
+        print(
+            f"diagnosis: the configured secrets identify the app '{slug}', "
+            f"not '{EXPECTED_APP_SLUG}' - the secret pair belongs to a "
+            "differently-named app.",
+            file=out,
+        )
+    try:
+        installation = api.request("GET", f"/repos/{repo}/installation") or {}
+    except BumpError as exc:
+        status = _http_status(exc)
+        if status == 404:
+            lines = [
+                f"diagnosis: the app '{slug}' is not installed on {repo} "
+                "(GET /repos/"
+                f"{repo}/installation returned HTTP 404). Two candidate causes:",
+                f"1. The app named {slug} is not installed on this repository: "
+                f"install it, checking Settings -> Installations -> {slug} -> "
+                "Repository access includes this repository.",
+                "2. A different app is the installed one: if the app installed "
+                "on this repository is not "
+                f"{slug}, the secrets belong to the wrong app - "
+                "UPSTREAM_BOT_APP_ID / UPSTREAM_BOT_PRIVATE_KEY must be the "
+                f"credentials of the installed app ({slug} is the app the "
+                "current secrets identify).",
+            ]
+            for line in lines:
+                print(line, file=out)
+            print(lines[0], file=err)
+            return 3
+        message = (
+            f"diagnosis: GET /repos/{repo}/installation failed: HTTP {status}"
+            if status
+            else f"diagnosis: GET /repos/{repo}/installation failed: {exc}"
+        )
+        print(message, file=out)
+        print(message, file=err)
+        return 5
+    print(
+        f"installation: id={installation.get('id')} "
+        f"repository_selection={installation.get('repository_selection')}",
+        file=out,
+    )
+    print(f"diagnosis: '{slug}' is installed on {repo}; the identity is healthy.", file=out)
     return 0
 
 
@@ -1808,12 +2057,16 @@ def main(argv=None, env=None, now=None, out=None, err=None):
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--repo", default=env.get("GITHUB_REPOSITORY") or DEFAULT_REPO)
     parser.add_argument("--check-identity", action="store_true")
+    parser.add_argument("--diagnose-identity", action="store_true")
     parser.add_argument("--mark-ready", action="store_true")
     parser.add_argument("--branch", default="")
     args = parser.parse_args(argv)
 
     if args.check_identity:
         return check_identity(env, out, err)
+
+    if args.diagnose_identity:
+        return diagnose_identity(env, args.repo, out, err)
 
     token = env.get("GH_TOKEN") or env.get("GITHUB_TOKEN")
     root = repo_root()
