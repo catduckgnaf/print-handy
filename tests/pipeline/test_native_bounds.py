@@ -8,10 +8,11 @@ from the Python implementation):
 2. The Rust extension (``print_handy.core._bounds_native``) when it is
    built — the corpus runs against ``parse_bounds`` directly. In the
    offline CI legs, where the extension is not built, these tests skip;
-   the dedicated ``native-bounds`` CI job builds the wheel and runs
-   this file with PRINT_HANDY_BOUNDS_IMPL=native, which makes the
-   dispatcher raise instead of falling back, so a missing or broken
-   extension fails that job loudly instead of skipping silently.
+   the dedicated ``native-bounds`` CI job builds the wheel, mirrors
+   the extension into the source package, and runs this file with
+   PRINT_HANDY_BOUNDS_REQUIRE_NATIVE=1, which turns a missing
+   extension into a hard failure in the strict dispatcher test instead
+   of a silent skip.
 3. The dispatcher ``gcode_motion_bounds`` — ASCII input may take either
    path but must return the recorded outcome; non-ASCII input always
    takes the Python path (the ASCII gate), which is what makes the
@@ -22,6 +23,7 @@ version mismatch, a failing golden self-check and a mid-parse internal
 error each land on the Python parser with identical results.
 """
 import importlib
+import os
 import sys
 import types
 
@@ -209,13 +211,39 @@ EXPECTED_TEXT = {"x": (-5.0, 10.0), "y": (20.0, 30.0), "z": (0.2, 5.0)}
 def test_dispatcher_uses_a_verified_fake_native_module(monkeypatch):
     calls = []
     fake = _fake_module()
+    real = fake.parse_bounds
 
     def counting(text):
         calls.append(text)
-        return model_job._gcode_motion_bounds_python(text)
+        return real(text)
 
     fake.parse_bounds = counting
     _install_fake(monkeypatch, fake)
+    assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
+    assert TEXT in calls
+
+
+def test_dispatcher_uses_the_native_module_when_required(monkeypatch):
+    """The strict end-to-end proof for the native-bounds CI job: with
+    PRINT_HANDY_BOUNDS_IMPL=native the dispatcher must parse through
+    the real extension. Skips when the extension is not built — except
+    when PRINT_HANDY_BOUNDS_REQUIRE_NATIVE is set (the CI job), where
+    a missing extension is a failure, never a skip."""
+    module = _native_module()
+    if module is None:
+        if os.environ.get("PRINT_HANDY_BOUNDS_REQUIRE_NATIVE"):
+            pytest.fail("native bounds extension required but not importable")
+        pytest.skip("native bounds extension not built")
+    calls = []
+    real = module.parse_bounds
+
+    def counting(text):
+        calls.append(text)
+        return real(text)
+
+    monkeypatch.setattr(module, "parse_bounds", counting)
+    monkeypatch.setenv("PRINT_HANDY_BOUNDS_IMPL", "native")
+    model_job._reset_native_bounds_cache()
     assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
     assert TEXT in calls
 

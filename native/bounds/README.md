@@ -46,6 +46,6 @@ maturin develop --release   # installs into the current environment
 
 Without the built extension everything still works — the Python parser
 handles every input. Set `PRINT_HANDY_BOUNDS_IMPL=python` to force the
-fallback, or `=native` to make a missing/broken extension an error
-(the native-bounds CI job uses the latter so the native tests can
-never pass by silently skipping).
+fallback, or `=native` to make a missing/broken extension an error.
+The native-bounds CI job sets `PRINT_HANDY_BOUNDS_REQUIRE_NATIVE=1`
+so its strict dispatcher test can never pass by silently skipping.

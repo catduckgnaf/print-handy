@@ -386,9 +386,9 @@ class OrcaPrebuiltTests(unittest.TestCase):
 
 class RuntimeImageTests(unittest.TestCase):
     def test_every_stage_uses_debian_stable(self):
-        """Debian 13 slim for every stage (Orca, go2rtc, Bambu, Spoolman, runtime); no stock UID 1000 user, so handy takes 1000."""
+        """Debian 13 slim for every stage (Orca, go2rtc, Bambu, Spoolman, bounds, runtime); no stock UID 1000 user, so handy takes 1000."""
         self.assertEqual(re.findall(r"^FROM (debian:13-slim)(?: AS [\w-]+)?$", DOCKERFILE, re.M),
-                         ["debian:13-slim"] * 5)
+                         ["debian:13-slim"] * 6)
         runtime = DOCKERFILE.split("FROM debian:13-slim AS runtime", 1)[1]
         self.assertIn("useradd --uid 1000 --create-home handy", runtime)
         self.assertNotIn("ubuntu", DOCKERFILE)

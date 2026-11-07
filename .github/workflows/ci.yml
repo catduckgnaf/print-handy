@@ -199,10 +199,13 @@ jobs:
 
   native-bounds:
     # Builds the Rust/PyO3 bounds extension (#952, D1) and runs the
-    # equivalence corpus against the native path. PRINT_HANDY_BOUNDS_IMPL=native
-    # makes the dispatcher raise when the extension is missing or fails
-    # verification, so this job cannot pass by silently falling back;
-    # the -rs summary prints any remaining skips for the record.
+    # equivalence corpus against the native path. The wheel's extension
+    # is mirrored into the source package (as the Dockerfile does for
+    # /app) so the tests import it instead of the source tree shadowing
+    # site-packages; PRINT_HANDY_BOUNDS_REQUIRE_NATIVE then makes a
+    # missing extension a hard failure in the strict dispatcher test,
+    # so this job cannot pass by silently falling back or skipping.
+    # The -rs summary prints any remaining skips for the record.
     runs-on: ubuntu-24.04  # pinned: ubuntu-latest moves to 26 on 2026-10-19
     timeout-minutes: 20
     strategy:
@@ -225,9 +228,13 @@ jobs:
         run: maturin build --release
       - name: Install the native bounds wheel
         run: python -m pip install native/bounds/target/wheels/*.whl
+      - name: Mirror the extension into the source package
+        run: |
+          PURELIB="$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+          cp "$PURELIB"/print_handy/core/_bounds_native*.so print_handy/core/
       - name: Run the bounds corpus against the native path
         env:
-          PRINT_HANDY_BOUNDS_IMPL: native
+          PRINT_HANDY_BOUNDS_REQUIRE_NATIVE: "1"
         run: python -m pytest tests/pipeline/test_native_bounds.py -q -rs
 
   discord-timing:
