@@ -110,7 +110,10 @@ def test_application_and_slicer_channels_are_independent_build_arguments():
     assert 'COPY --from=orca-prebuilt /out/ /' in text
     assert 'openscad' in text.split('AS runtime', 1)[1]
     assert 'PRINT_HANDY_ORCA_CHANNEL:-stable' in entrypoint
-    assert 'export PRINT_HANDY_ORCA_CMD="$selected"' in entrypoint
+    assert ': "${PRINT_HANDY_ORCA_CMD:=/usr/local/bin/orca-slicer-stable}"' in entrypoint
+    assert 'export PRINT_HANDY_ORCA_CMD' in entrypoint
+    # #972: the variable is also in the image ENV so docker exec sees it.
+    assert 'ENV PRINT_HANDY_ORCA_CMD=/usr/local/bin/orca-slicer-stable' in text.split('AS runtime', 1)[1]
     assert 'org.print-handy.app-channel=$APP_CHANNEL' in text
     assert '$APP_CHANNEL' not in text.split('FROM debian:13-slim AS runtime')[0]
 

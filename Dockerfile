@@ -177,6 +177,7 @@ COPY print_handy/__init__.py ./print_handy/__init__.py
 RUN pip install --no-cache-dir .
 COPY . .
 ENV TZ=America/New_York
+ENV PRINT_HANDY_ORCA_CMD=/usr/local/bin/orca-slicer-stable
 ENV PRINT_HANDY_CONFIG=/app/config/docker.yaml HOME=/data PRINT_HANDY__BOT__MODE=standalone \
     PRINT_HANDY_ORCA_CHANNEL=stable PRINT_HANDY__SERVICES__SPOOLMAN_URL=http://127.0.0.1:8000 \
     SPOOLMAN_DIR_DATA=/data/spoolman SPOOLMAN_DIR_CONFIG=/data/spoolman/config \

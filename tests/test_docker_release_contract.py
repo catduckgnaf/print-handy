@@ -232,11 +232,40 @@ class DockerReleaseContract(unittest.TestCase):
             stable = subprocess.run(["bash", str(script), *command], cwd=data, env=env,
                                     text=True, capture_output=True, check=True)
             self.assertEqual(stable.stdout.strip(), "/usr/local/bin/orca-slicer-stable")
+            # #972: a container-level PRINT_HANDY_ORCA_CMD override wins
+            # over the entrypoint default (the image ENV sets the same
+            # stable default, so this also covers docker exec inheriting
+            # an explicitly set container value).
+            env["PRINT_HANDY_ORCA_CMD"] = "/custom/orca-slicer"
+            override = subprocess.run(["bash", str(script), *command], cwd=data, env=env,
+                                      text=True, capture_output=True, check=True)
+            self.assertEqual(override.stdout.strip(), "/custom/orca-slicer")
+            env.pop("PRINT_HANDY_ORCA_CMD")
             env["PRINT_HANDY_ORCA_CHANNEL"] = "other"
             invalid = subprocess.run(["bash", str(script), *command], cwd=data, env=env,
                                      text=True, capture_output=True)
             self.assertNotEqual(invalid.returncode, 0)
             self.assertIn("must be 'stable'", invalid.stderr)
+
+    def test_image_env_sets_orca_cmd_for_docker_exec(self):
+        """#972: PRINT_HANDY_ORCA_CMD is set in the image ENV, not only in
+        the bot's process env.
+
+        `docker exec <container> ... model_job print-now` starts a fresh
+        process that inherits the image/container environment, not the
+        entrypoint's exports to its own children. If the variable lives
+        only in the entrypoint export, the exec'd process recomputes the
+        slice recipe with a different slicer command and print-now refuses
+        with "stale color artifact". The runtime stage must therefore carry
+        the exact ENV line, and the entrypoint must default (not override)
+        the variable so a container-level override still wins.
+        """
+        dockerfile = (ROOT / "Dockerfile").read_text()
+        runtime = dockerfile.split("AS runtime", 1)[1]
+        self.assertIn("ENV PRINT_HANDY_ORCA_CMD=/usr/local/bin/orca-slicer-stable", runtime)
+        entrypoint = (ROOT / "docker" / "entrypoint.sh").read_text()
+        self.assertIn(': "${PRINT_HANDY_ORCA_CMD:=/usr/local/bin/orca-slicer-stable}"', entrypoint)
+        self.assertNotIn('export PRINT_HANDY_ORCA_CMD="$selected"', entrypoint)
 
     def test_orca_is_optional_and_prebuilt_only(self):
         dockerfile = (ROOT / "Dockerfile").read_text()
@@ -249,7 +278,8 @@ class DockerReleaseContract(unittest.TestCase):
         self.assertIn('COPY --from=orca-prebuilt /out/ /', dockerfile)
         entrypoint = (ROOT / "docker" / "entrypoint.sh").read_text()
         self.assertIn("PRINT_HANDY_ORCA_CHANNEL:-stable", entrypoint)
-        self.assertIn("export PRINT_HANDY_ORCA_CMD=\"$selected\"", entrypoint)
+        self.assertIn(': "${PRINT_HANDY_ORCA_CMD:=/usr/local/bin/orca-slicer-stable}"', entrypoint)
+        self.assertIn("export PRINT_HANDY_ORCA_CMD", entrypoint)
         self.assertIn("must be 'stable'", entrypoint)
         runtime = dockerfile.split("AS runtime", 1)[1]
         self.assertIn("openscad", runtime)
