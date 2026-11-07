@@ -144,3 +144,65 @@ def test_completed_plan_keeps_project_metadata_and_adds_82a_labels(tmp_path, mon
     assert saved["project_run_id"] == "original"
     assert [part["display_ref"] for part in saved["parts"]] == ["82A", "82B"]
     assert [part["completed_quantity"] for part in saved["parts"]] == [1, 0]
+
+
+@pytest.mark.parametrize("outcome", [
+    {"success": False, "status": "cancelled"},
+    {"success": False, "status": "failed"},
+    {"success": None, "status": "printing"},
+    {"success": None, "status": "unknown"},
+])
+def test_failed_cancelled_or_uncertain_plate_never_advances_project(tmp_path, monkeypatch, outcome):
+    monkeypatch.setattr(print_records, "PLANS_DIR", tmp_path)
+    p = tmp_path / "plan.json"
+    p.write_text(json.dumps({"plan_id": "plan", "parts": [
+        {"id": "plate1", "label": "Arm", "quantity": 2,
+         "completed_quantity": 0, "status": "planned", "gcode_file": "arm.gcode"}]}))
+    result = print_records.update_multipart_plan({
+        "multipart_plan_id": "plan", "part_id": "plate1",
+        "gcode_file": "arm.gcode", "job_key": "arm.gcode",
+        "started_at": "2026-11-07T07:00:00Z", **outcome,
+    })
+    assert result == ("plan", False)
+    assert json.loads(p.read_text())["parts"][0]["completed_quantity"] == 0
+
+
+def test_duplicate_successful_completion_does_not_count_as_two_copies(tmp_path, monkeypatch):
+    monkeypatch.setattr(print_records, "PLANS_DIR", tmp_path)
+    p = tmp_path / "copies.json"
+    p.write_text(json.dumps({"plan_id": "copies", "parts": [
+        {"id": "plate1", "label": "Mounting nut", "quantity": 2,
+         "completed_quantity": 0, "status": "planned", "gcode_file": "nut.gcode"}]}))
+    data = {"multipart_plan_id": "copies", "part_id": "plate1",
+            "gcode_file": "nut.gcode", "job_key": "nut.gcode",
+            "started_at": "2026-11-07T07:00:00Z",
+            "completed_at": "2026-11-07T07:15:00Z", "success": True}
+    assert print_records.update_multipart_plan(data) == ("copies", False)
+    assert print_records.update_multipart_plan(data) == ("copies", False)
+    after = json.loads(p.read_text())["parts"][0]
+    assert after["completed_quantity"] == 1
+    assert len(after["completed_attempt_ids"]) == 1
+    next_attempt = {**data, "started_at": "2026-11-07T08:00:00Z",
+                    "completed_at": "2026-11-07T08:15:00Z"}
+    assert print_records.update_multipart_plan(next_attempt) == ("copies", True)
+    after2 = json.loads(p.read_text())["parts"][0]
+    assert after2["completed_quantity"] == 2
+    assert len(after2["completed_attempt_ids"]) == 2
+    assert print_records.update_multipart_plan(next_attempt) == ("copies", True)
+    assert json.loads(p.read_text())["parts"][0]["completed_quantity"] == 2
+
+
+def test_one_success_followed_by_failure_does_not_finish_project(tmp_path, monkeypatch):
+    monkeypatch.setattr(print_records, "PLANS_DIR", tmp_path)
+    p = tmp_path / "mixed.json"
+    p.write_text(json.dumps({"plan_id": "mixed", "parts": [
+        {"id": "plate1", "label": "Center", "quantity": 1, "completed_quantity": 0},
+        {"id": "plate2", "label": "Right", "quantity": 1, "completed_quantity": 0}]}))
+    first = {"multipart_plan_id": "mixed", "part_id": "plate1", "gcode_file": "center.gcode",
+             "job_key": "center.gcode", "started_at": "2026-11-07T09:00:00Z", "success": True}
+    second = {"multipart_plan_id": "mixed", "part_id": "plate2", "gcode_file": "right.gcode",
+              "job_key": "right.gcode", "started_at": "2026-11-07T10:00:00Z", "success": False}
+    assert print_records.update_multipart_plan(first) == ("mixed", False)
+    assert print_records.update_multipart_plan(second) == ("mixed", False)
+    saved = json.loads(p.read_text())["parts"]
+    assert [r["completed_quantity"] for r in saved] == [1, 0]
