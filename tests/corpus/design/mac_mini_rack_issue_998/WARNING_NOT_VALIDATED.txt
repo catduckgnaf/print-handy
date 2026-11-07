@@ -1,0 +1,5 @@
+REFERENCE CORPUS ONLY, NOT A VERIFIED RACK MOUNT.
+Known issue A: 88.5mm tall ears may exceed nominal 2U panel clearance ~88.11mm.
+Known issue B: source assembly translates tray +10mm Z; mating faces/bolt holes do not register.
+Known issue C: 214mm tray on 220mm bed leaves only 3mm nominal per edge.
+Known issue D: no PLA mechanical, creep or actual print tests.

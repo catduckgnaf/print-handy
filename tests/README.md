@@ -30,6 +30,16 @@ this file when a suite is added, moved, or starts/stops pinning an area.
 | Printers: roster, per-printer state, leases (#333–#337) | `tests/test_printers_roster.py`, `tests/test_per_printer_state.py`, `tests/test_multi_printer_walkthrough.py`, `tests/printers/` |
 | Printer replay (#616, #689-#693): the real print-now, verify and launch-lease code over HTTP against a fake Moonraker that serves responses recorded from an AD5X on ZMod, including a POST held past a real socket timeout | `tests/replay/`, `tests/fixtures/printers/ad5x_zmod/README.md` |
 | Fail-soft state files (corrupt / partial) | `tests/test_state_file_failure_paths.py`, `tests/test_state_files.py`, `tests/test_live_gate.py` |
+| Upstream bump automation: step-size policy, harness sweep, body shape | `tests/test_bump_upstream.py` |
+| Upstream version parity (test harness pins vs shipped pins) | `tests/test_upstream_version_parity.py`, `tests/test_ci_bambu_workflow.py` |
+| Approval / yolo invariants across answer paths; dispatcher single-claim precedence | `tests/bot/test_approval_invariants.py`, `tests/test_dispatch_precedence.py` |
+| Fake-G-code factory + foreign-G-code contract | `tests/gcode_factory.py`, `tests/test_gcode_factory.py` |
+| Support coverage golden pack (truth-labeled adversarial geometry) | `tests/pipeline/test_support_coverage_golden_pack.py` (extends the per-fix files `test_support_coverage_963.py`, `test_support_coverage_969.py`) |
+| Event starvation (fake clock, zero status events) | `tests/test_event_starvation.py` |
+| Renamed-key reader completeness (#672 renames) | `tests/test_renamed_key_readers.py` |
+| Entrypoint × state-volume layout matrix (#914) | `tests/test_entrypoint_layout_matrix.py` |
+| Wrapped aggregates from real record writers; ffmpeg pacing | `tests/test_wrapped_records_from_writers.py` |
+| Bambu HMS table content integrity across regenerations | `tests/printers/test_bambu_hms.py`, `tests/printers/test_bambu_hms_generator.py` |
 | Docker image, release contracts, supervisor, healthcheck | `tests/test_docker_release*.py`, `tests/docker/`, `tests/test_combined_supervisor.py`, `tests/test_go2rtc_container.py`, `tests/test_native_release_acceptance.py` |
 | Web UI (status, config, login, roster) | `tests/test_webui_*.py` |
 | Doctor / bot check surfaces | `tests/test_doctor.py`, `tests/bot/test_health_and_transport.py` |
@@ -158,7 +168,7 @@ remainder), and the Matrix message-ordering flake root cause (scope 4).
 | Every PR | `ci.yml` | Everything under `tests/` with the fake slicer, including `tests/corpus/test_journey_matrix.py` (pinned fit option x color mode inventory), `test_spool_fixture.py` (state built by the real `create_spool` and `bind_slot`), and `test_timing_gate.py`. |
 | Every PR | `ci.yml` real Orca job | The generated CC0 corpus under `tests/corpus/cases` sliced by real Orca. |
 | Every PR | `ci.yml` timing job | Median of 3 repeats against `timing_baseline.json`: `wall_s`, `first_prompt_s`, `fit_check_s`, plus the absolute `fit_check_budget_s` ceiling, which is enforced even for a case with no baseline entry. |
-| Every PR, reporting only | `ci.yml` real-slicer timing job | Five corpus cases with the pinned Orca, median of 3 repeats against `timing_baseline_real_slicer.json`. Warnings only, not a required check (see Slicing-speed gate below). |
+| Every PR, reporting only | `ci.yml` real-slicer timing job | Six corpus cases with the pinned Orca, median of 3 repeats against `timing_baseline_real_slicer.json`. Warnings only, not a required check (see Slicing-speed gate below). |
 | Weekly | `model-corpus.yml` | The downloaded public model corpus, sharded. |
 | Live only, not in CI | operator | Real printer, real Spoolman and Moonraker, real Discord, the private Duplo 3MF. |
 
@@ -214,6 +224,113 @@ is gone. Other handler families listed above have no new ordering proof.
 The original five failures were not replayed on 2.1.9; fit_check_s has mock-runner evidence only; restart 503
 coverage is the Spoolman bind refusal, not a gateway restart.
 
+## Testing-hardening pass (2026-11-07)
+
+A deep dive over version coverage and the merged-PR archaeology produced the
+suites below. They exist to make specific historical failure shapes impossible
+to reintroduce silently; each suite's docstring names the incident it pins.
+
+### Upstream versions: parity and step size
+
+The "real" test harnesses once ran older upstream versions than the shipped
+pins, so a green check proved Print Handy against the wrong Spoolman / Bambu
+Studio. Two guards now hold:
+
+- **Parity** — `tests/test_upstream_version_parity.py` requires the Spoolman
+  version + zip sha256 in the CI spoolman job and in
+  `scripts/run_spoolman_native.sh` to equal the Dockerfile `SPOOLMAN_REF`'s
+  recorded version, and `scripts/bump_upstream.py` now sweeps those harness
+  pins in the same bot PR that moves the shipped pin (failing closed on
+  drift). The Bambu fallback leg (Flathub Studio in the `Slicer test
+  (bambu)` job) is deliberately NOT moved with `BAMBU_REF`; its divergence
+  is a named, dated exception recorded in `tests/test_ci_bambu_workflow.py`,
+  and any future unrecorded divergence fails.
+- **Step size** — bump classification compares normalized numeric tuples
+  (`02.09.01.70` -> `(2, 9, 1, 70)`): a change in the first or second
+  component is a MAJOR step (Spoolman 0.27.0 -> 0.27.1 is minor; Bambu
+  2.8.2 -> 02.09.01.70 is major); later-component-only changes and
+  prerelease promotions of an equal core are minor. A major step's bot PR
+  body carries a required "Major step — deep dive required before merge"
+  section: read the upstream changelog for the range and re-examine the
+  component's Print Handy surfaces (named per component in the automation)
+  before merging. Minor steps keep the current body shape and get targeted
+  regression tests around the touched surface instead.
+
+Bundled-Spoolman update check: Spoolman 0.27.1 phones home to api.github.com
+by default (`SPOOLMAN_UPDATE_CHECK`, upstream default true). Print Handy is
+local-first and updates its bundled copy itself, so `docker/supervise.sh`
+exports `SPOOLMAN_UPDATE_CHECK=FALSE` for the bundled instance, pinned by a
+contract test in `tests/test_docker_release_contract.py`.
+
+### HMS content integrity
+
+The HMS lookup tests pinned mechanics but not content: a regeneration that
+dropped codes would have stayed green. `tests/printers/test_bambu_hms.py`
+now floors the table counts at the recorded generation, requires every
+provenance prefix to keep non-empty per-model overrides, and decodes one
+canary code per prefix. The generator tests cover a new prefix flipping the
+common text by majority and by odd-one-out, not only the 093/094 tie-breaks.
+
+### Fixture-vs-live rules
+
+- Offline suites use fakes shaped like the real thing, produced by shared
+  factories where one exists: `tests/gcode_factory.py` for slicer G-code
+  (per-family headers, footer config blocks, multi-plate `.gcode.3mf`),
+  `tests/corpus/fake_discord` for Discord, flow-built spool state for the
+  corpus journeys. Hand-written stand-ins for a real writer's output are
+  the drift pattern this pass removed for Wrapped: aggregates are now also
+  built from records produced by the real record writers
+  (`tests/test_wrapped_records_from_writers.py`).
+- Live-tier suites keep their gates: the real-Spoolman service tests
+  (`tests/services/test_spoolman_real.py`) run only with
+  `PRINT_HANDY_SPOOLMAN_TEST_URL` set (the CI spoolman job and
+  `scripts/run_spoolman_native.sh` provide the server); the real-ffmpeg
+  Wrapped pacing test skips without ffmpeg/ffprobe on PATH.
+- Synthetic geometry fixtures are labeled synthetic in the file that
+  generates them (see the support-coverage golden pack); no fixture
+  presents generated data as a real printer archive capture.
+
+### Strict xfails and the register
+
+Known-defect tripwires are `pytest.mark.xfail(strict=True)` entries in
+`tests/strict_xfail_register.json` (owner + expiry + reason, checked by
+`tests/test_strict_xfail_register.py`): when the fixing PR lands, the test
+XPASSes and the suite fails until the marker and the register entry are
+removed. This pass registered four: the #979 "print it again" precedence
+outcome and the two #981 Wrapped defects (UTC bucketing, mixed-fps video
+pacing) are still armed; the fourth, the #978 yolo auto-applies-a-fix
+invariant, already fired — PR #987 merged while this pass was in flight,
+the marker and entry were removed on rebase, and the invariant is now a
+plain passing regression test in `tests/bot/test_approval_invariants.py`. Characterization
+tests that record current-but-wrong behavior (the dispatcher claim map,
+the two last-print resolvers' divergence, Cura / plate-2 foreign-G-code
+blind spots) are labeled as such in their files and are expected to be
+rewritten by the fixing change, not deleted quietly.
+
+### Determinism / flake register
+
+Suites added by this pass are deterministic by construction: fake clocks
+(event starvation), fixed archives with explicit mtimes (dispatcher
+resolvers), generated media probed with ffprobe (Wrapped pacing), and the
+real entrypoint run against synthetic `$HOME` layouts. The known
+nondeterminism sources in the wider suite stay as documented above
+(real-slicer timing is reporting-only; the Matrix ordering flake is
+root-caused in its own section). A new flake gets a section here with its
+root cause, not a retry.
+
+### Live-proof roster (operator-only, not in CI)
+
+These proofs need catduck's hardware and accounts and stay open until he
+runs them; no offline suite substitutes for them:
+
+| Proof | Source |
+|---|---|
+| Real-printer actuation + chat edit-plan end-to-end | #921 / #923 follow-ups |
+| Multi-platform live bot pass (Discord / Telegram / Matrix) | #812 |
+| Watchdog camera accuracy on a real camera | #455 |
+| GPU-host vision provider run | #455 |
+| Entrypoint mounted-volume copy cell (`PRINT_HANDY_LAYOUT_TEST_MOUNT=1` in the acceptance layout) | `tests/test_entrypoint_layout_matrix.py` (`container`-marked) |
+
 ## Slicing-speed gate (#734)
 
 The correctness tests prove a slice is right. This gate proves the Discord journey did not get slower than
@@ -225,7 +342,7 @@ What runs:
 | Leg | CI job | Cases | Status |
 | --- | --- | --- | --- |
 | Mock slicer | `discord-timing` | every corpus case, `hermes` and `standalone` transports | Blocking. A problem fails the job. |
-| Real Orca | `slicer-timing-real`, "Slicer timing (real Orca, reporting only)" | `single-part`, `stl-single-part`, `plates-multicolor`, `witch-ghost-cults3d`, `rotation-fit` on `hermes` | Reporting only. Problems are warning annotations; the job is `continue-on-error` and is not a required check. |
+| Real Orca | `slicer-timing-real`, "Slicer timing (real Orca, reporting only)" | `single-part`, `stl-single-part`, `plates-multicolor`, `witch-ghost-cults3d`, `rotation-fit`, `stl-large-plate` on `hermes` | Reporting only. Problems are warning annotations; the job is `continue-on-error` and is not a required check. |
 
 Both legs run `python -m tests.corpus.time_corpus` three times, then `python -m tests.corpus.timing_gate` on the
 three result files. The gate compares the per-case median of the three repeats, never one sample. Each leg writes
@@ -259,10 +376,49 @@ for any blocking limit in the tested range (see Real-Orca runner noise below). I
 one-off costs. `must-shrink` and `stl-must-shrink` are left out on purpose: they take minutes and write a very large
 G-code, so they would measure disk and size search, not regressions, and would make the job slow.
 
+Neither leg measures a large plate (50 MB class), so neither can see the Python pass costs that dominate
+one of those (#925/#952). Set expectations accordingly: on a large plate, slice-time verification has **no
+fast path by design** — the bounds cache is cold for brand-new bytes and the verified-artifact skip applies
+only at print-now — and its dominant term is the semantic motion-bounds parse inside `verify_gcode`
+(measured on a synthetic 55 MB / 1.9M-line plate: the bounds parse alone is roughly two-thirds to
+three-quarters of the verify interval; the sub-1.5 s figure in #925's original proposal was not achievable
+for that parse and should not be quoted as an expectation). The wins #929 shipped for large plates live at
+print-now (the verified-artifact skip) and in packaging (head/tail metadata, zip level 1), not in the
+slice-time verify interval. Whether to add a large-plate case to the real-Orca leg is an open decision
+on #952.
+
 Noise controls in place: median of 3 repeats, per-case baselines (one heavy case cannot hide another's
 regression), absolute slack for tiny flows, the warm-up slice, and the fixed runner image (`ubuntu-24.04`). Not
 built yet: the same-job A/B against the merge base, and a control file to normalize runner speed. The stored
 per-release baseline ships first; A/B is the next step if the real-Orca warnings prove too noisy to promote.
+
+### The large-plate case (#952)
+
+`stl-large-plate` joined the real-Orca leg on catduck's decision D4 on #952. The five original cases slice
+in seconds, so none of them exercises the Python passes that dominate a large plate — the finalize and
+verify passes over the whole file that #925, #929 and #952 are about. This case exists to time those passes
+end to end.
+
+The case is a generated solid 113 mm cube (`tests/corpus/cases/stl-large-plate`, written by
+`make_models.py` from its `case.toml` spec like every generated case). The model file is a 684-byte STL;
+the size is in the slice, not the fixture. On the AD5X template profile (gyroid 10%, 0.24 mm layers) a
+local reference slice (OrcaSlicer 2.5.0-alpha; CI pins 2.5.0-rc) produced a 54,614,337-byte /
+1,970,123-line G-code — deliberately comparable to the 54,237,491-byte `plate_1.gcode` #952 measured.
+Every timing run records `gcode_bytes` per case in its JSON artifact, so the size class is checkable from
+the leg's own artifacts rather than from this note. Locally the flow took about 70 s wall per repeat, so
+expect the leg to grow by minutes (three repeats), inside its 30-minute timeout.
+
+It is reporting-only, like the rest of the leg; adding it promotes nothing. Its variance is **not yet
+measured** — that measurement is the point of adding it now. Judge it from the leg's own artifacts over
+time: the spread of its three in-job repeats, and the cross-run spread of its medians once green `main`
+runs that include the case accumulate. The stored variance record
+(`tests/corpus/timing_variance_real_slicer.json`) predates this case and says nothing about its noise yet.
+Before anyone proposes promoting the leg, refresh that record from at least 20 recent green `main` runs
+whose artifacts include `stl-large-plate` (the refresh commands under Real-Orca runner noise below) and
+apply the existing promotion rule — zero failing pairings at the baseline's `tolerance` and `slack_s`,
+this case included. The runner-speed grouping already measured for the small cases (fast and slow groups
+about 1.5x apart) will move this case by more seconds than any of them; the refresh has to quantify that
+before a blocking limit can be believed.
 
 The checked-in mock baseline was re-recorded for #734 from `main` run 41365651326 (commit 60341e2) with these
 limits; its two entries that rose carry a `reason`. The real-Orca baseline was recorded from this job's first CI runs

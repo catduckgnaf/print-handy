@@ -52,7 +52,7 @@ Start with [Printer support](PRINTER-SUPPORT.md) for what support means, connect
 ## Contributors and history
 
 - [Contribution workflow](../CONTRIBUTING.md) · [Pull request template](../.github/PULL_REQUEST_TEMPLATE.md)
-- [Branding guide](BRANDING.md) · [Release notes](RELEASE-NOTES.md) · [Internal release history](INTERNAL_RELEASE_NOTES.md)
+- [Branding guide](BRANDING.md) · [Release notes](RELEASE-NOTES.md) · [Release checklist](RELEASE-CHECKLIST.md) · [Release notes template](RELEASE-NOTES-TEMPLATE.md) · [Internal release history](INTERNAL_RELEASE_NOTES.md)
 - [Rename migration](RENAME-MIGRATION.md)
 - Historical or internal records, not setup instructions: [Docker #117 acceptance](DOCKER-117-ACCEPTANCE.md), [Docker #117 progress](DOCKER-117-PROGRESS.md), [timelapse issue #126](ISSUE-126-TIMELAPSE.md), [hardcoded values inventory](hardcoded-inventory.md), [CAD evaluation](KICAD-EVALUATION.md), [reuse map](REUSE-MAP.md), [multi-printer design](MULTI-PRINTER-DESIGN.md), [recovered testing lane](history/RECOVERY-TESTING.md).
 

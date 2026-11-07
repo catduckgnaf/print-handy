@@ -9,7 +9,9 @@ from the same pinned OrcaSlicer bundle as the other real-slicer legs — and it
 must never change what ships (no WITH_BAMBU in CI).
 """
 
+import importlib.util
 import pathlib
+import sys
 import unittest
 
 import yaml
@@ -17,6 +19,12 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
 ORCA_BUNDLE_SHA256 = "f0140100eb3d26d021b68347da9d5ce8536fe78d3e839d6abd83f40b27457175"
+
+spec = importlib.util.spec_from_file_location(
+    "bump_upstream", ROOT / "scripts" / "bump_upstream.py")
+bump = importlib.util.module_from_spec(spec)
+sys.modules["bump_upstream"] = bump  # dataclasses resolve the module by name
+spec.loader.exec_module(bump)
 
 
 def load_workflow():
@@ -90,6 +98,76 @@ class RealSlicerBambuWorkflowContract(unittest.TestCase):
         for job_id in jobs:
             self.assertNotIn("alpha", job_id)
             self.assertNotIn("beta", job_id)
+
+
+class BambuFallbackGenerationVerdict(unittest.TestCase):
+    """The fallback leg's Bambu generation vs the shipped pin's generation.
+
+    This leg runs the Flathub Bambu Studio build recorded below; the
+    shipped BAMBU_REF pin (and the HMS table generated from it) can be
+    a different Bambu generation - PR #990 moves the pin to
+    02.09.01.70 while this leg stays on the 2.8.2.61 Flathub build.
+    That divergence is deliberate (the leg proves the fallback slicer
+    path, not the HMS data), but it must never be silent: when the
+    generations differ, an exception naming the exact generation pair
+    must be recorded here, dated, with the reason. A future step that
+    diverges without a recorded verdict fails this test.
+    """
+
+    # The Flathub build this leg deploys, recorded against the pinned
+    # ostree commit in ci.yml (whose comment names the same version).
+    FLATPAK_BAMBU_VERSION = "2.8.2.61"
+    FLATPAK_BAMBU_COMMIT = "68a634d4d733ce7acf79009095db6f7ca76625f0eb810eef1e92dc7adeba7852"
+
+    # Recorded divergence verdicts: (flatpak generation, pin
+    # generation) -> (date recorded, reason). Generations are the
+    # first two numeric components under the bump automation's
+    # normalized-tuple comparison (the step-size policy).
+    RECORDED_DIVERGENCES = {
+        ((2, 8), (2, 9)): (
+            "2026-11-07",
+            "PR #990 moves BAMBU_REF to Bambu Studio 02.09.01.70, the "
+            "source of the shipped HMS table; the fallback leg stays on "
+            "the Flathub 2.8.2.61 build because no Flathub build of the "
+            "2.9 line was pinned and verified when the verdict was "
+            "recorded. The leg proves the Bambu fallback slicing path "
+            "against a real Studio; HMS content integrity for the 2.9 "
+            "table is pinned by tests/printers/test_bambu_hms.py, not "
+            "by this leg. Revisit when a 2.9 Flathub build is pinned.",
+        ),
+    }
+
+    def _pin_version(self):
+        settings = (ROOT / "docs" / "SETTINGS.md").read_text()
+        match = bump._BAMBU_SETTINGS_RE.search(settings)
+        self.assertIsNotNone(match, "docs/SETTINGS.md lost its BAMBU_REF row")
+        dockerfile = (ROOT / "Dockerfile").read_text()
+        self.assertEqual(match.group(1), bump.parse_bambu(dockerfile))
+        return match.group(2)
+
+    def test_fallback_leg_generation_verdict_is_recorded(self):
+        job = bambu_job()
+        self.assertEqual(job["env"]["BAMBU_FLATPAK_COMMIT"], self.FLATPAK_BAMBU_COMMIT)
+        ci_text = WORKFLOW_PATH.read_text()
+        self.assertIn(f"com.bambulab.BambuStudio v{self.FLATPAK_BAMBU_VERSION}", ci_text)
+        flatpak_gen = bump.numeric_tuple(self.FLATPAK_BAMBU_VERSION)[:2]
+        pin_version = self._pin_version()
+        pin_gen = bump.numeric_tuple(pin_version)[:2]
+        if flatpak_gen == pin_gen:
+            return  # Same generation: the leg tracks the pin line; no verdict needed.
+        verdict = self.RECORDED_DIVERGENCES.get((flatpak_gen, pin_gen))
+        self.assertIsNotNone(
+            verdict,
+            f"the Bambu fallback leg runs generation {flatpak_gen} "
+            f"(Flathub v{self.FLATPAK_BAMBU_VERSION}) while BAMBU_REF ships "
+            f"generation {pin_gen} ({pin_version}), and no divergence verdict "
+            "is recorded in BambuFallbackGenerationVerdict.RECORDED_DIVERGENCES. "
+            "Either move the leg, or record a dated verdict naming this pair "
+            "and what still proves the shipped generation's data.",
+        )
+        recorded, reason = verdict
+        self.assertRegex(recorded, r"^\d{4}-\d{2}-\d{2}$")
+        self.assertTrue(reason.strip())
 
 
 if __name__ == "__main__":

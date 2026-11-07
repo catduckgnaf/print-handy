@@ -1665,11 +1665,12 @@ async def print_next_dispatch(event, gateway, **kwargs):
         from print_handy.hermes import discord_print_summary as print_summary
         job, plate = print_summary.find_job(target['gcode'])
         seconds = (plate or {}).get('seconds')
-        number = print_summary._print_number({'_job_path': str(Path(target['job_json']).parent)})
-        target['estimate_text'] = (f"Print #{number if number else 'unknown'}; estimated print time ~{print_summary.human(seconds)} "
+        # No number here: this plate gets its own new print number when it
+        # starts, and the start announcement shows it.
+        target['estimate_text'] = (f"Estimated print time ~{print_summary.human(seconds)} "
                                    f"plus warmup ~{print_summary.human(seconds + print_summary.WARMUP_S)} total"
                                    if isinstance(seconds, (int, float)) else
-                                   f"Print #{number if number else 'unknown'}; estimated print time unknown")
+                                   "Estimated print time unknown")
         from print_handy.core.prompts import gateway as _prompts
         cm = _prompts()
         choices = [print_next.START_LABEL, print_next.CANCEL_LABEL]
@@ -1697,7 +1698,7 @@ async def print_next_dispatch(event, gateway, **kwargs):
             message = 'Cancelled or expired. Nothing uploaded or started.'
         else:
             await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                               content=f"Preparing to start {target['label']}. {target.get('estimate_text', 'estimated print time unknown')}.")
+                               content=f"Preparing to start {target['label']}. {target.get('estimate_text', 'Estimated print time unknown')}.")
             ok, detail = await print_next.start(target)
             if not ok and SPOOL_CHANGED in str(detail):
                 ok, detail = await _offer_spool_change(adapter, source, metadata, print_next, target, detail,
@@ -4704,9 +4705,16 @@ async def print_again_dispatch(event, gateway, **kwargs):
         else:
             from print_handy.hermes import discord_print_summary as print_summary
             gcode_seconds, filament_g = print_summary.gcode_metadata(target['gcode'])
-            number = print_summary._print_number({'_job_path': str(Path(target['job_json']).parent)})
+            # target['index'] is the print being repeated (the row the
+            # operator picked); the reprint mints its own new number at start
+            # and the start announcement shows it.
+            previous = target.get('index')
+            if not (isinstance(previous, int) and not isinstance(previous, bool) and previous > 0):
+                previous = pc.latest_number_for_job(target['job_json'])
             estimate = pc.start_estimate_text(target, gcode_seconds, filament_g)
-            number_line = f"Print #{number}; " if number else 'Print number unknown; '
+            estimate = estimate[:1].upper() + estimate[1:]  # its own sentence now
+            number_line = (f"A reprint of print #{previous}; it gets its own new print number when it starts. "
+                           if previous else 'A reprint; it gets its own new print number when it starts. ')
             await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                content=f"Preparing to start {target['title']}. {number_line}{estimate}.")
             ok, detail = await print_next.start(target)

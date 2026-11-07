@@ -1,0 +1,18 @@
+# Build configuration for the native bounds wheel (#952, D1).
+# maturin builds the crate in this directory into a wheel that contains
+# exactly one file: print_handy/core/_bounds_native.abi3.so (one wheel
+# per architecture; abi3-py312 makes it valid for CPython 3.12+).
+[build-system]
+requires = ["maturin>=1.16,<2"]
+build-backend = "maturin"
+
+[project]
+name = "print-handy-bounds-native"
+version = "0.1.0"
+description = "Native motion-bounds parser for Print Handy G-code verification"
+license = { text = "MIT" }
+requires-python = ">=3.12"
+
+[tool.maturin]
+bindings = "pyo3"
+module-name = "print_handy.core._bounds_native"

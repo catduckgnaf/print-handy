@@ -391,6 +391,16 @@ class SpoolmanPlanning(unittest.TestCase):
         self.tmp.cleanup()
 
     def api_for(self, release, commit, compare="ahead"):
+        # The planner hashes the release's spoolman.zip for the
+        # test-harness pins; serve a digest for it unless the test
+        # already provided the asset.
+        if not any(a.get("name") == "spoolman.zip" for a in release.assets):
+            release = bump.Release(
+                tag=release.tag, version=release.version, name=release.name,
+                published_at=release.published_at, html_url=release.html_url,
+                assets=[*release.assets, asset("spoolman.zip", "sha256:" + "9" * 64)],
+                prerelease=release.prerelease,
+            )
         return FakeApi(
             releases={bump.SPOOLMAN_REPO: release},
             commits={(bump.SPOOLMAN_REPO, release.tag): commit},
@@ -405,6 +415,7 @@ class SpoolmanPlanning(unittest.TestCase):
         new_ref = "e" * 40
         plan = bump.plan_spoolman(self.root, self.api_for(make_release("0.27.1"), new_ref), NOW)
         self.assertEqual(plan.action, "bump")
+        self.assertEqual(plan.old_version, "0.27.0")
         plan.apply(self.root)
         self.assertEqual(bump.parse_spoolman((self.root / "Dockerfile").read_text()), new_ref)
         # The recorded surfaces move with the pin.
@@ -413,7 +424,44 @@ class SpoolmanPlanning(unittest.TestCase):
         self.assertIn("Pinned Spoolman v0.27.1 source commit", settings)
         docker_doc = (self.root / "docs" / "DOCKER.md").read_text()
         self.assertIn(f"Spoolman 0.27.1 is built from exact upstream revision `{new_ref}`", docker_doc)
-        self.assertEqual(set(plan.files), {"Dockerfile", "docs/SETTINGS.md", "docs/DOCKER.md"})
+        # The test-harness pins move with the shipped pin: the CI job
+        # and the native runner must install the version being shipped,
+        # with the new release zip's SHA256.
+        ci_text = (self.root / ".github" / "workflows" / "ci.yml").read_text()
+        self.assertIn("download/v0.27.1/spoolman.zip", ci_text)
+        self.assertIn("9" * 64, ci_text)
+        native = (self.root / "scripts" / "run_spoolman_native.sh").read_text()
+        self.assertIn("Spoolman 0.27.1 natively", native)
+        self.assertIn("print-handy-spoolman-0.27.1", native)
+        self.assertIn("download/v0.27.1/spoolman.zip", native)
+        self.assertIn("9" * 64, native)
+        self.assertEqual(set(plan.files), {"Dockerfile", "docs/SETTINGS.md", "docs/DOCKER.md",
+                                           ".github/workflows/ci.yml",
+                                           "scripts/run_spoolman_native.sh"})
+
+    def test_harness_drift_stops_the_bump(self):
+        # A harness pin that no longer records the shipped version is
+        # drift: the planner must refuse, not guess which is right.
+        ci_path = self.root / ".github" / "workflows" / "ci.yml"
+        ci_path.write_text(ci_path.read_text().replace("v0.27.0", "v0.26.0"))
+        with self.assertRaises(bump.BumpError):
+            bump.plan_spoolman(self.root, self.api_for(make_release("0.27.1"), "e" * 40), NOW)
+
+    def test_native_harness_drift_stops_the_bump(self):
+        native_path = self.root / "scripts" / "run_spoolman_native.sh"
+        native_path.write_text(native_path.read_text().replace("0.27.0", "0.26.0"))
+        with self.assertRaises(bump.BumpError):
+            bump.plan_spoolman(self.root, self.api_for(make_release("0.27.1"), "e" * 40), NOW)
+
+    def test_missing_zip_asset_stops_the_bump(self):
+        release = make_release("0.27.1")
+        api = FakeApi(
+            releases={bump.SPOOLMAN_REPO: release},
+            commits={(bump.SPOOLMAN_REPO, release.tag): "e" * 40},
+            compare="ahead",
+        )
+        with self.assertRaises(bump.BumpError):
+            bump.plan_spoolman(self.root, api, NOW)
 
     def test_disagreeing_recorded_surfaces_stop_the_bump(self):
         settings = self.root / "docs" / "SETTINGS.md"
@@ -1515,9 +1563,28 @@ class PrBodyShape(unittest.TestCase):
         self.assertIn("Documentation: not needed", body)
         self.assertIn("Wiki: not applicable", body)
         self.assertIn("Variables: not applicable", body)
+        self.assertIn("Tests added: none", body)
+        self.assertIn("Regression scoping: checked", body)
         self.assertIn("1.9.15 -> 1.9.16", body)
         self.assertIn("pending at open time", body)
         self.assertIn("newer final upstream release", body)
+
+    def test_generated_body_passes_contribution_policy(self):
+        """Bot bodies are PR bodies: the whole generated body must stay
+        clean under scripts/check_contribution.py, including the Tests
+        added and regression scoping verdicts."""
+        plan = bump.Plan(
+            "go2rtc", "bump", version="1.9.16", files=["docker/go2rtc-prebuilt.sh"],
+            changes=["version: 1.9.15 -> 1.9.16"],
+            provenance=["Release: https://example.test (published 2026-10-26)"],
+            release=make_release("1.9.16"),
+        )
+        body = bump.build_pr_body("go2rtc", plan)
+        policy_spec = importlib.util.spec_from_file_location(
+            "check_contribution", ROOT / "scripts" / "check_contribution.py")
+        policy = importlib.util.module_from_spec(policy_spec)
+        policy_spec.loader.exec_module(policy)
+        self.assertEqual([], policy.check_pr(body, plan.files))
 
     def test_prerelease_body_does_not_claim_a_final(self):
         plan = bump.Plan(
@@ -1530,6 +1597,59 @@ class PrBodyShape(unittest.TestCase):
         self.assertIn("newer upstream prerelease", body)
         self.assertNotIn("newer final upstream release", body)
         self.assertNotIn("latest final upstream release", body)
+
+
+class StepClassification(unittest.TestCase):
+    def test_numeric_tuple_normalizes_leading_zeros(self):
+        self.assertEqual(bump.numeric_tuple("02.09.01.70"), (2, 9, 1, 70))
+        self.assertEqual(bump.numeric_tuple("v2.8.2"), (2, 8, 2))
+        self.assertEqual(bump.numeric_tuple("2.5.0-rc"), (2, 5, 0))
+
+    def test_first_or_second_component_change_is_major(self):
+        self.assertEqual(bump.classify_step("1.9.15", "2.0.0"), "major")
+        self.assertEqual(bump.classify_step("2.8.2", "02.09.01.70"), "major")
+        self.assertEqual(bump.classify_step("0.27.0", "0.28.0"), "major")
+        self.assertEqual(bump.classify_step("2.5.0-rc", "2.6.0-alpha"), "major")
+
+    def test_later_component_change_is_minor(self):
+        self.assertEqual(bump.classify_step("0.27.0", "0.27.1"), "minor")
+        self.assertEqual(bump.classify_step("1.9.15", "1.9.16"), "minor")
+        self.assertEqual(bump.classify_step("2.9.1.70", "2.9.1.71"), "minor")
+
+    def test_equal_cores_are_minor_promotions(self):
+        self.assertEqual(bump.classify_step("2.5.0-rc", "2.5.0"), "minor")
+        self.assertEqual(bump.classify_step("2.5.0-rc", "2.5.0-rc2"), "minor")
+        self.assertEqual(bump.classify_step("2.5.0", "2.5.0"), "minor")
+
+
+class StepBodyShape(unittest.TestCase):
+    def test_minor_step_body_has_no_deep_dive_section(self):
+        plan = bump.Plan(
+            "spoolman", "bump", version="0.27.1", old_version="0.27.0",
+            files=["Dockerfile"], changes=["SPOOLMAN_REF: a -> b"],
+            provenance=["Release: https://example.test (published 2026-10-26)"],
+            release=make_release("0.27.1"),
+        )
+        body = bump.build_pr_body("spoolman", plan)
+        self.assertIn("Step size: minor", body)
+        self.assertNotIn("Major step", body)
+
+    def test_major_step_body_requires_a_deep_dive(self):
+        plan = bump.Plan(
+            "bambu", "bump", version="02.09.01.70", old_version="2.8.2",
+            files=["Dockerfile"], changes=["BAMBU_REF: a -> b"],
+            provenance=["Release: https://example.test (published 2026-10-26)"],
+            release=make_release("02.09.01.70"),
+        )
+        body = bump.build_pr_body("bambu", plan)
+        self.assertIn("Step size: major", body)
+        self.assertIn("## Major step — deep dive required before merge", body)
+        self.assertIn("`2.8.2` -> `02.09.01.70`", body)
+        self.assertIn("hms_data.json", body)  # the bambu surface hints ride along
+
+    def test_major_step_hints_exist_for_every_component(self):
+        for component in ("go2rtc", "spoolman", "bambu", "orca"):
+            self.assertTrue(bump.STEP_SURFACE_HINTS[component], component)
 
 
 if __name__ == "__main__":
