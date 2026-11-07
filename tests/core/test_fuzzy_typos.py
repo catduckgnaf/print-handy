@@ -29,8 +29,47 @@ CARD_TYPOS = {
 }
 DO_NOT_MAP = ["stale", "later", "head", "point", "step", "shrine", "restriction",
               "warning", "pure", "spook", "micro", "calibre", "fitment", "stats",
-              "states", "parse"]
-ALL_PAIRS = {**CURATED_PAIRS, **VARIANTS, **CARD_TYPOS}
+              "states", "parse", "nest", "upstate", "fir"]
+# Second mining pass over the operator's chat history (same aggregate-only
+# rule: pairs, never message text). "iddint" maps to the apostrophe-less
+# form the matcher canonicalizes to, and "seel" is kept deliberately: it is
+# an archaic falconry word, not a living one, and the mined context is
+# unambiguously "see". Real words found misspelled-looking in the same pass
+# (nest, upstate, fir) were rejected, not mapped — see DO_NOT_MAP's rule.
+OPERATOR_MINED_2 = {
+    "ahow": "how", "catagories": "categories", "comouse": "compose",
+    "conficts": "conflicts", "ddi": "did", "dobe": "done",
+    "eleego": "elegoo", "iddint": "didnt", "incorperate": "incorporate",
+    "intergration": "integration", "jewelery": "jewelry",
+    "langauge": "language", "listerners": "listeners", "ocming": "coming",
+    "recongized": "recognized", "rgar": "that", "sanatize": "sanitize",
+    "seel": "see", "seperately": "separately", "spegattis": "spaghettis",
+    "suppert": "support",
+    "suprise": "surprise", "syntaxt": "syntax", "tempalates": "templates",
+    "throughly": "thoroughly", "wel": "well", "whgatever": "whatever",
+}
+# Generic high-frequency non-word misspellings: domain typos the bounded
+# edit-distance pass misses (filamet, nozel) plus classic English keyboard
+# slips (teh, recieve, definately). Suggested in a branch commit whose file
+# writes landed as placeholders; re-added here properly, pair by pair.
+# Seven of these (infil, infiil, nozel, retracton, stringin, temperture,
+# temprature) also exist in TOKEN_FORMS — the same deliberate duplication
+# as cance/extuder/nozzl — because ``typo_fold`` consumers never see
+# TOKEN_FORMS, so the TYPO entry is what folds them there.
+GENERIC_TYPOS = {
+    "adn": "and", "becasue": "because", "becuase": "because",
+    "definately": "definitely", "definatly": "definitely",
+    "extrudor": "extruder", "filamet": "filament", "filamnt": "filament",
+    "infiil": "infill", "infil": "infill", "klipperr": "klipper",
+    "listners": "listeners", "nozel": "nozzle", "occured": "occurred",
+    "recieve": "receive", "reccomend": "recommend", "recomend": "recommend",
+    "retraciton": "retraction", "retracton": "retraction",
+    "seperatly": "separately", "stringin": "stringing", "teh": "the",
+    "temperture": "temperature", "temprature": "temperature",
+    "untill": "until", "warpping": "warping", "wich": "which",
+}
+ALL_PAIRS = {**CURATED_PAIRS, **VARIANTS, **CARD_TYPOS, **OPERATOR_MINED_2,
+             **GENERIC_TYPOS}
 
 
 @pytest.mark.parametrize("typo,word", sorted(ALL_PAIRS.items()))
