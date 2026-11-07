@@ -401,12 +401,30 @@ class OrcaPrebuiltTests(unittest.TestCase):
 
 class RuntimeImageTests(unittest.TestCase):
     def test_every_stage_uses_debian_stable(self):
-        """Debian 13 slim for every stage (Orca, go2rtc, Bambu, Spoolman, runtime); no stock UID 1000 user, so handy takes 1000."""
+        """Debian 13 slim for every stage (Orca, go2rtc, Bambu, Spoolman, bounds, runtime); no stock UID 1000 user, so handy takes 1000."""
         self.assertEqual(re.findall(r"^FROM (debian:13-slim)(?: AS [\w-]+)?$", DOCKERFILE, re.M),
-                         ["debian:13-slim"] * 5)
+                         ["debian:13-slim"] * 6)
         runtime = DOCKERFILE.split("FROM debian:13-slim AS runtime", 1)[1]
         self.assertIn("useradd --uid 1000 --create-home handy", runtime)
         self.assertNotIn("ubuntu", DOCKERFILE)
+
+
+class NativeBoundsStageTests(unittest.TestCase):
+    """The bounds-build stage (#952): maturin only places the extension
+    at print_handy/core/_bounds_native when the package skeleton is
+    staged beside the crate; without those copies the wheel silently
+    ships a top-level package the dispatcher can never import."""
+
+    def test_stage_stages_the_package_skeleton_and_ships_only_the_wheel(self):
+        stage = DOCKERFILE.split("FROM debian:13-slim AS bounds-build", 1)[1].split("FROM debian:13-slim AS runtime", 1)[0]
+        self.assertIn("COPY print_handy/__init__.py ./native/bounds/print_handy/__init__.py", stage)
+        self.assertIn("COPY print_handy/core/__init__.py ./native/bounds/print_handy/core/__init__.py", stage)
+        self.assertIn("maturin build --release", stage)
+        runtime = DOCKERFILE.split("FROM debian:13-slim AS runtime", 1)[1]
+        self.assertIn("pip install --no-cache-dir /tmp/bounds-wheel/*.whl", runtime)
+        self.assertIn("site-packages/print_handy/core/_bounds_native*.so /app/print_handy/core/", runtime)
+        self.assertNotIn("cargo", runtime)
+        self.assertNotIn("rustup", runtime)
 
 
 class ContainerTimezoneTests(unittest.TestCase):

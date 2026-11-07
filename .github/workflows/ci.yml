@@ -197,6 +197,54 @@ jobs:
       - name: All offline shards passed
         run: test "${{ needs.offline-tests.result }}" = success
 
+  native-bounds:
+    # Builds the Rust/PyO3 bounds extension (#952, D1) and runs the
+    # equivalence corpus against the native path. The wheel's extension
+    # is mirrored into the source package (as the Dockerfile does for
+    # /app) so the tests import it instead of the source tree shadowing
+    # site-packages; PRINT_HANDY_BOUNDS_REQUIRE_NATIVE then makes a
+    # missing extension a hard failure in the strict dispatcher test,
+    # so this job cannot pass by silently falling back or skipping.
+    # The -rs summary prints any remaining skips for the record.
+    runs-on: ubuntu-24.04  # pinned: ubuntu-latest moves to 26 on 2026-10-19
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install the pinned Rust toolchain
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.99.1
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - run: python -m pip install ".[test]" "maturin==1.16.0"
+      - name: Stage the package skeleton beside the crate
+        # maturin places the extension at the module path only when the
+        # target package's directories exist beside the crate (mixed
+        # layout); without this the wheel ships a top-level package.
+        run: |
+          mkdir -p native/bounds/print_handy/core
+          cp print_handy/__init__.py native/bounds/print_handy/__init__.py
+          cp print_handy/core/__init__.py native/bounds/print_handy/core/__init__.py
+      - name: Build the native bounds wheel
+        working-directory: native/bounds
+        run: maturin build --release --locked
+      - name: Install the native bounds wheel
+        run: python -m pip install native/bounds/target/wheels/*.whl
+      - name: Mirror the extension into the source package
+        run: |
+          PURELIB="$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+          cp "$PURELIB"/print_handy/core/_bounds_native*.so print_handy/core/
+      - name: Run the bounds corpus against the native path
+        env:
+          PRINT_HANDY_BOUNDS_REQUIRE_NATIVE: "1"
+        run: python -m pytest tests/pipeline/test_native_bounds.py -q -rs
+
   discord-timing:
     # Fake Discord flow timing on both transports, mock slicer, 3 repeats; medians must stay within
     # tests/corpus/timing_baseline.json (+10% +0.5 s, #734). Raising a baseline needs a "reason".
