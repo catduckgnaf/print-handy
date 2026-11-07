@@ -208,7 +208,7 @@ def _stock_print(monkeypatch, tmp_path, details, *, slot=1, after=None):
     monkeypatch.setattr(model_job, "verify_gcode", lambda path: {"offline": True})
     monkeypatch.setattr(launch_state, "acquire", lambda *a, **kw: events.append("acquire") or _Lease(events))
     monkeypatch.setattr(model_job, "_consume_approval", lambda *a, **kw: events.append("consume"))
-    monkeypatch.setattr(model_job, "record_start", lambda g, remote: "/records/1")
+    monkeypatch.setattr(model_job, "record_start", lambda g, remote, **kw: "/records/1")
     if after is not None:
         started = list(fake.started)
 

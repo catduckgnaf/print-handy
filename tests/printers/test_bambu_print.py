@@ -186,7 +186,7 @@ def rig(monkeypatch, tmp_path):
                         lambda *a, **kw: events.append("acquire") or FakeLease(events))
     monkeypatch.setattr(model_job, "_consume_approval",
                         lambda *a, **kw: events.append("consume_approval"))
-    monkeypatch.setattr(model_job, "record_start", lambda g, remote: events.append("record") or "/records/1")
+    monkeypatch.setattr(model_job, "record_start", lambda g, remote, **kw: events.append("record") or "/records/1")
     # The confirmation window (#271) runs on a fake clock: 30 s, polled every 10 s = up to 4 snapshots.
     clock = FakeClock()
     monkeypatch.setattr(model_job, "_confirm_clock", clock)
