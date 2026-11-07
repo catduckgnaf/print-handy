@@ -193,6 +193,90 @@ def test_printed_jobs_dedupes_relaunches_of_one_job(tmp_path):
     assert len(print_control.printed_jobs(tmp_path)) == 1
 
 
+# ------------------------------------------- per-launch print numbers
+
+def test_relaunch_minted_at_start_gets_its_own_number(tmp_path):
+    """A reprint launched through print-now mints a new number at start time:
+    the /print-again list then shows BOTH prints, each with its own number,
+    and both numbers resolve to the same job's G-code."""
+    g = _printed(tmp_path, "job--a", "Thing", 100)
+    rows = print_control.printed_jobs(tmp_path)
+    assert [(r["index"], r["title"]) for r in rows] == [(1, "Thing")]
+    job_json = tmp_path / "job--a" / "JOB.json"
+    minted = print_control.mint_launch_number(job_json.resolve(), artifact=g)
+    assert minted == 2
+    rows = print_control.printed_jobs(tmp_path)
+    assert [r["index"] for r in rows] == [2, 1]
+    assert print_control.resolve_print("1", tmp_path)["gcode"] == str(g.resolve())
+    assert print_control.resolve_print("2", tmp_path)["gcode"] == str(g.resolve())
+    # The legacy per-job entry still names the FIRST print.
+    registry = json.loads((tmp_path / "print_numbers.json").read_text())
+    assert registry["numbers"][str(job_json.resolve())] == 1
+
+
+def test_unminted_relaunch_seen_by_record_time_gets_its_own_number(tmp_path):
+    """A launch nobody minted (printer screen start) rewrites the artifact's
+    launch record; when the list is next built, that newer record is a new
+    print with the next number, and the first print keeps number 1."""
+    g = _printed(tmp_path, "job--a", "Thing", 7200)
+    assert [r["index"] for r in print_control.printed_jobs(tmp_path)] == [1]
+    rec = g.parent / "plate_1.launch.json"
+    now = time.time()
+    os.utime(rec, (now, now))
+    rows = print_control.printed_jobs(tmp_path)
+    assert [r["index"] for r in rows] == [2, 1]
+    assert print_control.resolve_print("1", tmp_path)["gcode"] == str(g.resolve())
+    assert print_control.resolve_print("2", tmp_path)["gcode"] == str(g.resolve())
+
+
+def test_each_plate_launch_of_one_job_gets_its_own_number(tmp_path):
+    """Two launched plates of one job are two prints, numbered in launch order."""
+    run = tmp_path / "multi--a"
+    gcodes = []
+    for i, age in enumerate((300, 100)):
+        d = run / f"sliced/orca/p{i}"
+        d.mkdir(parents=True)
+        (d / "plate_1.gcode").write_text("G1 X1\n")
+        rec = d / "plate_1.launch.json"
+        rec.write_text(json.dumps({"file": f"plate-{i}.gcode"}))
+        t = time.time() - age
+        os.utime(rec, (t, t))
+        gcodes.append(d / "plate_1.gcode")
+    (run / "JOB.json").write_text(json.dumps({"title": "Multi", "gcode": str(gcodes[-1])}))
+    rows = print_control.printed_jobs(tmp_path)
+    assert [(r["index"], r["title"]) for r in rows] == [(2, "Multi"), (1, "Multi")]
+    # Resolving print #1 re-slices from the job's current artifact, as before.
+    assert print_control.resolve_print("1", tmp_path)["gcode"] == str(gcodes[-1].resolve())
+
+
+def test_old_numbers_from_the_per_job_registry_keep_working(tmp_path):
+    """The 'print 84' pin: a registry written by the per-job numbering keeps
+    its numbers — job A's first print is still #84 and resolves to job A."""
+    a = _printed(tmp_path, "job-a--a", "Alpha", 200)
+    b = _printed(tmp_path, "job-b--b", "Beta", 100)
+    registry = {"numbers": {str((tmp_path / "job-a--a" / "JOB.json").resolve()): 84,
+                            str((tmp_path / "job-b--b" / "JOB.json").resolve()): 85}}
+    (tmp_path / "print_numbers.json").write_text(json.dumps(registry))
+    rows = print_control.printed_jobs(tmp_path)
+    assert [(r["index"], r["title"]) for r in rows] == [(85, "Beta"), (84, "Alpha")]
+    assert print_control.resolve_print("84", tmp_path)["gcode"] == str(a.resolve())
+    assert print_control.resolve_print("85", tmp_path)["gcode"] == str(b.resolve())
+    # A later launch of Alpha takes the NEXT number after the highest old one.
+    assert print_control.mint_launch_number((tmp_path / "job-a--a" / "JOB.json").resolve(),
+                                            artifact=a) == 86
+
+
+def test_mint_launch_number_never_reuses_and_sets_first_number(tmp_path):
+    job_a = tmp_path / "a" / "JOB.json"
+    job_b = tmp_path / "b" / "JOB.json"
+    assert print_control.mint_launch_number(job_a) == 1
+    assert print_control.mint_launch_number(job_b) == 2
+    assert print_control.mint_launch_number(job_a) == 3
+    registry = print_control._load_number_registry()
+    assert registry["numbers"] == {str(job_a): 1, str(job_b): 2}
+    assert [e["number"] for e in registry["launches"]] == [1, 2, 3]
+
+
 def test_resolve_by_number(tmp_path):
     _a, b, _c = _three(tmp_path)
     t = print_control.resolve_print("2", tmp_path)

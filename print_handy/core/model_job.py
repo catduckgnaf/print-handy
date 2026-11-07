@@ -3364,8 +3364,13 @@ def copies_supported(job, multi_plate=None):
                 or (job.get('color_decisions') or {}).get('mode') == 'per_part')
 
 
-def record_start(gcode_path, moonraker_name=None, started_at=None):
-    """Write the JSON start record plus the completion sidecar for a started print."""
+def record_start(gcode_path, moonraker_name=None, started_at=None, print_number=None):
+    """Write the JSON start record plus the completion sidecar for a started print.
+
+    print_number, when the caller minted one for this launch, is stamped into
+    the record context so the completion record carries THIS launch's number,
+    not the job's first-print number.
+    """
     print_records = _external.load("print_records")
     st=printer_state.load(); g=Path(gcode_path).expanduser().resolve(); text=g.read_text(errors="ignore")
     def cfg(key):
@@ -3382,6 +3387,8 @@ def record_start(gcode_path, moonraker_name=None, started_at=None):
          "slicer_settings":{**{k:cfg(k) for k in RECORD_KEYS if cfg(k) is not None},
                             "source_profile":src.get("title"),"source_file":(job or {}).get("downloaded_file"),"local_gcode":str(g)},
          "active_spool":{"id":st["spool"]["spoolman_id"],"material":st["spool"]["material"],"color":st["spool"]["name"]}}
+    if isinstance(print_number, int) and not isinstance(print_number, bool) and print_number > 0:
+        ctx["print_number"] = print_number
     plan = (job or {}).get('multipart_plan') or {}
     for part in plan.get('parts') or []:
         if part.get('gcode_path') and Path(part['gcode_path']).resolve() == g:
@@ -3651,17 +3658,23 @@ def mesh_line(mesh):
     return line
 
 
-def _assign_print_number(job_path):
-    """Permanent print number from the shared /print-again registry; None on any failure."""
+def _assign_print_number(job_path, artifact=None):
+    """Mint this launch's own permanent print number; None on any failure.
+
+    Every launch mints a NEW number from the shared /print-again registry —
+    a reprint of an already-numbered job is a new print, not the old print
+    number again. The job's first mint stays its legacy registry number, so
+    old numbers keep resolving to the same job.
+    """
     if job_path is None:
         return None
     try:
         print_control = _external.load("print_control")
-        ARCHIVE, assign_print_numbers = print_control.ARCHIVE, print_control.assign_print_numbers
+        ARCHIVE, mint_launch_number = print_control.ARCHIVE, print_control.mint_launch_number
         key = Path(job_path).resolve()
         if not key.is_relative_to(ARCHIVE.resolve()):
             return None  # scratch and test jobs are not prints
-        return assign_print_numbers({key: time.time()}).get(str(key))
+        return mint_launch_number(key, at=time.time(), artifact=artifact)
     except Exception as e:
         print(f"WARNING: print number not assigned: {e}")
         return None
@@ -7455,8 +7468,11 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
             # The POST response was lost: preserve the duplicate guard until
             # explicit reconciliation, even if a matching readback is active.
             _write_checkpoint(checkpoint, out)
+            if out.get('print_number') is None:
+                try: out['print_number'] = _assign_print_number(job_path, artifact=g)
+                except Exception as exc: print(f"WARNING: could not assign a print number: {exc}")
             try:
-                out['record_path'] = str(record_start(g, remote))
+                out['record_path'] = str(record_start(g, remote, print_number=out.get('print_number')))
             except Exception as record_exc:
                 logger.warning('start record failed after reconciled submission: %s', record_exc)
         _write_checkpoint(checkpoint, out)
@@ -7507,7 +7523,7 @@ def _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_pat
     # Number at submission, not at "printing": native preparation can outlast the readback
     # and the listener's completion card only reads the registry (2026-10-14: 6 unnumbered).
     try:
-        out['print_number'] = _assign_print_number(job_path)
+        out['print_number'] = _assign_print_number(job_path, artifact=g)
     except Exception as exc:
         logger.warning('could not assign a print number: %s', exc)
     if delivery:
@@ -7516,7 +7532,7 @@ def _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_pat
     print('MAPPED START SUBMITTED ' + json.dumps(out), flush=True)
     # Record immediately so a long native preparation cannot lose its start record.
     try:
-        out['record_path'] = str(record_start(g, remote))
+        out['record_path'] = str(record_start(g, remote, print_number=out.get('print_number')))
     except Exception as exc:
         logger.warning('start record failed after submission: %s', exc)
     state = _wait_printing(st, remote, wait_s, prep_check=_preparation_evidence)
@@ -7790,8 +7806,10 @@ def _print_octoprint(adapter, state, gcode, job, job_path, wait_s, reprint):
     out = _settle_polled_start(lease, poll, remote, method='octoprint')
     confirmed = out['started']
     if confirmed:
+        try: out['print_number'] = _assign_print_number(job_path, artifact=gcode)
+        except Exception as exc: print(f'WARNING: could not assign a print number: {exc}')
         try:
-            out['record_path'] = record_start(gcode, remote)
+            out['record_path'] = record_start(gcode, remote, print_number=out.get('print_number'))
         except Exception as exc:
             print(f'WARNING: start record failed: {exc}')
         # The print path starts a launched-print monitor (#373): it makes
@@ -7960,8 +7978,10 @@ def _print_bambu(adapter, state, gcode, job, job_path, wait_s, reprint):
         ams_mapping=ams_map, ams_mapping_source=ams_source,
         confirmation={"snapshots": snapshots, "window_s": window_s})
     if confirmed:
+        try: out['print_number'] = _assign_print_number(job_path, artifact=gcode)
+        except Exception as exc: print(f'WARNING: could not assign a print number: {exc}')
         try:
-            out["record_path"] = record_start(gcode, remote)
+            out["record_path"] = record_start(gcode, remote, print_number=out.get('print_number'))
         except Exception as exc:
             print(f"WARNING: start record failed: {exc}")
         # Camera parity (#294): a monitor watches this launched print — it makes
@@ -8041,8 +8061,10 @@ def _print_elegoo_sdcp(adapter, state, gcode, job, job_path, wait_s, reprint):
     out = _settle_polled_start(lease, poll, remote, method="elegoo_sdcp")
     confirmed = out["started"]
     if confirmed:
+        try: out['print_number'] = _assign_print_number(job_path, artifact=gcode)
+        except Exception as exc: print(f'WARNING: could not assign a print number: {exc}')
         try:
-            out["record_path"] = record_start(gcode, remote)
+            out["record_path"] = record_start(gcode, remote, print_number=out.get('print_number'))
         except Exception as exc:
             print(f"WARNING: start record failed: {exc}")
         # Timelapse (#295): a monitor watches this launched print — the
@@ -8126,8 +8148,10 @@ def _print_prusa(adapter, state, gcode, job, job_path, wait_s, reprint):
     out = _settle_polled_start(lease, poll, remote, method="prusalink")
     confirmed = out["started"]
     if confirmed:
+        try: out['print_number'] = _assign_print_number(job_path, artifact=gcode)
+        except Exception as exc: print(f'WARNING: could not assign a print number: {exc}')
         try:
-            out["record_path"] = record_start(gcode, remote)
+            out["record_path"] = record_start(gcode, remote, print_number=out.get('print_number'))
         except Exception as exc:
             print(f"WARNING: start record failed: {exc}")
         # Timelapse (#295): a monitor watches this launched print — the
@@ -8232,8 +8256,10 @@ def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprin
     out = _settle_polled_start(lease, poll, remote, method="flashforge_stock")
     confirmed = out["started"]
     if confirmed:
+        try: out['print_number'] = _assign_print_number(job_path, artifact=gcode)
+        except Exception as exc: print(f'WARNING: could not assign a print number: {exc}')
         try:
-            out["record_path"] = record_start(gcode, remote)
+            out["record_path"] = record_start(gcode, remote, print_number=out.get('print_number'))
         except Exception as exc:
             print(f"WARNING: start record failed: {exc}")
         # Timelapse (#373): a monitor watches this launched print — the
@@ -8831,8 +8857,11 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
             recorder.finish("refused", rejection=rejection)
             raise SystemExit(_rejected_start_message(rejection)) from exc
         if out["accepted"]:
+            if out.get("print_number") is None:
+                try: out["print_number"] = _assign_print_number(job_path, artifact=g)
+                except Exception as exc: print(f"WARNING: could not assign a print number: {exc}")
             try:
-                out["record_path"] = str(record_start(g, remote))
+                out["record_path"] = str(record_start(g, remote, print_number=out.get("print_number")))
             except Exception as record_exc:
                 print(f"WARNING: print start record failed: {record_exc}")
         print("START SUBMITTED; AWAITING CONFIRMATION " + json.dumps(out), flush=True)
@@ -8860,8 +8889,12 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
         return out
     lease.release()  # printing; the busy printer now refuses another start
     recorder.finish("printing", phase="executing", moonraker_state=state)
+    # Mint this launch's number BEFORE the start record, so the record (and
+    # the completion record built from it) carries this print's own number.
+    try: print_no=_assign_print_number(job_path, artifact=g)
+    except Exception as e: print_no=None; print(f"WARNING: could not assign a print number: {e}")
     record_path=None
-    try: record_path=record_start(g, remote)
+    try: record_path=record_start(g, remote, print_number=print_no)
     except Exception as e: print(f"WARNING: print start record failed: {e}")
     if not isinstance(record_path,(str,os.PathLike)): record_path=None
     elif record_path is not None: record_path=str(record_path)
@@ -8870,8 +8903,6 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
     est=gcode_estimate_s(text); fg=_filament_total_g(text)
     warm=5*60; now=datetime.now(ZoneInfo(TIMEZONE))
     title=(job or {}).get("title") or g.stem
-    try: print_no=_assign_print_number(job_path)
-    except Exception as e: print_no=None; print(f"WARNING: could not assign a print number: {e}")
     out={"started":True,"title":title,"print_number":print_no,"file":remote,"method":method,
          "phase":"executing","outcome":"printing","message":(readback.message if readback else "printing"),
          "extrusion_confirmed":bool(readback and (readback.evidence or {}).get("extrusion_confirmed")),
