@@ -33,6 +33,21 @@ from datetime import datetime, timezone, tzinfo
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+
+def record_key(record):
+    """One print's identity for per-print joins: its record_id.
+
+    print_number is NOT unique in history: before per-launch numbering
+    (#979/#988) a reprint was recorded under the original's number, so
+    joins keyed by number merged two different prints. record_id names
+    one physical print (job + file + start instant). Records without one
+    fall back to number plus start time.
+    """
+    rid = record.get("record_id") if isinstance(record, dict) else None
+    if isinstance(rid, str) and rid:
+        return rid
+    return f"#{record.get('print_number')}@{record.get('started_at') or record.get('completed_at') or ''}"
+
 UNKNOWN = "unknown"
 
 
@@ -567,14 +582,26 @@ def aggregate(records, year=None, tz=None, events=None, enrichments=None):
     enrich_out = {"per_print": {}, "support_waivers": 0,
                   "almost_made": {"count": 0, "titles": [], "scope_note": ""}}
     if isinstance(enrichments, dict):
-        for number, grams_by_color in (
-                enrichments.get("per_color_grams_by_print") or {}).items():
-            if number not in scope_numbers or not isinstance(grams_by_color, dict):
+        by_record = enrichments.get("per_color_grams_by_record")
+        if isinstance(by_record, dict):
+            # One entry per PRINT in scope: a number shared by an original
+            # and its pre-#988 reprint counts both prints' grams.
+            joined = [by_record.get(record_key(r)) for r in rows]
+        else:
+            joined = [grams for number, grams in
+                      (enrichments.get("per_color_grams_by_print") or {}).items()
+                      if number in scope_numbers]
+        for grams_by_color in joined:
+            if not isinstance(grams_by_color, dict):
                 continue
             for color, grams in grams_by_color.items():
                 value = _num(grams)
                 if value is not None:
                     per_color[str(color)] = per_color.get(str(color), 0.0) + value
+        scope_keys = {record_key(r) for r in rows}
+        enrich_out["stop_detail_by_record"] = {
+            key: detail for key, detail in
+            (enrichments.get("stop_detail_by_record") or {}).items() if key in scope_keys}
         enrich_out["per_print"] = {
             number: entry for number, entry in
             (enrichments.get("per_print") or {}).items() if number in scope_numbers}
@@ -841,10 +868,17 @@ def build_wrapped(records, year, tz=None, events=None, enrichments=None):
         worst_failure = {"title": best_failed.get("title"),
                          "print_number": best_failed.get("print_number"),
                          "seconds": _num(best_failed.get("print_duration_seconds"))}
-        entry = (stats["enrichments"]["per_print"].get(
-            best_failed.get("print_number")) or {})
-        if isinstance(entry.get("stop_detail"), dict):
-            worst_failure["stop_detail"] = entry["stop_detail"]
+        # The failed print's OWN stop detail (by record): a number shared
+        # with another print in pre-#988 history must not lend it the
+        # other run's stop reason.
+        by_record = stats["enrichments"].get("stop_detail_by_record")
+        if isinstance(by_record, dict) and by_record:
+            detail = by_record.get(record_key(best_failed))
+        else:
+            detail = (stats["enrichments"]["per_print"].get(
+                best_failed.get("print_number")) or {}).get("stop_detail")
+        if isinstance(detail, dict):
+            worst_failure["stop_detail"] = detail
     highlights = {
         "top_color": top_color, "top_color_prints": top_color_count,
         "top_material": top_material, "top_printer": top_printer,

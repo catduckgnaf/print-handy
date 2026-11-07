@@ -564,5 +564,43 @@ class PageRenderTests(unittest.TestCase):
         self.assertEqual(payload["spoolman_lifetime"]["state"], "unavailable")
 
 
+
+
+class DuplicatePrintNumberTests(unittest.TestCase):
+    """Pre-#988 history: a reprint was recorded under the original's
+    print number. Per-print joins must count and describe each PRINT."""
+
+    def test_reprint_sharing_a_number_counts_its_own_per_color_grams(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            records, archive, receipts = _join_fixtures(tmp)
+            reprint = _rec(10, started_at="2026-04-01T12:00:00Z", record_id="bbbb2222")
+            records = [dict(records[0], record_id="aaaa1111"), reprint]
+            enrich = wrapped_joins.build_enrichments(
+                records, archive_dir=archive, receipts_dir=receipts)
+            stats = print_stats.aggregate(records, year=2026, enrichments=enrich)
+        # Two prints of the two-color job: twice the single print's grams.
+        self.assertEqual(stats["per_color_grams"], {"#FF0000": 21.0, "#00FF00": 5.0})
+
+    def test_worst_failure_gets_its_own_stop_detail_not_the_other_runs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            long_stop = Path(tmp) / "STOP-long.json"
+            long_stop.write_text(json.dumps({"stop_reason": "Timer too close"}))
+            short_stop = Path(tmp) / "STOP-short.json"
+            short_stop.write_text(json.dumps({"stop_reason": "Filament runout"}))
+            original = _rec(5, status="failed", print_duration_seconds=7200,
+                            started_at="2026-03-01T12:00:00Z", record_id="aaaa1111",
+                            stop_capture=str(long_stop), stop_reason="Timer too close")
+            reprint = _rec(5, status="failed", print_duration_seconds=60,
+                           started_at="2026-03-02T12:00:00Z", record_id="bbbb2222",
+                           stop_capture=str(short_stop), stop_reason="Filament runout")
+            enrich = wrapped_joins.build_enrichments(
+                [original, reprint], archive_dir=Path(tmp) / "none",
+                receipts_dir=Path(tmp) / "none")
+            wrapped = print_stats.build_wrapped([original, reprint], 2026, enrichments=enrich)
+        worst = wrapped["highlights"]["worst_failure"]
+        self.assertEqual(worst["seconds"], 7200)
+        self.assertEqual(worst["stop_detail"]["stop_reason"], "Timer too close")
+
+
 if __name__ == "__main__":
     unittest.main()
