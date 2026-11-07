@@ -142,7 +142,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       sh -s -- -y --profile minimal --default-toolchain 1.99.1
 WORKDIR /src
 COPY native/bounds/ ./native/bounds/
-COPY print_handy/__init__.py ./print_handy/__init__.py
+# maturin places the extension at the module path only when the target
+# package's directories exist beside the crate (mixed layout), so the
+# real package __init__ files are staged into the crate first; the
+# wheel then carries print_handy/core/_bounds_native.abi3.so.
+COPY print_handy/__init__.py ./native/bounds/print_handy/__init__.py
+COPY print_handy/core/__init__.py ./native/bounds/print_handy/core/__init__.py
 COPY README.md ./README.md
 RUN mkdir -p /out && cd native/bounds && \
     maturin build --release -m pyproject.toml -i python3 --out /out

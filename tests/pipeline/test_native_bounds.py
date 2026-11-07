@@ -249,7 +249,12 @@ def test_dispatcher_uses_the_native_module_when_required(monkeypatch):
 
 
 def test_missing_module_falls_back(monkeypatch):
+    import print_handy.core as core_pkg
+
     monkeypatch.setitem(sys.modules, "print_handy.core._bounds_native", None)
+    # A previously imported real module also lives as an attribute of
+    # the package, which `from . import ...` would find first.
+    monkeypatch.delattr(core_pkg, "_bounds_native", raising=False)
     model_job._reset_native_bounds_cache()
     assert model_job.gcode_motion_bounds(TEXT) == EXPECTED_TEXT
 
@@ -337,7 +342,10 @@ def test_python_setting_never_touches_native(monkeypatch):
 
 
 def test_native_setting_raises_when_the_module_is_missing(monkeypatch):
+    import print_handy.core as core_pkg
+
     monkeypatch.setitem(sys.modules, "print_handy.core._bounds_native", None)
+    monkeypatch.delattr(core_pkg, "_bounds_native", raising=False)
     monkeypatch.setenv("PRINT_HANDY_BOUNDS_IMPL", "native")
     model_job._reset_native_bounds_cache()
     with pytest.raises(RuntimeError, match="native bounds parser required but unavailable"):

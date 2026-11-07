@@ -394,6 +394,24 @@ class RuntimeImageTests(unittest.TestCase):
         self.assertNotIn("ubuntu", DOCKERFILE)
 
 
+class NativeBoundsStageTests(unittest.TestCase):
+    """The bounds-build stage (#952): maturin only places the extension
+    at print_handy/core/_bounds_native when the package skeleton is
+    staged beside the crate; without those copies the wheel silently
+    ships a top-level package the dispatcher can never import."""
+
+    def test_stage_stages_the_package_skeleton_and_ships_only_the_wheel(self):
+        stage = DOCKERFILE.split("FROM debian:13-slim AS bounds-build", 1)[1].split("FROM debian:13-slim AS runtime", 1)[0]
+        self.assertIn("COPY print_handy/__init__.py ./native/bounds/print_handy/__init__.py", stage)
+        self.assertIn("COPY print_handy/core/__init__.py ./native/bounds/print_handy/core/__init__.py", stage)
+        self.assertIn("maturin build --release", stage)
+        runtime = DOCKERFILE.split("FROM debian:13-slim AS runtime", 1)[1]
+        self.assertIn("pip install --no-cache-dir /tmp/bounds-wheel/*.whl", runtime)
+        self.assertIn("site-packages/print_handy/core/_bounds_native*.so /app/print_handy/core/", runtime)
+        self.assertNotIn("cargo", runtime)
+        self.assertNotIn("rustup", runtime)
+
+
 class ContainerTimezoneTests(unittest.TestCase):
     """TZ: the image carries a default container timezone (America/New_York)
     that Compose, .env.example, the Unraid template and the docs all expose,
