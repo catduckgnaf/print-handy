@@ -289,8 +289,13 @@ def test_record_start_gives_every_plate_the_first_plates_project_number(tmp_path
     monkeypatch.setattr(print_records, "PRINTS_DIR", tmp_path / "Prints")
     monkeypatch.setattr(print_records, "PLANS_DIR", tmp_path / "Plans")
     context_path = tmp_path / "print_handy_context.json"
+    state = {"printer": "Test", "filament_slots": {},
+             "spool": {"spoolman_id": None, "name": "PLA", "material": "PLA",
+                       "diameter_mm": 1.75, "density": 1.24}}
     with mock.patch.object(model_job, "_job_for_gcode", return_value=job), \
          mock.patch.object(model_job, "_job_record_for_gcode", return_value=(job, job_json)), \
+         mock.patch.object(model_job.printer_state, "load", return_value=state), \
+         mock.patch.object(model_job.printer_state, "summary", return_value="test printer"), \
          mock.patch.object(model_job.printers, "current",
                            return_value=mock.Mock(multi_slot=False, native_or_none=None)), \
          mock.patch.object(model_job, "CONTEXT", context_path):
