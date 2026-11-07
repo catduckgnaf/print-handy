@@ -4602,6 +4602,40 @@ def _plain_print_number(text):
     return int(match.group(1)) if match else None
 
 
+async def roast_dispatch(event, gateway, **kwargs):
+    """"roast my last print" / "roast print 84" / "roast the benchie" (#1002).
+
+    Plain language, typo tolerant through the shared fuzzy layer, and
+    read-only: the print is resolved the way 'print 84' and /print-again
+    resolve it, and the line comes from the local roast corpus — no LLM,
+    nothing sent to the printer. Off with vision.roast_enabled=false.
+    """
+    from print_handy.hermes import roast_chat
+    text = str(getattr(event, 'text', '')).strip()
+    if roast_chat.roast_request(text) is None:
+        return None
+    source, adapter = _control_gate(event, gateway)
+    if source is None:
+        return None
+    if adapter is None:
+        return {'action': 'skip', 'reason': 'roast UI delivery unavailable'}
+    metadata = {'thread_id': source.thread_id} if source.thread_id else None
+    vision = _config.cfg().get('vision') or {}
+    if not vision.get('roast_enabled', True):
+        message = 'Roasts are turned off (vision.roast_enabled is false).'
+    else:
+        from print_handy.hermes import _config as hermes_config
+        state_path = hermes_config.state_file('PRINT_HANDY_ROAST_STATE', 'roast_state.json')
+        try:
+            message = await asyncio.to_thread(roast_chat.roast_reply, text, state_path=state_path,
+                                              tz=hermes_config.tz())
+        except Exception:
+            logger.exception('roast request failed')
+            message = 'No roast this time; the print history could not be read.'
+    await adapter.send(chat_id=source.chat_id, metadata=metadata, content=message or 'No roast this time.')
+    return {'action': 'skip', 'reason': 'roast handled'}
+
+
 async def print_again_dispatch(event, gateway, **kwargs):
     """/print-again [list | N | name]: an archived printed job from the start, behind one bed-clear button."""
     text = str(getattr(event, 'text', '')).strip()
@@ -6576,6 +6610,7 @@ _DISPATCH_HOOKS = (
     exclude_dispatch,
     print_stop_dispatch,
     print_resume_dispatch,
+    roast_dispatch,
     print_again_dispatch,
     edit_dispatch,
     loaded_spools_dispatch,
