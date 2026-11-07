@@ -27,6 +27,8 @@ records_vault = "/data/records"
 cache = "/data/cache"
 hermes_bin = "/usr/local/bin/hermes"
 ffmpeg = "ffmpeg"
+piper = "piper"
+piper_model = ""
 hermes_agent = "/data/state/hermes-agent"
 hermes_restart_helper = "/data/state/restart_hermes.py"
 

@@ -151,6 +151,8 @@ GROUP_OF = {
     "timelapse.ssh_key": "timelapse",
     "timelapse.wrapped_enabled": "timelapse",
     "timelapse.wrapped_ai_video": "timelapse",
+    "timelapse.wrapped_tts_engine": "timelapse",
+    "timelapse.wrapped_music_file": "timelapse",
     "logging.level": "logging",
     "logging.format": "logging",
     "logging.retention_days": "logging",
@@ -525,6 +527,20 @@ CATALOG = (
            "fallback) plus a local video of stat cards and the year's timelapses. "
            "Off by default, and it needs the Data tab and Wrapped switch above on. "
            "The video is generated only when the operator asks, and never sent anywhere.",
+           validator="settings timelapse check"),
+    _field("timelapse", "wrapped_tts_engine", "Wrapped narration", "picker",
+           "Spoken narration for the Wrapped video (#981): none (default; no "
+           "narration), piper (local Piper binary, paths.piper with the voice "
+           "model at paths.piper_model), or cloud (the OpenAI-compatible "
+           "speech route under [ai.speech]; the slide lines are sent there "
+           "to be spoken).",
+           choices=tuple(settings.WRAPPED_TTS_ENGINES),
+           validator="settings timelapse check"),
+    _field("timelapse", "wrapped_music_file", "Wrapped music file", "text",
+           "An audio file you supply, used as the Wrapped video music bed "
+           "instead of the synthesized bed. Empty keeps the synthesized bed; "
+           "a missing file is named in the video result and the synthesized "
+           "bed is used.",
            validator="settings timelapse check"),
     # Logging.
     _field("logging", "level", "Log level", "picker",
