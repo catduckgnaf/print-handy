@@ -18,6 +18,13 @@ risk-flagged when ``watch_risk`` is a truthy value (a non-empty string
 in practice, ``True`` defensively). The aggregate names that count
 ``risk_flagged``; ``watchdog_flagged`` remains as a deprecated alias
 with the same value for existing payload consumers.
+
+Pasta (spaghetti) is a different source entirely: the watchdog events
+file (``<records vault>/Watchdog/events.jsonl``, written always-on by
+``hermes.watchdog_events``). Callers load it with
+:func:`load_watchdog_events` and pass the events to :func:`aggregate`;
+when no events file exists the aggregate keeps the honest
+``not_recorded`` pasta state, and risk flags are never read as pasta.
 """
 from __future__ import annotations
 
@@ -25,6 +32,21 @@ import json
 from datetime import datetime, timezone, tzinfo
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+
+def record_key(record):
+    """One print's identity for per-print joins: its record_id.
+
+    print_number is NOT unique in history: before per-launch numbering
+    (#979/#988) a reprint was recorded under the original's number, so
+    joins keyed by number merged two different prints. record_id names
+    one physical print (job + file + start instant). Records without one
+    fall back to number plus start time.
+    """
+    rid = record.get("record_id") if isinstance(record, dict) else None
+    if isinstance(rid, str) and rid:
+        return rid
+    return f"#{record.get('print_number')}@{record.get('started_at') or record.get('completed_at') or ''}"
 
 UNKNOWN = "unknown"
 
@@ -61,6 +83,41 @@ def load_records_from_dir(directory):
     return records, skipped
 
 
+def watchdog_events_path(records_vault):
+    return Path(records_vault) / "Watchdog" / "events.jsonl"
+
+
+def load_watchdog_events(records_vault):
+    """(events, skipped_lines, exists) from the watchdog events file.
+
+    The same fail-soft pattern as the record loader: a missing file is
+    ``([], [], False)`` — the caller keeps the ``not_recorded`` pasta
+    state — and a malformed line is skipped and named
+    (``Watchdog/events.jsonl line N``), never fatal.
+    """
+    path = watchdog_events_path(records_vault)
+    if not path.is_file():
+        return [], [], False
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return [], [], True
+    events, skipped = [], []
+    for index, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+        except ValueError:
+            skipped.append(f"Watchdog/events.jsonl line {index}")
+            continue
+        if not isinstance(payload, dict):
+            skipped.append(f"Watchdog/events.jsonl line {index}")
+            continue
+        events.append(payload)
+    return events, skipped, True
+
+
 def _num(value):
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
@@ -82,7 +139,9 @@ def _spool_label(value):
     return str(value)
 
 
-def _nozzle_label(record):
+def _settings_dict(record):
+    """The record's slicer_settings as a dict, or None (it may be a
+    JSON string, a dict, or absent, depending on the recording path)."""
     settings = record.get("slicer_settings")
     if isinstance(settings, str):
         try:
@@ -90,7 +149,12 @@ def _nozzle_label(record):
         except ValueError:
             parsed = None
         settings = parsed if isinstance(parsed, dict) else None
-    if not isinstance(settings, dict):
+    return settings if isinstance(settings, dict) else None
+
+
+def _nozzle_label(record):
+    settings = _settings_dict(record)
+    if settings is None:
         return UNKNOWN
     value = settings.get("nozzle_diameter")
     if value is None:
@@ -224,6 +288,134 @@ def _repeats(rows):
     }
 
 
+# Density defaults (g/cm3) for the derived-grams fallback, by material
+# family. Used only when a record carries neither its own density nor
+# a recorded spool density — see _derived_grams.
+_DENSITY_DEFAULTS = {"PLA": 1.24, "PETG": 1.27, "ABS": 1.04, "ASA": 1.07,
+                     "TPU": 1.21, "NYLON": 1.14, "PA": 1.14, "PC": 1.20}
+_DERIVED_DIAMETER_MM = 1.75
+_DERIVED_DENSITY_DEFAULT = 1.24
+
+
+def _derived_grams(record):
+    """(grams, used_fallback) recovered from ``filament_used_mm``, or None.
+
+    Only for records with no recorded ``filament_used_g``. The record's
+    own filament diameter/density win when it carries them (top level
+    or inside ``slicer_settings``); otherwise the documented fallback
+    applies: 1.75 mm diameter and the material family's density
+    (1.24 g/cm3 when the material is unknown). The result is always
+    labeled DERIVED by the caller and never enters the headline total:
+    a recovered estimate must not silently change what the recorded
+    total means.
+    """
+    if _num(record.get("filament_used_g")) is not None:
+        return None
+    mm = _num(record.get("filament_used_mm"))
+    if mm is None or mm <= 0:
+        return None
+    settings = _settings_dict(record) or {}
+    diameter = _num(record.get("filament_diameter_mm"))
+    if diameter is None:
+        diameter = _num(settings.get("filament_diameter_mm"))
+    density = _num(record.get("filament_density"))
+    if density is None:
+        density = _num(settings.get("filament_density"))
+    fallback = False
+    if diameter is None:
+        diameter = _DERIVED_DIAMETER_MM
+        fallback = True
+    if density is None:
+        material = str(record.get("filament_material") or "").strip().upper()
+        density = next((v for k, v in _DENSITY_DEFAULTS.items()
+                        if material.startswith(k)), _DERIVED_DENSITY_DEFAULT)
+        fallback = True
+    import math
+    grams = mm * math.pi * (diameter / 2) ** 2 * density / 1000
+    return grams, fallback
+
+
+def _event_key(event, index):
+    """The print identity of one watchdog event: its print number,
+    else its job key, else the event itself (never merged)."""
+    number = event.get("print_number")
+    if isinstance(number, int) and not isinstance(number, bool) and number > 0:
+        return ("number", number)
+    job_key = event.get("job_key")
+    if isinstance(job_key, str) and job_key.strip():
+        return ("job", job_key.strip())
+    return ("event", index)
+
+
+def _pasta_summary(events, year, resolved, rows):
+    """Pasta facts from the watchdog events list (see aggregate()).
+
+    Pasta counts **distinct prints** with at least one ``spaghetti``
+    verdict event in the period; the raw event count rides along as
+    ``pasta_events``. Events with unparseable timestamps count in the
+    unfiltered totals and are excluded from a year filter, exactly
+    like records. ``worst_spaghetti`` is the print with the highest
+    recorded streak (an event with no streak counts as a streak of 1,
+    the one check that saw it); ties break on most spaghetti events,
+    then earliest first event.
+    """
+    parsed = [(index, event, _parse_started(event.get("timestamp")))
+              for index, event in enumerate(events)]
+    recording_started = None
+    for _index, event, when in parsed:
+        if when is not None and (recording_started is None or when < recording_started[0]):
+            recording_started = (when, event.get("timestamp"))
+
+    def in_period(when):
+        if year is None:
+            return True
+        return when is not None and _local(when, resolved).year == year
+
+    spaghetti = [(index, event, when) for index, event, when in parsed
+                 if str(event.get("verdict") or "").strip().lower() == "spaghetti"]
+    period = [(index, event, when) for index, event, when in spaghetti
+              if in_period(when)]
+    all_keys = {_event_key(event, index) for index, event, _when in spaghetti}
+    period_keys = {_event_key(event, index) for index, event, _when in period}
+    groups: dict = {}
+    for index, event, when in period:
+        key = _event_key(event, index)
+        group = groups.setdefault(key, {"events": 0, "streak": 0, "first": None,
+                                        "event": event})
+        group["events"] += 1
+        streak = _num(event.get("streak"))
+        group["streak"] = max(group["streak"], int(streak) if streak else 1)
+        stamp = str(event.get("timestamp") or "")
+        if group["first"] is None or (stamp and stamp < group["first"]):
+            group["first"] = stamp or group["first"]
+    worst = None
+    if groups:
+        key, group = sorted(
+            groups.items(),
+            key=lambda kv: (-kv[1]["streak"], -kv[1]["events"],
+                            kv[1]["first"] or "9999"))[0]
+        event = group["event"]
+        number = event.get("print_number")
+        number = number if isinstance(number, int) and not isinstance(number, bool) else None
+        title = None
+        if number is not None:
+            match = next((r for r in rows if r.get("print_number") == number), None)
+            title = match.get("title") if match else None
+        worst = {"print_number": number, "job_key": event.get("job_key"),
+                 "printer": event.get("printer"), "title": title,
+                 "date": group["first"], "streak": group["streak"],
+                 "events": group["events"]}
+    started_text = str(recording_started[1]) if recording_started else None
+    return {
+        "pasta": len(period_keys),
+        "pasta_events": len(period),
+        "pasta_all_time_prints": len(all_keys),
+        "pasta_print_numbers": sorted(k[1] for k in period_keys if k[0] == "number"),
+        "pasta_recording_started_at": started_text,
+        "worst_spaghetti": worst,
+    }
+
+
 def _top(rows, key, limit=5):
     scored = []
     for record in rows:
@@ -242,7 +434,7 @@ def _top(rows, key, limit=5):
     return out
 
 
-def aggregate(records, year=None, tz=None):
+def aggregate(records, year=None, tz=None, events=None, enrichments=None):
     """Aggregate record dicts into a JSON-able stats dict.
 
     ``year`` (an int) keeps only records whose ``started_at`` falls in
@@ -259,6 +451,15 @@ def aggregate(records, year=None, tz=None):
     (``hermes._config.tz()``) so the recap matches the operator's local
     year (#981). ``started_at`` instants themselves stay UTC in the
     records and in every payload field that echoes them.
+
+    ``events`` is the watchdog events list from
+    :func:`load_watchdog_events` (all events in the file, unfiltered;
+    the year rules are applied here, mirroring records). ``None``
+    means no events file exists and pasta stays in the ``not_recorded``
+    state; a list (even empty) means recording exists and pasta is a
+    real count for the period. ``enrichments`` is the optional
+    :mod:`print_handy.core.wrapped_joins` result, filtered here to the
+    print numbers in scope.
     """
     resolved = _resolve_tz(tz)
     records = [r for r in (records or []) if isinstance(r, dict)]
@@ -338,6 +539,109 @@ def aggregate(records, year=None, tz=None):
                      "Friday", "Saturday", "Sunday"]
     by_weekday = {day: by_weekday[day] for day in weekday_order if day in by_weekday}
 
+    # Derived grams (#981): recovered from filament_used_mm where no
+    # grams were recorded, labeled DERIVED, and kept OUT of the
+    # headline total above — the headline stays recorded-only.
+    derived_total = 0.0
+    derived_records = 0
+    derived_fallback = False
+    for record in rows:
+        derived = _derived_grams(record)
+        if derived is not None:
+            grams, used_fallback = derived
+            derived_total += grams
+            derived_records += 1
+            derived_fallback = derived_fallback or used_fallback
+
+    # Per-color grams (#981): the record's native per-tool list first
+    # (slicer_settings.filament_used_g_list, aligned with
+    # filament_color_list), then the archived-job join's per-print
+    # split for prints without a native list. A print is counted once.
+    per_color: dict[str, float] = {}
+    for record in rows:
+        settings = _settings_dict(record) or {}
+        grams_list = settings.get("filament_used_g_list")
+        if not isinstance(grams_list, list) or not grams_list:
+            continue
+        colors = settings.get("filament_color_list")
+        numeric = [g for g in grams_list if _num(g) is not None]
+        for index, grams in enumerate(grams_list):
+            value = _num(grams)
+            if value is None:
+                continue
+            if isinstance(colors, list) and index < len(colors) and colors[index]:
+                color = str(colors[index])
+            elif len(numeric) == 1 and record.get("filament_color"):
+                color = str(record["filament_color"])
+            else:
+                color = UNKNOWN
+            per_color[color] = per_color.get(color, 0.0) + value
+    scope_numbers = {r.get("print_number") for r in rows
+                     if isinstance(r.get("print_number"), int)
+                     and not isinstance(r.get("print_number"), bool)}
+    enrich_out = {"per_print": {}, "support_waivers": 0,
+                  "almost_made": {"count": 0, "titles": [], "scope_note": ""}}
+    if isinstance(enrichments, dict):
+        by_record = enrichments.get("per_color_grams_by_record")
+        if isinstance(by_record, dict):
+            # One entry per PRINT in scope: a number shared by an original
+            # and its pre-#988 reprint counts both prints' grams.
+            joined = [by_record.get(record_key(r)) for r in rows]
+        else:
+            joined = [grams for number, grams in
+                      (enrichments.get("per_color_grams_by_print") or {}).items()
+                      if number in scope_numbers]
+        for grams_by_color in joined:
+            if not isinstance(grams_by_color, dict):
+                continue
+            for color, grams in grams_by_color.items():
+                value = _num(grams)
+                if value is not None:
+                    per_color[str(color)] = per_color.get(str(color), 0.0) + value
+        scope_keys = {record_key(r) for r in rows}
+        enrich_out["stop_detail_by_record"] = {
+            key: detail for key, detail in
+            (enrichments.get("stop_detail_by_record") or {}).items() if key in scope_keys}
+        enrich_out["per_print"] = {
+            number: entry for number, entry in
+            (enrichments.get("per_print") or {}).items() if number in scope_numbers}
+        enrich_out["support_waivers"] = len(
+            [n for n in enrichments.get("support_waiver_print_numbers") or []
+             if n in scope_numbers])
+        if isinstance(enrichments.get("almost_made"), dict):
+            enrich_out["almost_made"] = enrichments["almost_made"]
+    per_color = {color: round(grams, 1) for color, grams in
+                 sorted(per_color.items(), key=lambda kv: (-kv[1], kv[0]))}
+
+    # Pasta (#981 v2): from the watchdog events file when the caller
+    # loaded one; the not_recorded state when none exists.
+    if events is None:
+        pasta_block = {
+            "pasta": None, "pasta_state": "not_recorded",
+            "pasta_note": ("Pasta (spaghetti) events are not recorded yet: "
+                           "the camera watchdog's detections are not persisted, "
+                           "so no pasta count exists until event recording begins."),
+            "pasta_events": None, "pasta_all_time_prints": None,
+            "pasta_print_numbers": [], "pasta_recording_started_at": None,
+            "worst_spaghetti": None}
+    else:
+        summary = _pasta_summary(
+            [e for e in events if isinstance(e, dict)], year, resolved, rows)
+        started = summary["pasta_recording_started_at"]
+        pasta_block = {
+            "pasta": summary["pasta"], "pasta_state": "recorded",
+            "pasta_note": ("Pasta counts prints the camera watchdog flagged "
+                           "as spaghetti in its recorded events, from when "
+                           "event recording began"
+                           + (f" ({started})" if started else "")
+                           + "; events from before recording began were "
+                             "never recorded and cannot be counted."),
+            "pasta_events": summary["pasta_events"],
+            "pasta_all_time_prints": summary["pasta_all_time_prints"],
+            "pasta_print_numbers": summary["pasta_print_numbers"],
+            "pasta_recording_started_at": started,
+            "worst_spaghetti": summary["worst_spaghetti"]}
+
     return {
         "year": year,
         "timezone": _tz_name(resolved),
@@ -371,24 +675,49 @@ def aggregate(records, year=None, tz=None):
         "watchdog_flagged": len(flagged),
         # Pasta, failed and stopped are three separate headline numbers
         # (#981), never merged into one "problems" count. Pasta means
-        # watchdog spaghetti events; those events are not recorded yet
-        # (the v2 events file does not exist), so pasta is honestly
-        # None in a named not-recorded state — the risk-flag count
-        # above is a different thing and is never presented as pasta.
+        # watchdog spaghetti events from the events file (v2); with no
+        # events file it stays honestly None in the not-recorded state.
+        # The risk-flag count above is a different thing and is never
+        # presented as pasta.
         "outcomes": {
             "completed": completed,
             "failed": failed,
             "stopped": canceled,
             "in_progress": in_progress,
-            "pasta": None,
-            "pasta_state": "not_recorded",
-            "pasta_note": ("Pasta (spaghetti) events are not recorded yet: "
-                           "the camera watchdog's detections are not persisted, "
-                           "so no pasta count exists until event recording begins."),
+            "pasta": pasta_block["pasta"],
+            "pasta_state": pasta_block["pasta_state"],
+            "pasta_note": pasta_block["pasta_note"],
+            "pasta_events": pasta_block["pasta_events"],
+            "pasta_all_time_prints": pasta_block["pasta_all_time_prints"],
+            "pasta_recording_started_at": pasta_block["pasta_recording_started_at"],
             "stopped_note": ("Stopped counts records with status canceled/cancelled. "
                              "The records do not say whether a person or the printer "
                              "stopped the print, so no finer split is shown."),
         },
+        "worst_spaghetti": pasta_block["worst_spaghetti"],
+        "pasta_print_numbers": pasta_block["pasta_print_numbers"],
+        # #981 §5: headline totals are floor values on mixed fleets —
+        # they sum only the prints that recorded the data, and the
+        # payload says so with the counts behind each total.
+        "totals_caveat": ("Hours and filament totals are of prints with that "
+                          "data recorded."),
+        "duration_records": len(durations),
+        "filament_records": len(grams_values),
+        "derived_filament_g": round(derived_total, 1),
+        "derived_filament_records": derived_records,
+        "derived_note": ("DERIVED: grams recovered from filament_used_mm for "
+                         "prints that recorded millimeters but no grams, "
+                         + ("using the documented fallback of 1.75 mm "
+                            "diameter and per-material density defaults "
+                            "where the record carries no diameter/density. "
+                            if derived_fallback else
+                            "using each record's own filament diameter and "
+                            "density. ")
+                         + "Derived grams are not included in the headline "
+                           "filament total."),
+        "per_color_grams": per_color,
+        "per_color_state": "recorded" if per_color else "none",
+        "enrichments": enrich_out,
         "repeats": _repeats(rows),
         "monthly": dict(sorted(monthly.items())),
         "by_hour": dict(sorted(by_hour.items())),
@@ -438,10 +767,10 @@ def _archetype(stats, highlights, rows):
     documented precedence order (most specific signal first), and
     every rule is data-gated on the number named in its fact:
 
-    1. Spaghetti Magnet — the most pasta (spaghetti) events, and at
-       least 3. GATED OFF in this step: pasta events are not recorded
-       yet (``outcomes.pasta`` is None), so this rule can never fire
-       here, and it never reads risk flags as pasta.
+    1. Spaghetti Magnet — at least 3 distinct prints with recorded
+       pasta (spaghetti) events. It reads only ``outcomes.pasta``
+       (the watchdog events count), so it fires only when events were
+       loaded, and it never reads risk flags as pasta.
     2. The Perfectionist — success rate at least 95% on at least 20
        finished prints.
     3. Reprint Machine — reprints are at least 25% of finished prints.
@@ -491,17 +820,19 @@ def _archetype(stats, highlights, rows):
             "fact": f"A steady year: {total} prints, no single habit took over."}
 
 
-def build_wrapped(records, year, tz=None):
+def build_wrapped(records, year, tz=None, events=None, enrichments=None):
     """The Wrapped payload for one year: headline stats, highlights, script.
 
     Every script line is data-driven: a line is included only when the
     number behind it is true in this same payload. ``tz`` has the same
     meaning as in :func:`aggregate` (None preserves UTC bucketing).
+    ``events`` and ``enrichments`` pass through to :func:`aggregate`.
     """
     resolved = _resolve_tz(tz)
     records = [r for r in (records or []) if isinstance(r, dict)]
     year = int(year)
-    stats = aggregate(records, year=year, tz=resolved)
+    stats = aggregate(records, year=year, tz=resolved, events=events,
+                      enrichments=enrichments)
     rows = [r for r in records
             if (parsed := _parse_started(r.get("started_at"))) is not None
             and _local(parsed, resolved).year == year]
@@ -524,6 +855,30 @@ def build_wrapped(records, year, tz=None):
     peak_weekday = None
     if stats["by_weekday"]:
         peak_weekday = max(stats["by_weekday"].items(), key=lambda kv: kv[1])[0]
+    # Worst failure (#981 v2): the failed print that burned the most
+    # time. Its stop_capture sidecar detail rides along only when the
+    # enrichments join read one — absent sidecar, nothing is invented.
+    worst_failure = None
+    failed_rows = [r for r in rows if _status(r) == "failed"]
+    if failed_rows:
+        best_failed = max(
+            failed_rows,
+            key=lambda r: (_num(r.get("print_duration_seconds")) or 0,
+                           str(r.get("started_at") or "")))
+        worst_failure = {"title": best_failed.get("title"),
+                         "print_number": best_failed.get("print_number"),
+                         "seconds": _num(best_failed.get("print_duration_seconds"))}
+        # The failed print's OWN stop detail (by record): a number shared
+        # with another print in pre-#988 history must not lend it the
+        # other run's stop reason.
+        by_record = stats["enrichments"].get("stop_detail_by_record")
+        if isinstance(by_record, dict) and by_record:
+            detail = by_record.get(record_key(best_failed))
+        else:
+            detail = (stats["enrichments"]["per_print"].get(
+                best_failed.get("print_number")) or {}).get("stop_detail")
+        if isinstance(detail, dict):
+            worst_failure["stop_detail"] = detail
     highlights = {
         "top_color": top_color, "top_color_prints": top_color_count,
         "top_material": top_material, "top_printer": top_printer,
@@ -534,6 +889,14 @@ def build_wrapped(records, year, tz=None):
         # Deprecated alias of risk_flagged (the #956 name); same value.
         "watchdog_flagged": stats["watchdog_flagged"], "failed": stats["failed"],
         "worst_failure_streak": _failure_streak(rows),
+        "worst_failure": worst_failure,
+        "pasta": stats["outcomes"]["pasta"],
+        "worst_spaghetti": stats["worst_spaghetti"],
+        "failed_print_numbers": sorted(
+            r["print_number"] for r in failed_rows
+            if isinstance(r.get("print_number"), int)
+            and not isinstance(r.get("print_number"), bool)),
+        "pasta_print_numbers": stats["pasta_print_numbers"],
         "night_prints": stats["night_prints"],
         "most_reprinted": most_reprinted,
         "reprint_count": stats["repeats"]["reprint_count"],
@@ -545,11 +908,12 @@ def build_wrapped(records, year, tz=None):
                 "total_prints": stats["total_prints"], "completed": stats["completed"],
                 "failed": stats["failed"], "canceled": stats["canceled"],
                 # Pasta/failed/stopped stay separate (#981): stopped is
-                # the canceled count under its plain name, pasta is the
-                # honest not-recorded state (None) until watchdog event
-                # recording exists.
+                # the canceled count under its plain name; pasta is the
+                # real event count when watchdog events were loaded, or
+                # the honest not-recorded state (None) when none exist.
                 "stopped": stats["outcomes"]["stopped"],
-                "pasta": None, "pasta_state": stats["outcomes"]["pasta_state"],
+                "pasta": stats["outcomes"]["pasta"],
+                "pasta_state": stats["outcomes"]["pasta_state"],
                 "success_rate": stats["success_rate"], "total_hours": stats["total_hours"],
                 "total_filament_used_g": stats["total_filament_used_g"],
                 "total_filament_used_kg": stats["total_filament_used_kg"]},
@@ -603,6 +967,18 @@ def _script(year, stats, highlights, tz=None):
     elif stats["finished"]:
         lines.append("Zero failed prints this year. Wrapped does not believe it either, "
                      "but the records say so.")
+    pasta = (stats.get("outcomes") or {}).get("pasta")
+    if isinstance(pasta, (int, float)) and pasta > 0:
+        lines.append(f"{int(pasta)} print{'s' if pasta != 1 else ''} turned into pasta "
+                     "this year, caught by the camera watchdog and written down "
+                     "this time. The count covers events recorded since "
+                     "watchdog event recording began.")
+        worst_spaghetti = highlights.get("worst_spaghetti")
+        if worst_spaghetti and worst_spaghetti.get("streak", 0) >= 2:
+            name = worst_spaghetti.get("title") or worst_spaghetti.get("job_key") \
+                or "one print"
+            lines.append(f"The worst of it: {name} hit a spaghetti streak of "
+                         f"{worst_spaghetti['streak']} before anyone stepped in.")
     if highlights["worst_failure_streak"] >= 3:
         lines.append(f"Your worst run was {highlights['worst_failure_streak']} failed or "
                      "canceled prints in a row. Character building, technically.")
@@ -640,4 +1016,5 @@ def _script(year, stats, highlights, tz=None):
 
 
 __all__ = ["UNKNOWN", "aggregate", "build_wrapped", "load_records",
-           "load_records_from_dir", "prints_dir"]
+           "load_records_from_dir", "load_watchdog_events", "prints_dir",
+           "watchdog_events_path"]

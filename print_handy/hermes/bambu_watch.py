@@ -275,7 +275,7 @@ class BambuPrintMonitor:
                  watch=None, verdict=None, alert=None, changed=None,
                  dark_notice=None, text_alert=None,
                  camera_source_fn=None, begin_fn=None, encode_fn=None,
-                 pause_alerts=None,
+                 pause_alerts=None, event_recorder=None,
                  clock=time.monotonic, wall=time.time, sleep=time.sleep,
                  poll_s=POLL_S, capture_poll_s=5.0):
         self.filename = filename or ""
@@ -283,6 +283,9 @@ class BambuPrintMonitor:
         self._camera_fn = camera_fn
         self._post = post
         self._pause_alerts = pause_alerts
+        # #981: the always-on watchdog event recorder (watchdog_events);
+        # injectable so tests never touch the real records vault.
+        self._event_recorder = event_recorder
         self._watch = watch
         self._verdict = verdict
         self._alert = alert
@@ -535,6 +538,23 @@ class BambuPrintMonitor:
         if reason:
             self.visual_check(reason, layer)
 
+    def _record_watchdog_event(self, verdict, *, action):
+        """Best-effort #981 event recording beside this print watch.
+
+        The recorder (watchdog_events.record_for_file by default) never
+        raises by contract; this wrapper swallows even a broken injected
+        recorder, because an events-file failure must never break the
+        watch or the print it watches.
+        """
+        try:
+            recorder = self._event_recorder
+            if recorder is None:
+                from . import watchdog_events
+                recorder = watchdog_events.record_for_file
+            recorder(filename=self.filename, verdict=verdict, action=action)
+        except Exception as exc:
+            log(f"bambu watchdog event record failed file={self.filename!r}: {exc!r}")
+
     def visual_check(self, reason, layer):
         """Capture and classify one frame; notify humans only, never actuate.
 
@@ -593,11 +613,15 @@ class BambuPrintMonitor:
             if suspicious:
                 if self._visual_muted():
                     log(f"bambu visual alert suppressed for muted print {self.filename!r}")
+                    self._record_watchdog_event(verdict, action="suppressed")
                 else:
                     self._alert(self.filename, image,
                                 f"{reason} at layer {layer or 'unknown'}: {verdict}; "
                                 f"{detail or 'visual check needs operator review'}",
                                 identity=self._identity)
+                    self._record_watchdog_event(verdict, action="alert")
+            else:
+                self._record_watchdog_event(verdict, action="none")
         except Exception as exc:
             log(f"bambu visual check failed file={self.filename!r} reason={reason}: {exc!r}")
             if image is not None:
