@@ -139,3 +139,33 @@ def test_roast_chat_color_and_dark_humor(history, tmp_path):
     assert line
     # Contract holds
     assert engine.contract_problem(line) is None
+
+
+# --- #1002 Phase 3: conversational roast phrasings, status/defect & typo resolution ---
+
+@pytest.mark.parametrize("text,expected", [
+    ("give me a roast", ""),
+    ("give my print a roast", ""),
+    ("burn my last print", ""),
+    ("burn my failed print", "failed"),
+    ("roast this disaster", ""),
+    ("raost my print", ""),
+    ("roast my failed print", "failed"),
+    ("roast the spaghetti", "spaghetti"),
+    ("roast my spegatti", "spaghetti"),
+])
+def test_phase3_conversational_roast_phrasings(text, expected):
+    assert roast_chat.roast_request(text) == expected
+
+
+def test_phase3_resolve_status_defect_and_typo_targets(history):
+    # Status and defect target resolution finds the newest matching failed print (#2, Dragon Egg)
+    assert roast_chat.resolve("failed", history)["index"] == 2
+    assert roast_chat.resolve("failed print", history)["index"] == 2
+    assert roast_chat.resolve("spaghetti", history)["index"] == 2
+    # Near-miss model typos surface the matching printed model in the pick-list, never guessing
+    with pytest.raises(roast_chat.RoastLookupError, match="3. Benchy"):
+        roast_chat.resolve("becnhy", history)
+    with pytest.raises(roast_chat.RoastLookupError, match="2. Dragon Egg"):
+        roast_chat.resolve("dragn", history)
+

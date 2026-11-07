@@ -385,3 +385,50 @@ def test_real_words_get_no_task_suggestion(text):
 def test_typo_routing_is_only_a_suggestion():
     # The suggestion is a string the user confirms; nothing executes here.
     assert isinstance(runtime.command_suggestion("stopp the print"), str)
+
+
+
+# ------------------------------ Phase 3 collision shields and mined typos (#1002)
+
+PHASE3_COLLISION_SHIELDS = [
+    ("statue", "status"),
+    ("spring", "string"),
+    ("slide", "slice"),
+    ("stock", "stuck"),
+    ("combing", "coming"),
+    ("cracking", "clicking"),
+]
+
+
+@pytest.mark.parametrize("real,near", PHASE3_COLLISION_SHIELDS)
+def test_phase3_real_words_collision_shields(real, near):
+    assert real in REAL_WORDS
+    assert real not in TYPO_FORMS
+    assert fuzzy.typo_fold(real) == real
+    assert fuzzy.correct_token(real, {near}) == real
+    assert fuzzy.correct_typos(real, {near}) == real
+    assert fuzzy.fuzzy_score(real, near) < 99
+
+
+PHASE3_MINED_TYPOS = {
+    "becnhy": "benchy",
+    "dragn": "dragon",
+    "braket": "bracket",
+    "spegatti": "spaghetti",
+    "adheasion": "adhesion",
+    "hotnd": "hotend",
+    "extrudr": "extruder",
+    "cancle": "cancel",
+    "pauze": "pause",
+    "rost": "roast",
+    "raost": "roast",
+    "repirnt": "reprint",
+}
+
+
+@pytest.mark.parametrize("typo,word", sorted(PHASE3_MINED_TYPOS.items()))
+def test_phase3_mined_typos_in_table_and_fold(typo, word):
+    assert TYPO_FORMS[typo] == word
+    assert fuzzy.typo_fold(typo) == word
+    assert fuzzy.canonical(typo) == fuzzy.canonical(word)
+    assert fuzzy.fuzzy_score(typo, word) == 99
