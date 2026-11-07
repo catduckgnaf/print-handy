@@ -512,15 +512,13 @@ class VideoTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             result = wrapped_video.build_wrapped_video(
                 2025, wrapped, Path(tmp) / "wrapped", ffmpeg="ffmpeg",
-                runner=runner, find_clips=lambda year: [],
-                ai_call=lambda lines: (_ for _ in ()).throw(RuntimeError("no route")))
+                runner=runner, find_clips=lambda year: [])
             self.assertTrue(result["ok"])
             self.assertTrue(Path(result["path"]).is_file())
             script = json.loads(Path(result["script_path"]).read_text())
             self.assertEqual(script["year"], 2025)
             self.assertTrue(script["script"])
             self.assertIn("timelapses: none found", result["notes"])
-            self.assertTrue(any(n.startswith("ai_commentary: unavailable") for n in result["notes"]))
             flat = " ".join(" ".join(cmd) for cmd in runner.commands)
             self.assertIn("drawtext", flat)
             self.assertIn("concat", flat)
@@ -536,8 +534,7 @@ class VideoTests(unittest.TestCase):
             clip.write_bytes(b"fake")
             result = wrapped_video.build_wrapped_video(
                 2025, wrapped, Path(tmp) / "wrapped", ffmpeg="ffmpeg",
-                runner=runner, find_clips=lambda year: [clip],
-                ai_call=lambda lines: lines)
+                runner=runner, find_clips=lambda year: [clip])
             self.assertTrue(result["ok"])
         segment_commands = [cmd for cmd in runner.commands
                             if ("card-" in cmd[-1] or "clip-" in cmd[-1])]
@@ -555,8 +552,7 @@ class VideoTests(unittest.TestCase):
             clip.write_bytes(b"fake")
             result = wrapped_video.build_wrapped_video(
                 2025, wrapped, Path(tmp) / "wrapped", ffmpeg="ffmpeg",
-                runner=FakeRunner(), find_clips=lambda year: [clip],
-                ai_call=lambda lines: lines)
+                runner=FakeRunner(), find_clips=lambda year: [clip])
             self.assertTrue(result["ok"])
         notes = " ".join(result["notes"]).lower()
         self.assertIn("clips from this year", notes)
@@ -577,8 +573,7 @@ class VideoTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             result = wrapped_video.build_wrapped_video(
                 2025, wrapped, Path(tmp) / "wrapped", ffmpeg="ffmpeg",
-                runner=runner, find_clips=lambda year: [],
-                ai_call=lambda lines: lines)
+                runner=runner, find_clips=lambda year: [])
             self.assertTrue(result["ok"])
         texts = []
         for command in runner.commands:
@@ -591,17 +586,23 @@ class VideoTests(unittest.TestCase):
         self.assertIn("Top color Black", joined)
         self.assertIn("Top material PLA", joined)
 
-    def test_ai_lines_are_used_when_the_call_works(self):
+    def test_the_commentary_is_the_local_script_and_no_ai_route_is_called(self):
+        """Wrapped uses no AI model: even with an AI route configured, the
+        video keeps the local script and never calls the route."""
+        from unittest import mock
+        from print_handy import ai_routes
         wrapped = print_stats.build_wrapped(RECORDS, 2025)
-        with tempfile.TemporaryDirectory() as tmp:
+        data = {"ai": {"chat": {"chat_url": "https://ai.example/v1", "model": "m"}}}
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(ai_routes, "call", side_effect=AssertionError("no AI call")):
             result = wrapped_video.build_wrapped_video(
                 2025, wrapped, Path(tmp) / "wrapped", ffmpeg="ffmpeg",
-                runner=FakeRunner(), find_clips=lambda year: [],
-                ai_call=lambda lines: ["A roastier line."])
+                runner=FakeRunner(), find_clips=lambda year: [], data=data)
             self.assertTrue(result["ok"])
             script = json.loads(Path(result["script_path"]).read_text())
-            self.assertEqual(script["script"], ["A roastier line."])
+            self.assertEqual(script["script"], wrapped["script"])
             self.assertFalse(any("ai_commentary" in n for n in result["notes"]))
+        self.assertFalse(hasattr(wrapped_video, "_ai_enrich"))
 
     def test_no_ffmpeg_is_a_named_refusal_with_sidecar(self):
         wrapped = print_stats.build_wrapped(RECORDS, 2025)
@@ -609,7 +610,7 @@ class VideoTests(unittest.TestCase):
             result = wrapped_video.build_wrapped_video(
                 2025, wrapped, Path(tmp) / "wrapped",
                 ffmpeg="wrapped-no-such-ffmpeg", runner=FakeRunner(),
-                find_clips=lambda year: [], ai_call=None, data=None)
+                find_clips=lambda year: [], data=None)
             self.assertFalse(result["ok"])
             self.assertIn("ffmpeg", result["reason"])
             self.assertTrue(Path(result["script_path"]).is_file())
@@ -632,7 +633,7 @@ class VideoTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             result = wrapped_video.build_wrapped_video(
                 2025, wrapped, Path(tmp) / "wrapped", ffmpeg="ffmpeg",
-                runner=runner, find_clips=lambda year: [], ai_call=None,
+                runner=runner, find_clips=lambda year: [],
                 data={})
             self.assertTrue(result["ok"])
         texts = []
@@ -727,9 +728,9 @@ class RouteTests(unittest.TestCase):
             self.assertIn("wrapped_ai_video", raw)
             self.assertNotIn("Make my Wrapped video", raw)
 
-    def test_wrapped_page_discloses_the_ai_commentary_send(self):
-        """The video form must not promise nothing is sent anywhere: with
-        an AI route configured, the commentary lines go to that route."""
+    def test_wrapped_page_says_the_commentary_stays_local(self):
+        """Wrapped uses no AI model: the video form says the commentary is
+        the local lines and nothing leaves this machine."""
         with tempfile.TemporaryDirectory() as tmp:
             write_vault(tmp)
             httpd = self.start(tmp, "timelapse:\n  wrapped_enabled: true\n"
@@ -737,8 +738,8 @@ class RouteTests(unittest.TestCase):
             port = httpd.server_address[1]
             code, raw = self.request(port, "GET", "/wrapped?year=2025")
             self.assertEqual(code, 200)
-            self.assertIn("configured AI route", raw)
-            self.assertNotIn("Nothing is sent anywhere", raw)
+            self.assertNotIn("configured AI route", raw)
+            self.assertIn("never rewritten by an AI model", raw)
 
     def test_video_post_requires_form_token_and_ai_toggle(self):
         with tempfile.TemporaryDirectory() as tmp:

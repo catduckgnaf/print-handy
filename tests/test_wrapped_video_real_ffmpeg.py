@@ -51,8 +51,7 @@ class RealFfmpegPacingTests(unittest.TestCase):
                        "script": ["One line."]}
             result = wrapped_video.build_wrapped_video(
                 2026, wrapped, tmp / "out", ffmpeg=FFMPEG,
-                find_clips=lambda year: clips,
-                ai_call=lambda lines: lines)
+                find_clips=lambda year: clips)
             self.assertTrue(result["ok"], result)
             # Step 4 pacing: slide durations from build_slides (hook +
             # commentary + finale), the full-bleed footage moment at
@@ -73,8 +72,7 @@ class RealFfmpegPacingTests(unittest.TestCase):
                        "highlights": {}, "script": []}
             result = wrapped_video.build_wrapped_video(
                 2026, wrapped, tmp / "out", ffmpeg=FFMPEG,
-                find_clips=lambda year: [],
-                ai_call=lambda lines: lines)
+                find_clips=lambda year: [])
             self.assertTrue(result["ok"], result)
             probe = subprocess.run(
                 [FFPROBE, "-v", "error", "-show_entries", "stream=codec_type",

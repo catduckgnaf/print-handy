@@ -57,7 +57,6 @@ def _build(tmp, wrapped=WRAPPED, clips=(), data=None, **kwargs):
     kwargs.setdefault("ffmpeg", "ffmpeg")
     kwargs.setdefault("runner", FakeRunner())
     kwargs.setdefault("find_clips", lambda year: list(clips))
-    kwargs.setdefault("ai_call", lambda lines: lines)
     result = wrapped_video.build_wrapped_video(
         wrapped["year"], wrapped, Path(tmp) / "out", data=data, **kwargs)
     return result, kwargs["runner"]

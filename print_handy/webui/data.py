@@ -770,18 +770,17 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
             '<button type="submit" data-busy="Compiling…">Make my Wrapped video</button>'
             "<p>Compiling runs on this machine, on demand, from stat cards, "
             "this commentary as on-screen text, and the year's timelapses "
-            "where they are found. The commentary lines above, with their "
-            "numbers, are first sent to the configured AI route to be "
-            "rewritten; if no route is configured, the local lines above "
-            "are used as-is and nothing leaves this machine. Narration: "
+            "where they are found. The commentary is the local lines above, "
+            "never rewritten by an AI model, and nothing leaves this "
+            "machine. Narration: "
             "with [timelapse] wrapped_tts_engine set to piper, the slide "
             "lines are spoken by the local Piper binary and nothing is "
             "sent anywhere; with none (the default) there is no spoken "
             "narration.</p></form>")
     else:
         parts.append("<h2>Wrapped video</h2><p>The video step is off: set "
-                     "[timelapse] wrapped_ai_video = true to turn on the AI "
-                     "commentary and the on-demand video compile.</p>")
+                     "[timelapse] wrapped_ai_video = true to turn on the "
+                     "on-demand video compile.</p>")
     if payload.get("video_available"):
         # The video is an embed inside the scrolling page (#981
         # comment 6702782262), served by GET /wrapped/video-file.

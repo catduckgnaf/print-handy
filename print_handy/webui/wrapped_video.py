@@ -1,9 +1,8 @@
 """The Wrapped video compile (#956): stat cards + timelapse clips + script.
 
-On demand only. The compile itself is local; the one exception is the
-commentary enrichment, which sends the script lines (with their
-numbers) to the configured AI route when one is set — the Wrapped
-page discloses that next to the button. Slides are generated with
+On demand only, and entirely local: the commentary is the Wrapped
+payload's own deterministic script, never rewritten by an AI model,
+and nothing is sent anywhere. Slides are generated with
 ffmpeg (lavfi ``color`` sources, frame grabs from the year's clips,
 and ``drawtext``); timelapse clips whose file mtime
 falls in the Wrapped year are trimmed and appended when a clip finder
@@ -17,12 +16,10 @@ and a year with no clips found is a correct cards-only video whose
 result names ``timelapses: none found``.
 
 Every missing piece is named in ``notes``: no ffmpeg is a named
-refusal, no AI route keeps the deterministic script and names
-``ai_commentary: unavailable (<reason>)``, and no timelapses names
-that too.
+refusal, and no timelapses names that too.
 
-``runner``, ``find_clips`` and ``ai_call`` are injectable seams so
-tests never run real ffmpeg or the network.
+``runner`` and ``find_clips`` are injectable seams so tests never run
+real ffmpeg.
 
 Wrapped v2 (#981): delivered clips carry their print number in the
 file name (``<YYYYMMDD-HHMM>-<model>-print-<n>``, from
@@ -244,41 +241,6 @@ def select_clips(clips, wrapped, cap=MAX_CLIPS):
         chosen_idx = chosen_idx[:cap - reserve] + failure_idx[:reserve]
         chosen_idx.sort()
     return [entries[i] for i in chosen_idx]
-
-
-def _ai_enrich(script, data, ai_call):
-    """(script, note): the AI rewrite, or the original script + why not."""
-    if ai_call is not None:
-        try:
-            answer = ai_call(list(script))
-        except Exception as exc:
-            return script, f"ai_commentary: unavailable ({type(exc).__name__}: {exc})"
-        lines = _lines_from_answer(answer)
-        return (lines, None) if lines else (script, "ai_commentary: unavailable (empty answer)")
-    try:
-        from .. import ai_routes
-    except Exception as exc:  # pragma: no cover - import guard
-        return script, f"ai_commentary: unavailable ({type(exc).__name__}: {exc})"
-    if data is None or not ai_routes.configured("chat", cfg=data):
-        return script, "ai_commentary: unavailable (no AI route configured)"
-    prompt = ("Rewrite these Print Handy Wrapped commentary lines in a roastier "
-              "Spotify Wrapped voice. Keep every number exactly as given, keep one "
-              "line per line, and return only the lines:\n" + "\n".join(script))
-    try:
-        answer, _served = ai_routes.call(
-            "chat", [{"role": "user", "content": prompt}], cfg=data, max_tokens=800)
-    except Exception as exc:
-        return script, f"ai_commentary: unavailable ({type(exc).__name__}: {exc})"
-    lines = _lines_from_answer(answer)
-    return (lines, None) if lines else (script, "ai_commentary: unavailable (empty answer)")
-
-
-def _lines_from_answer(answer):
-    if isinstance(answer, (list, tuple)):
-        return [str(line).strip() for line in answer if str(line).strip()]
-    if isinstance(answer, str):
-        return [line.strip() for line in answer.splitlines() if line.strip()]
-    return []
 
 
 def _run(runner, command):
@@ -682,7 +644,7 @@ def _audio_command(ffmpeg_bin, silent, target, *, total, timeline, narration,
 
 
 def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
-                        runner=None, find_clips=None, ai_call=None, use_ai=True,
+                        runner=None, find_clips=None,
                         export_silent=False, tts_call=None):
     """Compile one Wrapped video. Returns {ok, path, script_path, notes}.
 
@@ -696,12 +658,6 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
     out_dir.mkdir(parents=True, exist_ok=True)
     notes: list[str] = []
     script = [str(line) for line in (wrapped.get("script") or [])]
-    if use_ai:
-        script, note = _ai_enrich(script, data, ai_call)
-        if note:
-            notes.append(note)
-    else:
-        notes.append("ai_commentary: unavailable (wrapped_ai_video is off)")
     script_path = out_dir / f"wrapped-{year}-script.json"
     script_path.write_text(json.dumps(
         {"year": year, "script": script, "stats": wrapped.get("headline") or {},

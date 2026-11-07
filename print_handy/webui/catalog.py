@@ -521,11 +521,11 @@ CATALOG = (
            "while off, the Data and Wrapped pages are not in the navigation and "
            "their routes refuse by name.",
            validator="settings timelapse check"),
-    _field("timelapse", "wrapped_ai_video", "Wrapped AI video", "toggle",
-           "The on-demand Wrapped video compile (#956): AI commentary (when an AI "
-           "route is configured, with the local deterministic script as the "
-           "fallback) plus a local video of stat cards and the year's timelapses. "
-           "Off by default, and it needs the Data tab and Wrapped switch above on. "
+    _field("timelapse", "wrapped_ai_video", "Wrapped video", "toggle",
+           "The on-demand Wrapped video compile (#956): a local video of the "
+           "year's slides, the local commentary and the year's timelapses. No "
+           "AI model is used (the setting keeps its original name). Off by "
+           "default, and it needs the Data tab and Wrapped switch above on. "
            "The video is generated only when the operator asks, and never sent anywhere.",
            validator="settings timelapse check"),
     _field("timelapse", "wrapped_tts_engine", "Wrapped narration", "picker",

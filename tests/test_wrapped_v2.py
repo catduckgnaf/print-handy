@@ -485,8 +485,7 @@ class ClipJoinTests(unittest.TestCase):
             result = wrapped_video.build_wrapped_video(
                 2026, wrapped, Path(tmp) / "out", ffmpeg="ffmpeg", runner=runner,
                 find_clips=lambda year: [{"path": str(good), "print_number": 1},
-                                         {"path": str(bad), "print_number": 9}],
-                ai_call=lambda lines: lines)
+                                         {"path": str(bad), "print_number": 9}])
             self.assertTrue(result["ok"])
         # Segment build order: find the clip segment built from the bad
         # clip; the segment built immediately before it is its label card.
@@ -504,8 +503,7 @@ class ClipJoinTests(unittest.TestCase):
             good = Path(tmp) / "20260301-1200-Ok-print-1.mp4"; good.write_bytes(b"x")
             result = wrapped_video.build_wrapped_video(
                 2026, wrapped, Path(tmp) / "out", ffmpeg="ffmpeg", runner=runner,
-                find_clips=lambda year: [{"path": str(good), "print_number": 1}],
-                ai_call=lambda lines: lines)
+                find_clips=lambda year: [{"path": str(good), "print_number": 1}])
             self.assertTrue(result["ok"])
         flat = " ".join(" ".join(cmd) for cmd in runner.commands)
         self.assertNotIn("turned into pasta", flat)

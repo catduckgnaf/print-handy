@@ -133,7 +133,7 @@ def test_wrapped_video_duration_matches_its_segments(tmp_path):
                "headline": {}, "highlights": {}}
     out_dir = tmp_path / "out"
     result = wrapped_video.build_wrapped_video(
-        2026, wrapped, out_dir, use_ai=False,
+        2026, wrapped, out_dir,
         find_clips=lambda year: clips)
     assert result["ok"], result.get("reason")
     probe = subprocess.run(
