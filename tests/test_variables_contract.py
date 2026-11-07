@@ -56,6 +56,9 @@ ROOT = settings.ROOT
 # Seeded from live main on 2026-10-30; see the module docstring for the refs.
 # ---------------------------------------------------------------------------
 EXEMPTIONS = {
+    # The [public_text] denylist (#1020) is an operator's private machine
+    # names: file-only by design, never rendered on a settings page.
+    ("public_text", "denylist"): (frozenset({"webui"}), "#1020"),
     ("agent", "api_key_env"): (frozenset({"webui"}), "#286"),
     ("agent", "timeout_s"): (frozenset({"webui"}), "#657"),
     # The AI tier tables (#818) are file-only: model routes and key names

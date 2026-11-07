@@ -292,6 +292,15 @@ def main(argv=None):
     if warning:
         print(f"listener: WARNING {warning}", file=sys.stderr)
     try:
+        # Every listener domain gets the watchdog stack dump (#1020 A4):
+        # the supervisor's SIGUSR1 must name the hang in whichever
+        # listener hung, not only the Moonraker one.
+        from . import healthcheck
+
+        healthcheck.install_stack_dump_handler(printer_id=printer_id)
+    except Exception:
+        pass
+    try:
         return launch(printer_id=printer_id)
     except Exception as exc:  # settings errors name themselves; keep the code 2 contract
         from . import settings

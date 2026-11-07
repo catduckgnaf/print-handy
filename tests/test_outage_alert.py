@@ -73,3 +73,103 @@ class TickTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EscalationTests(unittest.TestCase):
+    """#1020 B3/C4: budget-exhausted critical, bundle attach, pin hook."""
+
+    def _down(self, **kw):
+        return {"p1": {"required": True, "ok": False,
+                       "reason": "listener heartbeat stale or invalid", **kw}}
+
+    def test_critical_replaces_the_down_notice_when_the_budget_is_spent(self):
+        state = {"p1": {"since": 0.0, "notified_at": None}}
+        messages, new_state = outage_alert.decide(self._down(), state, 1000.0,
+                                                  exhausted={"p1"})
+        self.assertEqual([m[1] for m in messages], ["critical"])
+        text = messages[0][2]
+        self.assertIn("exhausted its restart budget", text)
+        self.assertIn("/print-handy bundle", text)
+        self.assertIn("python3 -m print_handy.diagnostics_bundle", text)
+        self.assertIn("critical_at", new_state["p1"])
+        # Once per outage: a later tick with the returned state stays quiet.
+        again, _ = outage_alert.decide(self._down(), new_state, 1100.0, exhausted={"p1"})
+        self.assertEqual(again, [])
+
+    def test_no_critical_without_exhaustion(self):
+        state = {"p1": {"since": 0.0, "notified_at": None}}
+        messages, _ = outage_alert.decide(self._down(), state, 1000.0)
+        self.assertEqual([m[1] for m in messages], ["down"])
+
+    def test_still_down_names_exhaustion_after_the_critical(self):
+        state = {"p1": {"since": 0.0, "notified_at": 100.0, "critical_at": 100.0}}
+        messages, _ = outage_alert.decide(self._down(), state, 100.0 + 3601,
+                                          exhausted={"p1"})
+        self.assertEqual([m[1] for m in messages], ["still_down"])
+        self.assertIn("Automatic restarts are exhausted", messages[0][2])
+
+    def test_failed_critical_is_withheld_and_retried(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            outage_alert.save(tmp, {"p1": {"since": 0.0, "notified_at": None}})
+            sent = []
+            outage_alert.tick(self._down(), tmp, lambda pid, text: sent.append(text) or False,
+                              now=1000.0, exhausted={"p1"})
+            state = outage_alert.load(tmp)
+            self.assertNotIn("critical_at", state["p1"])
+            outage_alert.tick(self._down(), tmp, lambda pid, text: True,
+                              now=1010.0, exhausted={"p1"})
+            state = outage_alert.load(tmp)
+            self.assertIn("critical_at", state["p1"])
+
+    def test_attach_adds_the_bundle_to_failure_notices_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            outage_alert.save(tmp, {"p1": {"since": 0.0, "notified_at": None}})
+            sent = []
+            outage_alert.tick(self._down(), tmp, lambda pid, text: sent.append(text) or True,
+                              now=1000.0, attach=lambda kind: "/state/diagnostics-bundle.md")
+            self.assertIn("MEDIA:/state/diagnostics-bundle.md", sent[0])
+            sent.clear()
+            outage_alert.tick({"p1": {"required": True, "ok": True, "reason": "alive"}}, tmp,
+                              lambda pid, text: sent.append(text) or True, now=2000.0,
+                              attach=lambda kind: "/state/diagnostics-bundle.md")
+            self.assertEqual(len(sent), 1)
+            self.assertNotIn("MEDIA:", sent[0])
+
+    def test_pin_runs_after_a_delivered_critical(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            outage_alert.save(tmp, {"p1": {"since": 0.0, "notified_at": None}})
+            pinned = []
+            outage_alert.tick(self._down(), tmp, lambda pid, text: True, now=1000.0,
+                              exhausted={"p1"}, pin=pinned.append)
+            self.assertEqual(pinned, ["p1"])
+
+
+class DegradedNoticeTests(unittest.TestCase):
+    """#1020 B4: one degraded notice per printer-reported state."""
+
+    def test_pause_error_stop_each_notice_once(self):
+        state = {}
+        text = outage_alert.degraded_notice(state, "p1", "paused",
+                                            filename="benchy.gcode", now=10.0)
+        self.assertIn("**paused**", text)
+        self.assertIn("benchy.gcode", text)
+        self.assertIn("direct check of the printer", text)
+        self.assertIsNone(outage_alert.degraded_notice(
+            state, "p1", "paused", filename="benchy.gcode", now=20.0))
+        text = outage_alert.degraded_notice(state, "p1", "error", now=30.0)
+        self.assertIn("**error**", text)
+
+    def test_printing_and_unknown_states_never_notice(self):
+        state = {}
+        for reported in ("printing", "standby", "complete", "", None):
+            self.assertIsNone(outage_alert.degraded_notice(state, "p1", reported, now=1.0))
+        self.assertEqual(state, {})
+
+    def test_state_round_trips_through_disk(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = {}
+            outage_alert.degraded_notice(state, "p1", "cancelled", now=5.0)
+            outage_alert.save_degraded(tmp, state)
+            loaded = {k: v for k, v in outage_alert.load_degraded(tmp).items()
+                      if isinstance(v, dict)}
+            self.assertEqual(loaded["p1"]["state"], "cancelled")

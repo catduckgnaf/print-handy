@@ -541,6 +541,10 @@ Off unless `notify.mqtt_enabled` is true and `notify.mqtt_host` is set. Each eve
 
 The second #622 channel, alongside MQTT: off unless `notify.ntfy_enabled` is true. A topic is required: set `notify.ntfy_topic` or put the topic in `notify.ntfy_url`, and settings validation refuses an enabled config with neither. Each event is one HTTP POST to the topic URL — `notify.ntfy_url` with `notify.ntfy_topic` appended, or the URL itself when it already names the topic. The title names the event (`Print Handy: complete`); the body is the same one-line payload the MQTT channel sends. A protected topic's access token is `NTFY_ACCESS_TOKEN` in the environment, sent as a Bearer token, never in YAML and never in chat. A refused or failed publish is logged and does not block the chat post or the print, and one channel's failure never blocks the other: with both on, an event counts as delivered when either channel takes it.
 
+## Public text denylist (#1020)
+
+`public_text.denylist` is a list of the operator's own machine names (a NAS, a server, a workstation) that must never appear in a public issue, pull request or exported log. Two consumers use it: the public-text CI check reads the names from the `PUBLIC_TEXT_DENYLIST` repository secret, and the export sanitizer reads this settings list — diagnostics bundles and debug exports replace each listed name with a consistent pseudonym (`machine-1`, `machine-2`, …) before the file leaves the machine. Matching is whole-word and case-insensitive. The list is file-only by design (there is no Web UI field): the names are exactly what should not be typed into other surfaces. Example: `denylist = ["myserver", "nas-box"]` in the `[public_text]` section.
+
 ## Legacy environment names
 
 The names below predate `PRINT_HANDY__SECTION__KEY` and still work; new installs should use the long form. The full map is `LEGACY_ENV` in `print_handy/settings.py`, for example `MOONRAKER_URL` → `services.moonraker_url`, `SPOOLMAN_URL` → `services.spoolman_url`, `PRINT_DISCORD_CHAT_ID` → `discord.chat_id`.

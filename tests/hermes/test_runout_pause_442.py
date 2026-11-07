@@ -184,7 +184,7 @@ class PausedMessageTests(unittest.TestCase):
     def test_runout_message_names_slot_spool_and_offers_resume(self):
         text = self.message(runout=True, slot=1, spool_id=10)
         self.assertIn("Filament runout", text)
-        self.assertIn("IFS slot 1", text)
+        self.assertIn("slot 1 (IFS channel 1)", text)
         self.assertIn("spool #10", text)
         self.assertIn("spool question", text)
         self.assertIn("Resume print", text)
@@ -311,7 +311,7 @@ class PauseTransitionTests(ListenerRunoutCase):
         text, kind, _filename = post_alert.call_args[0]
         self.assertEqual(kind, "paused")
         self.assertIn("Filament runout", text)
-        self.assertIn("IFS slot 1", text)
+        self.assertIn("slot 1 (IFS channel 1)", text)
         self.assertIn("spool #10", text)
         self.assertIn("Resume print", text)
         lis.open_question.assert_awaited_once_with(1, "runout")
@@ -364,7 +364,7 @@ class EmptiedUpgradeTests(ListenerRunoutCase):
             text, kind, _filename = post_alert.call_args[0]
             self.assertEqual(kind, "paused")
             self.assertIn("Filament runout", text)
-            self.assertIn("IFS slot 1", text)
+            self.assertIn("slot 1 (IFS channel 1)", text)
             lis.open_question.assert_awaited_once_with(1, "runout")
             self.assertTrue(lis.last_pause_was_runout)
             await self.poll(lis, {1: False})
@@ -427,7 +427,7 @@ class RunoutAlertPromisesOnlyWhatItDelivers(unittest.TestCase):
 
     def test_alert_with_a_slot_still_asks_the_spool_question(self):
         text = mel.paused_message("a.gcode", runout=True, slot=3)
-        self.assertIn("IFS slot 3", text)
+        self.assertIn("slot 3 (IFS channel 3)", text)
         self.assertIn("2. Answer the spool question", text)
         self.assertIn("3. Tap Resume print", text)
 

@@ -105,3 +105,47 @@ class SanitizerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MachineNameAndPathRootTests(unittest.TestCase):
+    """#1020 C3: operator machine names and the app-path rule."""
+
+    def sanitize(self, text, **kwargs):
+        sanitizer = sanitize_logs.Sanitizer(**kwargs)
+        return sanitizer, sanitizer.sanitize(text)
+
+    def test_machine_names_become_consistent_pseudonyms(self):
+        _s, out = self.sanitize(
+            "connect to Deepthought failed; deepthought is the NAS, DEEPTHOUGHT hosts it",
+            machine_names=["Deepthought"])
+        self.assertNotIn("eepthought", out)
+        self.assertEqual(3, out.count("machine-1"))
+
+    def test_machine_names_are_counted_and_reported(self):
+        sanitizer, _out = self.sanitize("nas-box down, nas-box unreachable",
+                                        machine_names=["nas-box"])
+        self.assertEqual(2, sanitizer.counts["machine_names"])
+        self.assertIn("operator machine names", sanitizer.report())
+
+    def test_machine_name_inside_a_kept_path_is_still_pseudonymized(self):
+        _s, out = self.sanitize("log at /data/deepthought-state/bot.log",
+                                machine_names=["deepthought"],
+                                keep_path_roots=[("/data", "app-data")])
+        self.assertEqual("log at app-data/machine-1-state/bot.log", out)
+
+    def test_paths_inside_keep_roots_are_relabeled_outside_paths_go(self):
+        _s, out = self.sanitize(
+            "state /data/state/print-handy.log, secret /home/op/private.txt, "
+            "install /app/print_handy/logs.py",
+            keep_path_roots=[("/data", "app-data"), ("/app", "app-install")])
+        self.assertIn("app-data/state/print-handy.log", out)
+        self.assertIn("app-install/print_handy/logs.py", out)
+        self.assertNotIn("/data/state/print-handy.log", out)
+        self.assertNotIn("/home/op/private.txt", out)
+        self.assertIn("<local path>", out)
+        # The relabeled form leaves no residual for a fresh sanitizer.
+        self.assertEqual(sanitize_logs.find_residuals(out), {})
+
+    def test_no_keep_roots_keeps_the_strict_behavior(self):
+        _s, out = self.sanitize("state /data/state/print-handy.log")
+        self.assertNotIn("/data/state/print-handy.log", out)

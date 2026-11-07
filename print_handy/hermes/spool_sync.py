@@ -414,6 +414,36 @@ def read_lane_data(mr: Client = moonraker) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def lane_index0(slot: int) -> int:
+    """The 0-based inner ``lane`` value for a 1-based slot (#1020 D2).
+
+    THE conversion between the two bases, used in both directions:
+    Print Handy writes it into ``lane_data`` records here, and
+    :mod:`print_handy.hermes.lane_data_sync` converts back with
+    :func:`slot_from_lane_index0` when it normalizes what it reads.
+    Slot numbers everywhere else in Print Handy are 1-based; a value
+    named ``*_index0`` is the only 0-based form.
+    """
+    return int(slot) - 1
+
+
+def slot_from_lane_index0(index0: Any) -> int | None:
+    """The 1-based slot for a 0-based inner ``lane`` value, or None.
+
+    The inverse of :func:`lane_index0` (#1020 D2). Booleans, non-numeric
+    values and indexes outside the IFS slots read as None (unknown),
+    never as a slot.
+    """
+    if isinstance(index0, bool):
+        return None
+    if isinstance(index0, str) and index0.strip().isdigit():
+        index0 = int(index0.strip())
+    if not isinstance(index0, int):
+        return None
+    slot = index0 + 1
+    return slot if slot in SLOTS else None
+
+
 def build_lane_record(slot: int, spool: dict[str, Any], existing: dict[str, Any] | None = None,
                       *, name: str | None = None, now: float | None = None) -> dict[str, Any]:
     """The ``lane_data`` record Print Handy writes for one bound slot (#791).
@@ -443,7 +473,7 @@ def build_lane_record(slot: int, spool: dict[str, Any], existing: dict[str, Any]
     record.update({
         "spool_id": int(spool["id"]),
         "spoolman_vendor_id": vendor_id,
-        "lane": slot - 1,
+        "lane": lane_index0(slot),
         "material": material,
         "color": color,
         "name": display or f"Spool #{spool['id']}",

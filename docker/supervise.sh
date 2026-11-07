@@ -178,10 +178,16 @@ run_listener() {
             restarts=0
         fi
         restarts=$((restarts + 1))
+        # The restart state is persisted (#1020) so the diagnostics bundle
+        # can report the counts and the bot can see a budget exhaustion;
+        # shell variables alone are invisible to both. Best effort: a
+        # failed record never changes the restart behavior.
         if [ "$restarts" -gt "$budget" ]; then
+            python3 -m print_handy.supervisor_state --printer "$printer_id" --restarts "$restarts" --budget "$budget" --window "$window" --status "$status" --exhausted >/dev/null 2>&1 || true
             echo "Listener for printer '$printer_id' exited (status $status) and exhausted its restart budget ($budget restarts in ${window}s); leaving it down — the healthcheck reports this printer unhealthy." >&2
             return 0
         fi
+        python3 -m print_handy.supervisor_state --printer "$printer_id" --restarts "$restarts" --budget "$budget" --window "$window" --status "$status" >/dev/null 2>&1 || true
         echo "Listener for printer '$printer_id' exited (status $status); restarting in ${backoff}s (restart $restarts/$budget)." >&2
         sleep "$backoff" & wait $! || true
         backoff=$((backoff * 2))

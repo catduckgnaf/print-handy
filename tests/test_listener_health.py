@@ -70,6 +70,55 @@ class ListenerHealthTests(unittest.TestCase):
     def test_current_linux_process_identity(self):
         self.assertTrue(health.process_identity(os.getpid()).isdigit())
 
+    def test_blocked_loop_fails_check_even_with_a_fresh_beat(self):
+        # #1020 A3: the writer thread keeps beating while the loop is
+        # blocked; the recorded lag, not the beat age, condemns it.
+        health.beat(moonraker_connected=True, loop_lag_ms=200_000)
+        ok, reason = health.check()
+        self.assertFalse(ok)
+        self.assertIn("loop lag", reason)
+        health.beat(moonraker_connected=True, loop_lag_ms=1_500)
+        self.assertTrue(health.check()[0])
+        health.beat(moonraker_connected=True)  # no lag field: legacy verdict
+        self.assertTrue(health.check()[0])
+
+    def test_beat_once_reports_the_loop_lag(self):
+        import time as time_module
+
+        from print_handy.hermes import moonraker_event_listener as mel
+
+        listener = mel.Listener.__new__(mel.Listener)
+        listener.state = "printing"
+        listener.moonraker_connected = True
+        listener._loop_tick = time_module.time() - 120
+        captured = {}
+        with mock.patch.object(mel.healthcheck, "beat",
+                               side_effect=lambda **kw: captured.update(kw)):
+            listener._beat_once()
+        self.assertGreaterEqual(captured["loop_lag_ms"], 119_000)
+        self.assertEqual("printing", captured["state"])
+
+    def test_stack_dump_handler_writes_the_state_file(self):
+        # #1020 A4: SIGUSR1 (the supervisor's watchdog signal) dumps every
+        # thread's stack to the state file beside the heartbeat.
+        import signal
+        import time as time_module
+
+        target = Path(self.tmp.name) / "listener_stack_dump.log"
+        with mock.patch.object(health, "stack_dump_path", return_value=target):
+            installed = health.install_stack_dump_handler()
+        self.addCleanup(signal.signal, signal.SIGUSR1, signal.SIG_DFL)
+        self.assertEqual(target, installed)
+        os.kill(os.getpid(), signal.SIGUSR1)
+        deadline = time_module.time() + 3
+        while time_module.time() < deadline:
+            if target.is_file() and "SIGUSR1 stack dump" in target.read_text():
+                break
+            time_module.sleep(0.05)
+        text = target.read_text()
+        self.assertIn("SIGUSR1 stack dump", text)
+        self.assertIn("Thread", text)
+
 
 class PerPrinterHeartbeatTests(unittest.TestCase):
     """#336: heartbeats live under printers/<id>/ and are checked per printer."""

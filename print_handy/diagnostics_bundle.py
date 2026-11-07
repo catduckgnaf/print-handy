@@ -1,11 +1,18 @@
 """The diagnostics bundle (#390, Stage 3): one file an operator can attach to a bug report.
 
     python3 -m print_handy.diagnostics_bundle [--output PATH] [--log-lines N]
+                                              [--printer-logs]
 
 Assembles, in one Markdown document:
 
 * Print Handy / Python / platform versions and the container image digest
   when the environment records one (``PRINT_HANDY_IMAGE_DIGEST``);
+* a **runtime status** section (#1020): the image tag and commit SHA when
+  the environment records them (``PRINT_HANDY_IMAGE_TAG`` /
+  ``PRINT_HANDY_IMAGE_SHA``), each printer's listener heartbeat age and
+  loop lag, the supervisor's persisted restart counts, and the
+  capture-directory names with their lengths (the #1020 hang was a
+  capture name that outgrew its limit);
 * a **redacted config summary** — settings are summarised, never dumped:
   any key whose name suggests a secret is replaced by the name of the
   environment variable that holds it (env-name indirection only), and
@@ -13,7 +20,11 @@ Assembles, in one Markdown document:
 * the printer roster (id, model, connection — no hosts, no credentials);
 * the doctor's output;
 * the debug session's captured log window when one exists (#478),
-  otherwise a bounded tail of the configured log file.
+  otherwise a bounded tail of the configured log file, plus each
+  printer's watchdog stack dump when one exists;
+* with ``--printer-logs`` (#1020), the printer-side logs for Moonraker
+  printers (console history, Klipper log, ZMod console and screen logs
+  when the printer serves them), with each source's clock labeled.
 
 The assembled bundle passes through ``print_handy.sanitize_logs`` — the
 export sanitizer layered on ``logs.redact`` — so internal IPs/hostnames,
@@ -21,9 +32,9 @@ platform user/channel IDs (as consistent pseudonyms), local paths,
 emails, MACs, serials and URL query strings are removed as well as
 secrets, and the bundle carries the counts-only sanitization report.
 
-There is no telemetry: the bundle is written only where the operator asks
-(this module's CLI, or ``/print-handy bundle`` in the bot, which writes it
-into the state folder and says where). Nothing is uploaded anywhere.
+There is no telemetry: the bundle is produced only where the operator
+asks (this module's CLI, or ``/print-handy bundle`` in the bot). The CLI
+writes a file; the chat command also uploads that file in the chat.
 """
 from __future__ import annotations
 
@@ -32,6 +43,7 @@ import io
 import os
 import platform
 import sys
+import time
 from pathlib import Path
 
 from . import __version__, logs, sanitize_logs, settings
@@ -114,6 +126,197 @@ def log_tail(data, lines: int = DEFAULT_LOG_LINES) -> str:
     return "\n".join(logs.redact(line) for line in tail) or "(log file is empty)"
 
 
+def _image_identity() -> str:
+    """Image tag + commit SHA as the environment records them (#1020 C1).
+
+    The published images carry these as OCI labels, which a process
+    inside the container cannot read back; an operator (or a compose
+    file) can pass them in as environment variables. Absent values are
+    stated, never invented.
+    """
+    tag = os.environ.get("PRINT_HANDY_IMAGE_TAG", "").strip()
+    sha = os.environ.get("PRINT_HANDY_IMAGE_SHA", "").strip()
+    return (f"tag {tag or 'not recorded in this environment'}, "
+            f"commit {sha or 'not recorded in this environment'}")
+
+
+def runtime_section(data, *, now=None) -> str:
+    """Per-printer liveness as files on disk record it (#1020 C1).
+
+    Heartbeat age and loop lag come from each listener's heartbeat file,
+    restart counts from the supervisor's persisted record, and the
+    capture-directory listing names the directories the timelapse
+    capture created, with their name lengths.
+    """
+    import json as _json
+
+    from . import healthcheck, supervisor_state
+
+    now = time.time() if now is None else now
+    lines = [f"- Image: {_image_identity()}"]
+    records = supervisor_state.read_all(data)
+    cache = Path(str((data.get("paths") or {}).get("cache") or "")).expanduser()
+    capture_root = cache / "timelapse" if str(cache) else None
+    for entry in settings.printers(data):
+        printer_id = entry.get("id")
+        beat_text = "no heartbeat file"
+        try:
+            record = _json.loads(healthcheck.heartbeat_path(data, printer_id).read_text())
+            age = now - float(record["time"])
+            beat_text = f"heartbeat age {age:.0f}s"
+            lag = record.get("loop_lag_ms")
+            if isinstance(lag, (int, float)):
+                beat_text += f", loop lag {lag / 1000:.1f}s"
+        except Exception:
+            pass
+        sup = records.get(printer_id)
+        if sup is None:
+            sup_text = "supervisor restarts not recorded"
+        else:
+            sup_text = (f"supervisor restarts {sup.get('restarts')} of budget "
+                        f"{sup.get('budget')} in {sup.get('window_s')}s")
+            if sup.get("exhausted"):
+                sup_text += " — BUDGET EXHAUSTED, listener left down"
+        lines.append(f"- {printer_id}: {beat_text}; {sup_text}")
+    if capture_root is not None and capture_root.is_dir():
+        names = sorted(p.name for p in capture_root.iterdir() if p.is_dir())
+        if names:
+            lines.append("- Capture directories (name, length in characters):")
+            lines += [f"  - {name} ({len(name)})" for name in names[:50]]
+            if len(names) > 50:
+                lines.append(f"  - … and {len(names) - 50} more")
+        else:
+            lines.append("- Capture directories: none")
+    else:
+        lines.append("- Capture directories: no capture root on disk")
+    return "\n".join(lines)
+
+
+def process_logs_section(data, *, log_lines: int = DEFAULT_LOG_LINES) -> str:
+    """The watchdog stack dumps, per printer (#1020 C1).
+
+    Bot and listener share the configured log file (its tail is the
+    bundle's log section); the supervisor writes no log file — its
+    persisted record is the Runtime status section, and its messages go
+    to the container log. A hung listener's own artifact is its stack
+    dump, tailed here when one exists.
+    """
+    from . import healthcheck
+
+    parts = []
+    for entry in settings.printers(data):
+        printer_id = entry.get("id")
+        try:
+            dump = healthcheck.stack_dump_path(data, printer_id)
+            text = dump.read_text(errors="replace") if dump.is_file() else ""
+        except Exception:
+            text = ""
+        if text:
+            tail = "\n".join(text.splitlines()[-log_lines:])
+            parts.append(f"### Listener stack dump for {printer_id}\n\n```text\n{tail}\n```")
+    if not parts:
+        return "(no listener stack dumps on disk)"
+    return "\n\n".join(parts)
+
+
+def _fetch_bytes(url, timeout=10):
+    """(bytes) for a Moonraker GET, or None on any failure. Never raises."""
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            return resp.read()
+    except Exception:
+        return None
+
+
+def _tail_lines(raw: bytes, count: int) -> list[str]:
+    text = raw[-262_144:].decode("utf-8", "replace")
+    return text.splitlines()[-count:]
+
+
+def printer_logs_section(data, *, log_lines: int = DEFAULT_LOG_LINES, fetch=None) -> str:
+    """Printer-side logs for Moonraker printers (#1020 C2).
+
+    Sources, per printer: the console history from Moonraker's
+    gcode_store (epoch-anchored, rendered in UTC), and the log files the
+    printer serves under its logs root — klippy.log, a ZMod console log
+    and a screen log when present. Each file's lines are shown as the
+    printer wrote them, under a header naming that source's clock: the
+    ZMod console clock is the printer's own and ran about 10 hours
+    behind Moonraker time in the #1020 incident, so events are correlated
+    through the epoch-anchored console history, never by comparing the
+    console file's timestamps with Moonraker's.
+    """
+    import json as _json
+    from datetime import datetime, timezone
+
+    fetch = _fetch_bytes if fetch is None else fetch
+    count = max(0, min(log_lines, MAX_LOG_LINES))
+    parts = []
+    for entry in settings.printers(data):
+        printer_id = entry.get("id")
+        base = str(entry.get("moonraker_url") or "").rstrip("/")
+        if not base:
+            parts.append(f"### {printer_id}\n\n(not a Moonraker printer; no printer-side logs pulled)")
+            continue
+        sections = [f"### {printer_id}"]
+        raw = fetch(f"{base}/server/gcode_store?count={max(count, 1)}")
+        entries = []
+        if raw:
+            try:
+                store = (_json.loads(raw).get("result") or {}).get("gcode_store") or []
+                entries = [e for e in store if isinstance(e, dict)]
+            except ValueError:
+                entries = []
+        if entries:
+            lines = []
+            for item in entries[-count:]:
+                stamp = item.get("time")
+                when = (datetime.fromtimestamp(stamp, timezone.utc).strftime("%H:%M:%S")
+                        if isinstance(stamp, (int, float)) else "--:--:--")
+                lines.append(f"{when} UTC {item.get('message', '')}")
+            sections.append("Console history (Moonraker gcode_store; timestamps are "
+                            "epoch-anchored and shown in UTC):\n\n```text\n"
+                            + "\n".join(lines) + "\n```")
+        else:
+            sections.append("Console history: unavailable from Moonraker.")
+        listing_raw = fetch(f"{base}/server/files/directory?path=logs")
+        names = []
+        if listing_raw:
+            try:
+                result = _json.loads(listing_raw).get("result") or {}
+                names = [str(item.get("path") or item.get("name") or "")
+                         for item in result.get("dirs_files", result.get("files", []))
+                         if isinstance(item, dict)]
+            except ValueError:
+                names = []
+        wanted = []
+        for name in names:
+            low = name.lower()
+            if low == "klippy.log":
+                wanted.append((name, "Klipper log (klippy.log; lines as written, "
+                                      "its clock is the printer's)"))
+            elif "console" in low and low.endswith(".log"):
+                wanted.append((name, "ZMod console log (its timestamps are the console's own "
+                                     "clock, which ran about 10 hours behind Moonraker time "
+                                     "in the #1020 incident; correlate via the console history above)"))
+            elif ("helix" in low or "screen" in low) and low.endswith(".log"):
+                wanted.append((name, "Screen log (lines as written, printer clock)"))
+        for name, label in wanted[:4]:
+            raw_file = fetch(f"{base}/server/files/logs/{name}")
+            if raw_file is None:
+                sections.append(f"{label}: unavailable.")
+            else:
+                sections.append(f"{label}:\n\n```text\n"
+                                + "\n".join(_tail_lines(raw_file, count)) + "\n```")
+        if not wanted:
+            sections.append("Log files: the printer serves no klippy, console or screen log "
+                            "under its logs root.")
+        parts.append("\n\n".join(sections))
+    return "\n\n".join(parts) or "(no printers configured)"
+
+
 def doctor_output() -> str:
     from . import doctor
     out = io.StringIO()
@@ -122,6 +325,38 @@ def doctor_output() -> str:
     except Exception as exc:  # the bundle must survive a broken doctor
         return f"(doctor did not complete: {type(exc).__name__}: {exc})"
     return out.getvalue().strip() or "(doctor produced no output)"
+
+
+def _keep_roots(data):
+    """The app's own data and install directories (#1020), as
+    (root, label) pairs: paths under these keep their layout in an
+    export, relabeled relative to the label; every other local path is
+    removed."""
+    labels = {"hermes_home": "app-data", "cache": "app-cache",
+              "archive": "app-archive", "records_vault": "app-records"}
+    roots = []
+    for key, label in labels.items():
+        value = ((data or {}).get("paths") or {}).get(key)
+        if value:
+            roots.append((str(Path(str(value)).expanduser()), label))
+    roots.append((str(Path(__file__).resolve().parent.parent), "app-install"))
+    return roots
+
+
+def _sanitizer(data=None):
+    """The export sanitizer for these settings (#1020): known platform
+    IDs, the public_text.denylist machine names, and the app's own
+    path roots. Shared by the bundle and the debug-mode export so both
+    apply one standard."""
+    if not data:
+        data, _error = _load_settings()
+    users, channels = _known_ids(data or {})
+    try:
+        names = settings.public_text_denylist(data)
+    except Exception:
+        names = []
+    return sanitize_logs.Sanitizer(known_user_ids=users, known_channel_ids=channels,
+                                   machine_names=names, keep_path_roots=_keep_roots(data or {}))
 
 
 def _known_ids(data):
@@ -156,16 +391,25 @@ def _load_settings():
 
 
 def build_bundle(data=None, *, log_lines: int = DEFAULT_LOG_LINES,
-                 include_doctor: bool = True) -> str:
+                 include_doctor: bool = True, include_printer_logs: bool = False) -> str:
     """The whole bundle as one Markdown string. Never raises on a section."""
     load_error = None
     if data is None:
         data, load_error = _load_settings()
     return _assemble(data, log_lines=log_lines, include_doctor=include_doctor,
-                     load_error=load_error)
+                     load_error=load_error, include_printer_logs=include_printer_logs)
 
 
-def _assemble(data, *, log_lines: int, include_doctor: bool, load_error) -> str:
+def _section(fn, *args, **kwargs) -> str:
+    """One bundle section, degrading to a note instead of raising."""
+    try:
+        return fn(*args, **kwargs)
+    except Exception as exc:
+        return f"(unavailable: {type(exc).__name__}: {exc})"
+
+
+def _assemble(data, *, log_lines: int, include_doctor: bool, load_error,
+              include_printer_logs: bool = False) -> str:
     digest = next((os.environ[name] for name in _DIGEST_ENVS if os.environ.get(name)),
                   "not recorded in this environment (standalone install or unset)")
     if load_error is not None:
@@ -206,6 +450,10 @@ def _assemble(data, *, log_lines: int, include_doctor: bool, load_error) -> str:
         "",
         roster_text,
         "",
+        "## Runtime status",
+        "",
+        _section(runtime_section, data) if load_error is None else "(unavailable: the configuration did not load)",
+        "",
         "## Doctor",
         "",
         "```text",
@@ -218,14 +466,25 @@ def _assemble(data, *, log_lines: int, include_doctor: bool, load_error) -> str:
         log_text,
         "```",
         "",
+        "## Listener stack dumps",
+        "",
+        _section(process_logs_section, data, log_lines=log_lines) if load_error is None else "(unavailable: the configuration did not load)",
+        "",
     ]
-    users, channels = _known_ids(data)
-    sanitizer = sanitize_logs.Sanitizer(known_user_ids=users, known_channel_ids=channels)
+    if include_printer_logs:
+        parts += [
+            "## Printer logs",
+            "",
+            _section(printer_logs_section, data, log_lines=log_lines) if load_error is None else "(unavailable: the configuration did not load)",
+            "",
+        ]
+    sanitizer = _sanitizer(data)
     clean = sanitizer.sanitize("\n".join(parts))
     return clean.replace("{REPORT}", sanitizer.report())
 
 
-def write_bundle(path=None, data=None, *, log_lines: int = DEFAULT_LOG_LINES) -> Path:
+def write_bundle(path=None, data=None, *, log_lines: int = DEFAULT_LOG_LINES,
+                 include_printer_logs: bool = False) -> Path:
     """Write the bundle (default: ``<state>/diagnostics-bundle.md``); returns the path."""
     load_error = None
     if data is None:
@@ -241,7 +500,8 @@ def write_bundle(path=None, data=None, *, log_lines: int = DEFAULT_LOG_LINES) ->
             target = Path(BUNDLE_NAME)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(_assemble(data, log_lines=log_lines, include_doctor=True,
-                                load_error=load_error))
+                                load_error=load_error,
+                                include_printer_logs=include_printer_logs))
     return target
 
 
@@ -250,8 +510,12 @@ def main(argv=None) -> int:
     parser.add_argument("--output", help=f"where to write it (default: <state>/{BUNDLE_NAME})")
     parser.add_argument("--log-lines", type=int, default=DEFAULT_LOG_LINES,
                         help=f"log tail length (default {DEFAULT_LOG_LINES}, max {MAX_LOG_LINES})")
+    parser.add_argument("--printer-logs", action="store_true",
+                        help="also pull the printer-side logs (console history, Klipper, "
+                             "ZMod console and screen logs) for Moonraker printers")
     args = parser.parse_args(argv)
-    target = write_bundle(args.output, log_lines=args.log_lines)
+    target = write_bundle(args.output, log_lines=args.log_lines,
+                          include_printer_logs=args.printer_logs)
     print(f"Diagnostics bundle written to {target}. Review it before attaching; "
           "it is redacted, but it describes your setup.")
     return 0

@@ -50,6 +50,33 @@ UPLOAD_KEEP_S = 7 * 24 * 3600
 HELP_WORDS = {"/print-help", "/help", "help"}
 
 
+def _poll_moonraker_state(entry):
+    """(print_stats state, filename) from a direct Moonraker poll, or None.
+
+    #1020 B4: used only while the printer's listener is down, so the bot
+    can still report a pause, error or stop the printer itself knows
+    about. Any failure (no URL, unreachable, odd payload) reads as None —
+    no notice, no exception.
+    """
+    import json as _json
+    import urllib.request
+
+    base = str((entry or {}).get("moonraker_url") or "").rstrip("/")
+    if not base:
+        return None
+    try:
+        with urllib.request.urlopen(f"{base}/printer/objects/query?print_stats",
+                                    timeout=5) as resp:
+            payload = _json.loads(resp.read())
+        stats = ((payload.get("result") or {}).get("status") or {}).get("print_stats") or {}
+        state = stats.get("state")
+        if not isinstance(state, str):
+            return None
+        return state, str(stats.get("filename") or "")
+    except Exception:
+        return None
+
+
 def unmatched_text(bot_name="Print Handy"):
     """The short plain reply for a message nothing took (#467).
 
@@ -1059,15 +1086,25 @@ class BotCore:
         The listener is what normally posts every alert, so its death is the
         one failure it cannot report itself. Runs from the bot heartbeat, uses
         the bot's own send path, and never raises into the heartbeat.
+
+        Escalations (#1020 B3/B4, C4): a printer whose supervisor restart
+        budget is exhausted gets the louder critical notice (pinned where
+        the adapter supports it), every failure notice carries the
+        diagnostics bundle, and while a listener is down the bot also
+        polls Moonraker directly for a degraded pause/error/stop notice.
         """
         try:
+            from .. import supervisor_state
             from . import outage_alert
 
             statuses = await asyncio.to_thread(self._listener_statuses)
             if not statuses:
                 return []
             state_dir = await asyncio.to_thread(settings.state_dir, self.cfg)
+            records = await asyncio.to_thread(supervisor_state.read_all, self.cfg)
+            exhausted = {pid for pid, rec in (records or {}).items() if rec.get("exhausted")}
             loop = asyncio.get_running_loop()
+            delivered: dict[str, tuple] = {}
 
             def send(printer_id, text):
                 # The printer's own channel, shared channels included
@@ -1091,12 +1128,84 @@ class BotCore:
                     logger.warning("listener outage notice for %s was not delivered: %s",
                                    printer_id, getattr(result, "error", None) or "send failed")
                     return False
+                message_id = getattr(result, "message_id", None)
+                if message_id:
+                    delivered[printer_id] = (chat, message_id)
                 return True
 
-            return await asyncio.to_thread(outage_alert.tick, statuses, state_dir, send)
+            def attach(kind):
+                from .. import diagnostics_bundle
+
+                return str(diagnostics_bundle.write_bundle(data=self.cfg))
+
+            def pin(printer_id):
+                pin_message = getattr(self.adapter, "pin_message", None)
+                target = delivered.get(printer_id)
+                if pin_message is None or not target:
+                    return
+                chat, message_id = target
+                future = asyncio.run_coroutine_threadsafe(pin_message(chat, message_id), loop)
+                future.result(timeout=30)
+
+            messages = await asyncio.to_thread(
+                lambda: outage_alert.tick(statuses, state_dir, send,
+                                          exhausted=exhausted, attach=attach, pin=pin))
+            await self._check_degraded(statuses, state_dir)
+            return messages
         except Exception:
             logger.exception("listener outage check failed")
             return []
+
+    async def _check_degraded(self, statuses, state_dir):
+        """Degraded notices from a direct Moonraker poll (#1020 B4).
+
+        While a required listener is down, ask the printer itself: a
+        pause, error or stop it reports gets one notice through the bot,
+        persisted so a state is announced once per outage. Best-effort:
+        never raises into the outage check.
+        """
+        try:
+            from . import outage_alert
+
+            entries = {entry.get("id"): entry for entry in settings.printers(self.cfg)}
+            raw = await asyncio.to_thread(outage_alert.load_degraded, state_dir)
+            state = {k: v for k, v in raw.items() if isinstance(v, dict)}
+            changed = False
+            for printer_id, info in sorted((statuses or {}).items()):
+                if info.get("ok") is True and printer_id in state:
+                    state.pop(printer_id, None)
+                    changed = True
+                if not info.get("required") or info.get("ok") is not False:
+                    continue
+                polled = await asyncio.to_thread(_poll_moonraker_state,
+                                                 entries.get(printer_id) or {})
+                if polled is None:
+                    continue
+                printer_state, filename = polled
+                previous = state.get(printer_id)
+                text = outage_alert.degraded_notice(state, printer_id, printer_state,
+                                                    filename=filename)
+                if text is None:
+                    continue
+                chat = (routing.chat_for_printer(self.cfg, self.platform_name, printer_id)
+                        or self.chat_id)
+                delivered_ok = False
+                if chat:
+                    try:
+                        result = await self.adapter.send(chat_id=chat, content=text)
+                        delivered_ok = result is None or bool(getattr(result, "success", False))
+                    except Exception:
+                        logger.exception("could not post the degraded notice for %s", printer_id)
+                if delivered_ok:
+                    changed = True
+                elif previous is None:
+                    state.pop(printer_id, None)
+                else:
+                    state[printer_id] = previous
+            if changed:
+                await asyncio.to_thread(outage_alert.save_degraded, state_dir, state)
+        except Exception:
+            logger.exception("degraded listener check failed")
 
     def _listener_statuses(self):
         """Per-printer listener health (#336), aggregated over the roster.
