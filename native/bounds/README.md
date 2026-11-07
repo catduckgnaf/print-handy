@@ -27,6 +27,7 @@ logged; legitimate refusals propagate through the dedicated
 
 ## Pins
 
+- rustup-init: 1.28.2, SHA256-pinned per architecture in the Dockerfile.
 - Rust toolchain: see `rust-toolchain.toml` (channel is the exact
   compiler version).
 - PyO3: see `Cargo.lock` (abi3-py312: one wheel per CPU architecture

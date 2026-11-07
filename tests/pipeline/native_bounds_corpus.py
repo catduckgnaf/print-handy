@@ -1,6 +1,6 @@
 """Frozen equivalence corpus for the G-code motion-bounds parsers (#952, D1).
 
-CASES are the 106 adversarial inputs the D1 investigation built against
+CASES are the 106 adversarial inputs (plus 6 G20/G21 cases, API 2) the D1 investigation built against
 the shipped Python parser (every semantic of
 print_handy.core.model_job._gcode_motion_bounds_python: command
 recognition, number grammar, modes, refusals with line numbers, float
@@ -121,6 +121,13 @@ CASES = [
     'G91\nG1 X5\nG90\nG1 X10 Y10 Z10\n',
     'G1 X10 Y10 Z10\nG91\nG1 Y5\n',
     'G1 X10 Y10 Z10\nG91\nG1 Z-1\n',
+    # #952 phase 2 (API 2): inch units refuse; G21 and lookalikes do not.
+    'G20\nG1 X1 Y1 Z1\n',
+    'G90\nG1 X1 Y1 Z1\ng20\n',
+    '  G20 ; inches\nG1 X1 Y1 Z1\n',
+    'G21\nG1 X1 Y1 Z1\n',
+    'G200\nG1 X1 Y1 Z1\n',
+    'G20.1\nG1 X1 Y1 Z1\n',
 ]
 
 EXPECTED = [
@@ -230,4 +237,10 @@ EXPECTED = [
     ('raise', 'line 2: relative X motion before an absolute X position'),
     ('ok', {'x': (10.0, 10.0), 'y': (10.0, 15.0), 'z': (10.0, 10.0)}),
     ('ok', {'x': (10.0, 10.0), 'y': (10.0, 10.0), 'z': (9.0, 10.0)}),
+    ('raise', 'line 1: inch units (G20) are unsupported by the bounds verifier'),
+    ('raise', 'line 3: inch units (G20) are unsupported by the bounds verifier'),
+    ('raise', 'line 1: inch units (G20) are unsupported by the bounds verifier'),
+    ('ok', {'x': (1.0, 1.0), 'y': (1.0, 1.0), 'z': (1.0, 1.0)}),
+    ('ok', {'x': (1.0, 1.0), 'y': (1.0, 1.0), 'z': (1.0, 1.0)}),
+    ('ok', {'x': (1.0, 1.0), 'y': (1.0, 1.0), 'z': (1.0, 1.0)}),
 ]
