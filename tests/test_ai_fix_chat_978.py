@@ -163,8 +163,11 @@ class _SendAdapter:
 
     async def send_clarify(self, **kw):
         self.questions.append(kw)
+        # Resolve through the same gateway the ask path registered with: in
+        # the full suite that is the Hermes clarify stand-in, not this
+        # package's own registry.
         from print_handy.core import prompts
-        prompts.resolve_gateway_clarify(kw["clarify_id"], kw["choices"][-1])  # Cancel
+        prompts.gateway().resolve_gateway_clarify(kw["clarify_id"], kw["choices"][-1])  # Cancel
         return S(success=True)
 
 
@@ -194,11 +197,21 @@ def test_own_printer_gcode_is_not_called_foreign(tmp_path, monkeypatch):
     from print_handy import printers
     monkeypatch.setattr(printers, "current",
                         lambda: S(key="AD5X", name="Flashforge Adventurer 5M Pro", model="AD5X"))
+    asked = []
+
+    async def fake_ask(adapter, source, key, question, choices, timeout=None, **kw):
+        asked.append((question, list(choices)))
+        return list(choices).index("Cancel")
+
+    # Stub the prompt itself: which clarify registry serves a question
+    # depends on the surrounding suite, and this test only cares that the
+    # own-printer drop reaches the yolo question instead of the refusal.
+    monkeypatch.setattr(prepared_intake, "ask", fake_ask)
     event, path = _gcode_event(tmp_path, "own.gcode", "AD5X")
     adapter = _SendAdapter()
     result = asyncio.run(prepared_intake.print_gcode_file(
         event, adapter, tmp_path / "receipts", path, timeout=1))
     # Not foreign: it reaches the existing yolo question for sliced G-code,
-    # which the fake adapter cancels.
+    # which the stub answers with Cancel.
     assert result["reason"] == "operator declined printing sliced G-code as-is"
-    assert "already-sliced G-code" in adapter.questions[0]["question"]
+    assert "already-sliced G-code" in asked[0][0]
