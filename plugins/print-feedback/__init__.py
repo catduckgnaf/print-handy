@@ -5109,7 +5109,7 @@ async def model_link_dispatch(event, gateway, **kwargs):
     if not getattr(source, 'user_id', None) or not gateway._is_user_authorized_for_source(source):
         return None
     from print_handy.core.link_intake import model_link
-    from print_handy.core.prepared_intake import (prepare_link as collect_link, model_files,
+    from print_handy.core.prepared_intake import (prepare_link as collect_link, model_file, model_files,
                                                   reprint_request, last_printed_job)
     from print_handy.core import yolo as _yolo
     text = getattr(event, 'text', '')
@@ -5117,7 +5117,7 @@ async def model_link_dispatch(event, gateway, **kwargs):
     followup_link = False
     # An already-sliced G-code drop prints only as an explicit yolo (core/yolo.py).
     gcode_drop = None if model_link(text) else _yolo.gcode_file(event)
-    if not (model_link(text) or model_files(event) or gcode_drop):
+    if not (model_link(text) or (model_file(event) or model_files(event)) or gcode_drop):
         if reprint_request(text) and _plain_print_number(text) is not None:
             # "reprint 57" / "print #57 again" names an exact print: that is
             # print_again_dispatch's numbered reprint (#436), never "the last
@@ -5163,7 +5163,7 @@ async def model_link_dispatch(event, gateway, **kwargs):
                 text = f"{recent_url} {text}"
                 setattr(event, 'text', text)
                 followup_link = True
-        if reuse is None and not (model_link(text) or model_files(event)):
+        if reuse is None and not (model_link(text) or (model_file(event) or model_files(event))):
             return None
     linked = model_link(text)
     if linked and not followup_link:
