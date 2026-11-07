@@ -510,6 +510,8 @@ The official prebuilt archives are downloaded and extracted only inside approved
 
 `WITH_BAMBU=false` is the publication default; enabling pinned source-built Bambu Studio needs its own runtime acceptance. OpenSCAD (`openscad`) is included for CAD splitting and AI design (`/print-design`, #388).
 
+The `bounds-build` stage compiles the optional Rust/PyO3 native bounds parser (#952, `native/bounds/`) into an abi3 wheel and the runtime stage installs it; only the compiled extension ships — no Rust toolchain is in the runtime image. The parser is an accelerator only: the Python implementation remains the permanent fallback wherever the extension is absent or fails its startup self-check, so an image built without this stage behaves identically, just slower on plate-scale G-code. See `native/bounds/README.md`.
+
 ## Validation and publication
 
 The manual `.github/workflows/docker-image-validation.yml` validates ONE architecture per dispatch: choose `architecture` (`amd64` or `arm64`, built on the matching native runner). It builds the published image without pushing, runs the headless slicer smoke, and runs `tests/docker/image_acceptance.sh` against that leg's image.
