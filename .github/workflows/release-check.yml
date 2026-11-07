@@ -84,7 +84,7 @@ jobs:
             # the range at this release's tag, so the check covers exactly
             # the PRs the release shipped.
             from_ref="$(git tag --sort=-v:refname | grep -E "^[0-9]+\.[0-9]+\.[0-9]+$" | grep -vx "$version" | head -1)"
-            to_ref="$version"
+            to_ref="$version^"
           fi
           notes="${INPUT_NOTES:-.github/release-notes-draft.md}"
           {
@@ -93,7 +93,7 @@ jobs:
             echo "to_ref=$to_ref"
             echo "notes=$notes"
           } >> "$GITHUB_OUTPUT"
-          echo "Release check: $from_ref..HEAD for $version, notes at $notes"
+          echo "Release check: $from_ref..$to_ref for $version, notes at $notes"
       - name: Release check (version surfaces, notes coverage, spelling)
         if: hashFiles(steps.resolve.outputs.notes) != ''
         env:
