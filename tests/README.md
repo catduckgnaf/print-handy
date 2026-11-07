@@ -158,7 +158,7 @@ remainder), and the Matrix message-ordering flake root cause (scope 4).
 | Every PR | `ci.yml` | Everything under `tests/` with the fake slicer, including `tests/corpus/test_journey_matrix.py` (pinned fit option x color mode inventory), `test_spool_fixture.py` (state built by the real `create_spool` and `bind_slot`), and `test_timing_gate.py`. |
 | Every PR | `ci.yml` real Orca job | The generated CC0 corpus under `tests/corpus/cases` sliced by real Orca. |
 | Every PR | `ci.yml` timing job | Median of 3 repeats against `timing_baseline.json`: `wall_s`, `first_prompt_s`, `fit_check_s`, plus the absolute `fit_check_budget_s` ceiling, which is enforced even for a case with no baseline entry. |
-| Every PR, reporting only | `ci.yml` real-slicer timing job | Five corpus cases with the pinned Orca, median of 3 repeats against `timing_baseline_real_slicer.json`. Warnings only, not a required check (see Slicing-speed gate below). |
+| Every PR, reporting only | `ci.yml` real-slicer timing job | Six corpus cases with the pinned Orca, median of 3 repeats against `timing_baseline_real_slicer.json`. Warnings only, not a required check (see Slicing-speed gate below). |
 | Weekly | `model-corpus.yml` | The downloaded public model corpus, sharded. |
 | Live only, not in CI | operator | Real printer, real Spoolman and Moonraker, real Discord, the private Duplo 3MF. |
 
@@ -225,7 +225,7 @@ What runs:
 | Leg | CI job | Cases | Status |
 | --- | --- | --- | --- |
 | Mock slicer | `discord-timing` | every corpus case, `hermes` and `standalone` transports | Blocking. A problem fails the job. |
-| Real Orca | `slicer-timing-real`, "Slicer timing (real Orca, reporting only)" | `single-part`, `stl-single-part`, `plates-multicolor`, `witch-ghost-cults3d`, `rotation-fit` on `hermes` | Reporting only. Problems are warning annotations; the job is `continue-on-error` and is not a required check. |
+| Real Orca | `slicer-timing-real`, "Slicer timing (real Orca, reporting only)" | `single-part`, `stl-single-part`, `plates-multicolor`, `witch-ghost-cults3d`, `rotation-fit`, `stl-large-plate` on `hermes` | Reporting only. Problems are warning annotations; the job is `continue-on-error` and is not a required check. |
 
 Both legs run `python -m tests.corpus.time_corpus` three times, then `python -m tests.corpus.timing_gate` on the
 three result files. The gate compares the per-case median of the three repeats, never one sample. Each leg writes
@@ -263,6 +263,34 @@ Noise controls in place: median of 3 repeats, per-case baselines (one heavy case
 regression), absolute slack for tiny flows, the warm-up slice, and the fixed runner image (`ubuntu-24.04`). Not
 built yet: the same-job A/B against the merge base, and a control file to normalize runner speed. The stored
 per-release baseline ships first; A/B is the next step if the real-Orca warnings prove too noisy to promote.
+
+### The large-plate case (#952)
+
+`stl-large-plate` joined the real-Orca leg on catduck's decision D4 on #952. The five original cases slice
+in seconds, so none of them exercises the Python passes that dominate a large plate — the finalize and
+verify passes over the whole file that #925, #929 and #952 are about. This case exists to time those passes
+end to end.
+
+The case is a generated solid 113 mm cube (`tests/corpus/cases/stl-large-plate`, written by
+`make_models.py` from its `case.toml` spec like every generated case). The model file is a 684-byte STL;
+the size is in the slice, not the fixture. On the AD5X template profile (gyroid 10%, 0.24 mm layers) a
+local reference slice (OrcaSlicer 2.5.0-alpha; CI pins 2.5.0-rc) produced a 54,614,337-byte /
+1,970,123-line G-code — deliberately comparable to the 54,237,491-byte `plate_1.gcode` #952 measured.
+Every timing run records `gcode_bytes` per case in its JSON artifact, so the size class is checkable from
+the leg's own artifacts rather than from this note. Locally the flow took about 70 s wall per repeat, so
+expect the leg to grow by minutes (three repeats), inside its 30-minute timeout.
+
+It is reporting-only, like the rest of the leg; adding it promotes nothing. Its variance is **not yet
+measured** — that measurement is the point of adding it now. Judge it from the leg's own artifacts over
+time: the spread of its three in-job repeats, and the cross-run spread of its medians once green `main`
+runs that include the case accumulate. The stored variance record
+(`tests/corpus/timing_variance_real_slicer.json`) predates this case and says nothing about its noise yet.
+Before anyone proposes promoting the leg, refresh that record from at least 20 recent green `main` runs
+whose artifacts include `stl-large-plate` (the refresh commands under Real-Orca runner noise below) and
+apply the existing promotion rule — zero failing pairings at the baseline's `tolerance` and `slack_s`,
+this case included. The runner-speed grouping already measured for the small cases (fast and slow groups
+about 1.5x apart) will move this case by more seconds than any of them; the refresh has to quantify that
+before a blocking limit can be believed.
 
 The checked-in mock baseline was re-recorded for #734 from `main` run 41365651326 (commit 60341e2) with these
 limits; its two entries that rose carry a `reason`. The real-Orca baseline was recorded from this job's first CI runs

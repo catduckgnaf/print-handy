@@ -21,6 +21,11 @@
    "fit_check_s": 5.52,
    "wall_s": 6.18
   },
+  "stl-large-plate/hermes": {
+   "first_prompt_s": 0.06,
+   "fit_check_s": 0.7,
+   "wall_s": 32.9
+  },
   "stl-single-part/hermes": {
    "first_prompt_s": 0.01,
    "fit_check_s": 5.55,

@@ -462,6 +462,16 @@
    "fit_check_s": 0.0,
    "wall_s": 0.06
   },
+  "stl-large-plate/hermes": {
+   "first_prompt_s": 0.06,
+   "fit_check_s": 0.0,
+   "wall_s": 0.1
+  },
+  "stl-large-plate/standalone": {
+   "first_prompt_s": 0.06,
+   "fit_check_s": 0.0,
+   "wall_s": 0.1
+  },
   "stl-must-shrink/hermes": {
    "first_prompt_s": 0.29,
    "fit_check_s": 0.0,
