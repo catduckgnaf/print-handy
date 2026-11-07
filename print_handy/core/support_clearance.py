@@ -51,6 +51,7 @@ import time
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
+from urllib.parse import unquote
 
 import numpy as np
 
@@ -657,47 +658,73 @@ def gcode_model_bounds(gcode_text):
     return (lo[0], lo[1], hi[0], hi[1])
 
 
+_PRINT_OBJ_RE = re.compile(
+    r'printing object:?\s+(.+?)(?:\s+id\s*:\s*(\S+)\s+copy\s+(\d+))?\s*$', re.I)
+_EXCLUDE_SUFFIX_RE = re.compile(r'^(.*)_id_(.+)_copy_(\d+)$')
+
+
+def _instance_key(line):
+    """(display name, identity key) for an object-block start line.
+
+    OrcaSlicer stable repeats its object markers once per layer per
+    instance (#969): ``; printing object <Name> id:<id> copy <n>``,
+    paired with ``EXCLUDE_OBJECT_START NAME=<Name>_id_<id>_copy_<n>``.
+    Both spellings reduce to the same identity - base name, id and
+    copy - so the per-layer blocks of one copy merge into one instance.
+    A marker carrying no id/copy identifies the object by name alone.
+    """
+    m = _PRINT_OBJ_RE.search(line)
+    if m:
+        name = unquote(m.group(1).strip()) or None
+        return name, (_norm_object_name(name), m.group(2), m.group(3))
+    m = re.search(r'NAME=([^\s;]+)', line)
+    if m:
+        raw = unquote(m.group(1))
+        suffix = _EXCLUDE_SUFFIX_RE.match(raw)
+        if suffix:
+            return (suffix.group(1) or None,
+                    (_norm_object_name(suffix.group(1)), suffix.group(2), suffix.group(3)))
+        return raw or None, (_norm_object_name(raw), None, None)
+    return None, (None, None, None)
+
+
 def gcode_object_bounds(gcode_text):
     """XY bounds of each object instance in a G-code text (#963 item 3).
 
-    Returns [{'name': name or None, 'bounds': (x0, y0, x1, y1)}] in file
-    order, one entry per object block (``EXCLUDE_OBJECT_START`` /
-    ``; printing object`` ... matching end marker). Copies of one object
-    appear as separate instances with the same name. Only non-support
-    extrusion inside a block counts, mirroring ``gcode_model_bounds``.
+    Returns [{'name': name or None, 'bounds': (x0, y0, x1, y1)}] in
+    first-appearance order, one entry per object *instance*. OrcaSlicer
+    emits one marker block per layer per instance (#969), so blocks
+    that share an instance identity (base name + id + copy, from either
+    the ``; printing object`` spelling or the ``EXCLUDE_OBJECT_START
+    NAME=`` spelling) merge into a single entry whose bounds are the
+    union over all of the instance's blocks: a single layer's extrusion
+    is only that layer's cross-section, not the copy's footprint.
+    Copies of one object appear as separate instances with the same
+    name. Only non-support extrusion inside a block counts, mirroring
+    ``gcode_model_bounds``.
     """
-    instances = []
+    order = []
+    by_key = {}
     current = None
     current_type = ''
     pos = {'X': None, 'Y': None}
-
-    def close():
-        nonlocal current
-        if current is not None and current['lo'][0] is not None:
-            instances.append({'name': current['name'],
-                              'bounds': (current['lo'][0], current['lo'][1],
-                                         current['hi'][0], current['hi'][1])})
-        current = None
-
     for raw in gcode_text.splitlines():
         line = raw.strip()
         if line.startswith(';TYPE:'):
             current_type = line.split(':', 1)[1].strip().casefold()
             continue
         if _OBJ_START.search(line):
-            close()
-            name = None
-            m = re.search(r'printing object\s+([^;]+)', line, re.I)
-            if m:
-                name = re.split(r'\s+id\s*:', m.group(1).strip())[0].strip() or None
-            else:
-                m = re.search(r'NAME=([^\s;]+)', line)
-                if m:
-                    name = m.group(1)
-            current = {'name': name, 'lo': [None, None], 'hi': [None, None]}
+            name, key = _instance_key(line)
+            current = by_key.get(key)
+            if current is None:
+                current = {'name': name, 'lo': [None, None], 'hi': [None, None]}
+                by_key[key] = current
+                order.append(current)
+            elif current['name'] is None:
+                current['name'] = name
             continue
         if _OBJ_END.search(line):
-            close()
+            current = None
             continue
         if current is None:
             continue
@@ -715,8 +742,9 @@ def gcode_object_bounds(gcode_text):
             for k, v in enumerate((pos['X'], pos['Y'])):
                 current['lo'][k] = v if current['lo'][k] is None else min(current['lo'][k], v)
                 current['hi'][k] = v if current['hi'][k] is None else max(current['hi'][k], v)
-    close()
-    return instances
+    return [{'name': entry['name'],
+             'bounds': (entry['lo'][0], entry['lo'][1], entry['hi'][0], entry['hi'][1])}
+            for entry in order if entry['lo'][0] is not None]
 
 
 def _norm_object_name(value):

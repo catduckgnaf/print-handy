@@ -1,0 +1,23 @@
+{
+  "synthetic": true,
+  "scenario": "Issue #963 evidence case (intake 724a5b63...): bbox grading read 80 percent; footprint recount 10 of 10.",
+  "object_instances": {
+    "Hook": 1
+  },
+  "ok": true,
+  "regions": [
+    {
+      "part": "Hook",
+      "kind": "supportable_overhang",
+      "graded": "footprint",
+      "total_cells": 10,
+      "covered_cells": 10,
+      "coverage": 1.0
+    }
+  ],
+  "bbox_method_coverage": 0.8,
+  "excluded_targets": [
+    "Hook"
+  ],
+  "unverified": 0
+}

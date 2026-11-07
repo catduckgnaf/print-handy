@@ -1,0 +1,18 @@
+{
+  "synthetic": true,
+  "scenario": "Issue #969 plate case (intake 16fd2142...): 40 hooks + 40 backs on one plate; every region failed - low_clearance at 25-50 percent, supportable_overhang at 75-80 percent.",
+  "object_instances": {
+    "Hook": 40,
+    "Back": 40
+  },
+  "ok": false,
+  "graded_regions": 80,
+  "hook_coverages": [
+    0.3333,
+    0.4444
+  ],
+  "back_coverages": [
+    0.7778
+  ],
+  "unverified": 0
+}
