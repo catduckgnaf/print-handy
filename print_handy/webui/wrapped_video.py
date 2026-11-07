@@ -35,6 +35,14 @@ from pathlib import Path
 MAX_CLIPS = 6
 CLIP_SECONDS = 4
 CARD_SECONDS = 3
+# Every segment (card or clip) is encoded at this one frame rate with
+# this one video timebase (#981): the final concat is a stream copy, so
+# segments whose frame rates or timebases differ get their durations
+# rescaled by the concat and clip segments inflate (two 3-second clips
+# at mismatched rates produced a 72-second video where about 60 was
+# expected in the #981 prototype).
+CARD_FPS = 30
+SEGMENT_TIMESCALE = 90000
 CARD_WRAP = 46  # chars per drawtext line: fits the 1280px frame at fontsize 40
 CARD_LINE_PX = 52
 
@@ -150,7 +158,15 @@ def _card_filter(text):
 
 
 def _card_texts(wrapped):
+    """The card sequence, data-led (#981): headline numbers, the
+    separate failed/stopped counts, the most-reprinted print, the top
+    color and material, then the commentary lines. Every card is
+    gated on its number being present in the payload. This builder is
+    the seam a later presentation rework swaps; the pacing contract
+    (segment frame rate/timebase) lives in the segment commands, not
+    here."""
     headline = wrapped.get("headline") or {}
+    highlights = wrapped.get("highlights") or {}
     texts = [f"Print Handy Wrapped {wrapped.get('year')}"]
     if headline.get("total_prints"):
         texts.append(f"{headline['total_prints']} prints")
@@ -160,6 +176,25 @@ def _card_texts(wrapped):
         texts.append(f"{headline['total_filament_used_kg']:g} kg of filament")
     if headline.get("success_rate") is not None:
         texts.append(f"Success rate {round(headline['success_rate'] * 100):g}%")
+    if headline.get("failed"):
+        texts.append(f"{headline['failed']} failed print"
+                     f"{'s' if headline['failed'] != 1 else ''}")
+    stopped = headline.get("stopped", headline.get("canceled"))
+    if stopped:
+        texts.append(f"{stopped} stopped print{'s' if stopped != 1 else ''}")
+    most_reprinted = highlights.get("most_reprinted")
+    if most_reprinted and most_reprinted.get("count"):
+        texts.append(f"{most_reprinted.get('title') or 'One print'} printed "
+                     f"{most_reprinted['count']} times")
+    if highlights.get("top_color"):
+        texts.append(f"Top color {highlights['top_color']}")
+    if highlights.get("top_material"):
+        texts.append(f"Top material {highlights['top_material']}")
+    archetype = wrapped.get("archetype") or highlights.get("archetype")
+    if archetype and archetype.get("name"):
+        # The personality card sits mid-sequence, never last: the
+        # commentary (ending on the closing line) follows it.
+        texts.append(f"Your printing personality: {archetype['name']}")
     texts.extend(str(line) for line in (wrapped.get("script") or []))
     return texts
 
@@ -205,6 +240,10 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
         clips = []
     if not clips:
         notes.append("timelapses: none found")
+    else:
+        # #981: these are clips from this year, in the order the finder
+        # returned them — never a best-hits or highlights selection.
+        notes.append(f"timelapses: {len(clips)} clips from this year")
     work = out_dir / f".wrapped-{year}-parts"
     work.mkdir(parents=True, exist_ok=True)
     segments = []
@@ -212,16 +251,23 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
         for index, text in enumerate(_card_texts({**wrapped, "script": script})):
             segment = work / f"card-{index:02d}.mp4"
             _run(runner, [resolved, "-y", "-f", "lavfi", "-i",
-                          f"color=c=0x12110F:s=1280x720:d={CARD_SECONDS}",
-                          "-vf", _card_filter(text),
-                          "-c:v", "libx264", "-pix_fmt", "yuv420p", str(segment)])
+                          f"color=c=0x12110F:s=1280x720:d={CARD_SECONDS}:rate={CARD_FPS}",
+                          "-vf", f"fps={CARD_FPS}," + _card_filter(text),
+                          "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                          "-r", str(CARD_FPS),
+                          "-video_track_timescale", str(SEGMENT_TIMESCALE),
+                          str(segment)])
             segments.append(segment)
         for index, clip in enumerate(clips):
             segment = work / f"clip-{index:02d}.mp4"
             _run(runner, [resolved, "-y", "-i", str(clip), "-t", str(CLIP_SECONDS),
                           "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,"
-                                 "pad=1280:720:(ow-iw)/2:(oh-ih)/2",
-                          "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", str(segment)])
+                                 "pad=1280:720:(ow-iw)/2:(oh-ih)/2,"
+                                 f"fps={CARD_FPS}",
+                          "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an",
+                          "-r", str(CARD_FPS),
+                          "-video_track_timescale", str(SEGMENT_TIMESCALE),
+                          str(segment)])
             segments.append(segment)
         listing = work / "concat.txt"
         listing.write_text("".join(f"file '{segment.name}'\n" for segment in segments),
@@ -237,4 +283,6 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
     return {"ok": True, "path": str(target), "script_path": str(script_path), "notes": notes}
 
 
-__all__ = ["MAX_CLIPS", "build_wrapped_video", "default_clip_finder", "escape_drawtext"]
+__all__ = ["CARD_FPS", "CARD_SECONDS", "CLIP_SECONDS", "MAX_CLIPS",
+           "SEGMENT_TIMESCALE", "build_wrapped_video", "default_clip_finder",
+           "escape_drawtext"]
