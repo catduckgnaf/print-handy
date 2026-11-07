@@ -135,3 +135,37 @@ def test_generated_table_provenance_is_recorded():
     prov = data["_provenance"]
     assert "BambuStudio" in prov["source"] and len(prov["bambu_studio_commit"]) == 40
     assert len(data["hms"]) > 5000 and len(data["error"]) > 1000
+
+
+# ---------------------------------------------------------------- H3C (32X) initial support
+# The H3C's serial prefix is 32X (facts.H3C, from Bambu Studio's device definition
+# for the model). Its per-model override sections arrive with the HMS table
+# regenerated from Bambu Studio 02.09.01.70; the shipped table on main does not
+# carry them yet, so the resolution path is pinned here against a small SYNTHETIC
+# table in the same generated shape — not against the regenerated table's data.
+
+_SYNTHETIC_32X = {
+    "_provenance": {"prefixes": ["32X"]},
+    "hms": {"0300020000010001": "synthetic common HMS text"},
+    "hms_by_model": {"32X": {"0300020000010001": "synthetic H3C HMS text"}},
+    "error": {"03008001": "synthetic common error text"},
+    "error_by_model": {"32X": {"03008001": "synthetic H3C error text"}},
+}
+
+
+def test_h3c_prefix_resolves_its_own_texts(monkeypatch):
+    monkeypatch.setattr(hms, "_DATA", _SYNTHETIC_32X)
+    assert hms.prefixes() == ("32X",)
+    assert hms.lookup_hms("0300020000010001", "32X").text == "synthetic H3C HMS text"
+    assert hms.lookup_hms("0300020000010001").text == "synthetic common HMS text"
+    assert hms.lookup_error(0x03008001, "32X").text == "synthetic H3C error text"
+    assert hms.lookup_error(0x03008001).text == "synthetic common error text"
+
+
+def test_adapter_accepts_a_32x_serial_and_readiness_uses_h3c_text(monkeypatch):
+    monkeypatch.setattr(hms, "_DATA", _SYNTHETIC_32X)
+    a = adapter(serial="32X00A000000000")
+    assert a._hms_prefix() == "32X"
+    problems = a.readiness_problems(RECORD, {"print": {"gcode_state": "IDLE",
+                                                       "hms": [{"attr": 0x03000200, "code": 0x00010001}]}})
+    assert any("synthetic H3C HMS text" in p for p in problems)

@@ -6,6 +6,11 @@ nozzles, handled by the extruder-aware checks, and their print starts resolve AM
 slot (ams_mapping.py). The h2c and a2l exist only in the OrcaSlicer 2.5 line's BBL profiles and were
 registered when that line became the shipped slicer (#356, on v2.5.0-alpha).
 
+The H3C (Bambu's nine-tool Swaptek changer, launched with Bambu Studio 02.09.01.70) has initial
+support only: its sourced facts and its HMS serial prefix (32X) are recorded in facts.py, but it is
+NOT a registered model — the pinned OrcaSlicer v2.5.0-rc carries no H3C profiles, so no checked
+identity can be computed for it. See facts.py (the H3C block) and docs/BAMBU-LAB.md.
+
 Print Handy slices, validates and packages; a person moves the file. When the operator configures
 [bambu] lan_host/lan_serial and supplies the LAN access code as a secret, the adapter can also read
 live status over LAN MQTT (client.py), upload the package over FTPS, and — only when the operator
