@@ -2,7 +2,9 @@
 
 ``GET /data`` and ``GET /wrapped`` are the pages; ``GET /api/data``
 and ``GET /api/wrapped`` are the same payloads as JSON;
-``POST /wrapped/video`` compiles the Wrapped video.
+``POST /wrapped/video`` compiles the Wrapped video and
+``POST /wrapped/share`` exports the static share bundle
+(:mod:`print_handy.webui.share_export`).
 
 The whole surface is opt-in under ``[timelapse] wrapped_enabled``
 (default false). While it is off, every route here answers 403 with
@@ -30,6 +32,7 @@ import html
 from pathlib import Path
 
 from ..core import print_stats, wrapped_joins
+from . import share_export
 from . import shell
 from . import wrapped_video as video_module
 
@@ -192,7 +195,14 @@ def wrapped_view(data, year=None, *, records_vault=None):
     longest = (payload.get("highlights") or {}).get("longest_print") or {}
     longest_clip = next((c["name"] for c in clips_by_print
                          if c["print_number"] == longest.get("print_number")), None)
+    # #981 sharing: the share panel lists past exports from the local
+    # registry beside the wrapped outputs; a corrupt registry fails
+    # soft into a named note here, never a broken page.
+    share_entries, share_note = share_export.load_exports(
+        _vault(data, records_vault) / "wrapped")
     return 200, {"ok": True, **payload, "skipped_records": skipped,
+                 "share_exports": share_entries,
+                 "share_registry_note": share_note,
                  "skipped_event_lines": skipped_events,
                  "timelapse_clips_found": len(detailed),
                  "timelapse_clips_by_print": clips_by_print,
@@ -228,6 +238,35 @@ def make_video(data, year, *, records_vault=None, out_dir=None, **video_kwargs):
                      "script_path": result.get("script_path"), "notes": result.get("notes") or []}
     return 200, {"ok": True, "year": int(year), "path": result["path"],
                  "script_path": result["script_path"], "notes": result.get("notes") or []}
+
+
+def export_share(data, year, visibility, *, records_vault=None, out_dir=None,
+                 destination_note="", passphrase=None):
+    """(code, body) for POST /wrapped/share: one explicit export.
+
+    Behind the same ``wrapped_enabled`` gate as every other Wrapped
+    surface. The bundle is written locally under the wrapped outputs
+    (``<vault>/wrapped/exports/``); nothing is uploaded anywhere.
+    Private exports refuse by name inside share_export until an
+    established AES-GCM library is a dependency.
+    """
+    if not wrapped_enabled(data):
+        return 403, {"ok": False, "reason": OFF_REASON}
+    records, _skipped = _load(data, records_vault)
+    events, _skipped_events = _load_events(data, records_vault)
+    try:
+        wrapped = print_stats.build_wrapped(
+            records, int(year), tz=_display_tz(data), events=events,
+            enrichments=_load_enrichments(data, records))
+    except (TypeError, ValueError):
+        return 400, {"ok": False, "reason": "year must be a whole number. Nothing was exported."}
+    target_dir = Path(out_dir) if out_dir is not None else _vault(data, records_vault) / "wrapped"
+    result = share_export.export_bundle(
+        wrapped, target_dir, visibility=str(visibility or "public"),
+        destination_note=destination_note, passphrase=passphrase)
+    if not result.get("ok"):
+        return 400, {"ok": False, "reason": result.get("reason") or "the export failed"}
+    return 200, {"ok": True, **result}
 
 
 # ------------------------------------------------------------------ pages
@@ -501,6 +540,67 @@ def render_data_page(data, payload, *, theme=shell.DEFAULT_THEME):
     return _page(data, "data", "".join(parts), path="/data", theme=theme)
 
 
+def _share_panel(year, form_token, exports, registry_note):
+    """The share panel (#981 sharing phase): export form, deploy
+    guides, and the local list of what has been shared and where."""
+    parts = [
+        "<h2>Share this Wrapped</h2>",
+        "<p>Export this year as a self-contained static bundle — the "
+        "scrolling Wrapped page, the summary card images, and the "
+        "year's compiled video when one exists — written locally under "
+        "the wrapped outputs. Print Handy uploads nothing and asks for "
+        "no tokens: hosting is your own free static-host account.</p>",
+        f'<form method="post" action="/wrapped/share">'
+        f'<input type="hidden" name="_csrf" value="{_esc(form_token)}">'
+        f'<input type="hidden" name="year" value="{year}">'
+        '<label>Visibility <select name="visibility">'
+        '<option value="public">public</option>'
+        '<option value="link-only">link-only</option>'
+        '<option value="private" disabled>private (not available yet)</option>'
+        "</select></label> "
+        '<label>Passphrase (private exports) '
+        '<input type="password" name="passphrase" disabled></label> '
+        '<label>Destination note '
+        '<input type="text" name="destination" '
+        'placeholder="e.g. my GitHub Pages repo"></label> '
+        '<button type="submit">Export share bundle</button></form>',
+        "<p><strong>Public</strong> is public: the plain bundle, "
+        "indexable by search engines. <strong>Link-only</strong> puts "
+        "the bundle under an unguessable address with a noindex tag — "
+        "that is obscurity, not privacy: anyone with the link can open "
+        "it. <strong>Private</strong> exports are not available yet: "
+        f"{_esc(share_export.PRIVATE_UNAVAILABLE_REASON)}</p>",
+        "<h3>Put it on a free static host</h3>"
+        "<p><strong>GitHub Pages:</strong> create a repository (or use "
+        "an existing one), copy the bundle's files into it so "
+        "<code>index.html</code> sits at the repository root (for "
+        "link-only, keep the bundle's slug folder as a folder in the "
+        "repo and share that folder's address), commit, then turn on "
+        "Pages for that branch in the repository settings. "
+        "<strong>Cloudflare Pages:</strong> create a Pages project, "
+        "upload the bundle folder (or connect the GitHub repo above), "
+        "and the same <code>index.html</code> works unchanged at the "
+        "project root. Either way the files work exactly as exported — "
+        "no build step, no server. Taking a share down is deleting "
+        "those files at the host.</p>",
+        "<h3>What you have shared</h3>",
+    ]
+    if registry_note:
+        parts.append(f'<p class="note">{_esc(registry_note)}</p>')
+    if exports:
+        rows = "".join(
+            f"<li>{_esc(entry.get('folder') or '')} — {entry.get('year', '')}, "
+            f"{_esc(entry.get('visibility') or '')}"
+            + (f", to {_esc(entry['destination'])}" if entry.get("destination") else "")
+            + f", exported {_esc(entry.get('exported_at') or '')}, "
+            f"video {'included' if entry.get('video_included') else 'not included'}</li>"
+            for entry in exports)
+        parts.append(f"<ul>{rows}</ul>")
+    else:
+        parts.append("<p>(nothing exported yet)</p>")
+    return "".join(parts)
+
+
 def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None,
                         theme=shell.DEFAULT_THEME):
     """GET /wrapped as HTML, from a :func:`wrapped_view` success payload."""
@@ -652,6 +752,8 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
         parts.append("<h2>Wrapped video</h2><p>The video step is off: set "
                      "[timelapse] wrapped_ai_video = true to turn on the AI "
                      "commentary and the on-demand video compile.</p>")
+    parts.append(_share_panel(year, form_token, payload.get("share_exports") or [],
+                              payload.get("share_registry_note")))
     # Finale: the share card is the last section of the scroll. (No
     # <video> embed: the Web UI has no route serving the compiled
     # file, so there is no natural embed wiring in this step — the
@@ -683,7 +785,29 @@ def render_video_result(data, payload, *, theme=shell.DEFAULT_THEME):
     return _page(data, "wrapped video", body, path="/wrapped", theme=theme)
 
 
+def render_share_result(data, payload, *, theme=shell.DEFAULT_THEME):
+    """The POST /wrapped/share result page: where the bundle landed."""
+    manifest = payload.get("manifest") or {}
+    notes = "".join(f"<li>{_esc(note)}</li>" for note in (manifest.get("notes") or []))
+    files = "".join(f"<li>{_esc(entry.get('name') or '')} "
+                    f"({_esc(entry.get('kind') or '')})</li>"
+                    for entry in (manifest.get("files") or []))
+    body = (f"<p>Your Wrapped {payload.get('year')} share bundle is ready: "
+            f"<code>{_esc(payload.get('path') or '')}</code></p>"
+            f"<p>Visibility: {_esc(payload.get('visibility') or '')}. "
+            f"Video: {'included' if payload.get('video_included') else 'not included'}. "
+            "Nothing was uploaded — hosting the bundle on your own static "
+            "host is the next step (the Wrapped page's Share panel has "
+            "the GitHub Pages and Cloudflare Pages steps).</p>"
+            + (f"<h2>Files</h2><ul>{files}</ul>" if files else "")
+            + (f"<h2>Notes</h2><ul>{notes}</ul>" if notes else "")
+            + (f'<p class="note">{_esc(payload["registry_note"])}</p>'
+               if payload.get("registry_note") else "")
+            + '<p><a href="/wrapped">Back to Wrapped</a></p>')
+    return _page(data, "wrapped share", body, path="/wrapped", theme=theme)
+
+
 __all__ = ["EXTRA_NAV", "OFF_REASON", "VIDEO_OFF_REASON", "ai_video_enabled",
-           "data_view", "make_video", "nav_for", "render_data_page",
-           "render_video_result", "render_wrapped_page", "wrapped_enabled",
-           "wrapped_view"]
+           "data_view", "export_share", "make_video", "nav_for", "render_data_page",
+           "render_share_result", "render_video_result", "render_wrapped_page",
+           "wrapped_enabled", "wrapped_view"]
