@@ -6,9 +6,11 @@ numpy and onnxruntime, ``ThreadPoolExecutor``) still see every host CPU. On a 72
 host that is hundreds of threads in a container that also has a process limit, and at
 the limit new threads and forks fail with EAGAIN and OrcaSlicer stalls until its timeout.
 
-Policy: pools are capped only when a budget is known, either a cgroup CPU quota or the
-``PRINT_HANDY_THREADS`` override. With neither, nothing is changed and pools keep their
-defaults. The module is standard library only so the container entrypoint can run it
+Policy: pools are capped only when a budget is known: a cgroup CPU quota, a cpuset that
+leaves this process fewer CPUs than the host has (``--cpuset-cpus`` / ``AllowedCPUs`` —
+no quota is set in that case, but the affinity mask shows the real budget, #952), or the
+``PRINT_HANDY_THREADS`` override. With none of those, nothing is changed and pools keep
+their defaults. The module is standard library only so the container entrypoint can run it
 before anything else (``python3 print_handy/core/resources.py --exports``).
 """
 import errno
@@ -66,11 +68,17 @@ def cgroup_cpu_quota(root=None):
     return None
 
 
+def _host_cpu_count():
+    return os.cpu_count() or 0
+
+
 def thread_budget(environ=None, root=None):
     """Threads a pool may use, or None when no limit applies.
 
     ``PRINT_HANDY_THREADS`` wins; otherwise the cgroup CPU quota rounded up, never below 1 and
-    never above the CPUs this process may actually run on.
+    never above the CPUs this process may actually run on. With no quota, a cpuset that
+    restricts this process to fewer CPUs than the host has is the budget (#952): pool
+    defaults are sized from the host CPU count, which ignores the affinity mask.
     """
     environ = os.environ if environ is None else environ
     override = str(environ.get(THREADS_ENV, '')).strip()
@@ -81,6 +89,9 @@ def thread_budget(environ=None, root=None):
             pass
     quota = cgroup_cpu_quota(root)
     if quota is None:
+        cpus = affinity_cpus()
+        if cpus and len(cpus) < _host_cpu_count():
+            return len(cpus)
         return None
     return max(1, min(math.ceil(quota), len(affinity_cpus())))
 

@@ -1515,9 +1515,28 @@ class PrBodyShape(unittest.TestCase):
         self.assertIn("Documentation: not needed", body)
         self.assertIn("Wiki: not applicable", body)
         self.assertIn("Variables: not applicable", body)
+        self.assertIn("Tests added: none", body)
+        self.assertIn("Regression scoping: checked", body)
         self.assertIn("1.9.15 -> 1.9.16", body)
         self.assertIn("pending at open time", body)
         self.assertIn("newer final upstream release", body)
+
+    def test_generated_body_passes_contribution_policy(self):
+        """Bot bodies are PR bodies: the whole generated body must stay
+        clean under scripts/check_contribution.py, including the Tests
+        added and regression scoping verdicts."""
+        plan = bump.Plan(
+            "go2rtc", "bump", version="1.9.16", files=["docker/go2rtc-prebuilt.sh"],
+            changes=["version: 1.9.15 -> 1.9.16"],
+            provenance=["Release: https://example.test (published 2026-10-26)"],
+            release=make_release("1.9.16"),
+        )
+        body = bump.build_pr_body("go2rtc", plan)
+        policy_spec = importlib.util.spec_from_file_location(
+            "check_contribution", ROOT / "scripts" / "check_contribution.py")
+        policy = importlib.util.module_from_spec(policy_spec)
+        policy_spec.loader.exec_module(policy)
+        self.assertEqual([], policy.check_pr(body, plan.files))
 
     def test_prerelease_body_does_not_claim_a_final(self):
         plan = bump.Plan(

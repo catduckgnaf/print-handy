@@ -1746,7 +1746,22 @@ def download_for_site(job, source, target):
 
 
 def _timing(job_path, stage, **extra):
-    """Launch latency instrumentation: append one line to <job>/TIMING.jsonl. Never raises."""
+    """Launch latency instrumentation: append one line to <job>/TIMING.jsonl. Never raises.
+
+    Stage map for the single-plate slice path (#952 — intervals are
+    wall-clock, ``time.time()``): ``slice_start`` -> ``inventory_done`` is
+    source inventory and the slice recipe; ``inventory_done`` ->
+    ``orca_begin`` is orientation/derived-source preparation;
+    ``orca_begin`` -> ``orca_finalize_done`` is all of ``slice_model`` —
+    the slicer subprocess **plus** finalize and the post-slice guards —
+    with the split recorded as ``slicer_s``/``python_s`` extras on
+    ``orca_finalize_done`` (and as ``timing_s`` in the slice provenance);
+    ``verify_begin`` -> ``verify_done`` is ``_verify_routed``; packaging
+    has no marker of its own (on the ZMod upload route it sits between
+    ``preflight_verify_done`` and ``upload_begin``, mixed with approval
+    consumption and lease acquisition). Other slice paths (multi-plate,
+    split) emit ``slice_done`` without the ``orca_*``/``verify_*`` stages.
+    """
     try:
         line={"stage":stage,"t":round(time.time(),3),"pid":os.getpid(),**extra}
         logger.debug("TIMING %s", json.dumps(line))  # stdout stays clean in production logs
@@ -2297,6 +2312,48 @@ def gcode_motion_bounds(text):
 
 
 BOUNDS_CACHE = Path(os.environ.get("PRINT_HANDY_BOUNDS_CACHE", settings.state_dir()/"gcode-bounds-cache"))
+# One small JSON per distinct plate ever verified; without a cap the directory
+# grows forever (#952). 512 entries is far above any real working set (a hit
+# needs the same bytes re-verified) and keeps the directory a non-issue.
+BOUNDS_CACHE_MAX_ENTRIES = 512
+
+
+def _cached_bounds(hit):
+    """Bounds from a cache entry, or None when the entry is not trustworthy.
+
+    A hit must carry exactly two finite numbers per axis, low <= high: the
+    pre-#952 reader returned any JSON value as tuples, so a hand-edited or
+    corrupt entry with string values came back as tuples of characters and
+    only failed later, as a comparison crash inside verify.
+    """
+    if not isinstance(hit, dict):
+        return None
+    bounds = {}
+    for axis in "xyz":
+        pair = hit.get(axis)
+        if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+            return None
+        low, high = pair
+        if any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)
+               for v in (low, high)):
+            return None
+        if low > high:
+            return None
+        bounds[axis] = (float(low), float(high))
+    return bounds
+
+
+def _prune_bounds_cache():
+    """Drop the oldest cache entries beyond BOUNDS_CACHE_MAX_ENTRIES."""
+    try:
+        entries = sorted(BOUNDS_CACHE.glob("*.json"), key=lambda p: p.stat().st_mtime)
+    except OSError:
+        return
+    for stale in entries[:max(0, len(entries) - BOUNDS_CACHE_MAX_ENTRIES)]:
+        try:
+            stale.unlink()
+        except OSError:
+            pass
 
 
 def cached_motion_bounds(raw, text=None):
@@ -2305,13 +2362,16 @@ def cached_motion_bounds(raw, text=None):
     Slicing verifies offline first; print-now then reverifies the same bytes.
     Reparsing a 24 MB plate costs ~30 s per pass, so identical bytes reuse the
     stored result. Failures are never cached, so a bad file still fails closed.
+    An entry that does not validate (_cached_bounds) is treated as a miss and
+    recomputed; writes prune the directory to BOUNDS_CACHE_MAX_ENTRIES (#952).
     """
     digest = hashlib.sha256(raw).hexdigest()
     entry = BOUNDS_CACHE/f"{digest}.json"
     try:
-        hit = json.loads(entry.read_text())
-        return {axis: tuple(hit[axis]) for axis in "xyz"}
-    except (OSError, ValueError, KeyError, TypeError):
+        hit = _cached_bounds(json.loads(entry.read_text()))
+        if hit is not None:
+            return hit
+    except (OSError, ValueError):
         pass
     bounds = gcode_motion_bounds(text if text is not None else raw.decode(errors="ignore"))
     try:
@@ -2319,6 +2379,7 @@ def cached_motion_bounds(raw, text=None):
         tmp = entry.with_suffix(".tmp")
         tmp.write_text(json.dumps({axis: list(bounds[axis]) for axis in "xyz"}))
         tmp.replace(entry)
+        _prune_bounds_cache()
     except OSError:
         pass
     return bounds
@@ -6052,7 +6113,14 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
     else:
         out, provenance, configs = slice_model(slice_src, slice_dir, st, brim_override,
                                               color_decisions=slice_decisions, copies=copies, **scale_kw)
-    _timing(job_path, 'orca_finalize_done')
+    # #952: the interval above mixes the slicer subprocess with Print Handy's
+    # own finalize/guard work; the split rides along as extras (and in the
+    # slice provenance) so a "speedup not visible" report is answerable from
+    # TIMING.jsonl alone.
+    _split = (provenance or {}).get('timing_s') or {}
+    _timing(job_path, 'orca_finalize_done',
+            **{k: _split[k] for k in ('slicer_s', 'python_s') if k in _split})
+    _timing(job_path, 'verify_begin')
     if adapter.key == printers.current().key:
         _verify_routed(out, adapter, st, _recorded_printer_id(job), job=job)
     latest = json.loads(Path(job_path).read_text())

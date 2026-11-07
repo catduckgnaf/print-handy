@@ -1834,6 +1834,13 @@ No other files change. Confirmation, readiness, profile, clearance and artifact 
 {provenance}
 - Checks not run and why: this PR's own CI suite is pending at open time (the PR was opened as a draft for exactly that reason). It is marked ready automatically once every check on its head is SUCCESS; a red suite stays draft and is the honest verdict on the bump.
 
+## Tests added and regression scoping
+
+Tests added: none
+Tests added detail: No new test is added: this PR changes only a pinned upstream version value, and no Print Handy behavior of its own changes to pin. The existing suite is the regression net for the bump.
+Regression scoping: checked
+Regression scoping reason: The change was scoped against the full suite: this PR stays draft until CI on its head runs the full suite and every check is SUCCESS, so the existing regression tests are the verification for the bump. Nothing was deliberately left out; a red suite is the verdict to close this PR.
+
 ## Risks, limitations, and follow up
 
 The bump is exactly the upstream release named above; if its suite fails, close this PR - the next weekly run will propose the next release. Rollback is reverting this PR.
@@ -1880,6 +1887,8 @@ Variables reason: no Print Handy configuration or settings variable is added or 
 - [ ] User-visible behavior, configuration and limitations match the docs and release note.
 - [ ] Documentation impact and wiki impact were reviewed, including any exemption or deferral.
 - [ ] Tests cover the changed behavior; reported checks match actual evidence.
+- [ ] Tests added are named in the Tests added section, or the reason for adding none is specific and credible; added tests pin the changed behavior or regression, not only the happy path.
+- [ ] Regression scoping is credible: the full suite and neighboring regression areas were considered, and any exclusion or coverage gap is named with its reason.
 - [ ] Safety/authorization guards and contributor attribution are preserved.
 - [ ] Behavior changes were checked against every adapter/connection in their scope (the printer-scope rule: a change for one printer family is verified for all families it touches, not only the one at hand).
 - [ ] Registry/data changes keep their parity and drift tests green, or the exemption list is updated with a tracking reference.

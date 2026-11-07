@@ -79,13 +79,13 @@ def pr_numbers_from_subjects(subjects):
     return sorted(numbers)
 
 
-def pr_numbers_in_range(from_ref, root):
+def pr_numbers_in_range(from_ref, root, to_ref="HEAD"):
     proc = subprocess.run(
-        ["git", "log", "--format=%s", f"{from_ref}..HEAD"],
+        ["git", "log", "--format=%s", f"{from_ref}..{to_ref}"],
         cwd=root, capture_output=True, text=True)
     if proc.returncode != 0:
         raise ValueError(
-            f"git log {from_ref}..HEAD failed: {proc.stderr.strip()}")
+            f"git log {from_ref}..{to_ref} failed: {proc.stderr.strip()}")
     return pr_numbers_from_subjects(proc.stdout.splitlines())
 
 
@@ -128,7 +128,7 @@ def version_problems(root, version):
 
 
 def run_checks(root, version, from_ref, notes_path, internal_path,
-               range_file=None):
+               range_file=None, to_ref="HEAD"):
     problems = []
     problems += version_problems(root, version)
 
@@ -150,10 +150,10 @@ def run_checks(root, version, from_ref, notes_path, internal_path,
                               Path(range_file).read_text().splitlines()
                               if line.strip().isdigit()})
     else:
-        numbers = pr_numbers_in_range(from_ref, root)
+        numbers = pr_numbers_in_range(from_ref, root, to_ref)
     if not numbers:
         problems.append(
-            f"no merged PRs found in range {from_ref}..HEAD; "
+            f"no merged PRs found in range {from_ref}..{to_ref}; "
             "refusing to pass a release with an empty ancestry range")
     for label, text in (("draft release notes", notes_text),
                         (f"internal notes section {version}", section)):
@@ -183,6 +183,9 @@ def main(argv=None):
     parser.add_argument("--internal-notes",
                         default=str(ROOT / "docs" / "INTERNAL_RELEASE_NOTES.md"))
     parser.add_argument("--range-file", default=None)
+    parser.add_argument("--to-ref", default="HEAD",
+                        help="range end (default HEAD; the version tag "
+                             "itself for post-release checks)")
     parser.add_argument("--root", default=str(ROOT))
     args = parser.parse_args(argv)
 
@@ -196,7 +199,7 @@ def main(argv=None):
     try:
         problems = run_checks(Path(args.root), args.version, args.from_ref,
                               args.notes, args.internal_notes,
-                              args.range_file)
+                              args.range_file, args.to_ref)
     except (OSError, ValueError) as exc:
         print(f"release check could not run: {exc}")
         return 2

@@ -287,7 +287,10 @@ jobs:
     # problems are warning annotations, the gate step exits 0, and the job is continue-on-error. It is
     # not a required status check; promote it (drop --warn-only and continue-on-error) only after a few
     # releases of data, as tests/README.md (Slicing-speed gate) describes. Cases are the ones that slice in seconds;
-    # must-shrink (minutes, a 347 MB G-code) is deliberately left out.
+    # must-shrink (minutes, a 347 MB G-code) is deliberately left out. stl-large-plate (#952, decision D4)
+    # is the deliberate exception to "slice in seconds": a generated solid cube whose slice is a 50 MB class
+    # G-code, added reporting-only so the large-plate passes #952 measured get timed and its variance can
+    # be measured before anyone proposes promoting it.
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     continue-on-error: true
@@ -298,7 +301,7 @@ jobs:
       PRINT_HANDY__LAYOUT__SPACING: medium
       TIMING_CASES: >-
         --case single-part --case stl-single-part --case plates-multicolor
-        --case witch-ghost-cults3d --case rotation-fit
+        --case witch-ghost-cults3d --case rotation-fit --case stl-large-plate
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7

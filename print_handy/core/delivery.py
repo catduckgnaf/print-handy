@@ -341,6 +341,12 @@ def bambu_package(gcode, target, plate=1, nozzle_mm=0.4, thumbnails=None):
         for name, data in entries:
             info = zipfile.ZipInfo(name, date_time=_ZIP_TIME)
             info.compress_type = zipfile.ZIP_DEFLATED
+            # Level 1 per entry, the same trade gcode_3mf.package made in
+            # #929 (#952: this path was missed and kept the default level 6):
+            # several times faster deflate of a 50+ MB plate for a modestly
+            # larger package; ZIP_DEFLATED at any level is the same format.
+            # With an explicit ZipInfo, zipfile uses the entry's own level.
+            info._compresslevel = 1
             archive.writestr(info, data)
     tmp.replace(target)
     return target
