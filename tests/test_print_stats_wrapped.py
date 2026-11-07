@@ -119,7 +119,15 @@ class AggregateTests(unittest.TestCase):
         self.assertEqual(stats["breakdowns"]["by_printer"]["AD5X"]["count"], 5)
         self.assertEqual(stats["failures"]["stop_reasons"], {"spaghetti detected": 1})
         # watch_risk is a non-empty string naming the risk; that truthy shape is the flag.
+        # #981: the honest primary name is risk_flagged (a pre-print slice-risk
+        # label, not a camera detection); watchdog_flagged stays as a compat alias.
+        self.assertEqual(stats["risk_flagged"], 1)
         self.assertEqual(stats["watchdog_flagged"], 1)
+        self.assertEqual(stats["failures"]["risk_flagged"], 1)
+        self.assertEqual(stats["failures"]["watchdog_flagged"], 1)
+        # #981: timelapse_known keyed on a record field no record ever carries
+        # (structurally always 0); it is removed, not repurposed here.
+        self.assertNotIn("timelapse_known", stats)
         self.assertEqual(stats["monthly"], {"2025-03": 2, "2025-07": 3})
         self.assertEqual(stats["top_by_duration"][0]["title"], "Bracket")
         self.assertEqual(stats["top_by_filament"][0]["filament_used_g"], 100.0)
@@ -149,6 +157,7 @@ class WrappedTests(unittest.TestCase):
         self.assertEqual(highlights["busiest_month"], "2025-07")
         self.assertEqual(highlights["longest_print"]["title"], "Bracket")
         self.assertEqual(highlights["biggest_by_filament"]["title"], "Bracket")
+        self.assertEqual(highlights["risk_flagged"], 1)
         self.assertEqual(highlights["watchdog_flagged"], 1)
         self.assertEqual(highlights["worst_failure_streak"], 2)
         script = "\n".join(wrapped["script"])
@@ -158,12 +167,80 @@ class WrappedTests(unittest.TestCase):
         self.assertNotIn("worst run was", script)          # streak is 2, under the 3 gate
         self.assertNotIn("Zero failed prints", script)
 
+    def test_script_uses_honest_risk_flag_copy(self):
+        """#981: watch_risk is a pre-print slice-risk label, not a camera
+        detection. The script must say so and must never claim the camera
+        saw anything."""
+        wrapped = print_stats.build_wrapped(RECORDS, 2025)
+        script = "\n".join(wrapped["script"])
+        self.assertIn("started with a risk flag", script)
+        self.assertNotIn("camera watchdog flagged", script)
+        self.assertNotIn("It saw things", script)
+        self.assertNotIn("watchdog", script.lower())
+
     def test_zero_failure_year_has_no_failure_roast(self):
         wrapped = print_stats.build_wrapped(RECORDS, 2024)
         script = "\n".join(wrapped["script"])
         self.assertIn("Zero failed prints", script)
         self.assertNotIn("spaghetti was not always dinner", script)
         self.assertNotIn("midnight and 5 a.m.", script)  # noon start only
+
+
+class TimezoneTests(unittest.TestCase):
+    """#981: year/month/night bucketing in a caller-supplied local timezone.
+
+    Without a timezone argument the historical UTC behavior is preserved.
+    """
+
+    NY = "America/New_York"
+
+    @staticmethod
+    def _record(started_at, number=1):
+        return {"print_number": number, "status": "completed", "title": "T",
+                "started_at": started_at, "print_duration_seconds": 60,
+                "filament_used_g": 1.0}
+
+    def test_new_years_eve_record_counts_in_local_year(self):
+        # 2026-01-01T02:00:00Z is 2025-12-31 21:00 in America/New_York.
+        records = [self._record("2026-01-01T02:00:00Z")]
+        stats = print_stats.aggregate(records, year=2025, tz=self.NY)
+        self.assertEqual(stats["total_prints"], 1)
+        self.assertEqual(stats["monthly"], {"2025-12": 1})
+        self.assertEqual(stats["years_available"], [2025])
+        self.assertEqual(print_stats.aggregate(records, year=2026, tz=self.NY)["total_prints"], 0)
+        # The same call without a timezone keeps the UTC answer.
+        utc = print_stats.aggregate(records, year=2026)
+        self.assertEqual(utc["total_prints"], 1)
+        self.assertEqual(utc["monthly"], {"2026-01": 1})
+        self.assertEqual(utc["years_available"], [2026])
+
+    def test_tzinfo_object_is_accepted(self):
+        from zoneinfo import ZoneInfo
+        records = [self._record("2026-01-01T02:00:00Z")]
+        stats = print_stats.aggregate(records, year=2025, tz=ZoneInfo(self.NY))
+        self.assertEqual(stats["total_prints"], 1)
+
+    def test_night_bucket_uses_local_hours(self):
+        records = [
+            self._record("2026-06-01T08:30:00Z", 1),  # 04:30 EDT: night
+            self._record("2026-06-01T05:30:00Z", 2),  # 01:30 EDT: night
+            self._record("2026-06-01T10:00:00Z", 3),  # 06:00 EDT: not night
+        ]
+        stats = print_stats.aggregate(records, year=2026, tz=self.NY)
+        self.assertEqual(stats["night_prints"], 2)
+        # In UTC none of these starts falls in 00:00-04:59.
+        self.assertEqual(print_stats.aggregate(records, year=2026)["night_prints"], 0)
+
+    def test_wrapped_buckets_and_script_follow_local_timezone(self):
+        records = [self._record("2026-01-01T02:00:00Z"),
+                   self._record("2026-06-01T08:30:00Z", 2)]
+        wrapped = print_stats.build_wrapped(records, 2025, tz=self.NY)
+        self.assertEqual(wrapped["headline"]["total_prints"], 1)
+        self.assertEqual(wrapped["years_available"], [2025, 2026])
+        wrapped26 = print_stats.build_wrapped(records, 2026, tz=self.NY)
+        script = "\n".join(wrapped26["script"])
+        self.assertIn("between midnight and 5 a.m. your time", script)
+        self.assertNotIn("UTC", script)
 
 
 class SettingsTests(unittest.TestCase):
@@ -220,6 +297,28 @@ class VideoTests(unittest.TestCase):
             flat = " ".join(" ".join(cmd) for cmd in runner.commands)
             self.assertIn("drawtext", flat)
             self.assertIn("concat", flat)
+
+    def test_segments_are_normalized_to_one_frame_rate_and_timebase(self):
+        """#981 pacing: card and clip segments must share the card frame
+        rate and one video timebase, or the stream-copy concat inflates
+        clip segments when their source frame rates differ."""
+        wrapped = print_stats.build_wrapped(RECORDS, 2025)
+        runner = FakeRunner()
+        with tempfile.TemporaryDirectory() as tmp:
+            clip = Path(tmp) / "clip.mp4"
+            clip.write_bytes(b"fake")
+            result = wrapped_video.build_wrapped_video(
+                2025, wrapped, Path(tmp) / "wrapped", ffmpeg="ffmpeg",
+                runner=runner, find_clips=lambda year: [clip],
+                ai_call=lambda lines: lines)
+            self.assertTrue(result["ok"])
+        segment_commands = [cmd for cmd in runner.commands
+                            if ("card-" in cmd[-1] or "clip-" in cmd[-1])]
+        self.assertTrue(segment_commands)
+        for command in segment_commands:
+            flat = " ".join(command)
+            self.assertIn("fps=", flat)
+            self.assertIn("-video_track_timescale", flat)
 
     def test_ai_lines_are_used_when_the_call_works(self):
         wrapped = print_stats.build_wrapped(RECORDS, 2025)
@@ -330,6 +429,9 @@ class RouteTests(unittest.TestCase):
             code, raw = self.request(port, "GET", "/data")
             self.assertEqual(code, 200)
             self.assertIn("Black", raw)
+            # #981: the Data page uses the honest pre-print label.
+            self.assertIn("Risk-flagged prints", raw)
+            self.assertNotIn("Watchdog-flagged", raw)
             self.assertIn('href="/data"', raw)
             code, raw = self.request(port, "GET", "/api/wrapped?year=2025")
             self.assertEqual(code, 200)
@@ -337,6 +439,9 @@ class RouteTests(unittest.TestCase):
             code, raw = self.request(port, "GET", "/wrapped?year=2025")
             self.assertEqual(code, 200)
             self.assertIn("Make my Wrapped video", raw)
+            self.assertIn("Risk-flagged prints", raw)
+            self.assertNotIn("Watchdog-flagged", raw)
+            self.assertNotIn("It saw things", raw)
             code, raw = self.request(port, "GET", "/")
             self.assertEqual(code, 200)
             self.assertIn('href="/wrapped"', raw)

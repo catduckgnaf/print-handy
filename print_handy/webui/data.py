@@ -63,13 +63,37 @@ def _load(data, records_vault):
     return print_stats.load_records(_vault(data, records_vault))
 
 
+def _display_tz(data):
+    """The configured display timezone for Wrapped bucketing (#981).
+
+    The name comes from the settings mapping the handlers already
+    carry (``discord.timezone``, the same setting
+    ``hermes._config.tz()`` reads); when the mapping names none, the
+    ``_config.tz()`` value itself is used. Any failure falls back to
+    UTC, which is the pure functions' own default bucketing.
+    """
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    name = str(((data or {}).get("discord") or {}).get("timezone") or "").strip()
+    if name:
+        try:
+            return ZoneInfo(name)
+        except (ZoneInfoNotFoundError, ValueError):
+            pass
+    try:
+        from ..hermes import _config
+        return _config.tz()
+    except Exception:
+        from datetime import timezone
+        return timezone.utc
+
+
 def data_view(data, year=None, *, records_vault=None):
     """(code, body) for GET /api/data."""
     if not wrapped_enabled(data):
         return 403, {"ok": False, "reason": OFF_REASON}
     records, skipped = _load(data, records_vault)
     try:
-        stats = print_stats.aggregate(records, year=year)
+        stats = print_stats.aggregate(records, year=year, tz=_display_tz(data))
     except (TypeError, ValueError):
         return 400, {"ok": False, "reason": "year must be a whole number. Nothing shown."}
     return 200, {"ok": True, **stats, "skipped_records": skipped}
@@ -80,20 +104,29 @@ def wrapped_view(data, year=None, *, records_vault=None):
     if not wrapped_enabled(data):
         return 403, {"ok": False, "reason": OFF_REASON}
     records, skipped = _load(data, records_vault)
-    years = print_stats.aggregate(records)["years_available"]
+    tz = _display_tz(data)
+    years = print_stats.aggregate(records, tz=tz)["years_available"]
     if year is None:
-        year = years[-1] if years else _current_year()
+        year = years[-1] if years else _current_year(tz)
     try:
-        payload = print_stats.build_wrapped(records, int(year))
+        payload = print_stats.build_wrapped(records, int(year), tz=tz)
     except (TypeError, ValueError):
         return 400, {"ok": False, "reason": "year must be a whole number. Nothing shown."}
+    # #981: clip counts are a finder result, not a record fact, so they
+    # live here at the Web UI layer (where the finder runs) under their
+    # own name, not inside the record aggregate.
+    try:
+        clips_found = len(video_module.default_clip_finder(data, int(year)))
+    except Exception:
+        clips_found = 0
     return 200, {"ok": True, **payload, "skipped_records": skipped,
+                 "timelapse_clips_found": clips_found,
                  "ai_video_enabled": ai_video_enabled(data)}
 
 
-def _current_year():
+def _current_year(tz=None):
     from datetime import datetime, timezone
-    return datetime.now(timezone.utc).year
+    return datetime.now(tz or timezone.utc).year
 
 
 def make_video(data, year, *, records_vault=None, out_dir=None, **video_kwargs):
@@ -104,7 +137,7 @@ def make_video(data, year, *, records_vault=None, out_dir=None, **video_kwargs):
         return 403, {"ok": False, "reason": VIDEO_OFF_REASON}
     records, _skipped = _load(data, records_vault)
     try:
-        wrapped = print_stats.build_wrapped(records, int(year))
+        wrapped = print_stats.build_wrapped(records, int(year), tz=_display_tz(data))
     except (TypeError, ValueError):
         return 400, {"ok": False, "reason": "year must be a whole number. Nothing was compiled."}
     target_dir = Path(out_dir) if out_dir is not None else _vault(data, records_vault) / "wrapped"
@@ -171,8 +204,8 @@ def render_data_page(data, payload, *, theme=shell.DEFAULT_THEME):
                      f"{(stats['average_print_seconds'] or 0) / 60:.0f} min.</p>")
     failures = stats["failures"]
     stop = ", ".join(f"{_esc(k)}: {v}" for k, v in failures["stop_reasons"].items()) or "none recorded"
-    parts.append(f"<h2>Failures and the watchdog</h2><p>Failed: {failures['failed']}. "
-                 f"Watchdog-flagged prints: {failures['watchdog_flagged']}. "
+    parts.append(f"<h2>Failures and risk flags</h2><p>Failed: {failures['failed']}. "
+                 f"Risk-flagged prints: {failures['risk_flagged']}. "
                  f"Stop reasons: {stop}.</p>")
     for title, key in (("Printer", "by_printer"), ("Printer profile", "by_printer_profile"),
                        ("Material", "by_material"), ("Color", "by_color"),
@@ -224,7 +257,7 @@ def render_wrapped_page(data, payload, *, form_token="", notice=None, error=None
                        ("Busiest month", "busiest_month")):
         if highlights.get(key):
             facts.append(f"<li>{label}: {_esc(highlights[key])}</li>")
-    facts.append(f"<li>Watchdog-flagged prints: {highlights['watchdog_flagged']}</li>")
+    facts.append(f"<li>Risk-flagged prints: {highlights['risk_flagged']}</li>")
     facts.append(f"<li>Failed prints: {highlights['failed']}</li>")
     facts.append(f"<li>Worst failure run: {highlights['worst_failure_streak']}</li>")
     parts.append(f"<h2>Highlights</h2><ul>{''.join(facts)}</ul>")

@@ -35,6 +35,14 @@ from pathlib import Path
 MAX_CLIPS = 6
 CLIP_SECONDS = 4
 CARD_SECONDS = 3
+# Every segment (card or clip) is encoded at this one frame rate with
+# this one video timebase (#981): the final concat is a stream copy, so
+# segments whose frame rates or timebases differ get their durations
+# rescaled by the concat and clip segments inflate (two 3-second clips
+# at mismatched rates produced a 72-second video where about 60 was
+# expected in the #981 prototype).
+CARD_FPS = 30
+SEGMENT_TIMESCALE = 90000
 CARD_WRAP = 46  # chars per drawtext line: fits the 1280px frame at fontsize 40
 CARD_LINE_PX = 52
 
@@ -212,16 +220,23 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
         for index, text in enumerate(_card_texts({**wrapped, "script": script})):
             segment = work / f"card-{index:02d}.mp4"
             _run(runner, [resolved, "-y", "-f", "lavfi", "-i",
-                          f"color=c=0x12110F:s=1280x720:d={CARD_SECONDS}",
-                          "-vf", _card_filter(text),
-                          "-c:v", "libx264", "-pix_fmt", "yuv420p", str(segment)])
+                          f"color=c=0x12110F:s=1280x720:d={CARD_SECONDS}:rate={CARD_FPS}",
+                          "-vf", f"fps={CARD_FPS}," + _card_filter(text),
+                          "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                          "-r", str(CARD_FPS),
+                          "-video_track_timescale", str(SEGMENT_TIMESCALE),
+                          str(segment)])
             segments.append(segment)
         for index, clip in enumerate(clips):
             segment = work / f"clip-{index:02d}.mp4"
             _run(runner, [resolved, "-y", "-i", str(clip), "-t", str(CLIP_SECONDS),
                           "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,"
-                                 "pad=1280:720:(ow-iw)/2:(oh-ih)/2",
-                          "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", str(segment)])
+                                 "pad=1280:720:(ow-iw)/2:(oh-ih)/2,"
+                                 f"fps={CARD_FPS}",
+                          "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an",
+                          "-r", str(CARD_FPS),
+                          "-video_track_timescale", str(SEGMENT_TIMESCALE),
+                          str(segment)])
             segments.append(segment)
         listing = work / "concat.txt"
         listing.write_text("".join(f"file '{segment.name}'\n" for segment in segments),
@@ -237,4 +252,6 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
     return {"ok": True, "path": str(target), "script_path": str(script_path), "notes": notes}
 
 
-__all__ = ["MAX_CLIPS", "build_wrapped_video", "default_clip_finder", "escape_drawtext"]
+__all__ = ["CARD_FPS", "CARD_SECONDS", "CLIP_SECONDS", "MAX_CLIPS",
+           "SEGMENT_TIMESCALE", "build_wrapped_video", "default_clip_finder",
+           "escape_drawtext"]

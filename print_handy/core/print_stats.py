@@ -10,16 +10,21 @@ Missing data stays missing. A record without a color, nozzle or
 filament weight counts toward the totals it can prove and lands in the
 explicit ``"unknown"`` bucket for the breakdowns it cannot. Nothing is
 estimated or invented. ``watch_risk`` is a non-empty string naming why
-a print counted as risky (set in ``core.model_job`` from the camera
-watch's ``risky_job`` result, e.g. ``"slicer finding"``); a record is
-counted as watchdog-flagged when ``watch_risk`` is a truthy value (a
-non-empty string in practice, ``True`` defensively).
+a print counted as risky (set in ``core.model_job`` from
+``visual_watch.risky_job``, e.g. ``"slicer finding"``); that is a
+**pre-print** slice-risk label decided before the print starts, not a
+camera detection during the print (#981). A record counts as
+risk-flagged when ``watch_risk`` is a truthy value (a non-empty string
+in practice, ``True`` defensively). The aggregate names that count
+``risk_flagged``; ``watchdog_flagged`` remains as a deprecated alias
+with the same value for existing payload consumers.
 """
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, tzinfo
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 UNKNOWN = "unknown"
 
@@ -98,6 +103,30 @@ def _nozzle_label(record):
     return UNKNOWN
 
 
+def _resolve_tz(tz):
+    """A tzinfo for ``tz``: None means UTC, a string is an IANA name,
+    a tzinfo passes through. An unknown name raises ValueError."""
+    if tz is None:
+        return timezone.utc
+    if isinstance(tz, tzinfo):
+        return tz
+    if isinstance(tz, str):
+        try:
+            return ZoneInfo(tz)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(f"unknown timezone name: {tz!r}") from exc
+    raise TypeError("tz must be None, an IANA timezone name, or a tzinfo")
+
+
+def _tz_name(resolved):
+    return getattr(resolved, "key", None) or str(resolved)
+
+
+def _local(parsed, resolved):
+    """``parsed`` (an aware instant) expressed in the bucket timezone."""
+    return parsed.astimezone(resolved)
+
+
 def _parse_started(value):
     """A datetime for an ISO ``started_at`` string, else None."""
     if not isinstance(value, str) or not value.strip():
@@ -152,7 +181,7 @@ def _top(rows, key, limit=5):
     return out
 
 
-def aggregate(records, year=None):
+def aggregate(records, year=None, tz=None):
     """Aggregate record dicts into a JSON-able stats dict.
 
     ``year`` (an int) keeps only records whose ``started_at`` falls in
@@ -160,15 +189,25 @@ def aggregate(records, year=None):
     from a year filter and from monthly activity, but always count in
     the unfiltered totals. ``years_available`` always names every year
     present in the input, filtered or not.
+
+    ``tz`` buckets the year filter, the monthly keys,
+    ``years_available`` and the late-night count: None (the default)
+    preserves the historical UTC bucketing for direct callers, a
+    string is an IANA timezone name, and a tzinfo is used as given.
+    The Web UI passes the configured display timezone
+    (``hermes._config.tz()``) so the recap matches the operator's local
+    year (#981). ``started_at`` instants themselves stay UTC in the
+    records and in every payload field that echoes them.
     """
+    resolved = _resolve_tz(tz)
     records = [r for r in (records or []) if isinstance(r, dict)]
-    years = sorted({parsed.year for r in records
+    years = sorted({_local(parsed, resolved).year for r in records
                     if (parsed := _parse_started(r.get("started_at"))) is not None})
     if year is not None:
         year = int(year)
         rows = [r for r in records
                 if (parsed := _parse_started(r.get("started_at"))) is not None
-                and parsed.year == year]
+                and _local(parsed, resolved).year == year]
     else:
         rows = list(records)
 
@@ -223,13 +262,15 @@ def aggregate(records, year=None):
         parsed = _parse_started(record.get("started_at"))
         if parsed is None:
             continue
-        key = parsed.strftime("%Y-%m")
+        local = _local(parsed, resolved)
+        key = local.strftime("%Y-%m")
         monthly[key] = monthly.get(key, 0) + 1
-        if parsed.hour < 5:  # started_at is UTC ISO; 00:00-04:59 counts as late night
+        if local.hour < 5:  # 00:00-04:59 in the bucket timezone counts as late night
             night_prints += 1
 
     return {
         "year": year,
+        "timezone": _tz_name(resolved),
         "total_prints": len(rows),
         "counts_by_status": counts_by_status,
         "completed": completed,
@@ -251,14 +292,21 @@ def aggregate(records, year=None):
         "failures": {
             "failed": failed,
             "stop_reasons": dict(sorted(stop_reasons.items(), key=lambda kv: (-kv[1], kv[0]))),
+            "risk_flagged": len(flagged),
+            # Deprecated alias of risk_flagged (the #956 name); same value.
             "watchdog_flagged": len(flagged),
         },
+        "risk_flagged": len(flagged),
+        # Deprecated alias of risk_flagged (the #956 name); same value.
         "watchdog_flagged": len(flagged),
         "monthly": dict(sorted(monthly.items())),
         "night_prints": night_prints,
         "top_by_duration": _top(rows, "print_duration_seconds"),
         "top_by_filament": _top(rows, "filament_used_g"),
-        "timelapse_known": sum(1 for r in rows if r.get("timelapse")),
+        # No "timelapse_known" (#981): it keyed on a `timelapse` record
+        # field no record ever carries, so it was structurally always 0.
+        # Clip counts are a finder result, not a record fact; the Web UI
+        # layer reports them separately as timelapse_clips_found.
         "years_available": years,
     }
 
@@ -288,17 +336,20 @@ def _failure_streak(records):
     return best
 
 
-def build_wrapped(records, year):
+def build_wrapped(records, year, tz=None):
     """The Wrapped payload for one year: headline stats, highlights, script.
 
     Every script line is data-driven: a line is included only when the
-    number behind it is true in this same payload.
+    number behind it is true in this same payload. ``tz`` has the same
+    meaning as in :func:`aggregate` (None preserves UTC bucketing).
     """
+    resolved = _resolve_tz(tz)
     records = [r for r in (records or []) if isinstance(r, dict)]
     year = int(year)
-    stats = aggregate(records, year=year)
+    stats = aggregate(records, year=year, tz=resolved)
     rows = [r for r in records
-            if (parsed := _parse_started(r.get("started_at"))) is not None and parsed.year == year]
+            if (parsed := _parse_started(r.get("started_at"))) is not None
+            and _local(parsed, resolved).year == year]
     breakdowns = stats["breakdowns"]
     top_color, top_color_count = _top_label(breakdowns["by_color"])
     top_material, _ = _top_label(breakdowns["by_material"])
@@ -317,11 +368,13 @@ def build_wrapped(records, year):
         "top_vendor": top_vendor, "top_spool": top_spool,
         "busiest_month": busiest_month, "busiest_month_prints": busiest_count,
         "longest_print": stats["longest_print"], "biggest_by_filament": biggest,
+        "risk_flagged": stats["risk_flagged"],
+        # Deprecated alias of risk_flagged (the #956 name); same value.
         "watchdog_flagged": stats["watchdog_flagged"], "failed": stats["failed"],
         "worst_failure_streak": _failure_streak(rows),
         "night_prints": stats["night_prints"],
     }
-    script = _script(year, stats, highlights)
+    script = _script(year, stats, highlights, tz=resolved)
     return {"year": year, "stats": stats, "headline": {
                 "total_prints": stats["total_prints"], "completed": stats["completed"],
                 "failed": stats["failed"], "canceled": stats["canceled"],
@@ -332,7 +385,9 @@ def build_wrapped(records, year):
             "years_available": stats["years_available"]}
 
 
-def _script(year, stats, highlights):
+def _script(year, stats, highlights, tz=None):
+    resolved = _resolve_tz(tz)
+    local_tz = resolved != timezone.utc
     lines = []
     total = stats["total_prints"]
     if not total:
@@ -370,14 +425,17 @@ def _script(year, stats, highlights):
     if highlights["worst_failure_streak"] >= 3:
         lines.append(f"Your worst run was {highlights['worst_failure_streak']} failed or "
                      "canceled prints in a row. Character building, technically.")
-    if stats["watchdog_flagged"] > 0:
-        lines.append(f"The camera watchdog flagged {stats['watchdog_flagged']} print"
-                     f"{'s' if stats['watchdog_flagged'] != 1 else ''}. "
-                     "It saw things. It always sees things.")
+    if stats["risk_flagged"] > 0:
+        lines.append(f"{stats['risk_flagged']} print"
+                     f"{'s' if stats['risk_flagged'] != 1 else ''} started with a risk flag. "
+                     "The slicer findings and support checks raised a hand before "
+                     "those prints ever started.")
     if highlights["night_prints"] > 0:
+        when = "between midnight and 5 a.m. your time" if local_tz else \
+            "between midnight and 5 a.m. UTC"
         lines.append(f"{highlights['night_prints']} print"
-                     f"{'s' if highlights['night_prints'] != 1 else ''} started between "
-                     "midnight and 5 a.m. UTC. Sleep was also an option.")
+                     f"{'s' if highlights['night_prints'] != 1 else ''} started "
+                     f"{when}. Sleep was also an option.")
     longest = stats["longest_print"]
     if longest and longest.get("seconds"):
         title = longest.get("title") or "your longest print"
