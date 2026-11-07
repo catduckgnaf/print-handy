@@ -1111,11 +1111,20 @@ def _retry_choice_reply(text, rows):
 MODEL_FILE_EXTS = {'.3mf', '.stl'}
 
 
+def model_files(event):
+    """All valid .3mf/.stl drops from one event, preserving attachment order.
+
+    Link selection happens in the caller. Do not make a multi-file upload
+    disappear merely because model_file() requires exactly one file (#1008).
+    """
+    return [path for p in (getattr(event, 'media_urls', None) or [])
+            if (path := Path(str(p))).suffix.lower() in MODEL_FILE_EXTS and path.is_file()]
+
+
 def model_file(event):
-    """The single .3mf/.stl dropped in Discord (gateway cache path), else None. A link always wins."""
-    hits = [Path(p) for p in (getattr(event, 'media_urls', None) or [])
-            if Path(str(p)).suffix.lower() in MODEL_FILE_EXTS]
-    return hits[0] if len(hits) == 1 and hits[0].is_file() else None
+    """Backwards-compatible single-model selector for design/edit callers."""
+    hits = model_files(event)
+    return hits[0] if len(hits) == 1 else None
 
 
 def upload_job(path):
@@ -1124,6 +1133,29 @@ def upload_job(path):
     stem = Path(name).stem
     return {'site': 'upload', 'model_id': stem, 'title': stem, 'slug': stem, 'license': None, 'summary': '',
             'sources': [{'n': 1, 'name': name, 'title': stem, 'path': str(path)}]}
+
+
+def upload_job_set(paths):
+    """Inventory multiple uploads like a file-list website, without network I/O.
+
+    Each cached path is retained separately, including duplicate filenames.
+    The ordinary _choose_files/_fetch_parts flow handles version choices,
+    independent source copies, canonical 3MF combination, fit and colors.
+    """
+    paths = [Path(p) for p in paths]
+    if not paths:
+        raise ValueError('no printable uploads provided')
+    if len(paths) == 1:
+        return upload_job(paths[0])
+    if not all(p.is_file() and p.suffix.lower() in MODEL_FILE_EXTS for p in paths):
+        raise ValueError('all project uploads must be existing STL or 3MF files')
+    names = [re.sub(r'^doc_[0-9a-f]{12}_', '', p.name) for p in paths]
+    return {
+        'site': 'upload', 'model_id': 'uploaded-parts', 'title': f'Uploaded project ({len(paths)} files)',
+        'slug': 'uploaded-parts', 'license': None, 'summary': '', 'source_kind': 'upload_group',
+        'sources': [{'n': i, 'name': name, 'title': Path(name).stem, 'path': str(path)}
+                    for i, (name, path) in enumerate(zip(names, paths), 1)],
+    }
 
 
 def gcode_3mf_message(name):
@@ -2321,16 +2353,17 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
     from .source_colors import inventory, canonical_prompts, grouped_prompts, validate_decisions
     source = event.source
     url = None if reuse else model_link(event.text)
-    upload = None if (url or reuse) else model_file(event)
+    uploads = [] if (url or reuse) else model_files(event)
     mid = getattr(event, 'message_id', None)
-    if not (url or upload or reuse) or not mid:
+    if not (url or uploads or reuse) or not mid:
         raise ValueError('plain model link requires a stable Discord message ID')
     iid = mj.intake_id_from_message(source, mid)
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
     receipt_path = root / (iid + '.json')
     origin = (url or (f'reprint:{reuse.get("intake_id")}' if reuse else None)
-              or f'upload:{upload_job(upload)["sources"][0]["name"]}')
+              or (f'upload:{upload_job(uploads[0])["sources"][0]["name"]}' if len(uploads) == 1
+                  else f'upload-project:{len(uploads)}-files'))
     receipt = {'intake_id': iid, 'url': origin, 'status': 'INSPECTING_SOURCE',
                'sliced': False, 'uploaded': False, 'started': False,
                'chat_id': str(source.chat_id), 'thread_id': str(source.thread_id) if source.thread_id else None,
@@ -2370,8 +2403,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     return {'action': 'skip', 'reason': 'reprint declined'}
                 job = reuse_job(reuse)
                 url = reuse.get('url')
-        elif upload:
-            job = upload_job(upload)
+        elif uploads:
+            job = upload_job_set(uploads)
         else:
             job = await _with_connect(adapter, source, key, metadata, timeout,
                                       lambda: asyncio.to_thread(mj.inventory_for_url, url))
