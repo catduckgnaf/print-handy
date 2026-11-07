@@ -188,7 +188,7 @@ RUN case "$WITH_GO2RTC" in true|false) ;; *) echo 'WITH_GO2RTC must be true or f
     fi
 # NVENC (#455): the NVIDIA container runtime mounts the driver libraries
 # these capabilities name. Its default (compute,utility) omits "video", so
-# libnvidia-encode.so.1 was never mounted and h264_nvenc could not open.
+# the NVENC encode library was never mounted and h264_nvenc could not open.
 # Inert without --runtime=nvidia / --gpus; no GPU is selected here — the
 # operator still picks one with NVIDIA_VISIBLE_DEVICES.
 ENV NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
