@@ -18,7 +18,7 @@ Say `yolo` with a file and Print Handy prints it without the usual questions —
 
 ### Honest support gates, no more dead ends
 
-The post-slice support gates grew up. Coverage is now graded on the underside footprint a region actually occupies, per copy and per plate (#966), validated against real archived intakes (#974). When a check cannot run at all — a part that matches no object, an unreadable plate file — intake says so and asks Print anyway / Cancel instead of leaving you at a dead end (#976), and the with-supports path got the same real Print anyway choice instead of a loop back to "choose supports" (#964).
+The post-slice support gates grew up. Coverage is now graded on the underside footprint a region actually occupies, per copy and per plate (#966), validated against fixtures reproducing the documented intake scenarios (#974). When a check cannot run at all — a part that matches no object, an unreadable plate file — intake says so and asks Print anyway / Cancel instead of leaving you at a dead end (#976), and the with-supports path got the same real Print anyway choice instead of a loop back to "choose supports" (#964).
 
 ### The bot understands more typos
 
@@ -47,7 +47,7 @@ The icon set is black everywhere now — one consistent set across the app, the 
 ## Upgrade and compatibility
 
 - Nothing to rename, move or re-enter. Wrapped and its video are off by default; yolo changes nothing unless you say the word.
-- Bundled components moved: Spoolman 0.27.1 (#989) and Bambu Studio 02.09.01.70 (#990). The Spoolman update check stays off — Spoolman is bundled, it does not need to phone home about itself.
+- Bundled components moved: Spoolman 0.27.1 (#989) and Bambu Studio 02.09.01.70 (#990).
 - The 2.2.5 digest pin in the docs and the in-repo Unraid template was refreshed as part of this range (#954), and the repo root finished its tidy-up: registry, knowledge and firmware data now live inside the package (#962), Python packaging is consolidated in `pyproject.toml` (#961), the stray root files moved out (#959), and the in-repo Unraid template ships with empty ExtraParams — the hardening lives in Compose and the image, where it belongs (#960).
 
 ## Technical details and contributors
