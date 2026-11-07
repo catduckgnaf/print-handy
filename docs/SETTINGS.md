@@ -484,7 +484,7 @@ Image build inputs (`docker build --build-arg NAME=value`), not runtime settings
 | `APP_CHANNEL` | `development` | Application provenance label, `stable` or `development`; it does not change the source checkout |
 | `WITH_ORCA` | `false` | `true` installs the one pinned official prebuilt OrcaSlicer release (v2.5.0-rc, SHA256 verified in `docker/orca-prebuilt.sh`; the single bundled build - earlier two-channel builds pinned v2.5.0-alpha in #356 and v2.5.0-beta after it); OrcaSlicer is never built from source; `false` omits it and slicing fails closed |
 | `WITH_GO2RTC` | `true` | `true` installs the pinned official go2rtc prebuilt (v1.9.15, SHA256 verified in `docker/go2rtc-prebuilt.sh`) and the VAAPI driver stack for in-container timelapse capture (#246); the published images set it; `false` omits both |
-| `SPOOLMAN_REF` | `bed3f14ee77a3a571d31b14215d54b0b88a7519c` | Pinned Spoolman v0.27.0 source commit; only its Python API backend is installed, never the web UI |
+| `SPOOLMAN_REF` | `ff8efd517b76a4b2783f29c89e9b9fbcd8cd167b` | Pinned Spoolman v0.27.1 source commit; only its Python API backend is installed, never the web UI |
 | `ORCA_BUILD_JOBS` | `auto` | Bambu Studio source build only: parallel compile jobs, `auto` (memory-aware, below the CPU count) or a whole number from 1 to 64 |
 | `ORCA_BUILD_MEM_PER_JOB_MIB` | `2560` | Bambu Studio source build only: memory budgeted per job by `auto`, at least 256 |
 | `ORCA_CCACHE_MAXSIZE` | `5G` | Bambu Studio source build only: size cap of the compiler cache inside the build cache |

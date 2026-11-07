@@ -88,7 +88,7 @@ RUN --mount=type=cache,id=print-handy-bambu-${TARGETARCH}-${BAMBU_REF}-${BAMBU_B
 
 # API-only Spoolman, isolated from Print Handy's Python dependencies.
 FROM debian:13-slim AS spoolman-build
-ARG SPOOLMAN_REF=bed3f14ee77a3a571d31b14215d54b0b88a7519c
+ARG SPOOLMAN_REF=ff8efd517b76a4b2783f29c89e9b9fbcd8cd167b
 ENV UV_PYTHON_DOWNLOADS=0 UV_NO_DEV=1 UV_LINK_MODE=copy
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-venv python3-dev build-essential libpq-dev libffi-dev git ca-certificates && \

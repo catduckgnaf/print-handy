@@ -1562,6 +1562,12 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             # The copies probe slice (#903): the shipped AD5X profiles turn
             # object labels off, so the probe turns them on to count copies.
             process['gcode_label_objects'] = '1'
+        for key, value in (edits.get('profile') or {}).items():
+            # Job-level profile settings (#978): only the allowlisted
+            # process keys in edit_plan.PROFILE_SETTINGS are applied.
+            from .edit_plan import PROFILE_SETTINGS as _PROFILE_KEYS
+            if key in _PROFILE_KEYS:
+                process[key] = str(value)
         geometry['edit_plan'] = json.dumps({k: v for k, v in edits.items() if k != 'mirror'},
                                            sort_keys=True)
     tree_note = author_settings.tree_style(process, source) if str(process.get('enable_support')) == '1' else None

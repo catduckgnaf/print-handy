@@ -147,17 +147,24 @@ against the job that intake just prepared. Plain intake text such as
 "fix this", "repair this" or "make this printable" after a file or job is
 not an edit: it starts the repair flow. The heavy AI tier (`ai.heavy`)
 reads the problem — a slice failure or refusal, a failed post-slice gate,
-or a damaged uploaded mesh — and proposes changes from the same edit
-vocabulary, a bounded geometry repair (sink or extend an underside by at
-most 5 mm), and/or a mesh repair (welded vertices, degenerate and duplicate
-triangles dropped, holes filled, inverted winding fixed). The proposal is
-shown in chat first, with a preview for geometry and mesh changes; applying
-it works on a copy, never the source file, and the job re-slices through
-the full intake so every gate runs again. A fix is never a waiver and never
-skips a check, and starting the fixed print needs the normal approvals.
-The same offer appears on slice failures, slice refusals and post-slice
-gate failures; with no AI configured there is no offer, only a one-line
-note that a fix is available when AI is set up.
+or a damaged uploaded mesh — together with the job's measured facts (size,
+the clearance gap, bed and nozzle, mesh health and wall thickness), and
+proposes changes from the same edit vocabulary, a filament mapping (a
+source filament re-resolved onto another slot), allowlisted profile
+settings (wall count, shell layers, first-layer height, wall generator,
+seam position, infill pattern), a bounded geometry repair (sink or extend
+an underside by the measured clearance gap, an outward surface offset that
+thickens thin walls, or a split into two parts), and/or a mesh repair. The
+proposal is shown in chat first, with a preview for geometry and mesh
+changes; applying it works on a copy, never the source file, and the job
+re-slices through the full intake so every gate runs again. A fix is never
+a waiver and never skips a check, and under yolo it is never auto-answered
+either: yolo hands the Fix offer and every Apply button to a person.
+Contradictory proposals (supports on and off, two scale changes) are
+refused, and every refusal names the item and why. The same offer appears
+on slice failures, slice refusals, a failed re-slice and post-slice gate
+failures; with no AI configured there is no offer, only a one-line note
+that a fix is available when AI is set up.
 
 Rules the repair keeps:
 
@@ -165,14 +172,23 @@ Rules the repair keeps:
   ("fix this", "repair the mesh", "make it printable", "fix this for my
   printer"). A message that only mentions fixing something the edit
   vocabulary can do ("fix the infill so it's 20%") stays an ordinary edit.
+  A repair request followed by an edit ("fix it and make it 20% bigger")
+  takes both: a clear edit is added to the fix and shown in the same
+  confirmation; an unclear one is not guessed, and the reply says that only
+  the repair was taken.
 - **Same AI limits as edits.** A fix request counts against the `[ai]`
   `allowed_users` list and the per-user `edit_requests_per_hour` limit, like
   the AI edit lane. A refused request sends nothing to the endpoint.
-- **Who can choose it.** After a slice failure or refusal anyone the bot
-  serves may ask for a fix. On the post-slice support question the Fix
-  button sits beside Print anyway, which is an approval question, so only
-  print approvers can choose it there. Starting the fixed print always
-  needs an approver.
+- **One fix budget per job.** A job gets at most 6 AI fix requests in
+  total, across the chat repair flow and every intake question (each
+  question also stops offering Fix after 3 tries). Every request is recorded
+  on the job with who asked and where (`ai_fix_attempts`). With the budget
+  spent, the Fix button is gone and the reply says why.
+- **Who can choose it.** Anyone the bot serves may ask for a fix. At the
+  post-slice support gates the fix is offered on its own question ("Fix this
+  for my printer", "Decide without a fix", "Cancel"); only the Print anyway
+  waiver after "Decide without a fix" is an approval question. Starting the
+  fixed print always needs an approver.
 - **What gets recorded.** A fix that makes every gate pass records no
   waiver and no clearance acknowledgement. If a geometry fix does not clear
   a low underside and an approver then chooses Print anyway, that is
@@ -184,6 +200,31 @@ Rules the repair keeps:
   built from several files (it would drop the others), on a multi-part 3MF,
   and on a painted 3MF (a mesh repair writes a plain STL, which has no
   paint). Meshes over 5 million triangles are not mesh-repaired.
+- **What a mesh repair does.** It welds duplicate vertices, drops broken and
+  duplicate triangles, turns faces that point the wrong way (including a
+  mesh where only some faces are flipped, which looks closed but has a wrong
+  volume), and fills holes. A large, flat hole rim (the end of a tube, the
+  mouth of a vent) is treated as a designed opening: the confirmation lists
+  each one, and offers "Apply, but keep the openings open" beside the normal
+  Apply. Small or ragged holes are damage and are filled. A rim that runs
+  through one vertex twice is split into simple loops before filling.
+- **When a mesh repair refuses.** It refuses, and nothing is applied, when
+  it would change nothing, when the result would still have non-manifold
+  edges (three or more faces on one edge, which needs a full remesh), or
+  when filling damage holes would change the volume by more than a quarter
+  (the holes are then probably part of the design).
+- **Wall thickness.** The mesh facts sent to the AI and shown in the
+  confirmation include a wall-thickness measurement (rays cast inward from
+  256 sampled faces; meshes up to 400,000 triangles). Walls under 0.8 mm are
+  named with the thinnest value, and the AI can propose an outward offset
+  (0.05 to 1 mm) to thicken them. Offset and split write a new file, so like
+  a mesh repair they are refused on multi-part and painted 3MFs.
+- **Nothing left behind.** A fix is built in its own uniquely named
+  `.ai-fix-*` folder inside the job folder, so two fixes on one job never
+  write the same file. Declining (or an expired question) deletes it;
+  applying moves the fixed file into the job folder. The source file is
+  re-checked just before applying, and a fix built from bytes that have
+  since changed is not applied.
 - **Foreign G-code.** A dropped G-code file whose `printer_model` (read from
   the header and from the footer config block, where OrcaSlicer, PrusaSlicer
   and Bambu Studio write it) names a different printer is refused, never
