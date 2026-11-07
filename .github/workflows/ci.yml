@@ -143,11 +143,39 @@ jobs:
         # Every strict xfail needs an owner and an unexpired date. Runs before
         # the suite so an unregistered marker fails even when its test xpasses.
         run: python3 scripts/check_strict_xfails.py
+      # Coverage is report-only (codecov.yml): only the 3.12 legs are
+      # instrumented, each shard uploads its own report and Codecov merges
+      # them per commit, so patch coverage reflects the whole offline suite.
+      # The 3.14 legs stay uninstrumented as a timing cross-check, and no
+      # timed job (discord-timing, slicer timing) is ever instrumented.
+      # The instrumented legs use coverage's sysmon core (sys.monitoring):
+      # the default C tracer made the million-triangle audit test
+      # (tests/corpus/test_corpus.py, 120 s budget) take over 3x as long
+      # locally and pushed it past its budget in CI, while sysmon measured
+      # within ~10% of the uninstrumented run.
       - name: Offline tests (no printer, no slicer, no network)
         timeout-minutes: 25
         env:
           PRINT_HANDY_TEST_SHARD: ${{ matrix.shard }}/3
-        run: python -m pytest -q -rs tests
+          COVERAGE_CORE: ${{ matrix.python-version == '3.12' && 'sysmon' || 'ctrace' }}
+        run: python -m pytest -q -rs tests ${{ matrix.python-version == '3.12' && '--cov=print_handy --cov-report=xml:coverage.xml' || '' }}
+      - name: Install Codecov upload dependencies (3.12 legs only)
+        # The Codecov action checks for curl and gpg before it runs, and the
+        # slim container image ships neither; that pre-flight failure is not
+        # covered by the action's fail_ci_if_error, so the tools are installed
+        # explicitly, like git, ffmpeg and jq above.
+        if: matrix.python-version == '3.12'
+        run: |
+          command -v curl && command -v gpg || { apt-get update -q && apt-get install -y -q curl gnupg; }
+          curl --version | head -n 1
+          gpg --version | head -n 1
+      - name: Upload coverage to Codecov (report-only)
+        if: matrix.python-version == '3.12'
+        uses: codecov/codecov-action@v7
+        with:
+          files: coverage.xml
+          flags: offline-tests
+          fail_ci_if_error: false
 
   offline-tests-result:
     # Keeps the required check names "offline-tests (3.12)" and "offline-tests (3.14)": passes only when

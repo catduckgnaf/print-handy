@@ -12,6 +12,12 @@ bin/moonrakerctl is a shipped CLI that parses Moonraker JSON with it and
 tests/pipeline/test_shell_cli.py skips without it; and pytest runs with
 -rs, because a plain -q run reports a skip count with no names or reasons,
 which made a 76-skip CI run impossible to attribute.
+
+Coverage upload is report-only: only the Python 3.12 offline legs are
+instrumented (the 3.14 legs stay a timing cross-check and no timed job is
+instrumented), the Codecov step can never fail CI, and codecov.yml keeps
+project coverage off with patch coverage informational only, so the signal
+can inform review without ever gating a merge.
 """
 
 import pathlib
@@ -95,6 +101,49 @@ class OfflineTestsWorkflowContract(unittest.TestCase):
         self.assertEqual(result["name"], "offline-tests (${{ matrix.python-version }})")
         self.assertEqual(result["strategy"]["matrix"]["python-version"],
                          jobs["offline-tests"]["strategy"]["matrix"]["python-version"])
+
+
+class CodecovReportOnlyContract(unittest.TestCase):
+    def test_only_python312_offline_legs_are_instrumented(self):
+        job = load_workflow()["jobs"]["offline-tests"]
+        runs = [step.get("run", "") for step in job["steps"]]
+        offline = next(run for run in runs if "pytest" in run)
+        self.assertIn("matrix.python-version == '3.12'", offline)
+        self.assertIn("--cov=print_handy", offline)
+        self.assertIn("--cov-report=xml:coverage.xml", offline)
+
+    def test_instrumented_legs_use_the_sysmon_coverage_core(self):
+        # The default C tracer more than tripled the million-triangle audit
+        # test locally and pushed it past its 120 s budget in CI; sysmon
+        # (sys.monitoring) measured within ~10% of uninstrumented.
+        job = load_workflow()["jobs"]["offline-tests"]
+        step = next(step for step in job["steps"]
+                    if "pytest" in step.get("run", ""))
+        self.assertIn("sysmon", step["env"]["COVERAGE_CORE"])
+        self.assertIn("matrix.python-version == '3.12'", step["env"]["COVERAGE_CORE"])
+
+    def test_upload_dependencies_are_installed_for_python312_legs(self):
+        # The Codecov action's pre-flight dependency check (curl, gpg) is not
+        # covered by fail_ci_if_error, and the slim container ships neither.
+        job = load_workflow()["jobs"]["offline-tests"]
+        step = steps_by_name(job)["Install Codecov upload dependencies (3.12 legs only)"]
+        self.assertIn("3.12", step["if"])
+        self.assertIn("curl", step["run"])
+        self.assertIn("gnupg", step["run"])
+
+    def test_upload_step_is_report_only(self):
+        job = load_workflow()["jobs"]["offline-tests"]
+        step = steps_by_name(job)["Upload coverage to Codecov (report-only)"]
+        self.assertTrue(step["uses"].startswith("codecov/codecov-action@"))
+        self.assertIn("3.12", step["if"])
+        self.assertEqual(step["with"]["fail_ci_if_error"], "false")
+        self.assertEqual(step["with"]["flags"], "offline-tests")
+
+    def test_codecov_config_never_gates(self):
+        config = yaml.load((ROOT / "codecov.yml").read_text(), Loader=yaml.BaseLoader)
+        status = config["coverage"]["status"]
+        self.assertEqual(status["project"], "off")
+        self.assertEqual(status["patch"]["default"]["informational"], "true")
 
 
 if __name__ == "__main__":

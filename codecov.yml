@@ -1,0 +1,19 @@
+# Codecov is report-only for Print Handy: it comments patch coverage on PRs
+# (which of a change's own lines the tests exercise) and never gates a merge.
+# Project coverage is off on purpose: large parts of the suite drive real
+# slicers, corpus fixtures and fake transports outside the offline legs, so a
+# single project percentage would misstate how the code is tested.
+coverage:
+  status:
+    project: off
+    patch:
+      default:
+        informational: true
+
+flags:
+  offline-tests:
+    paths:
+      - print_handy/
+
+comment:
+  layout: "diff, flags, files"
