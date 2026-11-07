@@ -5090,19 +5090,19 @@ async def model_link_dispatch(event, gateway, **kwargs):
     if not getattr(source, 'user_id', None) or not gateway._is_user_authorized_for_source(source):
         return None
     from print_handy.core.link_intake import model_link
-    from print_handy.core.prepared_intake import prepare_link as collect_link, model_file, reprint_request, last_job
+    from print_handy.core.prepared_intake import prepare_link as collect_link, model_files, reprint_request, last_job
     from print_handy.core import yolo as _yolo
     text = getattr(event, 'text', '')
     reuse = None
     # An already-sliced G-code drop prints only as an explicit yolo (core/yolo.py).
     gcode_drop = None if model_link(text) else _yolo.gcode_file(event)
-    if not (model_link(text) or model_file(event) or gcode_drop):
+    if not (model_link(text) or model_files(event) or gcode_drop):
         if _is_affirmative_followup(text):
             recent_url = _recent_model_link(source)
             if recent_url:
                 text = f"{recent_url} {text}"
                 setattr(event, 'text', text)
-        if not (model_link(text) or model_file(event)):
+        if not (model_link(text) or model_files(event)):
             # "print the previous one in black": offer the last archived model instead of asking for a link.
             reuse = last_job() if reprint_request(text) else None
             if reuse is None:
