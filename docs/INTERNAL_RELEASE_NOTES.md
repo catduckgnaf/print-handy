@@ -2,7 +2,7 @@
 
 # Unreleased
 
-Nothing yet.
+- Per-print numbers, follow-ups (#979/#988): the `/print-again` confirmation no longer says "Print number unknown" (it looked the job up by folder; the registry is keyed by JOB.json) and now names the print being repeated: "A reprint of print #84; it gets its own new print number when it starts." The `/print-next` confirmation no longer shows a number (it showed the job's first print's, or "#unknown"); the start announcement carries the new one. Listener renders that only know the job show its newest print, not its first. A record without its own number takes the number minted for its launch (matched by start time), never the job's first print's. The print-number registry is locked across processes, so two printers starting at once, or a `/print-again list` during a start, can no longer mint the same number or drop a launch. History duplicated before per-print numbering is repaired with `python -m print_handy.hermes.print_records renumber-duplicates` (dry run; `--apply` renumbers each later print, reusing a number the registry already minted for it, keeping the old one as `print_number_was` and skipping a print still running). The repair has not been run on the live host.
 
 # Version 2.2.6
 
