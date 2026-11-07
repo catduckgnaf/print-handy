@@ -3781,7 +3781,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             unreadable plate file, unreadable source bounds or a failed
             check comes back as a named entry in the result's
             'unverified' list, for the caller to record in the receipt —
-            never as a silent pass and never as a hard refusal.
+            never as a silent pass and never as a hard refusal. Since
+            #968 the caller routes an unverified result to the Print
+            anyway / Cancel question instead of proceeding on it.
             """
             report = sliced.get('support_clearance') or clearance
             if not report:
@@ -3823,20 +3825,29 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             logger.warning('support coverage unverified for intake %s: %s',
                            iid, result.get('unverified'))
 
-        async def _support_override(cov_failure, low_clearance, resliced=False):
+        async def _support_override(cov_failure, low_clearance, resliced=False, unverified_result=None):
             """Ask Print anyway / Cancel for the post-slice support gates.
 
             True when the operator waives them, False after a Cancel (already
             answered in chat). The gates stay strict; this is the explicit
             override they name, so they never end in a dead end. Only print
             approvers may answer (approval=True), as for every safety waiver.
+
+            ``unverified_result`` is a coverage result whose check could not
+            run (#968): it asks the same question, naming why coverage could
+            not be verified, and the waiver is recorded the same way.
             """
+            unverified = (unverified_result or {}).get('unverified') or []
             lines = []
             if cov_failure is not None:
                 worst = min(cov_failure['regions'], key=lambda r: r['coverage'])
                 lines.append(('Re-sliced' if resliced else 'Sliced') + ' with supports, but the support '
                              'toolpaths do not cover every flagged region (worst region: '
                              f"{worst['coverage'] * 100:.0f}% of its 3 mm cells covered).")
+            if unverified:
+                reasons = '; '.join(str(entry.get('reason') or entry) if isinstance(entry, dict)
+                                    else str(entry) for entry in unverified)
+                lines.append(f"Support coverage couldn't be verified: {reasons}.")
             if low_clearance:
                 lines.append('This print has a low-clearance underside (under 1.0 mm) that slicer '
                              'supports cannot fix.')
@@ -3845,6 +3856,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             receipt.update(status='SLICED_NOT_STARTED', started=False)
             if cov_failure is not None:
                 receipt['support_coverage'] = cov_failure
+            elif unverified_result is not None:
+                receipt['support_coverage'] = unverified_result
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
             pick = await _ask(adapter, source, key, '\n'.join(lines),
                               [PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL], timeout, approval=True)
@@ -3857,7 +3870,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             receipt['support_override'] = {
                 # A yolo auto-answer is recorded apart from a person's Print anyway.
                 'via': 'yolo' if _yolo.ACTIVE.get() else 'print_anyway',
-                'support_coverage': cov_failure is not None,
+                'support_coverage': cov_failure is not None or bool(unverified),
                 'low_clearance': bool(low_clearance),
                 'gcode_sha256': dict(receipt.get('gcode_sha256') or {}),
             }
@@ -3871,6 +3884,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 _record_coverage_unverified(cov_result)
             cov_failure = (cov_result if cov_result is not None and cov_result['checked']
                            and not cov_result['ok'] else None)
+            # An unverified result asks the same question (#968): the job
+            # no longer proceeds on a check that could not run.
+            unverified_result = (cov_result if cov_result is not None and cov_result.get('unverified')
+                                 else None)
             report = sliced.get('support_clearance') or clearance
             # Only a low-clearance finding is unwaivable by a with-supports
             # choice (#922 gap 2); other findings (modeled supports) keep
@@ -3881,10 +3898,12 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 ack = sliced.get('clearance_acknowledgement') or {}
                 low_clearance = (not ack.get('acknowledged')
                                  or ack.get('via', 'print_anyway') not in ('print_anyway', 'geometry_repair'))
-            if cov_failure is not None or low_clearance:
-                if not await _support_override(cov_failure, low_clearance):
+            if cov_failure is not None or low_clearance or unverified_result is not None:
+                if not await _support_override(cov_failure, low_clearance,
+                                               unverified_result=unverified_result):
                     return {'action': 'skip',
                             'reason': ('support coverage verification failed' if cov_failure is not None
+                                       else 'support coverage unverified' if unverified_result is not None
                                        else 'low clearance not waived by supports choice')}
                 if low_clearance:
                     # Recorded below, once the final artifact is installed,
@@ -3955,9 +3974,16 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     receipt.update(support_coverage=cov_result)
                     logger.warning('support coverage unverified for intake %s: %s',
                                    iid, cov_result.get('unverified'))
-                if cov_result is not None and cov_result['checked'] and not cov_result['ok']:
-                    if not await _support_override(cov_result, False, resliced=True):
-                        return {'action': 'skip', 'reason': 'support coverage verification failed'}
+                cov_failure = (cov_result if cov_result is not None and cov_result['checked']
+                               and not cov_result['ok'] else None)
+                unverified_result = (cov_result if cov_result is not None and cov_result.get('unverified')
+                                     else None)
+                if cov_failure is not None or unverified_result is not None:
+                    if not await _support_override(cov_failure, False, resliced=True,
+                                                   unverified_result=unverified_result):
+                        return {'action': 'skip',
+                                'reason': ('support coverage verification failed' if cov_failure is not None
+                                           else 'support coverage unverified')}
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
         if clearance_ack_pending:
             # The selected variant's artifact is installed now: bind the
