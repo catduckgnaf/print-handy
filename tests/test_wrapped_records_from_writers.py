@@ -9,20 +9,16 @@ writers (``print_records.build_record_data`` /
 ``write_completed_record``), persist them into a synthetic vault, and
 aggregate what ``print_stats.load_records`` reads back.
 
-Two known defects from the #981 deep dive are pinned as STRICT xfails
-(registered in ``tests/strict_xfail_register.json``), with the fixes
-owned by the Wrapped v1.1 lane (PR #986):
+Two defects from the #981 deep dive are pinned here as fixed by Wrapped
+phase 2 (PR #986), and were strict xfails until it landed:
 
-* bucketing is UTC-only today: a print started Dec 31 19:00 in the
-  configured America/New_York timezone is stored by the writer as
-  2027-01-01T00:00Z and aggregates into 2027, though the operator's
-  year is 2026 (catduck's settled direction: bucket in the configured
-  local display timezone);
-* the video compile's mixed-fps pacing: cards render at the lavfi
-  default rate, clips keep their source rate, and the stream-copy
-  concat then mis-times the result — two 4 s clips at 30 fps and
-  10 fps plus three 3 s cards measure 15.6 s instead of 17 s with a
-  real ffmpeg (reproduced deterministically on this code).
+* bucketing in the configured display timezone: a print started Dec 31
+  19:00 America/New_York (stored as 2027-01-01T00:00Z) counts in the
+  operator's 2026 when the configured zone is passed, as every Wrapped
+  caller does;
+* the video compile's mixed-fps pacing: two 4 s clips at 30 fps and
+  10 fps plus three 3 s cards must measure 17 s with a real ffmpeg
+  (it measured 15.6 s before the fix).
 """
 import shutil
 import subprocess
