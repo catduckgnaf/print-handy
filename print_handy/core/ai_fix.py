@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .. import ai_routes
-from . import edit_plan, support_clearance
+from . import edit_plan, mesh_repair, support_clearance
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,34 @@ _REPAIR_RE = re.compile(
     r"(?:\s+(?:for\s+(?:me|my\s+printer)|please|up))?\s*[.!?]*\s*$"
     r"|^\s*(?:please\s+)?make\s+(?:it|this)\s+printable\s*[.!?]*\s*$",
     re.IGNORECASE)
+# A repair request followed by more ("fix it and make it bigger"): the repair
+# clause, then a joiner, then the rest -- which is routed as an edit too.
+_REPAIR_HEAD_RE = re.compile(
+    r"^\s*(?:please\s+|can you\s+|could you\s+)?(?:(?:fix|repair|mend)\s+"
+    r"(?:this|it|that|the\s+(?:file|model|mesh|print|slice|stl|3mf))"
+    r"(?:\s+(?:for\s+(?:me|my\s+printer)|up))?"
+    r"|make\s+(?:it|this)\s+printable)"
+    r"\s*(?:,\s*(?:and\s+(?:then\s+)?|then\s+)?|\s+and\s+(?:then\s+)?|\s+then\s+|;\s*|\s*&\s*)"
+    r"(?P<rest>\S.*)$", re.IGNORECASE | re.DOTALL)
 _DESIGN_RE = re.compile(r"^\s*(please\s+)?(design|create|model)\b", re.IGNORECASE)
+
+
+def split_repair_request(text):
+    """(is_repair, rest): whether ``text`` asks for a repair, and any edit after it.
+
+    "fix this" -> (True, None); "fix it and make it 20% bigger" -> (True,
+    "make it 20% bigger"); anything else -> (False, None). The rest is never
+    dropped silently: the repair flow resolves it as an edit or says plainly
+    that it was not taken (#978 follow-up).
+    """
+    text = str(text or '').strip()
+    if _REPAIR_RE.search(text):
+        return True, None
+    match = _REPAIR_HEAD_RE.match(text)
+    if match:
+        rest = match.group('rest').strip().rstrip('.!?').strip()
+        return True, rest or None
+    return False, None
 # Discord user/role/channel mentions, @everyone/@here and bare links: the model's
 # free-text summary is posted to chat, so it never carries any of them (#902).
 _MENTION_RE = re.compile(r'<(?:@[!&]?|#)\d+>|@(?:everyone|here)\b|https?://\S+', re.IGNORECASE)
@@ -90,8 +117,8 @@ def clean_summary(text, limit=200) -> str:
     return text[:limit]
 
 
-class FixError(RuntimeError):
-    """The fix could not be prepared; nothing was changed."""
+# One error class for the fix engine and the mesh repair (mesh_repair.FixError).
+FixError = mesh_repair.FixError
 
 
 def heavy_ready(cfg=None) -> bool:
@@ -238,20 +265,33 @@ def propose_fix(problem, job=None, *, cfg=None, opener=None, mesh=None) -> FixPr
 
 # ---------------------------------------------------------------- mesh repair
 
-def _triangles(path):
-    """(n, 3, 3) float triangles for an STL or a (single-part) 3MF source."""
-    import numpy as np
-    path = Path(path)
-    if path.suffix.lower() == '.stl':
-        return np.asarray(support_clearance._stl_tris(path), dtype=float).reshape(-1, 3, 3)
-    parts = support_clearance.leaves(path)
-    if len(parts) != 1:
-        raise FixError(f'this is a {len(parts)}-part model: a mesh repair would flatten it to '
-                       'one mesh and lose the per-part assignments, so it is refused')
-    return np.asarray(parts[0]['tris'], dtype=float).reshape(-1, 3, 3)
+# The mesh work lives in mesh_repair (#978 follow-ups); these names stay here
+# for callers and tests of the fix engine.
+MAX_REPAIR_TRIANGLES = mesh_repair.MAX_REPAIR_TRIANGLES
+_triangles = mesh_repair.load_triangles
+mesh_facts = mesh_repair.mesh_facts
+wall_thickness = mesh_repair.wall_thickness
 
 
-MAX_REPAIR_TRIANGLES = 5_000_000
+def repair_mesh(source_path, dest_path, *, fill_openings=True) -> dict:
+    """Repair one mesh into ``dest_path``; see :func:`mesh_repair.repair`."""
+    return mesh_repair.repair(source_path, dest_path, fill_openings=fill_openings)
+
+
+def mesh_report(path) -> dict | None:
+    """Mesh health plus wall thickness, for the AI proposal and the operator.
+
+    None when the file cannot be read as a mesh (multi-part 3MF and so on):
+    the proposal then goes ahead without mesh facts.
+    """
+    try:
+        facts = mesh_repair.mesh_facts(path)
+    except Exception:  # noqa: BLE001 - no facts is not a failure
+        return None
+    facts['walls'] = mesh_repair.wall_thickness(path)
+    return facts
+
+
 _PAINT_MARKERS = (b'paint_color', b'mmu_segmentation', b'paint_supports', b'paint_seam')
 
 
@@ -282,137 +322,6 @@ def has_paint(path) -> bool:
     except (OSError, zipfile.BadZipFile):
         return False
     return False
-
-
-def _edge_counts(faces):
-    import numpy as np
-    edges = np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]], axis=0)
-    edges = np.sort(edges, axis=1)
-    _uniq, counts = np.unique(edges, axis=0, return_counts=True)
-    return int((counts == 1).sum()), int((counts > 2).sum())
-
-
-def _signed_volume(tris):
-    import numpy as np
-    if not len(tris):
-        return 0.0
-    return float(np.einsum('ij,ij->i', tris[:, 0], np.cross(tris[:, 1], tris[:, 2])).sum() / 6.0)
-
-
-def mesh_facts(path) -> dict:
-    """The mesh health facts a repair decision (and the operator) needs."""
-    import numpy as np
-    tris = _triangles(path)
-    verts = tris.reshape(-1, 3)
-    keys = np.round(verts / 1e-4).astype(np.int64)
-    _uniq, inverse = np.unique(keys, axis=0, return_inverse=True)
-    faces = inverse.reshape(-1, 3)
-    boundary, nonmanifold = _edge_counts(faces)
-    volume = _signed_volume(tris)
-    return {'triangles': int(len(tris)),
-            'watertight': boundary == 0 and nonmanifold == 0,
-            'boundary_edges': boundary,
-            'nonmanifold_edges': nonmanifold,
-            'inverted': bool(volume < 0),
-            'signed_volume_mm3': round(volume, 1)}
-
-
-def repair_mesh(source_path, dest_path) -> dict:
-    """Repair one mesh file into ``dest_path`` (a binary STL copy).
-
-    Welds duplicate vertices, drops degenerate and duplicate triangles, fills
-    boundary holes with a centroid fan, and flips a globally inverted winding.
-    The source is never touched. Returns before/after facts plus what changed.
-    """
-    import numpy as np
-    tris = _triangles(source_path)
-    if len(tris) > MAX_REPAIR_TRIANGLES:
-        raise FixError(f'this mesh has {len(tris)} triangles, more than the '
-                       f'{MAX_REPAIR_TRIANGLES} a mesh repair handles; nothing was changed')
-    before = mesh_facts(source_path)
-    verts = tris.reshape(-1, 3)
-    keys = np.round(verts / 1e-4).astype(np.int64)
-    # Vectorized throughout (#978 review): a scanned or sculpted model has
-    # millions of triangles, and per-vertex/per-face Python loops took minutes.
-    _uniq, first_seen, inverse = np.unique(keys, axis=0, return_index=True, return_inverse=True)
-    inverse = np.asarray(inverse).reshape(-1)
-    # Full precision for each welded vertex, from its first occurrence.
-    points = verts[first_seen].astype(float)
-    faces = inverse.reshape(-1, 3).astype(np.int64)
-    if len(faces):
-        a, b, c = faces[:, 0], faces[:, 1], faces[:, 2]
-        normals = np.cross(points[b] - points[a], points[c] - points[a])
-        good = (a != b) & (b != c) & (a != c) & (np.einsum('ij,ij->i', normals, normals) > 0.0)
-    else:
-        good = np.zeros(0, dtype=bool)
-    dropped_degenerate = int((~good).sum())
-    faces = faces[good]
-    dropped_duplicates = 0
-    if len(faces):
-        canonical = np.sort(faces, axis=1)
-        _uniq_faces, first_idx = np.unique(canonical, axis=0, return_index=True)
-        dropped_duplicates = int(len(faces) - len(first_idx))
-        faces = faces[np.sort(first_idx)]
-    # Fill holes: chain the directed boundary edges into loops, fan each loop.
-    holes_filled = 0
-    boundary, _nm = _edge_counts(faces) if len(faces) else (0, 0)
-    if boundary and len(faces):
-        n = np.int64(len(points))
-        edges = np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]], axis=0)
-        code = edges[:, 0] * n + edges[:, 1]
-        reverse = edges[:, 1] * n + edges[:, 0]
-        uniq_code, counts = np.unique(code, return_counts=True)
-        once = np.isin(code, uniq_code[counts == 1])
-        open_edges = edges[once & ~np.isin(reverse, code)]
-        directed = {}
-        for a, b in open_edges.tolist():  # only the hole rims: small
-            directed.setdefault(a, []).append(b)
-        used = set()
-        fans = []
-        for start in list(directed):
-            for first_step in list(directed.get(start, [])):
-                if (start, first_step) in used:
-                    continue
-                loop = [start, first_step]
-                used.add((start, first_step))
-                ok = True
-                while loop[-1] != start:
-                    nxt = [v for v in directed.get(loop[-1], []) if (loop[-1], v) not in used]
-                    if not nxt:
-                        ok = False
-                        break
-                    used.add((loop[-1], nxt[0]))
-                    loop.append(nxt[0])
-                    if len(loop) > len(points) + 1:
-                        ok = False
-                        break
-                if not ok or len(loop) < 4:
-                    continue
-                ring = loop[:-1]
-                centroid = points[ring].mean(axis=0)
-                centroid_idx = len(points)
-                points = np.vstack([points, centroid])
-                for i, v in enumerate(ring):
-                    w = ring[(i + 1) % len(ring)]
-                    fans.append((centroid_idx, w, v))  # reversed: the hole is on the other side
-                holes_filled += 1
-        if fans:
-            faces = np.vstack([faces, np.array(fans, dtype=np.int64)])
-    flipped = False
-    out_tris = points[faces] if len(faces) else np.zeros((0, 3, 3))
-    if len(out_tris) and _signed_volume(out_tris) < 0:
-        out_tris = out_tris[:, [0, 2, 1]]
-        flipped = True
-    dest_path = Path(dest_path)
-    dest_path.parent.mkdir(parents=True, exist_ok=True)
-    support_clearance._write_binary_stl(dest_path, out_tris)
-    after = mesh_facts(dest_path)
-    return {'before': before, 'after': after,
-            'dropped_degenerate': dropped_degenerate,
-            'dropped_duplicates': dropped_duplicates,
-            'holes_filled': holes_filled,
-            'flipped_inverted': flipped,
-            'output_path': str(dest_path)}
 
 
 def preview_image(source_path, dest_path) -> str:
@@ -457,36 +366,156 @@ def apply_geometry(source_path, dest_path, geometry) -> dict:
                                               gap_mm=geometry['mm'])
 
 
-def build_fixed_copy(source_path, proposal, dest_dir, *, stem='fixed') -> tuple[Path, dict]:
-    """Apply a proposal's geometry/mesh repairs to a copy of the source.
+STAGING_PREFIX = '.ai-fix-'
+APPLY_KEEP_OPENINGS_LABEL = 'Apply, but keep the openings open'
 
-    Returns (copy path, report). Slicer-setting plans are not applied here --
-    they mutate the job record, never the file. The copy of a 3MF source is an
-    STL (mesh-level repair has no per-part 3MF writer), and multi-part sources
-    are refused by the mesh path rather than flattened silently.
+
+def build_fixed_copy(source_path, proposal, dest_dir, *, stem='fixed',
+                     fill_openings=True) -> tuple[Path, dict]:
+    """Apply a proposal's geometry/mesh repairs to a STAGED copy of the source.
+
+    Returns (staged copy path, report). Everything is written into a fresh,
+    uniquely named staging folder under ``dest_dir`` (``.ai-fix-<token>/``)
+    and the file names carry the same token, so two fix flows on one job
+    never write the same path. The caller shows the preview, then either
+    :func:`commit_fixed_copy` (on apply) or :func:`discard_fixed_copy` (on
+    decline or failure) -- a declined fix leaves nothing behind.
+
+    Slicer-setting plans are not applied here -- they change the job record,
+    never the file. The copy of a 3MF source is an STL (mesh-level repair has
+    no per-part 3MF writer), and multi-part or painted sources are refused
+    rather than flattened.
     """
+    import shutil
+    import tempfile
     source_path = Path(source_path)
     dest_dir = Path(dest_dir)
     dest_dir.mkdir(parents=True, exist_ok=True)
-    report = {}
+    staging = Path(tempfile.mkdtemp(prefix=STAGING_PREFIX, dir=dest_dir))
+    token = staging.name[len(STAGING_PREFIX):]
+    report = {'staging': str(staging)}
     current = source_path
     stage = 0
-    if proposal.geometry:
-        stage += 1
-        dest = dest_dir / f'{source_path.stem}.{stem}-geometry{source_path.suffix}'
-        report['geometry'] = apply_geometry(current, dest, proposal.geometry)
-        current = Path(report['geometry'].get('output_path') or dest)
-    if proposal.mesh_repair:
-        if has_paint(current):
-            raise FixError('this 3MF is painted (colors, supports or seams); a mesh repair '
-                           'writes a plain STL and would lose the paint, so it is refused')
-        stage += 1
-        dest = dest_dir / f'{source_path.stem}.{stem}-mesh.stl'
-        report['mesh'] = repair_mesh(current, dest)
-        current = dest
-    if not stage:
-        raise FixError('this proposal has no file change to apply')
+    try:
+        if proposal.geometry:
+            stage += 1
+            dest = staging / f'{source_path.stem}.{stem}-{token}-geometry{source_path.suffix}'
+            report['geometry'] = apply_geometry(current, dest, proposal.geometry)
+            current = Path(report['geometry'].get('output_path') or dest)
+        if proposal.mesh_repair:
+            if has_paint(current):
+                raise FixError('this 3MF is painted (colors, supports or seams); a mesh repair '
+                               'writes a plain STL and would lose the paint, so it is refused')
+            stage += 1
+            dest = staging / f'{source_path.stem}.{stem}-{token}-mesh.stl'
+            report['mesh'] = repair_mesh(current, dest, fill_openings=fill_openings)
+            current = dest
+        if not stage:
+            raise FixError('this proposal has no file change to apply')
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
     return current, report
+
+
+def _staging_of(path):
+    path = Path(path)
+    parent = path.parent
+    return parent if parent.name.startswith(STAGING_PREFIX) else None
+
+
+def commit_fixed_copy(staged_path, report=None) -> Path:
+    """Move an applied fix out of staging into the job folder; drop the staging folder.
+
+    The staged name is already unique (it carries the staging token), so
+    the move never overwrites another fix's file. Staging paths in
+    ``report`` are rewritten to the committed file.
+    """
+    import shutil
+    staged_path = Path(staged_path)
+    staging = _staging_of(staged_path)
+    if staging is None:
+        return staged_path
+    final = staging.parent / staged_path.name
+    shutil.move(str(staged_path), str(final))
+    shutil.rmtree(staging, ignore_errors=True)
+    for part in (report or {}).values():
+        if isinstance(part, dict) and part.get('output_path'):
+            part['output_path'] = str(final) if Path(part['output_path']) == staged_path else None
+    if report is not None:
+        report.pop('staging', None)
+    return final
+
+
+def discard_fixed_copy(staged_path) -> None:
+    """Delete a declined or failed fix's staging folder (copy and preview)."""
+    import shutil
+    if staged_path is None:
+        return
+    staging = _staging_of(staged_path)
+    if staging is not None:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
+def source_unchanged(path, expected_sha256, file_sha256) -> bool:
+    """Whether the source still has the bytes the fix was built from."""
+    try:
+        return bool(expected_sha256) and file_sha256(path) == expected_sha256
+    except OSError:
+        return False
+
+
+def fix_lines(proposal, report) -> list[str]:
+    """The chat lines that show a proposed fix: every change, then the facts."""
+    lines = ['AI fix proposed' + (f': {proposal.summary}' if proposal.summary else '') + ':']
+    lines += [f'- {line}' for line in proposal.describe()]
+    mesh = (report or {}).get('mesh')
+    if mesh:
+        after = mesh['after']
+        state = ('closed and consistent' if after.get('sound')
+                 else 'closed' if after.get('watertight') else 'still not closed')
+        broken = mesh['dropped_degenerate'] + mesh['dropped_duplicates']
+        lines.append(f"- mesh after repair: {after['triangles']} triangles, {state} "
+                     f"({mesh['holes_filled']} hole(s) filled, {broken} broken triangle(s) "
+                     f"dropped, {mesh.get('faces_reoriented', 0)} face(s) turned the right way)")
+        for i, opening in enumerate(mesh.get('openings') or [], 1):
+            verb = 'closed' if opening.get('closed') else 'kept open'
+            lines.append(f"- opening {i}: about {opening['area_mm2']:g} mm2, "
+                         f"{opening['width_mm']:g} mm across, looks designed; {verb}")
+        if mesh.get('branched_loops_skipped'):
+            lines.append(f"- {mesh['branched_loops_skipped']} hole rim(s) could not be filled "
+                         'safely and were left open')
+    walls = (report or {}).get('walls')
+    note = mesh_repair.wall_note(walls)
+    if note:
+        lines.append(f'- {note}')
+    return lines
+
+
+# ---------------------------------------------------------------- attempt accounting
+
+MAX_JOB_FIX_ATTEMPTS = 6  # per job, across every question and the chat repair flow
+
+
+def attempts_used(job) -> int:
+    """AI fix proposals already requested for this job (every surface counts)."""
+    return len((job or {}).get('ai_fix_attempts') or [])
+
+
+def attempts_left(job) -> int:
+    return max(0, MAX_JOB_FIX_ATTEMPTS - attempts_used(job))
+
+
+def note_attempt(job, *, actor, surface) -> dict:
+    """Record one heavy-tier fix request on the job, attributed to the person who asked."""
+    entry = {'at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'actor': str(actor), 'surface': surface}
+    job.setdefault('ai_fix_attempts', []).append(entry)
+    return entry
+
+
+def out_of_attempts_message() -> str:
+    return (f'This job has used its {MAX_JOB_FIX_ATTEMPTS} AI fix attempts, so no more are '
+            'offered for it. Print anyway, cancel, or change the model and send it again.')
 
 
 def check_file_fix(job, proposal):
@@ -599,7 +628,7 @@ def classify_request(text) -> str | None:
     text = str(text or '').strip()
     if not text:
         return None
-    if _REPAIR_RE.search(text):
+    if split_repair_request(text)[0]:
         return 'repair'
     if _DESIGN_RE.match(text):
         return 'design'
@@ -609,6 +638,32 @@ def classify_request(text) -> str | None:
     except edit_plan.PlanError:
         return 'edit'
     return 'edit' if edit_plan.looks_like_edit(text) else None
+
+
+def merge_requested_edit(proposal, rest):
+    """Fold the edit half of "fix it and <edit>" into a proposal.
+
+    Returns (proposal, note). A clear edit ("make it 20% bigger") is added
+    to the proposal's plans, replacing any AI plan of the same kind (the
+    operator's own words win), so it is shown in the confirmation and applied
+    with the fix. Anything unclear is not guessed: ``note`` says plainly that
+    only the repair was taken and how to ask for the rest.
+    """
+    if not rest:
+        return proposal, None
+    try:
+        resolved = edit_plan.resolve_request(rest)
+    except edit_plan.PlanError as exc:
+        return proposal, (f'Only the repair was taken: "{rest}" is not an edit I can make '
+                          f'({exc}). Nothing else was changed for it.')
+    if resolved is None or resolved[0] != 'plan':
+        return proposal, (f'Only the repair was taken: "{rest}" was not clear enough to apply '
+                          'with it. Send it on its own after the fix to choose the edit.')
+    plan = resolved[1]
+    plans = [p for p in proposal.plans if p.get('kind') != plan.get('kind')] + [plan]
+    return (FixProposal(plans=plans, geometry=proposal.geometry,
+                        mesh_repair=proposal.mesh_repair, summary=proposal.summary,
+                        served_by=proposal.served_by), None)
 
 
 def looks_like_repair(text) -> bool:

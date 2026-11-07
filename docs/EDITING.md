@@ -165,9 +165,18 @@ Rules the repair keeps:
   ("fix this", "repair the mesh", "make it printable", "fix this for my
   printer"). A message that only mentions fixing something the edit
   vocabulary can do ("fix the infill so it's 20%") stays an ordinary edit.
+  A repair request followed by an edit ("fix it and make it 20% bigger")
+  takes both: a clear edit is added to the fix and shown in the same
+  confirmation; an unclear one is not guessed, and the reply says that only
+  the repair was taken.
 - **Same AI limits as edits.** A fix request counts against the `[ai]`
   `allowed_users` list and the per-user `edit_requests_per_hour` limit, like
   the AI edit lane. A refused request sends nothing to the endpoint.
+- **One fix budget per job.** A job gets at most 6 AI fix requests in
+  total, across the chat repair flow and every intake question (each
+  question also stops offering Fix after 3 tries). Every request is recorded
+  on the job with who asked and where (`ai_fix_attempts`). With the budget
+  spent, the Fix button is gone and the reply says why.
 - **Who can choose it.** After a slice failure or refusal anyone the bot
   serves may ask for a fix. On the post-slice support question the Fix
   button sits beside Print anyway, which is an approval question, so only
@@ -184,6 +193,29 @@ Rules the repair keeps:
   built from several files (it would drop the others), on a multi-part 3MF,
   and on a painted 3MF (a mesh repair writes a plain STL, which has no
   paint). Meshes over 5 million triangles are not mesh-repaired.
+- **What a mesh repair does.** It welds duplicate vertices, drops broken and
+  duplicate triangles, turns faces that point the wrong way (including a
+  mesh where only some faces are flipped, which looks closed but has a wrong
+  volume), and fills holes. A large, flat hole rim (the end of a tube, the
+  mouth of a vent) is treated as a designed opening: the confirmation lists
+  each one, and offers "Apply, but keep the openings open" beside the normal
+  Apply. Small or ragged holes are damage and are filled. A rim that runs
+  through one vertex twice is split into simple loops before filling.
+- **When a mesh repair refuses.** It refuses, and nothing is applied, when
+  it would change nothing, when the result would still have non-manifold
+  edges (three or more faces on one edge, which needs a full remesh), or
+  when filling damage holes would change the volume by more than a quarter
+  (the holes are then probably part of the design).
+- **Wall thickness.** The mesh facts sent to the AI and shown in the
+  confirmation include a wall-thickness measurement (rays cast inward from
+  256 sampled faces; meshes up to 400,000 triangles). Walls under 0.8 mm are
+  named with the thinnest value. There is no automatic wall thickening yet.
+- **Nothing left behind.** A fix is built in its own uniquely named
+  `.ai-fix-*` folder inside the job folder, so two fixes on one job never
+  write the same file. Declining (or an expired question) deletes it;
+  applying moves the fixed file into the job folder. The source file is
+  re-checked just before applying, and a fix built from bytes that have
+  since changed is not applied.
 - **Foreign G-code.** A dropped G-code file whose `printer_model` (read from
   the header and from the footer config block, where OrcaSlicer, PrusaSlicer
   and Bambu Studio write it) names a different printer is refused, never

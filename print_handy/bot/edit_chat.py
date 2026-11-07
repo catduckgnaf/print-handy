@@ -549,23 +549,32 @@ async def _repair_flow(event, gateway, source, adapter):
         await say('The model file for this job is no longer on disk, so I cannot fix it.')
         return {'action': 'skip', 'reason': 'repair: source file missing'}
     text = str(getattr(event, 'text', '') or '')
+    _is_repair, rest = ai_fix.split_repair_request(text)
     # Same [ai] allowlist and per-user rate limit as the AI edit lane (#902):
     # the heavy tier is the most expensive endpoint, never unmetered.
     allowed, why = ai_fix.lane_allowed(getattr(source, 'user_id', ''))
     if not allowed:
         await say(f'No AI fix was requested ({why}), so nothing was changed.')
         return {'action': 'skip', 'reason': 'repair: ' + why}
-    mesh = None
-    with contextlib.suppress(Exception):
-        mesh = await asyncio.to_thread(ai_fix.mesh_facts, source_path)
+    # One fix budget per job, shared with the intake's Fix buttons (#978 follow-up).
+    if ai_fix.attempts_left(job) <= 0:
+        await say(ai_fix.out_of_attempts_message())
+        return {'action': 'skip', 'reason': 'repair: out of fix attempts'}
+    actor = f"{_h()._platform_value(source) or 'discord'}:{getattr(source, 'user_id', '')}"
+    ai_fix.note_attempt(job, actor=actor, surface='chat')
+    mj.write_job(job_path.parent, job)
+    source_sha = edit_plan.file_sha256(source_path)
+    mesh = await asyncio.to_thread(ai_fix.mesh_report, source_path)
+    problem = _sanitize_mentions(text)
     try:
-        proposal = await asyncio.to_thread(ai_fix.propose_fix, _sanitize_mentions(text), job,
-                                           mesh=mesh)
+        proposal = await asyncio.to_thread(ai_fix.propose_fix, problem, job, mesh=mesh)
     except Exception as exc:  # noqa: BLE001 - a failed proposal changes nothing
         logger.warning('repair proposal failed: %r', exc)
         detail = str(exc) if isinstance(exc, ai_fix.FixError) else 'the AI endpoint did not answer'
         await say(f'No AI fix could be prepared ({detail}), so nothing was changed.')
         return {'action': 'skip', 'reason': 'repair proposal failed'}
+    # "fix it and make it bigger": the edit half goes with the fix, or is named.
+    proposal, rest_note = ai_fix.merge_requested_edit(proposal, rest)
     try:
         ai_fix.check_file_fix(job, proposal)
         enriched = [edit_plan.enrich_plan(plan, job, source_path) for plan in proposal.plans]
@@ -584,28 +593,49 @@ async def _repair_flow(event, gateway, source, adapter):
             return {'action': 'skip', 'reason': 'repair could not be built'}
         with contextlib.suppress(Exception):
             image_path = await asyncio.to_thread(ai_fix.preview_image, fixed_path,
-                                                 job_path.parent / 'ai-fix-preview.png')
+                                                 fixed_path.parent / 'ai-fix-preview.png')
             await say('Preview of the fixed model (the original file is unchanged).\nMEDIA:'
                       + image_path)
-    lines = ['AI fix proposed' + (f': {proposal.summary}' if proposal.summary else '') + ':']
-    lines += [f'- {line}' for line in proposal.describe()]
-    if report.get('mesh'):
-        mesh_report = report['mesh']
-        lines.append(f"- mesh after repair: {mesh_report['after']['triangles']} triangles, "
-                     f"{'watertight' if mesh_report['after']['watertight'] else 'still not watertight'} "
-                     f"({mesh_report['holes_filled']} hole(s) filled, "
-                     f"{mesh_report['dropped_degenerate'] + mesh_report['dropped_duplicates']} "
-                     'broken triangle(s) dropped)')
+    if mesh:
+        report['walls'] = mesh.get('walls')
+    lines = ai_fix.fix_lines(proposal, report)
+    if rest_note:
+        lines.append(rest_note)
     lines.append('Nothing is overwritten: the fix works on a copy, and applying it re-slices '
                  'and runs every check again.')
+    choices = [ai_fix.APPLY_LABEL]
+    openings = (report.get('mesh') or {}).get('openings') or []
+    if openings:
+        choices.append(ai_fix.APPLY_KEEP_OPENINGS_LABEL)
+    choices.append('Cancel')
     timeout = _config.question_timeout_s()
     answer = await _h()._confirm(adapter, source, metadata, 'model-fix',
-                                 '\n'.join(lines), [ai_fix.APPLY_LABEL, 'Cancel'], timeout,
+                                 '\n'.join(lines), choices, timeout,
                                  live_key=gateway._session_key_for_source(source))
-    if answer != ai_fix.APPLY_LABEL:
+    if answer not in (ai_fix.APPLY_LABEL, ai_fix.APPLY_KEEP_OPENINGS_LABEL):
+        ai_fix.discard_fixed_copy(fixed_path)
         await say('No fix applied.')
         return {'action': 'skip', 'reason': 'repair declined'}
-    actor = f"{_h()._platform_value(source) or 'discord'}:{getattr(source, 'user_id', '')}"
+    if answer == ai_fix.APPLY_KEEP_OPENINGS_LABEL:
+        # Rebuild with the designed openings left open, then apply that copy.
+        ai_fix.discard_fixed_copy(fixed_path)
+        try:
+            fixed_path, report = await asyncio.to_thread(
+                ai_fix.build_fixed_copy, source_path, proposal, job_path.parent,
+                fill_openings=False)
+        except Exception as exc:  # noqa: BLE001 - nothing applied
+            detail = f' ({exc})' if isinstance(exc, ai_fix.FixError) else ''
+            await say(f'Keeping the openings left nothing to repair{detail}; no fix applied.')
+            return {'action': 'skip', 'reason': 'repair: nothing left with openings kept'}
+    # The fix was built from the bytes read above; a source that changed since
+    # (a new upload, a manual edit) gets no fix built for older bytes.
+    if not ai_fix.source_unchanged(source_path, source_sha, edit_plan.file_sha256):
+        ai_fix.discard_fixed_copy(fixed_path)
+        await say('The model file changed while the fix was being prepared, so the fix was not '
+                  'applied. Ask again to fix the current file.')
+        return {'action': 'skip', 'reason': 'repair: source changed'}
+    if fixed_path is not None:
+        fixed_path = ai_fix.commit_fixed_copy(fixed_path, report)
     original = copy.deepcopy(job)  # restored verbatim if re-entry fails, as _edit_apply does
     ai_fix.apply_to_job(job, proposal, enriched, fixed_path=fixed_path, actor=actor,
                         problem=text, report=report, file_sha256=edit_plan.file_sha256)

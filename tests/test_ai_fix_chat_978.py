@@ -117,8 +117,11 @@ def test_uploaded_nonmanifold_stl_fix_this_is_repaired_and_previewed(fix_env):
     # The fix was shown before applying, with the repair outcome in the text.
     assert len(fix_env.confirms) == 1
     question, choices, approval = fix_env.confirms[0]
-    assert "repair the mesh" in question and "watertight" in question
-    assert choices == [ai_fix.APPLY_LABEL, "Cancel"]
+    assert "repair the mesh" in question and "closed" in question
+    # The missing top is a large flat rim: shown as an opening, with the
+    # choice to keep it open (#978 follow-up).
+    assert "opening 1" in question
+    assert choices == [ai_fix.APPLY_LABEL, ai_fix.APPLY_KEEP_OPENINGS_LABEL, "Cancel"]
     assert approval is False  # asking for a fix is not a print approval
     # A preview of the fixed model was posted before the (faked) re-slice.
     assert any("Preview of the fixed model" in (m or "") for m in fix_env.adapter.sent)

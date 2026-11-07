@@ -3666,9 +3666,17 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                    content=f'No AI fix was requested ({why}), so nothing was changed.')
                 return None
             job_now = json.loads(jp.read_text())
-            mesh = None
-            with contextlib.suppress(Exception):
-                mesh = ai_fix.mesh_facts(path)
+            # One fix budget per job, across every question here and the chat
+            # repair flow, each request attributed to who asked (#978 follow-up).
+            if ai_fix.attempts_left(job_now) <= 0:
+                await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                   content=ai_fix.out_of_attempts_message())
+                return None
+            actor = (f"{getattr(getattr(source, 'platform', None), 'value', None) or 'discord'}:"
+                     f"{getattr(source, 'user_id', '')}")
+            ai_fix.note_attempt(job_now, actor=actor, surface='intake')
+            mj.write_job(folder, job_now)
+            mesh = await asyncio.to_thread(ai_fix.mesh_report, path)
             try:
                 proposal = await _heavy(ai_fix.propose_fix, problem, job_now, mesh=mesh)
             except Exception as exc:  # noqa: BLE001 - a failed proposal changes nothing
@@ -3704,27 +3712,48 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     return None
                 with contextlib.suppress(Exception):
                     image_path = await _heavy(ai_fix.preview_image, fixed_path,
-                                              folder / 'ai-fix-preview.png')
+                                              Path(fixed_path).parent / 'ai-fix-preview.png')
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                        content='Preview of the fixed model (the original file '
                                                'is unchanged).\nMEDIA:' + image_path)
-            lines = ['AI fix proposed' + (f': {proposal.summary}' if proposal.summary else '') + ':']
-            lines += [f'- {line}' for line in proposal.describe()]
-            if report.get('mesh'):
-                mesh_report = report['mesh']
-                lines.append(f"- mesh after repair: {mesh_report['after']['triangles']} triangles, "
-                             f"{'watertight' if mesh_report['after']['watertight'] else 'still not watertight'} "
-                             f"({mesh_report['holes_filled']} hole(s) filled, "
-                             f"{mesh_report['dropped_degenerate'] + mesh_report['dropped_duplicates']} "
-                             "broken triangle(s) dropped)")
+            if mesh:
+                report['walls'] = mesh.get('walls')
+            lines = ai_fix.fix_lines(proposal, report)
             lines.append('Nothing is overwritten: a fix works on a copy, and applying it '
                          're-slices and runs every check again.')
-            pick = await _ask(adapter, source, key, '\n'.join(lines),
-                              [ai_fix.APPLY_LABEL, print_next.CANCEL_LABEL], timeout)
-            if pick != 0:
+            choices = [ai_fix.APPLY_LABEL]
+            if (report.get('mesh') or {}).get('openings'):
+                choices.append(ai_fix.APPLY_KEEP_OPENINGS_LABEL)
+            choices.append(print_next.CANCEL_LABEL)
+            try:
+                pick = await _ask(adapter, source, key, '\n'.join(lines), choices, timeout)
+            except BaseException:
+                ai_fix.discard_fixed_copy(fixed_path)  # an expired question leaves nothing behind
+                raise
+            if choices[pick] not in (ai_fix.APPLY_LABEL, ai_fix.APPLY_KEEP_OPENINGS_LABEL):
+                ai_fix.discard_fixed_copy(fixed_path)
                 return None
-            actor = (f"{getattr(getattr(source, 'platform', None), 'value', None) or 'discord'}:"
-                     f"{getattr(source, 'user_id', '')}")
+            if choices[pick] == ai_fix.APPLY_KEEP_OPENINGS_LABEL:
+                ai_fix.discard_fixed_copy(fixed_path)
+                try:
+                    fixed_path, report = await _heavy(ai_fix.build_fixed_copy, path, proposal,
+                                                      folder, fill_openings=False)
+                except Exception as exc:  # noqa: BLE001 - nothing applied
+                    detail = f' ({exc})' if isinstance(exc, ai_fix.FixError) else ''
+                    await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                       content=f'Keeping the openings left nothing to repair{detail}; '
+                                               'no fix applied.')
+                    return None
+            # The fix was built from the bytes the job is bound to; a source
+            # that changed since gets no fix built for older bytes.
+            if not ai_fix.source_unchanged(path, decisions['source_sha256'], mj.file_sha256):
+                ai_fix.discard_fixed_copy(fixed_path)
+                await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                   content='The model file changed while the fix was being prepared, '
+                                           'so the fix was not applied.')
+                return None
+            if fixed_path is not None:
+                fixed_path = ai_fix.commit_fixed_copy(fixed_path, report)
             latest = json.loads(jp.read_text())
             # One undoable record for the whole fix: the file swap and every
             # plan, restored together by ai_fix.undo_last_fix.
@@ -3762,9 +3791,19 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             receipt['ai_fix'] = {'at': time.strftime('%Y-%m-%dT%H:%M:%S%z'),
                                  'problem': str(problem)[:300],
                                  'changes': proposal.describe(),
-                                 'served_by': proposal.served_by}
+                                 'served_by': proposal.served_by,
+                                 'actor': actor}
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
             return proposal
+
+        def _fix_budget_left():
+            """AI fix attempts this job may still use (0 when none, or unreadable)."""
+            from . import ai_fix
+            try:
+                return ai_fix.attempts_left(json.loads(jp.read_text()))
+            except (OSError, ValueError):
+                return 0
+
 
         prep_sent = False  # one combined Preparing + Uploading message after slicing, with the real estimate
         try:
@@ -3836,12 +3875,14 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # today's behavior stands, plus the one-line note where a fix
             # would have been offered.
             from . import ai_fix as _ai_fix
-            fix_ready = _ai_fix.heavy_ready()
+            heavy = _ai_fix.heavy_ready()
+            fix_ready = heavy and _fix_budget_left() > 0
+            no_fix_note = _ai_fix.UNCONFIGURED_NOTE if not heavy else _ai_fix.out_of_attempts_message()
             if refusal is not None and not refusal.fix and not fix_ready:
                 await adapter.send(chat_id=source.chat_id, metadata=metadata, content=diagnostics.plain_post(
                     'Stage: slice. ' + refusal.plain, not_happened='Nothing was sliced, uploaded or started.',
                     next_step=refusal.next_step, subsystem='slicing', exc=slice_error)
-                    + '\n' + _ai_fix.UNCONFIGURED_NOTE)
+                    + '\n' + no_fix_note)
                 return {'action': 'skip', 'reason': 'slice refused: ' + str(slice_error)}
             if refusal is not None and not refusal.fix:
                 prompt = diagnostics.plain_post(
@@ -3856,7 +3897,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 prompt = slice_failure.post(slice_error)
                 if not slice_failure.explain(slice_error).retryable and not fix_ready:
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                                       content=prompt + '\n' + _ai_fix.UNCONFIGURED_NOTE)
+                                       content=prompt + '\n' + no_fix_note)
                     return {'action': 'skip', 'reason': 'slice failed: ' + str(slice_error)}
                 labels = ((['Retry slice once (no print)']
                            if slice_failure.explain(slice_error).retryable else [])
@@ -3873,9 +3914,14 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 problem = ('Slice failure. ' + (refusal.plain if refusal is not None
                                                 else slice_failure.explain(slice_error).plain))
                 if await _ai_fix_attempt(problem) is None:
-                    if fix_attempts >= _ai_fix.MAX_FIX_ATTEMPTS:
-                        retry = len(labels) - 1  # out of fix attempts: read as cancel below
-                        break
+                    if fix_attempts >= _ai_fix.MAX_FIX_ATTEMPTS or _fix_budget_left() <= 0:
+                        # Out of fix attempts (this question's or the job's):
+                        # the question goes on without the Fix button; with
+                        # nothing but Cancel left, that is the answer.
+                        labels = [label for label in labels if label != _ai_fix.FIX_LABEL]
+                        if len(labels) <= 1:
+                            retry = len(labels)  # past index 0: read as cancel below
+                            break
                     continue  # declined or unusable proposal: the same question is asked again
                 ai_fixed = True
                 retry = 0  # a fix was applied: fall through to the re-slice below
@@ -4033,7 +4079,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             """
             nonlocal gcodes, sliced, clearance_ack_pending
             from . import ai_fix as _ai_fix
-            fix_ready = _ai_fix.heavy_ready()
+            heavy = _ai_fix.heavy_ready()
+            fix_ready = heavy and _fix_budget_left() > 0
             fix_attempts = 0
             while True:
                 unverified = (unverified_result or {}).get('unverified') or []
@@ -4052,8 +4099,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                  'supports cannot fix.')
                 lines.append('Nothing is uploaded yet. Print anyway to accept the risk, or cancel and '
                              'repair the geometry (extend or sink).')
-                if not fix_ready and fix_attempts == 0:
+                if not heavy and fix_attempts == 0:
                     lines.append(_ai_fix.UNCONFIGURED_NOTE)
+                elif heavy and not fix_ready and _fix_budget_left() <= 0:
+                    lines.append(_ai_fix.out_of_attempts_message())
                 choices = [PRINT_ANYWAY_LABEL]
                 if fix_ready:
                     choices.append(_ai_fix.FIX_LABEL)
@@ -4073,7 +4122,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         if line not in (_ai_fix.UNCONFIGURED_NOTE,)
                         and not line.startswith('Nothing is uploaded yet'))
                     if await _ai_fix_attempt(problem) is None:
-                        if fix_attempts >= _ai_fix.MAX_FIX_ATTEMPTS:
+                        if fix_attempts >= _ai_fix.MAX_FIX_ATTEMPTS or _fix_budget_left() <= 0:
                             fix_ready = False
                         continue  # declined or unusable proposal: ask the gate question again
                     # Re-slice with the fix and grade the gates again on the
@@ -4118,7 +4167,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                                    'Nothing was waived.')
                         return 'fixed'
                     resliced = True
-                    if fix_attempts >= _ai_fix.MAX_FIX_ATTEMPTS:
+                    if fix_attempts >= _ai_fix.MAX_FIX_ATTEMPTS or _fix_budget_left() <= 0:
                         fix_ready = False
                     continue
                 if pick != 0:

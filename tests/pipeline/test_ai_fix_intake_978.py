@@ -198,3 +198,47 @@ def test_print_anyway_after_an_unsuccessful_geometry_fix_is_a_print_anyway(env, 
     ack = job['clearance_acknowledgement']
     assert ack['acknowledged'] is True and ack['via'] == 'print_anyway'
     assert job['ai_fixes'][0]['geometry'] == {'kind': 'sink', 'mm': 0.05}
+
+
+# ------------------------------------------------- #978 follow-ups: budget, staging
+
+def test_gate_offers_no_fix_once_the_job_budget_is_spent(env, monkeypatch):
+    monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
+    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    _coverage_sequence(monkeypatch)
+    _ai_on(monkeypatch, ai_fix.FixProposal(plans=[{'kind': 'supports', 'enabled': True,
+                                                   'type': 'tree'}]))
+    monkeypatch.setattr(ai_fix, 'MAX_JOB_FIX_ATTEMPTS', 0)
+    # one color (1), slot 1 (0), with supports (0), Cancel (1) at the gate
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 1])
+    gate = adapter.questions[-1]
+    assert gate['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL]
+    assert ai_fix.out_of_attempts_message() in gate['question']
+    assert ai_fix.UNCONFIGURED_NOTE not in gate['question']  # AI is set up; the budget is spent
+
+
+def test_intake_fix_requests_are_counted_on_the_job_and_attributed(env, monkeypatch):
+    monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
+    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    _coverage_sequence(monkeypatch)
+    _ai_on(monkeypatch, ai_fix.FixProposal(plans=[{'kind': 'supports', 'enabled': True,
+                                                   'type': 'tree'}]))
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 1, 0])
+    job = json.loads(Path(receipt['job_json']).read_text())
+    assert [a['surface'] for a in job['ai_fix_attempts']] == ['intake']
+    platform, _, user = job['ai_fix_attempts'][0]['actor'].partition(':')
+    assert platform == 'discord' and user  # who asked, not just that someone did
+    assert receipt['ai_fix']['actor'] == job['ai_fix_attempts'][0]['actor']
+
+
+def test_a_declined_geometry_fix_leaves_no_copy_in_the_job_folder(env, monkeypatch):
+    _v12(monkeypatch)
+    _coverage_sequence(monkeypatch)
+    _ai_on(monkeypatch, ai_fix.FixProposal(geometry={'kind': 'sink', 'mm': 0.05}))
+    # one color (1), slot 1 (0), with supports (0), Fix (1), Cancel the fix (1), Cancel (2)
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 1, 1, 2])
+    folder = Path(receipt['job_json']).parent
+    assert not list(folder.glob(ai_fix.STAGING_PREFIX + '*'))
+    assert not list(folder.glob('*.fixed-*'))
+    job = json.loads(Path(receipt['job_json']).read_text())
+    assert 'ai_fixes' not in job
