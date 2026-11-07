@@ -544,7 +544,7 @@ The official prebuilt archives are downloaded and extracted only inside approved
 
 `WITH_BAMBU=false` is the publication default; enabling pinned source-built Bambu Studio needs its own runtime acceptance. OpenSCAD (`openscad`) is included for CAD splitting and AI design (`/print-design`, #388).
 
-The `bounds-build` stage compiles the optional Rust/PyO3 native bounds parser (#952, `native/bounds/`) into an abi3 wheel and the runtime stage installs it; only the compiled extension ships — no Rust toolchain is in the runtime image. The parser is an accelerator only: the Python implementation remains the permanent fallback wherever the extension is absent or fails its startup self-check, so an image built without this stage behaves identically, just slower on plate-scale G-code. See `native/bounds/README.md`.
+The `bounds-build` stage compiles the optional Rust/PyO3 native bounds parser (#952, `native/bounds/`) into an abi3 wheel (the Rust installer is a checksum-pinned rustup-init per architecture), and the runtime stage extracts only the compiled extension from it into site-packages and `/app`: no Rust toolchain and none of the wheel's staged package files reach the runtime image. The `bounds-image-stage` CI job builds this stage on native amd64 and arm64 runners on every PR. G-code in inch units (`G20`) is refused by both parsers. The parser is an accelerator only: the Python implementation remains the permanent fallback wherever the extension is absent or fails its startup self-check, so an image built without this stage behaves identically, just slower on plate-scale G-code. See `native/bounds/README.md`.
 
 ## Validation and publication
 

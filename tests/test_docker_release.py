@@ -425,8 +425,14 @@ class NativeBoundsStageTests(unittest.TestCase):
         self.assertIn("COPY print_handy/core/__init__.py ./native/bounds/print_handy/core/__init__.py", stage)
         self.assertIn("maturin build --release", stage)
         runtime = DOCKERFILE.split("FROM debian:13-slim AS runtime", 1)[1]
-        self.assertIn("pip install --no-cache-dir /tmp/bounds-wheel/*.whl", runtime)
-        self.assertIn("site-packages/print_handy/core/_bounds_native*.so /app/print_handy/core/", runtime)
+        # Only the .so leaves the wheel (never its staged __init__ files).
+        self.assertNotIn("pip install --no-cache-dir /tmp/bounds-wheel/*.whl", runtime)
+        self.assertIn("python -m zipfile -e *.whl x", runtime)
+        self.assertIn('cp "$so" "$site/print_handy/core/" && cp "$so" /app/print_handy/core/', runtime)
+        # The rustup installer is checksum-pinned per architecture, never piped to sh.
+        self.assertNotIn("sh.rustup.rs", stage)
+        self.assertIn("rustup/archive/1.28.2/$target/rustup-init", stage)
+        self.assertEqual(stage.count("sha256sum -c -"), 1)
         self.assertNotIn("cargo", runtime)
         self.assertNotIn("rustup", runtime)
 
