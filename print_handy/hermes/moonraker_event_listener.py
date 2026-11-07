@@ -3665,7 +3665,14 @@ class Listener:
             # (re)connected): open the #246 stage 2 capture session,
             # replacing any session a missed end left open. A resume keeps
             # the session the pause left open.
-            self._capture_begin(identity)
+            # Off the event loop with a deadline (#1020): this touches disk
+            # and the camera, and a stall here once froze the heartbeat and
+            # every alert. A capture that cannot start in time is skipped.
+            try:
+                await asyncio.wait_for(asyncio.to_thread(self._capture_begin, identity), CAPTURE_BEGIN_TIMEOUT_S)
+            except asyncio.TimeoutError:
+                self.capture_session = None
+                log(f"timelapse capture begin timed out after {CAPTURE_BEGIN_TIMEOUT_S}s; this print runs without a capture")
             # #913: pick this print's watch schedule before the first check.
             self.visual_watch.reset()
             self.local_streak.reset()
@@ -4446,12 +4453,31 @@ class Listener:
             await asyncio.gather(beating, return_exceptions=True)
 
 
+#: Longest the capture start may take before the print runs without one.
+CAPTURE_BEGIN_TIMEOUT_S = 20
+
+
+def _install_stack_dump_handler():
+    """Dump every thread's stack to stderr on SIGUSR1 (#1020).
+
+    The container supervisor sends SIGUSR1 to a listener whose heartbeat went
+    stale, just before it restarts it, so the log names the line that hung.
+    """
+    try:
+        import faulthandler
+        import signal
+        faulthandler.register(signal.SIGUSR1, all_threads=True, chain=False)
+    except (ImportError, AttributeError, ValueError, OSError):
+        pass
+
+
 def main():
     if not WS_URL:
         raise SystemExit("services.moonraker_url is not configured (or services.moonraker_ws_url). "
                          "Set it in config/local.yaml or config/local.toml; the listener has nothing to connect to.")
     route = "PRINT_VISION_URL" if os.environ.get("PRINT_VISION_URL") else (_VISION_BASE or "not configured")
     logs.configure()
+    _install_stack_dump_handler()
     log(f"listener starting (Print Handy {__version__}); camera watchdog initialized route={route} model={_VISION_MODEL}")
     asyncio.run(Listener().forever())
 
