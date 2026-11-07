@@ -3,7 +3,9 @@
 Design (numbers measured on a 4 core host, see the PR description):
   * Fixtures are generated grid meshes, so there is no private or unlicensed model data.
   * Timings are ratios against a reference run in the same process, so machine speed cancels.
-    A flat seconds ceiling would be a coin flip between a fast laptop and a loaded CI runner.
+    A flat seconds ceiling would be a coin flip between a fast laptop and a loaded CI runner, so
+    the absolute ceiling in baselines.json is reporting only (a PerfCeilingWarning), never a
+    failure: PR #1014 failed on it (0.31s > 0.25s) with its ratio well inside the gate (#1017).
   * Each gate first proves the work really happened (triangle count, coordinate checksum, fast path
     taken). A gate that only timed an empty function would pass, so the work checks run first.
   * The gate must fail on injected delay; test_gate_rejects_injected_delay proves that.
@@ -13,6 +15,7 @@ refreshed automatically.
 import json
 import statistics
 import time
+import warnings
 import zipfile
 from pathlib import Path
 
@@ -78,14 +81,29 @@ def paired_ratio(candidate, reference, runs=RUNS):
     return min(cand) / min(ref), min(cand), min(ref)
 
 
+class PerfCeilingWarning(UserWarning):
+    """A candidate ran past its absolute seconds ceiling. Reported, never failed: wall-clock
+    seconds measure the runner as much as the code; the paired ratio is the gate."""
+
+
 def check_gate(name, ratio, candidate_s):
+    """The blocking problems: only the paired ratio, which cancels machine speed."""
     limits = BASELINES[name]
     problems = []
     if ratio > limits["max_ratio"]:
         problems.append(f"ratio {ratio:.2f} > reviewed max {limits['max_ratio']} (baseline {limits['baseline_ratio']})")
-    if candidate_s > limits["ceiling_s"]:
-        problems.append(f"{candidate_s:.2f}s > absolute ceiling {limits['ceiling_s']}s")
+    report_ceiling(name, candidate_s)
     return problems
+
+
+def report_ceiling(name, candidate_s):
+    """Warn (never fail) when the candidate's wall-clock time passes the absolute ceiling."""
+    ceiling = BASELINES[name]["ceiling_s"]
+    if candidate_s > ceiling:
+        message = f"{name}: {candidate_s:.2f}s > absolute ceiling {ceiling}s (reporting only; the ratio is the gate)"
+        warnings.warn(message, PerfCeilingWarning, stacklevel=2)
+        return message
+    return None
 
 
 def _parse(path, use_fast):
@@ -177,3 +195,14 @@ def test_gate_rejects_missing_computation(grid_triangles):
     """A candidate that skips the work is fast; the work assertions, not the timer, must catch it."""
     lo, hi, vol = mesh_fast.bounds_and_volume(grid_triangles[:1])
     assert [list(lo), list(hi), vol] != list(_bounds_old(grid_triangles))
+
+
+def test_absolute_ceiling_reports_but_never_fails():
+    """#1017: a slow runner past the seconds ceiling with a good ratio is a warning, not a failure."""
+    limits = BASELINES["bounds_and_volume"]
+    slow_s = limits["ceiling_s"] * 1.25
+    with pytest.warns(PerfCeilingWarning, match="reporting only"):
+        problems = check_gate("bounds_and_volume", limits["baseline_ratio"], slow_s)
+    assert problems == []
+    # A bad ratio still fails, whatever the wall clock says.
+    assert check_gate("bounds_and_volume", limits["max_ratio"] + 0.1, 0.001)
