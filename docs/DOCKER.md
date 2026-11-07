@@ -368,10 +368,10 @@ To adopt the new name (optional, any time before that removal):
 
 ### Rollback
 
-Rollback is the previous digest with the same data paths. Nothing in Print Handy downgrades the Spoolman database, so roll back only to an image that can read the data the current one wrote. The 2.2.4 index, which 2.2.5's release notes leave untouched, is:
+Rollback is the previous digest with the same data paths. Nothing in Print Handy downgrades the Spoolman database, so roll back only to an image that can read the data the current one wrote. The 2.2.5 index, which 2.2.6's release notes leave untouched, is:
 
 ```text
-ghcr.io/catduckgnaf/print-handy@sha256:a43e48f1eea57c9d053ff9cf8bc535e22acf010cf987a699efc44a87472c33ec
+ghcr.io/catduckgnaf/print-handy@sha256:03d88ec367004143d1a087f92cdb46a9fbf7671d49b5f25d0aa3ee7209202375
 ```
 
 Put that value back in `Repository` (or in `PRINT_HANDY_IMAGE`) and recreate. If the container will not start on the new digest, put the digest you copied out of the template backup back instead of guessing a tag.
