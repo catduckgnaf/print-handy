@@ -4,7 +4,6 @@ No network, no actual printer, no model endpoint. These tests intentionally
 distinguish *component*, *plate*, *job number* and *physical print attempt*.
 """
 import json
-from pathlib import Path
 
 import pytest
 
