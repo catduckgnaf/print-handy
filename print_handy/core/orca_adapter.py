@@ -1221,11 +1221,17 @@ _BAMBU_NOT_INSTALLED = ('the Bambu Studio fallback slicer is not installed in th
                         'so there was no second attempt')
 
 
-def _run_slicer(command, name, folder):
+def _run_slicer(command, name, folder, timing_sink=None):
     """subprocess.run for a slicer, logging the command name, exit code and elapsed time.
 
     Arguments are not logged (they hold local paths and profile contents); the slicer's own output is
     kept in <folder>/orca.log or bambu.log, and a failure logs where to find it.
+
+    The elapsed seconds also land on ``result.elapsed_s`` and, when a
+    ``timing_sink`` list is given, in that list (#952): before this, the
+    slicer's time existed only in this log line, so TIMING.jsonl could not
+    split orca_begin -> orca_finalize_done into slicer time vs the Python
+    finalize/guard time around it.
     """
     started = time.monotonic()
     logger.info('%s run started folder=%s', name, folder)
@@ -1236,6 +1242,8 @@ def _run_slicer(command, name, folder):
         # already collects 00000.log from.
         result = _spawn_slicer(command, timeout=600, cwd=folder)
     except (subprocess.TimeoutExpired, OSError, resources.ResourceLimitError) as exc:
+        if timing_sink is not None:
+            timing_sink.append(time.monotonic() - started)
         logger.exception('%s did not complete after %.1fs', name, time.monotonic() - started)
         # Preserve partial output before background-slice cleanup removes the work
         # folder. Resource limits retain their own, more specific explanation.
@@ -1256,8 +1264,11 @@ def _run_slicer(command, name, folder):
         kind = 'timeout' if isinstance(exc, subprocess.TimeoutExpired) else 'launch'
         raise SliceFailure(f'{name} did not complete: {exc}; logs: {kept}',
                            kind=kind, slicer=name) from exc
+    result.elapsed_s = time.monotonic() - started
+    if timing_sink is not None:
+        timing_sink.append(result.elapsed_s)
     level = logging.WARNING if result.returncode else logging.INFO
-    logger.log(level, '%s run finished rc=%s in %.1fs', name, result.returncode, time.monotonic() - started)
+    logger.log(level, '%s run finished rc=%s in %.1fs', name, result.returncode, result.elapsed_s)
     if result.returncode:
         tail = (result.stdout + result.stderr).strip().splitlines()[-3:]
         logger.debug('%s output tail: %s', name, ' | '.join(tail))
@@ -1328,6 +1339,8 @@ def start_mesh_profile(state):
 
 
 def slice_model(source, folder, state, brim=None, first_layer=False, color_decisions=None, preserve_layout=False, filament_slot=None, item_shifts=None, fit_by_object=None, copies=None, scale=None, rotation=None, supports=None, object_ids=None, adapter=None, brim_policy=None, edits=None):
+    _slice_started = time.monotonic()
+    _slicer_runs = []  # elapsed seconds of each slicer subprocess, for the provenance timing split (#952)
     source, folder = Path(source), Path(folder)
     # An explicit adapter (a job prepared for another model) brings its own templates; the default keeps TEMPLATES.
     printer = adapter or printers.current()
@@ -2014,7 +2027,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         result = subprocess.CompletedProcess(command, 0, '', '')
     elif primary == 'flash_studio':
         _check_flash_studio_cli(command)
-        result = _run_slicer(command, 'Flash Studio', folder)
+        result = _run_slicer(command, 'Flash Studio', folder, timing_sink=_slicer_runs)
         (folder / 'flash-studio.log').write_text(result.stdout + result.stderr)
         if result.returncode or not output.is_file() or output.stat().st_size == 0:
             raise SliceFailure(f'Flash Studio slicing failed ({result.returncode}) or produced no G-code; '
@@ -2022,7 +2035,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
                                kind='engine', slicer='Flash Studio', returncode=result.returncode,
                                **_failure_evidence(folder))
     else:
-        result = _run_slicer(command, 'OrcaSlicer', folder)
+        result = _run_slicer(command, 'OrcaSlicer', folder, timing_sink=_slicer_runs)
         (folder / 'orca.log').write_text(result.stdout + result.stderr)
         if result.returncode:
             # Bounded recovery clamps only keys named in Orca's range error.
@@ -2030,7 +2043,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             fixed = clamp_rejected_settings(input_path, result.stdout + result.stderr)
             if fixed:
                 sanitized.update(fixed)
-                result = _run_slicer(command, 'OrcaSlicer', folder)
+                result = _run_slicer(command, 'OrcaSlicer', folder, timing_sink=_slicer_runs)
                 (folder / 'orca.log').write_text(result.stdout + result.stderr)
     if (primary == 'orca' and result.returncode and _orca_slicing_rejected(folder)
             and any(process.get(k) != v for k, v in FLEX_PROFILE.items())):
@@ -2054,7 +2067,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             rewritten.update(adopt_job_settings(input_path, {**machine, **process, **filament}))
         output.unlink(missing_ok=True)
         (folder / 'result.json').unlink(missing_ok=True)
-        result = _run_slicer(command, 'OrcaSlicer', folder)
+        result = _run_slicer(command, 'OrcaSlicer', folder, timing_sink=_slicer_runs)
         (folder / 'orca.log').write_text(result.stdout + result.stderr)
     if (primary == 'orca' and mapped_profile and result.returncode and _orca_conflict(folder)
             and (purge_plan is None or purge_plan.prime_tower)):
@@ -2067,7 +2080,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             configs[1].write_text(json.dumps(process, indent=2) + '\n')
             output.unlink(missing_ok=True)
             (folder / 'result.json').unlink(missing_ok=True)
-            result = _run_slicer(command, 'OrcaSlicer', folder)
+            result = _run_slicer(command, 'OrcaSlicer', folder, timing_sink=_slicer_runs)
             (folder / 'orca.log').write_text(result.stdout + result.stderr)
             tried.append([tower_x, tower_y])
             if not (result.returncode and _orca_conflict(folder)):
@@ -2170,7 +2183,7 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
             '--allow-newer-file', '--slice', '0', '--outputdir', str(folder), str(input_path),
         ]
         try:
-            bambu_result = _run_slicer(bambu_command, 'Bambu Studio', folder)
+            bambu_result = _run_slicer(bambu_command, 'Bambu Studio', folder, timing_sink=_slicer_runs)
         except SliceFailure as exc:
             # _run_slicer wraps a timeout or launch error as a SliceFailure (#665). Keep its kind, so a
             # timeout stays retryable and a launch failure does not, and say why the fallback ran.
@@ -2271,7 +2284,13 @@ def slice_model(source, folder, state, brim=None, first_layer=False, color_decis
         author, source_label=source_printer_label(author),
         target_label=getattr(printer, 'label', ''), limits=machine_limits(templates),
         aliases=machine_identity(templates))
+    _slicer_s = sum(_slicer_runs)
     return output, {'tool_mapping': mapping, 'source_sha256': digest(source), 'gcode_sha256': digest(output),
+                    # #952: the orca_begin -> orca_finalize_done interval, split. slicer_s is the
+                    # subprocess time; python_s is everything else slice_model did (profile
+                    # assembly, finalize, the post-slice guard reads).
+                    'timing_s': {'slicer_s': round(_slicer_s, 3),
+                                 'python_s': round(max(0.0, time.monotonic() - _slice_started - _slicer_s), 3)},
                     # The temperatures this artifact was sliced at, preserved so a
                     # later verify checks against them instead of re-resolving
                     # (a Spoolman outage at verify time would otherwise fall

@@ -259,6 +259,17 @@ for any blocking limit in the tested range (see Real-Orca runner noise below). I
 one-off costs. `must-shrink` and `stl-must-shrink` are left out on purpose: they take minutes and write a very large
 G-code, so they would measure disk and size search, not regressions, and would make the job slow.
 
+Neither leg measures a large plate (50 MB class), so neither can see the Python pass costs that dominate
+one of those (#925/#952). Set expectations accordingly: on a large plate, slice-time verification has **no
+fast path by design** — the bounds cache is cold for brand-new bytes and the verified-artifact skip applies
+only at print-now — and its dominant term is the semantic motion-bounds parse inside `verify_gcode`
+(measured on a synthetic 55 MB / 1.9M-line plate: the bounds parse alone is roughly two-thirds to
+three-quarters of the verify interval; the sub-1.5 s figure in #925's original proposal was not achievable
+for that parse and should not be quoted as an expectation). The wins #929 shipped for large plates live at
+print-now (the verified-artifact skip) and in packaging (head/tail metadata, zip level 1), not in the
+slice-time verify interval. Whether to add a large-plate case to the real-Orca leg is an open decision
+on #952.
+
 Noise controls in place: median of 3 repeats, per-case baselines (one heavy case cannot hide another's
 regression), absolute slack for tiny flows, the warm-up slice, and the fixed runner image (`ubuntu-24.04`). Not
 built yet: the same-job A/B against the merge base, and a control file to normalize runner speed. The stored
