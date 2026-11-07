@@ -5109,8 +5109,10 @@ async def model_link_dispatch(event, gateway, **kwargs):
     if not getattr(source, 'user_id', None) or not gateway._is_user_authorized_for_source(source):
         return None
     from print_handy.core.link_intake import model_link
-    from print_handy.core.prepared_intake import (prepare_link as collect_link, model_file, model_files,
+    from print_handy.core.prepared_intake import (prepare_link as collect_link, model_file,
                                                   reprint_request, last_printed_job)
+    from print_handy.core import prepared_intake as _intake_module
+    model_files = getattr(_intake_module, 'model_files', lambda event: [])
     from print_handy.core import yolo as _yolo
     text = getattr(event, 'text', '')
     reuse = None
