@@ -156,6 +156,8 @@ EXEMPTIONS = {
     ("timelapse", "vertical_short"): (frozenset({"webui"}), "#657"),
     ("timelapse", "vertical_short_mode"): (frozenset({"webui"}), "#657"),
     ("timelapse", "vertical_short_overlay"): (frozenset({"webui"}), "#657"),
+    # #1002 retired the LLM roast model (kept in OPTIONAL_KEYS so existing configs load).
+    ("vision", "roast_model"): (frozenset({"webui", "consumer"}), "#1002"),
     ("webui", "access_token_env"): (frozenset({"webui"}), "#286"),
     # Deliberately not editable from the Web UI it protects: turning auth
     # off is a file/env decision, never a click on the page it unlocks.

@@ -3592,7 +3592,7 @@ class Listener:
                         text += (f"\nAuto-pause (visual_watch.auto_pause_early): {streak} suspicious checks in a row "
                                  "in the early layers, so I am pausing the print. It is not cancelled.")
                     await asyncio.to_thread(_visual_alert, filename, image, text,
-                                            identity=identity, verdict=verdict)
+                                            identity=identity)
                     event_action = "auto_pause" if pause_now else "alert"
                     if pause_now:
                         # #913: the only automatic printer action, opt-in, once per print
