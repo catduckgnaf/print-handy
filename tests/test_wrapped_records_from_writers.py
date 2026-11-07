@@ -141,9 +141,11 @@ def test_wrapped_video_duration_matches_its_segments(tmp_path):
          "-of", "csv=p=0", result["path"]],
         capture_output=True, text=True, check=True)
     measured = float(probe.stdout.strip())
-    cards = len(wrapped_video._card_texts(wrapped))
-    expected = (cards * wrapped_video.CARD_SECONDS
-                + len(clips) * wrapped_video.CLIP_SECONDS)
+    # Phase 5 (#981) timeline: the slide arc, then ONE full-bleed footage
+    # moment (the first clip) and the remaining clips at CLIP_SECONDS each.
+    expected = (sum(s["duration"] for s in wrapped_video.build_slides(wrapped))
+                + wrapped_video.FOOTAGE_SECONDS
+                + (len(clips) - 1) * wrapped_video.CLIP_SECONDS)
     assert abs(measured - expected) <= 0.75, (
         f"compiled video runs {measured:.2f}s for segments totaling "
         f"{expected:.2f}s — the mixed-fps concat pacing is off")
