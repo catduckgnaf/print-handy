@@ -67,9 +67,6 @@ EXEMPTIONS = {
     ("ai", "chat"): (frozenset({"webui"}), "#818"),
     ("ai", "heavy"): (frozenset({"webui"}), "#818"),
     ("ai", "small"): (frozenset({"webui"}), "#818"),
-    # The cloud speech table (#981 step 4) is file-only like the tiers:
-    # it is a route table, not a page-click setting.
-    ("ai", "speech"): (frozenset({"webui"}), "#818"),
     ("bambu", "command"): (frozenset({"webui"}), "#657"),
     ("bambu", "lan_access_code_env"): (frozenset({"webui"}), "#286"),
     ("bambu", "start_confirm_s"): (frozenset({"webui"}), "#657"),
