@@ -10,7 +10,7 @@
 
 You do not need AI, and you do not need Discord. Every core flow works with no model endpoint at all, and if Discord is not your thing the same bot runs on Telegram or Matrix instead; the local Web UI covers status, settings and spools on the machine itself. The AI extras are optional add-ons, never the price of entry.
 
-Current release: **2.2.5**
+Current release: **2.2.6**
 
 [Get started](#get-started) · [See it in action](#see-it-in-action) · [Documentation](https://catduckgnaf.github.io/print-handy-docs/) · [Contribute](CONTRIBUTING.md) · [Releases](https://github.com/catduckgnaf/print-handy/releases)
 
