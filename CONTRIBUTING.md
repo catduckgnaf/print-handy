@@ -65,6 +65,7 @@ A line that must keep a British spelling (quoted upstream text, an exact identif
 - Link related issues. Use `Fixes #N` only when the pull request is intended to close that issue after merge.
 - Include test results and distinguish automated tests from manual or live checks. Do not include secrets or personal information in examples or logs.
 - Keep the PR in draft while implementation or required checks are incomplete. Respond to review feedback with focused updates.
+- Before merging, update the branch with `main` and wait for CI on that head. Required checks do not have to be up to date with `main`, so a green PR can still break `main`: #999 was green but tested before #988 renamed a function it used (#1017).
 
 ## Documentation and release notes
 

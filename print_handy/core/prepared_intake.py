@@ -4676,14 +4676,21 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                          'granted_at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'via': 'button'}
         receipt['status'] = 'START_REQUESTED'
         receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
-        print_no = json.loads(jp.read_text()).get('print_number')
+        # JOB.json keeps the job's FIRST print number, and this start mints its
+        # own at print-now. A job printed before is a reprint: name the newest
+        # earlier print from the launch registry, never as this start's number (#1017).
+        previous = None
+        with contextlib.suppress(Exception):
+            from ..hermes import print_control
+            previous = print_control.latest_number_for_job(jp)
         # Just the status: the estimate and slot mapping were on the confirmation the operator just answered.
         # The targets the uploaded file heats to, so a wrong temperature is caught before warmup.
         targets = ''
         with contextlib.suppress(Exception):
             from ..hermes.print_control import start_targets_text
             targets = start_targets_text(Path(first).read_text(errors='replace'))
-        prep_msg = ' · '.join(['Preparing to start'] + ([f'Print #{print_no}'] if print_no else [])
+        prep_msg = ' · '.join(['Preparing to start']
+                              + ([f'A reprint of print #{previous}; it gets its own new print number'] if previous else [])
                               + ([targets] if targets else []))
         mj._timing(jp, 'intake_start_tapped')
         receipt['retry_target'] = target
