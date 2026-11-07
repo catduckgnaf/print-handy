@@ -11,9 +11,7 @@ the engine stays small.
 Selection, in order:
 
 1. **Status first.** A failed, cancelled or spaghetti print draws only from
-   its status bank; success language never reaches a failed print. (Only
-   completed prints are wired in Phase 1; the status banks are shipped and
-   validated so the wiring can follow.)
+   its status bank; success language never reaches a failed print.
 2. **Title reaction** (a known keyword in the title, completed prints only),
    then **context** banks (overnight, long, heavy, repeat, short — each only
    when the fact it talks about is actually known), then the **generic**
@@ -50,17 +48,20 @@ from typing import Any, Mapping
 CORPUS_PACKAGE = "print_handy"
 CORPUS_DIR = ("data", "roasts")
 SLOTS = ("title", "duration", "material", "color", "grams", "printer",
-         "copies", "print_number", "times", "hour")
+         "copies", "print_number", "times", "hour", "last_title",
+         "prev_fails", "fail_streak", "color_streak", "top_color")
 STATUSES = ("completed", "failed", "cancelled", "spaghetti")
 STATUS_BANKS = {"failed": "failed", "cancelled": "cancelled", "spaghetti": "spaghetti"}
 # Context banks in precedence order, each with the fact it is about.
 CONTEXT_BANKS = ("overnight", "long_print", "heavy_filament", "repeat_print", "short_print")
-TEMPLATE_BANKS = ("generic",) + CONTEXT_BANKS + tuple(STATUS_BANKS.values())
+TEMPLATE_BANKS = ("generic", "dark_humor") + CONTEXT_BANKS + tuple(STATUS_BANKS.values())
 
 MAX_WORDS = 20
 MAX_CHARS = 200
 TITLE_MAX_CHARS = 40
 TITLE_MAX_WORDS = 6
+LAST_TITLE_MAX_CHARS = 28
+LAST_TITLE_MAX_WORDS = 4
 HISTORY_WINDOW = 200
 CHOSEN_KEEP = 200
 LONG_PRINT_S = 6 * 3600
@@ -69,9 +70,36 @@ OVERNIGHT_HOURS = range(0, 6)
 OVERNIGHT_MIN_S = 2 * 3600
 HEAVY_GRAMS = 150
 
+COLOR_FAMILIES = (
+    "rainbow", "silk", "neon", "glow", "clear", "gold", "silver", "copper",
+    "beige", "brown", "pink", "purple", "orange", "yellow", "green", "blue",
+    "red", "gray", "white", "black"
+)
+COLOR_SYNONYMS = {
+    "grey": "gray", "charcoal": "gray", "slate": "gray", "ash": "gray",
+    "tan": "beige", "khaki": "beige", "skin": "beige", "flesh": "beige",
+    "ivory": "beige", "cream": "beige", "bone": "beige",
+    "coffee": "brown", "chocolate": "brown", "wood": "brown",
+    "terracotta": "brown", "bronze": "brown",
+    "translucent": "clear", "transparent": "clear", "natural": "clear",
+    "magenta": "purple", "violet": "purple", "lavender": "purple",
+    "crimson": "red", "burgundy": "red", "scarlet": "red", "maroon": "red",
+    "cyan": "blue", "teal": "blue", "turquoise": "blue", "navy": "blue",
+    "cobalt": "blue", "sky": "blue",
+    "lime": "green", "olive": "green", "mint": "green", "forest": "green",
+    "emerald": "green",
+}
+
 _SLOT_RE = re.compile(r"\{(\w+)\}")
 _HASHTAG_RE = re.compile(r"#(?!\d)\w")
 _SENTENCE_BREAK_RE = re.compile(r"[.!?]\s+\S")
+
+_COMMON_NON_KEYWORDS = frozenset({
+    "widget", "widgets", "thing", "things", "object", "objects", "part", "parts",
+    "model", "models", "print", "prints", "file", "files", "item", "items",
+    "piece", "pieces", "test", "tests", "sample", "samples"
+})
+
 
 
 class CorpusError(RuntimeError):
@@ -93,34 +121,125 @@ def _read_bank(name: str) -> Any:
     return payload["entries"]
 
 
+def _read_bank_optional(name: str) -> Any:
+    try:
+        ref = resources.files(CORPUS_PACKAGE).joinpath(*CORPUS_DIR, f"{name}.json")
+        payload = json.loads(ref.read_text(encoding="utf-8"))
+        if isinstance(payload, dict) and "entries" in payload:
+            return payload["entries"]
+        if isinstance(payload, dict):
+            return payload
+    except (FileNotFoundError, OSError, ValueError, TypeError, json.JSONDecodeError):
+        pass
+    return None
+
+
 @functools.lru_cache(maxsize=1)
 def load_corpus() -> dict[str, Any]:
     """The whole corpus: {"banks": {name: [(id, text)]}, "title_reactions":
-    {keyword: [(id, text)]}, "fragments": {...}, "blocklist": [...], "version"}."""
+    {keyword: [(id, text)]}, "fragments": {...}, "blocklist": [...],
+    "color_roasts": {...}, "reprint_failed": {...}, "history_callbacks": {...},
+    "dictionary": {...}, "dictionary_lookup": {...}, "version": digest}."""
     banks: dict[str, list[tuple[str, str]]] = {}
     for name in TEMPLATE_BANKS + ("one_liners",):
+        if name == "dark_humor":
+            opt = _read_bank_optional(name)
+            if isinstance(opt, list) and all(isinstance(r, str) and r.strip() for r in opt):
+                banks[name] = [(entry_id(name, r), r) for r in opt]
+            else:
+                banks[name] = []
+            continue
         rows = _read_bank(name)
         if not isinstance(rows, list) or not all(isinstance(r, str) and r.strip() for r in rows):
             raise CorpusError(f"roast bank {name}.json must be a list of non-empty strings")
         banks[name] = [(entry_id(name, r), r) for r in rows]
+
     reactions_raw = _read_bank("title_reactions")
     if not isinstance(reactions_raw, dict):
         raise CorpusError("title_reactions.json entries must map keyword -> list")
     reactions = {str(k).lower(): [(entry_id(f"title:{k}", r), r) for r in v]
                  for k, v in reactions_raw.items()}
+
     fragments = _read_bank("fragments")
     blocklist = [str(w).lower() for w in _read_bank("blocklist")]
-    digest = hashlib.sha1(json.dumps([banks, reactions, fragments], sort_keys=True)
-                          .encode("utf-8")).hexdigest()[:12]
-    return {"banks": banks, "title_reactions": reactions, "fragments": fragments,
-            "blocklist": blocklist, "version": digest}
+
+    color_raw = _read_bank_optional("color_roasts")
+    color_roasts: dict[str, list[tuple[str, str]]] = {}
+    if isinstance(color_raw, dict):
+        color_roasts = {
+            str(k).lower(): [(entry_id(f"color:{k}", r), r) for r in rows if isinstance(r, str) and r.strip()]
+            for k, rows in color_raw.items() if isinstance(rows, list)
+        }
+
+    reprint_raw = _read_bank_optional("reprint_failed")
+    reprint_failed: dict[str, list[tuple[str, str]]] = {}
+    if isinstance(reprint_raw, dict):
+        reprint_failed = {
+            str(k).lower(): [(entry_id(f"reprint_failed:{k}", r), r) for r in rows if isinstance(r, str) and r.strip()]
+            for k, rows in reprint_raw.items() if isinstance(rows, list)
+        }
+
+    history_raw = _read_bank_optional("history_callbacks")
+    history_callbacks: dict[str, list[tuple[str, str]]] = {}
+    if isinstance(history_raw, dict):
+        history_callbacks = {
+            str(k).lower(): [(entry_id(f"history:{k}", r), r) for r in rows if isinstance(r, str) and r.strip()]
+            for k, rows in history_raw.items() if isinstance(rows, list)
+        }
+
+    dictionary_raw = _read_bank_optional("dictionary")
+    dictionary: dict[str, Any] = dictionary_raw if isinstance(dictionary_raw, dict) else {}
+
+    dict_lookup: dict[str, str] = {}
+    categories = dictionary.get("categories") if isinstance(dictionary.get("categories"), dict) else {}
+    for cat_terms in categories.values():
+        if not isinstance(cat_terms, list):
+            continue
+        for entry in cat_terms:
+            if not isinstance(entry, dict):
+                continue
+            tag = entry.get("roast_tag")
+            term = entry.get("term")
+            target = None
+            if isinstance(tag, str) and tag.lower() in reactions:
+                target = tag.lower()
+            elif isinstance(term, str) and term.lower() in reactions:
+                target = term.lower()
+            if target:
+                keys = [term] + list(entry.get("aliases") or []) + list(entry.get("typos") or [])
+                for k in keys:
+                    if isinstance(k, str) and k.strip():
+                        dict_lookup[k.strip().lower()] = target
+
+    digest = hashlib.sha1(json.dumps([banks, reactions, fragments, color_roasts,
+                                      reprint_failed, history_callbacks, dictionary],
+                                     sort_keys=True).encode("utf-8")).hexdigest()[:12]
+    return {
+        "banks": banks, "title_reactions": reactions, "fragments": fragments,
+        "blocklist": blocklist, "color_roasts": color_roasts,
+        "reprint_failed": reprint_failed, "history_callbacks": history_callbacks,
+        "dictionary": dictionary, "dictionary_lookup": dict_lookup,
+        "version": digest,
+    }
 
 
 def corpus_size() -> int:
-    """Entries a roast can actually be drawn from (templates, one-liners, reactions)."""
+    """Entries a roast can actually be drawn from (templates, one-liners, reactions, color, reprint, history)."""
     corpus = load_corpus()
     return (sum(len(v) for v in corpus["banks"].values())
-            + sum(len(v) for v in corpus["title_reactions"].values()))
+            + sum(len(v) for v in corpus["title_reactions"].values())
+            + sum(len(v) for v in corpus.get("color_roasts", {}).values())
+            + sum(len(v) for v in corpus.get("reprint_failed", {}).values())
+            + sum(len(v) for v in corpus.get("history_callbacks", {}).values()))
+
+
+def dictionary_size() -> int:
+    """Total number of terms defined in dictionary.json."""
+    corpus = load_corpus()
+    cats = corpus.get("dictionary", {}).get("categories", {})
+    if not isinstance(cats, dict):
+        return 0
+    return sum(len(v) for v in cats.values() if isinstance(v, list))
 
 
 # ---------------------------------------------------------------- context
@@ -158,6 +277,42 @@ def scrub_title(title: Any) -> str:
     return out
 
 
+def scrub_last_title(title: Any) -> str:
+    """A prior print's title safe to put alongside the current title in a template, or "".
+
+    Bounded to 4 words and 28 characters so {last_title} and {title} templates always
+    fit inside the 20-word roast contract.
+    """
+    clean = scrub_title(title)
+    if not clean:
+        return ""
+    words = clean.split()
+    if len(words) > LAST_TITLE_MAX_WORDS:
+        words = words[:LAST_TITLE_MAX_WORDS]
+    out = ""
+    for word in words:
+        candidate = f"{out} {word}".strip()
+        if len(candidate) > LAST_TITLE_MAX_CHARS:
+            break
+        out = candidate
+    return out
+
+
+def color_family_keys(color_str: str) -> list[str]:
+    """Color families matched from raw/cleaned color name."""
+    if not color_str:
+        return []
+    tokens = re.findall(r"[a-z0-9]+", color_str.lower())
+    matched = []
+    seen = set()
+    for tok in tokens:
+        family = tok if tok in COLOR_FAMILIES else COLOR_SYNONYMS.get(tok)
+        if family and family not in seen:
+            seen.add(family)
+            matched.append(family)
+    return matched
+
+
 def _clean_value(value: Any, limit: int = 24) -> str:
     text = scrub_title(value)
     return text if 0 < len(text) <= limit else ""
@@ -181,7 +336,10 @@ def hour_label(hour: int) -> str:
 def build_context(title: Any, *, duration_s: Any = None, material: Any = None, color: Any = None,
                   grams: Any = None, printer: Any = None, copies: Any = None,
                   print_number: Any = None, times: Any = None,
-                  finish_hour: Any = None) -> dict[str, Any]:
+                  finish_hour: Any = None,
+                  last_title: Any = None, prev_fails: Any = None,
+                  fail_streak: Any = None, color_streak: Any = None,
+                  top_color: Any = None) -> dict[str, Any]:
     """The roast context: slot strings plus the raw facts the banks gate on.
 
     A fact that is unknown, zero or unusable is simply absent, so no
@@ -212,6 +370,26 @@ def build_context(title: Any, *, duration_s: Any = None, material: Any = None, c
     if isinstance(finish_hour, int) and not isinstance(finish_hour, bool) and 0 <= finish_hour <= 23:
         ctx["hour"] = hour_label(finish_hour)
         facts["hour"] = finish_hour
+
+    # History & color slots
+    clean_last = scrub_last_title(last_title)
+    if clean_last and clean_last.casefold() != (ctx.get("title") or "").casefold():
+        ctx["last_title"] = clean_last
+        facts["last_title"] = clean_last
+    if isinstance(prev_fails, int) and not isinstance(prev_fails, bool) and prev_fails >= 1:
+        ctx["prev_fails"] = str(prev_fails)
+        facts["prev_fails"] = prev_fails
+    if isinstance(fail_streak, int) and not isinstance(fail_streak, bool) and fail_streak >= 2:
+        ctx["fail_streak"] = str(fail_streak)
+        facts["fail_streak"] = fail_streak
+    if isinstance(color_streak, int) and not isinstance(color_streak, bool) and color_streak >= 3:
+        ctx["color_streak"] = str(color_streak)
+        facts["color_streak"] = color_streak
+    cleaned_top = _clean_value(top_color)
+    if cleaned_top:
+        ctx["top_color"] = cleaned_top
+        facts["top_color"] = cleaned_top
+
     return ctx
 
 
@@ -233,35 +411,67 @@ def _context_banks(ctx: Mapping[str, Any]) -> list[str]:
 
 
 def _title_keywords(ctx: Mapping[str, Any], corpus: Mapping[str, Any]) -> list[str]:
-    """Title-reaction keywords this title names, best first.
-
-    Matching goes through the shared fuzzy layer (core.fuzzy), the same
-    fold and typo handling every other matcher in Print Handy uses: the
-    title is folded with ``typo_fold`` (casefold, accents, the curated
-    misspelling table), keywords match on word boundaries with an
-    optional plural, and a single-word keyword also matches a bounded
-    misspelling through ``token_match`` ("Benchie", "dragn"). Short words
-    match exactly only, as everywhere in fuzzy.
-    """
+    """Title-reaction keywords this title names, best first."""
     from . import fuzzy
 
     raw = str(ctx.get("title") or "")
     if not raw:
         return []
     folded = fuzzy.typo_fold(raw)
+    tokens = [w for w in folded.split() if w not in _COMMON_NON_KEYWORDS]
+    fuzzy_target = " ".join(tokens)
     singles = {fuzzy.norm(k) for k in corpus["title_reactions"] if " " not in k}
-    # The plain-language task router's second pass: misspelled words fixed
-    # against this vocabulary (bounded, unique nearest word only).
-    corrected = fuzzy.correct_typos(folded, singles)
+    corrected = fuzzy.correct_typos(fuzzy_target, singles) if fuzzy_target else ""
     hits = []
     for keyword in corpus["title_reactions"]:
         key = fuzzy.norm(keyword)
-        pattern = rf"(?<![a-z0-9]){re.escape(key)}(?:s|es)?(?![a-z0-9])"
-        if re.search(pattern, folded) or re.search(pattern, corrected):
+        if key in folded or (corrected and key in corrected):
+            pattern = rf"(?<![a-z0-9]){re.escape(key)}(?:s|es)?(?![a-z0-9])"
+            if re.search(pattern, folded) or (corrected and re.search(pattern, corrected)):
+                hits.append(keyword)
+        elif fuzzy_target and " " not in key and len(key) >= 5 and fuzzy.token_match(fuzzy_target, [key])[1] == key:
             hits.append(keyword)
-        elif " " not in key and len(key) >= 5 and fuzzy.token_match(folded, [key])[1] == key:
-            hits.append(keyword)
-    return sorted(hits, key=lambda k: (-len(k), k))
+    dict_lookup = corpus.get("dictionary_lookup") or {}
+    for term_key, target in dict_lookup.items():
+        key = fuzzy.norm(term_key)
+        if key in folded or (corrected and key in corrected):
+            pattern = rf"(?<![a-z0-9]){re.escape(key)}(?:s|es)?(?![a-z0-9])"
+            if re.search(pattern, folded) or (corrected and re.search(pattern, corrected)):
+                hits.append(target)
+    return sorted(set(hits), key=lambda k: (-len(k), k))
+
+
+def _framed_entries(ctx: Mapping[str, Any], corpus: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """Deterministically assemble framed templates from fragments."""
+    fragments = corpus.get("fragments") or {}
+    openers = fragments.get("openers") or []
+    comparisons = fragments.get("comparisons") or []
+    compliments = fragments.get("compliments") or []
+    verdicts = fragments.get("verdicts") or []
+    if not (openers and comparisons and compliments and verdicts):
+        return []
+    out = []
+    n_comp = len(comparisons)
+    n_cpl = len(compliments)
+    n_vrd = len(verdicts)
+    for i, raw_opener in enumerate(openers):
+        clean_op = raw_opener.rstrip(" ,:")
+        # Style 1: opener + comparison
+        comp = comparisons[(i * 7 + 3) % n_comp]
+        if "{title}" in raw_opener:
+            tmpl1 = f"{clean_op} looks {comp}."
+        else:
+            tmpl1 = f"{clean_op}, {{title}} looks {comp}."
+        out.append((entry_id("framed", tmpl1), tmpl1))
+        # Style 2: opener + compliment + verdict
+        cpl = compliments[(i * 7 + 3) % n_cpl]
+        vrd = verdicts[(i * 7 + 3) % n_vrd]
+        if "{title}" in raw_opener:
+            tmpl2 = f"{clean_op} {cpl}, {vrd}"
+        else:
+            tmpl2 = f"{clean_op}, {{title}} {cpl}, {vrd}"
+        out.append((entry_id("framed", tmpl2), tmpl2))
+    return out
 
 
 def candidate_pools(ctx: Mapping[str, Any], status: str = "completed",
@@ -270,12 +480,47 @@ def candidate_pools(ctx: Mapping[str, Any], status: str = "completed",
     corpus = corpus or load_corpus()
     if status not in STATUSES:
         return []
+    facts = ctx.get("_facts") or {}
+    prev_fails = facts.get("prev_fails") or 0
+    fail_streak = facts.get("fail_streak") or 0
+
     if status != "completed":
+        out: list[tuple[str, list[tuple[str, str]]]] = []
+        if prev_fails >= 1 and corpus.get("reprint_failed", {}).get("failed"):
+            out.append(("reprint_failed:failed", corpus["reprint_failed"]["failed"]))
+        if fail_streak >= 2 and corpus.get("history_callbacks", {}).get("fail_streak"):
+            out.append(("history:fail_streak", corpus["history_callbacks"]["fail_streak"]))
         bank = STATUS_BANKS[status]
-        return [(bank, corpus["banks"][bank])]
-    pools = [(f"title:{k}", corpus["title_reactions"][k]) for k in _title_keywords(ctx, corpus)]
-    pools += [(name, corpus["banks"][name]) for name in _context_banks(ctx)]
-    pools.append(("generic", corpus["banks"]["generic"] + corpus["banks"]["one_liners"]))
+        out.append((bank, corpus["banks"][bank]))
+        return out
+
+    pools: list[tuple[str, list[tuple[str, str]]]] = []
+    if prev_fails >= 1 and corpus.get("reprint_failed", {}).get("completed"):
+        pools.append(("reprint_failed:completed", corpus["reprint_failed"]["completed"]))
+
+    for k in _title_keywords(ctx, corpus):
+        pools.append((f"title:{k}", corpus["title_reactions"][k]))
+
+    for name in _context_banks(ctx):
+        pools.append((name, corpus["banks"][name]))
+
+    if "last_title" in ctx and corpus.get("history_callbacks", {}).get("previous_print"):
+        pools.append(("history:previous_print", corpus["history_callbacks"]["previous_print"]))
+
+    color_streak = facts.get("color_streak") or 0
+    if color_streak >= 3 and corpus.get("color_roasts", {}).get("streak"):
+        pools.append(("color:streak", corpus["color_roasts"]["streak"]))
+
+    raw_color = str(ctx.get("color") or "")
+    for ckey in color_family_keys(raw_color):
+        if corpus.get("color_roasts", {}).get(ckey):
+            pools.append((f"color:{ckey}", corpus["color_roasts"][ckey]))
+
+    generic_pool = (corpus["banks"]["generic"]
+                    + corpus["banks"].get("dark_humor", [])
+                    + corpus["banks"]["one_liners"]
+                    + _framed_entries(ctx, corpus))
+    pools.append(("generic", generic_pool))
     return pools
 
 
@@ -434,5 +679,5 @@ def _roast(ctx, *, status, key, state_path, rng):
 
 
 __all__ = ["SLOTS", "STATUSES", "CorpusError", "build_context", "candidate_pools",
-           "contract_problem", "corpus_size", "entry_id", "load_corpus", "render",
-           "roast", "scrub_title"]
+           "color_family_keys", "contract_problem", "corpus_size", "dictionary_size",
+           "entry_id", "load_corpus", "render", "roast", "scrub_last_title", "scrub_title"]

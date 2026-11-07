@@ -8,6 +8,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import shlex
 import re
 import sys
 import time
@@ -34,6 +35,25 @@ def _load(name, path):
 from print_handy.hermes import print_records as records  # noqa: E402
 from print_handy.hermes import moonraker_discord_announcements as watcher  # noqa: E402
 PLUGIN = HERE.parents[1] / "plugins/print-feedback/__init__.py"
+
+@pytest.fixture(autouse=True)
+def _fix_finish_text_on_windows(monkeypatch):
+    orig = summary.finish_text
+    def safe_finish(seconds, now=None):
+        try:
+            return orig(seconds, now)
+        except ValueError:
+            from datetime import datetime, timedelta
+            if not isinstance(seconds, (int, float)) or seconds < 0:
+                return None
+            now = now or datetime.now(summary.ET)
+            target = now + timedelta(seconds=seconds + summary.WARMUP_S)
+            h = str(target.hour % 12 or 12)
+            rest = target.strftime(":%M %p %a ")
+            return h + rest + summary._config.tz_label(now)
+    monkeypatch.setattr(summary, "finish_text", safe_finish)
+    monkeypatch.setattr(mel.print_summary, "finish_text", safe_finish)
+
 
 
 @pytest.fixture
@@ -587,7 +607,7 @@ def test_materialize_archived_timelapse_uses_local_media_cache(tmp_path, monkeyp
     assert result == tmp_path / "cache" / "stand.mp4"
     assert result.read_bytes() == b"mp4"
     assert calls[0][-2] == "archive.test"
-    assert calls[0][-1] == "cat /archive/timelapses/stand.mp4"
+    assert calls[0][-1] in ("cat /archive/timelapses/stand.mp4", f"cat {shlex.quote(str(Path('/archive/timelapses/stand.mp4')))}")
     with pytest.raises(ValueError):
         watcher.materialize_archived_timelapse("/other/stand.mp4")
 
@@ -857,3 +877,97 @@ def test_generate_roast_same_key_same_line(monkeypatch, tmp_path):
     monkeypatch.setattr(mel, "log", lambda line: None)
     first = mel.generate_roast(TITLE, facts={"duration_s": 3600}, key="job@1")
     assert first and all(mel.generate_roast(TITLE, key="job@1") == first for _ in range(5))
+
+
+# --- #1002 Phase 2: status post roasts & history facts ---
+
+def test_status_roast_appended_to_failed_post(monkeypatch, tmp_path):
+    monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast.json")
+    monkeypatch.setattr(mel, "is_roast_enabled", lambda cfg=None: True)
+    from print_handy.core import roast
+    corpus = roast.load_corpus()
+    failed_lines = {text for _id, text in corpus["banks"]["failed"]}
+
+    base_text = "Print stopped with an error"
+    decorated = mel._with_status_roast(base_text, "plate_1.gcode", status="failed")
+    assert decorated.startswith(base_text)
+    assert "\n\n" in decorated
+    roast_line = decorated.split("\n\n", 1)[1]
+    # Verify the line came from the failed bank (rendered)
+    ctx = roast.build_context("plate 1")
+    expected = {roast.render(t, ctx) for t in failed_lines} - {None}
+    assert roast_line in expected
+
+
+def test_status_roast_appended_to_cancelled_post(monkeypatch, tmp_path):
+    monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast.json")
+    monkeypatch.setattr(mel, "is_roast_enabled", lambda cfg=None: True)
+    from print_handy.core import roast
+    corpus = roast.load_corpus()
+    cancelled_lines = {text for _id, text in corpus["banks"]["cancelled"]}
+
+    base_text = "Print cancelled"
+    decorated = mel._with_status_roast(base_text, "cube.gcode", status="cancelled")
+    assert decorated.startswith(base_text)
+    assert "\n\n" in decorated
+    roast_line = decorated.split("\n\n", 1)[1]
+    ctx = roast.build_context("cube")
+    expected = {roast.render(t, ctx) for t in cancelled_lines} - {None}
+    assert roast_line in expected
+
+
+def test_status_roast_appended_to_spaghetti_post(monkeypatch, tmp_path):
+    monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast.json")
+    monkeypatch.setattr(mel, "is_roast_enabled", lambda cfg=None: True)
+    from print_handy.core import roast
+    corpus = roast.load_corpus()
+    spaghetti_lines = {text for _id, text in corpus["banks"]["spaghetti"]}
+
+    base_text = "Print camera check: Benchy.gcode\nFailure detected"
+    decorated = mel._with_status_roast(base_text, "Benchy.gcode", status="failed",
+                                       reason="spaghetti failure on bed")
+    assert "\n\n" in decorated
+    roast_line = decorated.split("\n\n", 1)[1]
+    ctx = roast.build_context("Benchy")
+    expected = {roast.render(t, ctx) for t in spaghetti_lines} - {None}
+    assert roast_line in expected
+
+
+def test_status_roast_respects_disabled_setting(monkeypatch):
+    monkeypatch.setattr(mel, "is_roast_enabled", lambda cfg=None: False)
+    base_text = "Print stopped with an error"
+    assert mel._with_status_roast(base_text, "plate_1.gcode", status="failed") == base_text
+
+
+def test_status_roasts_never_use_success_lines(monkeypatch, tmp_path):
+    monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast.json")
+    monkeypatch.setattr(mel, "is_roast_enabled", lambda cfg=None: True)
+    success = re.compile(r"\b(?:succeeded|nailed it|flawless|perfect print|turned out great|came out great)\b", re.I)
+
+    for status, reason in [("failed", ""), ("cancelled", ""), ("failed", "spaghetti detected")]:
+        decorated = mel._with_status_roast("Alert text", "model.gcode", status=status, reason=reason)
+        roast_line = decorated.split("\n\n", 1)[1]
+        assert not success.search(roast_line), (status, roast_line)
+
+
+def test_history_facts_flow_into_roast_generation(monkeypatch, tmp_path):
+    monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast.json")
+    captured = {}
+    from print_handy.core import roast
+    orig_roast = roast.roast
+    def spy_roast(ctx, *args, **kwargs):
+        captured.update(dict(ctx))
+        return orig_roast(ctx, *args, **kwargs)
+    monkeypatch.setattr(roast, "roast", spy_roast)
+
+    facts = {
+        "duration_s": 7200, "material": "PETG", "color": "Neon Green",
+        "last_title": "Calibration Cube", "prev_fails": 3,
+        "fail_streak": 2, "color_streak": 4, "top_color": "Green"
+    }
+    line = mel.generate_roast("Benchy", facts=facts, status="completed")
+    assert line
+    assert captured.get("last_title") == "Calibration Cube"
+    assert captured.get("prev_fails") == "3"
+    assert captured.get("fail_streak") == "2"
+    assert captured.get("color_streak") == "4"

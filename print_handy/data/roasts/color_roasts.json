@@ -1,0 +1,196 @@
+{
+  "_about": "Filament color and finish roasts keyed by normalized color family, plus color-streak roasts (#1002 Phase 2). Non-racist, strictly about thermoplastic aesthetics.",
+  "_phase": 2,
+  "_license": "CC0-1.0",
+  "entries": {
+    "black": [
+      "Matte black tactical plastic, perfectly designed to conceal horrifying layer shifts.",
+      "{title} in tactical black looks like a prototype stealth bomber with flaws.",
+      "Choosing black filament ensures every speck of dust acts as a high-contrast beacon.",
+      "Printing {title} in void black because fixing slicer seams was too much work.",
+      "Matte black: the universal camouflage for terrifying dimensional inaccuracies.",
+      "That black finish gives {title} the brooding energy of an unpainted batmobile part.",
+      "Printing in black filament turns {title} into a certified static dust collector."
+    ],
+    "white": [
+      "Printing {title} in pristine white guarantees finger smudge patina within ten minutes.",
+      "That stark white plastic will be an attractive nicotine yellow by next winter.",
+      "White filament: showing off every single under-extrusion flaw in vivid high definition.",
+      "{title} in appliance white has the distinct visual charm of dental equipment.",
+      "White PLA: for when you want your print to look like a generic pharmacy bottle.",
+      "Enjoy that bright white hue before UV light turns {title} vintage beige.",
+      "Printing {title} in refrigerator white makes every shadow and seam pop painfully."
+    ],
+    "gray": [
+      "Unpainted miniature primer gray, the official color of abandoned hobby backlogs.",
+      "{title} in industrial gray has all the emotional warmth of Soviet brutalism.",
+      "Printing {title} in flat gray ensures it blends seamlessly into basement concrete.",
+      "That shade of battleship gray screams replacement plumbing bracket, not art.",
+      "Gray filament: because committing to an actual color felt far too reckless.",
+      "Behold {title} in primer gray, forever waiting for a paint coat that will never come.",
+      "The dreary gray aesthetic makes {title} look like a forgotten prototype from 1982."
+    ],
+    "beige": [
+      "1995 office computer tower beige: the peak of beige aesthetic depression.",
+      "{title} printed in orthopedic hearing-aid tan carries immense waiting-room energy.",
+      "That khaki shade makes {title} look like an estate-sale filing cabinet accessory.",
+      "Printing {title} in stale biscuit beige to achieve maximum cubicle sadness.",
+      "Beige plastic: transforming modern additive manufacturing into a 1988 floppy disk drive.",
+      "That drab tan hue gives {title} the thrilling visual presence of wet cardboard.",
+      "Nothing says cutting-edge technology like the depressing tone of vintage masking tape."
+    ],
+    "brown": [
+      "Nocturnal nozzle clump brown: always a bold decorative choice for {title}.",
+      "Printing {title} in mud brown gives it the unmistakable appeal of melted cardboard.",
+      "That chocolate spool makes {title} look suspiciously organic and deeply questionable.",
+      "Brown filament turns every fine detail into something resembling dried potting soil.",
+      "{title} in sewer pipe brown brings vintage septic elegance into your living room.",
+      "Choosing brown plastic ensures your print looks like a forgotten backyard stick.",
+      "That dark brown finish guarantees guests will ask whether {title} was found under the couch."
+    ],
+    "red": [
+      "Fire alarm red, ensuring nobody can overlook any single printing imperfection.",
+      "Printing {title} in red because subtlety was never an available slicer setting.",
+      "That bright red plastic screams high school hall pass from a mile away.",
+      "Red filament gives {title} the dignified presence of a plastic gas can cap.",
+      "Printing {title} in sports car red does not make the layer lines print any faster.",
+      "That ketchup red hue turns fine detailing into a loud plastic emergency.",
+      "Red plastic: for when you want your functional print to look like cheap holiday clearance."
+    ],
+    "blue": [
+      "Painter tape blue: the official color of hasty workshop repairs and temporary fixes.",
+      "Printing {title} in municipal recycling bin blue guarantees zero aesthetic compliments.",
+      "That royal blue shade gives {title} the stately grace of a plastic kiddie pool.",
+      "Blue plastic: transforming {title} into an obvious hardware store plumbing accessory.",
+      "Printing in bright blue makes {title} look like a discarded plastic bottle cap.",
+      "That cold blue hue ensures {title} matches nothing else in your entire home.",
+      "Behold {title} in tarp blue, an enduring monument to budget utility filament."
+    ],
+    "green": [
+      "Lawn sprinkler green: for when {title} needs to hide inside the weeds forever.",
+      "Printing {title} in military surplus green because you ran out of sensible spools.",
+      "That murky green plastic makes {title} look like a forgotten garden hose nozzle.",
+      "Green filament gives {title} the irresistible charm of a plastic army soldier toy.",
+      "Printing in pickle green turns your high-tech model into an agricultural spare part.",
+      "That forest green hue makes {title} look like synthetic pine needles from an artificial tree.",
+      "Green plastic ensures {title} will disappear the moment you drop it in the lawn."
+    ],
+    "yellow": [
+      "Industrial caution yellow, warning everyone that {title} may be structurally unsound.",
+      "Printing {title} in school bus yellow guarantees visibility from low earth orbit.",
+      "That garish yellow plastic gives {title} the sleek aesthetic of a construction cone.",
+      "Yellow filament: because you wanted your print to look like a vintage taxi cab fender.",
+      "Printing {title} in mustard yellow makes even successful layers look faintly nauseous.",
+      "That blinding yellow tone ensures {title} cannot be hidden away in any dark closet.",
+      "Caution tape yellow gives {title} the look of a temporary safety violation."
+    ],
+    "orange": [
+      "Hunting vest neon orange: keeping {title} safe from confused deer in the living room.",
+      "Printing {title} in highway traffic barrel orange was certainly a decorative choice.",
+      "That aggressive orange plastic gives {title} the timeless dignity of an extension cord.",
+      "Orange filament ensures {title} looks like a free giveaway item from a hardware expo.",
+      "Printing in pumpkin orange makes {title} look like cheap Halloween bucket leftovers.",
+      "That loud orange hue guarantees {title} will aggressively clash with every surrounding wall.",
+      "Behold {title} in orange, resembling a forgotten safety cone on the side of a road."
+    ],
+    "purple": [
+      "Printing {title} in wizard robe purple because subtle restraint is completely overrated.",
+      "That grape soda purple plastic gives {title} the sophisticated aura of a cartoon villain.",
+      "Purple filament: transforming functional engineering into an eccentric candy accessory.",
+      "Printing {title} in dark purple makes the layer seams look like melted fruit leather.",
+      "That vivid purple shade ensures {title} looks like a rejected novelty bowling ball.",
+      "Purple PLA brings the majestic elegance of a 90s bowling alley carpet to your desk.",
+      "{title} in synthetic royal purple looks like costume jewelry from a carnival prize booth."
+    ],
+    "pink": [
+      "Bubblegum pink: giving {title} the subtle, understated presence of a flamingo lawn ornament.",
+      "Printing {title} in flamingo pink ensures every single visitor will ask confusing questions.",
+      "That pastel pink hue makes {title} look like a chewed wad of synthetic candy.",
+      "Pink filament turns structural engineering into an accidental dollhouse accessory.",
+      "Printing in neon pink gives {title} the refined aesthetic of a retro roller rink.",
+      "That cotton candy pink plastic guarantees {title} will never be taken seriously.",
+      "{title} in bright pink belongs in a discount toy aisle."
+    ],
+    "gold": [
+      "Fake trophy gold: celebrating participation in the act of consuming electricity.",
+      "Printing {title} in carnival prize gold does not make it a first place achievement.",
+      "That cheap metallic luster gives {title} the glorious sheen of chocolate coin foil.",
+      "Silk gold filament: turning {title} into an opulent plastic paperweight.",
+      "Printing in shiny fake gold makes {title} look like a budget casino souvenir.",
+      "That imitation gold finish screams gift shop trinket with zero intrinsic value.",
+      "{title} in dollar-store gold looks like royalty on a severe plastic budget."
+    ],
+    "silver": [
+      "Fake aluminum sheen: fooling nobody into believing {title} was machined from billet.",
+      "Printing {title} in budget silver gives it the futuristic glory of a cheap thermos cap.",
+      "That gray-silver shimmer makes {title} look like a spray-painted plastic bottle lid.",
+      "Silver filament: when you want metal aesthetics with the durability of a potato chip.",
+      "Printing {title} in faux pewter makes every seam look like poor solder work.",
+      "That metallic silver sheen gives {title} the refined look of a plastic spoon.",
+      "{title} in silvery plastic resembles an engine part designed solely for a toy car."
+    ],
+    "copper": [
+      "Imitation plumbing copper: when you want {title} to look like oxidized water pipes.",
+      "Printing {title} in fake copper gives it the sparkling prestige of a shiny penny.",
+      "That faux bronze hue turns {title} into a souvenir from an abandoned mining museum.",
+      "Copper silk plastic: looking moderately expensive until you actually pick it up.",
+      "Printing {title} in metallic copper makes every layer line look like wire wrapping.",
+      "That brownish metallic shimmer gives {title} the rustic charm of cheap plumbing hardware.",
+      "{title} in fake copper looks like an antique artifact bought from a clearance bin."
+    ],
+    "rainbow": [
+      "Buying rainbow filament for a tiny print so {title} stays one muddy transition shade.",
+      "{title} was supposed to be a majestic rainbow, but it ended up entirely greenish brown.",
+      "Rainbow spool roulette: {title} received ninety percent vomit yellow and one blue layer.",
+      "That rainbow gradient looks less like a prism and more like an oil spill accident.",
+      "Printing {title} in rainbow filament ensures chaotic color bands at all the wrong heights.",
+      "The spool promised a kaleidoscope, but {title} settled for murky swamp gradients.",
+      "Rainbow filament: when you cannot decide on a bad color, so you choose all of them."
+    ],
+    "silk": [
+      "Silk PLA: offering the stunning gloss of lacquer combined with the layer strength of phyllo dough.",
+      "That shiny silk finish gives {title} gorgeous reflections and fragile structural integrity.",
+      "Printing {title} in silk filament ensures it shatters along the layer lines if anyone sneezes.",
+      "Silk filament: maximum shiny vanity on the outside, zero impact resistance on the inside.",
+      "The glorious luster of silk PLA cannot hide the fact that {title} is functionally delicate.",
+      "Silk sheen turns {title} into a glossy plastic sculpture waiting for its first minor bump.",
+      "Printing in silk material: because who needs mechanical strength when you have shiny plastic."
+    ],
+    "clear": [
+      "Translucent filament that prints with the pristine optical clarity of a frosted milk jug.",
+      "{title} in clear filament looks like an ice cube left out in the summer sun.",
+      "Clear plastic: showing off internal infill patterns like a bizarre medical scan.",
+      "That translucent finish gives {title} the alluring aesthetic of a used plastic cup.",
+      "Printing {title} in natural filament guarantees it looks like murky melted wax.",
+      "Transparent filament promised glass elegance and delivered cloudy plastic tupperware.",
+      "Behold {title} in clear plastic, looking like a forgotten soap dish from a roadside motel."
+    ],
+    "neon": [
+      "Blinding neon plastic: ensuring {title} can be used as an emergency landing strip flare.",
+      "Printing {title} in radioactive highlighter neon was an act of visual aggression.",
+      "That neon hue burns the retinas of anyone standing within a five-meter radius of {title}.",
+      "Neon filament gives {title} the quiet, understated charm of a 1992 rave party flyer.",
+      "Printing in safety neon ensures {title} will never be lost in a pitch-black coal mine.",
+      "That fluorescent pigment makes {title} look like a chemical spill on your coffee table.",
+      "{title} in neon is visible from passing airplanes and universally rejected by interior designers."
+    ],
+    "glow": [
+      "Glow in the dark filament: destroying your nozzle while turning {title} into an eerie nightlight.",
+      "That phosphorescent glow turns {title} into a spooky plastic hazard beside your bed.",
+      "Enjoy the faint radioactive aura of {title} while replacing your abrasive-worn brass nozzle.",
+      "Glow filament: abrasive enough to grind your hotend into metal dust for thirty seconds of green light.",
+      "{title} will glow faintly in the dark, reminding you of questionable spool expenditures.",
+      "That eerie green glow makes {title} look like medical waste from a budget sci-fi film.",
+      "Glow plastic: turning {title} into a nightstand beacon that terrifies unsuspecting house pets."
+    ],
+    "streak": [
+      "Print number {color_streak} in {color}, because every other spool in the house fled.",
+      "Running {color_streak} consecutive jobs in {color} suggests a severe shortage of imagination.",
+      "{color_streak} prints in {color} in a row; your workshop looks like a monochrome fever dream.",
+      "That is {color_streak} prints in {color}; the printer is begging for another pigment.",
+      "After {color_streak} prints in {color}, your build plate has forgotten all other wavelengths.",
+      "Print {color_streak} in {color}; you are either building an army or hoarding one shade.",
+      "{color_streak} straight jobs in {color}; change the spool before the printer stages an intervention."
+    ]
+  }
+}

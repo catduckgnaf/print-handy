@@ -1,87 +1,769 @@
 {
  "_about": "Keyword (matched through core.fuzzy, typo tolerant) -> lines about that kind of object.",
- "_phase": "seed-v0 (#1002 attachment 1, 2026-11-07)",
+ "_phase": 2,
  "_license": "Original to Print Handy; MIT with the project.",
  "entries": {
   "benchy": [
-   "Ah, {title} — the little boat that judges every printer and finds most of them merely adequate.",
+   "Ah, {title}, the tiny boat that judges your printer and finds it merely adequate.",
    "{title} has docked at last, ready to be photographed from exactly one flattering angle.",
-   "Every printer must face {title} eventually, like a tiny floating exam with a smokestack."
+   "Every printer must face {title} eventually, like a tiny floating exam with a smokestack.",
+   "{title} is four grams of plastic sailing into your drawer of forgotten test prints."
   ],
   "box": [
    "{title} is a container with big dreams, mostly involving containing slightly smaller containers.",
    "A fresh {title} joins the eternal quest to put things inside other things, neatly.",
-   "{title} is empty right now, but give it a week and it will contain pure mystery."
+   "{title} is empty now, but give it a week to collect pure clutter.",
+   "{title} exists solely so you can organize plastic junk inside slightly newer plastic junk."
   ],
   "bracket": [
    "{title} is here to hold things up, emotionally unavailable but structurally extremely supportive.",
    "Nobody celebrates {title} at parties, yet everything it holds would fall apart without it.",
-   "{title}: the unsung hero whose entire personality is two holes and quiet reliability."
+   "{title}: the unsung hero whose entire personality is two holes and quiet reliability.",
+   "{title} took hours to print and will instantly shear along the first weak layer line."
   ],
   "dragon": [
-   "{title} has hatched, and it is already acting like it owns the treasure and the shelf.",
+   "{title} arrived with wings, attitude, and absolutely no plans to guard anything but the desk.",
    "Behold {title}, a fearsome dragon whose main power is looking cool next to dice.",
-   "{title} arrived with wings, attitude, and absolutely no plans to guard anything but the desk."
+   "{title} has hatched, already acting like it owns your shelf and all your filament.",
+   "{title} is fifty articulated joints destined to collect dust until human civilization crumbles."
   ],
   "gear": [
    "{title} is ready to mesh, spin, and take credit for the whole machine working.",
    "One more {title} for the collection, because a single gear is just a round decoration.",
-   "{title} has teeth, purpose, and strong opinions about meshing with its neighbors."
+   "{title} has teeth, purpose, and strong opinions about meshing with its neighbors.",
+   "{title} will spin happily until friction and poor tolerances reduce its teeth to plastic shavings."
   ],
   "helmet": [
    "{title} is complete, sized for a hero, a costume, or a very confident houseplant.",
    "Behold {title}, protection for a head that has clearly made some ambitious plans.",
-   "{title} looks ready for battle, provided the battle is indoors and mostly posing."
+   "{title} looks ready for battle, provided the battle is indoors and mostly posing.",
+   "{title} will bravely protect you from imaginary blows while resting on a dusty dresser forever."
   ],
   "hook": [
-   "{title} is small, curved, and about to carry far more responsibility than it signed up for.",
    "Behold {title}, the tiny wall hero that will hold keys, coats, and household chaos.",
-   "{title} will spend its life hanging around, which is either lazy or literally the job."
+   "{title} will spend its life hanging around, which is either lazy or literally the job.",
+   "{title} is small, curved, and about to carry way more weight than layer adhesion allows.",
+   "{title} is one heavy winter coat away from catastrophic delamination and drywall damage."
   ],
   "mask": [
    "{title} is ready for a mysterious entrance at a party nobody has planned yet.",
    "With {title} complete, someone can now look dramatic while remaining completely anonymous at the store.",
-   "{title}: instant intrigue, zero actual secrets, and a very committed eye-hole game."
+   "{title}: instant intrigue, zero actual secrets, and a very committed eye-hole game.",
+   "{title} will hide your identity during daring midnight raids on the refrigerator cheese."
   ],
   "organizer": [
    "{title} promises this is the year the desk finally stays tidy for a full week.",
    "Behold {title}, a tiny city planner for pens, cables, and good intentions.",
-   "{title} will organize everything perfectly, right up until someone opens a drawer nearby."
+   "{title} will organize everything perfectly, right up until someone opens a drawer nearby.",
+   "{title} is just structured compartments for hoarding screws from long-discarded furniture."
   ],
   "phone stand": [
    "{title} is ready to hold a phone at the perfect angle for ignoring notifications comfortably.",
    "With {title} on duty, the phone finally has a throne worthy of its screen time.",
-   "{title} exists so a phone can recline like royalty while its owner does actual work."
+   "{title} exists so a phone can recline like royalty while its owner does actual work.",
+   "{title} holds your device at the optimal angle for doomscrolling without straining your neck."
   ],
   "planter": [
    "{title} is ready for a plant that will either thrive or be dramatically replaced monthly.",
    "A new home for greenery: {title}, now accepting one plant and unlimited optimism.",
-   "{title} gives a houseplant the fancy apartment it has been manifesting all spring."
+   "{title} gives a houseplant the fancy apartment it has been manifesting all spring.",
+   "{title} has zero drainage holes and will drown an innocent succulent within three weeks."
   ],
   "skull": [
    "{title} has emerged, spooky on the outside and completely hollow where it counts.",
    "Behold {title}, the only skull in the house that improves with shelf lighting.",
-   "{title} looks like it has ancient secrets, but it mostly just holds pens now."
+   "{title} looks like it has ancient secrets, but it mostly just holds pens now.",
+   "{title} stares into eternity wondering why its immortal polymer form holds paperclips."
   ],
   "star": [
    "{title} has arrived, five points of pure confidence and zero plans to twinkle responsibly.",
    "Behold {title}, a celebrity among shapes, ready for its close-up on the highest shelf.",
-   "{title} proves that being pointy in five directions is a complete personality."
+   "{title} proves that being pointy in five directions is a complete personality.",
+   "{title} will shine brightly before spending eleven dark months in an attic bin."
   ],
   "sword": [
    "{title} has been forged, more or less, in the ancient fires of a warm nozzle.",
    "With {title} complete, someone is now legally required to make swooshing noises while holding it.",
-   "{title}: all the drama of a legendary blade, none of the sharpening responsibilities."
+   "{title}: all the drama of a legendary blade, none of the sharpening responsibilities.",
+   "{title} is ready for glorious combat against cardboard boxes and unsuspecting houseplants."
   ],
   "toy": [
    "{title} is officially too cute to be called a test print, whatever anyone says.",
    "A wild {title} appears, and productivity in the room drops by a measurable amount.",
-   "{title} was made for play, but it will mostly supervise from the shelf, judging quietly."
+   "{title} was made for play, but it will mostly supervise from the shelf, judging quietly.",
+   "{title} brings fifteen minutes of joy before retiring to the great dust graveyard."
   ],
   "vase": [
-   "{title} is ready to hold flowers, water, and the secret that it is mostly decorative confidence.",
    "A new {title} enters the home, immediately promoted to chief dust collector with excellent curves.",
-   "{title} proves once again that a container with no lid can still contain unlimited style."
+   "{title} proves once again that a container with no lid can still contain unlimited style.",
+   "{title} is ready to hold water and the quiet terror of layer line seepage.",
+   "{title} looks stunning until slow capillary action drenches the table beneath it."
+  ],
+  "clip": [
+   "{title} was printed to clamp a snack bag that is already empty.",
+   "{title} is an engineering marvel that will snap when opened slightly too wide.",
+   "Printing {title} took forty minutes when a wooden clothespin would have cost two pennies.",
+   "{title} will hold those wires together until ambient room temperature causes creep."
+  ],
+  "cable": [
+   "{title} promises neat desk cable routing, but chaotic wiring always finds a way to tangle.",
+   "{title} is here to tame the rat nest of cords lurking behind your computer monitor.",
+   "{title} was supposed to hide cables, but merely added plastic clutter around them.",
+   "{title} clips onto wires so you can pretend your desk is minimalist."
+  ],
+  "mount": [
+   "{title} holds valuable gear using five cents of polymer and an unearned amount of faith.",
+   "You printed {title} to mount hardware that will probably tear right out of the drywall.",
+   "{title} will keep your gadget attached until the first hot afternoon softens the layers.",
+   "{title} is a custom bracket solving a problem created by an earlier bracket."
+  ],
+  "enclosure": [
+   "{title} wraps sensitive electronics in an airtight cocoon of trapped heat and melting solder.",
+   "{title} protects your circuit board while efficiently baking it in trapped heat.",
+   "{title} will shield your electronics until you realize you forgot to route the power cable.",
+   "{title} turns messy loose wires into a tidy brick of hidden loose wires."
+  ],
+  "holder": [
+   "{title} is dedicated to holding one specific tool you will misplace in five minutes anyway.",
+   "{title} is a custom cradle for an item resting on the desk fine.",
+   "{title} will faithfully hold its designated cargo until clutter invades and buries it.",
+   "You printed {title} because putting things down on flat surfaces felt too mainstream."
+  ],
+  "hinge": [
+   "{title} was printed in place and fused solid, remaining in place forever.",
+   "{title} will swing smoothly for exactly three cycles before snapping at the pivot pin.",
+   "You spent hours calibrating tolerances just so {title} could squeak on every rotation.",
+   "{title} joins two plastic parts together with the structural rigidity of a damp saltine cracker."
+  ],
+  "jig": [
+   "{title} was printed to ensure repeatable accuracy for a cut you will only make once.",
+   "You printed {title} for precision work, but thermal shrinkage had completely different ideas.",
+   "{title} guarantees your drill hole will be misaligned with absolute mathematical repeatability.",
+   "{title} took all afternoon to fabricate just to save four seconds drilling."
+  ],
+  "drawer": [
+   "{title} slides out smoothly today, but ambient humidity will swell it shut by next week.",
+   "You printed {title} to store tiny screws that will promptly spill into the mechanism.",
+   "{title} offers organized storage for items that should have been recycled six months ago.",
+   "{title} is a sliding compartment whose primary function is hiding receipts you should file."
+  ],
+  "adapter": [
+   "{title} connects two incompatible fittings that were never meant to meet in civilized society.",
+   "{title} connects two incompatible fittings that reject each other with passion.",
+   "{title} will leak air and water with impressive enthusiasm along every circumferential layer seam.",
+   "{title} bridges a gap that duct tape could have bridged in seconds."
+  ],
+  "rack": [
+   "{title} stands tall to organize spools that you will keep buying faster than you print.",
+   "You built {title} to display filament rolls like trophies instead of printing useful objects.",
+   "{title} will hold your collection neatly until the structural joints begin to sag over time.",
+   "{title} turns your wall into an altar dedicated to unspooled polymer and buyer remorse."
+  ],
+  "keychain": [
+   "{title} will rattle in your pocket until its thinnest loop snaps off.",
+   "{title} was gifted to a friend who politely lost it within minutes.",
+   "{title} adds bulk to your keyring so you can scratch your phone screen more efficiently.",
+   "{title} is a pocket trinket whose lifespan is measured in short walks."
+  ],
+  "fidget": [
+   "{title} will click, spin, and drive everyone around you to the brink of insanity.",
+   "{title} was printed to improve focus, but now you just flip gears.",
+   "{title} will be furiously clicked during three meetings before the spring mechanism jams.",
+   "{title} converts nervous anxiety into the rhythmic rattling of loose plastic teeth."
+  ],
+  "cube": [
+   "{title} was printed to verify precision, but its slight bulging corners prove otherwise.",
+   "Another {title} joins the lonely pyramid of calibration cubes guarding your workstation.",
+   "{title} consumed twenty minutes and half a meter of filament just to measure twenty millimeters.",
+   "Behold {title}, the geometric monument to printing tests instead of actual projects."
+  ],
+  "tower": [
+   "{title} stands tall like a stepped staircase of temperature regret and stringing.",
+   "{title} was printed for tuning, but you chose the easiest temperature to read.",
+   "{title} displays seven distinct zones of temperature incompetence along its fragile spine.",
+   "Each bridge on {title} droops slightly lower, matching your declining enthusiasm for tuning."
+  ],
+  "octopus": [
+   "{title} slumps on the desk, eight tentacles ready to snag on every stray wire.",
+   "You printed {title} to show off articulated joints, but its tentacles fused into stiff clubs.",
+   "{title} will spend its immortal plastic existence staring blankly from a monitor bezel.",
+   "Behold {title}, the cephalopod whose primary ecological niche is gathering dust on bookshelves."
+  ],
+  "rex": [
+   "{title} wiggles its tiny articulated segments with pure ferocity and zero structural utility.",
+   "{title} represents millions of years of evolution flopping uselessly on your keyboard.",
+   "{title} would roar with prehistoric fury if its tiny plastic jaw had not fused shut.",
+   "You printed {title} in rainbow filament because dignity was never an option."
+  ],
+  "slug": [
+   "{title} rattles along the table like a noisy caterpillar made of regret.",
+   "The clicking sound of {title} will slowly erode the patience of everyone in the room.",
+   "{title} is thirty concentric rings of plastic pretending to be a beloved pet.",
+   "You printed {title} for tactile stimulation, but now you just have a noisy plastic invertebrate."
+  ],
+  "shark": [
+   "{title} swims across your desk with menacing teeth and completely hollow infill.",
+   "{title} reduces the ocean apex predator to an articulated desk toy.",
+   "{title} will bite through imaginary waves while gathering sticky lint from the tabletop.",
+   "Behold {title}, the fearsome carnivore whose greatest mortal enemy is a dropped pen."
+  ],
+  "axolotl": [
+   "{title} smiles cheerfully despite knowing its external gills are brittle and prone to snapping.",
+   "{title} was printed because it was trending and now haunts your nightstand.",
+   "{title} stares into the void with round plastic eyes until eternity ends.",
+   "Behold {title}, the aquatic amphibian whose regeneration power does not apply to broken filament."
+  ],
+  "turtle": [
+   "{title} plods across the desk at the exact speed of your unread work emails.",
+   "{title} has a removable shell that will be lost behind furniture soon.",
+   "{title} carries a heavy plastic shell while judging your filament color choices.",
+   "Behold {title}, swimming through a sea of desk clutter toward the nearest edge."
+  ],
+  "snake": [
+   "{title} coils across the floor, waiting to startle unsuspecting houseguests.",
+   "{title} provides sixty flexible links of pure slither and zero practical purpose.",
+   "{title} will hiss softly when someone steps on its brittle tail segments.",
+   "You printed {title} in lime filament so nobody could mistake it for good taste."
+  ],
+  "spider": [
+   "{title} sits in the dark waiting to terrify guests mistaking it for real.",
+   "Eight spindly legs make {title} look menacing until a light breeze knocks it over.",
+   "{title} spins no webs, catching only stray cat hair and buyer remorse.",
+   "You printed {title} for Halloween and now you cannot bear to put it in storage."
+  ],
+  "dummy": [
+   "{title} strikes a dynamic fighting pose while balancing precariously on a bookshelf edge.",
+   "{title} took four hours to assemble, only to freeze in one awkward pose.",
+   "{title} stands ready for battle, provided the enemy is a mild draft from the hallway.",
+   "{title} is a miniature plastic mannequin whose ball joints will loosen quickly."
+  ],
+  "gridfinity": [
+   "{title} locks into the baseplate with clicks masking your chronic over-organization.",
+   "{title} sorts thirty tiny screws using four hundred grams of premium filament.",
+   "{title} is modular, stackable, and guaranteed to consume every spool you own.",
+   "{title} turns empty drawer space into an empire of tiny plastic grid prisons."
+  ],
+  "bin": [
+   "{title} is ready to catch stray fasteners, loose washers, and forgotten hopes.",
+   "{title} clears desk clutter by replacing small clutter with larger plastic containers.",
+   "{title} will sit half-filled with random hardware until the end of recorded time.",
+   "Behold {title}, the rectangular bucket whose destiny is collecting sawdust and mysterious hex keys."
+  ],
+  "baseplate": [
+   "{title} waits in the drawer for modular containers you will never print.",
+   "{title} took all night to turn a smooth drawer into an uncomfortable waffle.",
+   "{title} lies flat with pride, warping slightly upward at the outer corners.",
+   "Behold {title}, the plastic floor upon which an empire of tiny bins will eventually collapse."
+  ],
+  "multiboard": [
+   "{title} turns an entire drywall surface into a modular hive of brackets.",
+   "{title} covers the wall just to hang three wrenches and some tape.",
+   "{title} grips the wall with anchors that will leave massive craters when you move out.",
+   "{title} is an intricate wall grid costing more than three metal pegboards."
+  ],
+  "honeycomb": [
+   "{title} brings hexagonal efficiency to a wall that really only needed a simple nail.",
+   "{title} collects dust in every hexagonal cell at an alarming, geometric rate.",
+   "{title} looks like high-tech hive architecture holding up a single pair of rusty pliers.",
+   "You printed {title} because hexagons are the bestagons, but your wall still looks chaotic."
+  ],
+  "skadis": [
+   "{title} hooks into the Swedish pegboard with snug precision and immediate layer line creaking.",
+   "{title} was printed because buying official pegboard hooks felt like admitting defeat.",
+   "{title} will hold your craft supplies until someone bumps it and sends everything clattering down.",
+   "{title} bridges the gap between flat-pack furniture and additive manufacturing ambition."
+  ],
+  "pegboard": [
+   "{title} mounts to the wall to support three times its weight in plastic.",
+   "You printed {title} because driving to the hardware store felt like an admission of failure.",
+   "{title} will sag under the weight of metal tools it was never meant to support.",
+   "{title} is a hole-riddled plank transforming your workspace into an ergonomic disaster."
+  ],
+  "tray": [
+   "{title} sits ready to receive car keys, loose coins, and pocket lint with quiet elegance.",
+   "{title} was printed to stay organized, but quickly became a flat clutter pile.",
+   "{title} gathers household miscellany into a single, highly concentrated pile of indecision.",
+   "Behold {title}, the shallow vessel where pocket clutter goes to retire indefinitely."
+  ],
+  "stand": [
+   "{title} elevates its cargo with a center of gravity that screams top-heavy.",
+   "You printed {title} to display an object that was resting on the table just fine.",
+   "{title} will wobble nervously whenever someone walks too heavily past the desk.",
+   "Behold {title}, the angled pedestal whose primary skill is tipping over when bumped."
+  ],
+  "headphone": [
+   "{title} cradles your headset with the gentle care of stiff, unyielding thermoplastics.",
+   "{title} suspends your headphones above the desk instead of cluttering the mousepad.",
+   "{title} will slowly leave an indentation in the foam padding of your expensive headset.",
+   "{title} prevents your audio gear from touching plain wooden furniture."
+  ],
+  "controller": [
+   "{title} provides a dignified resting place for a gamepad you only use on weekends.",
+   "{title} displays your gamepad like an ancient artifact in a gaming museum.",
+   "{title} holds the controller at an angle optimized for collecting ambient cat dander.",
+   "Behold {title}, the plastic throne honoring hundreds of hours spent sitting on the couch."
+  ],
+  "tablet": [
+   "{title} props up your screen at an angle suitable for passive video consumption.",
+   "{title} turns your portable mobile tablet into an immovable desktop fixture.",
+   "{title} grips the device tightly until a sudden swipe sends the entire assembly skidding.",
+   "Behold {title}, the lightweight easel supporting five hundred dollars of delicate glass."
+  ],
+  "laptop": [
+   "{title} tilts your computer keyboard upward to promote wrist confusion.",
+   "You printed {title} to improve airflow under a machine that mostly runs email clients.",
+   "{title} will support your laptop until thermal exhaust softens the contact points.",
+   "Behold {title}, the plastic wedge transforming your laptop into a tilted desktop monument."
+  ],
+  "webcam": [
+   "{title} clips your camera above the monitor at an unflattering, chin-heavy downward angle.",
+   "{title} lets coworkers inspect your forehead in stunning high definition.",
+   "{title} will hold the webcam steady until someone types vigorously on the keyboard.",
+   "Behold {title}, the bespoke camera mount that took three iterations to get level."
+  ],
+  "case": [
+   "{title} snaps shut around delicate electronics, risking cracked solder joints.",
+   "{title} protects your project, but lacks a modeled hole for the power cable.",
+   "{title} turns a sleek development board into a bulky, textured plastic brick.",
+   "{title} is a custom shell fitting like a glove after aggressive filing."
+  ],
+  "handle": [
+   "{title} offers a comfortable grip until someone pulls hard on a stuck drawer.",
+   "{title} replaces broken hardware with a delightfully chunky prototype aesthetic.",
+   "{title} will flex slightly with every tug, reminding you of its synthetic origins.",
+   "Behold {title}, the ergonomic pull that feels slightly rougher than anything in a store."
+  ],
+  "knob": [
+   "{title} slides onto the potentiometer shaft with enough friction to shear the rotary pin.",
+   "{title} has sharp ridges that gently exfoliate your fingertips on every turn.",
+   "{title} turns smoothly, though the pointer indicator is off by roughly seven degrees.",
+   "{title} makes a household appliance look like an unfinished science experiment."
+  ],
+  "latch": [
+   "{title} clicks into place with a satisfying snap that will wear smooth after fifty uses.",
+   "{title} secures a door that could easily be pushed open by a cat.",
+   "{title} provides an illusion of security backed by the sheer strength of two perimeter walls.",
+   "Behold {title}, the sliding bolt whose mechanical lock relies entirely on friction fit."
+  ],
+  "clamp": [
+   "{title} tightens around the workpiece until the layer lines audibly groan in agony.",
+   "You printed {title} to save ten dollars, risking a workpiece worth ten times as much.",
+   "{title} will hold steady right up to the moment you apply actual clamping torque.",
+   "Behold {title}, the mechanical vise that flexes outward the instant pressure is applied."
+  ],
+  "vise": [
+   "{title} grips parts with printed jaws that deform before holding anything securely.",
+   "{title} was printed for light duty and fails under anything heavier than balsa.",
+   "{title} turns smoothly on printed lead screws until plastic dust gums up the threads.",
+   "{title} demonstrates that forged steel tools exist for very sound reasons."
+  ],
+  "spacer": [
+   "{title} fills a tiny mechanical void with three cents of compressed plastic rings.",
+   "You printed {title} because finding the correct washer in the garage felt impossible.",
+   "{title} will compress under bolting pressure, quietly shifting your alignment over time.",
+   "Behold {title}, the humble cylindrical collar keeping two components from touching."
+  ],
+  "shim": [
+   "{title} slips beneath the wobble to level furniture that the house builder left crooked.",
+   "You printed {title} with sub-millimeter thickness to fix an uneven table leg forever.",
+   "{title} will bear the crushing weight of a bookshelf with quiet, compressed humility.",
+   "Behold {title}, the wedge proving that bad carpentry can always be patched with plastic."
+  ],
+  "bushing": [
+   "{title} slides along the smooth rod with slightly more friction than common sense dictates.",
+   "You replaced a metal bearing with {title} and gained five decibels of quiet, sticky dragging.",
+   "{title} will wear oval-shaped within three weeks of high-speed mechanical motion.",
+   "Behold {title}, the self-lubricating sleeve that forgets to lubricate itself under load."
+  ],
+  "bearing": [
+   "{title} rolls on plastic balls that sound like a tiny cement mixer.",
+   "You printed {title} because waiting two days for postal delivery felt unbearable.",
+   "{title} will spin with tremendous hesitation and impressive rolling resistance.",
+   "Behold {title}, the rotary assembly that proves injection molding still has a purpose."
+  ],
+  "pulley": [
+   "{title} guides the belt along its teeth while generating a pleasant high-pitched whine.",
+   "You printed {title} to replace a metal wheel, ignoring the inevitable heat buildup.",
+   "{title} will guide the timing belt until friction melts the inner flange.",
+   "Behold {title}, the grooved wheel whose rotational life depends on smooth layer transitions."
+  ],
+  "funnel": [
+   "{title} channels liquids through a narrow spout with high risk of inter-layer leakage.",
+   "You printed {title} to pour chemicals without spilling, trusting porous printed walls.",
+   "{title} will guide resin smoothly while permanently staining its interior surfaces.",
+   "Behold {title}, the conical chute that traps sticky residue in microscopic layer ridges."
+  ],
+  "chute": [
+   "{title} guides purged filament curls down into a heap of colorful plastic debris.",
+   "You printed {title} to direct printer waste cleanly onto the carpet behind the workbench.",
+   "{title} will channel molten plastic curls until an extra-wide purge purge jams the throat.",
+   "Behold {title}, the waste slide built to manage the copious droppings of modern printing."
+  ],
+  "bucket": [
+   "{title} sits behind the machine collecting purge curls like an oversized mechanical litterbox.",
+   "{title} was printed to contain waste, yielding two hundred grams of curls.",
+   "{title} will overflow with coiled filament coils long before you remember to empty it.",
+   "Behold {title}, the receptacle whose sole destiny is being filled with hot synthetic droppings."
+  ],
+  "scraper": [
+   "{title} attacks the build plate with a blunt plastic edge dulling immediately.",
+   "{title} spared the bed from scratches by snapping its own blade in half.",
+   "{title} will pry beneath stubborn prints with maximum flex and minimal mechanical advantage.",
+   "Behold {title}, the bed scraper that sacrifices its own edge to spare the magnetic coating."
+  ],
+  "spool": [
+   "{title} holds a kilogram of filament that will promptly unspool itself into a chaotic tangle.",
+   "You printed {title} to save money on filament refills, spending three refill rolls of plastic.",
+   "{title} will spin on its roller until friction causes the extruder to skip steps.",
+   "Behold {title}, the empty reel that demands more filament than it will ever dispense."
+  ],
+  "rewinder": [
+   "{title} tensions filament with springs that will eventually snap and launch parts across the room.",
+   "{title} prevents feeder jams while introducing four new mechanical failure points.",
+   "{title} will rewind loose filament with alarming vigor until the clutch slips.",
+   "{title} is a complex contraption solving problems caused by too many spools."
+  ],
+  "drybox": [
+   "{title} seals filament away from humidity behind gasket seals of questionable airtight integrity.",
+   "{title} keeps spools dry while you obsessively check the hygrometer all day.",
+   "{title} will protect your hygroscopic polymers until you forget to close the latch.",
+   "Behold {title}, the plastic sarcophagus preserving filament against the humid wrath of summer."
+  ],
+  "desiccant": [
+   "{title} holds silica beads that will slowly turn pink while you forget to bake them.",
+   "You printed {title} with tiny perforations that allow fine silica dust to shower your printer.",
+   "{title} will absorb ambient moisture until its beads become completely saturated and useless.",
+   "Behold {title}, the slotted pod keeping silica gel from rattling freely inside the spool core."
+  ],
+  "guide": [
+   "{title} directs filament toward the extruder at an angle that barely reduces friction.",
+   "You printed {title} so the filament path looks tidy, adding another point for snagging.",
+   "{title} will groove deeply under the relentless sawing motion of abrasive filaments.",
+   "Behold {title}, the tiny arm keeping your filament roll from jumping off the carriage."
+  ],
+  "duct": [
+   "{title} blasts cool air across the nozzle tip while melting gently along its lower lip.",
+   "{title} provides superior cooling while warping against the heater block.",
+   "{title} will channel airflow with extreme turbulence and very little directional focus.",
+   "Behold {title}, the cooling horn whose tip will droop after ten hours of printing ABS."
+  ],
+  "shroud": [
+   "{title} encloses the hotend, making nozzle changes three times more difficult.",
+   "{title} makes the printhead look like a stealth bomber instead of a glue gun.",
+   "{title} will trap radiated heat until its mounting tabs loosen and rattle incessantly.",
+   "Behold {title}, the decorative cowl protecting innocent fingers from accidental burns."
+  ],
+  "riser": [
+   "{title} lifts the glass lid just enough to let trapped heat escape.",
+   "You printed {title} so your PTFE tube stops rubbing against the top glass panel.",
+   "{title} elevates the roof of your printer, turning a compact cube into an awkward high-rise.",
+   "Behold {title}, the plastic perimeter giving your printhead the headroom it always craved."
+  ],
+  "filter": [
+   "{title} houses activated carbon pellets that will do very little against burning styrene fumes.",
+   "You printed {title} to clean chamber exhaust, hoping the smell of warm plastic fades away.",
+   "{title} will circulate air through carbon granules until the tiny fan bearing starts rattling.",
+   "Behold {title}, the filtration canister providing peace of mind and very little actual airflow."
+  ],
+  "mandalorian": [
+   "{title} brings bounty hunter helmet glamor to a bedroom that lacks any other galactic decor.",
+   "{title} took forty sleepless hours to print instead of doing your laundry.",
+   "{title} looks like impenetrable beskar steel until dropped on a soft carpet.",
+   "Behold {title}, the warrior helm that will never see combat outside of convention selfies."
+  ],
+  "stormtrooper": [
+   "{title} is printed with pristine white surfaces guaranteed to miss every single target.",
+   "You printed {title} with imperial precision, but the layer lines are clearly visible.",
+   "{title} will guard your shelf with the legendary accuracy of an imperial conscript.",
+   "{title} ensures you bump into every low doorframe in the entire house."
+  ],
+  "armor": [
+   "{title} covers your chest with rigid plates that make bending over completely impossible.",
+   "{title} makes you look invincible at conventions, but sitting down is forbidden.",
+   "{title} will protect your torso against foam darts and harsh ambient criticism.",
+   "Behold {title}, the plastic cuirass that squeaks rhythmically with every single breath."
+  ],
+  "gauntlet": [
+   "{title} slips over your forearm with the mighty resonance of hollow plastic clacking.",
+   "{title} has articulated knuckles that will pinch your skin on every flex.",
+   "{title} will make reaching for a beverage look dramatic, clumsy, and terrifying.",
+   "{title} grants plus five armor points and minus ten manual dexterity."
+  ],
+  "katana": [
+   "{title} extends with a swift flick of the wrist before jamming halfway inside the scabbard.",
+   "You printed {title} in concentric telescoping tubes that will fly apart on the fifth swing.",
+   "{title} holds a razor-sharp plastic edge that can barely slice through warm butter.",
+   "{title} replaces ancient steel folding techniques with twenty percent infill geometry."
+  ],
+  "dagger": [
+   "{title} conceals a wicked edge designed for dramatic backstabs during roleplay sessions.",
+   "You printed {title} because a full-sized sword would have taken twenty more hours to print.",
+   "{title} will rest menacingly in a sheath until someone notices the dull layer ridges.",
+   "Behold {title}, the compact rogue blade whose greatest threat is a light papercut."
+  ],
+  "lightsaber": [
+   "{title} extends with neon plastic segments that rattle loudly instead of humming with energy.",
+   "You printed {title} to fulfill childhood dreams, but the blade segments refuse to collapse.",
+   "{title} will illuminate your living room with zero plasma and one hundred percent mechanical noise.",
+   "Behold {title}, an elegant weapon for a more civilized age of filament consumption."
+  ],
+  "blaster": [
+   "{title} looks ready to defeat galactic empires, provided they are defeated by posing.",
+   "{title} has an orange safety tip so neighbors know you lack lasers.",
+   "{title} will emit silent pew-pew sounds whenever you carry it into the hallway.",
+   "Behold {title}, the prop sidearm featuring intricate greebles and absolutely zero moving triggers."
+  ],
+  "shield": [
+   "{title} deflects imaginary arrows while flexing precariously against your forearm.",
+   "{title} was glued together across four bed tiles with desperate hope.",
+   "{title} will protect you from foam projectiles until the center seam gives out.",
+   "Behold {title}, the heraldic barrier that can withstand anything except direct sunlight."
+  ],
+  "wand": [
+   "{title} channels mystical arcane energy through twenty percent gyroid infill.",
+   "You swished and flicked {title} around the living room, but the dishes remain unwashed.",
+   "{title} chose you at the build plate, mostly because your retraction settings were dialed in.",
+   "{title} is a magical conduit unable to cast spells unclogging its own nozzle."
+  ],
+  "crown": [
+   "{title} perches on your head with spiky points that dig into scalp.",
+   "You crowned yourself monarch of the workshop with {title}, a regal band of golden plastic.",
+   "{title} will proclaim your royal authority until someone points out the z-seam on the front.",
+   "Behold {title}, the royal circlet granting sovereignty over empty filament boxes."
+  ],
+  "horn": [
+   "{title} curves gracefully upward from the headband with demonic flair and hollow weight.",
+   "You printed {title} for a costume party and now you cannot fit through standard doorways.",
+   "{title} will make you look menacing until one horn snags on a low-hanging chandelier.",
+   "Behold {title}, the sinister headpiece proving that horns look better in fiction than on doorframes."
+  ],
+  "dice": [
+   "{title} bounces across the table with an internal air bubble that subtly favors rolling ones.",
+   "You printed {title} to save gaming money, but your tabletop group questions the balance.",
+   "{title} will roll with dramatic suspense before settling on an inevitable critical failure.",
+   "Behold {title}, the polyhedral randomizer whose weight distribution is known only to the slicer."
+  ],
+  "miniature": [
+   "{title} stands proudly at twenty-eight millimeters with facial details blurred by layer lines.",
+   "You printed {title} to lead your tabletop army, but its spear snapped during support removal.",
+   "{title} will lead heroic campaigns across felt battlemats until someone drops a rulebook on it.",
+   "Behold {title}, the tiny warrior whose legendary bravery is rivaled only by its brittleness."
+  ],
+  "terrain": [
+   "{title} turns the dining table into a ruined medieval fortress of unpainted gray plastic.",
+   "You spent thirty hours printing {title} and will probably never bother painting its stonework.",
+   "{title} provides tactical cover for miniatures who will inevitably tip over on its steps.",
+   "Behold {title}, the scenic obstacle turning your dining room into a perpetual warzone."
+  ],
+  "tile": [
+   "{title} builds a modular dungeon that your gaming players will bypass completely.",
+   "{title} creates an intricate modular map that takes an hour to pack.",
+   "{title} will click together with its neighbors until a single broken clip ruins the layout.",
+   "Behold {title}, the interlocking dungeon pavement supporting countless imaginary adventures."
+  ],
+  "pokeball": [
+   "{title} snaps open to launch its plastic contents across the floor.",
+   "You printed {title} to catch pocket monsters, but mostly caught the eye of nostalgic visitors.",
+   "{title} sits on a shelf because dropping it on concrete shatters it.",
+   "Behold {title}, the spherical container that holds nothing except childhood nostalgia."
+  ],
+  "statue": [
+   "{title} stands in frozen classical majesty, immortalized in three hundred grams of plastic.",
+   "{title} simulates fine marble with layer lines that still feel like plastic.",
+   "{title} will stare stoically into the room while accumulating a dignified layer of dust.",
+   "Behold {title}, the grand monument honoring historical art with petroleum-derived polymers."
+  ],
+  "bust": [
+   "{title} displays a noble profile with detailed locks of hair and a prominent z-seam.",
+   "You printed {title} to look cultured, placing a plastic philosopher next to your gaming rig.",
+   "{title} will gaze thoughtfully at the wall, wondering why its pedestal is slightly hollow.",
+   "Behold {title}, the sculpted head whose classical dignity is somewhat undercut by plastic sheen."
+  ],
+  "trophy": [
+   "{title} awards top honors for an achievement that was completely fabricated for this print.",
+   "You printed {title} to celebrate yourself because nobody else was offering gold awards.",
+   "{title} shines with silk gold filament, claiming victory over your own dwindling patience.",
+   "Behold {title}, the gilded monument to self-congratulation and excessive top layers."
+  ],
+  "coaster": [
+   "{title} guards the coffee table against condensation rings using unsealed, porous plastic.",
+   "You printed {title} with intricate geometric grooves that will trap spilled coffee forever.",
+   "{title} sticks to sweaty beverage glasses and falls with a loud clatter.",
+   "Behold {title}, the drink mat that lets liquid seep directly through to the table below."
+  ],
+  "soap": [
+   "{title} cradles the soap bar with drainage slots that will slowly fill with slimy residue.",
+   "You printed {title} to modernize the bathroom, introducing raw layer lines to damp soap scum.",
+   "{title} will harbor bathroom moisture and mysterious bacterial colonies in its micro-ridges.",
+   "Behold {title}, the shower accessory that turns dissolving soap into an archaeological fossil."
+  ],
+  "squeezer": [
+   "{title} forces toothpaste out with the mechanical mercy of an industrial press.",
+   "You printed {title} to save twenty cents of paste using fifty cents of premium filament.",
+   "{title} clamps down until the tube bursts open in messy protest.",
+   "Behold {title}, the winding key turning morning hygiene into a minor mechanical ordeal."
+  ],
+  "opener": [
+   "{title} pries at bottle caps until its printed pry lip rounds over and slips uselessly.",
+   "{title} uses an inserted coin to reinvent a tool in every drawer.",
+   "{title} will crack open soda bottles with surprising leverage and alarming creaking noises.",
+   "Behold {title}, the party trick bottle opener that snaps in half on the second beverage."
+  ],
+  "tag": [
+   "{title} dangles from your luggage, bravely waiting for airline baggage handlers to snap it off.",
+   "You printed {title} with your phone number embossed so strangers can return your lost keys.",
+   "{title} will flap against your backpack zipper until the eyelet hole finally tears through.",
+   "Behold {title}, the identification badge that looks like a miniature credit card of plastic."
+  ],
+  "nameplate": [
+   "{title} announces your workplace title with crisp letters that look like prototype lettering.",
+   "You printed {title} for your desk to proclaim an authority nobody officially granted you.",
+   "{title} stands angled toward visitors, daring them to misspell your name one more time.",
+   "Behold {title}, the desk sign that elevates middle management into high-contrast plastic."
+  ],
+  "hueforge": [
+   "{title} blends thin filament layers into art that shines in direct light.",
+   "You spent five hours swapping spools just so {title} could display subtle monochromatic shading.",
+   "{title} is essentially a two-dimensional photograph with a texture that collects ambient dust.",
+   "Behold {title}, the optical illusion that tricks observers into thinking you painted with plastic."
+  ],
+  "lithophane": [
+   "{title} looks like a faded white topographic disaster until you shine a flashlight through it.",
+   "{title} displays a family photo that looks spooky until backlit by bulbs.",
+   "{title} turns a cherished family memory into a rigid relief carved by plastic.",
+   "Behold {title}, the monochrome light box panel that looks like textured drywall in daylight."
+  ],
+  "voronoi": [
+   "{title} is eighty percent empty air and twenty percent fragile webbing that snaps on touch.",
+   "{title} has organic cellular holes that snag every cleaning cloth in reach.",
+   "{title} demonstrates mathematical tessellation while serving practically no structural function.",
+   "{title} proves that removing ninety percent of a model makes it art."
+  ],
+  "bookmark": [
+   "{title} slides between pages with enough thickness to permanently bend the book binding.",
+   "You printed {title} with paper-thin layers to mark a chapter you will probably never finish.",
+   "{title} peeks out from the novel until snapping along a horizontal seam.",
+   "Behold {title}, the plastic strip that replaced a perfectly functional folded paper receipt."
+  ],
+  "lamp": [
+   "{title} diffuses LED glow with charming ambiance and a faint aroma of warm plastic.",
+   "{title} lights your room, hoping the bulb never softens the printed shade.",
+   "{title} casts soft shadows across the wall, highlighting every seam line in the shade.",
+   "Behold {title}, the ambient luminaire that proves anything can be a lamp with enough wiring."
+  ],
+  "moon": [
+   "{title} glows with cratered lunar textures, hiding its hollow core and internal light fixture.",
+   "You printed {title} across thirty sleepless hours to bring a miniature moon into your bedroom.",
+   "{title} will illuminate your nightstand with the gentle radiance of textured white polymer.",
+   "Behold {title}, the celestial orb whose gravitational pull mostly attracts curious fingertips."
+  ],
+  "ornament": [
+   "{title} hangs from a pine branch, waiting for the cat to swat it.",
+   "You printed {title} to celebrate the holidays with custom plastic that will outlive civilization.",
+   "{title} sparkles under tree lights before spending eleven months in an attic.",
+   "Behold {title}, the festive bauble proving that holiday spirit can be extruded layer by layer."
+  ],
+  "snowflake": [
+   "{title} features delicate hexagonal crystal symmetry that will snap if dropped onto the rug.",
+   "{title} was printed in twenty identical copies, defying natural snow uniqueness.",
+   "{title} will dangle in the window, pretending to be cold ice while staying stubbornly plastic.",
+   "Behold {title}, the geometric winter crystal that will never melt even under warm indoor lights."
+  ],
+  "pumpkin": [
+   "{title} grins with a carved grimace that will never rot like real autumn gourds.",
+   "You printed {title} in bright orange filament so your porch decor remains eternally fresh.",
+   "{title} will house an LED tea light while judging every child looking for chocolate.",
+   "Behold {title}, the immortal jack-o-lantern that will never collapse into a soggy pile of mush."
+  ],
+  "egg": [
+   "{title} twists open on printed screw threads to reveal whatever tiny trinket you hid inside.",
+   "{title} has colorful pastel bands that took longer than boiling real eggs.",
+   "{title} will survive the Easter lawn hunt and jam the lawnmower blades.",
+   "Behold {title}, the polymer oval that will never spoil or hatch into anything useful."
+  ],
+  "whistle": [
+   "{title} produces a piercing hundred-decibel shriek that immediately regrets being printed indoors.",
+   "{title} was blown once to test the pea, instantly deafening the house.",
+   "{title} will sit on your emergency keychain, ready to irritate neighbors at a moment notice.",
+   "Behold {title}, the pocket noisemaker whose sonic power far exceeds its miniature size."
+  ],
+  "ocarina": [
+   "{title} plays a recognizable tune if you can ignore the slightly off-pitch layer turbulence.",
+   "You printed {title} to summon horses and change the weather, but only summoned annoyed roommates.",
+   "{title} will toot cheerful medieval melodies until moisture from your breath collects inside.",
+   "Behold {title}, the wind instrument proving that musical acoustic resonance can be printed."
+  ],
+  "cutter": [
+   "{title} presses into cookie dough with an edge that dulls after three rounds of baking.",
+   "You printed {title} to bake festive biscuits, ignoring warnings about food safety on printed walls.",
+   "{title} will leave intricate shapes in dough before getting lost in the utensil drawer.",
+   "Behold {title}, the baking outline that turns flour and butter into themed holiday treats."
+  ],
+  "stamp": [
+   "{title} presses into clay with firm pressure, leaving an impression surrounded by layer ridges.",
+   "You printed {title} to brand your pottery, giving ancient ceramics a modern digital signature.",
+   "{title} will transfer ink with uneven coverage unless rocked with extreme precision.",
+   "Behold {title}, the embossing tool that leaves a tiny digital fingerprint on everything it touches."
+  ],
+  "frame": [
+   "{title} borders your photo with clean corners meeting at roughly ninety degrees.",
+   "You printed {title} to frame artwork, using ten dollars of filament to frame a postcard.",
+   "{title} will hold glass and backing securely until hung on an uneven nail.",
+   "Behold {title}, the picture border whose custom dimensions make finding glass an adventure."
+  ],
+  "shelf": [
+   "{title} cantilevers out from the wall with bold architectural confidence and zero load-bearing rating.",
+   "{title} holds small curios while slowly sagging under the weight of mugs.",
+   "{title} will support your knickknacks until ambient summer heat softens the mounting screws.",
+   "Behold {title}, the floating ledge that looks minimalist until it tilts downward under gravity."
+  ],
+  "cap": [
+   "{title} snaps over the tube opening with an airtight seal that feels surprisingly snug.",
+   "{title} replaces a lost closure after an hour spent measuring with calipers.",
+   "{title} shields threads from dust until someone leaves it on the bench.",
+   "Behold {title}, the humble dome keeping open pipe ends from collecting shop dirt."
+  ],
+  "plug": [
+   "{title} inserts into an unsightly hole with an interference fit that may never come out.",
+   "You printed {title} to hide an accidental drill hole and pretend the mistake was intentional.",
+   "{title} will block dust and drafts with the stoic silence of a synthetic cork.",
+   "Behold {title}, the small cylinder whose entire destiny is filling a void."
+  ],
+  "cover": [
+   "{title} conceals bare wiring and questionable electrical work beneath a smooth facade.",
+   "{title} keeps dust out of the slot while adding subtle surface texture.",
+   "{title} will snap over the opening and stay there until maintenance requires prying it off.",
+   "Behold {title}, the protective panel keeping wandering fingers away from live contacts."
+  ],
+  "lid": [
+   "{title} sits atop the container with a fit that varies wildly with room temperature.",
+   "You printed {title} because the original jar lid vanished into the laundry room void.",
+   "{title} will seal in freshness, provided freshness enjoys breathing through porous wall seams.",
+   "Behold {title}, the flat topper that turns an open cylinder into a closed mystery box."
+  ],
+  "spinner": [
+   "{title} whirs between your fingers, spinning on cheap steel bearings for twenty uninterrupted seconds.",
+   "You printed {title} seven years after the trend died, keeping the fidget flame alive.",
+   "{title} will spin on your desk until an errant finger drops it onto hardwood floors.",
+   "Behold {title}, the three-winged centrifuge whose primary product is momentary distraction."
+  ],
+  "ring": [
+   "{title} slips over your finger with layer lines that provide mild exfoliative friction.",
+   "{title} was printed to measure ring size, resulting in three-cent finger jewelry.",
+   "{title} will proclaim your commitment to additive manufacturing right on your knuckle.",
+   "Behold {title}, the circular band that proves plastic jewelry can be almost wearable."
+  ],
+  "coin": [
+   "{title} flips through the air with a clatter lacking the sound of silver.",
+   "You printed {title} to make important life decisions with a randomized fifty-fifty toss.",
+   "{title} lands on the table with the financial authority of plastic tokens.",
+   "Behold {title}, the minted token with relief lettering commemorating nothing in particular."
+  ],
+  "token": [
+   "{title} stands in for a lost game component with questionable color matching and no shame.",
+   "You printed {title} so family board game night could proceed without missing player pieces.",
+   "{title} will advance around the game board until someone mistakes it for a dropped snack.",
+   "Behold {title}, the replacement counter keeping the tabletop game playable for another evening."
   ]
  }
 }

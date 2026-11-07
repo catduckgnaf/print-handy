@@ -344,6 +344,7 @@ def post_cancel_report(filename, reason=None):
     except Exception as exc:
         log(f"klipper report failed: {exc!r}")
         text = print_summary.format_event("cancelled", filename)
+    text = _with_status_roast(text, filename, status="cancelled", reason=str(reason or ""))
     return post(text)
 
 
@@ -408,7 +409,37 @@ def roast_enabled(cfg=None):
 
 ROAST_STATE = _config.state_file("PRINT_HANDY_ROAST_STATE", "roast_state.json", per_instance=True)
 _ROAST_FACTS = ("duration_s", "material", "color", "grams", "printer", "copies",
-                "print_number", "times", "finish_hour")
+                "print_number", "times", "finish_hour", "last_title",
+                "prev_fails", "fail_streak", "color_streak", "top_color")
+
+def is_roast_enabled(cfg=None) -> bool:
+    return roast_enabled(cfg)
+
+def _with_status_roast(text: str, filename: str, status: str, reason: str = "") -> str:
+    """Append a status-appropriate local roast line to an alert if enabled (#1002 Phase 2)."""
+    if not text or not is_roast_enabled():
+        return text
+    try:
+        try:
+            job, plate = print_summary.find_job(filename)
+        except Exception:
+            job, plate = {}, {}
+        title = (job or {}).get("title") or (plate or {}).get("title") or Path(filename or "print").stem
+        facts = announcer.roast_facts(job, plate, {})
+        if status == "cancelled":
+            facts.pop("grams", None)
+        effective_status = status
+        if status == "failed":
+            stop_reason = str((job or {}).get("stop_reason") or "")
+            if "spaghetti" in reason.lower() or "spaghetti" in stop_reason.lower():
+                effective_status = "spaghetti"
+        key = f"{filename}:{effective_status}:{int(time.time() // 60)}"
+        roast_line = generate_roast(title, facts=facts, status=effective_status, key=key)
+        if roast_line:
+            return f"{text}\n\n{roast_line}"
+    except Exception as exc:
+        log(f"status roast skipped: {exc!r}")
+    return text
 
 
 def generate_roast(title, summary="", facts=None, key=None, status="completed"):
@@ -2669,7 +2700,7 @@ def _with_printer_name(text):
     return f"{text}\nPrinter: {name}" if name else text
 
 
-def _visual_alert(filename, image, reason, identity=None):
+def _visual_alert(filename, image, reason, identity=None, verdict=None):
     # #317: a watchdog alert is blooper material; record() never raises.
     print_markers.record(filename, print_markers.WATCHDOG_ALERT, detail=reason)
     try:
@@ -2682,6 +2713,8 @@ def _visual_alert(filename, image, reason, identity=None):
     path = target / f"{int(time.time())}-{Path(filename or 'print').stem}.jpg"
     path.write_bytes(image)
     text = _with_printer_name(f"Print camera check: {clean(filename)}\n{reason}")
+    if verdict == "spaghetti" or "spaghetti" in str(reason).lower():
+        text = _with_status_roast(text, filename, status="spaghetti", reason=str(reason or ""))
     if _buttonless_standalone():
         post(text + f"\n{path}\nMEDIA:{path}")
         return path
@@ -3559,7 +3592,7 @@ class Listener:
                         text += (f"\nAuto-pause (visual_watch.auto_pause_early): {streak} suspicious checks in a row "
                                  "in the early layers, so I am pausing the print. It is not cancelled.")
                     await asyncio.to_thread(_visual_alert, filename, image, text,
-                                            identity=identity)
+                                            identity=identity, verdict=verdict)
                     event_action = "auto_pause" if pause_now else "alert"
                     if pause_now:
                         # #913: the only automatic printer action, opt-in, once per print
@@ -3738,8 +3771,12 @@ class Listener:
                     self.start_screen_cancel_reboot("moonraker cancelled")
             elif new_state != "complete":
                 if new_state == "error":
-                    await asyncio.to_thread(capture_stop, self.filename, "error")
-                await asyncio.to_thread(post, print_summary.format_event(new_state, self.filename))
+                    reason = await asyncio.to_thread(capture_stop, self.filename, "error")
+                    event_text = print_summary.format_event(new_state, self.filename)
+                    event_text = _with_status_roast(event_text, self.filename, status="failed", reason=str(reason or ""))
+                    await asyncio.to_thread(post, event_text)
+                else:
+                    await asyncio.to_thread(post, print_summary.format_event(new_state, self.filename))
         ended = new_state in ("complete", "cancelled", "error", "standby") and old in ("printing", "paused")
         if ended:
             # Close the capture before the announcer: its timelapse
