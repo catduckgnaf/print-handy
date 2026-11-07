@@ -10,7 +10,10 @@ Lookup discipline (from the #298 Stage 0 audit):
 - The two key spaces are NEVER mixed: `hms[]` entries key on the 16-hex attr+code;
   `print_error` keys on its own 8-hex value. A lookup only ever consults its own space.
 - A per-model text (keyed by the device prefix, e.g. the first three characters of the
-  printer's serial as Bambu Studio names its files) wins over the common text.
+  printer's serial as Bambu Studio names its files) wins over the common text. The
+  H3C's prefix is 32X (recorded in facts.py from Bambu Studio's device definition
+  for the model); its override sections arrive with the table regenerated from
+  Bambu Studio 02.09.01.70, the first release carrying that prefix's files.
 - "Listed with empty text" is distinct from "unlisted": Bambu lists some codes with no
   text, and those do not count as faults. `listed` says which case a result is.
 - No severity is invented here: the alert level is part of Bambu's code structure, and

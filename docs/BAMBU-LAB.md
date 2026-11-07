@@ -33,6 +33,26 @@ Each model's facts (profile names, the SHA-256 identities of its checked OrcaSli
 
 Print Handy ships no A1 slicer profiles. Before the first A1 slice, generate them from your own OrcaSlicer (see [Set up the A1 profiles](#set-up-the-a1-profiles)).
 
+## Initial support: the Bambu Lab H3C (not yet a selectable model)
+
+**Initial support — unverified on hardware.** The H3C is Bambu Lab's nine-tool tool changer (the Swaptek system: nine PrintTools, each with its own heater, cutter and filament path, parked on a rack and swapped by one toolhead extruder), launched 2026-11-03 with Bambu Studio 02.09.01.70 — the first Studio release that carries it. Print Handy records what is known about it, but **you cannot select it yet**: there is no `bambulab.h3c` model key, and picking one fails like any unknown model.
+
+What is recorded (in `print_handy/printers/bambulab/facts.py`, the `H3C` block), read from Bambu Studio at the pinned commit `56a57d00a591360cf41bf21383915ee5bf357be5` — its device definition `resources/printers/N10.json` and the H3C machine profiles:
+
+| Fact | Value |
+|---|---|
+| Build volume | 330 × 320 × 325 mm, no bed exclusion |
+| Tools | 9 PrintTools; 0.4 mm hardened steel fitted; 0.2 / 0.6 / 0.8 mm offered |
+| Temperatures | Hotend to 350 °C, bed to 120 °C (device-definition ranges) |
+| Filament system | AMS 3H, nine slots (published spec; not read from bambulab.com directly) |
+| Serial prefix | `32X` — the first three characters of an H3C serial |
+
+What already works: HMS decoding. The HMS table regenerated from Bambu Studio 02.09.01.70 carries a `32X` per-model section (597 HMS and 120 print-error overrides), and the decoder takes its per-model prefix from the configured serial — so H3C fault texts resolve per model once that table is in, with no further code change. The prefix and the resolution path are pinned by tests now, against a synthetic 32X table.
+
+What blocks full support, precisely: Print Handy slices Bambu printers from OrcaSlicer profiles whose flattened SHA-256 identities it has checked (see the model table above). The pinned OrcaSlicer v2.5.0-rc carries **no H3C profiles at all** — its BBL index and machine folder were checked and contain none — so no identity can be computed, and a model registered without one would fail its profile checks rather than refuse cleanly. The H3C waits in the same posture the H2C held before #356: when a pinned OrcaSlicer release brings H3C profiles, registration lands the same way (identities over that tree and its packed cache, a model module, a registry entry, family tests). Bambu Studio's own H3C profiles exist, but Print Handy has never taken Bambu Studio profiles as an identity source, and this change does not start.
+
+Also not covered by initial support: the AMS 3H and the tool rack are not driven or modeled beyond the facts above, Studio 2.9's mixed-nozzle-diameter slicing is not handled, and nothing about the H3C has been tested on hardware — there is no H3C on the bench.
+
 ## Set up the A1 profiles
 
 The A1's OrcaSlicer machine, process and filament profiles are OrcaSlicer's and Bambu Lab's work, under the AGPL-3.0, so they are not in this repository. Print Handy builds its A1 templates from the OrcaSlicer installed on the same machine:

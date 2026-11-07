@@ -416,5 +416,6 @@ The values a warning names are not used for slicing. Print Handy slices from the
 | Pausing or stopping a print | Commands exist on the LAN client; the external Discord print-control module does not call them yet |
 | Telemetry | Read-only and opt-in: with `[bambu] lan_host`/`lan_serial` configured, the health check reads one LAN MQTT status snapshot. No listener. **Not tested on a printer** |
 | AMS / AMS Lite multi-color | Unsupported, per the printer profile (issue #127) |
+| H3C tool changer | Initial support only: sourced facts and the `32X` HMS serial prefix are recorded (`facts.py`), and H3C fault texts resolve per model once the HMS table regenerated from Bambu Studio 02.09.01.70 is in. Not a selectable model — the pinned OrcaSlicer carries no H3C profiles, so no checked identity exists yet. Unverified on hardware; see [BAMBU-LAB.md](BAMBU-LAB.md) |
 
 Bambu Studio is not treated as a submission path. Picking it as the slicer changes only which program writes the G-code. Live upload or print control would need its own evaluation of firmware, LAN versus cloud authentication and credential handling before any of it is built.
