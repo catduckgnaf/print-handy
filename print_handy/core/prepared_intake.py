@@ -1502,6 +1502,14 @@ async def _ask(adapter, source, key, question, choices, timeout=None, **kwargs):
     if yolo.ACTIVE.get() and choices:
         # Yolo answers every question with its go option, out loud (no silent skips).
         pick = yolo.auto_answer(choices)
+        if pick is not None:
+            # An AI fix is a model change a person must see and confirm
+            # (#978/#985): yolo never picks the fix offer or an apply button,
+            # so it goes to a person like a restart or a rescale does.
+            from . import ai_fix as _ai_fix
+            if str(list(choices)[pick]) in (_ai_fix.FIX_LABEL, _ai_fix.APPLY_LABEL,
+                                            _ai_fix.APPLY_KEEP_OPENINGS_LABEL):
+                pick = None
         first = next((ln.strip() for ln in str(question or '').splitlines() if ln.strip()), 'question')
         if len(first) > 120:
             first = first[:117] + '...'
@@ -3677,8 +3685,24 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             ai_fix.note_attempt(job_now, actor=actor, surface='intake')
             mj.write_job(folder, job_now)
             mesh = await asyncio.to_thread(ai_fix.mesh_report, path)
+            # Ground the proposal in what was measured on this job (#985): the
+            # clearance gap a geometry fix must match, the bed it must fit and
+            # the nozzle it slices for.
+            measured_gap = None
+            for region in (clearance or {}).get('regions') or []:
+                region_gap = (region.get('clearance_mm') or {}).get('max')
+                if region_gap is not None:
+                    measured_gap = max(measured_gap or 0.0, float(region_gap))
+            bed_mm = nozzle_mm = None
+            with contextlib.suppress(Exception):
+                from ..hermes import _config
+                printer_cfg = (_config.cfg() or {}).get('printer') or {}
+                bed_mm = printer_cfg.get('bed_mm')
+                nozzle_mm = printer_cfg.get('nozzle_diameter')
             try:
-                proposal = await _heavy(ai_fix.propose_fix, problem, job_now, mesh=mesh)
+                proposal = await _heavy(ai_fix.propose_fix, problem, job_now, mesh=mesh,
+                                        bed_mm=bed_mm, nozzle_mm=nozzle_mm,
+                                        clearance_gap_mm=measured_gap)
             except Exception as exc:  # noqa: BLE001 - a failed proposal changes nothing
                 logger.warning('AI fix proposal failed: %r', exc)
                 detail = (str(exc) if isinstance(exc, ai_fix.FixError)
@@ -3702,7 +3726,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             if proposal.geometry or proposal.mesh_repair:
                 try:
                     fixed_path, report = await _heavy(ai_fix.build_fixed_copy,
-                                                      path, proposal, folder)
+                                                      path, proposal, folder,
+                                                      measured_gap_mm=measured_gap)
                 except Exception as exc:  # noqa: BLE001 - an unbuildable fix changes nothing
                     logger.warning('AI fix could not be built: %r', exc)
                     detail = f' ({exc})' if isinstance(exc, ai_fix.FixError) else ''
@@ -3710,17 +3735,24 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                        content=f'That fix could not be built{detail}, so nothing '
                                                'was changed.')
                     return None
-                with contextlib.suppress(Exception):
+                preview_failed = False
+                try:
                     image_path = await _heavy(ai_fix.preview_image, fixed_path,
                                               Path(fixed_path).parent / 'ai-fix-preview.png')
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                        content='Preview of the fixed model (the original file '
                                                'is unchanged).\nMEDIA:' + image_path)
+                except Exception:  # noqa: BLE001 - said out loud below, not silently skipped
+                    preview_failed = True
+            else:
+                preview_failed = False
             if mesh:
                 report['walls'] = mesh.get('walls')
             lines = ai_fix.fix_lines(proposal, report)
             lines.append('Nothing is overwritten: a fix works on a copy, and applying it '
                          're-slices and runs every check again.')
+            if preview_failed:
+                lines.append('(A preview of the fixed model could not be rendered on this install.)')
             choices = [ai_fix.APPLY_LABEL]
             if (report.get('mesh') or {}).get('openings'):
                 choices.append(ai_fix.APPLY_KEEP_OPENINGS_LABEL)
@@ -3737,7 +3769,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 ai_fix.discard_fixed_copy(fixed_path)
                 try:
                     fixed_path, report = await _heavy(ai_fix.build_fixed_copy, path, proposal,
-                                                      folder, fill_openings=False)
+                                                      folder, fill_openings=False,
+                                                      measured_gap_mm=measured_gap)
                 except Exception as exc:  # noqa: BLE001 - nothing applied
                     detail = f' ({exc})' if isinstance(exc, ai_fix.FixError) else ''
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
@@ -3752,13 +3785,35 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                    content='The model file changed while the fix was being prepared, '
                                            'so the fix was not applied.')
                 return None
+            new_decisions = None
+            if proposal.filament_map:
+                # Re-resolve the remapped filaments against the target slots
+                # BEFORE anything changes (#985): an unresolvable slot, or a
+                # mapping that matches no filament here, refuses the whole fix.
+                try:
+                    new_decisions = ai_fix.remapped_decisions(
+                        {'color_decisions': decisions, 'color_manifest': manifest},
+                        proposal.filament_map,
+                        lambda sel: mj.resolve_filament_selection(state, sel))
+                except ai_fix.FixError as exc:
+                    ai_fix.discard_fixed_copy(fixed_path)
+                    await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                       content=f'{exc}, so nothing was changed.')
+                    return None
             if fixed_path is not None:
                 fixed_path = ai_fix.commit_fixed_copy(fixed_path, report)
             latest = json.loads(jp.read_text())
-            # One undoable record for the whole fix: the file swap and every
-            # plan, restored together by ai_fix.undo_last_fix.
+            # One undoable record for the whole fix: the file swap, the color
+            # remap, the profile settings and every plan, restored together by
+            # ai_fix.undo_last_fix.
             ai_fix.apply_to_job(latest, proposal, enriched, fixed_path=fixed_path, actor=actor,
                                 problem=problem, report=report, file_sha256=mj.file_sha256)
+            if new_decisions is not None:
+                decisions.clear()
+                decisions.update(new_decisions)
+                validated = validate_decisions(manifest, decisions, state,
+                                               mj.resolve_filament_selection)
+                mj.set_color_decisions(latest, validated)
             if fixed_path is not None:
                 new_sha = mj.file_sha256(fixed_path)
                 path = fixed_path
@@ -3902,6 +3957,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 labels = ((['Retry slice once (no print)']
                            if slice_failure.explain(slice_error).retryable else [])
                           + ([_ai_fix.FIX_LABEL] if fix_ready else []) + ['Cancel'])
+            if not fix_ready:
+                # Every question that would have offered the fix says why it
+                # does not (#985): AI not set up, or this job's budget spent.
+                prompt = prompt + '\n' + no_fix_note
             retry = None
             fix_attempts = 0
             ai_fixed = False
@@ -3965,30 +4024,62 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             # A prior "slice and print" choice applies only to the failed output.
             # The retry is slice-only; starting the new artifact requires a fresh button.
             choice = 1
-            try:
-                if chosen_quantity and chosen_quantity > 1:
-                    out = await _with_stop(adapter, source, key, metadata, "Retrying the slice. Press Stop to cancel.",
-                                           _heavy(mj.slice_job, str(jp), copies=chosen_quantity, recipe_sha256=recipe_sha))
-                else:
-                    out = await _with_stop(adapter, source, key, metadata, "Retrying the slice. Press Stop to cancel.",
-                                           _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha))
-            except Exception as retry_error:
-                logger.exception('slice retry failed')
-                await early.discard()
-                receipt.update(status='SLICE_FAILED', sliced=False, uploaded=False, started=False,
-                               slice_error=str(retry_error),
-                               failure=slice_failure.report(retry_error).as_dict())
-                receipt.pop('slice_approval', None)
-                receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
-                again = slice_refusal.explain(retry_error)
-                await adapter.send(chat_id=source.chat_id,
-                    content=(diagnostics.plain_post('Stage: slice. ' + again.plain,
-                                                    not_happened='Nothing was sliced, uploaded or started.',
-                                                    next_step=again.next_step, subsystem='slicing',
-                                                    exc=retry_error) if again is not None else
-                             slice_failure.post(retry_error, retry_failed=True)),
-                    metadata=metadata)
-                return {'action': 'skip', 'reason': 'slice retry failed'}
+            while True:
+                try:
+                    if chosen_quantity and chosen_quantity > 1:
+                        out = await _with_stop(adapter, source, key, metadata, "Retrying the slice. Press Stop to cancel.",
+                                               _heavy(mj.slice_job, str(jp), copies=chosen_quantity, recipe_sha256=recipe_sha))
+                    else:
+                        out = await _with_stop(adapter, source, key, metadata, "Retrying the slice. Press Stop to cancel.",
+                                               _heavy(mj.slice_job, str(jp), recipe_sha256=recipe_sha))
+                    break
+                except Exception as retry_error:
+                    logger.exception('slice retry failed')
+                    await early.discard()
+                    receipt.update(status='SLICE_FAILED', sliced=False, uploaded=False, started=False,
+                                   slice_error=str(retry_error),
+                                   failure=slice_failure.report(retry_error).as_dict())
+                    receipt.pop('slice_approval', None)
+                    receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                    again = slice_refusal.explain(retry_error)
+                    failure_post = (diagnostics.plain_post('Stage: slice. ' + again.plain,
+                                                           not_happened='Nothing was sliced, uploaded or started.',
+                                                           next_step=again.next_step, subsystem='slicing',
+                                                           exc=retry_error) if again is not None else
+                                    slice_failure.post(retry_error, retry_failed=True))
+                    # A failed re-slice -- the first retry, or the re-slice of
+                    # an applied fix -- gets the same fix offer (#985), under
+                    # the same per-question cap and the job's fix budget,
+                    # instead of a dead end.
+                    if (_ai_fix.heavy_ready() and fix_attempts < _ai_fix.MAX_FIX_ATTEMPTS
+                            and _fix_budget_left() > 0):
+                        picked = await _ask(adapter, source, key, failure_post,
+                                            [_ai_fix.FIX_LABEL, 'Cancel'], timeout)
+                        if picked == 0:
+                            fix_attempts += 1
+                            problem = ('Slice failure. ' + (again.plain if again is not None
+                                                           else slice_failure.explain(retry_error).plain))
+                            if await _ai_fix_attempt(problem) is not None:
+                                attempt = int(receipt.get('slice_attempt') or 1) + 1
+                                receipt.update(status='SLICE_APPROVED', slice_attempt=attempt,
+                                               slice_approval={'intake_id': iid,
+                                                               'source_sha256': decisions['source_sha256'],
+                                                               'decisions_sha256': mj.decisions_digest(validated),
+                                                               'attempt': attempt,
+                                                               'recipe_version': RECIPE_VERSION,
+                                                               'recipe_sha256': recipe_sha})
+                                receipt.pop('slice_error', None)
+                                receipt.pop('failure', None)
+                                receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                                continue
+                        await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                           content='Cancelled. Nothing was sliced, uploaded or started.')
+                        return {'action': 'skip', 'reason': 'slice retry failed'}
+                    await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                       content=failure_post + '\n' + (
+                                           _ai_fix.UNCONFIGURED_NOTE if not _ai_fix.heavy_ready()
+                                           else _ai_fix.out_of_attempts_message()))
+                    return {'action': 'skip', 'reason': 'slice retry failed'}
         mj._timing(jp, 'intake_slice_returned')
         gcodes = [str(g) for g in (out if isinstance(out, list) else [out])]
         sliced = json.loads(jp.read_text())
@@ -4069,13 +4160,16 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             run (#968): it asks the same question, naming why coverage could
             not be verified, and the waiver is recorded the same way.
 
-            With the heavy AI tier ready, the question also offers "Fix this
-            for my printer" (#978): an applied fix re-slices here and the
-            gates are graded again on the new slice -- passing them returns
-            'fixed' with NO waiver recorded (a fix is not a waiver), failing
-            them asks this question again for the new slice. Without the
-            tier, the question gains the one-line note that a fix exists
-            when AI is set up, and nothing else changes.
+            With the heavy AI tier ready (and the job's fix budget not spent),
+            the gate first offers "Fix this for my printer" (#978) on its own
+            unmarked question that anyone may answer; "Decide without a fix"
+            then asks the approval-marked Print anyway / Cancel (#985). An
+            applied fix re-slices here and the gates are graded again on the
+            new slice -- passing them returns 'fixed' with NO waiver recorded
+            (a fix is not a waiver), failing them asks again for the new
+            slice. Under yolo the single combined question is asked, and yolo
+            never picks the fix. Without the tier, the question gains the
+            one-line note that a fix exists when AI is set up.
             """
             nonlocal gcodes, sliced, clearance_ack_pending
             from . import ai_fix as _ai_fix
@@ -4113,9 +4207,32 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 elif unverified_result is not None:
                     receipt['support_coverage'] = unverified_result
                 receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
-                pick = await _ask(adapter, source, key, '\n'.join(lines),
-                                  choices, timeout, approval=True)
-                if fix_ready and choices[pick] == _ai_fix.FIX_LABEL:
+                from . import yolo as _yolo_gate
+                if fix_ready and not _yolo_gate.ACTIVE.get():
+                    # The fix offer stands alone and unmarked (#985): anyone
+                    # may ask for a fix. Only the waiver after "Decide without
+                    # a fix" is an approval question, exactly as before.
+                    offer = [_ai_fix.FIX_LABEL, _ai_fix.DECIDE_LABEL, print_next.CANCEL_LABEL]
+                    first = await _ask(adapter, source, key,
+                                       '\n'.join(lines + ['Anyone may ask for an AI fix first; '
+                                                          'printing anyway still needs a print '
+                                                          'approver.']),
+                                       offer, timeout)
+                    picked_fix = offer[first] == _ai_fix.FIX_LABEL
+                    if offer[first] == print_next.CANCEL_LABEL:
+                        pick = 1  # read as Cancel below
+                    elif not picked_fix:
+                        pick = await _ask(adapter, source, key, '\n'.join(lines),
+                                          [PRINT_ANYWAY_LABEL, print_next.CANCEL_LABEL],
+                                          timeout, approval=True)
+                else:
+                    # No fix on offer (or a yolo run, whose waiver is the
+                    # operator's own and which never picks the fix): the one
+                    # approval-marked question, as before.
+                    pick = await _ask(adapter, source, key, '\n'.join(lines),
+                                      choices, timeout, approval=True)
+                    picked_fix = fix_ready and choices[pick] == _ai_fix.FIX_LABEL
+                if picked_fix:
                     fix_attempts += 1
                     problem = 'Post-slice gate failure. ' + ' '.join(
                         line for line in lines

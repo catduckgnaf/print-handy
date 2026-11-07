@@ -120,7 +120,10 @@ def facts_for(tris) -> dict:
     boundary, nonmanifold, inconsistent = edge_stats(faces, len(points))
     volume = signed_volume(tris)
     watertight = boundary == 0 and nonmanifold == 0
+    pts = np.asarray(tris, dtype=float).reshape(-1, 3)
+    size = [round(float(v), 2) for v in (pts.max(axis=0) - pts.min(axis=0))] if len(pts) else None
     return {'triangles': int(len(tris)),
+            'size_mm': size,
             'watertight': watertight,
             'consistent': inconsistent == 0,
             'sound': watertight and inconsistent == 0,

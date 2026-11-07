@@ -218,3 +218,18 @@ def test_own_printer_gcode_is_not_called_foreign(tmp_path, monkeypatch):
     # which the stub answers with Cancel.
     assert result["reason"] == "operator declined printing sliced G-code as-is"
     assert "already-sliced G-code" in asked[0][0]
+
+
+def test_noop_geometry_fix_is_refused_in_the_upload_flow(fix_env, monkeypatch):
+    """A geometry proposal that moves no vertex (extend at a height no
+    vertex sits at) is refused as no fix: nothing is confirmed or applied,
+    nothing is left in the job folder, and the job never re-enters the
+    intake (#985)."""
+    monkeypatch.setattr(ai_routes, "call", lambda tier, messages, **kw: (
+        json.dumps({"plans": [], "geometry": {"kind": "extend", "mm": 5.0},
+                    "mesh_repair": False, "summary": "extend the underside"}), "heavy-model"))
+    result = asyncio.run(plugin.edit_dispatch(_event("fix this"), fix_env.gateway))
+    assert result["reason"] == "repair could not be built"
+    assert any("would not change the model" in (m or "") for m in fix_env.adapter.sent)
+    assert fix_env.confirms == [] and fix_env.reentered == []
+    assert not list(fix_env.folder.glob(ai_fix.STAGING_PREFIX + "*"))

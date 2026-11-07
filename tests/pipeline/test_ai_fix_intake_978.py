@@ -47,12 +47,12 @@ def test_support_gate_failure_offers_fix_and_the_fix_reslices_with_gates_rerun(e
     calls = _coverage_sequence(monkeypatch)
     _ai_on(monkeypatch, ai_fix.FixProposal(
         plans=[{'kind': 'supports', 'enabled': True, 'type': 'tree'}], summary='use tree supports'))
-    # one color (1), slot 1 (0), with supports (0), Fix (1) at the gate,
-    # Apply the fix (0); the fixed slice passes and the print starts.
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 1, 0])
+    # one color (1), slot 1 (0), with supports (0), Fix (0) at the gate's
+    # fix question, Apply the fix (0); the fixed slice passes, print starts.
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 0, 0])
     gate = [q for q in adapter.questions if ai_fix.FIX_LABEL in (q.get('choices') or [])]
     assert len(gate) == 1
-    assert gate[0]['choices'] == [prepared_intake.PRINT_ANYWAY_LABEL, ai_fix.FIX_LABEL,
+    assert gate[0]['choices'] == [ai_fix.FIX_LABEL, ai_fix.DECIDE_LABEL,
                                   print_next.CANCEL_LABEL]
     assert 'do not cover every flagged region' in gate[0]['question']
     apply_q = [q for q in adapter.questions if ai_fix.APPLY_LABEL in (q.get('choices') or [])]
@@ -67,11 +67,12 @@ def test_support_gate_failure_offers_fix_and_the_fix_reslices_with_gates_rerun(e
     assert job['support_decision']['supports'] is True
 
 
-def test_fix_confirmation_is_not_an_approval_question_but_gate_and_start_are(env, monkeypatch):
-    """A non-approver may ask for a fix but can't start the print: the fix
-    confirmation carries no approval mark, while the waiver gate and the
-    start question keep theirs (the adapters refuse non-approver answers
-    to approval-marked prompts)."""
+def test_nonapprover_can_ask_for_a_fix_at_the_gate_but_the_waiver_stays_approvers(
+        env, monkeypatch):
+    """The issue's approver rule at the gate (#978): the fix offer question
+    carries NO approval mark (a non-approver may ask for a fix), the fix
+    confirmation carries none either, and the Print anyway waiver question
+    after "Decide without a fix" keeps its mark (only approvers waive)."""
     from print_handy.core import prompts
     marked = []
     real_mark = prompts.mark_approval
@@ -82,16 +83,95 @@ def test_fix_confirmation_is_not_an_approval_question_but_gate_and_start_are(env
     _coverage_sequence(monkeypatch)
     _ai_on(monkeypatch, ai_fix.FixProposal(plans=[{'kind': 'supports', 'enabled': True,
                                                    'type': 'tree'}]))
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 1, 0])
+    # Ask for the fix: Fix (0), Apply (0) -- both unmarked questions.
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 0, 0])
     by_label = {}
     for q in adapter.questions:
-        for label in (ai_fix.FIX_LABEL, ai_fix.APPLY_LABEL, prepared_intake.PRINT_ANYWAY_LABEL,
-                      print_next.START_LABEL):
+        for label in (ai_fix.FIX_LABEL, ai_fix.APPLY_LABEL):
             if label in (q.get('choices') or []):
                 by_label.setdefault(label, q)
-    assert by_label[ai_fix.FIX_LABEL]['clarify_id'] in marked      # the gate (a waiver question)
-    assert by_label[ai_fix.APPLY_LABEL]['clarify_id'] not in marked  # the fix ask: anyone may answer
+    assert by_label[ai_fix.FIX_LABEL]['clarify_id'] not in marked
+    assert by_label[ai_fix.APPLY_LABEL]['clarify_id'] not in marked
     assert receipt['status'] == 'STARTED'
+
+
+def test_decide_without_a_fix_keeps_the_waiver_question_approval_marked(env, monkeypatch):
+    """Choosing "Decide without a fix" at the gate leads to the same
+    approval-marked Print anyway question as before #978."""
+    from print_handy.core import prompts
+    marked = []
+    real_mark = prompts.mark_approval
+    monkeypatch.setattr(prompts, 'mark_approval',
+                        lambda cid: (marked.append(str(cid)), real_mark(cid))[1])
+    monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
+    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    _coverage_sequence(monkeypatch)
+    _ai_on(monkeypatch, ai_fix.FixProposal(plans=[{'kind': 'supports', 'enabled': True,
+                                                   'type': 'tree'}]))
+    # Decide without a fix (1), then Print anyway (0) on the waiver question.
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 1, 0], mid='gate-decide')
+    waiver = [q for q in adapter.questions
+              if (q.get('choices') or []) == [prepared_intake.PRINT_ANYWAY_LABEL,
+                                              print_next.CANCEL_LABEL]]
+    assert len(waiver) == 1
+    assert waiver[0]['clarify_id'] in marked
+    assert receipt['support_override']['via'] == 'print_anyway'
+    assert receipt['status'] == 'STARTED'
+
+
+def test_unbuildable_geometry_fix_records_nothing_and_earns_no_acknowledgement(
+        env, monkeypatch):
+    """A geometry fix that cannot be built on the model changes nothing:
+    the gate asks again, no ai_fix is recorded, the job is not repointed,
+    and no waiver or clearance acknowledgement appears."""
+    monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
+    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    _coverage_sequence(monkeypatch)
+    _ai_on(monkeypatch, ai_fix.FixProposal(geometry={'kind': 'extend', 'mm': 5.0},
+                                           summary='extend the underside'))
+    # Fix (0) -> cannot be built on this fixture -> gate asks again ->
+    # Decide (1) -> Cancel (1) on the waiver question.
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 0, 1, 1], mid='gate-noop')
+    assert any('could not be built' in (s or '') or 'would not change the model' in (s or '')
+               for s in adapter.sent)
+    assert receipt['status'] == 'SLICED_NOT_STARTED'
+    assert 'ai_fix' not in receipt and 'support_override' not in receipt
+    job = json.loads(Path(receipt['job_json']).read_text())
+    assert 'ai_fixes' not in job
+    assert job['downloaded_file'].endswith('ghost.3mf')  # never repointed at a fixed copy
+
+
+def test_yolo_never_auto_answers_a_fix_question():
+    """Under yolo the fix offer and its apply button go to a person (#978:
+    a fix is never a yolo waiver); ordinary go choices still auto-answer."""
+    import asyncio
+    from types import SimpleNamespace as S
+
+    from print_handy.core import yolo
+
+    src = S(chat_id='c', thread_id=None, user_id='u', platform=S(value='discord'))
+
+    async def drive(adapter, choices):
+        token = yolo.ACTIVE.set(True)
+        try:
+            return await prepared_intake._ask(adapter, src, 'k', 'A question?', choices, 5)
+        finally:
+            yolo.ACTIVE.reset(token)
+
+    adapter = Adapter(iter([1]))  # a person answers Cancel
+    pick = asyncio.run(drive(adapter, [ai_fix.FIX_LABEL, 'Cancel']))
+    assert pick == 1
+    assert any('Yolo does not answer this one' in (s or '') for s in adapter.sent)
+
+    adapter = Adapter(iter([1]))
+    pick = asyncio.run(drive(adapter, [ai_fix.APPLY_LABEL, 'Cancel']))
+    assert pick == 1
+    assert any('Yolo does not answer this one' in (s or '') for s in adapter.sent)
+
+    adapter = Adapter(iter([]))  # nobody is asked: yolo answers itself
+    pick = asyncio.run(drive(adapter, ['Retry slice once (no print)', 'Cancel']))
+    assert pick == 0 and adapter.questions == []
+    assert any('Yolo:' in (s or '') for s in adapter.sent)
 
 
 def test_ai_disabled_gate_has_no_fix_button_and_the_note_instead(env, monkeypatch):
@@ -143,6 +223,40 @@ def test_wrong_nozzle_slice_refusal_offers_fix_and_reslices_on_the_job_profile(
     assert job['scale'] == pytest.approx(0.9)
 
 
+# ------------------------------------------------------- F4 vocabulary at the gate
+
+def test_profile_fix_at_the_gate_lands_in_edit_settings(env, monkeypatch):
+    monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
+    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    _coverage_sequence(monkeypatch)
+    _ai_on(monkeypatch, ai_fix.FixProposal(profile={'wall_loops': 3},
+                                           summary='thicker walls'))
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 0, 0], mid='gate-profile')
+    assert receipt['status'] == 'STARTED'
+    assert 'set wall_loops to 3' in receipt['ai_fix']['changes']
+    assert 'support_override' not in receipt
+    job = json.loads(Path(receipt['job_json']).read_text())
+    assert job['edit_settings']['profile'] == {'wall_loops': 3}
+    assert job['ai_fixes'][0]['profile'] == {'wall_loops': 3}
+
+
+def test_filament_map_fix_at_the_gate_re_resolves_the_choice(env, monkeypatch):
+    monkeypatch.setattr(support_clearance, 'safe_analyze', _coverage_only_report)
+    monkeypatch.setattr(model_job, 'slice_job', _warning_slice(env))
+    _coverage_sequence(monkeypatch)
+    _ai_on(monkeypatch, ai_fix.FixProposal(filament_map={1: 2},
+                                           summary='filament 1 is loaded in slot 2'))
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 0, 0], mid='gate-filament')
+    assert receipt['status'] == 'STARTED'
+    assert 'print filament 1 from slot 2' in receipt['ai_fix']['changes']
+    job = json.loads(Path(receipt['job_json']).read_text())
+    # The harness job is single-color: its one selection moved to slot 2,
+    # re-resolved against that slot (not copied from slot 1's record).
+    assert job['color_decisions']['mode'] == 'single_color'
+    assert job['color_decisions']['selection']['slot'] == 2
+    assert job['ai_fixes'][0]['filament_map'] == {'1': 2}
+
+
 # ------------------------------------------------- #978 review: acknowledgements
 
 def _v12(monkeypatch):
@@ -165,8 +279,8 @@ def test_fix_that_clears_low_clearance_records_no_acknowledgement(env, monkeypat
              'regions': []}
     monkeypatch.setattr(support_clearance, 'rotated_report', lambda source, matrix: clean)
     _ai_on(monkeypatch, ai_fix.FixProposal(plans=[{'kind': 'lay_flat'}], summary='lay it flat'))
-    # one color (1), slot 1 (0), with supports (0), Fix (1), Apply (0)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 1, 0])
+    # one color (1), slot 1 (0), with supports (0), Fix (0), Apply (0)
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 0, 0])
     assert receipt['status'] == 'STARTED'
     assert 'support_override' not in receipt
     job = json.loads(Path(receipt['job_json']).read_text())
@@ -187,10 +301,11 @@ def test_print_anyway_after_an_unsuccessful_geometry_fix_is_a_print_anyway(env, 
                         lambda path: real_analyze(fixture if '.fixed-' in str(path) else path))
     _ai_on(monkeypatch, ai_fix.FixProposal(geometry={'kind': 'sink', 'mm': 0.05},
                                            summary='sink a little'))
-    # one color (1), slot 1 (0), with supports (0), Fix (1), Apply (0), Print anyway (0)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 1, 0, 0])
+    # one color (1), slot 1 (0), with supports (0), Fix (0), Apply (0), then on the
+    # re-graded gate: Decide without a fix (1), Print anyway (0)
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 0, 0, 1, 0])
     gate = [q for q in adapter.questions if prepared_intake.PRINT_ANYWAY_LABEL in (q.get('choices') or [])]
-    assert len(gate) == 2 and 'under 1.0 mm' in gate[1]['question']
+    assert len(gate) == 1 and 'under 1.0 mm' in gate[0]['question']
     assert receipt['status'] == 'STARTED'
     assert receipt['support_override']['via'] == 'print_anyway'
     assert receipt['support_override']['low_clearance'] is True
@@ -223,7 +338,7 @@ def test_intake_fix_requests_are_counted_on_the_job_and_attributed(env, monkeypa
     _coverage_sequence(monkeypatch)
     _ai_on(monkeypatch, ai_fix.FixProposal(plans=[{'kind': 'supports', 'enabled': True,
                                                    'type': 'tree'}]))
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 1, 0])
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 0, 0])
     job = json.loads(Path(receipt['job_json']).read_text())
     assert [a['surface'] for a in job['ai_fix_attempts']] == ['intake']
     platform, _, user = job['ai_fix_attempts'][0]['actor'].partition(':')
@@ -235,8 +350,10 @@ def test_a_declined_geometry_fix_leaves_no_copy_in_the_job_folder(env, monkeypat
     _v12(monkeypatch)
     _coverage_sequence(monkeypatch)
     _ai_on(monkeypatch, ai_fix.FixProposal(geometry={'kind': 'sink', 'mm': 0.05}))
-    # one color (1), slot 1 (0), with supports (0), Fix (1), Cancel the fix (1), Cancel (2)
-    adapter, result, receipt = run_flow(env, [1, 0, 0, 1, 1, 2])
+    # one color (1), slot 1 (0), with supports (0), Fix (0), Cancel the fix (1),
+    # then Cancel (2) on the fix offer
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 0, 1, 2])
+    assert any(ai_fix.APPLY_LABEL in (q.get('choices') or []) for q in adapter.questions)
     folder = Path(receipt['job_json']).parent
     assert not list(folder.glob(ai_fix.STAGING_PREFIX + '*'))
     assert not list(folder.glob('*.fixed-*'))

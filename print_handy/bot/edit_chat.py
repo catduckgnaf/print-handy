@@ -591,11 +591,15 @@ async def _repair_flow(event, gateway, source, adapter):
             detail = f' ({exc})' if isinstance(exc, ai_fix.FixError) else ''
             await say(f'That fix could not be built{detail}, so nothing was changed.')
             return {'action': 'skip', 'reason': 'repair could not be built'}
-        with contextlib.suppress(Exception):
+    preview_failed = False
+    if fixed_path is not None:
+        try:
             image_path = await asyncio.to_thread(ai_fix.preview_image, fixed_path,
                                                  fixed_path.parent / 'ai-fix-preview.png')
             await say('Preview of the fixed model (the original file is unchanged).\nMEDIA:'
                       + image_path)
+        except Exception:  # noqa: BLE001 - said out loud below, not silently skipped
+            preview_failed = True
     if mesh:
         report['walls'] = mesh.get('walls')
     lines = ai_fix.fix_lines(proposal, report)
@@ -603,6 +607,8 @@ async def _repair_flow(event, gateway, source, adapter):
         lines.append(rest_note)
     lines.append('Nothing is overwritten: the fix works on a copy, and applying it re-slices '
                  'and runs every check again.')
+    if preview_failed:
+        lines.append('(A preview of the fixed model could not be rendered on this install.)')
     choices = [ai_fix.APPLY_LABEL]
     openings = (report.get('mesh') or {}).get('openings') or []
     if openings:
@@ -634,11 +640,34 @@ async def _repair_flow(event, gateway, source, adapter):
         await say('The model file changed while the fix was being prepared, so the fix was not '
                   'applied. Ask again to fix the current file.')
         return {'action': 'skip', 'reason': 'repair: source changed'}
+    new_decisions = None
+    if proposal.filament_map:
+        # Re-resolve the remapped filaments against the routed printer's
+        # slots, as the intake fix does (#985); an unresolvable mapping, or
+        # one matching no filament in this job, changes nothing.
+        resolver = None
+        with contextlib.suppress(Exception):
+            from print_handy.core import printer_state
+            pid = job.get('printer_id') or _h()._routed_printer_id(source, gateway)
+            fix_state = printer_state.load(**_h()._pkw(pid))
+            resolver = lambda sel: mj.resolve_filament_selection(fix_state, sel)  # noqa: E731
+        if resolver is None:
+            ai_fix.discard_fixed_copy(fixed_path)
+            await say('That filament mapping cannot be applied here (the printer state is '
+                      'unavailable), so nothing was changed.')
+            return {'action': 'skip', 'reason': 'repair filament map unavailable'}
+        try:
+            new_decisions = ai_fix.remapped_decisions(job, proposal.filament_map, resolver)
+        except ai_fix.FixError as exc:
+            ai_fix.discard_fixed_copy(fixed_path)
+            await say(f'{exc}, so nothing was changed.')
+            return {'action': 'skip', 'reason': 'repair filament map refused'}
     if fixed_path is not None:
         fixed_path = ai_fix.commit_fixed_copy(fixed_path, report)
     original = copy.deepcopy(job)  # restored verbatim if re-entry fails, as _edit_apply does
     ai_fix.apply_to_job(job, proposal, enriched, fixed_path=fixed_path, actor=actor,
-                        problem=text, report=report, file_sha256=edit_plan.file_sha256)
+                        problem=text, report=report, file_sha256=edit_plan.file_sha256,
+                        color_decisions=new_decisions)
     if fixed_path is not None:
         # The clearance report and any acknowledgement describe the old file:
         # drop them so the intake analyses the fixed model afresh.

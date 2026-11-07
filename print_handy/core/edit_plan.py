@@ -935,6 +935,24 @@ def undo_last_edit(job, *, actor):
     return target
 
 
+# The allowlisted profile (Orca process) settings a job-level profile edit
+# may set (#978): name -> (kind, bounds-or-values). Process-level print
+# settings only -- never machine, start/end G-code or other protected
+# baseline keys. ai_fix validates proposals against this same table, and
+# orca_adapter applies only these keys.
+PROFILE_SETTINGS = {
+    "wall_loops": ("int", 1, 10),
+    "top_shell_layers": ("int", 0, 10),
+    "bottom_shell_layers": ("int", 0, 10),
+    "initial_layer_height": ("float", 0.05, 0.6),
+    "wall_generator": ("enum", ("classic", "arachne")),
+    "seam_position": ("enum", ("nearest", "aligned", "back", "random")),
+    "sparse_infill_pattern": ("enum", ("grid", "gyroid", "honeycomb", "triangle", "cubic",
+                                       "line", "concentric", "rectilinear", "adaptivecubic",
+                                       "supportcubic", "lightning")),
+}
+
+
 def slice_edits(job):
     """The slice_model `edits` argument for a job: the process-level edit
     settings (support type/plate-only, layer height, infill) plus the
@@ -952,6 +970,10 @@ def slice_edits(job):
         edits["infill_percent"] = float(settings_now["infill_percent"])
     if settings_now.get("label_objects"):
         edits["label_objects"] = True
+    profile = {key: value for key, value in (settings_now.get("profile") or {}).items()
+               if key in PROFILE_SETTINGS}
+    if profile:
+        edits["profile"] = profile
     mirror = (job.get("orientation") or {}).get("mirror")
     if mirror:
         edits["mirror"] = mirror

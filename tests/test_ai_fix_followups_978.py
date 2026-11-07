@@ -271,3 +271,61 @@ def test_chat_source_changed_before_apply_is_not_applied(fix_env, monkeypatch):
     assert result["reason"] == "repair: source changed"
     assert json.loads(fix_env.job_path.read_text())["downloaded_file"] == str(model)
     assert not list(fix_env.folder.glob(ai_fix.STAGING_PREFIX + "*"))
+
+
+# ---------------------------------------------------------------- combined with #985
+
+def test_offset_and_split_refuse_a_painted_3mf(tmp_path):
+    from test_ai_fix_review_978 import _painted_3mf
+    src = _painted_3mf(tmp_path / "painted.3mf")
+    for geometry in ({"kind": "offset", "mm": 0.2}, {"kind": "split", "axis": "z", "at_mm": 1.0}):
+        with pytest.raises(ai_fix.FixError, match="painted"):
+            ai_fix.build_fixed_copy(src, ai_fix.FixProposal(geometry=geometry), tmp_path)
+    assert not list(tmp_path.glob(ai_fix.STAGING_PREFIX + "*"))
+
+
+def test_undo_reverts_a_profile_and_filament_map_fix(tmp_path):
+    src = tmp_path / "m.stl"
+    src.write_bytes(b"model")
+    before_decisions = {"mode": "single_color", "selection": {"slot": 1}}
+    job = {"downloaded_file": str(src), "edits": [],
+           "color_decisions": before_decisions,
+           "edit_settings": {"infill_percent": 15.0}}
+    proposal = ai_fix.FixProposal(profile={"wall_loops": 3}, filament_map={1: 2})
+    ai_fix.apply_to_job(job, proposal, [], fixed_path=None, actor="a", problem="p", report={},
+                        file_sha256=lambda path: "sha",
+                        color_decisions={"mode": "single_color", "selection": {"slot": 2}})
+    assert job["edit_settings"] == {"infill_percent": 15.0, "profile": {"wall_loops": 3}}
+    assert job["color_decisions"]["selection"]["slot"] == 2
+    assert job["ai_fixes"][0]["filament_map"] == {"1": 2}
+    assert ai_fix.undo_last_fix(job, actor="a") is not None
+    assert job["edit_settings"] == {"infill_percent": 15.0}
+    assert job["color_decisions"] == before_decisions
+
+
+def test_yolo_never_takes_the_keep_openings_apply_either():
+    import asyncio as _asyncio
+    from types import SimpleNamespace as S
+    from print_handy.core import prepared_intake, yolo
+    asked = []
+
+    async def ask(adapter, source, key, question, choices, timeout, **kwargs):
+        asked.append(list(choices))
+        return len(choices) - 1
+
+    class _A:
+        sent = []
+
+        async def send(self, chat_id, content, metadata=None):
+            self.sent.append(content)
+    original = prepared_intake.ask
+    prepared_intake.ask = ask
+    token = yolo.ACTIVE.set(True)
+    try:
+        choices = [ai_fix.APPLY_KEEP_OPENINGS_LABEL, "Cancel"]
+        pick = _asyncio.run(prepared_intake._ask(_A(), S(chat_id="c", thread_id=None), "k",
+                                                 "Apply?", choices, 1))
+    finally:
+        yolo.ACTIVE.reset(token)
+        prepared_intake.ask = original
+    assert pick == 1 and asked == [[ai_fix.APPLY_KEEP_OPENINGS_LABEL, "Cancel"]]
