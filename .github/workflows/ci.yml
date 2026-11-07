@@ -498,8 +498,8 @@ jobs:
           apt-get update -q
           apt-get install -y -q curl unzip
           archive="$RUNNER_TEMP/spoolman.zip"
-          curl -fL --retry 3 https://github.com/Donkie/Spoolman/releases/download/v0.27.0/spoolman.zip -o "$archive"
-          echo 'bcc961af4c20d7ad7f1740f5609cd3efd94c4556baafaeba5036122dd7e46704  '"$archive" | sha256sum -c -
+          curl -fL --retry 3 https://github.com/Donkie/Spoolman/releases/download/v0.27.1/spoolman.zip -o "$archive"
+          echo '77ba10fa505a42cef606eabec1a7c9a5b93c51dc40067456a29a7d9480ef27d6  '"$archive" | sha256sum -c -
           mkdir -p "$RUNNER_TEMP/spoolman-src"
           unzip -q "$archive" -d "$RUNNER_TEMP/spoolman-src"
           cd "$RUNNER_TEMP/spoolman-src"

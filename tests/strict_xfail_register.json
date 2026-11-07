@@ -6,6 +6,18 @@
       "owner": "print-handy",
       "expiry": "2027-02-04",
       "reason": "The corpus flow applies a case.toml known_failure as a strict xfail. No case sets one today; remove this line when the flow stops writing the mark."
+    },
+    {
+      "node_id": "tests/test_wrapped_records_from_writers.py::test_new_years_eve_print_buckets_into_the_local_year",
+      "owner": "print-handy",
+      "expiry": "2027-01-31",
+      "reason": "#981: Wrapped aggregate() buckets year/month/night in UTC, so a Dec 31 19:00 print in the configured America/New_York zone lands in the next year. PR #986 (Wrapped v1.1) owns the local-timezone fix; then this XPASSes and marker + entry go."
+    },
+    {
+      "node_id": "tests/test_wrapped_records_from_writers.py::test_wrapped_video_duration_matches_its_segments",
+      "owner": "print-handy",
+      "expiry": "2027-01-31",
+      "reason": "#981 pacing: mixed-fps clips keep their source rate and the stream-copy concat mis-times the Wrapped video (real ffmpeg: 15.6s vs 17s of segments). PR #986 (v1.1) owns the pacing fix; then this XPASSes and marker + entry go."
     }
   ]
 }

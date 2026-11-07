@@ -65,3 +65,47 @@ def test_archived_spool_is_refused(tmp_path):
     with pytest.raises(spool_sync.SpoolError, match="archived"):
         spool_sync.bind_slot(1, sid, client=client, mr=printer, state_path=hardware_record(tmp_path),
                              push_screen_update=False)
+
+
+def test_ph_slot_field_definition_is_created_once():
+    """The ph_slot extra field definition (#798) against the real server.
+
+    ensure_ph_slot_field must create the definition when missing and
+    then be a no-op: exactly one ph_slot field, of type text, however
+    often it runs. This is the definition every bind/reconcile write
+    depends on; a Spoolman whose field endpoints changed shape would
+    fail here against the real server, not against a fake.
+    """
+    assert spool_sync.ensure_ph_slot_field(client) is True
+    assert spool_sync.ensure_ph_slot_field(client) is True
+    fields = client("GET", "/api/v1/field/spool")
+    mine = [row for row in fields if row.get("key") == spool_sync.PH_SLOT_FIELD]
+    assert len(mine) == 1
+    assert mine[0]["field_type"] == "text"
+
+
+def test_ph_slot_round_trip_through_bind_and_reconcile(tmp_path):
+    """A bind's ph_slot claim survives the round trip through the real server.
+
+    bind_slot writes the claim as the spool's ph_slot extra value;
+    reading the spool back must decode the same (printer, slot), and
+    reconcile - which treats Spoolman as the source of truth - must
+    rebuild the local slot cache from that claim. Clearing the claim
+    on the server must then read back as no claim.
+    """
+    state = hardware_record(tmp_path)
+    sid = new_spool("Testbrand, PLA, Round Trip Teal, 1000, 008080")["spool_id"]
+    spool_sync.bind_slot(2, sid, client=client, mr=printer, state_path=state,
+                         push_screen_update=False, printer_id="test-printer")
+    record = client("GET", f"/api/v1/spool/{sid}")
+    assert spool_sync.spool_ph_slot(record) == ("test-printer", 2)
+
+    result = spool_sync.reconcile("test-printer", client=client, mr=printer,
+                                  state_path=state)
+    assert result["assignments"][2] == sid
+    saved = json.loads(state.read_text())
+    assert saved["filament_slots"]["2"]["spoolman_id"] == sid
+
+    assert spool_sync._set_ph_slot(client, sid, None) is True
+    cleared = client("GET", f"/api/v1/spool/{sid}")
+    assert spool_sync.spool_ph_slot(cleared) is None

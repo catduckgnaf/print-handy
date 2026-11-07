@@ -250,7 +250,8 @@ def _print_number(job):
     """Read the print's number without assigning one from a listener render.
 
     A job dict that carries this launch's own number (a start record context)
-    wins; otherwise the job's first-print number from the registry.
+    wins; otherwise the job's NEWEST print number from the registry (a job
+    printed again has several; its first would name an older print).
     """
     if isinstance(job, dict):
         own = job.get('print_number')
@@ -261,9 +262,7 @@ def _print_number(job):
         return None
     try:
         from . import print_control
-        numbers = json.loads(print_control.PRINT_NUMBERS.read_text(encoding='utf-8')).get('numbers') or {}
-        number = numbers.get(str(Path(path).resolve()))
-        return int(number) if isinstance(number, int) and not isinstance(number, bool) and number > 0 else None
+        return print_control.latest_number_for_job(path)
     except (OSError, ValueError, AttributeError, ImportError):
         return None
 

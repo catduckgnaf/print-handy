@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -347,6 +348,11 @@ def _launch_records(archive: Path) -> list[Path]:
 
 
 def printed_jobs(archive: Path | None = None, numbers_path: Path | None = None) -> list[dict[str, Any]]:
+    with _RegistryLock(numbers_path):
+        return _printed_jobs_locked(archive, numbers_path)
+
+
+def _printed_jobs_locked(archive: Path | None = None, numbers_path: Path | None = None) -> list[dict[str, Any]]:
     """Archived prints that were actually sent to the printer, most recent first.
 
     One row per PRINT (launch), not per job: printing the same job again is a
@@ -474,6 +480,74 @@ def printed_jobs(archive: Path | None = None, numbers_path: Path | None = None) 
 LAUNCH_MATCH_WINDOW_S = 3600.0
 
 
+_REGISTRY_HELD = threading.local()
+_REGISTRY_THREAD_LOCK = threading.RLock()
+
+
+class _RegistryLock:
+    """Serialize every read-modify-write of the print-number registry.
+
+    Each printer starts prints from its own print-now process, and the bot
+    renders /print-again lists in another: without a lock two starts at once
+    can mint the same number, and a list written over a start drops that
+    start's launch entry. An O_EXCL lock file (cross-process) plus an RLock
+    (threads); re-entrant per thread, since printed_jobs() calls
+    assign_print_numbers() while holding it. A lock file older than a minute
+    belongs to a crashed holder and is broken.
+    """
+
+    def __init__(self, numbers_path: Path | None = None, wait_s: float = 10.0, stale_s: float = 60.0):
+        path = Path(numbers_path or PRINT_NUMBERS)
+        self.lock = path.with_suffix(path.suffix + ".lock")
+        self.key = str(self.lock.resolve())
+        self.wait_s, self.stale_s = wait_s, stale_s
+
+    def _depths(self) -> dict[str, int]:
+        if not hasattr(_REGISTRY_HELD, "depths"):
+            _REGISTRY_HELD.depths = {}
+        return _REGISTRY_HELD.depths
+
+    def __enter__(self):
+        depths = self._depths()
+        if depths.get(self.key):
+            depths[self.key] += 1
+            return self
+        _REGISTRY_THREAD_LOCK.acquire()
+        try:
+            self.lock.parent.mkdir(parents=True, exist_ok=True)
+            deadline = time.monotonic() + self.wait_s
+            while True:
+                try:
+                    os.close(os.open(self.lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+                    break
+                except FileExistsError:
+                    try:
+                        if time.time() - self.lock.stat().st_mtime > self.stale_s:
+                            self.lock.unlink(missing_ok=True)
+                            continue
+                    except OSError:
+                        continue
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(f"print number registry is locked: {self.lock}")
+                    time.sleep(0.05)
+        except BaseException:
+            _REGISTRY_THREAD_LOCK.release()
+            raise
+        depths[self.key] = 1
+        return self
+
+    def __exit__(self, *exc):
+        depths = self._depths()
+        depths[self.key] -= 1
+        if not depths[self.key]:
+            del depths[self.key]
+            try:
+                self.lock.unlink(missing_ok=True)
+            finally:
+                _REGISTRY_THREAD_LOCK.release()
+        return False
+
+
 def _load_number_registry(numbers_path: Path | None = None) -> dict[str, Any]:
     """The print-number registry: {'numbers': {job: first number}, 'launches': [...]}.
 
@@ -508,17 +582,67 @@ def _load_number_registry(numbers_path: Path | None = None) -> dict[str, Any]:
     return {"numbers": numbers, "launches": launches}
 
 
+def _job_json_key(job_path: Path | str) -> str:
+    """The registry key for a job: its resolved JOB.json (a job folder works too)."""
+    path = Path(job_path)
+    if path.name != "JOB.json":
+        path = path / "JOB.json"
+    return str(path.resolve())
+
+
+def latest_number_for_job(job_path: Path | str, numbers_path: Path | None = None) -> int | None:
+    """The number of a job's NEWEST print (the one running or just finished).
+
+    A job printed three times has three numbers; a reader that only knows the
+    job (a listener render with no start-record context) means its latest
+    print, never its first. Falls back to the legacy first-print number for
+    a job printed before per-launch numbering. Read-only.
+    """
+    key = _job_json_key(job_path)
+    registry = _load_number_registry(numbers_path)
+    own = [e["number"] for e in registry["launches"] if e.get("job") == key]
+    if own:
+        return max(own)
+    return registry["numbers"].get(key)
+
+
+def number_for_launch(job_path: Path | str, at: float, numbers_path: Path | None = None,
+                      exclude: set[int] | frozenset[int] = frozenset()) -> int | None:
+    """The number minted for the launch of ``job_path`` nearest ``at``, or None.
+
+    For a record that lost its own number: matches the job's launch entry
+    closest in time (within LAUNCH_MATCH_WINDOW_S), skipping ``exclude``.
+    A job with launch entries but none near ``at`` gets None — never another
+    print's number. A job with no launch entries at all (printed before
+    per-launch numbering) keeps its legacy first-print number. Read-only.
+    """
+    key = _job_json_key(job_path)
+    registry = _load_number_registry(numbers_path)
+    own = [e for e in registry["launches"] if e.get("job") == key]
+    if not own:
+        legacy = registry["numbers"].get(key)
+        return legacy if legacy not in exclude else None
+    near = [e for e in own if e["number"] not in exclude
+            and abs(float(e.get("at") or 0) - at) <= LAUNCH_MATCH_WINDOW_S]
+    return min(near, key=lambda e: abs(float(e.get("at") or 0) - at))["number"] if near else None
+
+
 def _save_number_registry(registry: dict[str, Any], numbers_path: Path | None = None) -> None:
     path = Path(numbers_path or PRINT_NUMBERS)
     payload = {"numbers": registry["numbers"],
                "launches": sorted(registry["launches"], key=lambda e: e["number"])}
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp = path.with_suffix(f"{path.suffix}.{os.getpid()}.{threading.get_ident()}.tmp")
     tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     os.replace(tmp, path)
 
 
 def assign_print_numbers(first_launch: dict[Path, float], numbers_path: Path | None = None) -> dict[str, int]:
+    with _RegistryLock(numbers_path):
+        return _assign_print_numbers_locked(first_launch, numbers_path)
+
+
+def _assign_print_numbers_locked(first_launch: dict[Path, float], numbers_path: Path | None = None) -> dict[str, int]:
     """Permanent FIRST-print numbers per job. Existing numbers never change; new jobs append in launch order."""
     registry = _load_number_registry(numbers_path)
     numbers = registry["numbers"]
@@ -533,6 +657,12 @@ def assign_print_numbers(first_launch: dict[Path, float], numbers_path: Path | N
 
 
 def mint_launch_number(job_path: Path, at: float | None = None, artifact: Any = None,
+                       numbers_path: Path | None = None) -> int:
+    with _RegistryLock(numbers_path):
+        return _mint_launch_number_locked(job_path, at, artifact, numbers_path)
+
+
+def _mint_launch_number_locked(job_path: Path, at: float | None = None, artifact: Any = None,
                        numbers_path: Path | None = None) -> int:
     """Mint the next permanent print number for ONE launch of a job.
 

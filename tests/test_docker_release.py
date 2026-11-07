@@ -46,7 +46,7 @@ SECRETS = {"DISCORD_BOT_TOKEN", "TELEGRAM_BOT_TOKEN", "MATRIX_ACCESS_TOKEN", "LL
            "MYMINIFACTORY_OAUTH_TOKEN", "MAKERWORLD_TOKEN", "THINGIVERSE_TOKEN", "CULTS3D_TOKEN"}
 COMPOSE_VARS = {"PRINT_HANDY_IMAGE", "PRINT_HANDY_DATA", "PRINT_HANDY_SPOOLMAN_DATA", "PRINT_HANDY_CONFIG", "TZ",
                 "DISCORD_CLIENT_ID", "CLOUDFLARED_IMAGE", "SPOOLMAN_CORS_ORIGIN"}
-RUNTIME_ENV_VARS = {"PRINT_HANDY_ORCA_CHANNEL", "PRINT_HANDY_USER_CONFIG", "PRINT_HANDY_BUNDLED_SPOOLMAN", "SPOOLMAN_HOST", "PRINT_VISION_URL", "PRINT_FUZZY_URL"}
+RUNTIME_ENV_VARS = {"PRINT_HANDY_ORCA_CHANNEL", "PRINT_HANDY_USER_CONFIG", "PRINT_HANDY_BUNDLED_SPOOLMAN", "SPOOLMAN_HOST", "SPOOLMAN_UPDATE_CHECK", "PRINT_VISION_URL", "PRINT_FUZZY_URL"}
 DATA_TARGETS = {"/data/state", "/data/hermes", "/data/archive", "/data/records", "/data/cache"}
 
 
@@ -190,6 +190,21 @@ def _parse_dotted_quad(raw):
 
 
 class SanitizedExamplesTests(unittest.TestCase):
+    def test_dotted_quad_helper_distinguishes_versions_from_addresses(self):
+        # Direct pins for _parse_dotted_quad (landed with PR #990): the
+        # deployment-file scan below proves the version tolerance against
+        # the real files, but the positive direction — a real LAN
+        # address, including a zero-padded one, still parses and would
+        # be flagged — was asserted nowhere.
+        assert _parse_dotted_quad("192.168.250.135").is_private
+        assert _parse_dotted_quad("192.168.001.1").is_private
+        # The Bambu version string zero-strips to a valid PUBLIC address
+        # (2.9.1.70), so the scan parses it and does not flag it — that,
+        # not a parse failure, is what unblocked PR #990.
+        version = _parse_dotted_quad("02.09.01.70")
+        assert str(version) == "2.9.1.70" and not version.is_private
+        assert not _parse_dotted_quad("8.8.8.8").is_private
+
     def test_no_lan_addresses_machine_paths_ids_or_credentials(self):
         for path in DEPLOYMENT_FILES:
             text = (ROOT / path).read_text()
