@@ -187,7 +187,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
 # The keys of one [ai.<tier>] table (#818); the tables are file only, so they are not in OPTIONAL_KEYS.
 AI_TIER_KEYS = ("chat_url", "model", "fallback_model", "fallback_url", "api_key_env",
                 "fallback_api_key_env", "timeout_s")
-ENV_LISTS = {("delivery", "methods"), ("zmod", "plugins")}
+ENV_LISTS = {("delivery", "methods"), ("zmod", "plugins"), ("public_text", "denylist")}
 # Settings whose value is a word or a list of names ([zmod] plugins: "auto" or a list). The default
 # is the word, so the type check accepts either shape; _validate_purge checks the content.
 MIXED_KEYS = {("zmod", "plugins")}
