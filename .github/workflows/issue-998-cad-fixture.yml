@@ -1,0 +1,90 @@
+# Generates and commits the complete, reproducible binary fixture for issue #998.
+# Does not assert this mount is structurally safe or print-tested.
+name: Issue 998 Mac mini CAD reference fixture
+on:
+  push:
+    branches:
+      - fixtures/issue-998-mac-mini-rack
+    paths:
+      - '.github/workflows/issue-998-cad-fixture.yml'
+      - 'tests/corpus/design/mac_mini_rack_issue_998/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-reference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout fixture branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install offscreen rendering dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgl1 libglu1-mesa libxrender1 libxext6 libsm6 libglib2.0-0
+      - name: Install pinned CAD and verification tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install 'cadquery==2.8.0' 'vtk==9.6.2' 'matplotlib==3.10.8' 'trimesh==4.11.1'
+      - name: Build source-derived STL and STEP parts
+        working-directory: tests/corpus/design/mac_mini_rack_issue_998
+        run: python generate_rack_mount.py
+      - name: Render original assembled preview
+        working-directory: tests/corpus/design/mac_mini_rack_issue_998
+        run: xvfb-run -a python make_previews.py
+      - name: Produce dimensioned illustration
+        working-directory: tests/corpus/design/mac_mini_rack_issue_998
+        run: python make_dimension_diagram.py
+      - name: Validate five meshes, file inventory and checksums
+        working-directory: tests/corpus/design/mac_mini_rack_issue_998
+        run: python validate_fixtures.py
+      - name: Bundle original 16-file layout as a regenerated ZIP
+        working-directory: tests/corpus/design/mac_mini_rack_issue_998
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+          base=Path('.')
+          original=[
+              'README_ASSEMBLY_AND_PRINTING.md',
+              '01_CENTER_TRAY_214x214.stl','01_CENTER_TRAY_214x214.step',
+              '02_RIGHT_2U_ARM.stl','02_RIGHT_2U_ARM.step',
+              '03_LEFT_2U_ARM.stl','03_LEFT_2U_ARM.step',
+              '00_TEST_LOWER_M4_NUT.stl','00_TEST_UPPER_M4_BUTTON_HEAD.stl',
+              'ASSEMBLY_2014_MAC_MINI_2U.step',
+              'REFERENCE_MAC_MINI_ENVELOPE_NOT_FOR_PRINTING.step',
+              'generate_rack_mount.py','make_previews.py','make_dimension_diagram.py',
+              'PREVIEW_assembled_rack_mount.png','DIMENSIONED_OVERVIEW.png',
+          ]
+          path=base/'2014_Mac_Mini_19inch_2U_PLA_Rack_Mount_v1_REGENERATED.zip'
+          with ZipFile(path,'w',ZIP_DEFLATED,compresslevel=9) as z:
+              for name in original:
+                  assert (base/name).is_file(), name
+                  z.write(base/name,'mac_mini_2014_2U_rack_mount/'+name)
+          print('Created',path,'with',len(original),'source/asset files')
+          PY
+      - name: Upload archive as retrievable workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-998-mac-mini-rack-reproduced
+          path: tests/corpus/design/mac_mini_rack_issue_998/2014_Mac_Mini_19inch_2U_PLA_Rack_Mount_v1_REGENERATED.zip
+          if-no-files-found: error
+      - name: Commit binary assets and SHA256 manifest on fixture branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tests/corpus/design/mac_mini_rack_issue_998/
+          if git diff --cached --quiet; then
+            echo 'Fixtures already match the checked-in version.'
+          else
+            git commit -m 'test(fixtures): add generated issue #998 STL STEP previews and ZIP [skip ci]'
+            git push origin HEAD:fixtures/issue-998-mac-mini-rack
+          fi
