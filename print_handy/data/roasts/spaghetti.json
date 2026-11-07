@@ -1,27 +1,147 @@
 {
  "_about": "Confirmed spaghetti only, never a mere watchdog risk flag.",
- "_phase": "seed-v0 (#1002 attachment 1, 2026-11-07)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2)",
  "_license": "Original to Print Handy; MIT with the project.",
  "entries": [
-  "{title} has achieved its final form: a bird nest holding {grams} grams of ambition.",
-  "The printer made {title} into abstract pasta: no sauce, no structure, all confidence.",
-  "{color} spaghetti was not on the menu, yet {printer} served a full portion.",
-  "{title} is now legally a tangle, formerly a print, currently a warning.",
-  "Somewhere in that nest of {material} is the ghost of {title}, probably.",
-  "{duration} of printing produced one serving of filament noodles, slightly overcooked.",
-  "{title} chose the pasta lifestyle, and the pasta lifestyle chose it right back.",
-  "That is not a failed print, that is {material} doing modern interpretive dance.",
-  "The bed adhesion held a meeting about {title} and everyone agreed to leave.",
-  "{title} is now a decorative nest, free to a good home or any home.",
-  "Congratulations, {printer} has unlocked artisanal spaghetti mode, a feature nobody requested.",
-  "{grams} grams of {color} {material} braided themselves into a monument to optimism.",
-  "{title} looked great from a distance, specifically the distance of another room.",
-  "The nozzle kept printing, the part left early, and {title} became performance art.",
-  "If you squint, that tangle is exactly {title}, assuming squinting does heavy lifting.",
-  "{title} has been reclassified from functional part to festive plastic haystack.",
-  "A chef would call that al dente; a printer would simply call it {title}.",
-  "The spaghetti incident of {title} will be studied by no one, but remembered.",
-  "{material} was supposed to become {title} and instead chose freedom, enthusiastically.",
-  "{title} is now a starter kit for teaching patience, one untangled strand at a time."
+  {
+   "id": "spaghetti-title-has-achieved-its-final",
+   "family": "spaghetti-title-has-achieved-its-final",
+   "text": "{title} has achieved its final form: a bird nest holding {grams} grams of ambition."
+  },
+  {
+   "id": "spaghetti-the-printer-made-title-into",
+   "family": "spaghetti-the-printer-made-title-into",
+   "text": "The printer made {title} into abstract pasta: no sauce, no structure, all confidence."
+  },
+  {
+   "id": "spaghetti-color-spaghetti-was-not-on",
+   "family": "spaghetti-color-spaghetti-was-not-on",
+   "text": "{color} spaghetti was not on the menu, yet {printer} served a full portion."
+  },
+  {
+   "id": "spaghetti-title-is-now-legally-a",
+   "family": "spaghetti-title-is-now-legally-a",
+   "text": "{title} is now legally a tangle, formerly a print, currently a warning."
+  },
+  {
+   "id": "spaghetti-somewhere-in-that-nest-of",
+   "family": "spaghetti-somewhere-in-that-nest-of",
+   "text": "Somewhere in that nest of {material} is the ghost of {title}, probably."
+  },
+  {
+   "id": "spaghetti-duration-of-printing-produced-one",
+   "family": "spaghetti-duration-of-printing-produced-one",
+   "text": "{duration} of printing produced one serving of filament noodles, slightly overcooked."
+  },
+  {
+   "id": "spaghetti-title-chose-the-pasta-lifestyle",
+   "family": "spaghetti-title-chose-the-pasta-lifestyle",
+   "text": "{title} chose the pasta lifestyle, and the pasta lifestyle chose it right back."
+  },
+  {
+   "id": "spaghetti-that-is-not-a-failed",
+   "family": "spaghetti-that-is-not-a-failed",
+   "text": "That is not a failed print, that is {material} doing modern interpretive dance."
+  },
+  {
+   "id": "spaghetti-the-bed-adhesion-held-a",
+   "family": "spaghetti-the-bed-adhesion-held-a",
+   "text": "The bed adhesion held a meeting about {title} and everyone agreed to leave."
+  },
+  {
+   "id": "spaghetti-title-is-now-a-decorative",
+   "family": "spaghetti-title-is-now-a-decorative",
+   "text": "{title} is now a decorative nest, free to a good home or any home."
+  },
+  {
+   "id": "spaghetti-congratulations-printer-has-unlocked-artisan",
+   "family": "spaghetti-congratulations-printer-has-unlocked-artisan",
+   "text": "Congratulations, {printer} has unlocked artisanal spaghetti mode, a feature nobody requested."
+  },
+  {
+   "id": "spaghetti-grams-grams-of-color-material",
+   "family": "spaghetti-grams-grams-of-color-material",
+   "text": "{grams} grams of {color} {material} braided themselves into a monument to optimism."
+  },
+  {
+   "id": "spaghetti-title-looked-great-from-a",
+   "family": "spaghetti-title-looked-great-from-a",
+   "text": "{title} looked great from a distance, specifically the distance of another room."
+  },
+  {
+   "id": "spaghetti-the-nozzle-kept-printing-the",
+   "family": "spaghetti-the-nozzle-kept-printing-the",
+   "text": "The nozzle kept printing, the part left early, and {title} became performance art."
+  },
+  {
+   "id": "spaghetti-if-you-squint-that-tangle",
+   "family": "spaghetti-if-you-squint-that-tangle",
+   "text": "If you squint, that tangle is exactly {title}, assuming squinting does heavy lifting."
+  },
+  {
+   "id": "spaghetti-title-has-been-reclassified-from",
+   "family": "spaghetti-title-has-been-reclassified-from",
+   "text": "{title} has been reclassified from functional part to festive plastic haystack."
+  },
+  {
+   "id": "spaghetti-a-chef-would-call-that",
+   "family": "spaghetti-a-chef-would-call-that",
+   "text": "A chef would call that al dente; a printer would simply call it {title}."
+  },
+  {
+   "id": "spaghetti-the-spaghetti-incident-of-title",
+   "family": "spaghetti-the-spaghetti-incident-of-title",
+   "text": "The spaghetti incident of {title} will be studied by no one, but remembered."
+  },
+  {
+   "id": "spaghetti-material-was-supposed-to-become",
+   "family": "spaghetti-material-was-supposed-to-become",
+   "text": "{material} was supposed to become {title} and instead chose freedom, enthusiastically."
+  },
+  {
+   "id": "spaghetti-title-is-now-a-starter",
+   "family": "spaghetti-title-is-now-a-starter",
+   "text": "{title} is now a starter kit for teaching patience, one untangled strand at a time."
+  },
+  {
+   "id": "spaghetti-title-tried-to-become-architecture",
+   "family": "spaghetti-title-tried-to-become-architecture",
+   "text": "{title} tried to become architecture and wound up auditioning for a pasta commercial."
+  },
+  {
+   "id": "spaghetti-the-nozzle-drew-noodles-instead",
+   "family": "spaghetti-the-nozzle-drew-noodles-instead",
+   "text": "The nozzle drew noodles instead of {title}; a creative interpretation of the brief."
+  },
+  {
+   "id": "spaghetti-title-has-been-reclassified-as",
+   "family": "spaghetti-title-has-been-reclassified-as",
+   "text": "{title} has been reclassified as abstract filament landscaping."
+  },
+  {
+   "id": "spaghetti-title-became-a-sculpture-titled",
+   "family": "spaghetti-title-became-a-sculpture-titled",
+   "text": "{title} became a sculpture titled Gravity Won Again."
+  },
+  {
+   "id": "spaghetti-tonight-s-special-title-served",
+   "family": "spaghetti-tonight-s-special-title-served",
+   "text": "Tonight's special: {title}, served without adhesion or dignity."
+  },
+  {
+   "id": "spaghetti-printer-attempted-title-and-invented",
+   "family": "spaghetti-printer-attempted-title-and-invented",
+   "text": "{printer} attempted {title} and invented a new shape of disappointment."
+  },
+  {
+   "id": "spaghetti-the-build-plate-ordered-title",
+   "family": "spaghetti-the-build-plate-ordered-title",
+   "text": "The build plate ordered {title}; the nozzle delivered a tangled explanation."
+  },
+  {
+   "id": "spaghetti-title-failed-the-shape-test",
+   "family": "spaghetti-title-failed-the-shape-test",
+   "text": "{title} failed the shape test and passed the linguine test."
+  }
  ]
 }

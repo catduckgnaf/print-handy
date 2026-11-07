@@ -184,8 +184,9 @@ def checks(cfg):
                                     "set discord.clarify_ui=true for Print Handy's own renderer)")
     # The roast is separate from the chat fallback above and needs no model
     # at all (#1002): one line per print from the local roast corpus, on the
-    # completion post and on request ("roast my last print"), on every
-    # platform. vision.roast_enabled (on by default) is the only switch.
+    # completion post, the failure and cancel posts and a confirmed-spaghetti
+    # alert, and on request ("roast my last print"), on every platform.
+    # vision.roast_enabled (on by default) is the only switch.
     vision = cfg.get("vision") or {}
     # The vision endpoint the camera rows below need ([ai.small] is one too, #818).
     vision_url = str((cfg.get("services") or {}).get("vision_chat_url") or "")

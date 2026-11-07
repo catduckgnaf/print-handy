@@ -1,31 +1,172 @@
 {
  "_about": "Completed prints of 6 hours or more.",
- "_phase": "seed-v0 (#1002 attachment 1, 2026-11-07)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2)",
  "_license": "Original to Print Handy; MIT with the project.",
  "entries": [
-  "{title} took {duration}, which is less a print and more a part-time job for {printer}.",
-  "After {duration}, {title} finally emerged, blinking, like it had been living inside {printer} for a season.",
-  "{duration} for {title} — somewhere in there, {printer} qualified for a lunch break and a raise.",
-  "{title} is done after {duration}; the nozzle has seen things, mostly {color} {material}, for hours.",
-  "You could have watched three movies during {title}, and {printer} still would be on layer two hundred.",
-  "{title}: {duration} of commitment, {grams} grams of {material}, and zero regrets that anyone will admit to.",
-  "At hour twelve, {title} stopped being a print and became a long-term resident of {printer}.",
-  "{title} took {duration} — that is not printing, that is a slow, {color} glacier with layer adhesion.",
-  "Somewhere around {duration}, {title} went from exciting project to background noise with a progress bar.",
-  "{printer} spent {duration} making {title}, and honestly, the dedication deserves its own tiny trophy.",
-  "{title} is finally done, and {material} will never financially recover from this schedule, but the result looks great.",
-  "A {duration} print means {title} has now lived on {printer} longer than most houseplants survive here.",
-  "{title} finished after {duration}, just in time for everyone to forget what layer one looked like.",
-  "That was {duration} of {printer} humming bravely so {title} could exist in {color} {material} glory.",
-  "{title} took so long that the {material} spool aged gracefully alongside it, like a fine, stringy wine.",
-  "After {duration}, {title} has arrived, fashionably late, extremely layered, and pretending the wait was intentional.",
-  "{grams} grams and {duration} later, {title} is less a print and more a commitment ceremony.",
-  "{title} spent {duration} on {printer}, which in printer years is basically a full childhood.",
-  "Nobody rush a {duration} print — {title} was busy becoming art at one layer per deep breath.",
-  "{title} is done, and {printer} would like a day off, a fan cleaning, and no follow-up questions.",
-  "Printing {title} for {duration} is just crocheting with machinery, extreme patience, and much warmer yarn.",
-  "After {duration} in {color}, {title} has the confidence of something that was definitely worth scheduling around.",
-  "{title} took {duration}, proving {printer} can commit to a relationship longer than most streaming subscriptions last.",
-  "The epic saga of {title} ended after {duration}, and the credits are just layer lines rolling by."
+  {
+   "id": "long_print-title-took-duration-which-is",
+   "family": "long_print-title-took-duration-which-is",
+   "text": "{title} took {duration}, which is less a print and more a part-time job for {printer}."
+  },
+  {
+   "id": "long_print-after-duration-title-finally-emerged",
+   "family": "long_print-after-duration-title-finally-emerged",
+   "text": "After {duration}, {title} finally emerged, blinking, like it had been living inside {printer} for a season."
+  },
+  {
+   "id": "long_print-duration-for-title-somewhere-in",
+   "family": "long_print-duration-for-title-somewhere-in",
+   "text": "{duration} for {title} — somewhere in there, {printer} qualified for a lunch break and a raise."
+  },
+  {
+   "id": "long_print-title-is-done-after-duration",
+   "family": "long_print-title-is-done-after-duration",
+   "text": "{title} is done after {duration}; the nozzle has seen things, mostly {color} {material}, for hours."
+  },
+  {
+   "id": "long_print-you-could-have-watched-three",
+   "family": "long_print-you-could-have-watched-three",
+   "text": "You could have watched three movies during {title}, and {printer} still would be on layer two hundred."
+  },
+  {
+   "id": "long_print-title-duration-of-commitment-grams",
+   "family": "long_print-title-duration-of-commitment-grams",
+   "text": "{title}: {duration} of commitment, {grams} grams of {material}, and zero regrets that anyone will admit to."
+  },
+  {
+   "id": "long_print-at-hour-twelve-title-stopped",
+   "family": "long_print-at-hour-twelve-title-stopped",
+   "text": "At hour twelve, {title} stopped being a print and became a long-term resident of {printer}."
+  },
+  {
+   "id": "long_print-title-took-duration-that-is",
+   "family": "long_print-title-took-duration-that-is",
+   "text": "{title} took {duration} — that is not printing, that is a slow, {color} glacier with layer adhesion."
+  },
+  {
+   "id": "long_print-somewhere-around-duration-title-went",
+   "family": "long_print-somewhere-around-duration-title-went",
+   "text": "Somewhere around {duration}, {title} went from exciting project to background noise with a progress bar."
+  },
+  {
+   "id": "long_print-printer-spent-duration-making-title",
+   "family": "long_print-printer-spent-duration-making-title",
+   "text": "{printer} spent {duration} making {title}, and honestly, the dedication deserves its own tiny trophy."
+  },
+  {
+   "id": "long_print-title-is-finally-done-and",
+   "family": "long_print-title-is-finally-done-and",
+   "text": "{title} is finally done, and {material} will never financially recover from this schedule, but the result looks great."
+  },
+  {
+   "id": "long_print-a-duration-print-means-title",
+   "family": "long_print-a-duration-print-means-title",
+   "text": "A {duration} print means {title} has now lived on {printer} longer than most houseplants survive here."
+  },
+  {
+   "id": "long_print-title-finished-after-duration-just",
+   "family": "long_print-title-finished-after-duration-just",
+   "text": "{title} finished after {duration}, just in time for everyone to forget what layer one looked like."
+  },
+  {
+   "id": "long_print-that-was-duration-of-printer",
+   "family": "long_print-that-was-duration-of-printer",
+   "text": "That was {duration} of {printer} humming bravely so {title} could exist in {color} {material} glory."
+  },
+  {
+   "id": "long_print-title-took-so-long-that",
+   "family": "long_print-title-took-so-long-that",
+   "text": "{title} took so long that the {material} spool aged gracefully alongside it, like a fine, stringy wine."
+  },
+  {
+   "id": "long_print-after-duration-title-has-arrived",
+   "family": "long_print-after-duration-title-has-arrived",
+   "text": "After {duration}, {title} has arrived, fashionably late, extremely layered, and pretending the wait was intentional."
+  },
+  {
+   "id": "long_print-grams-grams-and-duration-later",
+   "family": "long_print-grams-grams-and-duration-later",
+   "text": "{grams} grams and {duration} later, {title} is less a print and more a commitment ceremony."
+  },
+  {
+   "id": "long_print-title-spent-duration-on-printer",
+   "family": "long_print-title-spent-duration-on-printer",
+   "text": "{title} spent {duration} on {printer}, which in printer years is basically a full childhood."
+  },
+  {
+   "id": "long_print-nobody-rush-a-duration-print",
+   "family": "long_print-nobody-rush-a-duration-print",
+   "text": "Nobody rush a {duration} print — {title} was busy becoming art at one layer per deep breath."
+  },
+  {
+   "id": "long_print-title-is-done-and-printer",
+   "family": "long_print-title-is-done-and-printer",
+   "text": "{title} is done, and {printer} would like a day off, a fan cleaning, and no follow-up questions."
+  },
+  {
+   "id": "long_print-printing-title-for-duration-is",
+   "family": "long_print-printing-title-for-duration-is",
+   "text": "Printing {title} for {duration} is just crocheting with machinery, extreme patience, and much warmer yarn."
+  },
+  {
+   "id": "long_print-after-duration-in-color-title",
+   "family": "long_print-after-duration-in-color-title",
+   "text": "After {duration} in {color}, {title} has the confidence of something that was definitely worth scheduling around."
+  },
+  {
+   "id": "long_print-title-took-duration-proving-printer",
+   "family": "long_print-title-took-duration-proving-printer",
+   "text": "{title} took {duration}, proving {printer} can commit to a relationship longer than most streaming subscriptions last."
+  },
+  {
+   "id": "long_print-the-epic-saga-of-title",
+   "family": "long_print-the-epic-saga-of-title",
+   "text": "The epic saga of {title} ended after {duration}, and the credits are just layer lines rolling by."
+  },
+  {
+   "id": "long_print-after-duration-title-has-earned",
+   "family": "long_print-after-duration-title-has-earned",
+   "text": "After {duration}, {title} has earned squatter rights on the build plate."
+  },
+  {
+   "id": "long_print-title-spent-duration-in-production",
+   "family": "long_print-title-spent-duration-in-production",
+   "text": "{title} spent {duration} in production and now expects a retirement party."
+  },
+  {
+   "id": "long_print-by-the-time-title-finished",
+   "family": "long_print-by-the-time-title-finished",
+   "text": "By the time {title} finished, its slicer preview qualified as historical footage."
+  },
+  {
+   "id": "long_print-that-duration-run-gave-printer",
+   "family": "long_print-that-duration-run-gave-printer",
+   "text": "That {duration} run gave {printer} enough experience to request seniority."
+  },
+  {
+   "id": "long_print-title-took-duration-which-is-2",
+   "family": "long_print-title-took-duration-which-is-2",
+   "text": "{title} took {duration}, which is an unreasonable incubation period for plastic."
+  },
+  {
+   "id": "long_print-the-machine-printed-title-for",
+   "family": "long_print-the-machine-printed-title-for",
+   "text": "The machine printed {title} for {duration}; the rest of the house held a silent vigil."
+  },
+  {
+   "id": "long_print-after-duration-title-finally-decided",
+   "family": "long_print-after-duration-title-finally-decided",
+   "text": "After {duration}, {title} finally decided it was solid enough to participate in society."
+  },
+  {
+   "id": "long_print-title-needed-duration-the-electricity",
+   "family": "long_print-title-needed-duration-the-electricity",
+   "text": "{title} needed {duration}; the electricity meter wants producer credit."
+  },
+  {
+   "id": "long_print-at-duration-title-counts-as",
+   "family": "long_print-at-duration-title-counts-as",
+   "text": "At {duration}, {title} counts as a long-term relationship with a nozzle."
+  }
  ]
 }

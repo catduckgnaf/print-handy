@@ -131,6 +131,65 @@ def _delivery_name_year(name):
     return int(match.group(1)) if match else None
 
 
+_DELIVERY_STAMP_RE = re.compile(r"^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})-")
+
+
+def _record_number(record):
+    number = (record or {}).get("print_number")
+    return number if isinstance(number, int) and not isinstance(number, bool) else None
+
+
+def resolve_clip_print_number(name, records, tz=None):
+    """The CURRENT print number a delivered clip belongs to, or None.
+
+    The name join alone breaks after a duplicate-number repair
+    (#1017): a renumbered print's record carries its new number (the
+    old one kept as ``print_number_was``), while its already-delivered
+    clips still carry the old number — so a name-only join hands the
+    reprint's clip to the original print. Records settle it:
+
+    * no record claims the name's number (as its number or its
+      ``print_number_was``): the parsed number stands;
+    * exactly one record claims it: that record's current number;
+    * several claim it (the original kept the number, a reprint was
+      renumbered off it): the clip's own start stamp
+      (``<YYYYMMDD-HHMM>``, the print's start in the display timezone)
+      picks the record that started then; no stamp match falls back
+      to the parsed number rather than guessing.
+    """
+    number = parse_clip_print_number(name)
+    if number is None:
+        return None
+    claims = []
+    for record in records or []:
+        current = _record_number(record)
+        if current is None:
+            continue
+        was = record.get("print_number_was")
+        if current == number or (isinstance(was, int) and not isinstance(was, bool)
+                                 and was == number):
+            claims.append(record)
+    if not claims:
+        return number
+    if len(claims) == 1:
+        return _record_number(claims[0])
+    stamp = _DELIVERY_STAMP_RE.match(Path(str(name)).stem)
+    if stamp:
+        prefix = "".join(stamp.groups())
+        from datetime import datetime as _datetime
+        for record in claims:
+            started = str(record.get("started_at") or "")
+            try:
+                when = _datetime.fromisoformat(started.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if tz is not None and when.tzinfo is not None:
+                when = when.astimezone(tz)
+            if when.strftime("%Y%m%d%H%M") == prefix:
+                return _record_number(record)
+    return number
+
+
 def _clip_roots(data):
     """The local timelapse candidate roots, archive first (#981)."""
     roots = []
@@ -148,7 +207,7 @@ def _clip_roots(data):
     return roots
 
 
-def default_clip_finder_detailed(data, year):
+def default_clip_finder_detailed(data, year, records=None, tz=None):
     """Clip dicts {path, print_number, name_year} for the Wrapped year.
 
     Every existing finder location is searched, archive dir first, and
@@ -158,6 +217,11 @@ def default_clip_finder_detailed(data, year):
     date — can get wrong), or when its mtime falls in the year.
     Results are in finder order (archive first, then mtime within a
     root's matches as found sorted by mtime per root scan below).
+
+    When ``records`` (the year's print records) are supplied, each
+    clip's number is resolved through them
+    (:func:`resolve_clip_print_number`), so a clip delivered before a
+    duplicate-number repair still joins to its own print.
     """
     found = []
     seen = set()
@@ -183,7 +247,9 @@ def default_clip_finder_detailed(data, year):
                 continue
             seen.add(key)
             found.append({"path": str(path),
-                          "print_number": parse_clip_print_number(path.name),
+                          "print_number": (resolve_clip_print_number(path.name, records, tz)
+                                           if records is not None
+                                           else parse_clip_print_number(path.name)),
                           "name_year": name_year})
     return found
 
@@ -645,7 +711,8 @@ def _audio_command(ffmpeg_bin, silent, target, *, total, timeline, narration,
 
 def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
                         runner=None, find_clips=None,
-                        export_silent=False, tts_call=None):
+                        export_silent=False, tts_call=None,
+                        records=None, tz=None):
     """Compile one Wrapped video. Returns {ok, path, script_path, notes}.
 
     ``wrapped`` is a :func:`print_handy.core.print_stats.build_wrapped`
@@ -672,7 +739,7 @@ def build_wrapped_video(year, wrapped, out_dir, *, data=None, ffmpeg=None,
                                         "so the Wrapped video cannot be compiled",
                 "path": None, "script_path": str(script_path), "notes": notes}
     runner = runner or subprocess.run
-    finder = find_clips or (lambda y: default_clip_finder_detailed(data, y))
+    finder = find_clips or (lambda y: default_clip_finder_detailed(data, y, records=records, tz=tz))
     try:
         found = finder(year) or []
     except Exception:
@@ -821,4 +888,5 @@ __all__ = ["BED_DUCKED_VOLUME", "BED_FAILURE_VOLUME", "BED_VOLUME", "BG_FULL_MIN
            "SAD_VOLUME", "SEGMENT_TIMESCALE", "SHORT_SECONDS", "SLIDE_SECONDS",
            "STING_VOLUME", "build_slides", "build_wrapped_video",
            "clip_label", "default_clip_finder", "default_clip_finder_detailed",
-           "escape_drawtext", "piper_command", "select_clips", "timeline_roles"]
+           "escape_drawtext", "parse_clip_print_number", "piper_command",
+           "resolve_clip_print_number", "select_clips", "timeline_roles"]

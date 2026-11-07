@@ -1,27 +1,147 @@
 {
  "_about": "Completed prints that finished between midnight and 6 AM after at least 2 hours.",
- "_phase": "seed-v0 (#1002 attachment 1, 2026-11-07)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2)",
  "_license": "Original to Print Handy; MIT with the project.",
  "entries": [
-  "{title} finished at {hour}, because nothing says good planning like a printer partying all night alone.",
-  "At {hour}, {title} completed its night shift and clocked out without waking anyone, unlike the cooling fan.",
-  "{printer} stayed up all night making {title}, and it did not even get a midnight snack.",
-  "{title} wrapped up at {hour} — peak productivity hours for a machine, questionable hours for its owner.",
-  "While everyone slept, {title} quietly became real, one layer at a time, like a very slow tooth fairy.",
-  "{title} finished at {hour}, just in time to be admired by someone holding coffee and mild confusion.",
-  "The night shift produced {title} in {color} {material}, and the morning shift takes full credit, naturally.",
-  "{printer} pulled an all-nighter for {title}, which explains the layers and the slightly haunted humming.",
-  "At {hour}, {title} was done — the moon saw the whole print, and it has questions.",
-  "{title} ran through the night like it was training for a marathon nobody signed it up for.",
-  "Sleep is temporary, but {title} finishing at {hour} is forever, or at least until the next print.",
-  "{duration} later and one whole night gone, {title} has arrived looking suspiciously well-rested for plastic.",
-  "{title} completed at {hour}, proving the best project manager here works nights and melts {material}.",
-  "Some prints finish at noon, but {title} chose drama, darkness, and a {hour} grand entrance.",
-  "{printer} guarded {title} all night, bravely watching plastic cool at a pace glaciers would call relaxed.",
-  "By {hour}, {title} was finished, and the only witness was a blinking status light with no comment.",
-  "{title} spent the night becoming {color}, which is more personal growth than most of us manage asleep.",
-  "An overnight {title} means morning-you gets a present and night-you gets blamed for the electricity bill.",
-  "{title} finished at {hour} after using {grams} grams, because subtlety was never part of the overnight plan.",
-  "The sun came up, {title} was done, and {printer} acted like staying up all night was nothing."
+  {
+   "id": "overnight-title-finished-at-hour-because",
+   "family": "overnight-title-finished-at-hour-because",
+   "text": "{title} finished at {hour}, because nothing says good planning like a printer partying all night alone."
+  },
+  {
+   "id": "overnight-at-hour-title-completed-its",
+   "family": "overnight-at-hour-title-completed-its",
+   "text": "At {hour}, {title} completed its night shift and clocked out without waking anyone, unlike the cooling fan."
+  },
+  {
+   "id": "overnight-printer-stayed-up-all-night",
+   "family": "overnight-printer-stayed-up-all-night",
+   "text": "{printer} stayed up all night making {title}, and it did not even get a midnight snack."
+  },
+  {
+   "id": "overnight-title-wrapped-up-at-hour",
+   "family": "overnight-title-wrapped-up-at-hour",
+   "text": "{title} wrapped up at {hour} — peak productivity hours for a machine, questionable hours for its owner."
+  },
+  {
+   "id": "overnight-while-everyone-slept-title-quietly",
+   "family": "overnight-while-everyone-slept-title-quietly",
+   "text": "While everyone slept, {title} quietly became real, one layer at a time, like a very slow tooth fairy."
+  },
+  {
+   "id": "overnight-title-finished-at-hour-just",
+   "family": "overnight-title-finished-at-hour-just",
+   "text": "{title} finished at {hour}, just in time to be admired by someone holding coffee and mild confusion."
+  },
+  {
+   "id": "overnight-the-night-shift-produced-title",
+   "family": "overnight-the-night-shift-produced-title",
+   "text": "The night shift produced {title} in {color} {material}, and the morning shift takes full credit, naturally."
+  },
+  {
+   "id": "overnight-printer-pulled-an-all-nighter",
+   "family": "overnight-printer-pulled-an-all-nighter",
+   "text": "{printer} pulled an all-nighter for {title}, which explains the layers and the slightly haunted humming."
+  },
+  {
+   "id": "overnight-at-hour-title-was-done",
+   "family": "overnight-at-hour-title-was-done",
+   "text": "At {hour}, {title} was done — the moon saw the whole print, and it has questions."
+  },
+  {
+   "id": "overnight-title-ran-through-the-night",
+   "family": "overnight-title-ran-through-the-night",
+   "text": "{title} ran through the night like it was training for a marathon nobody signed it up for."
+  },
+  {
+   "id": "overnight-sleep-is-temporary-but-title",
+   "family": "overnight-sleep-is-temporary-but-title",
+   "text": "Sleep is temporary, but {title} finishing at {hour} is forever, or at least until the next print."
+  },
+  {
+   "id": "overnight-duration-later-and-one-whole",
+   "family": "overnight-duration-later-and-one-whole",
+   "text": "{duration} later and one whole night gone, {title} has arrived looking suspiciously well-rested for plastic."
+  },
+  {
+   "id": "overnight-title-completed-at-hour-proving",
+   "family": "overnight-title-completed-at-hour-proving",
+   "text": "{title} completed at {hour}, proving the best project manager here works nights and melts {material}."
+  },
+  {
+   "id": "overnight-some-prints-finish-at-noon",
+   "family": "overnight-some-prints-finish-at-noon",
+   "text": "Some prints finish at noon, but {title} chose drama, darkness, and a {hour} grand entrance."
+  },
+  {
+   "id": "overnight-printer-guarded-title-all-night",
+   "family": "overnight-printer-guarded-title-all-night",
+   "text": "{printer} guarded {title} all night, bravely watching plastic cool at a pace glaciers would call relaxed."
+  },
+  {
+   "id": "overnight-by-hour-title-was-finished",
+   "family": "overnight-by-hour-title-was-finished",
+   "text": "By {hour}, {title} was finished, and the only witness was a blinking status light with no comment."
+  },
+  {
+   "id": "overnight-title-spent-the-night-becoming",
+   "family": "overnight-title-spent-the-night-becoming",
+   "text": "{title} spent the night becoming {color}, which is more personal growth than most of us manage asleep."
+  },
+  {
+   "id": "overnight-an-overnight-title-means-morning",
+   "family": "overnight-an-overnight-title-means-morning",
+   "text": "An overnight {title} means morning-you gets a present and night-you gets blamed for the electricity bill."
+  },
+  {
+   "id": "overnight-title-finished-at-hour-after",
+   "family": "overnight-title-finished-at-hour-after",
+   "text": "{title} finished at {hour} after using {grams} grams, because subtlety was never part of the overnight plan."
+  },
+  {
+   "id": "overnight-the-sun-came-up-title",
+   "family": "overnight-the-sun-came-up-title",
+   "text": "The sun came up, {title} was done, and {printer} acted like staying up all night was nothing."
+  },
+  {
+   "id": "overnight-at-hour-title-finished-while",
+   "family": "overnight-at-hour-title-finished-while",
+   "text": "At {hour}, {title} finished while every responsible appliance was asleep."
+  },
+  {
+   "id": "overnight-title-concluded-its-shift-at",
+   "family": "overnight-title-concluded-its-shift-at",
+   "text": "{title} concluded its shift at {hour}, with overtime paid entirely in filament."
+  },
+  {
+   "id": "overnight-the-night-crew-at-printer",
+   "family": "overnight-the-night-crew-at-printer",
+   "text": "The night crew at {printer} produced {title} without a single coffee break."
+  },
+  {
+   "id": "overnight-title-finished-at-hour-even",
+   "family": "overnight-title-finished-at-hour-even",
+   "text": "{title} finished at {hour}; even the smoke detector was too tired to applaud."
+  },
+  {
+   "id": "overnight-sunrise-found-title-complete-and",
+   "family": "overnight-sunrise-found-title-complete-and",
+   "text": "Sunrise found {title} complete and the printer looking suspiciously innocent."
+  },
+  {
+   "id": "overnight-title-emerged-at-hour-the",
+   "family": "overnight-title-emerged-at-hour-the",
+   "text": "{title} emerged at {hour}, the traditional hour for decisions best reviewed in daylight."
+  },
+  {
+   "id": "overnight-while-the-household-slept-printer",
+   "family": "overnight-while-the-household-slept-printer",
+   "text": "While the household slept, {printer} quietly added {title} to the evidence locker."
+  },
+  {
+   "id": "overnight-title-completed-at-hour-the",
+   "family": "overnight-title-completed-at-hour-the",
+   "text": "{title} completed at {hour}; the only witness was the router blinking disapproval."
+  }
  ]
 }

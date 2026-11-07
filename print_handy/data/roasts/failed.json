@@ -1,37 +1,197 @@
 {
  "_about": "Failed prints only. Gentle: the target is the print, never the operator.",
- "_phase": "seed-v0 (#1002 attachment 1, 2026-11-07)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2)",
  "_license": "Original to Print Handy; MIT with the project.",
  "entries": [
-  "{title} gave it a brave try, but the print bed had other plans for {material} today.",
-  "Pour one out for {title}: {grams} grams of {material} that dreamed of being useful.",
-  "{title} has officially retired early, with {duration} of effort and absolutely no regrets shown.",
-  "The printer tried its best on {title}, and the results suggest its best took the day off.",
-  "{title} ended as a modern art piece, assuming the art is titled Almost Worked.",
-  "{color} was a bold choice for {title}, right up until gravity filed its complaint.",
-  "{title} made it impressively far before deciding that finished was simply too mainstream.",
-  "Somewhere, {grams} grams of {color} {material} are telling stories about the one that got away.",
-  "{title} is not a failure, it is an extremely expensive rough draft.",
-  "{printer} did everything asked of it, and somehow {title} still chose chaos.",
-  "{title} spent {duration} becoming a valuable lesson wearing a {material} costume.",
-  "The good news is that {title} failed fast enough that hope never settled in.",
-  "{title} reached for greatness and grabbed a tangle instead, which is honestly relatable.",
-  "Consider {title} a limited edition: one of one, because we are never doing that again.",
-  "{material} deserved better than {title}, but it got a memorable story instead.",
-  "{title} has been promoted from print job to cautionary tale, effective immediately.",
-  "After {duration}, {title} concluded its journey exactly one miracle short of success.",
-  "{title} looked promising in the preview, which makes this betrayal sting a little more.",
-  "The first layers of {title} were perfect, a strong start to a short career.",
-  "{printer} requests that we never speak of {title} again, and honestly, fair enough.",
-  "{title} is proof that confidence and competence are two entirely separate hobbies.",
-  "We spent {grams} grams of {material} learning what not to do, tuition well spent.",
-  "{title} failed, but it failed with commitment, and that counts for something small.",
-  "File {title} under experimental results, right next to the other expensive experiments.",
-  "The slicer believed in {title}, the bed believed in {title}, and physics had questions.",
-  "{title} in {color} was going to be beautiful, and technically it still is, abstractly.",
-  "Not every hero finishes, and {title} heroically stopped well before the finish line.",
-  "{duration} of printing produced a perfect example of why test prints exist.",
-  "{title} has joined the scrap bin, where it will be among friends and equals.",
-  "Rest in pieces, {title}: gone too soon, and also arguably never really here."
+  {
+   "id": "failed-title-gave-it-a-brave",
+   "family": "failed-title-gave-it-a-brave",
+   "text": "{title} gave it a brave try, but the print bed had other plans for {material} today."
+  },
+  {
+   "id": "failed-pour-one-out-for-title",
+   "family": "failed-pour-one-out-for-title",
+   "text": "Pour one out for {title}: {grams} grams of {material} that dreamed of being useful."
+  },
+  {
+   "id": "failed-title-has-officially-retired-early",
+   "family": "failed-title-has-officially-retired-early",
+   "text": "{title} has officially retired early, with {duration} of effort and absolutely no regrets shown."
+  },
+  {
+   "id": "failed-the-printer-tried-its-best",
+   "family": "failed-the-printer-tried-its-best",
+   "text": "The printer tried its best on {title}, and the results suggest its best took the day off."
+  },
+  {
+   "id": "failed-title-ended-as-a-modern",
+   "family": "failed-title-ended-as-a-modern",
+   "text": "{title} ended as a modern art piece, assuming the art is titled Almost Worked."
+  },
+  {
+   "id": "failed-color-was-a-bold-choice",
+   "family": "failed-color-was-a-bold-choice",
+   "text": "{color} was a bold choice for {title}, right up until gravity filed its complaint."
+  },
+  {
+   "id": "failed-title-made-it-impressively-far",
+   "family": "failed-title-made-it-impressively-far",
+   "text": "{title} made it impressively far before deciding that finished was simply too mainstream."
+  },
+  {
+   "id": "failed-somewhere-grams-grams-of-color",
+   "family": "failed-somewhere-grams-grams-of-color",
+   "text": "Somewhere, {grams} grams of {color} {material} are telling stories about the one that got away."
+  },
+  {
+   "id": "failed-title-is-not-a-failure",
+   "family": "failed-title-is-not-a-failure",
+   "text": "{title} is not a failure, it is an extremely expensive rough draft."
+  },
+  {
+   "id": "failed-printer-did-everything-asked-of",
+   "family": "failed-printer-did-everything-asked-of",
+   "text": "{printer} did everything asked of it, and somehow {title} still chose chaos."
+  },
+  {
+   "id": "failed-title-spent-duration-becoming-a",
+   "family": "failed-title-spent-duration-becoming-a",
+   "text": "{title} spent {duration} becoming a valuable lesson wearing a {material} costume."
+  },
+  {
+   "id": "failed-the-good-news-is-that",
+   "family": "failed-the-good-news-is-that",
+   "text": "The good news is that {title} failed fast enough that hope never settled in."
+  },
+  {
+   "id": "failed-title-reached-for-greatness-and",
+   "family": "failed-title-reached-for-greatness-and",
+   "text": "{title} reached for greatness and grabbed a tangle instead, which is honestly relatable."
+  },
+  {
+   "id": "failed-consider-title-a-limited-edition",
+   "family": "failed-consider-title-a-limited-edition",
+   "text": "Consider {title} a limited edition: one of one, because we are never doing that again."
+  },
+  {
+   "id": "failed-material-deserved-better-than-title",
+   "family": "failed-material-deserved-better-than-title",
+   "text": "{material} deserved better than {title}, but it got a memorable story instead."
+  },
+  {
+   "id": "failed-title-has-been-promoted-from",
+   "family": "failed-title-has-been-promoted-from",
+   "text": "{title} has been promoted from print job to cautionary tale, effective immediately."
+  },
+  {
+   "id": "failed-after-duration-title-concluded-its",
+   "family": "failed-after-duration-title-concluded-its",
+   "text": "After {duration}, {title} concluded its journey exactly one miracle short of success."
+  },
+  {
+   "id": "failed-title-looked-promising-in-the",
+   "family": "failed-title-looked-promising-in-the",
+   "text": "{title} looked promising in the preview, which makes this betrayal sting a little more."
+  },
+  {
+   "id": "failed-the-first-layers-of-title",
+   "family": "failed-the-first-layers-of-title",
+   "text": "The first layers of {title} were perfect, a strong start to a short career."
+  },
+  {
+   "id": "failed-printer-requests-that-we-never",
+   "family": "failed-printer-requests-that-we-never",
+   "text": "{printer} requests that we never speak of {title} again, and honestly, fair enough."
+  },
+  {
+   "id": "failed-title-is-proof-that-confidence",
+   "family": "failed-title-is-proof-that-confidence",
+   "text": "{title} is proof that confidence and competence are two entirely separate hobbies."
+  },
+  {
+   "id": "failed-we-spent-grams-grams-of",
+   "family": "failed-we-spent-grams-grams-of",
+   "text": "We spent {grams} grams of {material} learning what not to do, tuition well spent."
+  },
+  {
+   "id": "failed-title-failed-but-it-failed",
+   "family": "failed-title-failed-but-it-failed",
+   "text": "{title} failed, but it failed with commitment, and that counts for something small."
+  },
+  {
+   "id": "failed-file-title-under-experimental-results",
+   "family": "failed-file-title-under-experimental-results",
+   "text": "File {title} under experimental results, right next to the other expensive experiments."
+  },
+  {
+   "id": "failed-the-slicer-believed-in-title",
+   "family": "failed-the-slicer-believed-in-title",
+   "text": "The slicer believed in {title}, the bed believed in {title}, and physics had questions."
+  },
+  {
+   "id": "failed-title-in-color-was-going",
+   "family": "failed-title-in-color-was-going",
+   "text": "{title} in {color} was going to be beautiful, and technically it still is, abstractly."
+  },
+  {
+   "id": "failed-not-every-hero-finishes-and",
+   "family": "failed-not-every-hero-finishes-and",
+   "text": "Not every hero finishes, and {title} heroically stopped well before the finish line."
+  },
+  {
+   "id": "failed-duration-of-printing-produced-a",
+   "family": "failed-duration-of-printing-produced-a",
+   "text": "{duration} of printing produced a perfect example of why test prints exist."
+  },
+  {
+   "id": "failed-title-has-joined-the-scrap",
+   "family": "failed-title-has-joined-the-scrap",
+   "text": "{title} has joined the scrap bin, where it will be among friends and equals."
+  },
+  {
+   "id": "failed-rest-in-pieces-title-gone",
+   "family": "failed-rest-in-pieces-title-gone",
+   "text": "Rest in pieces, {title}: gone too soon, and also arguably never really here."
+  },
+  {
+   "id": "failed-title-did-not-finish-but",
+   "family": "failed-title-did-not-finish-but",
+   "text": "{title} did not finish, but the printer submitted an extremely persuasive rough draft."
+  },
+  {
+   "id": "failed-title-discovered-the-exact-point",
+   "family": "failed-title-discovered-the-exact-point",
+   "text": "{title} discovered the exact point where optimism loses adhesion."
+  },
+  {
+   "id": "failed-the-prototype-called-title-has",
+   "family": "failed-the-prototype-called-title-has",
+   "text": "The prototype called {title} has advanced directly to the lessons-learned department."
+  },
+  {
+   "id": "failed-title-failed-its-audition-for",
+   "family": "failed-title-failed-its-audition-for",
+   "text": "{title} failed its audition for objecthood; the filament still deserves a mention."
+  },
+  {
+   "id": "failed-title-ended-early-leaving-the",
+   "family": "failed-title-ended-early-leaving-the",
+   "text": "{title} ended early, leaving the build plate with several unanswered questions."
+  },
+  {
+   "id": "failed-the-printer-filed-title-under",
+   "family": "failed-the-printer-filed-title-under",
+   "text": "The printer filed {title} under promising concept, unfortunate execution."
+  },
+  {
+   "id": "failed-title-made-progress-then-gravity",
+   "family": "failed-title-made-progress-then-gravity",
+   "text": "{title} made progress, then gravity requested a recount."
+  },
+  {
+   "id": "failed-title-is-now-a-cautionary",
+   "family": "failed-title-is-now-a-cautionary",
+   "text": "{title} is now a cautionary tale with excellent layer-by-layer documentation."
+  }
  ]
 }

@@ -24,6 +24,20 @@ STATE = Path(__file__).parent / "fixtures" / "printer_hardware.json"
 PALETTE = [("#FFFFFF", "PLA"), ("#101010", "PLA"), ("#FF0000", "PLA")]
 
 
+# The shared fixture writer stamps every entry with this fixed date
+# (tests/corpus/make_models.py STAMP), so a fixture's bytes never depend on
+# when it was written. The rewrites in this file must stamp the same way:
+# a plain writestr(name, data) takes the current time and makes the file's
+# bytes — and any hash taken over them — differ from run to run (#1017).
+FIXTURE_STAMP = (2026, 1, 1, 0, 0, 0)
+
+
+def _stamped(name):
+    info = zipfile.ZipInfo(name, FIXTURE_STAMP)
+    info.compress_type = zipfile.ZIP_DEFLATED
+    return info
+
+
 def painted(path, code, palette=PALETTE):
     """One Bambu part on extruder 1 whose every triangle carries paint_color=code."""
     write_3mf(path, [("Body", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])], palette)
@@ -33,7 +47,7 @@ def painted(path, code, palette=PALETTE):
         b"<triangle ", f'<triangle paint_color="{code}" '.encode())
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
         for name, data in entries.items():
-            archive.writestr(name, data)
+            archive.writestr(_stamped(name), data)
     return path
 
 
@@ -129,8 +143,20 @@ LAYER_CHANGES = ('<?xml version="1.0" encoding="utf-8"?>\n<custom_gcodes_per_lay
 def layered(path):
     write_3mf(path, [("Tower", 1, box(20, 20, 12), (60, 60))], [("Plate 1", [0])], PALETTE)
     with zipfile.ZipFile(path, "a") as archive:
-        archive.writestr("Metadata/custom_gcode_per_layer.xml", LAYER_CHANGES)
+        archive.writestr(_stamped("Metadata/custom_gcode_per_layer.xml"), LAYER_CHANGES)
     return path
+
+
+def test_layered_and_painted_fixtures_are_byte_stable(tmp_path):
+    """#1017: the same fixture written twice is byte-identical, even though
+    layered() appends an entry and painted() rewrites the whole package —
+    neither may stamp an entry with the current time."""
+    first = layered(tmp_path / "a.3mf").read_bytes()
+    second = layered(tmp_path / "b.3mf").read_bytes()
+    assert first == second
+    assert painted(tmp_path / "c.3mf", "8").read_bytes() == painted(tmp_path / "d.3mf", "8").read_bytes()
+    with zipfile.ZipFile(tmp_path / "a.3mf") as archive:
+        assert {info.date_time for info in archive.infolist()} == {FIXTURE_STAMP}
 
 
 def test_height_based_colour_changes_are_kept(tmp_path):
@@ -209,7 +235,7 @@ def test_layer_pauses_and_custom_gcode_are_reported_not_carried(tmp_path):
         "Metadata/custom_gcode_per_layer.xml"].replace(b'<mode value=', extra.encode() + b'<mode value=')
     with zipfile.ZipFile(source, "w", zipfile.ZIP_DEFLATED) as archive:
         for name, data in entries.items():
-            archive.writestr(name, data)
+            archive.writestr(_stamped(name), data)
     manifest = source_colors.inventory(source)
     assert [row["kind"] for row in manifest["layer_extras"]] == ["pause", "custom"]
     assert len(manifest["layer_changes"]) == 2

@@ -97,6 +97,10 @@ posts through the Telegram Bot API instead of Discord REST.
 
 When a print finishes, the completion post ends with a one-line **roast** of
 the model — exactly one per print, one short sentence from the bot persona.
+Prints that do not finish get one too, from the bank that matches how they
+ended: the failure post draws from the failed bank, the cancel post from the
+cancelled bank, and a camera alert that confirms spaghetti carries a line
+from the spaghetti bank (#1017 batch 2).
 You can also ask for one in plain words: "roast my last print", "roast print
 84", "roast the dragon" (typos are fine; the print is found the same way
 `print 84` and `/print-again <name>` find it).

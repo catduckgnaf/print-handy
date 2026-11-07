@@ -244,9 +244,36 @@ PHASE3_GENERATED = {
     "claiber": "caliber", "lbock": "block", "obard": "board",
     "rbeak": "break", "ubild": "build",
 }
+# Batch 2 (#1017): curated two-edit misspellings of print-title words.
+# The bounded pass reaches one edit for these token lengths, so each
+# pair here is exactly two Damerau-Levenshtein edits from its word,
+# validated unambiguous against the whole vocabulary (see
+# fuzzy_vocabulary's TYPO_FORMS note).
+BATCH2_TITLE_TYPOS = {
+    "aadpetr": "adapter", "aadptre": "adapter", "barcekt": "bracket",
+    "barckte": "bracket", "bbax": "box", "bbxo": "box",
+    "becnyh": "benchy", "benchie": "benchy", "calba": "cable",
+    "cbael": "cable", "ccilp": "clip", "cclpi": "clip",
+    "darewr": "drawer", "dargno": "dragon", "darogn": "dragon",
+    "darwre": "drawer", "ecnlosrue": "enclosure", "ecnlosuer": "enclosure",
+    "fdiegt": "fidget", "fdigte": "fidget", "gaa": "gear",
+    "gaerr": "gear", "ghso": "ghost", "gohts": "ghost",
+    "haneg": "hinge", "haokk": "hook", "hemlte": "helmet",
+    "hhoko": "hook", "hleemt": "helmet", "hlodre": "holder",
+    "hloedr": "holder", "hnieg": "hinge", "kecyahin": "keychain",
+    "kecyhani": "keychain", "maaks": "mask", "mautn": "mount",
+    "msa": "mask", "muotn": "mount", "ograinzer": "organizer",
+    "ograniezr": "organizer", "palnetr": "planter", "palntre": "planter",
+    "pmukpin": "pumpkin", "pmupikn": "pumpkin", "raakc": "rack",
+    "rca": "rack", "rcoekt": "rocket", "rcokte": "rocket",
+    "satdn": "stand", "satndd": "stand", "satrr": "star",
+    "sklu": "skull", "sowrdd": "sword", "ssatr": "star",
+    "sukl": "skull", "swro": "sword", "tawre": "tower",
+    "tewre": "tower", "vsaa": "vase", "vsai": "vase",
+}
 ALL_PAIRS = {**CURATED_PAIRS, **VARIANTS, **CARD_TYPOS, **OPERATOR_MINED_2,
              **GENERIC_TYPOS, **PHASE3_MINED, **PHASE3_COMMON,
-             **PHASE3_DOMAIN, **PHASE3_GENERATED}
+             **PHASE3_DOMAIN, **PHASE3_GENERATED, **BATCH2_TITLE_TYPOS}
 
 
 @pytest.mark.parametrize("typo,word", sorted(ALL_PAIRS.items()))

@@ -344,7 +344,7 @@ def post_cancel_report(filename, reason=None):
     except Exception as exc:
         log(f"klipper report failed: {exc!r}")
         text = print_summary.format_event("cancelled", filename)
-    return post(text)
+    return post(_with_status_roast(text, filename, "cancelled", f"cancelled:{filename}"))
 
 
 SCREEN_CANCEL_NATIVE = {"cancel", "cancelled"}
@@ -435,6 +435,26 @@ def generate_roast(title, summary="", facts=None, key=None, status="completed"):
     except Exception as exc:
         log(f"roast skipped: {exc!r}")
         return ""
+
+
+def _with_status_roast(text, filename, status, key, facts=None):
+    """A terminal post with its status-bank roast line appended, or unchanged.
+
+    #1017 batch 2: the failure and cancel posts draw from the same local
+    corpus as the completion post — the failed bank for an error, the
+    cancelled bank for a cancel — under the same switch and the same
+    best-effort contract (no line, post unchanged). The confirmed-pasta
+    alert uses the same helper with the spaghetti bank. ``key`` is
+    per-print, so a reposted notice repeats its line instead of drawing
+    a second roast for the same print. No LLM anywhere in this path.
+    """
+    try:
+        line = generate_roast(print_summary.safe_label(filename), facts=facts,
+                              key=key, status=status)
+    except Exception as exc:
+        log(f"{status} roast skipped: {exc!r}")
+        return text
+    return f"{text}\n\n{line}" if line else text
 
 
 def _objects_line(filename, archive=None, context_path=None):
@@ -3558,6 +3578,14 @@ class Listener:
                     if pause_now:
                         text += (f"\nAuto-pause (visual_watch.auto_pause_early): {streak} suspicious checks in a row "
                                  "in the early layers, so I am pausing the print. It is not cancelled.")
+                    if verdict == "spaghetti":
+                        # The confirmed-pasta post (#1017 batch 2): a
+                        # spaghetti verdict itself — never a mere risk
+                        # flag like uncertain or air — carries a line from
+                        # the spaghetti bank, keyed to this print so a
+                        # repeat alert repeats the line.
+                        text = _with_status_roast(text, filename, "spaghetti",
+                                                  f"spaghetti:{identity or filename}")
                     await asyncio.to_thread(_visual_alert, filename, image, text,
                                             identity=identity)
                     event_action = "auto_pause" if pause_now else "alert"
@@ -3739,7 +3767,17 @@ class Listener:
             elif new_state != "complete":
                 if new_state == "error":
                     await asyncio.to_thread(capture_stop, self.filename, "error")
-                await asyncio.to_thread(post, print_summary.format_event(new_state, self.filename))
+                    facts = {}
+                    duration = self.last_stats.get("print_duration")
+                    if isinstance(duration, (int, float)) and duration > 0:
+                        facts["duration_s"] = float(duration)
+                    await asyncio.to_thread(
+                        post, _with_status_roast(
+                            print_summary.format_event(new_state, self.filename),
+                            self.filename, "failed",
+                            f"failed:{identity or self.filename}", facts))
+                else:
+                    await asyncio.to_thread(post, print_summary.format_event(new_state, self.filename))
         ended = new_state in ("complete", "cancelled", "error", "standby") and old in ("printing", "paused")
         if ended:
             # Close the capture before the announcer: its timelapse

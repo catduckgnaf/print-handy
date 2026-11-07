@@ -122,3 +122,46 @@ def test_status_banks_never_use_success_words():
     for bank in ("failed", "cancelled", "spaghetti"):
         for _id, text in corpus["banks"][bank]:
             assert not success.search(text), (bank, text)
+
+
+def test_bank_files_store_stable_ids_and_families():
+    """#1017 batch 2: entries in the files are {id, family, text} objects.
+
+    The id is stored, not derived from the text, so editing a line keeps
+    its history; ids are unique across every bank and reaction keyword.
+    """
+    folder = resources.files("print_handy").joinpath("data", "roasts")
+    seen = {}
+    for name in sorted(p.name for p in folder.iterdir() if p.name.endswith(".json")):
+        if name in ("fragments.json", "blocklist.json"):
+            continue  # fragments and the blocklist are not history-tracked entries
+        payload = json.loads(folder.joinpath(name).read_text(encoding="utf-8"))
+        groups = payload["entries"].values() if isinstance(payload["entries"], dict) \
+            else [payload["entries"]]
+        for group in groups:
+            for entry in group:
+                assert isinstance(entry, dict), (name, entry)
+                assert entry["id"].strip() and entry["family"].strip() and entry["text"].strip(), \
+                    (name, entry)
+                assert entry["id"] not in seen, f"{entry['id']} in {name} and {seen[entry['id']]}"
+                seen[entry["id"]] = name
+    assert len(seen) == roast.corpus_size()
+
+
+def test_seeded_sample_assemblies_pass_the_framed_contract():
+    """Framed assemblies are gate material too (#1002 layer 1): a seeded
+    sample of generic and status lines, framed every way the engine can,
+    stays inside the framed contract and off the blocklist."""
+    corpus = roast.load_corpus()
+    rng = __import__("random").Random(20261107)
+    checked = 0
+    for bank in ("generic", "failed", "cancelled", "spaghetti"):
+        rows = corpus["banks"][bank]
+        for _id, text in rng.sample(rows, min(6, len(rows))):
+            line = roast.render(text, FULL)
+            if line is None:
+                continue
+            for framed in roast.framing_options(line, bank, FULL, corpus):
+                assert roast.framed_problem(framed, corpus["blocklist"]) is None, framed
+                checked += 1
+    assert checked > 50, "the sample actually framed lines"

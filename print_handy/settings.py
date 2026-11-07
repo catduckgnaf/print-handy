@@ -1342,9 +1342,10 @@ def _validate_vision(data):
 
     ``roast_enabled`` is on by default. Roasts come from the local roast
     corpus (core/roast.py, #1002) with no LLM and no endpoint: exactly one
-    line per print on the completion post, and on request in chat ("roast
-    my last print"), on every platform. Set it false to turn roasts off
-    without touching the camera watchdog. ``roast_model`` is kept so older
+    line per print on the completion post, one on the failure and cancel
+    posts and on a confirmed-spaghetti camera alert, and on request in
+    chat ("roast my last print"), on every platform. Set it false to turn
+    roasts off without touching the camera watchdog. ``roast_model`` is kept so older
     configs load unchanged; roasts no longer read it. Absent in an older
     config means the default (on).
     """

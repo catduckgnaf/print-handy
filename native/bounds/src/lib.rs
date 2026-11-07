@@ -355,6 +355,28 @@ pub fn parse(s: &[u8]) -> Result<[[f64; 2]; 3], String> {
 // PyO3 wrapper
 // ---------------------------------------------------------------------------
 
+/// The parse behind a `catch_unwind` boundary (#1017, defense in depth).
+///
+/// The parser is written to refuse, never to panic, but a panic that did
+/// escape would cross the FFI boundary as PyO3's `PanicException` — a
+/// `BaseException` the Python dispatcher already falls back on, at the
+/// cost of an ugly unwind through foreign frames. Catching it here turns
+/// it into an ordinary refusal with a named message, so the dispatcher's
+/// fallback sees the same shape as any other refusal. This is not a
+/// `panic = "abort"` change: unwinding stays on, the panic is caught.
+fn guarded_parse(bytes: &[u8]) -> Result<[[f64; 2]; 3], String> {
+    unwind_guard(|| parse(bytes))
+}
+
+/// Run `f` behind the unwind boundary: a panic becomes the named refusal
+/// instead of propagating. Split out so the boundary itself is testable.
+fn unwind_guard<T>(f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(outcome) => outcome,
+        Err(_) => Err("native bounds parser panicked; refusing the plate".to_string()),
+    }
+}
+
 /// Parse G-code text into `{"x": (low, high), "y": ..., "z": ...}`,
 /// raising `BoundsRefusal` (a `RuntimeError`) with the Python parser's
 /// exact message on a refusal.
@@ -363,7 +385,7 @@ fn parse_bounds(py: Python<'_>, text: &str) -> PyResult<Py<PyDict>> {
     // The parse touches no Python object: release the GIL so the bot's
     // other threads keep running while a large plate is verified.
     let bytes = text.as_bytes();
-    let outcome = py.detach(|| parse(bytes));
+    let outcome = py.detach(|| guarded_parse(bytes));
     match outcome {
         Ok(b) => {
             let dict = PyDict::new(py);
@@ -382,4 +404,28 @@ fn _bounds_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse_bounds, m)?)?;
     m.add("BoundsRefusal", m.py().get_type::<BoundsRefusal>())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn guarded_parse_reads_simple_bounds() {
+        let outcome = guarded_parse(b"G90\nG1 X10 Y10 Z1\nG1 X20 Y5 Z2\n");
+        assert_eq!(outcome, Ok([[10.0, 20.0], [5.0, 10.0], [1.0, 2.0]]));
+    }
+
+    #[test]
+    fn guarded_parse_keeps_an_ordinary_refusal() {
+        let outcome = guarded_parse(b"G20\nG1 X10 Y10 Z1\n");
+        assert!(outcome.unwrap_err().contains("G20"), "refusals pass through unchanged");
+    }
+
+    #[test]
+    fn unwind_guard_turns_a_panic_into_the_named_refusal() {
+        let outcome: Result<(), String> = unwind_guard(|| panic!("simulated parser panic"));
+        assert_eq!(outcome.unwrap_err(),
+                   "native bounds parser panicked; refusing the plate");
+    }
 }
