@@ -15,6 +15,7 @@ Find the task you came to do. Print Handy runs locally, with no Print Handy clou
 ## Everyday printing
 
 - [Project reference](PROJECT-REFERENCE.md): commands and everyday workflows.
+- [Multi-part projects](PROJECTS.md): upload several STL/3MF files together, trace project/plate JSON IDs and print the next plate.
 - [Settings](SETTINGS.md) · [YAML configuration](CONFIGURATION-YAML.md): settings, precedence and environment overrides.
 - [Slicer warnings](SLICER-WARNINGS.md): OrcaSlicer warnings after slicing.
 - [Firmware updates](FIRMWARE-UPDATE.md) · [Calibration](CALIBRATION.md) · [Printer macros](MACROS.md).
