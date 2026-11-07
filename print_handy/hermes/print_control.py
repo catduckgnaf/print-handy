@@ -497,12 +497,34 @@ def resolve_print(query: str = "", archive: Path | None = None) -> dict[str, Any
     return _target_from_record(hits[0]["record"], archive)
 
 
-def resolve_last_print(archive: Path | None = None) -> dict[str, Any]:
-    """Exact target for 'print the last one again', from local launch records only. Read only."""
+def _record_printer_id(record: Path, archive: Path) -> str | None:
+    """The roster printer a launch record's job belongs to (its JOB.json's
+    recorded printer_id, else the default printer), or None when unreadable."""
+    job_path = _job_for(_artifact_for(record).resolve(), archive)
+    if job_path is None:
+        return None
+    try:
+        job = json.loads(job_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    from ..core import model_job
+
+    return str(model_job._job_printer_id(job))
+
+
+def resolve_last_print(archive: Path | None = None, printer_id: str | None = None) -> dict[str, Any]:
+    """Exact target for 'print the last one again', from local launch records only. Read only.
+
+    With printer_id, only that printer's launches count, so a routed channel
+    gets its own printer's last print instead of a refusal when another
+    printer printed more recently (#979).
+    """
     from .print_next import NextPlateError
 
     archive = (archive or ARCHIVE).resolve()
     records = _launch_records(archive)
+    if printer_id is not None:
+        records = [r for r in records if _record_printer_id(r, archive) == str(printer_id)]
     if not records:
         raise NextPlateError("no archived print has been started yet")
     return _target_from_record(records[0], archive)

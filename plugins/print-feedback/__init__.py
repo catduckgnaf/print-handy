@@ -798,14 +798,15 @@ def _recent_design_source(source):
     """(path, link) for the channel's recent model, else (None, None).
 
     The recent link wins (the same machinery "print it" uses); otherwise the
-    newest archived job whose source file is still on disk.
+    newest archived job by record mtime whose source file is still on disk —
+    a design-context recency hint, deliberately not "the last print" (#979).
     """
     url = _recent_model_link(source)
     if url:
         return None, url
     try:
-        from print_handy.core.prepared_intake import last_job
-        job = last_job()
+        from print_handy.core.prepared_intake import newest_archived_job
+        job = newest_archived_job()
     except Exception:
         job = None
     if job:
@@ -4662,7 +4663,16 @@ async def print_again_dispatch(event, gateway, **kwargs):
             question = pc.next_copy_question(target)
         else:
             query, copies = pc.split_count(query)
-            target = await asyncio.to_thread(pc.resolve_print, query)
+            if not query and channel_pid is not None:
+                # Bare /print-again asks for this channel's printer's own
+                # last print (#979): resolve inside that printer's launches
+                # instead of resolving globally and refusing afterwards when
+                # another printer printed more recently. Named and numbered
+                # queries keep the exact global resolution and the owner
+                # refusal below, unchanged.
+                target = await asyncio.to_thread(pc.resolve_last_print, printer_id=channel_pid)
+            else:
+                target = await asyncio.to_thread(pc.resolve_print, query)
             target['copies'] = copies
             question = pc.again_question(target)
         target_owner = _job_owner_pid(target['job_json'])
@@ -5090,27 +5100,55 @@ async def model_link_dispatch(event, gateway, **kwargs):
     if not getattr(source, 'user_id', None) or not gateway._is_user_authorized_for_source(source):
         return None
     from print_handy.core.link_intake import model_link
-    from print_handy.core.prepared_intake import prepare_link as collect_link, model_file, reprint_request, last_job
+    from print_handy.core.prepared_intake import (prepare_link as collect_link, model_file,
+                                                  reprint_request, last_printed_job)
     from print_handy.core import yolo as _yolo
     text = getattr(event, 'text', '')
     reuse = None
+    followup_link = False
     # An already-sliced G-code drop prints only as an explicit yolo (core/yolo.py).
     gcode_drop = None if model_link(text) else _yolo.gcode_file(event)
     if not (model_link(text) or model_file(event) or gcode_drop):
-        if _is_affirmative_followup(text):
+        if reprint_request(text):
+            # "Again" wins over "it" (#979): a reprint phrase refers to the
+            # print history, never to the channel's remembered link, so it is
+            # resolved before the affirmative-followup prepend below — and
+            # from launch records, the same source /print-again uses, scoped
+            # to this channel's printer when the channel decides one (the
+            # printer filter is also the dedicated channel's owner check: a
+            # job owned by another printer is never offered here).
+            # "print the previous one in black" lands here too: selection is
+            # by launch, execution still re-slices from the saved source.
+            reuse = last_printed_job(printer_id=_channel_printer_id(source, gateway))
+            if reuse is None:
+                adapter = _adapter_for(gateway, source)
+                if adapter is None:
+                    return {'action': 'skip', 'reason': 'reprint refusal delivery unavailable'}
+                await adapter.send(
+                    chat_id=source.chat_id,
+                    content='Nothing to print again: no archived print has been started yet. '
+                            'Nothing uploaded or started.',
+                    metadata={'thread_id': source.thread_id} if source.thread_id else None)
+                return {'action': 'skip', 'reason': 'reprint requested with no printed job'}
+        elif _is_affirmative_followup(text):
             recent_url = _recent_model_link(source)
             if recent_url:
                 text = f"{recent_url} {text}"
                 setattr(event, 'text', text)
-        if not (model_link(text) or model_file(event)):
-            # "print the previous one in black": offer the last archived model instead of asking for a link.
-            reuse = last_job() if reprint_request(text) else None
-            if reuse is None:
-                return None
+                followup_link = True
+        if reuse is None and not (model_link(text) or model_file(event)):
+            return None
     linked = model_link(text)
-    if linked:
+    if linked and not followup_link:
+        # Only a link present in the user's own message is (re-)stored. A
+        # link the dispatcher itself prepended for a follow-up must not
+        # refresh the stored row's TTL, or repeated follow-ups would keep a
+        # link "fresh" forever (#979). Stored rows carry provenance: who
+        # posted the link, and the printer this channel routes to when known.
         from print_handy.bot import recent_links
-        recent_links.remember(source.chat_id, linked, getattr(source, 'thread_id', None))
+        recent_links.remember(source.chat_id, linked, getattr(source, 'thread_id', None),
+                              user_id=getattr(source, 'user_id', None),
+                              printer_id=_channel_printer_id(source, gateway))
     event.metadata['fresh_model_intake_handled'] = True
     event.metadata['live_session_key'] = gateway._session_key_for_source(source)
     adapter = _adapter_for(gateway, source)
@@ -5180,7 +5218,8 @@ async def model_link_dispatch(event, gateway, **kwargs):
         edit_hook = _instruction_edit_hook(event, gateway, source, adapter, instruction)
         result = await collect_link(event, adapter, printer_state.load(**_pkw(pid)), root,
                                     reuse=reuse, **_pkw(pid),
-                                    **({'before_start': edit_hook} if edit_hook else {}))
+                                    **({'before_start': edit_hook} if edit_hook else {}),
+                                    **({'confirm_target': True} if followup_link else {}))
     except PromptCancelled:
         await adapter.send(chat_id=source.chat_id,
             content='Cancelled. Nothing sliced, nothing uploaded, nothing started. '

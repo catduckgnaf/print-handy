@@ -1185,7 +1185,7 @@ def copy_upload(job, source, target):
 
 
 REPRINT_RE = re.compile(
-    r"\b(?:re-?print|print (?:it|that|this|that one|this one) again"
+    r"\b(?:re-?print|print again|do it again|print (?:it|that|this|that one|this one) again"
     r"|(?:print|slice|make|do) (?:the |that )?(?:last|previous|same) (?:one|print|model|thing|job)"
     r"|(?:print|slice|make|do) (?:the )?(?:last|previous) one|(?:print|make) (?:another|one more))\b", re.I)
 
@@ -1196,8 +1196,16 @@ def reprint_request(text):
     return 'http' not in text.lower() and bool(REPRINT_RE.search(text))
 
 
-def last_job(archive=None):
-    """Newest archived job whose source file is still on disk, else None. Local files only."""
+def newest_archived_job(archive=None):
+    """Newest archived job by JOB.json mtime whose source file is still on disk, else None.
+
+    This is a record-recency question — the last intake whose job record was
+    rewritten (prepared, re-sliced, edited, resumed) — and deliberately NOT
+    "the last print": a job that was never printed can win it, and a printed
+    job loses it the moment any other record is touched. Reprint target
+    selection must use last_printed_job (launch records) instead (#979).
+    Local files only.
+    """
     from . import model_job as mj
     best = None
     for jp in Path(archive or mj.ARCHIVE).glob('*/JOB.json'):
@@ -1211,6 +1219,37 @@ def last_job(archive=None):
             if best is None or when > best[0]:
                 best = (when, job)
     return best[1] if best else None
+
+
+def last_printed_job(archive=None, printer_id=None):
+    """The archived job that was actually printed most recently, else None.
+
+    Selection follows launch records — the same source /print-again resolves
+    from — so natural-language reprints name the job that printed last, not
+    whichever archived record was rewritten most recently (#979). A launch
+    whose job can no longer be re-sliced (no selected source, or the source
+    file is gone) is skipped in favor of the next older launch, because the
+    reuse flow re-slices from the saved source. With printer_id, only
+    launches whose job record belongs to that printer count. Local files
+    only; read only.
+    """
+    from ..hermes import print_control as pc
+    from . import model_job as mj
+    archive = Path(archive or mj.ARCHIVE).resolve()
+    for record in pc._launch_records(archive):
+        job_path = pc._job_for(pc._artifact_for(record).resolve(), archive)
+        if job_path is None:
+            continue
+        try:
+            job = json.loads(job_path.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            continue
+        if printer_id is not None and str(mj._job_printer_id(job)) != str(printer_id):
+            continue
+        f = Path(job.get('downloaded_file') or '')
+        if job.get('selected_source') and f.is_file() and f.stat().st_size > 0:
+            return job
+    return None
 
 
 def reuse_job(prev):
@@ -2158,18 +2197,24 @@ def _variant_estimate_str(job_data, result):
 
 
 async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
-                       before_start=None):
+                       before_start=None, confirm_target=False):
     """The chat intake for one model link, upload or reprint (see the module docstring).
 
     "yolo" in the message runs the same intake with every question answered
     by its go option and the start made with ``print-now --yolo``
     (core/yolo.py); only print approvers may ask for it.
+
+    confirm_target is set when the intake exists only because the dispatcher
+    prepended a remembered link to a follow-up ("print it") — the user never
+    typed the link in this message, so the intake must name its target as a
+    confirmation question before anything else (#979).
     """
     from . import yolo
     text = getattr(event, 'text', '') or ''
     if yolo.ACTIVE.get() or not yolo.requested(text):
         return await _prepare_link(event, adapter, state, root, timeout=timeout, reuse=reuse,
-                                   printer_id=printer_id, before_start=before_start)
+                                   printer_id=printer_id, before_start=before_start,
+                                   confirm_target=confirm_target)
     source = event.source
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
     event.text = yolo.strip(text)
@@ -2179,14 +2224,16 @@ async def prepare_link(event, adapter, state, root, timeout=None, reuse=None, pr
                            content='Yolo skips every check, so only a print approver can use it. '
                                    'Running the normal intake instead.')
         return await _prepare_link(event, adapter, state, root, timeout=timeout, reuse=reuse,
-                                   printer_id=printer_id, before_start=before_start)
+                                   printer_id=printer_id, before_start=before_start,
+                                   confirm_target=confirm_target)
     await adapter.send(chat_id=source.chat_id, metadata=metadata,
                        content='Yolo: slicing with the recommended answers and printing without '
                                'checks. Every answer and every skipped check is posted here.')
     token = yolo.ACTIVE.set(True)
     try:
         return await _prepare_link(event, adapter, state, root, timeout=timeout, reuse=reuse,
-                                   printer_id=printer_id, before_start=before_start)
+                                   printer_id=printer_id, before_start=before_start,
+                                   confirm_target=confirm_target)
     finally:
         yolo.ACTIVE.reset(token)
 
@@ -2308,7 +2355,7 @@ async def print_gcode_file(event, adapter, root, path, timeout=None, printer_id=
 
 
 async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
-                        before_start=None):
+                        before_start=None, confirm_target=False):
     from . import model_job as mj
     from .source_colors import inventory, canonical_prompts, grouped_prompts, validate_decisions
     source = event.source
@@ -2375,6 +2422,24 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             raise _unsupported_for(job['site'])  # the plain refusal, same as without a key (#712)
         if not rows:
             raise ValueError(job.get('no_geometry_reason') or 'source inventory contains no selectable geometry')
+        if confirm_target and not reuse:
+            # A follow-up-born intake (#979): the dispatcher prepended a link
+            # the user shared earlier and never typed in this message, so —
+            # like the reuse route's "Did you mean …?" — the first question
+            # names the target and lets the user stop the wrong model before
+            # any profile, color or fit question. The preview alone is not a
+            # gate: it sends nothing at all for a bare-title job.
+            pick = await _ask(adapter, source, key,
+                              f"Print {job.get('title') or 'the linked model'}? "
+                              'That is the model from the link shared earlier in this channel.',
+                              ['Yes, print it', 'No, cancel'], timeout)
+            if pick != 0:
+                receipt.update(status='DECLINED_FOLLOWUP')
+                receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                   content='OK. Nothing was sliced or started. '
+                                           'Send the link or drop the file for a different model.')
+                return {'action': 'skip', 'reason': 'followup target declined'}
         if job['site'] == 'makeronline':
             # Inventory-only (#464): the listing is real, but MakerOnline
             # downloads need a browser fingerprint check, so refuse here —

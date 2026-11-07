@@ -116,7 +116,7 @@ def as_text(name, values):
 def help_text(bot_name="Print Handy", supports_live_stream=True):
     lines = [f"**{bot_name}** prints from this channel. Nothing starts without a button press.",
              "- Post a model link or a .3mf/.stl to print; `/print-source` lists the sites.",
-             '- "print it" after a link, or "print the last one again", reuses the last model.',
+             '- "print it" after a link prints it; "print again" reprints the last printed model.',
              '- "print 57" (or "print #57") reprints print #57, like "/print-again 57".',
              '- "add new filament" / "add a new spool" / "swap the filament" starts the guided /spool flow.']
     lines += [f"- `{c.usage}`: {c.description}"

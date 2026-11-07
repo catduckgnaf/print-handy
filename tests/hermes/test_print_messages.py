@@ -795,7 +795,7 @@ def test_model_link_receipt_is_sent_before_slow_intake(monkeypatch):
     fake.prepare_link = fake_prepare
     fake.model_file = lambda e: None
     fake.reprint_request = lambda t: False
-    fake.last_job = lambda: None
+    fake.last_printed_job = lambda printer_id=None: None
     import print_handy.core as core_pkg
     monkeypatch.setitem(sys.modules, "print_handy.core.prepared_intake", fake)
     monkeypatch.setattr(core_pkg, "prepared_intake", fake, raising=False)
