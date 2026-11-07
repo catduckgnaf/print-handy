@@ -39,6 +39,9 @@ step) serving:
   wrapped_enabled``; ``POST /wrapped/video`` compiles the Wrapped
   video from the Wrapped page's form under the same form-token rule,
   additionally behind ``[timelapse] wrapped_ai_video``;
+  ``POST /wrapped/share`` exports the Wrapped static share bundle
+  (#981) from the Wrapped page's form under the same form-token rule
+  and the same ``wrapped_enabled`` gate;
 - ``GET /healthz`` — the bot heartbeat evaluation, with the same
   200/503 + JSON shape as the standalone bot's own health server;
 - ``GET /config`` — the picker configuration page
@@ -909,6 +912,42 @@ class _Handler(BaseHTTPRequestHandler):
             self.server.settings_data, payload, theme=self._theme()),
             "text/html; charset=utf-8")
 
+    def _wrapped_share_post(self):
+        """POST /wrapped/share (#981): the Wrapped page's share form.
+
+        Authorized exactly like the video form (the page's form
+        token; a login session alone never authorizes it). The
+        export itself, its wrapped_enabled gate and every named
+        refusal live in data.py / share_export.py. The export is a
+        local file write only — nothing is uploaded anywhere.
+        """
+        form, error = self._read_form()
+        if error:
+            self._html_refusal(error[0], error[1], "/wrapped")
+            return
+        if not self._post_authorized(form):
+            self._html_refusal(403, STALE_FORM_MESSAGE, "/wrapped")
+            return
+        raw_year = (form.get("year") or [""])[0]
+        try:
+            year = int(raw_year)
+        except (TypeError, ValueError):
+            self._html_refusal(400, "year must be a whole number. Nothing was exported.",
+                               "/wrapped")
+            return
+        code, payload = data_module.export_share(
+            self.server.settings_data, year,
+            (form.get("visibility") or ["public"])[0],
+            destination_note=(form.get("destination") or [""])[0],
+            passphrase=(form.get("passphrase") or [None])[0])
+        if code != 200:
+            self._html_refusal(code, payload.get("reason", "the export failed"),
+                               "/wrapped")
+            return
+        self._send(200, data_module.render_share_result(
+            self.server.settings_data, payload, theme=self._theme()),
+            "text/html; charset=utf-8")
+
     # -- per-printer live status (#664) -------------------------------------
     def _printer_status_route(self, rest):
         """GET /api/printers/<id>/status and /api/printers/<id>/camera/snapshot
@@ -1498,6 +1537,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._walkthrough_post()
             elif path == "/wrapped/video":
                 self._wrapped_video_post()
+            elif path == "/wrapped/share":
+                self._wrapped_share_post()
             elif path == "/config/preview":
                 self._config_preview()
             elif path == "/config":
