@@ -29,9 +29,11 @@ Hard rules, enforced by the callers and pinned by tests:
 """
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -46,10 +48,15 @@ DECIDE_LABEL = 'Decide without a fix'
 UNCONFIGURED_NOTE = ('An AI fix is available when AI is set up: with the heavy AI tier '
                      'configured, "Fix this for my printer" can try to repair this automatically.')
 MAX_FIX_ATTEMPTS = 3  # per gate/failure question: an AI loop never runs unbounded
+MAX_REPAIR_TRIANGLES = 2_000_000  # mesh repair refuses past this size instead of grinding
 
-_REPAIR_RE = re.compile(
-    r"\b(fix|repair|mend)\b[^.?!]*\b(this|it|that|the (file|model|print|slice))\b"
-    r"|\bmake (it|this) printable\b|\bfix this\b|\brepair this\b", re.IGNORECASE)
+# Explicit repair requests only (#978 review): the verb must name the model
+# itself (this/it/that, the mesh/file/model/print/slice) as its object. "Fix
+# the infill so it's 20%" names a setting, not the model, and stays an edit.
+_REPAIR_BARE_RE = re.compile(
+    r"\b(fix|repair|mend)\s+(this|it|that)\b|\bmake (it|this) printable\b", re.IGNORECASE)
+_REPAIR_TARGET_RE = re.compile(
+    r"\b(fix|repair|mend)\b[^.?!]*\b(mesh|model|file|print|slice)\b", re.IGNORECASE)
 _DESIGN_RE = re.compile(r"^\s*(please\s+)?(design|create|model)\b", re.IGNORECASE)
 
 
@@ -63,6 +70,20 @@ def heavy_ready(cfg=None) -> bool:
         return ai_routes.ready('heavy', cfg)
     except Exception:  # noqa: BLE001 - a broken config reads as not configured
         return False
+
+
+AI_CALLS = {}  # user -> recent fix-lane call times, for lane_allowed's rate limit
+
+
+def lane_allowed(user_id, cfg=None, now=None):
+    """(allowed, reason) for the AI fix lane: the same gate as the #902 AI
+    edit lane -- the [ai] allowed_users list and the per-user
+    edit_requests_per_hour limit, counted in this lane's own AI_CALLS
+    bucket. ``cfg`` is the full settings dict (or None for the current
+    config's absence of one); ``now`` is injectable for tests."""
+    ai = cfg.get('ai') if isinstance(cfg, dict) else None
+    return edit_plan.ai_lane_allowed(user_id, ai, AI_CALLS,
+                                     time.time() if now is None else now)
 
 
 # ---------------------------------------------------------------- proposals
@@ -245,9 +266,20 @@ def validate_proposal(raw) -> FixProposal:
         profile[key] = float(value) if kind == 'float' else value
     if not plans and geometry is None and not mesh_repair and not filament_map and not profile:
         raise FixError('the AI proposed no usable fix for this failure')
-    summary = str(raw.get('summary') or '').strip()[:200]
     return FixProposal(plans=plans, geometry=geometry, mesh_repair=mesh_repair,
-                       filament_map=filament_map, profile=profile, summary=summary)
+                       filament_map=filament_map, profile=profile,
+                       summary=_clean_summary(raw.get('summary')))
+
+
+def _clean_summary(text) -> str:
+    """The model's summary is free text headed for chat: strip mentions
+    (@everyone, <@id>), links and line breaks so a proposal can never ping
+    a channel or smuggle a link into the confirmation (#978 review; the
+    edit lane's _sanitize_mentions is the same idea for typed text)."""
+    text = re.sub(r'https?://\S+', '', str(text or ''))
+    text = re.sub(r'<@[^>]*>', '', text)
+    text = re.sub(r'@(everyone|here)\b', '', text)
+    return ' '.join(text.split())[:200]
 
 
 def propose_fix(problem, job=None, *, cfg=None, opener=None, mesh=None,
@@ -378,6 +410,47 @@ def mesh_facts(path) -> dict:
             'size_mm': [round(float(v), 2) for v in size]}
 
 
+def has_paint(path) -> bool:
+    """Whether a 3MF carries per-triangle paint (``paint_color`` -- MMU
+    segmentation / painted colors). A mesh or geometry fix writes an STL
+    or a plain 3MF and would silently drop the painting, so painted files
+    are refused for file-changing fixes (#978 review). Non-3MF files and
+    unreadable packages carry no paint we can lose."""
+    path = Path(path)
+    if path.suffix.lower() != '.3mf':
+        return False
+    try:
+        import zipfile
+        with zipfile.ZipFile(path) as archive:
+            for name in archive.namelist():
+                if name.endswith('.model') and b'paint_color' in archive.read(name):
+                    return True
+    except Exception:  # noqa: BLE001 - an unreadable package names no paint
+        return False
+    return False
+
+
+def _changes_files(proposal) -> bool:
+    return bool(proposal.geometry or proposal.mesh_repair)
+
+
+def check_file_fix(job, proposal) -> None:
+    """Refuse a file-changing fix on a multi-file job (#978 review).
+
+    A mesh/geometry fix rewrites ONE model file; on a job built from
+    several files there is no honest way to pick which one, and the old
+    apply path silently dropped every file but the first. Slicer-setting
+    fixes (plans, filament mapping, profile) touch no file and stay
+    allowed on any job."""
+    if not _changes_files(proposal):
+        return
+    sources = job.get('sources') or []
+    if len(sources) > 1:
+        raise FixError(f'this job has {len(sources)} files: a fix that changes the model '
+                       'file cannot tell which file it should change, so it is refused; '
+                       'ask for a slicer-setting fix, or fix the files one at a time')
+
+
 def repair_mesh(source_path, dest_path) -> dict:
     """Repair one mesh file into ``dest_path`` (a binary STL copy).
 
@@ -386,31 +459,36 @@ def repair_mesh(source_path, dest_path) -> dict:
     The source is never touched. Returns before/after facts plus what changed.
     """
     import numpy as np
+    if has_paint(source_path):
+        raise FixError('this 3MF is painted (per-triangle colors): a mesh repair writes '
+                       'an unpainted STL and would drop the painting, so it is refused')
     tris = _triangles(source_path)
+    if len(tris) > MAX_REPAIR_TRIANGLES:
+        raise FixError(f'the mesh has more than {MAX_REPAIR_TRIANGLES:,} triangles: mesh '
+                       'repair is refused past that size instead of grinding through it')
     before = mesh_facts(source_path)
     verts = tris.reshape(-1, 3)
     keys = np.round(verts / 1e-4).astype(np.int64)
     uniq, inverse = np.unique(keys, axis=0, return_inverse=True)
-    points = uniq.astype(float) * 1e-4
-    # Recover full precision for welded vertices from their first occurrence.
-    seen = {}
-    for idx, group in enumerate(inverse):
-        seen.setdefault(int(group), idx)
-    points = np.array([verts[seen[i]] for i in range(len(uniq))], dtype=float)
+    # Recover full precision for welded vertices from their first occurrence
+    # (vectorized: the earliest row index per weld group, #978 review --
+    # this and the filters below used to loop per vertex/face in Python and
+    # a large mesh took minutes).
+    flat_inverse = inverse.reshape(-1)
+    first = np.full(len(uniq), len(flat_inverse), dtype=np.int64)
+    np.minimum.at(first, flat_inverse, np.arange(len(flat_inverse)))
+    points = np.array(verts[first], dtype=float)
     faces = inverse.reshape(-1, 3)
-    dropped_degenerate = 0
-    keep = []
-    for face in faces:
-        a, b, c = (int(v) for v in face)
-        if a == b or b == c or a == c:
-            dropped_degenerate += 1
-            continue
-        normal = np.cross(points[b] - points[a], points[c] - points[a])
-        if float(normal @ normal) == 0.0:
-            dropped_degenerate += 1
-            continue
-        keep.append((a, b, c))
-    faces = np.array(keep, dtype=np.int64) if keep else np.zeros((0, 3), dtype=np.int64)
+    if len(faces):
+        va, vb, vc = faces[:, 0], faces[:, 1], faces[:, 2]
+        normals = np.cross(points[vb] - points[va], points[vc] - points[va])
+        degenerate = ((va == vb) | (vb == vc) | (va == vc)
+                      | (np.einsum('ij,ij->i', normals, normals) == 0.0))
+        dropped_degenerate = int(degenerate.sum())
+        faces = faces[~degenerate]
+    else:
+        dropped_degenerate = 0
+        faces = np.zeros((0, 3), dtype=np.int64)
     dropped_duplicates = 0
     if len(faces):
         canonical = np.sort(faces, axis=1)
@@ -421,14 +499,20 @@ def repair_mesh(source_path, dest_path) -> dict:
     holes_filled = 0
     boundary, _nm = _edge_counts(faces) if len(faces) else (0, 0)
     if boundary and len(faces):
+        # Directed-edge counts, vectorized: an edge used once whose reverse
+        # is never used is a boundary edge pointing along the surface.
+        n_points = len(points)
+        edge_keys = (np.concatenate([faces[:, 0], faces[:, 1], faces[:, 2]]).astype(np.int64)
+                     * n_points
+                     + np.concatenate([faces[:, 1], faces[:, 2], faces[:, 0]]))
+        uniq_keys, key_counts = np.unique(edge_keys, return_counts=True)
+        counts = dict(zip(uniq_keys.tolist(), key_counts.tolist()))
         directed = {}
-        counts = {}
-        for a, b, c in faces:
-            for edge in ((int(a), int(b)), (int(b), int(c)), (int(c), int(a))):
-                counts[edge] = counts.get(edge, 0) + 1
-        for (a, b) in counts:
-            if counts.get((b, a), 0) == 0 and counts[(a, b)] == 1:
-                directed.setdefault(a, []).append(b)
+        for key, count in counts.items():
+            if count == 1:
+                a, b = divmod(key, n_points)
+                if counts.get(b * n_points + a, 0) == 0:
+                    directed.setdefault(a, []).append(b)
         used = set()
         fans = []
         for start in list(directed):
@@ -676,6 +760,102 @@ def remap_filament_choices(job, mapping, resolve_selection) -> int:
     return changed
 
 
+# ---------------------------------------------------------------- record & undo
+
+_FIX_SNAPSHOT_FIELDS = ('downloaded_file', 'sources', 'selected_source',
+                        'support_clearance', 'color_decisions', 'edit_settings')
+
+
+def apply_to_job(job, proposal, plans, *, fixed_path=None, actor='', problem='',
+                 report=None, file_sha256=None):
+    """Apply one confirmed fix to the job record as ONE undoable step.
+
+    The proposal's plans are recorded (against the file they apply to --
+    the fixed copy when the file changed) and applied, the job's file
+    pointers move to the fixed copy, and an ``ai_fixes`` entry capturing
+    everything the fix touched (pointers, sources, the support-clearance
+    analysis, color decisions, edit settings, and the edit range it
+    recorded) is appended and returned. :func:`undo_last_fix` reverts the
+    whole step, as #903's undo does for an edit (#978 review: undo did not
+    undo a fix at all, and a fix's plans came apart one at a time).
+    """
+    plans = list(plans or []) or list(proposal.plans or [])
+    previous = {name: copy.deepcopy(job.get(name)) for name in _FIX_SNAPSHOT_FIELDS}
+    source_before = job.get('downloaded_file')
+    edits_from = len(job.get('edits') or [])
+    sha = file_sha256(fixed_path or source_before) if file_sha256 is not None else None
+    for plan in plans:
+        edit_plan.record_edit(job, plan, actor=actor, lane='ai_fix', source_sha256=sha)
+        edit_plan.apply_plan(job, plan)
+    if fixed_path is not None:
+        fixed_str = str(fixed_path)
+        job['downloaded_file'] = fixed_str
+        sources = job.get('sources') or []
+        swapped = False
+        new_sources = []
+        for source in sources:
+            if str(source.get('path')) == str(source_before):
+                new_sources.append(dict(source, path=fixed_str, name=Path(fixed_str).name))
+                swapped = True
+            else:
+                new_sources.append(source)
+        if sources and not swapped:
+            new_sources[0] = dict(new_sources[0], path=fixed_str, name=Path(fixed_str).name)
+        if sources:
+            job['sources'] = new_sources
+        selected = job.get('selected_source')
+        if isinstance(selected, dict):
+            job['selected_source'] = dict(selected, path=fixed_str,
+                                          name=Path(fixed_str).name)
+    entry = {'at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'actor': actor, 'lane': 'ai_fix',
+             'problem': str(problem or '')[:300], 'summary': proposal.summary,
+             'geometry': proposal.geometry, 'mesh_repair': proposal.mesh_repair,
+             'filament_map': {str(k): v for k, v in proposal.filament_map.items()},
+             'profile': proposal.profile, 'report': report or {},
+             'edits_from': edits_from, 'edits_to': len(job.get('edits') or []),
+             'previous': previous,
+             'source_file_before': source_before,
+             'source_file_after': str(fixed_path) if fixed_path is not None else None,
+             'source_sha256_before': file_sha256(source_before) if file_sha256 else None,
+             'source_sha256_after': sha,
+             'undone': False}
+    job.setdefault('ai_fixes', []).append(entry)
+    return entry
+
+
+def undo_last_fix(job, *, actor=''):
+    """Revert the newest not-yet-undone fix as one step. Returns its
+    ``ai_fixes`` entry, or None when there is no fix to undo -- including
+    when a later ordinary edit sits on top of the fix (that edit is undone
+    first, the same order rule as stacked edits)."""
+    fixes = job.get('ai_fixes') or []
+    entry = next((item for item in reversed(fixes) if not item.get('undone')), None)
+    if entry is None:
+        return None
+    edits = job.get('edits') or []
+    edits_from, edits_to = entry.get('edits_from'), entry.get('edits_to')
+    if edits_to is not None:
+        for record in edits[edits_to:]:
+            if not record.get('undone') and (record.get('plan') or {}).get('kind') != 'undo':
+                return None  # a later edit goes first
+        own = [record for record in edits[edits_from:edits_to]
+               if not record.get('undone') and (record.get('plan') or {}).get('kind') != 'undo']
+        for _ in own:
+            if edit_plan.undo_last_edit(job, actor=actor) is None:
+                break
+    previous = entry.get('previous') or {}
+    for name in _FIX_SNAPSHOT_FIELDS:
+        if name in previous:
+            if previous[name] is None:
+                job.pop(name, None)
+            else:
+                job[name] = copy.deepcopy(previous[name])
+    if 'previous' not in entry and entry.get('source_file_before'):
+        job['downloaded_file'] = entry['source_file_before']  # legacy entry, pointer only
+    entry['undone'] = True
+    return entry
+
+
 def build_fixed_copy(source_path, proposal, dest_dir, *, stem='fixed',
                      measured_gap_mm=None) -> tuple[Path, dict]:
     """Apply a proposal's geometry/mesh repairs to a copy of the source.
@@ -683,9 +863,13 @@ def build_fixed_copy(source_path, proposal, dest_dir, *, stem='fixed',
     Returns (copy path, report). Slicer-setting plans are not applied here --
     they mutate the job record, never the file. The copy of a 3MF source is an
     STL (mesh-level repair has no per-part 3MF writer), and multi-part sources
-    are refused by the mesh path rather than flattened silently.
+    are refused by the mesh path rather than flattened silently. A painted
+    3MF is refused up front: every file-changing fix would drop its paint.
     """
     source_path = Path(source_path)
+    if _changes_files(proposal) and has_paint(source_path):
+        raise FixError('this 3MF is painted (per-triangle colors): a geometry or mesh '
+                       'fix would drop the painting, so it is refused')
     dest_dir = Path(dest_dir)
     dest_dir.mkdir(parents=True, exist_ok=True)
     report = {}
@@ -716,23 +900,29 @@ def build_fixed_copy(source_path, proposal, dest_dir, *, stem='fixed',
 def classify_request(text) -> str | None:
     """Upload/chat intent: 'repair', 'design', 'edit', or None.
 
-    Repair wins first ("fix this" beside a file is a repair request, not an
-    edit); design phrases route to the OpenSCAD create flow (#388); anything
-    the edit vocabulary can express routes to the verified chat edit pipeline
-    (#903). Mirrors the dispatch order: design, then edits.
+    Repair takes explicit repair requests only (#978 review): a bare
+    "fix this / repair the mesh / make it printable" is a repair, but an
+    ordinary edit that happens to mention fixing something ("fix the
+    infill so it's 20%", "fix the rotation so it lies flat") stays on the
+    free, verified edit vocabulary -- a request the edit vocabulary can
+    already resolve is an edit even when it carries a fix verb with a
+    model noun later in the sentence. Design phrases route to the
+    OpenSCAD create flow (#388).
     """
     text = str(text or '').strip()
     if not text:
         return None
-    if _REPAIR_RE.search(text):
+    if _REPAIR_BARE_RE.search(text):
         return 'repair'
-    if _DESIGN_RE.match(text):
-        return 'design'
     try:
         if edit_plan.resolve_request(text) is not None:
             return 'edit'
     except edit_plan.PlanError:
         return 'edit'
+    if _REPAIR_TARGET_RE.search(text):
+        return 'repair'
+    if _DESIGN_RE.match(text):
+        return 'design'
     return 'edit' if edit_plan.looks_like_edit(text) else None
 
 
@@ -755,7 +945,11 @@ def looks_like_repair(text) -> bool:
 
 _GCODE_MODEL_RE = re.compile(r'printer[_ ]model\s*[=:]\s*([^\r\n;]+)', re.IGNORECASE)
 _GCODE_MACHINE_RE = re.compile(r'MACHINE_NAME\s*[=:]\s*([^\r\n;]+)', re.IGNORECASE)
-_GCODE_HEADER_BYTES = 1_000_000  # slicer headers name the printer early; 64 KB was too tight
+# Slicer metadata lives in the header block and the footer config block --
+# the first and last 64 KB, the same slices gcode_3mf reads (#925). Real
+# Orca/Prusa files carry printer_model in the FOOTER, megabytes past any
+# head-only read, so both slices are searched (head first, per #925).
+_GCODE_SLICE_BYTES = 64 * 1024
 
 
 def _model_in_header(text):
@@ -766,11 +960,53 @@ def _model_in_header(text):
     return None
 
 
+def _model_in_slices(slices):
+    for text in slices:
+        model = _model_in_header(text)
+        if model:
+            return model
+    return None
+
+
+def _file_slices(path):
+    """The (head, tail) text slices of a plain file, read with seeks --
+    bounded memory however large the file is."""
+    size = path.stat().st_size
+    with open(path, 'rb') as handle:
+        head = handle.read(_GCODE_SLICE_BYTES)
+        if size <= 2 * _GCODE_SLICE_BYTES:
+            return (head.decode('utf-8', 'replace'),)
+        handle.seek(size - _GCODE_SLICE_BYTES)
+        tail = handle.read(_GCODE_SLICE_BYTES)
+    return (head.decode('utf-8', 'replace'), tail.decode('utf-8', 'replace'))
+
+
+def _member_slices(archive, name):
+    """The (head, tail) text slices of one zip member, streamed in chunks
+    so a plate is never decompressed whole into memory (#978 review)."""
+    head = bytearray()
+    tail = bytearray()
+    total = 0
+    with archive.open(name) as handle:
+        while chunk := handle.read(256 * 1024):
+            total += len(chunk)
+            if len(head) < _GCODE_SLICE_BYTES:
+                head += chunk[:_GCODE_SLICE_BYTES - len(head)]
+            tail = (tail + chunk)[-_GCODE_SLICE_BYTES:]
+    if total <= _GCODE_SLICE_BYTES:
+        return (bytes(head).decode('utf-8', 'replace'),)
+    return (bytes(head).decode('utf-8', 'replace'), bytes(tail).decode('utf-8', 'replace'))
+
+
 def gcode_target_model(path) -> str | None:
     """The printer model a bare G-code file says it was sliced for, or None.
 
-    Reads the header comments of a .gcode file, or every plate's G-code
-    inside a .gcode.3mf package (bounded per plate). Never modifies the file.
+    Searches the head and footer slices of a .gcode file, or of every
+    plate's G-code inside a .gcode.3mf package in numeric plate order
+    (plate 1 is the plate a package print starts with, so its model wins;
+    a later plate is read when earlier plates name nothing). Memory stays
+    bounded: files are seeked, package plates are streamed. Never
+    modifies the file.
     """
     path = Path(path)
     try:
@@ -781,16 +1017,13 @@ def gcode_target_model(path) -> str | None:
                                  if re.fullmatch(r'Metadata/plate_\d+\.gcode', n)),
                                 key=lambda n: int(re.search(r'(\d+)', n.rsplit('/', 1)[1]).group(1)))
                 for plate in plates:
-                    model = _model_in_header(
-                        archive.read(plate)[:_GCODE_HEADER_BYTES].decode('utf-8', 'replace'))
+                    model = _model_in_slices(_member_slices(archive, plate))
                     if model:
                         return model
                 return None
-        with open(path, 'rb') as handle:
-            text = handle.read(_GCODE_HEADER_BYTES).decode('utf-8', 'replace')
+        return _model_in_slices(_file_slices(path))
     except Exception:  # noqa: BLE001 - an unreadable file names no printer
         return None
-    return _model_in_header(text)
 
 
 def _norm_model(value) -> str:
@@ -798,14 +1031,15 @@ def _norm_model(value) -> str:
 
 
 def _same_model(target, known) -> bool:
-    """Exact after normalization, or one name a prefix of the other (a header
-    that adds a trim word -- "AD5X Pro" for the AD5X -- is the same family,
-    not a foreign printer)."""
+    """Exact after normalization, or one name contained in the other: a
+    header that carries the family name inside a longer string ("AD5X"
+    inside "Flashforge AD5X (ZMod)", a trim word added -- "AD5X Pro") is
+    the same printer, not a foreign one. Very short names match exactly
+    only, so "A1" cannot swallow unrelated models."""
     if target == known:
         return True
-    if len(target) >= 3 and len(known) >= 3:
-        return target.startswith(known) or known.startswith(target)
-    return False
+    short, long = sorted((target, known), key=len)
+    return len(short) >= 3 and short in long
 
 
 def is_foreign_gcode(path, printer_models) -> str | None:

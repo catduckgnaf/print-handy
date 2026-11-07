@@ -290,16 +290,32 @@ async def _edit_apply(event, gateway, source, adapter, job_path, job, plan, *, l
 
 
 async def _edit_undo(event, gateway, source, adapter, job_path, job):
-    from print_handy.core import edit_plan, model_job as mj
+    from print_handy.core import ai_fix, edit_plan, model_job as mj
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
 
     async def say(content):
         await adapter.send(chat_id=source.chat_id, metadata=metadata, content=content)
 
+    actor = f"{_h()._platform_value(source) or 'discord'}:{getattr(source, 'user_id', '')}"
+    fix_entry = ai_fix.undo_last_fix(job, actor=actor)
+    if fix_entry is not None:
+        # A whole AI fix comes back as one step (#978 review): file swap,
+        # its plans and its settings together. undo_last_fix returns None
+        # when a later ordinary edit sits on top, and that edit is undone
+        # by the path below first.
+        mj.write_job(job_path.parent, job)
+        result = await _edit_reenter(event, gateway, source, adapter, job)
+        await _edit_finish_record(_h()._state_dir() / 'model-link-intakes', source, event,
+                                  verification=['undo: the restored state was re-sliced '
+                                                'by the intake flow'])
+        summary = fix_entry.get('summary') or 'the applied fix'
+        await say(f'Undid the AI fix ({summary}). The restored job was re-sliced above; '
+                  'approvals are asked again for the new G-code.')
+        return result if isinstance(result, dict) else {'action': 'skip',
+                                                         'reason': 'AI fix undone'}
     if not (job.get('edits')):
         await say('There is no edit to undo on the current job.')
         return {'action': 'skip', 'reason': 'nothing to undo'}
-    actor = f"{_h()._platform_value(source) or 'discord'}:{getattr(source, 'user_id', '')}"
     undone = edit_plan.undo_last_edit(job, actor=actor)
     if undone is None:
         await say('Every edit on the current job has already been undone.')
@@ -523,7 +539,7 @@ async def _repair_flow(event, gateway, source, adapter):
     if not ai_fix.heavy_ready():
         await say(ai_fix.UNCONFIGURED_NOTE + ' Nothing was changed.')
         return {'action': 'skip', 'reason': 'repair: AI not configured'}
-    allowed, why = _edit_ai_allowed(source)
+    allowed, why = ai_fix.lane_allowed(getattr(source, 'user_id', ''), _config.cfg())
     if not allowed:
         await say(f'The AI repair lane is not available to you ({why}), so nothing was changed.')
         return {'action': 'skip', 'reason': f'repair: {why}'}
@@ -534,6 +550,7 @@ async def _repair_flow(event, gateway, source, adapter):
                   'or drop the file first, and I will prepare it.')
         return {'action': 'skip', 'reason': 'repair: no current job'}
     _receipt, job_path, job = found
+    pristine = copy.deepcopy(job)  # restored verbatim if re-entry fails (#978 review)
     source_path = Path(job.get('downloaded_file') or '')
     if not source_path.is_file():
         await say('The model file for this job is no longer on disk, so I cannot fix it.')
@@ -554,6 +571,11 @@ async def _repair_flow(event, gateway, source, adapter):
     except edit_plan.PlanError as exc:
         await say(f'The AI proposed a fix that cannot be applied ({exc}), so nothing was changed.')
         return {'action': 'skip', 'reason': 'repair plan refused'}
+    try:
+        ai_fix.check_file_fix(job, proposal)
+    except ai_fix.FixError as exc:
+        await say(f'{exc} Nothing was changed.')
+        return {'action': 'skip', 'reason': 'repair refused for this job'}
     fixed_path, report = None, {}
     preview_note = ''
     if proposal.geometry or proposal.mesh_repair:
@@ -598,11 +620,13 @@ async def _repair_flow(event, gateway, source, adapter):
         await say('No fix applied.')
         return {'action': 'skip', 'reason': 'repair declined'}
     actor = f"{_h()._platform_value(source) or 'discord'}:{getattr(source, 'user_id', '')}"
+    resolver = None
     if proposal.filament_map:
         # Re-resolve the remapped filaments against the target slots, the
         # same way the intake fix does; an unresolvable mapping changes
-        # nothing.
-        resolver = None
+        # nothing. Feasibility is proven on a throwaway copy first, because
+        # the real remap lands after the fix is recorded as one step (below)
+        # and must not fail halfway through it.
         with contextlib.suppress(Exception):
             from print_handy.core import printer_state
             pid = job.get('printer_id') or _h()._routed_printer_id(source, gateway)
@@ -613,7 +637,8 @@ async def _repair_flow(event, gateway, source, adapter):
                       'is unavailable), so nothing was changed.')
             return {'action': 'skip', 'reason': 'repair filament map unavailable'}
         try:
-            changed = ai_fix.remap_filament_choices(job, proposal.filament_map, resolver)
+            changed = ai_fix.remap_filament_choices(copy.deepcopy(job),
+                                                    proposal.filament_map, resolver)
         except ai_fix.FixError as exc:
             await say(f'{exc}, so nothing was changed.')
             return {'action': 'skip', 'reason': 'repair filament map refused'}
@@ -621,41 +646,29 @@ async def _repair_flow(event, gateway, source, adapter):
             await say('That filament mapping does not match any filament in this job, '
                       'so nothing was changed.')
             return {'action': 'skip', 'reason': 'repair filament map matched nothing'}
+    # One recorded, undoable step: plans recorded against the fixed file and
+    # applied, pointers swapped, and everything the fix touched snapshotted
+    # for ai_fix.undo_last_fix (#978 review: a fix was recorded in pieces
+    # and undo could not revert it).
+    ai_fix.apply_to_job(job, proposal, enriched, fixed_path=fixed_path, actor=actor,
+                        problem=text, report=report, file_sha256=edit_plan.file_sha256)
+    if resolver is not None:
+        ai_fix.remap_filament_choices(job, proposal.filament_map, resolver)
     if proposal.profile:
         settings_now = dict(job.get('edit_settings') or {})
         profile_now = dict(settings_now.get('profile') or {})
         profile_now.update(proposal.profile)
         settings_now['profile'] = profile_now
         job['edit_settings'] = settings_now
-    if fixed_path is not None:
-        job.setdefault('ai_fixes', []).append({
-            'at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'actor': actor, 'lane': 'ai_fix',
-            'problem': text[:300], 'geometry': proposal.geometry,
-            'mesh_repair': proposal.mesh_repair,
-            'filament_map': {str(k): v for k, v in proposal.filament_map.items()},
-            'profile': proposal.profile, 'report': report,
-            'source_file_before': str(source_path), 'source_file_after': str(fixed_path),
-            'source_sha256_before': edit_plan.file_sha256(source_path),
-            'source_sha256_after': edit_plan.file_sha256(fixed_path)})
-        job['downloaded_file'] = str(fixed_path)
-        if job.get('sources'):
-            job['sources'] = [dict(job['sources'][0], path=str(fixed_path),
-                                   name=fixed_path.name)]
-        if isinstance(job.get('selected_source'), dict):
-            job['selected_source'] = dict(job['selected_source'], path=str(fixed_path),
-                                          name=fixed_path.name)
-    elif proposal.filament_map or proposal.profile:
-        job.setdefault('ai_fixes', []).append({
-            'at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'actor': actor, 'lane': 'ai_fix',
-            'problem': text[:300],
-            'filament_map': {str(k): v for k, v in proposal.filament_map.items()},
-            'profile': proposal.profile})
-    for plan in enriched:
-        edit_plan.record_edit(job, plan, actor=actor, lane='ai_fix',
-                              source_sha256=edit_plan.file_sha256(source_path))
-        edit_plan.apply_plan(job, plan)
     mj.write_job(job_path.parent, job)
-    result = await _edit_reenter(event, gateway, source, adapter, job)
+    try:
+        result = await _edit_reenter(event, gateway, source, adapter, job)
+    except Exception as exc:  # noqa: BLE001 - restore, then say so (review point 7)
+        mj.write_job(job_path.parent, pristine)
+        logger.warning('repair re-entry failed: %r', exc)
+        await say('The fix was prepared, but re-entering the intake failed, so the job '
+                  'above is unchanged. Nothing was started.')
+        return {'action': 'skip', 'reason': 'repair re-entry failed'}
     await say('Fix applied: the fixed model was re-sliced above and every check ran again. '
               'The original file is unchanged.')
     return result if isinstance(result, dict) else {'action': 'skip', 'reason': 'repair applied'}
