@@ -47,6 +47,13 @@ export SPOOLMAN_DIR_DATA="${SPOOLMAN_DIR_DATA:-/data/spoolman}"
 export SPOOLMAN_DIR_CONFIG="${SPOOLMAN_DIR_CONFIG:-/data/spoolman/config}"
 export SPOOLMAN_DIR_LOGS="${SPOOLMAN_DIR_LOGS:-/data/spoolman/logs}"
 export SPOOLMAN_DIR_BACKUPS="${SPOOLMAN_DIR_BACKUPS:-/data/spoolman/backups}"
+# Spoolman 0.27.1 added an outbound update check (SPOOLMAN_UPDATE_CHECK,
+# upstream default true) that polls api.github.com. The bundled Spoolman is
+# Print Handy's to update, on Print Handy's pins - never its own - and Print
+# Handy is local-first, so the bundled instance never phones home. An
+# operator who runs their own external Spoolman controls that instance's
+# setting themselves; this default governs only the bundled launch.
+export SPOOLMAN_UPDATE_CHECK="${SPOOLMAN_UPDATE_CHECK:-FALSE}"
 export PRINT_HANDY__SERVICES__SPOOLMAN_URL="${PRINT_HANDY__SERVICES__SPOOLMAN_URL:-http://127.0.0.1:$SPOOLMAN_PORT}"
 if [ "${PRINT_HANDY_BUNDLED_SPOOLMAN:-true}" = true ]; then
     mkdir -p "$SPOOLMAN_DIR_DATA" "$SPOOLMAN_DIR_CONFIG" "$SPOOLMAN_DIR_LOGS" "$SPOOLMAN_DIR_BACKUPS"
