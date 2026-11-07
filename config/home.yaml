@@ -70,6 +70,8 @@ paths:
   cache: ~/.hermes/cache
   hermes_bin: ~/.local/bin/hermes
   ffmpeg: ffmpeg
+  piper: piper
+  piper_model: ''
   hermes_agent: ~/.hermes/hermes-agent
   hermes_restart_helper: ~/.hermes/skills/autonomous-ai-agents/hermes-safe-restart/scripts/restart_hermes.py
 services:
@@ -290,6 +292,13 @@ timelapse:
   # commentary when a route is configured, the local script otherwise).
   # Off by default, and it needs wrapped_enabled above on.
   wrapped_ai_video: false
+  # Wrapped narration (#981): none (default, no narration), piper (local
+  # Piper binary, paths.piper + paths.piper_model), or cloud (the opt-in
+  # OpenAI-compatible speech route under [ai.speech]).
+  wrapped_tts_engine: none
+  # Wrapped music file (#981): an audio file you supply, used as the
+  # video music bed instead of the synthesized bed. Empty = synthesized.
+  wrapped_music_file: ''
   # In-container timelapse capture (#246): off by default; existing behaviour
   # (printer-rendered timelapses only) is unchanged while this is false.
   # Turning it on starts the bundled go2rtc in the full Docker image, which

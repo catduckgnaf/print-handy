@@ -259,7 +259,7 @@ class OverrideTests(unittest.TestCase):
             "prusa": {"link_host", "api_key_env"},
             "elegoo_sdcp": {"host"},
             "paths": {"hermes_home", "archive", "records_vault", "cache", "hermes_bin", "ffmpeg",
-                      "hermes_agent", "hermes_restart_helper"},
+                      "piper", "piper_model", "hermes_agent", "hermes_restart_helper"},
             "services": {"moonraker_url", "moonraker_ws_url", "camera_snapshot_url", "camera_source",
                          "spoolman_url", "vision_chat_url", "stock_api_port"},
             "discord": {"chat_id", "approval_user_id", "upload_max_bytes", "post_print_quiet_s",
@@ -289,7 +289,8 @@ class OverrideTests(unittest.TestCase):
                           "capture_interval_s", "capture_max_frames", "capture_max_bytes",
                           "capture_encoder", "target_length_s", "min_fps", "max_fps",
                           "min_length_s", "hold_last_frame_s",
-                          "wrapped_enabled", "wrapped_ai_video"},
+                          "wrapped_enabled", "wrapped_ai_video",
+                          "wrapped_tts_engine", "wrapped_music_file"},
             "logging": {"level", "format", "file", "levels", "retention_days"},
             "webui": {"enabled", "host", "port", "access_token_env", "require_auth",
                       "controls_enabled", "cookie_secure"},
@@ -302,7 +303,7 @@ class OverrideTests(unittest.TestCase):
             "nozzle_temp_offsets": {"brass", "hardened_steel", "stainless_steel", "ruby", "tungsten_carbide", "diamond"},
             "material_temps": {"PLA", "PETG", "ABS", "ASA", "TPU", "PA", "PC"},
             "material_tuning": {"PLA"},
-            "ai": {"allowed_users", "edit_requests_per_hour", "small", "chat", "heavy"},
+            "ai": {"allowed_users", "edit_requests_per_hour", "small", "chat", "heavy", "speech"},
         }
         # "printers" is the resolved [[printers]] roster (#333): a list, not a section, so it is
         # pinned separately below rather than as another expected section.
