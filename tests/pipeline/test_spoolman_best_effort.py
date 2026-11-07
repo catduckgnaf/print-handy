@@ -346,6 +346,27 @@ def test_record_start_propagates_launch_pending_into_context(monkeypatch, tmp_pa
     assert '"spoolman_usage_pending": true' in Path(record_path).read_text()
 
 
+def test_record_start_stamps_this_launchs_print_number(monkeypatch, tmp_path):
+    # Per-launch numbers: the number minted for THIS launch rides the start
+    # record context, so the completion record shows this print's number,
+    # not the job's first-print number.
+    gcode = tmp_path / "job.gcode"
+    gcode.write_text("G1 X1\n")
+    job = {"title": "Numbered Job"}
+    context_path = tmp_path / "print_handy_context.json"
+    monkeypatch.setattr(print_records, "PRINTS_DIR", tmp_path / "Prints")
+    with mock.patch.object(model_job, "_job_for_gcode", return_value=job), \
+         mock.patch.object(model_job.printer_state, "load", return_value=_sync_state()), \
+         mock.patch.object(model_job.printers, "current",
+                           return_value=mock.Mock(multi_slot=False, native_or_none=None)), \
+         mock.patch.object(model_job, "CONTEXT", context_path):
+        record_path = model_job.record_start(str(gcode), started_at="2026-11-02T00:00:00Z",
+                                             print_number=87)
+    side = json.loads(context_path.read_text())
+    assert side["jobs"]["job.gcode"]["print_number"] == 87
+    assert json.loads(Path(record_path).read_text())["print_number"] == 87
+
+
 def test_record_completion_with_spoolman_down_writes_pending_record(monkeypatch, tmp_path):
     monkeypatch.setattr(print_records, "PRINTS_DIR", tmp_path / "Prints")
     monkeypatch.setattr(watcher, "SPOOLMAN_BASE", DEAD)

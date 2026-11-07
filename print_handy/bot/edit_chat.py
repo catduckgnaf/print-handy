@@ -82,7 +82,8 @@ def _edit_current_job(root, source):
                 (str(source_thread) if source_thread else None):
             continue
         if receipt.get('status') in ('CANCELLED', 'CANCELLED_OVERSIZED', 'EXPIRED',
-                                     'DECLINED_REPRINT', 'INTERRUPTED', 'EDITED'):
+                                     'DECLINED_REPRINT', 'DECLINED_FOLLOWUP', 'INTERRUPTED',
+                                     'EDITED'):
             continue
         job_json = receipt.get('job_json')
         if not job_json or not Path(job_json).is_file():

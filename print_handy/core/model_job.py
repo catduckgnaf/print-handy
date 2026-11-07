@@ -1746,7 +1746,22 @@ def download_for_site(job, source, target):
 
 
 def _timing(job_path, stage, **extra):
-    """Launch latency instrumentation: append one line to <job>/TIMING.jsonl. Never raises."""
+    """Launch latency instrumentation: append one line to <job>/TIMING.jsonl. Never raises.
+
+    Stage map for the single-plate slice path (#952 — intervals are
+    wall-clock, ``time.time()``): ``slice_start`` -> ``inventory_done`` is
+    source inventory and the slice recipe; ``inventory_done`` ->
+    ``orca_begin`` is orientation/derived-source preparation;
+    ``orca_begin`` -> ``orca_finalize_done`` is all of ``slice_model`` —
+    the slicer subprocess **plus** finalize and the post-slice guards —
+    with the split recorded as ``slicer_s``/``python_s`` extras on
+    ``orca_finalize_done`` (and as ``timing_s`` in the slice provenance);
+    ``verify_begin`` -> ``verify_done`` is ``_verify_routed``; packaging
+    has no marker of its own (on the ZMod upload route it sits between
+    ``preflight_verify_done`` and ``upload_begin``, mixed with approval
+    consumption and lease acquisition). Other slice paths (multi-plate,
+    split) emit ``slice_done`` without the ``orca_*``/``verify_*`` stages.
+    """
     try:
         line={"stage":stage,"t":round(time.time(),3),"pid":os.getpid(),**extra}
         logger.debug("TIMING %s", json.dumps(line))  # stdout stays clean in production logs
@@ -2173,6 +2188,48 @@ def gcode_motion_bounds(text):
 
 
 BOUNDS_CACHE = Path(os.environ.get("PRINT_HANDY_BOUNDS_CACHE", settings.state_dir()/"gcode-bounds-cache"))
+# One small JSON per distinct plate ever verified; without a cap the directory
+# grows forever (#952). 512 entries is far above any real working set (a hit
+# needs the same bytes re-verified) and keeps the directory a non-issue.
+BOUNDS_CACHE_MAX_ENTRIES = 512
+
+
+def _cached_bounds(hit):
+    """Bounds from a cache entry, or None when the entry is not trustworthy.
+
+    A hit must carry exactly two finite numbers per axis, low <= high: the
+    pre-#952 reader returned any JSON value as tuples, so a hand-edited or
+    corrupt entry with string values came back as tuples of characters and
+    only failed later, as a comparison crash inside verify.
+    """
+    if not isinstance(hit, dict):
+        return None
+    bounds = {}
+    for axis in "xyz":
+        pair = hit.get(axis)
+        if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+            return None
+        low, high = pair
+        if any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)
+               for v in (low, high)):
+            return None
+        if low > high:
+            return None
+        bounds[axis] = (float(low), float(high))
+    return bounds
+
+
+def _prune_bounds_cache():
+    """Drop the oldest cache entries beyond BOUNDS_CACHE_MAX_ENTRIES."""
+    try:
+        entries = sorted(BOUNDS_CACHE.glob("*.json"), key=lambda p: p.stat().st_mtime)
+    except OSError:
+        return
+    for stale in entries[:max(0, len(entries) - BOUNDS_CACHE_MAX_ENTRIES)]:
+        try:
+            stale.unlink()
+        except OSError:
+            pass
 
 
 def cached_motion_bounds(raw, text=None):
@@ -2181,13 +2238,16 @@ def cached_motion_bounds(raw, text=None):
     Slicing verifies offline first; print-now then reverifies the same bytes.
     Reparsing a 24 MB plate costs ~30 s per pass, so identical bytes reuse the
     stored result. Failures are never cached, so a bad file still fails closed.
+    An entry that does not validate (_cached_bounds) is treated as a miss and
+    recomputed; writes prune the directory to BOUNDS_CACHE_MAX_ENTRIES (#952).
     """
     digest = hashlib.sha256(raw).hexdigest()
     entry = BOUNDS_CACHE/f"{digest}.json"
     try:
-        hit = json.loads(entry.read_text())
-        return {axis: tuple(hit[axis]) for axis in "xyz"}
-    except (OSError, ValueError, KeyError, TypeError):
+        hit = _cached_bounds(json.loads(entry.read_text()))
+        if hit is not None:
+            return hit
+    except (OSError, ValueError):
         pass
     bounds = gcode_motion_bounds(text if text is not None else raw.decode(errors="ignore"))
     try:
@@ -2195,6 +2255,7 @@ def cached_motion_bounds(raw, text=None):
         tmp = entry.with_suffix(".tmp")
         tmp.write_text(json.dumps({axis: list(bounds[axis]) for axis in "xyz"}))
         tmp.replace(entry)
+        _prune_bounds_cache()
     except OSError:
         pass
     return bounds
@@ -3364,8 +3425,13 @@ def copies_supported(job, multi_plate=None):
                 or (job.get('color_decisions') or {}).get('mode') == 'per_part')
 
 
-def record_start(gcode_path, moonraker_name=None, started_at=None):
-    """Write the JSON start record plus the completion sidecar for a started print."""
+def record_start(gcode_path, moonraker_name=None, started_at=None, print_number=None):
+    """Write the JSON start record plus the completion sidecar for a started print.
+
+    print_number, when the caller minted one for this launch, is stamped into
+    the record context so the completion record carries THIS launch's number,
+    not the job's first-print number.
+    """
     print_records = _external.load("print_records")
     st=printer_state.load(); g=Path(gcode_path).expanduser().resolve(); text=g.read_text(errors="ignore")
     def cfg(key):
@@ -3382,6 +3448,8 @@ def record_start(gcode_path, moonraker_name=None, started_at=None):
          "slicer_settings":{**{k:cfg(k) for k in RECORD_KEYS if cfg(k) is not None},
                             "source_profile":src.get("title"),"source_file":(job or {}).get("downloaded_file"),"local_gcode":str(g)},
          "active_spool":{"id":st["spool"]["spoolman_id"],"material":st["spool"]["material"],"color":st["spool"]["name"]}}
+    if isinstance(print_number, int) and not isinstance(print_number, bool) and print_number > 0:
+        ctx["print_number"] = print_number
     plan = (job or {}).get('multipart_plan') or {}
     for part in plan.get('parts') or []:
         if part.get('gcode_path') and Path(part['gcode_path']).resolve() == g:
@@ -3651,17 +3719,23 @@ def mesh_line(mesh):
     return line
 
 
-def _assign_print_number(job_path):
-    """Permanent print number from the shared /print-again registry; None on any failure."""
+def _assign_print_number(job_path, artifact=None):
+    """Mint this launch's own permanent print number; None on any failure.
+
+    Every launch mints a NEW number from the shared /print-again registry —
+    a reprint of an already-numbered job is a new print, not the old print
+    number again. The job's first mint stays its legacy registry number, so
+    old numbers keep resolving to the same job.
+    """
     if job_path is None:
         return None
     try:
         print_control = _external.load("print_control")
-        ARCHIVE, assign_print_numbers = print_control.ARCHIVE, print_control.assign_print_numbers
+        ARCHIVE, mint_launch_number = print_control.ARCHIVE, print_control.mint_launch_number
         key = Path(job_path).resolve()
         if not key.is_relative_to(ARCHIVE.resolve()):
             return None  # scratch and test jobs are not prints
-        return assign_print_numbers({key: time.time()}).get(str(key))
+        return mint_launch_number(key, at=time.time(), artifact=artifact)
     except Exception as e:
         print(f"WARNING: print number not assigned: {e}")
         return None
@@ -5915,7 +5989,14 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
     else:
         out, provenance, configs = slice_model(slice_src, slice_dir, st, brim_override,
                                               color_decisions=slice_decisions, copies=copies, **scale_kw)
-    _timing(job_path, 'orca_finalize_done')
+    # #952: the interval above mixes the slicer subprocess with Print Handy's
+    # own finalize/guard work; the split rides along as extras (and in the
+    # slice provenance) so a "speedup not visible" report is answerable from
+    # TIMING.jsonl alone.
+    _split = (provenance or {}).get('timing_s') or {}
+    _timing(job_path, 'orca_finalize_done',
+            **{k: _split[k] for k in ('slicer_s', 'python_s') if k in _split})
+    _timing(job_path, 'verify_begin')
     if adapter.key == printers.current().key:
         _verify_routed(out, adapter, st, _recorded_printer_id(job), job=job)
     latest = json.loads(Path(job_path).read_text())
@@ -7455,8 +7536,11 @@ def print_mapped_native(g, st, mesh, mapping, job, job_path, wait_s, reprint):
             # The POST response was lost: preserve the duplicate guard until
             # explicit reconciliation, even if a matching readback is active.
             _write_checkpoint(checkpoint, out)
+            if out.get('print_number') is None:
+                try: out['print_number'] = _assign_print_number(job_path, artifact=g)
+                except Exception as exc: print(f"WARNING: could not assign a print number: {exc}")
             try:
-                out['record_path'] = str(record_start(g, remote))
+                out['record_path'] = str(record_start(g, remote, print_number=out.get('print_number')))
             except Exception as record_exc:
                 logger.warning('start record failed after reconciled submission: %s', record_exc)
         _write_checkpoint(checkpoint, out)
@@ -7507,7 +7591,7 @@ def _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_pat
     # Number at submission, not at "printing": native preparation can outlast the readback
     # and the listener's completion card only reads the registry (2026-10-14: 6 unnumbered).
     try:
-        out['print_number'] = _assign_print_number(job_path)
+        out['print_number'] = _assign_print_number(job_path, artifact=g)
     except Exception as exc:
         logger.warning('could not assign a print number: %s', exc)
     if delivery:
@@ -7516,7 +7600,7 @@ def _confirm_mapped_start(st, g, lease, remote, wait_s, out, checkpoint, job_pat
     print('MAPPED START SUBMITTED ' + json.dumps(out), flush=True)
     # Record immediately so a long native preparation cannot lose its start record.
     try:
-        out['record_path'] = str(record_start(g, remote))
+        out['record_path'] = str(record_start(g, remote, print_number=out.get('print_number')))
     except Exception as exc:
         logger.warning('start record failed after submission: %s', exc)
     state = _wait_printing(st, remote, wait_s, prep_check=_preparation_evidence)
@@ -7790,8 +7874,10 @@ def _print_octoprint(adapter, state, gcode, job, job_path, wait_s, reprint):
     out = _settle_polled_start(lease, poll, remote, method='octoprint')
     confirmed = out['started']
     if confirmed:
+        try: out['print_number'] = _assign_print_number(job_path, artifact=gcode)
+        except Exception as exc: print(f'WARNING: could not assign a print number: {exc}')
         try:
-            out['record_path'] = record_start(gcode, remote)
+            out['record_path'] = record_start(gcode, remote, print_number=out.get('print_number'))
         except Exception as exc:
             print(f'WARNING: start record failed: {exc}')
         # The print path starts a launched-print monitor (#373): it makes
@@ -7960,8 +8046,10 @@ def _print_bambu(adapter, state, gcode, job, job_path, wait_s, reprint):
         ams_mapping=ams_map, ams_mapping_source=ams_source,
         confirmation={"snapshots": snapshots, "window_s": window_s})
     if confirmed:
+        try: out['print_number'] = _assign_print_number(job_path, artifact=gcode)
+        except Exception as exc: print(f'WARNING: could not assign a print number: {exc}')
         try:
-            out["record_path"] = record_start(gcode, remote)
+            out["record_path"] = record_start(gcode, remote, print_number=out.get('print_number'))
         except Exception as exc:
             print(f"WARNING: start record failed: {exc}")
         # Camera parity (#294): a monitor watches this launched print — it makes
@@ -8041,8 +8129,10 @@ def _print_elegoo_sdcp(adapter, state, gcode, job, job_path, wait_s, reprint):
     out = _settle_polled_start(lease, poll, remote, method="elegoo_sdcp")
     confirmed = out["started"]
     if confirmed:
+        try: out['print_number'] = _assign_print_number(job_path, artifact=gcode)
+        except Exception as exc: print(f'WARNING: could not assign a print number: {exc}')
         try:
-            out["record_path"] = record_start(gcode, remote)
+            out["record_path"] = record_start(gcode, remote, print_number=out.get('print_number'))
         except Exception as exc:
             print(f"WARNING: start record failed: {exc}")
         # Timelapse (#295): a monitor watches this launched print — the
@@ -8126,8 +8216,10 @@ def _print_prusa(adapter, state, gcode, job, job_path, wait_s, reprint):
     out = _settle_polled_start(lease, poll, remote, method="prusalink")
     confirmed = out["started"]
     if confirmed:
+        try: out['print_number'] = _assign_print_number(job_path, artifact=gcode)
+        except Exception as exc: print(f'WARNING: could not assign a print number: {exc}')
         try:
-            out["record_path"] = record_start(gcode, remote)
+            out["record_path"] = record_start(gcode, remote, print_number=out.get('print_number'))
         except Exception as exc:
             print(f"WARNING: start record failed: {exc}")
         # Timelapse (#295): a monitor watches this launched print — the
@@ -8232,8 +8324,10 @@ def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprin
     out = _settle_polled_start(lease, poll, remote, method="flashforge_stock")
     confirmed = out["started"]
     if confirmed:
+        try: out['print_number'] = _assign_print_number(job_path, artifact=gcode)
+        except Exception as exc: print(f'WARNING: could not assign a print number: {exc}')
         try:
-            out["record_path"] = record_start(gcode, remote)
+            out["record_path"] = record_start(gcode, remote, print_number=out.get('print_number'))
         except Exception as exc:
             print(f"WARNING: start record failed: {exc}")
         # Timelapse (#373): a monitor watches this launched print — the
@@ -8831,8 +8925,11 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
             recorder.finish("refused", rejection=rejection)
             raise SystemExit(_rejected_start_message(rejection)) from exc
         if out["accepted"]:
+            if out.get("print_number") is None:
+                try: out["print_number"] = _assign_print_number(job_path, artifact=g)
+                except Exception as exc: print(f"WARNING: could not assign a print number: {exc}")
             try:
-                out["record_path"] = str(record_start(g, remote))
+                out["record_path"] = str(record_start(g, remote, print_number=out.get("print_number")))
             except Exception as record_exc:
                 print(f"WARNING: print start record failed: {record_exc}")
         print("START SUBMITTED; AWAITING CONFIRMATION " + json.dumps(out), flush=True)
@@ -8860,8 +8957,12 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
         return out
     lease.release()  # printing; the busy printer now refuses another start
     recorder.finish("printing", phase="executing", moonraker_state=state)
+    # Mint this launch's number BEFORE the start record, so the record (and
+    # the completion record built from it) carries this print's own number.
+    try: print_no=_assign_print_number(job_path, artifact=g)
+    except Exception as e: print_no=None; print(f"WARNING: could not assign a print number: {e}")
     record_path=None
-    try: record_path=record_start(g, remote)
+    try: record_path=record_start(g, remote, print_number=print_no)
     except Exception as e: print(f"WARNING: print start record failed: {e}")
     if not isinstance(record_path,(str,os.PathLike)): record_path=None
     elif record_path is not None: record_path=str(record_path)
@@ -8870,8 +8971,6 @@ def _print_now_locked(target, wait_s=25, accept_default_z_offset=False, reprint=
     est=gcode_estimate_s(text); fg=_filament_total_g(text)
     warm=5*60; now=datetime.now(ZoneInfo(TIMEZONE))
     title=(job or {}).get("title") or g.stem
-    try: print_no=_assign_print_number(job_path)
-    except Exception as e: print_no=None; print(f"WARNING: could not assign a print number: {e}")
     out={"started":True,"title":title,"print_number":print_no,"file":remote,"method":method,
          "phase":"executing","outcome":"printing","message":(readback.message if readback else "printing"),
          "extrusion_confirmed":bool(readback and (readback.evidence or {}).get("extrusion_confirmed")),

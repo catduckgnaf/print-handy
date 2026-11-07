@@ -14,7 +14,12 @@ name: Upstream bump
 # UPSTREAM_BOT_PRIVATE_KEY secrets this workflow is deliberately
 # inert: it prints a notice and exits 0 without changing anything.
 # It never merges. The companion upstream-bump-ready.yml flips a
-# bump PR from draft to ready once its CI suite is green.
+# bump PR from draft to ready once its CI suite is green. When an
+# identity is configured, a diagnosis step runs before the token
+# mint: it asks GitHub which app the secret pair identifies and
+# whether that app is installed on this repository, so a broken
+# identity fails with the named cause instead of the mint step's
+# bare HTTP 404 (#950).
 
 on:
   schedule:
@@ -72,12 +77,20 @@ jobs:
         run: |
           echo "::notice::Upstream bump automation is inert: the upstream bot identity is not configured (secrets UPSTREAM_BOT_APP_ID / UPSTREAM_BOT_PRIVATE_KEY - see the setup checklist). Nothing was changed."
 
+      - name: Diagnose upstream bot identity
+        if: steps.identity.outputs.configured == 'true'
+        env:
+          UPSTREAM_BOT_APP_ID: ${{ secrets.UPSTREAM_BOT_APP_ID }}
+          UPSTREAM_BOT_PRIVATE_KEY: ${{ secrets.UPSTREAM_BOT_PRIVATE_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python3 scripts/bump_upstream.py --diagnose-identity
+
       - name: Mint upstream bot token
         id: app-token
         if: steps.identity.outputs.configured == 'true'
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ secrets.UPSTREAM_BOT_APP_ID }}
+          client-id: ${{ secrets.UPSTREAM_BOT_APP_ID }}
           private-key: ${{ secrets.UPSTREAM_BOT_PRIVATE_KEY }}
 
       - name: Point git at the bot token
