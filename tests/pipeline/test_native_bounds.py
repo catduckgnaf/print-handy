@@ -32,7 +32,7 @@ import pytest
 from print_handy.core import model_job
 from tests.pipeline.native_bounds_corpus import CASES, EXPECTED
 
-assert len(CASES) == len(EXPECTED) == 106
+assert len(CASES) == len(EXPECTED) == 112
 
 
 def _outcome(fn, text):

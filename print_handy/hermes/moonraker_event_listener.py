@@ -398,44 +398,42 @@ def _bot_token():
 def roast_enabled(cfg=None):
     """The roast switch: [vision] roast_enabled, on by default.
 
-    Roasts run whenever the switch is on AND an LLM/vision endpoint is
-    available (generate_roast's own checks below); the switch is the
-    operator's way to turn them off without losing the camera watchdog.
+    Roasts come from the local corpus (core/roast.py, #1002) and need no
+    endpoint, so the switch alone decides; it is the operator's way to turn
+    them off without losing the camera watchdog.
     """
     vision = (cfg or _config.cfg()).get("vision") or {}
     return bool(vision.get("roast_enabled", True))
 
 
-def generate_roast(title, summary=""):
-    """Generate a quick 1-sentence roast via Luna LLM for the bot persona. Best-effort."""
+ROAST_STATE = _config.state_file("PRINT_HANDY_ROAST_STATE", "roast_state.json", per_instance=True)
+_ROAST_FACTS = ("duration_s", "material", "color", "grams", "printer", "copies",
+                "print_number", "times", "finish_hour")
+
+
+def generate_roast(title, summary="", facts=None, key=None, status="completed"):
+    """One short roast line for a print, from the local corpus. Best-effort.
+
+    No LLM at all (#1002): no model call, no model fallback, no endpoint.
+    ``facts`` are what is known about this print (duration, material,
+    color, grams, printer, times printed, finish hour); a template that
+    needs an unknown fact is never drawn. ``key`` makes the choice stick to
+    one print, so a retried delivery repeats the same line instead of
+    drawing a new one. ``summary`` is accepted for older callers and unused.
+    """
     title = str(title or "").strip()
     if not title:
         return ""
     if not roast_enabled():
         log("roast skipped: vision.roast_enabled is false")
         return ""
-    # The small AI tier (#818): [ai.small] when set, else services.vision_chat_url
-    # with the vision roast model and CLIPROXY_API_KEY, as before.
-    compat = ai_routes.Compat(_config.service_url("vision_chat_url"),
-                              str(_config.cfg()["vision"]["roast_model"]),
-                              _profile_env_value("CLIPROXY_API_KEY"), timeout_s=4)
-    if not ai_routes.configured("small", compat=compat):
-        log("roast skipped: services.vision_chat_url is not configured")
-        return ""
-    if not ai_routes.ready("small", compat=compat):
-        return ""
-    prompt = f"Model: {title}"
-    if summary:
-        prompt += f" ({summary})"
     try:
-        res, served_by = ai_routes.call(
-            "small",
-            [{"role": "system", "content": f"You are {_config.bot_name()}, a witty 3D printer assistant who gently roasts 3D prints. Give ONE short funny sentence roasting this model. Keep it under 20 words. No quotes, no hashtags, no introductory filler."},
-             {"role": "user", "content": prompt}],
-            compat=compat, purpose="roast", max_tokens=50, temperature=0.8)
-        log(f"roast written by {served_by}")
-        return res.strip("\"'").strip()
-    except Exception:
+        from ..core import roast as roast_engine
+        known = {k: v for k, v in dict(facts or {}).items() if k in _ROAST_FACTS}
+        ctx = roast_engine.build_context(title, **known)
+        return roast_engine.roast(ctx, status=status, key=key, state_path=ROAST_STATE)
+    except Exception as exc:
+        log(f"roast skipped: {exc!r}")
         return ""
 
 
@@ -1049,10 +1047,12 @@ def _with_completion_roast(message, completion_message):
     exactly as it was.
     """
     try:
-        title, summary = announcer.pending_roast_subject(announcer.load_state(), completion_message)
+        state = announcer.load_state()
+        title, summary = announcer.pending_roast_subject(state, completion_message)
         if not title or not str(message).startswith(completion_message):
             return message
-        roast = generate_roast(title, summary)
+        facts, key = announcer.pending_roast_facts(state, completion_message)
+        roast = generate_roast(title, summary, facts=facts, key=key)
     except Exception as exc:
         log(f"completion roast skipped: {exc!r}")
         return message

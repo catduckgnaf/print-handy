@@ -398,13 +398,13 @@ CATALOG = (
     _field("vision", "model", "Vision model", "text",
            "Model the vision endpoint uses for camera checks."),
     _field("vision", "roast_model", "Roast model", "text",
-           "Model the vision endpoint uses for the one-line roast on print posts."),
+           "Legacy: roasts come from the local roast corpus and no longer use a "
+           "model (#1002). Kept so older configs load unchanged."),
     _field("vision", "roast_enabled", "Roast", "toggle",
-           "The one-line roast on the print-started post only (one per print, "
-           "added when printing begins; never on the completion post), on every "
-           "platform (Telegram included). On by default: it runs whenever an "
-           "LLM/vision endpoint is available; off turns roasts off without "
-           "disabling camera checks.",
+           "The one-line roast: one per print on the completion post, and on "
+           "request in chat (\"roast my last print\"), on every platform. "
+           "On by default; it comes from the local roast corpus and needs no "
+           "LLM or endpoint. Off turns roasts off without disabling camera checks.",
            validator="settings vision check"),
     _field("vision", "local_detector_enabled", "Local failure detector", "toggle",
            "Built-in ONNX failure detector for the camera watchdog (#455): "

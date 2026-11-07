@@ -182,26 +182,26 @@ def checks(cfg):
         else:
             add("clarify ui", True, "host renderer (in Hermes mode Hermes draws the questions; "
                                     "set discord.clarify_ui=true for Print Handy's own renderer)")
-    # The roast is separate from the chat fallback above: the print-started
-    # post gains a one-line roast (exactly one per print, when printing
-    # begins; the completion post never does) on every platform (Telegram
-    # and Matrix included) whenever [vision] roast_enabled is on — the
-    # default — and an LLM/vision endpoint is available.
+    # The roast is separate from the chat fallback above and needs no model
+    # at all (#1002): one line per print from the local roast corpus, on the
+    # completion post and on request ("roast my last print"), on every
+    # platform. vision.roast_enabled (on by default) is the only switch.
     vision = cfg.get("vision") or {}
+    # The vision endpoint the camera rows below need ([ai.small] is one too, #818).
     vision_url = str((cfg.get("services") or {}).get("vision_chat_url") or "")
-    small_route = ai_routes.describe("small", cfg, purpose="roast") if ai_routes.explicit("small", cfg) else ""
-    if small_route:  # [ai.small] is a vision endpoint too (#818)
+    if ai_routes.explicit("small", cfg):
         vision_url = vision_url or cfg["ai"]["small"]["chat_url"]
     if not vision.get("roast_enabled", True):
         add("roast", True, "off (vision.roast_enabled is false)")
-    elif small_route:
-        add("roast", True, f"on ({small_route}; set vision.roast_enabled=false to turn roasts off)")
-    elif vision_url:
-        add("roast", True, f"on ({vision.get('roast_model') or 'luna-latest'} at {vision_url}; "
-                           "set vision.roast_enabled=false to turn roasts off)")
     else:
-        add("roast", True, "on by default, but no LLM/vision endpoint is available "
-                           "(services.vision_chat_url is empty); set it to enable roasts")
+        try:
+            from ..core import roast as roast_engine
+            size = roast_engine.corpus_size()
+        except Exception as exc:
+            add("roast", False, f"on, but the local roast corpus could not be read ({exc})")
+        else:
+            add("roast", True, f"on (local corpus, {size} lines, no LLM; "
+                               "set vision.roast_enabled=false to turn roasts off)")
     # Local failure detector (#455): the built-in ONNX route for the camera
     # watchdog on installs with no vision endpoint. Off by default; when on
     # it judges frames only while no endpoint route is configured (endpoint

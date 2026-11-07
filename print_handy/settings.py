@@ -1338,16 +1338,15 @@ def _validate_live_stream(data):
 
 
 def _validate_vision(data):
-    """The [vision] section: camera-check and roast models, and the roast switch.
+    """The [vision] section: the camera-check model and the roast switch.
 
-    ``roast_enabled`` is on by default: whenever an LLM/vision endpoint is
-    available (``services.vision_chat_url`` set, with its ``CLIPROXY_API_KEY``),
-    the print-started post gains the one-line roast — exactly one per print,
-    added when printing begins, never on the completion post — on
-    every platform — Telegram included, even though Telegram never uses the
-    ``[llm]`` chat fallback. Set it false to turn roasts off without
-    disabling the camera watchdog, which shares the same endpoint. Absent
-    in an older config means the default (on).
+    ``roast_enabled`` is on by default. Roasts come from the local roast
+    corpus (core/roast.py, #1002) with no LLM and no endpoint: exactly one
+    line per print on the completion post, and on request in chat ("roast
+    my last print"), on every platform. Set it false to turn roasts off
+    without touching the camera watchdog. ``roast_model`` is kept so older
+    configs load unchanged; roasts no longer read it. Absent in an older
+    config means the default (on).
     """
     vision = data.setdefault("vision", {})
     enabled = vision.setdefault("roast_enabled", True)
@@ -1458,8 +1457,7 @@ def _validate_design(data):
     on whenever a design/LLM endpoint is resolvable — every mode resolves
     [design] inheriting [llm] first; Hermes mode additionally counts the
     plugin's ``print_design`` auxiliary-task lane as available — the same
-    posture roasts have via ``vision.roast_enabled`` (on whenever an
-    endpoint is available).
+    posture the camera checks have (on whenever an endpoint is available).
     ``enabled = true`` forces it on (an unconfigured endpoint is then a
     visible failure, not a silent off), and ``enabled = false`` turns it
     off in all cases. ``chat_url``, ``model`` and ``api_key_env`` are empty

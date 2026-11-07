@@ -69,8 +69,8 @@ message. `python3 -m print_handy.doctor` warns when a Hermes profile holds the s
 | `agent.model` | empty | Agent model name; optional — empty omits `model` from the request |
 | `agent.api_key_env` | `AGENT_API_KEY` | Name of the environment variable that holds the agent endpoint's API key, if it needs one |
 | `agent.timeout_s` | `120` | Agent request timeout (one attempt, no retries) |
-| `vision.roast_enabled` | `true` | The one-line roast on the print-started post only (never on the completion post). On by default whenever an LLM/vision endpoint is available (`services.vision_chat_url` plus `CLIPROXY_API_KEY`), on every platform — Telegram and Matrix included, even though their chat never uses `[llm]`. `false` turns roasts off; camera checks are unaffected |
-| `vision.roast_model` | `luna-latest` | Model that writes the roast |
+| `vision.roast_enabled` | `true` | The one-line roast: one per print on the completion post, plus on request in chat ("roast my last print"), on every platform. From the local roast corpus, no LLM or endpoint (#1002). `false` turns roasts off; camera checks are unaffected |
+| `vision.roast_model` | `luna-latest` | Legacy, unused since #1002 (roasts are local); kept so older configs load |
 
 Every key can come from the environment as `PRINT_HANDY__SECTION__KEY`, for example
 `PRINT_HANDY__BOT__MODE=standalone` or `PRINT_HANDY__DISCORD__ALLOWED_USER_IDS="111 222"`.
@@ -260,8 +260,8 @@ answering as it does today.
 You do not have to remove `[llm]` to do this, and you should not if you use `/print-design`: design
 inherits the `[llm]` endpoint when `[design]` is unset, and that inheritance keeps working with chat
 off — design has its own switch (`design.enabled`). Two other features use a model through the
-separate vision endpoint, not the chat fallback, and keep their own gates: the print-started **roast**
-(`vision.roast_enabled`, on by default) and the **camera watchdog** (`visual_watch.enabled`, on
+separate vision endpoint or need none, and keep their own gates: the **roast** (local, no LLM;
+`vision.roast_enabled`, on by default) and the **camera watchdog** (`visual_watch.enabled`, on
 `services.vision_chat_url` — or, with no endpoint at all, on the built-in local failure detector,
 `vision.local_detector_enabled`, #455). Turning the chat LLM off changes none of them; turn each off at its own
 switch if you want no model calls at all.

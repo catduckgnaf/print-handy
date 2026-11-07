@@ -2092,7 +2092,7 @@ def show(job):
 NUMBER=r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[Ee][+-]?\d+)?'
 
 
-_GCODE_LINE_RE = re.compile(r'(?im)^[ \t]*(G90|G91|G0?0|G0?1|G0?2|G0?3|G92|G28|G53|FORCE_MOVE|MANUAL_STEPPER|STEPPER_BUZZ|SET_KINEMATIC_POSITION)(?=\s|$)([^;\r\n]*)')
+_GCODE_LINE_RE = re.compile(r'(?im)^[ \t]*(G90|G91|G0?0|G0?1|G0?2|G0?3|G92|G28|G53|G20|FORCE_MOVE|MANUAL_STEPPER|STEPPER_BUZZ|SET_KINEMATIC_POSITION)(?=\s|$)([^;\r\n]*)')
 _GCODE_XYZ_RE = re.compile(r'([XYZ])\s*('+NUMBER+r')')
 _GCODE_SUPPORTED = {"G0", "G00", "G1", "G01"}
 _GCODE_FORBIDDEN = {"G28", "G53", "FORCE_MOVE", "MANUAL_STEPPER", "STEPPER_BUZZ", "SET_KINEMATIC_POSITION"}
@@ -2131,6 +2131,11 @@ def _gcode_motion_bounds_python(text):
         elif command in ("G2", "G02", "G3", "G03"):
             lineno = text.count("\n", 0, match.start()) + 1
             raise RuntimeError(f"line {lineno}: arc motion is unsupported by the bounds verifier")
+        elif command == "G20":
+            # Inch coordinates read as millimetres would shrink every bound
+            # about 25x and pass a print that cannot fit (#952 phase 2).
+            lineno = text.count("\n", 0, match.start()) + 1
+            raise RuntimeError(f"line {lineno}: inch units (G20) are unsupported by the bounds verifier")
         elif command == "G92":
             if _GCODE_XYZ_RE.search(match.group(2).upper()):
                 lineno = text.count("\n", 0, match.start()) + 1
@@ -2206,7 +2211,7 @@ def _gcode_motion_bounds_python(text):
 # A native refusal (BoundsRefusal, a RuntimeError) propagates unchanged.
 # Any other native error falls back to the Python parser for that input,
 # is logged, and disables the native path for the rest of the process.
-_BOUNDS_NATIVE_API_VERSION = 1
+_BOUNDS_NATIVE_API_VERSION = 2  # 2: G20 refused (#952 phase 2)
 _BOUNDS_SELF_CHECK_OK = (
     ("G90\nG1 X1 Y2 Z3\n", {"x": (1.0, 1.0), "y": (2.0, 2.0), "z": (3.0, 3.0)}),
     ("G90\nG1 X-5 Y2 Z3\nG91\nG1 X5\n", {"x": (-5.0, 0.0), "y": (2.0, 2.0), "z": (3.0, 3.0)}),
