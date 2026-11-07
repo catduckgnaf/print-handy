@@ -142,6 +142,53 @@ the edit (with its confirmation and re-slice) or answers the question
 against the job that intake just prepared. Plain intake text such as
 "print this" is not treated as an instruction.
 
+## "Fix this for my printer" (#978)
+
+"fix this", "repair this" or "make this printable" after a file or job is
+not an edit: it starts the repair flow. The heavy AI tier (`ai.heavy`)
+reads the problem — a slice failure or refusal, a failed post-slice gate,
+or a damaged uploaded mesh — and proposes changes from the same edit
+vocabulary, a bounded geometry repair (sink or extend an underside by at
+most 5 mm), and/or a mesh repair (welded vertices, degenerate and duplicate
+triangles dropped, holes filled, inverted winding fixed). The proposal is
+shown in chat first, with a preview for geometry and mesh changes; applying
+it works on a copy, never the source file, and the job re-slices through
+the full intake so every gate runs again. A fix is never a waiver and never
+skips a check, and starting the fixed print needs the normal approvals.
+The same offer appears on slice failures, slice refusals and post-slice
+gate failures; with no AI configured there is no offer, only a one-line
+note that a fix is available when AI is set up.
+
+Rules the repair keeps:
+
+- **Explicit requests only.** The whole message has to be a repair request
+  ("fix this", "repair the mesh", "make it printable", "fix this for my
+  printer"). A message that only mentions fixing something the edit
+  vocabulary can do ("fix the infill so it's 20%") stays an ordinary edit.
+- **Same AI limits as edits.** A fix request counts against the `[ai]`
+  `allowed_users` list and the per-user `edit_requests_per_hour` limit, like
+  the AI edit lane. A refused request sends nothing to the endpoint.
+- **Who can choose it.** After a slice failure or refusal anyone the bot
+  serves may ask for a fix. On the post-slice support question the Fix
+  button sits beside Print anyway, which is an approval question, so only
+  print approvers can choose it there. Starting the fixed print always
+  needs an approver.
+- **What gets recorded.** A fix that makes every gate pass records no
+  waiver and no clearance acknowledgement. If a geometry fix does not clear
+  a low underside and an approver then chooses Print anyway, that is
+  recorded as `print_anyway`, not as a repair.
+- **Undo.** "undo" reverts the newest AI fix as one step: the job points at
+  the original file again, with its colors and clearance report, and every
+  setting the fix changed is restored. A later ordinary edit is undone first.
+- **Refused instead of lossy.** A geometry or mesh fix is refused on a job
+  built from several files (it would drop the others), on a multi-part 3MF,
+  and on a painted 3MF (a mesh repair writes a plain STL, which has no
+  paint). Meshes over 5 million triangles are not mesh-repaired.
+- **Foreign G-code.** A dropped G-code file whose `printer_model` (read from
+  the header and from the footer config block, where OrcaSlicer, PrusaSlicer
+  and Bambu Studio write it) names a different printer is refused, never
+  rewritten.
+
 ## Edit corpus tests
 
 The edit pipeline is covered by a dedicated 3-shard test suite in `tests/corpus/edit/` and weekly external corpus sweeps in `tests/corpus/run_external_edit_corpus.py`. See [Discord flow corpus in PROJECT-REFERENCE.md](PROJECT-REFERENCE.md#edit-corpus-journeys) for runner details and case authoring conventions.
