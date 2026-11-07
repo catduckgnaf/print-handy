@@ -560,8 +560,8 @@ async def _repair_flow(event, gateway, source, adapter):
             await say('That fix could not be built, so nothing was changed.')
             return {'action': 'skip', 'reason': 'repair could not be built'}
         with contextlib.suppress(Exception):
-            from print_handy.core.render_preview import render
-            image_path = await asyncio.to_thread(render, fixed_path)
+            image_path = await asyncio.to_thread(ai_fix.preview_image, fixed_path,
+                                                 job_path.parent / 'ai-fix-preview.png')
             await say('Preview of the fixed model (the original file is unchanged).\nMEDIA:'
                       + image_path)
     lines = ['AI fix proposed' + (f': {proposal.summary}' if proposal.summary else '') + ':']

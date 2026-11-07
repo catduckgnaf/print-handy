@@ -3691,8 +3691,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                                'changed.')
                     return 'back'
                 with contextlib.suppress(Exception):
-                    from .render_preview import render
-                    image_path = await asyncio.to_thread(render, fixed_path)
+                    image_path = await _heavy(ai_fix.preview_image, fixed_path,
+                                              folder / 'ai-fix-preview.png')
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                        content='Preview of the fixed model (the original file '
                                                'is unchanged).\nMEDIA:' + image_path)

@@ -345,6 +345,40 @@ def repair_mesh(source_path, dest_path) -> dict:
             'output_path': str(dest_path)}
 
 
+def preview_image(source_path, dest_path) -> str:
+    """A preview PNG of a (fixed) model, for the chat confirmation.
+
+    The OpenSCAD render when it is available; otherwise the dependency-free
+    plate rasterizer (the design engine's fallback, #841), so a geometry fix
+    can be previewed on installs without OpenSCAD too.
+    """
+    import shutil
+    dest_path = Path(dest_path)
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        from . import render_preview
+        made = render_preview.render(source_path)
+        shutil.copyfile(made, dest_path)
+        return str(dest_path)
+    except Exception:  # noqa: BLE001 - fall back to the rasterizer below
+        pass
+    import io
+
+    import numpy as np
+    from PIL import Image
+
+    from . import plate_thumbnail
+    tris = _triangles(source_path)
+    if not len(tris):
+        raise FixError('the fixed model has no triangles to preview')
+    points = tris.reshape(-1, 3)
+    lo, hi = points.min(axis=0), points.max(axis=0)
+    shift = [-(lo[0] + hi[0]) / 2, -(lo[1] + hi[1]) / 2, -lo[2]]
+    png = plate_thumbnail.render_plate(tris + shift, size=640)
+    Image.open(io.BytesIO(png)).convert('RGB').save(dest_path)
+    return str(dest_path)
+
+
 def apply_geometry(source_path, dest_path, geometry) -> dict:
     """Run one validated geometry repair (sink/extend) onto a copy."""
     if geometry['kind'] == 'sink':
