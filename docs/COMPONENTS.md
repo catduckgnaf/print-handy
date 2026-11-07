@@ -26,5 +26,6 @@ The scan covers operating system packages and the bundled binaries Syft can iden
 ## Review cadence and exceptions
 
 - Read the weekly report and update pins when a fixed upstream release exists. Bump the pin, its checksum or digest, and this table together.
+- The `Slicer test (bambu)` CI leg runs a Flathub Bambu Studio build pinned by ostree commit (2.8.2.61 today), which does not move with `BAMBU_REF`. When a bump changes the Bambu generation (the first two version components), either pin a Flathub build of the new generation in `ci.yml` and in `tests/test_ci_bambu_workflow.py` (`FLATPAK_BAMBU_VERSION`, `FLATPAK_BAMBU_COMMIT`), or record a dated verdict for the new pair in that test's `RECORDED_DIVERGENCES`. The test fails until one of them is done.
 - Re-check the cloudflared pin against the latest upstream release at least monthly, and after any cloudflared advisory. Look at the release notes for flag or behavior changes before moving the tag.
 - Accepted findings (no fix available, or not reachable in this image) are recorded in the PR or issue that accepts them, with the component, identifier, reason and a date to re-review. Do not suppress findings in the workflow.

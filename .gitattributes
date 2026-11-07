@@ -1,0 +1,3 @@
+# Byte-exact fixtures: SHA256SUMS.txt and the ZIP-member checks hash the committed
+# bytes, so a Windows checkout with core.autocrlf=true must not rewrite line endings (#1017).
+tests/corpus/design/** -text
