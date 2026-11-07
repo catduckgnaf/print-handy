@@ -1,0 +1,103 @@
+name: Public text policy
+
+# Issues, pull requests and comments are public. Refuse text that points at the
+# author's machines (paths, hostnames, private addresses, accounts, tokens).
+# Text is read through the API into a JSON file and never interpolated into a
+# command. pull_request_target runs the BASE branch's script and never checks
+# out or executes pull request code.
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+  issue_comment:
+    types: [created, edited]
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: public-text-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  public-text:
+    if: github.event.sender.type != 'Bot' || github.event_name == 'pull_request_target'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Collect the public text
+        id: collect
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            let title = '', body = '', extra = [], number, kind;
+            if (context.eventName === 'pull_request_target') {
+              number = context.payload.pull_request.number; kind = 'pull request';
+              const {data: pr} = await github.rest.pulls.get({...context.repo, pull_number: number});
+              title = pr.title; body = pr.body || '';
+              const commits = await github.paginate(github.rest.pulls.listCommits, {...context.repo, pull_number: number, per_page: 100});
+              extra = commits.map(c => c.commit.message);
+              const comments = await github.paginate(github.rest.issues.listComments, {...context.repo, issue_number: number, per_page: 100});
+              extra.push(...comments.filter(c => c.user.type !== 'Bot').map(c => c.body || ''));
+            } else if (context.eventName === 'issue_comment') {
+              number = context.payload.issue.number;
+              kind = context.payload.issue.pull_request ? 'pull request' : 'issue';
+              extra = [context.payload.comment.body || ''];
+            } else {
+              number = context.payload.issue.number; kind = 'issue';
+              title = context.payload.issue.title; body = context.payload.issue.body || '';
+            }
+            fs.writeFileSync(path.join(process.env.RUNNER_TEMP, 'public-text.json'), JSON.stringify({title, body, extra}));
+            core.setOutput('number', String(number));
+            core.setOutput('kind', kind);
+      - name: Check for private places
+        id: scan
+        env:
+          PUBLIC_TEXT_DENYLIST: ${{ secrets.PUBLIC_TEXT_DENYLIST }}
+        run: |
+          set +e
+          python scripts/check_public_text.py --metadata "$RUNNER_TEMP/public-text.json" > "$RUNNER_TEMP/public-text.out"
+          echo "status=$?" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/public-text.out"
+      - name: Label and comment on a failing issue or comment
+        if: steps.scan.outputs.status != '0' && steps.collect.outputs.kind == 'issue'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const fs = require('fs'), path = require('path');
+            const out = fs.readFileSync(path.join(process.env.RUNNER_TEMP, 'public-text.out'), 'utf8').trim();
+            const number = Number('${{ steps.collect.outputs.number }}');
+            await github.rest.issues.addLabels({...context.repo, issue_number: number, labels: ['needs-sanitizing']}).catch(() => {});
+            const marker = '<!-- public-text-policy -->';
+            const comments = await github.paginate(github.rest.issues.listComments, {...context.repo, issue_number: number, per_page: 100});
+            const text = marker + '\nThis issue or one of its comments appears to include private details (local paths, hostnames, addresses or accounts). ' +
+              'Everything here is public and the edit history keeps old versions, so please edit the text to remove them, then ask a maintainer to delete the old revision. ' +
+              'Matched categories (values are not repeated):\n\n```\n' + out + '\n```';
+            const mine = comments.find(c => (c.body || '').startsWith(marker));
+            if (mine) await github.rest.issues.updateComment({...context.repo, comment_id: mine.id, body: text});
+            else await github.rest.issues.createComment({...context.repo, issue_number: number, body: text});
+      - name: Remove the label once clean
+        if: steps.scan.outputs.status == '0' && steps.collect.outputs.kind == 'issue'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            await github.rest.issues.removeLabel({...context.repo, issue_number: Number('${{ steps.collect.outputs.number }}'), name: 'needs-sanitizing'}).catch(() => {});
+      - name: Fail a pull request that publishes private places
+        if: steps.scan.outputs.status != '0' && steps.collect.outputs.kind == 'pull request'
+        run: |
+          echo "Public text policy failed; see the categories above. Values are intentionally not printed."
+          exit 1
+      - name: Regression tests
+        run: python -B -m unittest discover -s tests -p test_public_text_policy.py

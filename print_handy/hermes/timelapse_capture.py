@@ -239,6 +239,41 @@ def job_dir(root, job_key) -> Path:
     return Path(root) / _safe_slug(str(job_key or ""), "print")
 
 
+#: Most reprint suffixes tried before the key is made unique by a timestamp.
+#: The search is bounded so no input can keep begin() looping.
+MAX_REPRINT_SUFFIXES = 50
+_SUFFIX_ROOM = 12  # characters kept free for "-<n>" inside the 100 character slug
+
+
+def _has_frames(root, key, filename) -> bool:
+    frames = job_dir(root, key or filename) / "frames"
+    try:
+        return frames.is_dir() and any(frames.iterdir())
+    except OSError:
+        return False
+
+
+def unused_job_key(root, job_key, filename="") -> str:
+    """A job key whose capture directory holds no frames yet.
+
+    A reprint of the same file inside the identity's resolution gets a fresh
+    directory so two jobs' frames never mix. The directory name is a 100
+    character slug (``_safe_slug``), so the suffix must fit INSIDE it: the
+    base is cut to leave room first. Appending to the full key lost the
+    suffix to the cut, handed back the same directory forever and hung the
+    listener (#1020). The search is bounded and ends with a timestamp key.
+    """
+    base = job_key or filename
+    if not _has_frames(root, base, filename):
+        return job_key
+    short = _safe_slug(str(base), "print")[:100 - _SUFFIX_ROOM].rstrip(".-")
+    for suffix in range(2, MAX_REPRINT_SUFFIXES + 2):
+        candidate = f"{short}-{suffix}"
+        if not _has_frames(root, candidate, filename):
+            return candidate
+    return f"{short}-{int(time.time())}"
+
+
 class CaptureSession:
     """Frames for one job. Every method fails soft: nothing here raises."""
 
@@ -465,13 +500,7 @@ def begin(job_key, filename="", *, data=None, fetch=None, log=None, environ=None
         root = capture_root(data)
         # A repeated job key (the same file reprinted inside the identity's
         # resolution) gets a fresh directory: two jobs' frames never mix.
-        key, suffix = str(job_key or ""), 2
-        while True:
-            frames = job_dir(root, key or filename) / "frames"
-            if not frames.is_dir() or not any(frames.iterdir()):
-                break
-            key = f"{job_key}-{suffix}"
-            suffix += 1
+        key = unused_job_key(root, str(job_key or ""), filename)
         session = CaptureSession(
             root, key, filename,
             trigger=make_trigger(knobs["capture_trigger"], knobs["capture_interval_s"]),
