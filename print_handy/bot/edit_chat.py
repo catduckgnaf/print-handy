@@ -296,10 +296,24 @@ async def _edit_undo(event, gateway, source, adapter, job_path, job):
     async def say(content):
         await adapter.send(chat_id=source.chat_id, metadata=metadata, content=content)
 
+    actor = f"{_h()._platform_value(source) or 'discord'}:{getattr(source, 'user_id', '')}"
+    # An AI fix (#978) is undone as one step -- its file swap and all of its
+    # plans -- when it is the newest change on the job.
+    from print_handy.core import ai_fix
+    fix = ai_fix.undo_last_fix(job, actor=actor)
+    if fix is not None:
+        mj.write_job(job_path.parent, job)
+        result = await _edit_reenter(event, gateway, source, adapter, job)
+        await _edit_finish_record(_h()._state_dir() / 'model-link-intakes', source, event,
+                                  verification=['undo: the AI fix was reverted and the original '
+                                                'state re-sliced by the intake flow'])
+        changes = '; '.join(fix.get('changes') or []) or 'the AI fix'
+        await say(f'Undid the AI fix ({changes}). The job points at the original file again and '
+                  'was re-sliced above; approvals are asked again for the new G-code.')
+        return result if isinstance(result, dict) else {'action': 'skip', 'reason': 'fix undone'}
     if not (job.get('edits')):
         await say('There is no edit to undo on the current job.')
         return {'action': 'skip', 'reason': 'nothing to undo'}
-    actor = f"{_h()._platform_value(source) or 'discord'}:{getattr(source, 'user_id', '')}"
     undone = edit_plan.undo_last_edit(job, actor=actor)
     if undone is None:
         await say('Every edit on the current job has already been undone.')
@@ -535,19 +549,27 @@ async def _repair_flow(event, gateway, source, adapter):
         await say('The model file for this job is no longer on disk, so I cannot fix it.')
         return {'action': 'skip', 'reason': 'repair: source file missing'}
     text = str(getattr(event, 'text', '') or '')
+    # Same [ai] allowlist and per-user rate limit as the AI edit lane (#902):
+    # the heavy tier is the most expensive endpoint, never unmetered.
+    allowed, why = ai_fix.lane_allowed(getattr(source, 'user_id', ''))
+    if not allowed:
+        await say(f'No AI fix was requested ({why}), so nothing was changed.')
+        return {'action': 'skip', 'reason': 'repair: ' + why}
     mesh = None
     with contextlib.suppress(Exception):
-        mesh = ai_fix.mesh_facts(source_path)
+        mesh = await asyncio.to_thread(ai_fix.mesh_facts, source_path)
     try:
-        proposal = await asyncio.to_thread(ai_fix.propose_fix, text, job, mesh=mesh)
+        proposal = await asyncio.to_thread(ai_fix.propose_fix, _sanitize_mentions(text), job,
+                                           mesh=mesh)
     except Exception as exc:  # noqa: BLE001 - a failed proposal changes nothing
         logger.warning('repair proposal failed: %r', exc)
         detail = str(exc) if isinstance(exc, ai_fix.FixError) else 'the AI endpoint did not answer'
         await say(f'No AI fix could be prepared ({detail}), so nothing was changed.')
         return {'action': 'skip', 'reason': 'repair proposal failed'}
     try:
+        ai_fix.check_file_fix(job, proposal)
         enriched = [edit_plan.enrich_plan(plan, job, source_path) for plan in proposal.plans]
-    except edit_plan.PlanError as exc:
+    except (edit_plan.PlanError, ai_fix.FixError) as exc:
         await say(f'The AI proposed a fix that cannot be applied ({exc}), so nothing was changed.')
         return {'action': 'skip', 'reason': 'repair plan refused'}
     fixed_path, report = None, {}
@@ -557,7 +579,8 @@ async def _repair_flow(event, gateway, source, adapter):
                 ai_fix.build_fixed_copy, source_path, proposal, job_path.parent)
         except Exception as exc:  # noqa: BLE001 - an unbuildable fix changes nothing
             logger.warning('repair could not be built: %r', exc)
-            await say('That fix could not be built, so nothing was changed.')
+            detail = f' ({exc})' if isinstance(exc, ai_fix.FixError) else ''
+            await say(f'That fix could not be built{detail}, so nothing was changed.')
             return {'action': 'skip', 'reason': 'repair could not be built'}
         with contextlib.suppress(Exception):
             image_path = await asyncio.to_thread(ai_fix.preview_image, fixed_path,
@@ -583,29 +606,26 @@ async def _repair_flow(event, gateway, source, adapter):
         await say('No fix applied.')
         return {'action': 'skip', 'reason': 'repair declined'}
     actor = f"{_h()._platform_value(source) or 'discord'}:{getattr(source, 'user_id', '')}"
+    original = copy.deepcopy(job)  # restored verbatim if re-entry fails, as _edit_apply does
+    ai_fix.apply_to_job(job, proposal, enriched, fixed_path=fixed_path, actor=actor,
+                        problem=text, report=report, file_sha256=edit_plan.file_sha256)
     if fixed_path is not None:
-        job.setdefault('ai_fixes', []).append({
-            'at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'actor': actor, 'lane': 'ai_fix',
-            'problem': text[:300], 'geometry': proposal.geometry,
-            'mesh_repair': proposal.mesh_repair, 'report': report,
-            'source_file_before': str(source_path), 'source_file_after': str(fixed_path),
-            'source_sha256_before': edit_plan.file_sha256(source_path),
-            'source_sha256_after': edit_plan.file_sha256(fixed_path)})
-        job['downloaded_file'] = str(fixed_path)
-        if job.get('sources'):
-            job['sources'] = [dict(job['sources'][0], path=str(fixed_path),
-                                   name=fixed_path.name)]
-        if isinstance(job.get('selected_source'), dict):
-            job['selected_source'] = dict(job['selected_source'], path=str(fixed_path),
-                                          name=fixed_path.name)
-    for plan in enriched:
-        edit_plan.record_edit(job, plan, actor=actor, lane='ai_fix',
-                              source_sha256=edit_plan.file_sha256(source_path))
-        edit_plan.apply_plan(job, plan)
+        # The clearance report and any acknowledgement describe the old file:
+        # drop them so the intake analyses the fixed model afresh.
+        job.pop('support_clearance', None)
+        job.pop('clearance_acknowledgement', None)
     mj.write_job(job_path.parent, job)
-    result = await _edit_reenter(event, gateway, source, adapter, job)
-    await say('Fix applied: the fixed model was re-sliced above and every check ran again. '
-              'The original file is unchanged.')
+    try:
+        result = await _edit_reenter(event, gateway, source, adapter, job)
+    except Exception as exc:
+        mj.write_job(job_path.parent, original)
+        logger.warning('repair re-entry failed: %r', exc)
+        await say('The fix was built, but preparing the fixed job failed, so the job above is '
+                  'unchanged. Nothing was started.')
+        return {'action': 'skip', 'reason': 'repair re-entry failed'}
+    await say('Fix applied to a copy (the original file is unchanged); the fixed job was '
+              'prepared again above with every check, and approvals are asked again for its '
+              'G-code. Say "undo" to go back to the original.')
     return result if isinstance(result, dict) else {'action': 'skip', 'reason': 'repair applied'}
 
 

@@ -2228,8 +2228,9 @@ async def print_gcode_file(event, adapter, root, path, timeout=None, printer_id=
     with contextlib.suppress(Exception):
         from .. import printers as _printers
         _current = _printers.current()
-        _known_models = [_current.key, getattr(_current, 'name', None),
-                         getattr(_current, 'model', None)]
+        _model = getattr(_current, 'model', None)  # the PrinterModel record, not a name
+        _known_models = [getattr(_current, 'key', None), getattr(_model, 'key', None),
+                         getattr(_model, 'label', None)]
     with contextlib.suppress(Exception):
         from .. import settings as _settings
         _known_models.append((_settings.current().get('printer') or {}).get('name'))
@@ -3646,15 +3647,24 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             geometry/mesh repairs write a copy of the source and repoint the
             job at it (the original file is never overwritten, and the color
             decisions are rebound to the repaired bytes exactly as the
-            pre-slice extend/sink repairs do). Returns 'applied', or 'back'
-            when the proposal failed or was declined -- nothing changed then.
-            Applying never waives a gate: the caller re-slices and every
-            post-slice gate runs again on the fixed slice. The confirmation
-            is not an approval question: any authorized user may ask for a
-            fix; starting the print keeps its own approver gate.
+            pre-slice extend/sink repairs do). Returns the applied proposal,
+            or None when the proposal failed, was refused or was declined --
+            nothing changed then. Applying never waives a gate and records
+            no acknowledgement: the caller re-slices, every post-slice gate
+            runs again on the fixed slice, and only the gate's own outcome
+            (repaired, or an approver's Print anyway) is recorded. Requests
+            go through the same [ai] allowlist and per-user rate limit as the
+            AI edit lane (#902). The confirmation is not an approval
+            question; where the Fix button sits inside an approval question
+            (the post-slice gate), only approvers can reach it.
             """
-            nonlocal path, clearance, validated, binding, recipe_sha, latest, clearance_ack_pending
+            nonlocal path, clearance, validated, binding, recipe_sha, latest
             from . import ai_fix, edit_plan
+            allowed, why = ai_fix.lane_allowed(getattr(source, 'user_id', ''))
+            if not allowed:
+                await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                   content=f'No AI fix was requested ({why}), so nothing was changed.')
+                return None
             job_now = json.loads(jp.read_text())
             mesh = None
             with contextlib.suppress(Exception):
@@ -3668,16 +3678,17 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                    content=f'No AI fix could be prepared ({detail}), so nothing '
                                            'was changed.')
-                return 'back'
+                return None
             try:
+                ai_fix.check_file_fix(job_now, proposal)
                 enriched = [edit_plan.enrich_plan(plan, job_now,
                                                   path if Path(path).is_file() else None)
                             for plan in proposal.plans]
-            except edit_plan.PlanError as exc:
+            except (edit_plan.PlanError, ai_fix.FixError) as exc:
                 await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                    content=f'The AI proposed a fix that cannot be applied '
                                            f'({exc}), so nothing was changed.')
-                return 'back'
+                return None
             fixed_path = None
             report = {}
             if proposal.geometry or proposal.mesh_repair:
@@ -3686,10 +3697,11 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                                       path, proposal, folder)
                 except Exception as exc:  # noqa: BLE001 - an unbuildable fix changes nothing
                     logger.warning('AI fix could not be built: %r', exc)
+                    detail = f' ({exc})' if isinstance(exc, ai_fix.FixError) else ''
                     await adapter.send(chat_id=source.chat_id, metadata=metadata,
-                                       content='That fix could not be built, so nothing was '
-                                               'changed.')
-                    return 'back'
+                                       content=f'That fix could not be built{detail}, so nothing '
+                                               'was changed.')
+                    return None
                 with contextlib.suppress(Exception):
                     image_path = await _heavy(ai_fix.preview_image, fixed_path,
                                               folder / 'ai-fix-preview.png')
@@ -3710,47 +3722,38 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             pick = await _ask(adapter, source, key, '\n'.join(lines),
                               [ai_fix.APPLY_LABEL, print_next.CANCEL_LABEL], timeout)
             if pick != 0:
-                return 'back'
+                return None
             actor = (f"{getattr(getattr(source, 'platform', None), 'value', None) or 'discord'}:"
                      f"{getattr(source, 'user_id', '')}")
             latest = json.loads(jp.read_text())
+            # One undoable record for the whole fix: the file swap and every
+            # plan, restored together by ai_fix.undo_last_fix.
+            ai_fix.apply_to_job(latest, proposal, enriched, fixed_path=fixed_path, actor=actor,
+                                problem=problem, report=report, file_sha256=mj.file_sha256)
             if fixed_path is not None:
                 new_sha = mj.file_sha256(fixed_path)
-                latest.setdefault('ai_fixes', []).append({
-                    'at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'actor': actor, 'lane': 'ai_fix',
-                    'problem': str(problem)[:300],
-                    'plans': [edit_plan.describe_plan(plan) for plan in enriched],
-                    'geometry': proposal.geometry, 'mesh_repair': proposal.mesh_repair,
-                    'report': report,
-                    'source_file_before': str(path), 'source_file_after': str(fixed_path),
-                    'source_sha256_before': decisions['source_sha256'],
-                    'source_sha256_after': new_sha})
-                latest['downloaded_file'] = str(fixed_path)
-                if latest.get('sources'):
-                    latest['sources'] = [dict(latest['sources'][0], path=str(fixed_path),
-                                              name=fixed_path.name)]
-                if isinstance(latest.get('selected_source'), dict):
-                    latest['selected_source'] = dict(latest['selected_source'],
-                                                     path=str(fixed_path),
-                                                     name=fixed_path.name)
                 path = fixed_path
-                if proposal.geometry:
-                    # The clearance was repaired, not waived: the end-of-flow
-                    # acknowledgement records the geometry repair (#922 via).
-                    clearance_ack_pending = 'geometry_repair'
                 decisions['source_sha256'] = new_sha
                 manifest['source_sha256'] = new_sha
                 latest['color_manifest'] = manifest
                 validated = validate_decisions(manifest, decisions, state,
                                                mj.resolve_filament_selection)
                 mj.set_color_decisions(latest, validated)
-                with contextlib.suppress(Exception):
-                    clearance = support_clearance.safe_analyze(path)
+                # A pre-existing acknowledgement belongs to the old file.
+                latest.pop('clearance_acknowledgement', None)
+            if fixed_path is not None or any(p.get('kind') in ('rotate', 'lay_flat') for p in enriched):
+                # The clearance report must describe the fixed model in its
+                # fixed pose, or the old finding follows the job and a real
+                # repair reads as changing nothing (the #922 gap 7 rule the
+                # pre-slice Reorient button already follows).
+                try:
+                    matrix = (latest.get('orientation') or {}).get('rotation')
+                    clearance = (await asyncio.to_thread(support_clearance.rotated_report, path, matrix)
+                                 if matrix else await asyncio.to_thread(support_clearance.safe_analyze, path))
                     latest['support_clearance'] = clearance
-            for plan in enriched:
-                edit_plan.record_edit(latest, plan, actor=actor, lane='ai_fix',
-                                      source_sha256=mj.file_sha256(path))
-                edit_plan.apply_plan(latest, plan)
+                except Exception:  # noqa: BLE001 - re-analyzed on the next slice instead
+                    latest.pop('support_clearance', None)
+                    clearance = None
             mj.write_job(folder, latest)
             binding = slice_binding(latest, decisions['source_sha256'])
             recipe_sha = binding_sha256(binding)
@@ -3761,7 +3764,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                                  'changes': proposal.describe(),
                                  'served_by': proposal.served_by}
             receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
-            return 'applied'
+            return proposal
 
         prep_sent = False  # one combined Preparing + Uploading message after slicing, with the real estimate
         try:
@@ -3869,7 +3872,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 fix_attempts += 1
                 problem = ('Slice failure. ' + (refusal.plain if refusal is not None
                                                 else slice_failure.explain(slice_error).plain))
-                if await _ai_fix_attempt(problem) != 'applied':
+                if await _ai_fix_attempt(problem) is None:
                     if fix_attempts >= _ai_fix.MAX_FIX_ATTEMPTS:
                         retry = len(labels) - 1  # out of fix attempts: read as cancel below
                         break
@@ -4005,10 +4008,16 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         async def _support_override(cov_failure, low_clearance, resliced=False, unverified_result=None):
             """Ask Print anyway / Cancel for the post-slice support gates.
 
-            True when the operator waives them, False after a Cancel (already
-            answered in chat). The gates stay strict; this is the explicit
-            override they name, so they never end in a dead end. Only print
-            approvers may answer (approval=True), as for every safety waiver.
+            'waived' when an approver waives them (Print anyway), 'fixed'
+            when an AI fix made the re-sliced job pass every gate (nothing
+            waived, nothing acknowledged), False after a Cancel (already
+            answered in chat). Both truthy results let the start proceed.
+            The low-clearance acknowledgement the start guard checks is set
+            here, on a waiver only, from the clearance state the approver
+            actually saw -- never from an AI fix (#978 review). The gates
+            stay strict; this is the explicit override they name, so they
+            never end in a dead end. Only print approvers may answer
+            (approval=True), as for every safety waiver.
 
             ``unverified_result`` is a coverage result whose check could not
             run (#968): it asks the same question, naming why coverage could
@@ -4017,7 +4026,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             With the heavy AI tier ready, the question also offers "Fix this
             for my printer" (#978): an applied fix re-slices here and the
             gates are graded again on the new slice -- passing them returns
-            True with NO waiver recorded (a fix is not a waiver), failing
+            'fixed' with NO waiver recorded (a fix is not a waiver), failing
             them asks this question again for the new slice. Without the
             tier, the question gains the one-line note that a fix exists
             when AI is set up, and nothing else changes.
@@ -4063,7 +4072,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         line for line in lines
                         if line not in (_ai_fix.UNCONFIGURED_NOTE,)
                         and not line.startswith('Nothing is uploaded yet'))
-                    if await _ai_fix_attempt(problem) != 'applied':
+                    if await _ai_fix_attempt(problem) is None:
                         if fix_attempts >= _ai_fix.MAX_FIX_ATTEMPTS:
                             fix_ready = False
                         continue  # declined or unusable proposal: ask the gate question again
@@ -4107,7 +4116,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         await adapter.send(chat_id=source.chat_id, metadata=metadata,
                                            content='The fixed slice passes the support checks. '
                                                    'Nothing was waived.')
-                        return True
+                        return 'fixed'
                     resliced = True
                     if fix_attempts >= _ai_fix.MAX_FIX_ATTEMPTS:
                         fix_ready = False
@@ -4127,7 +4136,13 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 }
                 receipt.update(status='SLICED')
                 receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
-                return True
+                if low_clearance:
+                    # Recorded below, once the final artifact is installed,
+                    # so the start guard sees an acknowledgement bound to it.
+                    # A waiver of a low clearance an AI fix did not repair is
+                    # still a waiver: it is recorded as print_anyway.
+                    clearance_ack_pending = 'print_anyway'
+                return 'waived'
 
         if supports_choice is True:
             cov_result = _coverage_result(gcodes)
@@ -4156,12 +4171,9 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                             'reason': ('support coverage verification failed' if cov_failure is not None
                                        else 'support coverage unverified' if unverified_result is not None
                                        else 'low clearance not waived by supports choice')}
-                if low_clearance and not clearance_ack_pending:
-                    # Recorded below, once the final artifact is installed,
-                    # so the start guard sees an acknowledgement bound to it.
-                    # An AI geometry fix (#978) already set 'geometry_repair':
-                    # the clearance was repaired, not waived, and that stands.
-                    clearance_ack_pending = 'print_anyway'
+                # The clearance acknowledgement (if any) was set by
+                # _support_override on an approver's waiver only; an AI fix
+                # that made every gate pass records none (#978 review).
         provenance = sliced.get('provenance') or {}
         if not provenance and (sliced.get('derived_plates') or []):
             provenance = (sliced['derived_plates'][0].get('provenance') or {})

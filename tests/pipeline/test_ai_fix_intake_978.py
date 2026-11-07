@@ -141,3 +141,60 @@ def test_wrong_nozzle_slice_refusal_offers_fix_and_reslices_on_the_job_profile(
     assert receipt['ai_fix']['changes'] == ['scale the model to 90% and re-slice']
     job = json.loads(Path(receipt['job_json']).read_text())
     assert job['scale'] == pytest.approx(0.9)
+
+
+# ------------------------------------------------- #978 review: acknowledgements
+
+def _v12(monkeypatch):
+    from .test_intake_support_precheck import V12_FIXTURE, _copy
+    monkeypatch.setattr(model_job, 'printables_download',
+                        lambda job, chosen, dest: _copy(V12_FIXTURE, dest))
+    from print_handy.core import orca_adapter
+    monkeypatch.setattr(orca_adapter, 'orca_plate_capacity', lambda path, st: 1)
+    return V12_FIXTURE
+
+
+def test_fix_that_clears_low_clearance_records_no_acknowledgement(env, monkeypatch):
+    """A fix that makes every gate pass waived nothing: no support_override
+    and no clearance acknowledgement -- in particular never a print_anyway
+    the operator did not give (#978 review, finding 1). The fixed pose's
+    clearance report replaces the stale one, as the Reorient button does."""
+    _v12(monkeypatch)
+    _coverage_sequence(monkeypatch)
+    clean = {'version': 1, 'risky': False, 'findings': [], 'objects': [], 'limitations': [],
+             'regions': []}
+    monkeypatch.setattr(support_clearance, 'rotated_report', lambda source, matrix: clean)
+    _ai_on(monkeypatch, ai_fix.FixProposal(plans=[{'kind': 'lay_flat'}], summary='lay it flat'))
+    # one color (1), slot 1 (0), with supports (0), Fix (1), Apply (0)
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 1, 0])
+    assert receipt['status'] == 'STARTED'
+    assert 'support_override' not in receipt
+    job = json.loads(Path(receipt['job_json']).read_text())
+    assert 'clearance_acknowledgement' not in job
+    assert job['support_clearance'] == clean
+    assert any('passes the support checks. Nothing was waived.' in m for m in adapter.sent)
+
+
+def test_print_anyway_after_an_unsuccessful_geometry_fix_is_a_print_anyway(env, monkeypatch):
+    """A geometry fix that leaves the low clearance in place repaired
+    nothing: the approver's Print anyway that follows is recorded as
+    print_anyway, never as geometry_repair (#978 review, finding 2)."""
+    fixture = _v12(monkeypatch)
+    _coverage_sequence(monkeypatch)
+    real_analyze = support_clearance.safe_analyze
+    # The sunk copy still has its low underside (the fix was too small).
+    monkeypatch.setattr(support_clearance, 'safe_analyze',
+                        lambda path: real_analyze(fixture if '.fixed-' in str(path) else path))
+    _ai_on(monkeypatch, ai_fix.FixProposal(geometry={'kind': 'sink', 'mm': 0.05},
+                                           summary='sink a little'))
+    # one color (1), slot 1 (0), with supports (0), Fix (1), Apply (0), Print anyway (0)
+    adapter, result, receipt = run_flow(env, [1, 0, 0, 1, 0, 0])
+    gate = [q for q in adapter.questions if prepared_intake.PRINT_ANYWAY_LABEL in (q.get('choices') or [])]
+    assert len(gate) == 2 and 'under 1.0 mm' in gate[1]['question']
+    assert receipt['status'] == 'STARTED'
+    assert receipt['support_override']['via'] == 'print_anyway'
+    assert receipt['support_override']['low_clearance'] is True
+    job = json.loads(Path(receipt['job_json']).read_text())
+    ack = job['clearance_acknowledgement']
+    assert ack['acknowledged'] is True and ack['via'] == 'print_anyway'
+    assert job['ai_fixes'][0]['geometry'] == {'kind': 'sink', 'mm': 0.05}
