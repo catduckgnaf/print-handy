@@ -77,16 +77,20 @@ jobs:
           if [ -z "$from_ref" ]; then
             from_ref="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || git tag --sort=-v:refname | grep -E "^[0-9]+\.[0-9]+\.[0-9]+$" | grep -vx "$version" | head -1)"
           fi
+          to_ref="HEAD"
           if [ "$from_ref" = "$version" ]; then
             # HEAD is already past this release (a post-release PR touching
-            # the release surfaces): step back to the previous tag so the
-            # ancestry range is this release's own, not empty.
+            # the release surfaces): step back to the previous tag and cap
+            # the range at this release's tag, so the check covers exactly
+            # the PRs the release shipped.
             from_ref="$(git tag --sort=-v:refname | grep -E "^[0-9]+\.[0-9]+\.[0-9]+$" | grep -vx "$version" | head -1)"
+            to_ref="$version"
           fi
           notes="${INPUT_NOTES:-.github/release-notes-draft.md}"
           {
             echo "version=$version"
             echo "from_ref=$from_ref"
+            echo "to_ref=$to_ref"
             echo "notes=$notes"
           } >> "$GITHUB_OUTPUT"
           echo "Release check: $from_ref..HEAD for $version, notes at $notes"
@@ -95,10 +99,12 @@ jobs:
         env:
           VERSION: ${{ steps.resolve.outputs.version }}
           FROM_REF: ${{ steps.resolve.outputs.from_ref }}
+          TO_REF: ${{ steps.resolve.outputs.to_ref }}
           NOTES: ${{ steps.resolve.outputs.notes }}
         run: |
           python3 scripts/check_release.py \
-            --version "$VERSION" --from-ref "$FROM_REF" --notes "$NOTES"
+            --version "$VERSION" --from-ref "$FROM_REF" --to-ref "$TO_REF" \
+            --notes "$NOTES"
       - name: Release check (no draft notes in this checkout — script tests only)
         if: hashFiles(steps.resolve.outputs.notes) == ''
         run: |
