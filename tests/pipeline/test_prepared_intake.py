@@ -2500,3 +2500,89 @@ def test_resumed_job_fit_probe_forwards_resumed_transforms(env, monkeypatch):
     asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1, reuse=resumed))
     assert any(c.get('scale') == 0.8 and c.get('rotation') == [0, 0, 45] and c.get('supports') is True and c.get('copy_limit') == 16 for c in calls)
 
+
+# --- #1008: multi-file attachments must use the exact file-list site pathway ---
+
+def _uploaded_parts(env, names, answers, *, typed=None):
+    """Saved Discord attachments, no site/API round trip; return JOB.json and chat flow."""
+    from .test_model_parts import cube_stl
+    uploads = [cube_stl(env.tmp / f"doc_{i:012x}_{name}", (30 + i * 5, 20, 10))
+               for i, name in enumerate(names, 1)]
+
+    class Typed(Adapter):
+        async def send_clarify(self, **kw):
+            self.questions.append(kw)
+            import tools.clarify_gateway as cm
+            if typed and kw['question'].startswith('Which files should I print?'):
+                cm.resolve_gateway_clarify(kw['clarify_id'], typed)
+            else:
+                cm.resolve_gateway_clarify(kw['clarify_id'], kw['choices'][next(self.picks)])
+            return S(success=True)
+
+    adapter = Typed(answers)
+    event = S(source=S(profile='3dprinting', chat_id='c1', thread_id=None, user_id='u'),
+              message_id='multipart-upload', text='', media_urls=list(map(str, uploads)))
+    assert prepared_intake.model_files(event) == uploads
+    assert prepared_intake.model_file(event) is None
+    asyncio.run(prepared_intake.prepare_link(event, adapter, state(), env.root, timeout=1))
+    files = list((env.tmp / 'archive').glob('*/JOB.json'))
+    return adapter, (json.loads(files[0].read_text()) if files else None)
+
+
+def test_multiple_stl_attachments_are_one_project_and_preserve_left_right(env, monkeypatch):
+    # _choose_files + _fetch_parts + single-color prep are shared with links.
+    def no_site(*a, **kw):
+        raise AssertionError('a local multi-file upload must not contact a model website')
+    monkeypatch.setattr(model_job, 'printables_inventory', no_site)
+    monkeypatch.setattr(model_job, 'printables_download', no_site)
+    adapter, job = _uploaded_parts(env, ['arm_left.stl', 'arm_right.stl', 'base.stl'],
+                                   [0, 1, 0, 3])
+    assert job['site'] == 'upload' and job['source_kind'] == 'upload_group'
+    assert [x['name'] for x in job['selected_sources']] == [
+        'arm_left.stl', 'arm_right.stl', 'base.stl']
+    assert len(job['combined_objects']) == 3
+    assert Path(job['downloaded_file']).is_file()
+    assert all(Path(x['downloaded_file']).is_file() for x in job['selected_sources'])
+    assert adapter.questions[0]['choices'][:2] == ['Print all 3', 'Choose files']
+    assert 'arm left, arm right and base' in adapter.questions[0]['question']
+
+
+def test_uploaded_file_alternatives_are_selected_without_dropping_required_parts(env):
+    adapter, job = _uploaded_parts(env, UNO_FILES, [1, 1, 0, 3])
+    assert sorted(x['name'] for x in job['selected_sources']) == sorted([
+        'UNO - cap-nosign-1.stl', 'UNO - container-1.stl', 'UNO - uno-latch-1.stl'])
+    assert adapter.questions[0]['choices'][:3] == ['sign', 'no sign', 'Choose files']
+    assert len(job['combined_objects']) == 3
+
+
+def test_uploaded_file_choose_subgroup_by_typed_numbers(env):
+    adapter, job = _uploaded_parts(env, UNO_FILES, [2, 1, 0, 3], typed='2 3')
+    assert [x['name'] for x in job['selected_sources']] == [
+        'UNO - container-1.stl', 'UNO - uno-latch-1.stl']
+
+
+def test_multi_upload_inventory_refuses_missing_or_nonmodel_files(tmp_path):
+    file1 = tmp_path / ('doc_' + '0' * 12 + '_left.stl')
+    file2 = tmp_path / ('doc_' + '1' * 12 + '_right.3mf')
+    file1.write_bytes(b'placeholder')
+    file2.write_bytes(b'placeholder')
+    event = S(media_urls=[str(file1), str(file2), str(tmp_path/'missing.stl'),
+                          str(tmp_path/'notes.txt')])
+    assert prepared_intake.model_files(event) == [file1, file2]
+    assert prepared_intake.model_file(event) is None
+    job = prepared_intake.upload_job_set([file1, file2])
+    assert [r['name'] for r in job['sources']] == ['left.stl', 'right.3mf']
+    assert [r['path'] for r in job['sources']] == [str(file1), str(file2)]
+    with pytest.raises(ValueError, match='must be existing'):
+        prepared_intake.upload_job_set([file1, tmp_path/'missing.stl'])
+    with pytest.raises(ValueError, match='no printable'):
+        prepared_intake.upload_job_set([])
+
+
+def test_single_upload_retains_its_legacy_job_shape(tmp_path):
+    one = tmp_path / ('doc_' + 'a'*12 + '_lid.stl')
+    one.write_bytes(b'placeholder')
+    event = S(media_urls=[str(one)])
+    assert prepared_intake.model_files(event) == [one]
+    assert prepared_intake.model_file(event) == one
+    assert prepared_intake.upload_job_set([one]) == prepared_intake.upload_job(one)

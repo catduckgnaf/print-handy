@@ -1,0 +1,31 @@
+name: Project parity regression (#1008)
+
+on:
+  push:
+    branches:
+      - feature/1008-multipart-project-parity
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  project-parity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install exact project test dependencies
+        run: python -m pip install '.[test]'
+      - name: Python syntax and Ruff contract
+        run: |
+          python -m compileall -q print_handy/core/prepared_intake.py print_handy/core/model_job.py print_handy/hermes/print_records.py print_handy/core/projects.py plugins/print-feedback/__init__.py
+          python -m ruff check print_handy/core/projects.py print_handy/core/prepared_intake.py print_handy/core/model_job.py print_handy/hermes/print_records.py tests/test_projects_issue1008.py tests/pipeline/test_prepared_intake.py plugins/print-feedback/__init__.py
+      - name: Project/upload intake, permanent records and print controls
+        run: |
+          python -m pytest -q tests/test_projects_issue1008.py tests/pipeline/test_prepared_intake.py tests/hermes/test_print_records.py tests/hermes/test_print_control.py
