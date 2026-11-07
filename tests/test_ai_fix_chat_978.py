@@ -133,6 +133,19 @@ def test_uploaded_nonmanifold_stl_fix_this_is_repaired_and_previewed(fix_env):
     assert job["ai_fixes"][0]["source_file_after"] == str(fixed)
 
 
+def test_noop_geometry_fix_is_refused_in_the_upload_flow(fix_env, monkeypatch):
+    """A geometry proposal that moves no vertex (extend at a height no
+    vertex sits at) is refused as no fix: nothing is confirmed or applied
+    and the job never re-enters the intake."""
+    monkeypatch.setattr(ai_routes, "call", lambda tier, messages, **kw: (
+        json.dumps({"plans": [], "geometry": {"kind": "extend", "mm": 5.0},
+                    "mesh_repair": False, "summary": "extend the underside"}), "heavy-model"))
+    result = asyncio.run(plugin.edit_dispatch(_event("fix this"), fix_env.gateway))
+    assert result["reason"] == "repair would change nothing"
+    assert any("would not change the model" in (m or "") for m in fix_env.adapter.sent)
+    assert fix_env.confirms == [] and fix_env.reentered == []
+
+
 def test_fix_this_with_ai_not_configured_notes_and_changes_nothing(fix_env, monkeypatch):
     from print_handy.hermes import _config
     cfg = dict(fix_env.cfg)

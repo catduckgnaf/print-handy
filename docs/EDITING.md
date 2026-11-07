@@ -147,17 +147,25 @@ against the job that intake just prepared. Plain intake text such as
 "fix this", "repair this" or "make this printable" after a file or job is
 not an edit: it starts the repair flow. The heavy AI tier (`ai.heavy`)
 reads the problem — a slice failure or refusal, a failed post-slice gate,
-or a damaged uploaded mesh — and proposes changes from the same edit
-vocabulary, a bounded geometry repair (sink or extend an underside by at
-most 5 mm), and/or a mesh repair (welded vertices, degenerate and duplicate
-triangles dropped, holes filled, inverted winding fixed). The proposal is
-shown in chat first, with a preview for geometry and mesh changes; applying
-it works on a copy, never the source file, and the job re-slices through
-the full intake so every gate runs again. A fix is never a waiver and never
-skips a check, and starting the fixed print needs the normal approvals.
-The same offer appears on slice failures, slice refusals and post-slice
-gate failures; with no AI configured there is no offer, only a one-line
-note that a fix is available when AI is set up.
+or a damaged uploaded mesh — together with the job's measured facts, and
+proposes changes from the same edit vocabulary, a filament mapping (a
+source filament re-resolved onto another slot), allowlisted profile
+settings (wall count, shell layers, first-layer height, wall generator,
+seam position, infill pattern), a bounded geometry repair (sink or extend
+an underside by the measured clearance gap, an outward surface offset that
+thickens thin walls, or a split into two parts), and/or a mesh repair
+(welded vertices, degenerate and duplicate triangles dropped, holes
+filled, inverted winding fixed). The proposal is shown in chat first, with
+a preview for geometry and mesh changes; applying it works on a copy,
+never the source file, and the job re-slices through the full intake so
+every gate runs again. A fix is never a waiver and never skips a check —
+under yolo it is never auto-answered either — a geometry repair that would
+change nothing is refused rather than recorded, and starting the fixed
+print needs the normal approvals. At the post-slice gates the fix is
+offered on its own question that anyone may answer; the Print anyway
+waiver after it keeps its approver gate. The same offer appears on slice
+failures and slice refusals; with no AI configured there is no offer, only
+a one-line note that a fix is available when AI is set up.
 
 Rules the repair keeps:
 
