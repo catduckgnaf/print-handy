@@ -228,11 +228,21 @@ COPY . .
 # package skeleton maturin needed (print_handy/__init__.py and
 # core/__init__.py), which must never overwrite the installed package's
 # own files. The app imports print_handy from both site-packages and /app
-# (the working copy), so the one .so goes to both.
+# (the working copy), so the one .so goes to both. The site-packages
+# directory has to be created first: the pip install above runs against
+# a staged skeleton (pyproject.toml + print_handy/__init__.py only, for
+# dependency-layer caching), so the installed package has no core/
+# directory, and cp will not create it — that is the failure the develop
+# publish run 42410316669 hit on both architectures. The closing import
+# proves the /app copy loads under the runtime interpreter before the
+# stage completes; the dispatcher's version handshake and golden
+# self-check still gate its use at runtime.
 RUN set -e; cd /tmp/bounds-wheel && python -m zipfile -e *.whl x && \
     so=$(ls x/print_handy/core/_bounds_native*.so) && \
     site=$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])') && \
+    mkdir -p "$site/print_handy/core" && \
     cp "$so" "$site/print_handy/core/" && cp "$so" /app/print_handy/core/ && \
+    cd /app && python -c "from print_handy.core import _bounds_native" && \
     cd / && rm -rf /tmp/bounds-wheel
 ENV TZ=America/New_York
 ENV PRINT_HANDY_ORCA_CMD=/usr/local/bin/orca-slicer-stable

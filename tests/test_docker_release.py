@@ -429,6 +429,19 @@ class NativeBoundsStageTests(unittest.TestCase):
         self.assertNotIn("pip install --no-cache-dir /tmp/bounds-wheel/*.whl", runtime)
         self.assertIn("python -m zipfile -e *.whl x", runtime)
         self.assertIn('cp "$so" "$site/print_handy/core/" && cp "$so" /app/print_handy/core/', runtime)
+        # The staged pip install above the copy step (pyproject.toml +
+        # print_handy/__init__.py only, for dependency-layer caching)
+        # leaves the site-packages package without a core/ directory, and
+        # cp does not create it: the step must mkdir it, before the copy,
+        # or the image build dies at this step on both architectures
+        # (develop publish run 42410316669).
+        mkdir_at = runtime.index('mkdir -p "$site/print_handy/core"')
+        cp_at = runtime.index('cp "$so" "$site/print_handy/core/"')
+        self.assertLess(mkdir_at, cp_at)
+        # The placed /app copy is import-checked inside the stage itself,
+        # so a placement the loader cannot use fails the build, not the
+        # first publish that happens to exercise it.
+        self.assertIn('python -c "from print_handy.core import _bounds_native"', runtime)
         # The rustup installer is checksum-pinned per architecture, never piped to sh.
         self.assertNotIn("sh.rustup.rs", stage)
         self.assertIn("rustup/archive/1.28.2/$target/rustup-init", stage)

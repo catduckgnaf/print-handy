@@ -228,6 +228,42 @@ jobs:
           test -s "$so"
           echo "extension: $so"
 
+  runtime-image-build:
+    # Builds the FULL runtime image on PRs (follow-up to the
+    # bounds-image-stage job above): that job exercises the bounds-build
+    # stage and the wheel layout, but the runtime stage itself was only
+    # ever built at publish time, so two consecutive develop publishes
+    # (runs 42395068953 and 42410316669) each discovered a runtime-stage
+    # defect — first the maturin invocation (#1015), then the missing
+    # site-packages print_handy/core/ directory in the bounds copy step.
+    # Default build args keep the optional Orca and Bambu stages inert;
+    # every other stage, the runtime stage included, builds exactly as
+    # the published image builds it. Each architecture builds on its own
+    # native runner (no emulation), and the placed extension is
+    # import-checked at both install locations.
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: ["ubuntu-24.04", "ubuntu-24.04-arm"]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Free runner disk
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - name: Build the full image
+        run: docker build -t print-handy-runtime:ci .
+      - name: The native bounds extension imports at both install locations
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint python3 print-handy-runtime:ci \
+            -c "from print_handy.core import _bounds_native as m; print('working copy imports, API_VERSION', m.API_VERSION)"
+          docker run --rm --workdir / --entrypoint python3 print-handy-runtime:ci \
+            -c "import print_handy.core._bounds_native as m; print('site-packages copy imports, API_VERSION', m.API_VERSION)"
+
   native-bounds:
     # Builds the Rust/PyO3 bounds extension (#952, D1) and runs the
     # equivalence corpus against the native path. The wheel's extension
