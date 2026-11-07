@@ -30,6 +30,16 @@ this file when a suite is added, moved, or starts/stops pinning an area.
 | Printers: roster, per-printer state, leases (#333–#337) | `tests/test_printers_roster.py`, `tests/test_per_printer_state.py`, `tests/test_multi_printer_walkthrough.py`, `tests/printers/` |
 | Printer replay (#616, #689-#693): the real print-now, verify and launch-lease code over HTTP against a fake Moonraker that serves responses recorded from an AD5X on ZMod, including a POST held past a real socket timeout | `tests/replay/`, `tests/fixtures/printers/ad5x_zmod/README.md` |
 | Fail-soft state files (corrupt / partial) | `tests/test_state_file_failure_paths.py`, `tests/test_state_files.py`, `tests/test_live_gate.py` |
+| Upstream bump automation: step-size policy, harness sweep, body shape | `tests/test_bump_upstream.py` |
+| Upstream version parity (test harness pins vs shipped pins) | `tests/test_upstream_version_parity.py`, `tests/test_ci_bambu_workflow.py` |
+| Approval / yolo invariants across answer paths; dispatcher single-claim precedence | `tests/bot/test_approval_invariants.py`, `tests/test_dispatch_precedence.py` |
+| Fake-G-code factory + foreign-G-code contract | `tests/gcode_factory.py`, `tests/test_gcode_factory.py` |
+| Support coverage golden pack (truth-labeled adversarial geometry) | `tests/pipeline/test_support_coverage_golden_pack.py` (extends the per-fix files `test_support_coverage_963.py`, `test_support_coverage_969.py`) |
+| Event starvation (fake clock, zero status events) | `tests/test_event_starvation.py` |
+| Renamed-key reader completeness (#672 renames) | `tests/test_renamed_key_readers.py` |
+| Entrypoint × state-volume layout matrix (#914) | `tests/test_entrypoint_layout_matrix.py` |
+| Wrapped aggregates from real record writers; ffmpeg pacing | `tests/test_wrapped_records_from_writers.py` |
+| Bambu HMS table content integrity across regenerations | `tests/printers/test_bambu_hms.py`, `tests/printers/test_bambu_hms_generator.py` |
 | Docker image, release contracts, supervisor, healthcheck | `tests/test_docker_release*.py`, `tests/docker/`, `tests/test_combined_supervisor.py`, `tests/test_go2rtc_container.py`, `tests/test_native_release_acceptance.py` |
 | Web UI (status, config, login, roster) | `tests/test_webui_*.py` |
 | Doctor / bot check surfaces | `tests/test_doctor.py`, `tests/bot/test_health_and_transport.py` |
@@ -213,6 +223,113 @@ ack order was a product gap pinned by a strict xfail; the handlers now acknowled
 is gone. Other handler families listed above have no new ordering proof.
 The original five failures were not replayed on 2.1.9; fit_check_s has mock-runner evidence only; restart 503
 coverage is the Spoolman bind refusal, not a gateway restart.
+
+## Testing-hardening pass (2026-11-07)
+
+A deep dive over version coverage and the merged-PR archaeology produced the
+suites below. They exist to make specific historical failure shapes impossible
+to reintroduce silently; each suite's docstring names the incident it pins.
+
+### Upstream versions: parity and step size
+
+The "real" test harnesses once ran older upstream versions than the shipped
+pins, so a green check proved Print Handy against the wrong Spoolman / Bambu
+Studio. Two guards now hold:
+
+- **Parity** — `tests/test_upstream_version_parity.py` requires the Spoolman
+  version + zip sha256 in the CI spoolman job and in
+  `scripts/run_spoolman_native.sh` to equal the Dockerfile `SPOOLMAN_REF`'s
+  recorded version, and `scripts/bump_upstream.py` now sweeps those harness
+  pins in the same bot PR that moves the shipped pin (failing closed on
+  drift). The Bambu fallback leg (Flathub Studio in the `Slicer test
+  (bambu)` job) is deliberately NOT moved with `BAMBU_REF`; its divergence
+  is a named, dated exception recorded in `tests/test_ci_bambu_workflow.py`,
+  and any future unrecorded divergence fails.
+- **Step size** — bump classification compares normalized numeric tuples
+  (`02.09.01.70` -> `(2, 9, 1, 70)`): a change in the first or second
+  component is a MAJOR step (Spoolman 0.27.0 -> 0.27.1 is minor; Bambu
+  2.8.2 -> 02.09.01.70 is major); later-component-only changes and
+  prerelease promotions of an equal core are minor. A major step's bot PR
+  body carries a required "Major step — deep dive required before merge"
+  section: read the upstream changelog for the range and re-examine the
+  component's Print Handy surfaces (named per component in the automation)
+  before merging. Minor steps keep the current body shape and get targeted
+  regression tests around the touched surface instead.
+
+Bundled-Spoolman update check: Spoolman 0.27.1 phones home to api.github.com
+by default (`SPOOLMAN_UPDATE_CHECK`, upstream default true). Print Handy is
+local-first and updates its bundled copy itself, so `docker/supervise.sh`
+exports `SPOOLMAN_UPDATE_CHECK=FALSE` for the bundled instance, pinned by a
+contract test in `tests/test_docker_release_contract.py`.
+
+### HMS content integrity
+
+The HMS lookup tests pinned mechanics but not content: a regeneration that
+dropped codes would have stayed green. `tests/printers/test_bambu_hms.py`
+now floors the table counts at the recorded generation, requires every
+provenance prefix to keep non-empty per-model overrides, and decodes one
+canary code per prefix. The generator tests cover a new prefix flipping the
+common text by majority and by odd-one-out, not only the 093/094 tie-breaks.
+
+### Fixture-vs-live rules
+
+- Offline suites use fakes shaped like the real thing, produced by shared
+  factories where one exists: `tests/gcode_factory.py` for slicer G-code
+  (per-family headers, footer config blocks, multi-plate `.gcode.3mf`),
+  `tests/corpus/fake_discord` for Discord, flow-built spool state for the
+  corpus journeys. Hand-written stand-ins for a real writer's output are
+  the drift pattern this pass removed for Wrapped: aggregates are now also
+  built from records produced by the real record writers
+  (`tests/test_wrapped_records_from_writers.py`).
+- Live-tier suites keep their gates: the real-Spoolman service tests
+  (`tests/services/test_spoolman_real.py`) run only with
+  `PRINT_HANDY_SPOOLMAN_TEST_URL` set (the CI spoolman job and
+  `scripts/run_spoolman_native.sh` provide the server); the real-ffmpeg
+  Wrapped pacing test skips without ffmpeg/ffprobe on PATH.
+- Synthetic geometry fixtures are labeled synthetic in the file that
+  generates them (see the support-coverage golden pack); no fixture
+  presents generated data as a real printer archive capture.
+
+### Strict xfails and the register
+
+Known-defect tripwires are `pytest.mark.xfail(strict=True)` entries in
+`tests/strict_xfail_register.json` (owner + expiry + reason, checked by
+`tests/test_strict_xfail_register.py`): when the fixing PR lands, the test
+XPASSes and the suite fails until the marker and the register entry are
+removed. This pass registered four: the #979 "print it again" precedence
+outcome and the two #981 Wrapped defects (UTC bucketing, mixed-fps video
+pacing) are still armed; the fourth, the #978 yolo auto-applies-a-fix
+invariant, already fired — PR #987 merged while this pass was in flight,
+the marker and entry were removed on rebase, and the invariant is now a
+plain passing regression test in `tests/bot/test_approval_invariants.py`. Characterization
+tests that record current-but-wrong behavior (the dispatcher claim map,
+the two last-print resolvers' divergence, Cura / plate-2 foreign-G-code
+blind spots) are labeled as such in their files and are expected to be
+rewritten by the fixing change, not deleted quietly.
+
+### Determinism / flake register
+
+Suites added by this pass are deterministic by construction: fake clocks
+(event starvation), fixed archives with explicit mtimes (dispatcher
+resolvers), generated media probed with ffprobe (Wrapped pacing), and the
+real entrypoint run against synthetic `$HOME` layouts. The known
+nondeterminism sources in the wider suite stay as documented above
+(real-slicer timing is reporting-only; the Matrix ordering flake is
+root-caused in its own section). A new flake gets a section here with its
+root cause, not a retry.
+
+### Live-proof roster (operator-only, not in CI)
+
+These proofs need catduck's hardware and accounts and stay open until he
+runs them; no offline suite substitutes for them:
+
+| Proof | Source |
+|---|---|
+| Real-printer actuation + chat edit-plan end-to-end | #921 / #923 follow-ups |
+| Multi-platform live bot pass (Discord / Telegram / Matrix) | #812 |
+| Watchdog camera accuracy on a real camera | #455 |
+| GPU-host vision provider run | #455 |
+| Entrypoint mounted-volume copy cell (`PRINT_HANDY_LAYOUT_TEST_MOUNT=1` in the acceptance layout) | `tests/test_entrypoint_layout_matrix.py` (`container`-marked) |
 
 ## Slicing-speed gate (#734)
 
