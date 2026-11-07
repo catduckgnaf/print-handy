@@ -98,6 +98,9 @@ def test_already_symlinked_state_is_left_untouched(tmp_path):
     assert "a symlink to" in result.stderr and "legacy /data/hermes volume is in use" in result.stderr
 
 
+# Acceptance-layout cell, deliberately gated and not run by any CI workflow:
+# accounted for by name in tests/README.md ("Fixture-vs-live rules" and the
+# live-proof roster). It runs only in the prepared acceptance layout.
 @pytest.mark.container
 @pytest.mark.skipif(os.environ.get("PRINT_HANDY_LAYOUT_TEST_MOUNT") != "1",
                     reason="needs the acceptance layout: HOME/state prepared "

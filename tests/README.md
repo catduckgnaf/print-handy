@@ -287,6 +287,15 @@ common text by majority and by odd-one-out, not only the 093/094 tie-breaks.
   `PRINT_HANDY_SPOOLMAN_TEST_URL` set (the CI spoolman job and
   `scripts/run_spoolman_native.sh` provide the server); the real-ffmpeg
   Wrapped pacing test skips without ffmpeg/ffprobe on PATH.
+- One acceptance-layout cell stays gated by name:
+  `test_mounted_state_volume_copies_instead_of_symlinking` in
+  `tests/test_entrypoint_layout_matrix.py` (`container`-marked) runs only
+  with `PRINT_HANDY_LAYOUT_TEST_MOUNT=1`, which no CI workflow sets. It
+  stays gated because it needs the prepared acceptance layout — HOME/state
+  as a real mountpoint (the two-bind layout) with a populated legacy
+  volume — which a CI runner does not provide; running it means running
+  the container-marked tests inside that acceptance layout with the
+  variable set. It is also listed in the live-proof roster below.
 - Synthetic geometry fixtures are labeled synthetic in the file that
   generates them (see the support-coverage golden pack); no fixture
   presents generated data as a real printer archive capture.

@@ -50,21 +50,6 @@ class Endpoint:
             {"choices": [{"message": {"content": self.answer}}]}).encode())
 
 
-def _cube_tris(size=10.0, top=True):
-    s = size
-    v = [(0, 0, 0), (s, 0, 0), (s, s, 0), (0, s, 0),
-         (0, 0, s), (s, 0, s), (s, s, s), (0, s, s)]
-    faces = [(0, 3, 2), (0, 2, 1),          # bottom (-z)
-             (0, 1, 5), (0, 5, 4),          # front (-y)
-             (1, 2, 6), (1, 6, 5),          # right (+x)
-             (2, 3, 7), (2, 7, 6),          # back (+y)
-             (3, 0, 4), (3, 4, 7)]          # left (-x)
-    if top:
-        faces += [(4, 5, 6), (4, 6, 7)]     # top (+z)
-    import numpy as np
-    return np.array([[v[a], v[b], v[c]] for a, b, c in faces], dtype=float)
-
-
 def _write(path, tris):
     support_clearance._write_binary_stl(path, tris)
     return path
