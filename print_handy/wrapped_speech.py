@@ -81,9 +81,13 @@ def _resolve_speech(cfg):
     if not model or not key:
         route = ai_routes._resolve("chat", cfg or {}, None, "")
         if route is not None:
-            if not key and (not env_name or route.primary.url.rstrip("/")
-                            .removesuffix("/chat/completions")
-                            == url.removesuffix("/audio/speech")):
+            # The chat tier's key goes only to the chat tier's own
+            # endpoint (the ai_routes rule: a different host never gets
+            # it). A speech URL on another host needs its own
+            # [ai.speech] api_key_env, set or not.
+            same_endpoint = (route.primary.url.rstrip("/").removesuffix("/chat/completions")
+                             == url.removesuffix("/audio/speech"))
+            if not key and same_endpoint:
                 key = route.primary.key
     model = model or DEFAULT_MODEL
     # The endpoint's own host decides whether a key is required, using

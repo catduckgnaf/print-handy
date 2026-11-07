@@ -284,6 +284,26 @@ class CloudSpeechTests(unittest.TestCase):
         self.assertEqual(seen["body"]["input"], "Hello year.")
         self.assertEqual(seen["auth"], "Bearer test-key-not-real")
 
+    def test_chat_key_never_goes_to_a_different_speech_host(self):
+        """A speech URL on another host without api_key_env must not get
+        the chat tier's key (it would be sent as a Bearer token there)."""
+        from unittest import mock
+        from print_handy import ai_routes
+        route = SimpleNamespace(primary=SimpleNamespace(
+            url="https://openrouter.example/api/v1/chat/completions",
+            key="chat-key-not-real"))
+        other_host = {"ai": {"speech": {"chat_url": "https://speech.other.example/v1"}}}
+        same_host = {"ai": {"speech": {"chat_url": "https://openrouter.example/api/v1"}}}
+        with mock.patch.object(ai_routes, "_resolve", return_value=route), \
+                mock.patch.object(ai_routes, "keyless_ok", return_value=False):
+            with self.assertRaises(wrapped_speech.SpeechKeyMissing):
+                wrapped_speech._resolve_speech(other_host)
+            _url, _model, key, _timeout = wrapped_speech._resolve_speech(same_host)
+            self.assertEqual(key, "chat-key-not-real")
+            # No speech URL at all: speech reuses the chat endpoint and its key.
+            _url, _model, key, _timeout = wrapped_speech._resolve_speech({"ai": {}})
+            self.assertEqual(key, "chat-key-not-real")
+
     def test_cloud_engine_uses_speech_call_seam(self):
         calls = []
 
