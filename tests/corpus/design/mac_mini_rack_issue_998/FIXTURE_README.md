@@ -4,8 +4,9 @@ Reference run: https://github.com/catduckgnaf/print-handy/issues/998
 
 This directory preserves the real CadQuery generator, original preview/drawing scripts,
 and the original assembly/printing instructions from the ChatGPT session, plus **generated
-binary artifacts** (STL, STEP, PNG) checked into this branch by a dedicated GitHub
-Actions fixture-generation workflow.
+binary artifacts** (STL, STEP, PNG) that a dedicated GitHub Actions
+fixture-generation workflow built and committed on this branch (successful run:
+https://github.com/catduckgnaf/print-handy/actions/runs/42350036422).
 
 ## Reproduction
 
@@ -16,12 +17,37 @@ Trimesh 4.11.1. From this directory:
 python generate_rack_mount.py
 xvfb-run -a python make_previews.py
 python make_dimension_diagram.py
+python validate_fixtures.py --write-manifest
 python validate_fixtures.py
 ```
 
-The CI workflow `.github/workflows/issue-998-cad-fixture.yml` generates the
-binaries on its dedicated fixture branch and commits them in Git format, together
-with `SHA256SUMS.txt`, `WARNING_NOT_VALIDATED.txt`, and a reproducible ZIP.
+The generator workflow that produced the committed binaries ran on its
+dedicated fixture branch and committed them in Git format, together with
+`SHA256SUMS.txt`, `WARNING_NOT_VALIDATED.txt`, and the regenerated ZIP. That
+workflow was removed from `.github/workflows/` once the assets were
+committed, so a branch-specific, self-committing workflow with
+`contents: write` does not live on main permanently; its full YAML is
+preserved here as `issue-998-cad-fixture.workflow.yml.txt` for provenance
+and can be restored on a scratch branch to regenerate. The manual recipe
+above is the supported regeneration path.
+
+## Validation and checksums
+
+`python validate_fixtures.py` verifies the committed files and writes
+nothing: file inventory, STL dimensions/watertightness/volume, PNG and STEP
+headers, the checksum manifest, the ZIP layout, and the pinned known
+defects below. The same checks run in the offline test suite through
+`tests/corpus/test_mac_mini_rack_fixture_998.py`, so the fixture is guarded
+on main. `--write-manifest` is the regeneration-only mode that refreshes
+`SHA256SUMS.txt` and `WARNING_NOT_VALIDATED.txt` after a rebuild.
+
+`SHA256SUMS.txt` covers exactly the 12 binary artifacts (5 STL, 5 STEP,
+2 PNG). The regenerated ZIP is out of manifest scope on purpose: it is a
+derived bundle that cannot hash itself, and the validator instead checks
+that it holds exactly the original 16 files under the
+`mac_mini_2014_2U_rack_mount/` prefix, byte-identical to the files in this
+directory. Source scripts and documents are version-controlled text and are
+not in the manifest.
 
 The original ChatGPT ZIP was
 `2014_Mac_Mini_19inch_2U_PLA_Rack_Mount_v1.zip`, SHA-256
