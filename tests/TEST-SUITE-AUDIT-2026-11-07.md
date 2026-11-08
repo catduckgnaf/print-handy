@@ -682,3 +682,66 @@ Files inventoried: 538. Test functions/classes counted by AST: 7403.
 | `tests/test_wrapped_v2.py` | 35 | reviewed, clean |
 | `tests/test_wrapped_video_real_ffmpeg.py` | 2 | reviewed, clean |
 | `tests/test_wrapped_video_tts.py` | 21 | reviewed, clean |
+
+## Round 2 (2026-11-07 evening): the remaining offline-leg skips, per-skip verdicts
+
+catduck pasted the skip lists from a current CI run after PR #1026 and
+PR #1030 merged. The two pastes are two shards of one run, not two
+different bases: the "different" line numbers are disjoint shard subsets
+of the same files (for example `tests/services/test_spoolman_real.py`
+defines its five tests at lines 29, 47, 62, 70 and 87 on main; one paste
+shows :47 and :87, the other :29 and :70, because the conftest sharding
+deals different tests to different shards). Both pastes total 12,639
+collected nodes (4,193 + 20 + 8,426 and 4,188 + 1 + 24 + 8,426).
+
+| # | Skip (as pasted) | Verdict | Evidence / action |
+|---|---|---|---|
+| R2-1 | `tests/test_state_volume.py:248` "user and mount namespaces are not available" | Ran NOWHERE in CI; now wired | The offline job runs inside a `python:*-slim-trixie` container where `unshare -rm` is refused, so the real bind-mount test always skipped there. New dedicated CI job `State volume (real bind mount)` runs the single test on the runner VM (no job container), probes `unshare -rm true` first (lifting Ubuntu 24.04's AppArmor userns restriction via sysctl if needed) and fails loudly if namespaces are truly unavailable. Local proof: the test passes where `unshare -rm` works. |
+| R2-2 | `tests/pipeline/test_native_bounds.py:75` "non-ASCII corpus cases are Python-path by design (ASCII gate)" | By design, verified | The dispatcher gate is real: `print_handy/core/model_job.py` routes to the native parser only `if setting != "python" and text.isascii()` (line 2309 at audit time); the Rust crate is ASCII-only. The same corpus cases are fully asserted by the Python-path and dispatcher parametrizations in the same file, so only the native-parser parametrization skips them, correctly. No change. |
+| R2-3 | `tests/services/test_spoolman_real.py` (all five tests) "set PRINT_HANDY_SPOOLMAN_TEST_URL to a throwaway Spoolman" | Runs in CI | The `spoolman` job in `ci.yml` downloads the pinned Spoolman 0.27.1, starts it on localhost:7912, sets `PRINT_HANDY_SPOOLMAN_TEST_URL=http://localhost:7912` and runs `pytest tests/services`. The offline legs skip by design. No change. |
+| R2-4 | Real-slicer skips across `tests/slicer/test_*_real.py` (incl. `test_prusa_foreign_real.py:186`) "set PRINT_HANDY_REAL_SLICER=1..." | Runs in CI | The `Slicer test (stable, shard 0-2)` jobs set `PRINT_HANDY_REAL_SLICER=1` and run `pytest tests/slicer tests/corpus tests/pipeline/test_first_layer_workflow.py` under xvfb with the pinned Orca flatpak. `tests/slicer/test_bambu_real_a1.py` also runs in `Slicer test (bambu)`, which sets `PRINT_HANDY_REAL_BAMBU=1` and runs that file alone; its Bambu-gated cases skip in the stable job and execute in the bambu job. No change. |
+| R2-5 | `tests/pipeline/test_first_layer_workflow.py:38,75` "needs the real Orca slicer" | Runs in CI (status changed since round 1) | Round 1 recorded these as running nowhere (issue #1028). PR #1040 wired the file into the `Slicer test (stable)` job command and closed #1028; the job log there shows both tests passing for real. The offline legs still skip them by design. No change in this PR. |
+| R2-6 | `tests/corpus/test_complex_corpus.py:239` "complex corpus not fetched here" | Ran NOWHERE under pytest; now wired | `model-corpus.yml` fetched the corpus but only ran runner scripts. That workflow now runs `pytest tests/corpus/test_complex_corpus.py` once (shard 0) with `PRINT_HANDY_PRIVATE_CORPUS` pointing at the fetched tree. Verified locally against a real fetched corpus-v2 download: 17 passed, including `test_fetched_files_match_the_manifest`. The workflow triggers weekly / on dispatch, not on PRs. |
+| R2-7 | `tests/test_cloudflare_examples.py:44` "node is not installed" | Ran NOWHERE in CI; now wired | No CI job installed Node. The offline legs now install `nodejs` from Debian, following the OpenSCAD/tesseract pattern from round 1, so `test_worker_node_tests_pass` executes there. The Workers are shipped reference surface in `examples/cloudflare` (the documented opt-in stateless layer); Node is a test-only tool because the Workers run on Cloudflare, not in the image. Local proof with Node present: the test passes. |
+| R2-8 | `tests/test_entrypoint_layout_matrix.py:104` "needs the acceptance layout" | Runs nowhere in CI, deliberate | Named in PR #1030 and in `tests/README.md` (gate accounting and the live-proof roster): it needs the prepared acceptance layout — HOME/state as a real mountpoint with a populated legacy volume — which no CI runner provides. Unchanged. |
+
+### The one failure in the pasted legs
+
+Identified from the job logs: in push run 42438208554 (main head
+`451bcc3`, the PR #1038 merge), the only failed offline leg is
+offline-tests (3.12, shard 1) — 1 failed, 4,189 passed, 24 skipped, 695
+subtests — and the failure is
+`ListenerHealthTests.test_listener_cancels_heartbeat_on_shutdown` in
+`tests/test_listener_health.py`, failing in teardown with
+`OSError: [Errno 39] Directory not empty` inside
+`TemporaryDirectory.cleanup`: the healthcheck writer thread can land a
+beat in the test's scratch directory while cleanup removes it. The
+pasted leg's skip count (24) and subtest count (695) match that job
+exactly; its passed/deselected totals differ by one or two tests
+because three merges landed on main within the hour and shifted the
+counts slightly between sibling runs. The identical failure (same test,
+same Errno 39 teardown) also appears in push run 42433786000 (head
+`f740978`, offline-tests 3.12 shard 2). In both runs every other offline
+leg passes, including all three 3.14 shards of 42438208554, and the test
+passes repeatedly locally. Verdict: test-side teardown race (flake),
+present on main, not a product defect and not branch-specific. This PR
+hardens both heartbeat test classes in that file with
+`TemporaryDirectory(ignore_cleanup_errors=True)`.
+
+### Warnings seen in the same logs
+
+- `PytestRemovedIn10Warning` (parametrize given a `zip`) in
+  `tests/pipeline/test_native_bounds.py`: FIXED in this PR —
+  `list(zip(CASES, EXPECTED))` at all three parametrize sites (lines 62,
+  69, 88). It becomes a hard error in pytest 10.
+- Pillow `Image.getdata` DeprecationWarning at
+  `print_handy/core/render_preview.py:81` (removal in Pillow 14,
+  2027-10-15): product code, not test-side; left alone here and listed
+  for a future product pass.
+- `RuntimeWarning: invalid value encountered in multiply` in
+  `print_handy/core/orca_adapter.py` during the overflow-coordinate
+  adversarial mesh tests: the tests deliberately feed overflow
+  coordinates and pin the decline/match behavior; left alone.
+- `DeprecationWarning` for `fork()` in a multi-threaded process in
+  `tests/test_per_printer_state.py` concurrency tests: test-code notice
+  on Python 3.12; left alone.

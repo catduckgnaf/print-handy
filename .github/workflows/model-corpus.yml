@@ -45,6 +45,18 @@ jobs:
           tar -xzf print-buddy-corpus-v2.tar.gz -C ..
           cd ..
           test "$(find models -type f \( -name '*.3mf' -o -name '*.stl' \) | wc -l)" -gt 171
+      - name: Complex corpus manifest contract against the fetched files
+        # tests/corpus/test_complex_corpus.py's fetched-files test accepts
+        # PRINT_HANDY_PRIVATE_CORPUS (the same root the runner scripts
+        # below use) but no workflow ever ran it under pytest, so it
+        # skipped in every CI leg. This workflow is the one place the
+        # corpus is actually fetched, so the contract runs here, once
+        # (shard 0), against the verified download (2026-11-07 test-suite
+        # cleanup, round 2).
+        if: matrix.shard == 0
+        env:
+          PRINT_HANDY_PRIVATE_CORPUS: ${{ runner.temp }}/corpus/models
+        run: python -m pytest -v -rs tests/corpus/test_complex_corpus.py
       - name: Run fake-Discord corpus shard
         env:
           PRINT_HANDY_PRIVATE_CORPUS: ${{ runner.temp }}/corpus/models

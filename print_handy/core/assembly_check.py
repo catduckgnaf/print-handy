@@ -26,14 +26,33 @@ What is checked (each finding carries the measured evidence):
   one part, coupons, or a reference model: at least two distinct
   structural printable parts must exist, and reference geometry named as
   not-for-printing is never counted or offered as printable.
+* **Declared roles** (#1017) — a part may *declare* its role on its
+  project manifest (``project_v1``) instead of having it inferred from
+  the file name: a declared role wins, is reported as ``declared``, and a
+  part declared a ``rack_ear`` earns the panel-clearance check by
+  declaration rather than by the height heuristic that undeclared parts
+  still get. A declared ear with no rack size to check against is a
+  warning, never a silent pass.
+* **Assembly transforms and collisions** (#1017) — when parts declare an
+  ``assembly_transform`` placement (again on the manifest), placed parts
+  are checked against each other: disjoint placed bounds prove no
+  collision; overlapping bounds get an exact interpenetration test (a
+  vertex strictly inside the other solid, an edge piercing a face with
+  its interior inside the other solid, a face patch lying in the other
+  solid's volume, or coplanar faces overlapping in area with both
+  solids on the same side of the shared plane — flush contact is *not*
+  a collision). An overlap no deeper than the contact epsilon cannot be
+  told from contact and is reported as unchecked, never as clearance.
+  Parts without a declared placement are named as unchecked;
+  a review where nothing is placed still states transforms and
+  collisions as not checked.
 
-Not covered here (stated, not implied): assembly transforms and
-part-to-part collisions (they need the assembly's placement data, not
-loose part meshes), fastener reach and clearances, load and thermal
-behavior, and slicer toolpath fit.
+Not covered here (stated, not implied): fastener reach and clearances,
+load and thermal behavior, and slicer toolpath fit.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
@@ -46,6 +65,7 @@ MIRROR_TOLERANCE_MM = 0.05
 MIRROR_VOLUME_TOLERANCE = 0.001  # relative
 NOT_FOR_PRINTING_MARKERS = ("NOT_FOR_PRINTING", "REFERENCE_", "_REFERENCE")
 COUPON_MARKERS = ("_TEST_", "TEST_", "COUPON")
+CONTACT_EPS_MM = 0.01  # within this of a surface is contact, not penetration
 
 
 @dataclass
@@ -60,11 +80,37 @@ class Finding:
         return asdict(self)
 
 
+def _rotation_rows(rotate_deg) -> tuple[tuple[float, float, float], ...]:
+    """Rotation matrix rows for degrees about X, then Y, then Z (Rz·Ry·Rx)."""
+    ax, ay, az = (math.radians(float(v)) for v in rotate_deg)
+    cx, sx, cy, sy, cz, sz = (math.cos(ax), math.sin(ax), math.cos(ay),
+                              math.sin(ay), math.cos(az), math.sin(az))
+    return (
+        (cz * cy, cz * sy * sx - sz * cx, cz * sy * cx + sz * sx),
+        (sz * cy, sz * sy * sx + cz * cx, sz * sy * cx - cz * sx),
+        (-sy, cy * sx, cy * cx),
+    )
+
+
+def apply_transform(transform: dict, point) -> tuple[float, float, float]:
+    """One local point in assembly coordinates under a declared transform."""
+    rows = _rotation_rows(transform.get("rotate_deg") or (0.0, 0.0, 0.0))
+    tx, ty, tz = (float(v) for v in transform.get("translate_mm") or (0.0, 0.0, 0.0))
+    x, y, z = (float(v) for v in point)
+    return (rows[0][0] * x + rows[0][1] * y + rows[0][2] * z + tx,
+            rows[1][0] * x + rows[1][1] * y + rows[1][2] * z + ty,
+            rows[2][0] * x + rows[2][1] * y + rows[2][2] * z + tz)
+
+
 @dataclass
 class PartReport:
     name: str
-    role: str  # "structural" | "coupon" | "reference"
+    role: str  # "structural" | "coupon" | "reference" (declared "rack_ear" counts as structural)
     info: dict[str, Any]
+    role_source: str = "inferred"  # "declared" | "inferred"
+    declared_role: str | None = None
+    transform: dict[str, Any] | None = None  # normalized assembly_transform, or None
+    path: str = ""
 
     @property
     def dims(self) -> tuple[float, float, float]:
@@ -74,6 +120,19 @@ class PartReport:
     def volume(self) -> float | None:
         value = self.info.get("abs_volume_mm3")
         return float(value) if value is not None else None
+
+    @property
+    def placed_bounds(self) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+        """(min, max) in assembly coordinates: the local bounds under the
+        declared transform, or the local bounds themselves when unplaced."""
+        lo = tuple(float(v) for v in self.info.get("bounds_min_mm") or (0.0, 0.0, 0.0))
+        hi = tuple(float(v) for v in self.info.get("bounds_max_mm") or (0.0, 0.0, 0.0))
+        if not self.transform:
+            return lo, hi
+        corners = [apply_transform(self.transform, (x, y, z))
+                   for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])]
+        return (tuple(min(c[i] for c in corners) for i in range(3)),
+                tuple(max(c[i] for c in corners) for i in range(3)))
 
 
 def panel_clearance_mm(units: int) -> float:
@@ -90,14 +149,74 @@ def part_role(name: str) -> str:
     return "structural"
 
 
-def describe_part(path: Path | str, role: str | None = None) -> PartReport:
-    """Measure one STL: extents, topology and volume."""
+def _validate_declaration(declaration, name: str) -> tuple[str | None, dict | None]:
+    """(declared role, normalized transform) from one declaration dict.
+
+    Validation is the manifest's own (``core.projects``), so a declaration
+    means the same thing on the manifest and in a review; an invalid one
+    raises instead of being silently treated as undeclared.
+    """
+    if declaration is None:
+        return None, None
+    if not isinstance(declaration, dict):
+        raise ValueError(f"a declaration for {name} must be an object; got {declaration!r}")
+    from . import projects
+
+    role = None
+    if declaration.get("role") is not None:
+        role = projects.validate_component_role(declaration["role"])
+    transform = None
+    if declaration.get("assembly_transform") is not None:
+        transform = projects.validate_assembly_transform(declaration["assembly_transform"])
+    return role, transform
+
+
+def describe_part(path: Path | str, role: str | None = None, *,
+                  declaration: dict | None = None) -> PartReport:
+    """Measure one STL: extents, topology and volume.
+
+    ``declaration`` is the part's manifest entry (``role`` /
+    ``assembly_transform``): a declared role beats the file-name
+    inference and is labeled ``declared``; ``rack_ear`` counts as
+    structural here and is kept on ``declared_role`` for the ear check.
+    """
     from .geometry_layout import describe_triangles
     from .orca_adapter import read_stl_triangles
 
     path = Path(path)
     info = describe_triangles(read_stl_triangles(path))
-    return PartReport(path.name, role or part_role(path.name), info)
+    declared_role, transform = _validate_declaration(declaration, path.name)
+    if declared_role is not None:
+        coarse = "structural" if declared_role == "rack_ear" else declared_role
+        return PartReport(path.name, coarse, info, role_source="declared",
+                          declared_role=declared_role, transform=transform, path=str(path))
+    return PartReport(path.name, role or part_role(path.name), info,
+                      transform=transform, path=str(path))
+
+
+def declarations_from_project(project: dict, stl_paths) -> dict[str, dict]:
+    """Declarations keyed by STL path, matched from a project_v1 manifest.
+
+    Components match reviewed files by name, in order — two components
+    sharing one file name consume successive components, which is the
+    manifest's own ordering. A component with no declared role or
+    transform contributes no declaration.
+    """
+    components = list((project or {}).get("components") or [])
+    used: set[int] = set()
+    out: dict[str, dict] = {}
+    for raw in stl_paths:
+        path = Path(raw)
+        for idx, component in enumerate(components):
+            if idx in used or component.get("name") != path.name:
+                continue
+            used.add(idx)
+            declaration = {key: component[key] for key in ("role", "assembly_transform")
+                           if component.get(key) is not None}
+            if declaration:
+                out[str(path)] = declaration
+            break
+    return out
 
 
 # ---------------------------------------------------------------- checks
@@ -190,11 +309,430 @@ def check_project_shape(parts: list[PartReport], min_structural: int = 2) -> lis
     structural = [p.name for p in parts if p.role == "structural"]
     evidence = {"structural": structural,
                 "coupons": [p.name for p in parts if p.role == "coupon"],
-                "reference": [p.name for p in parts if p.role == "reference"]}
+                "reference": [p.name for p in parts if p.role == "reference"],
+                "role_source": {p.name: p.role_source for p in parts}}
     if len(structural) < min_structural:
         return [Finding("fail", "too_few_parts", f"{len(structural)} structural printable part(s); "
                         f"the request needs at least {min_structural}", None, evidence)]
     return [Finding("info", "parts", f"{len(structural)} structural printable parts", None, evidence)]
+
+
+# ------------------------------------------------- transforms and collisions
+
+def _sub(a, b):
+    return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+
+def _cross(a, b):
+    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+
+def _dot(a, b):
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+class _Solid:
+    """One part's triangles in assembly coordinates, with the indexes the
+    interpenetration test needs: a YZ grid for ray casting and a uniform
+    3D grid for near-surface and segment queries."""
+
+    def __init__(self, triangles):
+        self.triangles = [[tuple(float(v) for v in point) for point in tri]
+                          for tri in triangles]
+        lo = tuple(min(p[i] for tri in self.triangles for p in tri) for i in range(3))
+        hi = tuple(max(p[i] for tri in self.triangles for p in tri) for i in range(3))
+        self.bounds = (lo, hi)
+        span = max(hi[i] - lo[i] for i in range(3)) or 1.0
+        self.cell = max(span / 24.0, 0.05)
+        self.yz: dict[tuple[int, int], list[int]] = {}
+        self.grid: dict[tuple[int, int, int], list[int]] = {}
+        for idx, tri in enumerate(self.triangles):
+            tlo = tuple(min(p[i] for p in tri) for i in range(3))
+            thi = tuple(max(p[i] for p in tri) for i in range(3))
+            for j in range(int(tlo[1] // self.cell), int(thi[1] // self.cell) + 1):
+                for k in range(int(tlo[2] // self.cell), int(thi[2] // self.cell) + 1):
+                    self.yz.setdefault((j, k), []).append(idx)
+            for i in range(int(tlo[0] // self.cell), int(thi[0] // self.cell) + 1):
+                for j in range(int(tlo[1] // self.cell), int(thi[1] // self.cell) + 1):
+                    for k in range(int(tlo[2] // self.cell), int(thi[2] // self.cell) + 1):
+                        self.grid.setdefault((i, j, k), []).append(idx)
+        self.vertices = sorted({p for tri in self.triangles for p in tri})
+        edges = set()
+        for tri in self.triangles:
+            for a, b in ((0, 1), (1, 2), (2, 0)):
+                edges.add((min(tri[a], tri[b]), max(tri[a], tri[b])))
+        self.edges = sorted(edges)
+
+    def _candidates_near(self, point):
+        i, j, k = (int(point[axis] // self.cell) for axis in range(3))
+        out = set()
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                for dk in (-1, 0, 1):
+                    out.update(self.grid.get((i + di, j + dj, k + dk), ()))
+        return out
+
+    def distance_to_surface(self, point) -> float:
+        """Exact distance to the nearest candidate triangle (grid-narrowed)."""
+        best = math.inf
+        for idx in self._candidates_near(point):
+            best = min(best, _point_triangle_distance(point, self.triangles[idx]))
+        return best
+
+    def _parity_inside(self, point) -> bool:
+        """Inside by ray parity alone, surface contact included.
+
+        A +X ray's crossings decide inside/outside (crossings closer than
+        1e-7 mm are one crossing — a ray through a shared edge counts
+        once). Points on the bounds are outside.
+        """
+        lo, hi = self.bounds
+        if any(point[i] <= lo[i] or point[i] >= hi[i] for i in range(3)):
+            return False
+        key = (int(point[1] // self.cell), int(point[2] // self.cell))
+        hits = []
+        for idx in self.yz.get(key, ()):
+            t = _ray_triangle_t(point, (1.0, 0.0, 0.0), self.triangles[idx])
+            if t is not None and t > 1e-9:
+                hits.append(t)
+        crossings = 0
+        last = None
+        for t in sorted(hits):
+            if last is None or t - last > 1e-7:
+                crossings += 1
+            last = t
+        return crossings % 2 == 1
+
+    def _inside_state(self, point) -> int:
+        """0 outside, 1 inside but within CONTACT_EPS_MM of the surface
+        (the contact band), 2 strictly inside."""
+        if not self._parity_inside(point):
+            return 0
+        return 2 if self.distance_to_surface(point) > CONTACT_EPS_MM else 1
+
+    def strictly_inside(self, point) -> bool:
+        """Inside the solid, and not merely touching its surface: the
+        parity test passes and the point is more than CONTACT_EPS_MM
+        from the surface."""
+        return self._inside_state(point) == 2
+
+    def segment_crossing_samples(self, a, b):
+        """Points just either side of where segment a→b pierces this
+        solid's faces, sampled 0.05 mm along the segment from each
+        transversal crossing (coplanar contact yields no samples)."""
+        lo = tuple(min(a[i], b[i]) for i in range(3))
+        hi = tuple(max(a[i], b[i]) for i in range(3))
+        candidates = set()
+        for i in range(int(lo[0] // self.cell), int(hi[0] // self.cell) + 1):
+            for j in range(int(lo[1] // self.cell), int(hi[1] // self.cell) + 1):
+                for k in range(int(lo[2] // self.cell), int(hi[2] // self.cell) + 1):
+                    candidates.update(self.grid.get((i, j, k), ()))
+        direction = _sub(b, a)
+        length = math.sqrt(_dot(direction, direction))
+        if length <= 0:
+            return []
+        unit = tuple(v / length for v in direction)
+        samples = []
+        for idx in candidates:
+            t = _segment_triangle_t(a, direction, self.triangles[idx])
+            if t is None or t <= 1e-9 or t >= 1.0 - 1e-9:
+                continue
+            hit = tuple(a[i] + direction[i] * t for i in range(3))
+            axis = max(range(3), key=lambda i: abs(direction[i]))
+            for side in (-0.05, 0.05):
+                point = tuple(hit[i] + unit[i] * side for i in range(3))
+                if 0.0 < (point[axis] - a[axis]) / direction[axis] < 1.0:
+                    samples.append(point)
+        return samples
+
+
+def _point_triangle_distance(point, tri) -> float:
+    """Distance from a point to a triangle (Ericson's closest-point test)."""
+    a, b, c = tri
+    ab, ac, ap = _sub(b, a), _sub(c, a), _sub(point, a)
+    d1, d2 = _dot(ab, ap), _dot(ac, ap)
+    if d1 <= 0 and d2 <= 0:
+        closest = a
+    else:
+        bp = _sub(point, b)
+        d3, d4 = _dot(ab, bp), _dot(ac, bp)
+        if d3 >= 0 and d4 <= d3:
+            closest = b
+        else:
+            vc = d1 * d4 - d3 * d2
+            if vc <= 0 and d1 >= 0 and d3 <= 0:
+                closest = tuple(a[i] + ab[i] * (d1 / (d1 - d3)) for i in range(3))
+            else:
+                cp = _sub(point, c)
+                d5, d6 = _dot(ab, cp), _dot(ac, cp)
+                if d6 >= 0 and d5 <= d6:
+                    closest = c
+                else:
+                    vb = d5 * d2 - d1 * d6
+                    if vb <= 0 and d2 >= 0 and d6 <= 0:
+                        closest = tuple(a[i] + ac[i] * (d2 / (d2 - d6)) for i in range(3))
+                    else:
+                        va = d3 * d6 - d5 * d4
+                        if va <= 0 and (d4 - d3) >= 0 and (d5 - d6) >= 0:
+                            w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
+                            closest = tuple(b[i] + _sub(c, b)[i] * w for i in range(3))
+                        else:
+                            denom = 1.0 / (va + vb + vc)
+                            closest = tuple(a[i] + ab[i] * (vb * denom)
+                                            + ac[i] * (vc * denom) for i in range(3))
+    delta = _sub(point, closest)
+    return math.sqrt(_dot(delta, delta))
+
+
+def _ray_triangle_t(origin, direction, tri) -> float | None:
+    """Möller–Trumbore: the ray parameter of the hit, or None."""
+    a, b, c = tri
+    e1, e2 = _sub(b, a), _sub(c, a)
+    p = _cross(direction, e2)
+    det = _dot(e1, p)
+    if abs(det) < 1e-12:
+        return None
+    inv = 1.0 / det
+    s = _sub(origin, a)
+    u = _dot(s, p) * inv
+    if u < -1e-9 or u > 1.0 + 1e-9:
+        return None
+    q = _cross(s, e1)
+    v = _dot(direction, q) * inv
+    if v < -1e-9 or u + v > 1.0 + 1e-9:
+        return None
+    t = _dot(e2, q) * inv
+    return t if t > 0 else None
+
+
+def _segment_triangle_t(a, direction, tri) -> float | None:
+    """The segment parameter (0..1 along a→a+direction) of a transversal
+    pierce, or None — a coplanar segment does not pierce."""
+    t = _ray_triangle_t(a, direction, tri)
+    if t is None or t <= 0.0 or t >= 1.0:
+        return None
+    normal = _cross(_sub(tri[1], tri[0]), _sub(tri[2], tri[0]))
+    if abs(_dot(normal, direction)) < 1e-9 * max(1.0, math.sqrt(_dot(normal, normal))):
+        return None
+    return t
+
+
+def _placed_solid(part: PartReport) -> _Solid:
+    from .orca_adapter import read_stl_triangles
+
+    triangles = read_stl_triangles(Path(part.path))
+    if part.transform:
+        triangles = [[apply_transform(part.transform, point) for point in tri]
+                     for tri in triangles]
+    return _Solid(triangles)
+
+
+def _interpenetration(a: _Solid, b: _Solid):
+    """A point where the two solids interpenetrate, or None.
+
+    Two closed solids overlap in volume exactly when a vertex of one is
+    strictly inside the other, or an edge of one pierces a face of the
+    other with the edge's interior inside it (the crossing-slabs case,
+    where no vertex is inside). Aligned solids defeat both tests —
+    every candidate lies on a shared face plane — so two more witnesses
+    are tried: a face patch of one solid lying in the other solid's
+    volume (its centroid strictly inside), and coplanar faces
+    overlapping in area with both solids on the same side of the shared
+    plane (a point just off the shared patch, strictly inside both).
+    Flush contact satisfies none of these: its shared plane has the
+    solids on opposite sides.
+    """
+    for solid, other in ((a, b), (b, a)):
+        for vertex in solid.vertices:
+            if other.strictly_inside(vertex):
+                return vertex
+        for start, end in solid.edges:
+            for sample in other.segment_crossing_samples(start, end):
+                if other.strictly_inside(sample):
+                    return sample
+        for tri in solid.triangles:
+            centroid = tuple(sum(p[i] for p in tri) / 3.0 for i in range(3))
+            if other.strictly_inside(centroid):
+                return centroid
+    for point, normal in _coplanar_patches(a, b):
+        for side in (0.05, -0.05):
+            sample = tuple(point[i] + normal[i] * side for i in range(3))
+            if a._inside_state(sample) == 2 and b._inside_state(sample) == 2:
+                return sample
+    return None
+
+
+def _unit_normal(tri):
+    """The triangle's unit normal, or None for a degenerate triangle."""
+    normal = _cross(_sub(tri[1], tri[0]), _sub(tri[2], tri[0]))
+    length = math.sqrt(_dot(normal, normal))
+    if length <= 0:
+        return None
+    return tuple(v / length for v in normal)
+
+
+def _clip_polygon(subject, clip):
+    """The subject polygon clipped by the (convex) clip triangle's half
+    planes, Sutherland–Hodgman; boundary points are kept."""
+    def signed_area(poly):
+        return 0.5 * sum(poly[i][0] * poly[(i + 1) % len(poly)][1]
+                         - poly[(i + 1) % len(poly)][0] * poly[i][1]
+                         for i in range(len(poly)))
+
+    orient = 1.0 if signed_area(clip) >= 0 else -1.0
+
+    def inside(p, e0, e1):
+        cross = ((e1[0] - e0[0]) * (p[1] - e0[1])
+                 - (e1[1] - e0[1]) * (p[0] - e0[0]))
+        return cross * orient >= -1e-12
+
+    def intersect(p, q, e0, e1):
+        d = (q[0] - p[0], q[1] - p[1])
+        e = (e1[0] - e0[0], e1[1] - e0[1])
+        denom = d[0] * e[1] - d[1] * e[0]
+        if abs(denom) < 1e-18:
+            return q
+        t = ((e0[0] - p[0]) * e[1] - (e0[1] - p[1]) * e[0]) / denom
+        return (p[0] + d[0] * t, p[1] + d[1] * t)
+
+    polygon = list(subject)
+    for i in range(len(clip)):
+        e0, e1 = clip[i], clip[(i + 1) % len(clip)]
+        if not polygon:
+            break
+        out = []
+        prev = polygon[-1]
+        prev_in = inside(prev, e0, e1)
+        for cur in polygon:
+            cur_in = inside(cur, e0, e1)
+            if cur_in:
+                if not prev_in:
+                    out.append(intersect(prev, cur, e0, e1))
+                out.append(cur)
+            elif prev_in:
+                out.append(intersect(prev, cur, e0, e1))
+            prev, prev_in = cur, cur_in
+        polygon = out
+    return polygon
+
+
+def _polygon_centroid(polygon):
+    """The centroid of a simple polygon, or None when its area is not
+    positive (a shared edge or point is not a patch)."""
+    if len(polygon) < 3:
+        return None
+    twice_area = 0.0
+    cx = cy = 0.0
+    for i in range(len(polygon)):
+        x0, y0 = polygon[i]
+        x1, y1 = polygon[(i + 1) % len(polygon)]
+        cross = x0 * y1 - x1 * y0
+        twice_area += cross
+        cx += (x0 + x1) * cross
+        cy += (y0 + y1) * cross
+    if abs(twice_area) < 2e-9:  # area under 1e-9 mm^2 is not a patch
+        return None
+    return (cx / (3.0 * twice_area), cy / (3.0 * twice_area))
+
+
+def _coplanar_patches(a: _Solid, b: _Solid):
+    """(point, unit normal) for each positive-area overlap between a
+    face of ``a`` and a face of ``b`` lying in the same plane.
+
+    The point is the overlap region's centroid, on the shared plane.
+    Triangle pairs are narrowed by ``b``'s grid over each ``a`` face's
+    bounds; coplanarity is exacting (normals parallel, plane offset
+    within 1e-6 mm) and the 2D overlap is clipped exactly, so a shared
+    edge or corner — zero area — yields nothing.
+    """
+    for tri_a in a.triangles:
+        normal_a = _unit_normal(tri_a)
+        if normal_a is None:
+            continue
+        lo = tuple(min(p[i] for p in tri_a) for i in range(3))
+        hi = tuple(max(p[i] for p in tri_a) for i in range(3))
+        candidates = set()
+        for i in range(int(lo[0] // b.cell), int(hi[0] // b.cell) + 1):
+            for j in range(int(lo[1] // b.cell), int(hi[1] // b.cell) + 1):
+                for k in range(int(lo[2] // b.cell), int(hi[2] // b.cell) + 1):
+                    candidates.update(b.grid.get((i, j, k), ()))
+        drop = max(range(3), key=lambda i: abs(normal_a[i]))
+        axes = tuple(i for i in range(3) if i != drop)
+        proj_a = [(p[axes[0]], p[axes[1]]) for p in tri_a]
+        plane_d = _dot(normal_a, tri_a[0])
+        for idx in candidates:
+            tri_b = b.triangles[idx]
+            normal_b = _unit_normal(tri_b)
+            if normal_b is None or abs(abs(_dot(normal_a, normal_b)) - 1.0) > 1e-9:
+                continue
+            if abs(_dot(normal_a, tri_b[0]) - plane_d) > 1e-6:
+                continue
+            polygon = _clip_polygon(proj_a, [(p[axes[0]], p[axes[1]]) for p in tri_b])
+            centroid = _polygon_centroid(polygon)
+            if centroid is None:
+                continue
+            point = [0.0, 0.0, 0.0]
+            point[axes[0]], point[axes[1]] = centroid
+            rest = plane_d - sum(normal_a[i] * point[i] for i in axes)
+            point[drop] = rest / normal_a[drop]
+            yield tuple(point), normal_a
+
+
+def _overlap_band(a: _Solid, b: _Solid):
+    """A point where the solids' overlap sits inside the contact band,
+    or None.
+
+    Reached only when no interpenetration witness exists: a vertex of
+    one solid inside the other but within CONTACT_EPS_MM of its surface,
+    or a coplanar patch whose just-off-plane samples are inside both
+    solids but within the band of one. Such an overlap is real but no
+    deeper than the distance the check itself calls contact, so it
+    cannot honestly be reported as either a collision or as clearance.
+    """
+    for solid, other in ((a, b), (b, a)):
+        for vertex in solid.vertices:
+            if other._inside_state(vertex) == 1:
+                return vertex
+    for point, normal in _coplanar_patches(a, b):
+        for side in (0.05, -0.05):
+            sample = tuple(point[i] + normal[i] * side for i in range(3))
+            states = (a._inside_state(sample), b._inside_state(sample))
+            if states[0] >= 1 and states[1] >= 1 and states != (2, 2):
+                return sample
+    return None
+
+
+def check_assembly_collision(a: PartReport, b: PartReport) -> list[Finding]:
+    """Collision between two placed parts, from their placed geometry."""
+    pair = f"{a.name}|{b.name}"
+    alo, ahi = a.placed_bounds
+    blo, bhi = b.placed_bounds
+    overlap = [round(min(ahi[i], bhi[i]) - max(alo[i], blo[i]), 4) for i in range(3)]
+    evidence = {"a_bounds_mm": [list(alo), list(ahi)], "b_bounds_mm": [list(blo), list(bhi)],
+                "bounds_overlap_mm": overlap if all(v > 0 for v in overlap) else None}
+    if any(v <= 0 for v in overlap):
+        return [Finding("info", "assembly_no_collision",
+                        "placed bounding boxes do not overlap; the placed parts cannot collide",
+                        pair, evidence)]
+    solid_a, solid_b = _placed_solid(a), _placed_solid(b)
+    point = _interpenetration(solid_a, solid_b)
+    if point is None:
+        band = _overlap_band(solid_a, solid_b)
+        if band is not None:
+            evidence["contact_band_at_mm"] = [round(float(v), 4) for v in band]
+            return [Finding("warn", "assembly_collision_unchecked",
+                            "placed bounding boxes overlap and the solids meet within the "
+                            f"{CONTACT_EPS_MM:g} mm contact band, so the overlap cannot be "
+                            "told from contact at this resolution; it is reported as "
+                            "unchecked, not as clearance", pair, evidence)]
+        return [Finding("info", "assembly_no_collision",
+                        "placed bounding boxes overlap but the placed solids do not "
+                        "interpenetrate (contact or clearance only)", pair, evidence)]
+    evidence["interpenetration_at_mm"] = [round(float(v), 4) for v in point]
+    evidence["overlap_mm"] = overlap
+    return [Finding("fail", "assembly_collision",
+                    "the placed parts interpenetrate: their placed volumes overlap",
+                    pair, evidence)]
 
 
 def _mirror_key(name: str) -> str | None:
@@ -207,17 +745,45 @@ def _mirror_key(name: str) -> str | None:
 
 
 def review(stl_paths: Iterable[Path | str], *, bed_mm: Iterable[float], rack_units: int | None = None,
-           min_margin_mm: float = DEFAULT_MIN_MARGIN_MM, min_structural: int = 2) -> list[Finding]:
-    """Every check over a project's exported STLs, fails first."""
+           min_margin_mm: float = DEFAULT_MIN_MARGIN_MM, min_structural: int = 2,
+           declarations: dict | None = None, project: dict | None = None) -> list[Finding]:
+    """Every check over a project's exported STLs, fails first.
+
+    ``declarations`` maps a file name (or an exact path) to that part's
+    manifest declaration (``role`` / ``assembly_transform``); ``project``
+    is a whole project_v1 manifest, matched to the files by
+    :func:`declarations_from_project`. An explicit ``declarations`` entry
+    wins over the manifest for the same part.
+    """
     bed = tuple(bed_mm)
-    parts = [describe_part(p) for p in stl_paths]
+    paths = [Path(p) for p in stl_paths]
+    declared: dict[str, dict] = {}
+    if project is not None:
+        declared.update(declarations_from_project(project, paths))
+    for key, declaration in (declarations or {}).items():
+        match = [p for p in paths if str(p) == str(key) or p.name == str(key)]
+        for p in match:
+            declared[str(p)] = declaration
+    parts = [describe_part(p, declaration=declared.get(str(p))) for p in paths]
     findings: list[Finding] = []
     for part in parts:
         findings += check_part(part)
         if part.role != "reference":
             findings += check_bed_fit(part, bed, min_margin_mm)
-        if rack_units and part.role == "structural" and part.dims[2] >= rack_units * RACK_UNIT_MM * 0.5:
-            # Parts that span most of the rack height are the ears/brackets.
+        if part.declared_role == "rack_ear":
+            # Declared ears are checked because they were declared, at any height.
+            if rack_units:
+                findings += check_rack_ear(part, rack_units)
+            else:
+                findings.append(Finding(
+                    "warn", "rack_ear_unchecked",
+                    "declared a rack ear, but no rack size was supplied, so its panel "
+                    "clearance was not checked", part.name,
+                    {"declared_role": "rack_ear"}))
+        elif (part.role_source == "inferred" and rack_units and part.role == "structural"
+              and part.dims[2] >= rack_units * RACK_UNIT_MM * 0.5):
+            # Undeclared parts that span most of the rack height are
+            # still presumed ears/brackets, as before declarations existed.
             findings += check_rack_ear(part, rack_units)
         if part.role == "reference":
             findings.append(Finding("info", "reference_not_printable",
@@ -231,6 +797,24 @@ def review(stl_paths: Iterable[Path | str], *, bed_mm: Iterable[float], rack_uni
         if len(group) == 2:
             findings += check_mirrored_pair(*group)
     findings += check_project_shape(parts, min_structural)
+    placed = [p for p in parts if p.transform is not None]
+    unplaced = [p for p in parts if p.transform is None]
+    for part in placed:
+        lo, hi = part.placed_bounds
+        findings.append(Finding("info", "assembly_placement",
+                                "placed in the assembly by its declared transform", part.name,
+                                {"placed_bounds_mm": [[round(float(v), 4) for v in lo],
+                                                      [round(float(v), 4) for v in hi]],
+                                 "transform": part.transform}))
+    if placed and unplaced:
+        findings.append(Finding("warn", "assembly_placement_partial",
+                                "only some parts declare an assembly placement; transforms "
+                                "and collisions were checked only among the placed parts",
+                                None, {"placed": [p.name for p in placed],
+                                       "unplaced": [p.name for p in unplaced]}))
+    for i, a in enumerate(placed):
+        for b in placed[i + 1:]:
+            findings += check_assembly_collision(a, b)
     order = {"fail": 0, "warn": 1, "info": 2}
     return sorted(findings, key=lambda f: (order[f.level], f.part or "", f.code))
 
@@ -245,11 +829,21 @@ def summary_text(findings: list[Finding]) -> str:
         lines.append(f"{f.level.upper()}{where}: {f.message}")
     fails = sum(f.level == "fail" for f in findings)
     warns = sum(f.level == "warn" for f in findings)
-    lines.append(f"{fails} failure(s), {warns} warning(s). Not checked: assembly transforms and "
-                 "collisions, fastener fit, load, heat, slicer toolpaths.")
+    codes = {f.code for f in findings}
+    if "assembly_placement_partial" in codes:
+        tail = ("Assembly transforms and collisions were checked only for the placed "
+                "parts; the rest have no declared placement. Not checked: fastener fit, "
+                "load, heat, slicer toolpaths.")
+    elif codes & {"assembly_collision", "assembly_no_collision", "assembly_collision_unchecked"}:
+        tail = "Not checked: fastener fit, load, heat, slicer toolpaths."
+    else:
+        tail = ("Not checked: assembly transforms and collisions (no part declares an "
+                "assembly placement), fastener fit, load, heat, slicer toolpaths.")
+    lines.append(f"{fails} failure(s), {warns} warning(s). {tail}")
     return "\n".join(lines)
 
 
-__all__ = ["Finding", "PartReport", "RACK_UNIT_MM", "check_bed_fit", "check_mirrored_pair",
-           "check_part", "check_project_shape", "check_rack_ear", "describe_part",
+__all__ = ["Finding", "PartReport", "RACK_UNIT_MM", "apply_transform", "check_assembly_collision",
+           "check_bed_fit", "check_mirrored_pair", "check_part", "check_project_shape",
+           "check_rack_ear", "declarations_from_project", "describe_part",
            "panel_clearance_mm", "part_role", "review", "summary_text"]

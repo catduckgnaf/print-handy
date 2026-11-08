@@ -59,14 +59,14 @@ def _reset_native_state(monkeypatch):
 
 # ------------------------------------------------------------ corpus: Python
 
-@pytest.mark.parametrize("text,expected", zip(CASES, EXPECTED), ids=range(len(CASES)))
+@pytest.mark.parametrize("text,expected", list(zip(CASES, EXPECTED)), ids=range(len(CASES)))
 def test_python_parser_matches_the_frozen_corpus(text, expected):
     assert _outcome(model_job._gcode_motion_bounds_python, text) == expected
 
 
 # ------------------------------------------------------------ corpus: native
 
-@pytest.mark.parametrize("text,expected", zip(CASES, EXPECTED), ids=range(len(CASES)))
+@pytest.mark.parametrize("text,expected", list(zip(CASES, EXPECTED)), ids=range(len(CASES)))
 def test_native_parser_matches_the_frozen_corpus(text, expected):
     module = _native_module()
     if module is None:
@@ -85,7 +85,7 @@ def test_native_module_reports_the_expected_api_version():
 
 # --------------------------------------------------------- corpus: dispatch
 
-@pytest.mark.parametrize("text,expected", zip(CASES, EXPECTED), ids=range(len(CASES)))
+@pytest.mark.parametrize("text,expected", list(zip(CASES, EXPECTED)), ids=range(len(CASES)))
 def test_dispatcher_matches_the_frozen_corpus(text, expected):
     assert _outcome(model_job.gcode_motion_bounds, text) == expected
 

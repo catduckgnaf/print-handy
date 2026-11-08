@@ -208,6 +208,9 @@ Rules the repair keeps:
   each one, and offers "Apply, but keep the openings open" beside the normal
   Apply. Small or ragged holes are damage and are filled. A rim that runs
   through one vertex twice is split into simple loops before filling.
+  When a repair fills damage holes, the confirmation also warns plainly
+  that filling seals those openings: if the part is meant to have openings,
+  check the preview and do not apply.
 - **When a mesh repair refuses.** It refuses, and nothing is applied, when
   it would change nothing, when the result would still have non-manifold
   edges (three or more faces on one edge, which needs a full remesh), or
