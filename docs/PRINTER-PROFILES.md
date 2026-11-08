@@ -1,5 +1,54 @@
 # Printer profiles and post-slice delivery
 
+## Find your printer
+
+Every printer Print Handy knows has a **profile**: its bed size, its
+nozzles, how it takes filament, and how a finished slice gets to it.
+You pick yours with one setting — the **model key**, written
+`vendor.printer` — and Print Handy handles the rest. Find your brand,
+follow its guide, and you are done here; everything below the picker
+is reference for people who want the details.
+
+| Brand | Printers | How Print Handy reaches it | Start with |
+| --- | --- | --- | --- |
+| Flashforge (ZMod) | AD5X, AD5M, AD5M Pro, Creator 5, Creator 5 Pro | Moonraker on your network | [AD5X best practices](./DEVICE-AD5X.md) · [ZMod](./ZMOD.md) |
+| Flashforge (stock) | AD5X on factory firmware | The printer's own LAN interface | [Stock Flashforge](./FLASHFORGE-STOCK.md) |
+| Bambu Lab | A1, A1 mini, P1P, P1S, P2S, X1, X1C, X1E, H2S, A2L, plus the dual-nozzle H2D, H2D Pro, X2D and H2C | Slices locally; print starts are opt-in over the LAN | [Bambu Lab](./BAMBU-LAB.md) |
+| Prusa | MK4S, Core One, XL, MINI+ | PrusaLink on your network | [Prusa](./PRUSA.md) |
+| Elegoo | Neptune 4, 4 Pro, 4 Plus, 4 Max; Centauri Carbon | Moonraker, or SDCP for the Centauri | [Elegoo](./ELEGOO.md) |
+| Creality | Ender-3 V3, V3 KE, V3 Plus, K1, K1C, K1 Max | Moonraker | [Creality](./CREALITY.md) |
+| Qidi | Q1 Pro, X-Plus 3, X-Plus 4, X-Max 3, X-Smart 3 | Moonraker | [Qidi](./QIDI.md) |
+| Anycubic | Kobra 2, 2 Neo, 2 Pro, 2 Plus, 2 Max | Moonraker on community firmware; Marlin models through OctoPrint | [Anycubic](./ANYCUBIC.md) |
+| Sovol | The Klipper line (SV06, SV08 and friends), Marlin models through OctoPrint | Moonraker or OctoPrint | [Sovol](./SOVOL.md) |
+| Snapmaker | U1 | Moonraker | [Snapmaker](./SNAPMAKER.md) |
+| Any other Klipper printer | Yours not listed? `klipper.generic` is the catch-all | Moonraker | [Printer support](./PRINTER-SUPPORT.md) |
+| Marlin printers | Ender-3 family and other Marlin machines | OctoPrint | [OctoPrint / Marlin](./OCTOPRINT-MARLIN.md) |
+
+One honest note: a profile existing means Print Handy knows the
+printer's shape and has tested the slicing path — it does not promise
+someone has run that exact printer on real hardware. Each brand guide
+says what has actually been verified. The Bambu Lab H3C is the one
+known gap: it is recorded but not yet selectable, because the pinned
+OrcaSlicer carries no profiles for it.
+
+### In plain words
+
+- **Colors.** A printer is one of three shapes: *single* (one
+  filament), *multi-slot* (one extruder fed by several slots — the
+  AD5X's IFS, a Bambu AMS), or *multi-tool* (several independent
+  toolheads, like the Creator 5 or Prusa XL). The shape decides how
+  Print Handy asks about colors and matches spools.
+- **Warmth.** Enclosures, chamber heaters and fans are recorded per
+  printer — but only when a real source (firmware, vendor docs, a
+  checked profile) proves them. "Unknown" stays unknown rather than
+  guessed.
+- **After a slice.** Your printer's profile decides what you are
+  offered: start the print, have the files sent to the chat, or — for
+  Bambu — a packaged file to hand off. The full menu and its safety
+  rules are under [After a slice](#after-a-slice) below.
+
+## How profiles are put together (the technical version)
+
 Printer support is organised **vendor first, then printer**. A vendor profile holds what all of a vendor's printers share. Each printer profile holds only what is different about that printer, and inherits everything else from its vendor. The options offered after a slice (print, send the files to Discord, package for Bambu) come from these profiles. A Bambu printer offers the Bambu handoff; a Klipper printer never does.
 
 ## Layout
@@ -46,7 +95,7 @@ print_handy/printers/
                          MODEL   #127 Stage 1: the remaining single-nozzle models, same shape as the P1S
                                  (a2l.py joined in #356, from OrcaSlicer v2.5.0-alpha's profiles)
     h2d.py, h2dpro.py, x2d.py, h2c.py
-                         MODEL   The dual-nozzle models (#127 Stage 2, #308; h2c.py joined in #356)
+                         MODEL   The dual-nozzle models
   prusa/
     __init__.py          VENDOR  Prusa: PrusaLink LAN, slicer-owned start code, OrcaSlicer, .gcode/.bgcode
     mk4s.py              MODEL   prusa.mk4s: 250 x 210 mm bed, 220 mm height, single tool
@@ -127,7 +176,7 @@ The loaded settings also carry `printer.vendor`, `printer.slicer` and `delivery.
 ## Color architectures
 
 Every model names its color architecture in `MODEL.color_system` (and in the printer
-registry), one of three classes (issue #656):
+registry), one of three classes:
 
 | Class | Meaning | Models |
 |---|---|---|
@@ -141,7 +190,7 @@ architecture from counts or adapter flags. The classes are mutually exclusive by
 construction, and a model whose settings contradict its class (`filament_slots` above 1
 outside `multi_slot`, `tool_count` above 1 outside `multi_tool`) is refused when the
 profile loads. One recorded posture: the dual-nozzle Bambu models (H2D, H2D Pro,
-X2D, H2C) are `single` deliberately (#671): two independent extruders, each fed by
+X2D, H2C) are `single` deliberately: two independent extruders, each fed by
 its own AMS, are neither the one-extruder `multi_slot` shape nor the `multi_tool`
 tool-changer contract, so neither class is claimed for them; the slicer assigns
 their filaments to extruders in the file itself, and print starts resolve AMS trays
@@ -151,7 +200,7 @@ per filament slot. The Prusa XL's Stage 1 posture ended with #670: it is
 ## Thermal capabilities
 
 Every registered model carries a structured thermal record in its
-`[printer.thermal]` table in `print_handy/data/printers-registry/<vendor>.toml` (issue #720),
+`[printer.thermal]` table in `print_handy/data/printers-registry/<vendor>.toml`,
 loaded as `PrinterEntry.thermal` by `print_handy/knowledge/registry.py` and
 surfaced by `print_handy/knowledge/thermal.py`:
 
@@ -180,7 +229,7 @@ surfaced by `print_handy/knowledge/thermal.py`:
   verified index or macro name or `unknown`. Orca's documented convention
   (M106 P0 part, P2 auxiliary, P3 exhaust) is not assumed to be a model's
   actual wiring — a mapping is recorded only when a source names the
-  index, macro, or fan object for that model (issue #740). Print Handy's
+  index, macro, or fan object for that model. Print Handy's
   own Orca templates are never evidence: they carry boilerplate accessory
   values even on open-frame models.
 - **Provenance:** each fact group (enclosure, chamber, fans) names its
@@ -205,7 +254,7 @@ Two surfaces use the record, and neither changes any behavior:
   unknown shown as unknown, so the operator sees what was assumed before
   confirming.
 
-### Per-printer facts from the connected printer (#741)
+### Per-printer facts from the connected printer
 
 Some facts differ per install: an optional fan kit, a chamber reading the
 connected surface may or may not carry, a fan mapping the vendor never
@@ -315,7 +364,7 @@ After **Slice only**:
 - **More options enabled**: one menu with the options the profile enables:
   - **Start next plate · bed is clear**: the same per-job bed-clear button, and still the only way to print. It runs every existing print-now gate.
   - **Send the files here** (`discord`): attaches each plate's file to the thread.
-  - **Package for Bambu (no upload)** (`bambu_handoff`): builds a `.gcode.3mf` per plate, with the plate preview PNGs the printer and the Bambu apps show (#275).
+  - **Package for Bambu (no upload)** (`bambu_handoff`): builds a `.gcode.3mf` per plate, with the plate preview PNGs the printer and the Bambu apps show.
   - **Done, don't print**
 
   After a delivery the menu returns without that option ("Anything else for this slice?"). Each method runs to completion at most once per slice.
@@ -332,11 +381,11 @@ Slicer choice, file delivery, printer handoff and print authorization are separa
 
 Every file is one message with one `MEDIA:` attachment, labelled "Plate n of m". A summary line follows: "Sent n of m file(s) here. Too big for Discord: ... Failed: ...".
 
-**Said before the button, not after (#272).** The post-slice menu sizes each file before it offers "Send the files here". A plain `.gcode` over the cap is deflated once, in memory, to learn what its zip would weigh; a `.gcode.3mf` package counts as is. A file that cannot fit in any form is named in the same message with its size, the cap and its path on the Print Handy host (for a Bambu package, `<archive>/<job>/sliced/.../bambu/plate_1.gcode.3mf`), and when nothing fits the button is left out, so the operator never picks a download that fails. Files under the cap are attached exactly as before. The per-file check at send time stays as a safety net for a borderline file. The cap is [`discord.upload_max_bytes`](SETTINGS.md) (`PRINT_HANDY__DISCORD__UPLOAD_MAX_BYTES`); raise it only when your server's boost level allows larger uploads. Large files stay on the host; Print Handy has no download server, so fetch them from the archive path it names.
+**Said before the button, not after.** The post-slice menu sizes each file before it offers "Send the files here". A plain `.gcode` over the cap is deflated once, in memory, to learn what its zip would weigh; a `.gcode.3mf` package counts as is. A file that cannot fit in any form is named in the same message with its size, the cap and its path on the Print Handy host (for a Bambu package, `<archive>/<job>/sliced/.../bambu/plate_1.gcode.3mf`), and when nothing fits the button is left out, so the operator never picks a download that fails. Files under the cap are attached exactly as before. The per-file check at send time stays as a safety net for a borderline file. The cap is [`discord.upload_max_bytes`](SETTINGS.md) (`PRINT_HANDY__DISCORD__UPLOAD_MAX_BYTES`); raise it only when your server's boost level allows larger uploads. Large files stay on the host; Print Handy has no download server, so fetch them from the archive path it names.
 
 **Failures and retries.** A failed upload (the adapter reports `success=False`, or the send raises) is reported with the error, and the option stays in the menu. A retry sends only the files not yet delivered. Too-big files cannot be fixed by a retry, so they count as reported and the option closes. Every attempt is recorded under `deliveries` in the intake receipt. Expiry and cancellation behave as before.
 
-## Projects from another printer or slicer (#868)
+## Projects from another printer or slicer
 
 A 3MF made for another printer (a Bambu Lab project from MakerWorld, an Orca project for a Creality, a PrusaSlicer project) carries that printer's whole profile. Print Handy never slices with it. It slices from the target printer's own Orca template and copies back only the settings that describe the model rather than the machine. The rules follow the ones [ForgeBridge](https://forgebridge.app/) publishes for converting projects to Flashforge printers; the key tables and the code are Print Handy's own.
 
@@ -365,7 +414,7 @@ If the operator turns supports off for the job, no support spool is loaded. A de
 
 **Protected settings.** Every Flashforge printer (AD5X, AD5M, AD5M Pro, Creator 5, Creator 5 Pro and the stock AD5X) ships an approved protected-settings baseline, so a slice whose start or end G-code differs from the approved one is refused instead of only warned about. The AD5X's came from a real slice. The other five were approved with the same `approve-baseline` command from each model's slice header rebuilt from its templates, the method that reproduces the AD5X's real approval exactly, and the real-slicer CI test checks each against Orca's own output.
 
-**Height-based color changes (#870).** A project can change color by layer height (`Metadata/custom_gcode_per_layer.xml`, ChromaCanvas-style prints and signs). Those tool changes are carried: each extruder they switch to is asked about like any other source color, and the changes are written into the sliced geometry with the extruders remapped to the slots or toolheads the operator picked, so the print changes tool at the recorded heights. On a single-extruder printer (AD5M, AD5M Pro, stock AD5X) the operator chooses instead: pause at each change height and swap the filament by hand, or print in one color — the question names the colors and heights that would be lost, and the choice is recorded on the job, never left silent. Pauses and custom G-code in the same file are reported in the inventory but not carried. On a derived single-color plate the file still travels byte for byte, and the post-slice guard refuses a plate whose G-code changes to a tool the plate does not have.
+**Height-based color changes.** A project can change color by layer height (`Metadata/custom_gcode_per_layer.xml`, ChromaCanvas-style prints and signs). Those tool changes are carried: each extruder they switch to is asked about like any other source color, and the changes are written into the sliced geometry with the extruders remapped to the slots or toolheads the operator picked, so the print changes tool at the recorded heights. On a single-extruder printer (AD5M, AD5M Pro, stock AD5X) the operator chooses instead: pause at each change height and swap the filament by hand, or print in one color — the question names the colors and heights that would be lost, and the choice is recorded on the job, never left silent. Pauses and custom G-code in the same file are reported in the inventory but not carried. On a derived single-color plate the file still travels byte for byte, and the post-slice guard refuses a plate whose G-code changes to a tool the plate does not have.
 
 **The rules in one table.** What happens to each kind of setting in a foreign project, on every Flashforge model (AD5X stock and ZMod, AD5M, AD5M Pro, Creator 5, Creator 5 Pro):
 
@@ -379,13 +428,13 @@ If the operator turns supports off for the job, no support spool is loaded. A de
 | Layer height | **Replaced** — the fitted nozzle's tuned default (the owner's decision: a carried layer height is not kept) |
 | Temperatures | **Replaced, never clamped** — the loaded spool's values (Spoolman wins); a job whose spool temperature is out of range is refused, not adjusted |
 | A dedicated support / interface filament | **Kept** — asked about at intake, loaded, and pointed at (see above); on a one-filament plate or a single-extruder job it prints in the job's filament |
-| Height-based color changes | **Kept** — asked about and remapped (#870); single-extruder printers get the recorded pause-or-one-color choice |
+| Height-based color changes | **Kept** — asked about and remapped; single-extruder printers get the recorded pause-or-one-color choice |
 | `inherits`, `different_settings_to_system`, preset bookkeeping | **Dropped** — cleared, so nothing is re-applied as a "user change" over the job's profile |
 | Foreign keys the job's profile does not set and Print Handy does not keep (machine, motion, temperature and G-code names) | **Dropped** on any copy Orca reads directly; on rebuilt routes they never enter the export |
 | Prime tower | **Rebuilt** — the job's tower at the job's effective width, kept inside the bed; only the author's on/off intent informs it |
 | The prime-tower / purge behavior of the source printer (AMS, chute, vendor macros) | **Dropped** — the target printer's own purge rules apply |
 
-**The audit behind the table (#867).** A PrusaSlicer project and a Bambu-derivative (Creality/Orca) project were run through every Flashforge model, whole-model and as a derived plate, and each combination's kept / replaced / dropped sets were checked against what Orca actually reads (`tests/pipeline/test_foreign_audit_matrix.py`); the PrusaSlicer fixture also slices with the real Orca in CI (`tests/slicer/test_prusa_foreign_real.py`), supports printing in the designated support spool included. Every cell came out the same, which is the point of the table above:
+**The audit behind the table.** A PrusaSlicer project and a Bambu-derivative (Creality/Orca) project were run through every Flashforge model, whole-model and as a derived plate, and each combination's kept / replaced / dropped sets were checked against what Orca actually reads (`tests/pipeline/test_foreign_audit_matrix.py`); the PrusaSlicer fixture also slices with the real Orca in CI (`tests/slicer/test_prusa_foreign_real.py`), supports printing in the designated support spool included. Every cell came out the same, which is the point of the table above:
 
 | Source | AD5X (ZMod and stock) | AD5M / AD5M Pro | Creator 5 / Creator 5 Pro |
 |---|---|---|---|
@@ -396,11 +445,11 @@ If the operator turns supports off for the job, no support spool is loaded. A de
 
 **If a project still does not convert well.** Print Handy converts locally and never sends a file anywhere. As a manual fallback, an operator can run the file through [ForgeBridge](https://forgebridge.app/) — Rodrigo Mass's Bambu/Prusa → Flashforge converter, whose published rules this conversion follows — and then drop the converted file into Print Handy like any other model. Print Handy will treat the converted project as a Flashforge project and apply the same rules above to whatever author intent it still carries.
 
-## Source-profile compatibility warnings (#722)
+## Source-profile compatibility warnings
 
 A model's project settings can name the printer they were authored for (`printer_model_id` / `printer_settings_id` in `project_settings.config`). When that printer is demonstrably not the target printer (an exact name match after ignoring case, separators and a nozzle suffix, against the target label and the `printer_model` / `printer_settings_id` its own machine template declares; a variant such as "Kobra 2 Pro" is never treated as "Kobra 2"), Print Handy compares the authored motion and fan values against the target's verified facts — the axis speed and acceleration limits in its own machine template, and the 0–100% fan scale, checked for every filament in a multi-filament project — and shows a warning on the slice confirmation for each value outside them, naming the value, the source profile it came from, and the target fact it conflicts with. Values with no verified target range (wall count, brim width) are never warned about, and a source that names no printer produces no warnings.
 
-The values a warning names are not used for slicing. Print Handy slices from the target printer's own template and carries over only the author-intent settings listed under [Projects from another printer or slicer](#projects-from-another-printer-or-slicer-868); speeds come from the template unless the designer set one lower, and accelerations and fan values always do. The warning says so ("Print Handy does not slice with this value; the <printer> profile's own setting is used."). Warnings change nothing themselves. The precedence is: template/vendor profile first, then the carried author-intent settings, the filament-family overlay, material-variant adjustments, and operator/spool values last (they win).
+The values a warning names are not used for slicing. Print Handy slices from the target printer's own template and carries over only the author-intent settings listed under [Projects from another printer or slicer](#projects-from-another-printer-or-slicer); speeds come from the template unless the designer set one lower, and accelerations and fan values always do. The warning says so ("Print Handy does not slice with this value; the <printer> profile's own setting is used."). Warnings change nothing themselves. The precedence is: template/vendor profile first, then the carried author-intent settings, the filament-family overlay, material-variant adjustments, and operator/spool values last (they win).
 
 ## Bambu Lab
 
@@ -408,14 +457,14 @@ The values a warning names are not used for slicing. Print Handy slices from the
 |---|---|
 | Vendor profile, settings, delivery options | Implemented. Printer profiles: A1, A1 mini, P1P, P1S, P2S, X1, X1 Carbon, X1E, H2S (every single-nozzle model); LAN status/upload/start are opt-in (see BAMBU-LAB.md) |
 | Start-code guard | Implemented. After slicing, and again before packaging, every G-code line for a Bambu printer must be a plain G, M or T code. Klipper or ZMod macros (`PRINT_START`, `START_PRINT ... MESH=`, `CHANGE_ZCOLOR`, `LOAD_ZOFFSET`, `BED_MESH_*`) block the slice or the package |
-| `.gcode.3mf` packaging | Implemented, offline and deterministic. Contents: `Metadata/plate_<n>.gcode`, its upper-case MD5 in `Metadata/plate_<n>.gcode.md5`, `Metadata/slice_info.config` with the plate index and nozzle, and an empty `3D/3dmodel.model`, plus the plate previews `Metadata/plate_<n>.png` (512 px) and `Metadata/plate_<n>_small.png` (128 px) from Orca's embedded thumbnail or an offline render of the sliced geometry (#275; `top_<n>.png` and `pick_<n>.png` are not written), laid out the way Bambu Studio exports a sliced plate. **Not yet verified on Bambu hardware or in Bambu Studio.** `printer_model_id` is not written |
+| `.gcode.3mf` packaging | Implemented, offline and deterministic. Contents: `Metadata/plate_<n>.gcode`, its upper-case MD5 in `Metadata/plate_<n>.gcode.md5`, `Metadata/slice_info.config` with the plate index and nozzle, and an empty `3D/3dmodel.model`, plus the plate previews `Metadata/plate_<n>.png` (512 px) and `Metadata/plate_<n>_small.png` (128 px) from Orca's embedded thumbnail or an offline render of the sliced geometry, laid out the way Bambu Studio exports a sliced plate. **Not yet verified on Bambu hardware or in Bambu Studio.** `printer_model_id` is not written |
 | Discord delivery | Implemented. Bambu Lab's primary format is `.gcode.3mf`, so "Send the files here" sends the packages |
 | Bambu Studio as the primary slicer | Implemented, opt-in with `printer.slicer: bambu_studio`, allowed only by the Bambu Lab profile. Runs the configured `[bambu] command` (Flathub Bambu Studio with `--unshare=network`) with the same CLI flags as the existing fallback: `--datadir`, `--load-settings`, `--load-filaments`, `--arrange`/`--orient`, `--slice 0`, `--outputdir`. Orca is not run and there is no fallback. Every Print Handy guard still applies to its output. The real-slicer CI job covers OrcaSlicer only, so this path is tested with a mocked CLI |
-| LAN upload | Implemented opt-in (#187 stage c): FTPS upload with size readback, used by the gated LAN print path. Cloud upload is unsupported. Read-only LAN MQTT *status* is separate — see the telemetry row in [BAMBU-LAB](BAMBU-LAB.md) |
-| Starting a print | Opt-in (#187 stage d): the Start button appears only when the operator adds `printer` to `[delivery] methods`, with LAN configured and the printer in Developer Mode; the start then runs every gate (readiness twice, bed-clear approval, verified upload, telemetry confirmation). Otherwise no Start button is offered — open the package in Bambu Studio or Bambu Handy, or copy it to the SD card |
+| LAN upload | Implemented opt-in: FTPS upload with size readback, used by the gated LAN print path. Cloud upload is unsupported. Read-only LAN MQTT *status* is separate — see the telemetry row in [BAMBU-LAB](BAMBU-LAB.md) |
+| Starting a print | Opt-in: the Start button appears only when the operator adds `printer` to `[delivery] methods`, with LAN configured and the printer in Developer Mode; the start then runs every gate (readiness twice, bed-clear approval, verified upload, telemetry confirmation). Otherwise no Start button is offered — open the package in Bambu Studio or Bambu Handy, or copy it to the SD card |
 | Pausing or stopping a print | Commands exist on the LAN client; the external Discord print-control module does not call them yet |
 | Telemetry | Read-only and opt-in: with `[bambu] lan_host`/`lan_serial` configured, the health check reads one LAN MQTT status snapshot. No listener. **Not tested on a printer** |
-| AMS / AMS Lite multi-color | Unsupported, per the printer profile (issue #127) |
+| AMS / AMS Lite multi-color | Unsupported, per the printer profile |
 | H3C tool changer | Initial support only: sourced facts and the `32X` HMS serial prefix are recorded (`facts.py`), and H3C fault texts resolve per model once the HMS table regenerated from Bambu Studio 02.09.01.70 is in. Not a selectable model — the pinned OrcaSlicer carries no H3C profiles, so no checked identity exists yet. Unverified on hardware; see [BAMBU-LAB.md](BAMBU-LAB.md) |
 
 Bambu Studio is not treated as a submission path. Picking it as the slicer changes only which program writes the G-code. Live upload or print control would need its own evaluation of firmware, LAN versus cloud authentication and credential handling before any of it is built.

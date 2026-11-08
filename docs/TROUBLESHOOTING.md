@@ -1,7 +1,7 @@
 # Troubleshooting: lookups and guided physical diagnosis
 
 Print Handy keeps its troubleshooting knowledge in root-level registries so a
-person browsing the repository and the bot read the same source (issue #169):
+person browsing the repository and the bot read the same source:
 
 | Registry | What is in it |
 | --- | --- |

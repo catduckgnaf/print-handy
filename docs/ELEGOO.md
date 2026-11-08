@@ -27,11 +27,11 @@ The resources folder holds `profiles/Elegoo.json` and `profiles/Elegoo/`, or —
 
 ## Neptune 4 family (Moonraker)
 
-The Neptunes run stock Klipper, so everything Moonraker-shaped works the way it does for any Klipper printer: set `services.moonraker_url` to the printer on the standard Moonraker port 7125 (for example `http://192.168.1.60:7125`) and Print Handy uploads, starts and watches prints through the usual path, with `printer` delivery on by default. That `:7125` endpoint is the verified stock-firmware endpoint (#288, confirmed 2026-10-26); it supersedes the port-80 guidance briefly documented by #322, which rested on documentary sources only — the printer's port-80 web interface is not the endpoint to configure here. Self-installed Mainsail, Fluidd or OpenNept4une setups use the same `:7125` address. What the dedicated `elegoo` vendor adds over `klipper.generic` is the correct bed size per model and the pinned templates: the generic profile's 220 × 220 × 250 mm defaults match no Neptune and would silently mis-slice.
+The Neptunes run stock Klipper, so everything Moonraker-shaped works the way it does for any Klipper printer: set `services.moonraker_url` to the printer on the standard Moonraker port 7125 (for example `http://192.168.1.60:7125`) and Print Handy uploads, starts and watches prints through the usual path, with `printer` delivery on by default. That `:7125` endpoint is the verified stock-firmware endpoint; it supersedes the port-80 guidance briefly documented by #322, which rested on documentary sources only — the printer's port-80 web interface is not the endpoint to configure here. Self-installed Mainsail, Fluidd or OpenNept4une setups use the same `:7125` address. What the dedicated `elegoo` vendor adds over `klipper.generic` is the correct bed size per model and the pinned templates: the generic profile's 220 × 220 × 250 mm defaults match no Neptune and would silently mis-slice.
 
 Elegoo's Neptune start G-code is a self-contained sequence in the file (their profiles do not call a `PRINT_START` macro), so the guard checks the file carries that template start, names this model, and stays within the model's published limits (300 °C nozzle, 110 °C bed) — and refuses other ecosystems' start code, including a bare `PRINT_START` macro call.
 
-In the combined Docker container the Neptune models behave like any other Moonraker printer: the supervisor starts the Moonraker listener and the healthcheck requires its heartbeat (#256) — see [Which processes run](DOCKER.md#which-processes-run).
+In the combined Docker container the Neptune models behave like any other Moonraker printer: the supervisor starts the Moonraker listener and the healthcheck requires its heartbeat — see [Which processes run](DOCKER.md#which-processes-run).
 
 ## Centauri Carbon (SDCP, opt-in)
 
@@ -57,12 +57,12 @@ There is no SDCP listener, so a print Print Handy launches is followed by a laun
 
 `services.moonraker_url` and `services.octoprint_url` must stay empty for a Centauri model; settings refuse to load otherwise.
 
-In the combined Docker container the supervisor honours that (#256): for a Centauri Carbon model it does not start the Moonraker listener at all, and the healthcheck does not require one, so the container starts, stays up and reports healthy with just the bot (with a token) and the bundled Spoolman — see [Which processes run](DOCKER.md#which-processes-run).
+In the combined Docker container the supervisor honors that: for a Centauri Carbon model it does not start the Moonraker listener at all, and the healthcheck does not require one, so the container starts, stays up and reports healthy with just the bot (with a token) and the bundled Spoolman — see [Which processes run](DOCKER.md#which-processes-run).
 
 ## What is not supported
 
 - The open-frame Centauri and the Centauri Carbon 2 / Centauri 2 (profiles exist in Orca; follow-ups on #243 once their SDCP behaviour is confirmed to match).
 - Elegoo resin printers (Mars/Saturn/Jupiter) and their `.goo` files.
-- Fan control over SDCP (not wired up). The chamber light **is** wired, as the auto light-off's target (#516 follow-up): Cmd 403 (`LightStatus.SecondLight`) turns it on at print start. (Cmd 386 is the video-stream enable in published SDCP command tables, not a light command.) Auto-off still cannot run on SDCP — see the timelapse note below.
+- Fan control over SDCP (not wired up). The chamber light **is** wired, as the auto light-off's target: Cmd 403 (`LightStatus.SecondLight`) turns it on at print start. (Cmd 386 is the video-stream enable in published SDCP command tables, not a light command.) Auto-off still cannot run on SDCP — see the timelapse note below.
 - Timelapse video for launched Centauri prints: the monitor and the shared capture/encode pipeline are in place, but no SDCP camera endpoint is verified, so completion posts carry no video until one is (see above).
 - Any claim of a successful print on real hardware.

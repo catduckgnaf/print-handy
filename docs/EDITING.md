@@ -142,7 +142,7 @@ the edit (with its confirmation and re-slice) or answers the question
 against the job that intake just prepared. Plain intake text such as
 "print this" is not treated as an instruction.
 
-## "Fix this for my printer" (#978)
+## "Fix this for my printer"
 
 "fix this", "repair this" or "make this printable" after a file or job is
 not an edit: it starts the repair flow. The heavy AI tier (`ai.heavy`)

@@ -1,6 +1,6 @@
-# Diagnostics: error taxonomy, markers and the audit inventory (#390)
+# Diagnostics: error taxonomy, markers and the audit inventory
 
-Print Handy's diagnostics overhaul (issue #390, milestone 2.1.6) gives every
+Print Handy's diagnostics overhaul gives every
 failure one vocabulary, one searchable marker, and one operator-facing bar:
 a message says **what failed**, the **most likely cause**, and **what the
 operator can do about it**. No bare exception text, no silent drops, and no
@@ -35,7 +35,7 @@ stay searchable. The one rename that has happened is #590: the prefix was
 Handy) from this change on; the alias table under
 [Reference codes](#reference-codes) maps every old code to its new one so
 old reports stay searchable. The pre-#390
-marker `DISCORD_STARTUP_RETRY` (#364/#369) is registered as a legacy marker
+marker `DISCORD_STARTUP_RETRY` is registered as a legacy marker
 in `print_handy.diagnostics.LEGACY_MARKERS` and likewise never changes.
 
 ## Reference codes
@@ -73,7 +73,7 @@ Fixed codes that are not built from a subsystem/category pair:
 | `PH_DEBUG_CONFIGURATION` | A debug-mode state problem, or the marker carried on the "debug mode: ON" line while a session is live. |
 | `PH_LOGGING_CONFIGURATION` | The folder of the configured `[logging] file` does not exist or is not writable, so the log file is not being written. |
 | `PH_LISTENER_TRANSIENT` | A required printer listener's heartbeat is unhealthy (stale, wrong identity, or not answering). |
-| `DISCORD_STARTUP_RETRY` | Legacy log marker (never had a prefix): a Discord login failed transiently at startup and is being retried with backoff (#364/#369). Unchanged by #590. |
+| `DISCORD_STARTUP_RETRY` | Legacy log marker (never had a prefix): a Discord login failed transiently at startup and is being retried with backoff. Unchanged by #590. |
 
 Old codes (`PB_`, before #590) and their replacements — search an old
 report's code here to find the code current versions emit:
@@ -89,7 +89,7 @@ report's code here to find the code current versions emit:
 | `PB_LOGGING_CONFIGURATION` | `PH_LOGGING_CONFIGURATION` |
 | `PB_LISTENER_TRANSIENT` | `PH_LISTENER_TRANSIENT` |
 
-## Error code catalog: one linked section per code (#924)
+## Error code catalog: one linked section per code
 
 Since #924, the `Reference:` line at the end of a chat failure post is a
 link: `Reference: [PH_INTAKE_CONFIGURATION](https://catduckgnaf.github.io/print-handy-docs/diagnostics#ph-intake-configuration)`.
@@ -461,7 +461,7 @@ or send a different version.
 **What to do:** free memory on the host or send a simpler,
 lower-resolution model, then retry once.
 
-## Readable errors: the real cause, and `PH_` not `PB_` (#590)
+## Readable errors: the real cause, and `PH_` not `PB_`
 
 Two live failures after the 2.1.9 deploy drove this pass. A MakerWorld
 link failed with a clear, operator-fixable cause in the container log —
@@ -474,7 +474,7 @@ not help), and a `PB_INTAKE_UNKNOWN` reference. The rules now are:
   at its model-site boundaries — a missing, empty or refused site
   credential (MakerWorld, Thingiverse, MyMiniFactory, Cults3D), a site
   robot check, a site's built-in download gap, Spoolman not answering
-  or not configured, a 3MF length unit intake cannot convert exactly (#825) —
+  or not configured, a 3MF length unit intake cannot convert exactly —
   and the chat post states that cause in plain
   words with its remedy (for a token: the site, the credential, and the
   docs/PROJECT-REFERENCE.md section that explains setting it up). The
@@ -500,8 +500,7 @@ not help), and a `PB_INTAKE_UNKNOWN` reference. The rules now are:
 Two boundaries folded into the same allowlist after #590 (the #605 and
 #608 follow-on, once both had landed). Creality Cloud's credential
 failures were already recognized through the site list above; the new
-rows are its two remaining operator-fixable failures. Direct file links
-(#607) are recognized by the `DirectLinkError` type name over the
+rows are its two remaining operator-fixable failures. Direct file links are recognized by the `DirectLinkError` type name over the
 provider's curated phrasing, with the wording built in
 `diagnostics.py` — the original message can name the operator's host
 or carry a credential-bearing URL, and neither reaches chat.
@@ -578,7 +577,7 @@ ValueError, `NextPlateError`, `DesignError`).
    texts. The design turn's `DesignError` post is the same class —
    a curated, operator-phrased error type — and is likewise unchanged.
 
-## Plain-language pass (#467)
+## Plain-language pass
 
 #390's bar was written for the operator debugging the system. #467 holds
 the messages a person in chat actually reads to a plainer bar:
@@ -597,7 +596,7 @@ the messages a person in chat actually reads to a plainer bar:
 5. **Never silent, never a dead end.**
 
 The shared builder is `print_handy.diagnostics.plain_post`; the Discord
-handlers' `_failure_post` (#390) is built on it, so there is one wording
+handlers' `_failure_post` is built on it, so there is one wording
 system. `tests/test_friendly_errors.py` pins the rewritten corpus,
 including the negative pin: no inventoried chat post may contain a raw
 exception string, a traceback fragment, or an ALL-CAPS failure prefix.
@@ -642,10 +641,10 @@ Deliberately unchanged, and why:
 - Logs, the diagnostics bundle, doctor/`bot check` rows and Web UI
   status keep full technical detail; only chat posts were rewritten.
 
-The fail-soft posture is preserved throughout (#235): warnings never block
+The fail-soft posture is preserved throughout: warnings never block
 a print, and no print path changes behaviour beyond reporting.
 
-## Debug log mode and sanitized exports (#478)
+## Debug log mode and sanitized exports
 
 On top of the bundle and the static `[logging] levels` above, Print Handy
 has a temporary **debug log mode** for reproducing a problem:
@@ -707,7 +706,7 @@ the operator can see at a glance what was taken out before attaching it
 to a public issue. The diagnostics bundle's config summary and log
 sections use the same sanitizer and carry the same report.
 
-## Stage, cause and recovery for every model failure (#817)
+## Stage, cause and recovery for every model failure
 
 A model failure posted to chat used to be "stopped before it was ready" or a slicer exit code. Every model failure now comes from one classification, `print_handy/core/failure_report.py`, and says four things. Since #924, a failure this classification recognizes also links its specific signature code (for example `PH_PARSE_BAD_3MF_STRUCTURE`) on the post's `Reference:` line instead of only the general subsystem marker — see the signature sections of the [Error code catalog](#error-code-catalog-one-linked-section-per-code-924):
 
@@ -728,7 +727,7 @@ each row as it changes it.
 | --- | --- | --- | --- |
 | Discord startup (`bot/client.py` `run_bot`) | `DISCORD_STARTUP_RETRY` log marker with attempt/backoff; token/intent failures print an actionable stderr line and exit 3 | Meets bar after Stage 2: the exhausted-retry line carries `PH_DISCORD_*`, and the token/intent exits name the remedy and `PH_DISCORD_CONFIGURATION` | 2 (done) |
 | Spoolman unavailable (pipeline notice) | One-line notice that tracking was skipped; failure detail only in the WARNING log | Meets bar after Stage 2: the notice states the print continues and what to check; the log warning carries the exact `PH_SPOOLMAN_*` marker (Stage 1) | 2 (done) |
-| Timelapse completion posts (#383) | Every degraded outcome posts a reason line instead of dropping the video silently | Meets bar — the reference pattern for Stage 2 | — |
+| Timelapse completion posts | Every degraded outcome posts a reason line instead of dropping the video silently | Meets bar — the reference pattern for Stage 2 | — |
 | Intake / slicing / delivery posts (`core/model_job.py` + plugin handlers) | Curated refusal texts carry the reason and the state; generic handler failures were built from raw exception text with no marker | Meets bar after Stage 6: generic Discord handler posts carry the detail, the state/remedy note and the `PH_*` marker via `_failure_post`; deliberate refusals unchanged | 6 (done) |
 | Listener heartbeat (`healthcheck.py`, `bot/health.py`) | `(ok, reason)` strings name staleness/identity/connection states | Names what failed; no remedy, no marker | 5 |
 | Container supervisor (`docker/supervise.sh`) | A required child's exit is reported as a bare status; listener exits name the printer and the restart budget | Required-child exit does not name the child | 4 |
@@ -736,7 +735,7 @@ each row as it changes it.
 | Doctor (`doctor.py`) | `FAIL <check>: <detail>`; several details already include the remedy (e.g. the #384 platform row) | Mostly meets bar; new detectable modes get rows in Stage 5 | 5 |
 | Web UI status (`webui/status.py`) | Status/health JSON for the same checks | Stage 5 adds equivalents for new doctor rows where a surface exists | 5 |
 
-## Listener watchdog and outage notices (#1020)
+## Listener watchdog and outage notices
 
 Every print alert is posted by the per-printer listener, so a listener that hangs silences everything while the Discord bot still looks connected. Three layers now cover that:
 
@@ -744,11 +743,11 @@ Every print alert is posted by the per-printer listener, so a listener that hang
 2. **Supervisor watchdog.** `docker/supervise.sh` probes each listener's heartbeat (`python3 -m print_handy.healthcheck --printer <id>`) every 15 seconds after a 180 second startup grace. A stale heartbeat gets a stack dump (SIGUSR1, written to the container log by `faulthandler`), then SIGTERM, then SIGKILL, and the existing restart backoff and budget apply. Tune with `PRINT_HANDY_LISTENER_WATCHDOG_INTERVAL_S` and `PRINT_HANDY_LISTENER_WATCHDOG_GRACE_S`.
 3. **Outage notices.** The bot reads the same per-printer listener health every heartbeat and posts to that printer's channel when a required listener has been down for 3 minutes, again hourly while it stays down, and once when it recovers. State lives in `listener_outage_alerts.json` in the state folder, so a bot restart neither repeats nor loses a notice. The notice is sent by the bot, not the listener.
 
-## Public text in issues and pull requests (#1020)
+## Public text in issues and pull requests
 
 Issues, pull requests, comments and commit messages are public, and edit history keeps old versions. `scripts/check_public_text.py` (workflow `public-text.yml`) flags home and NAS paths, private IP addresses, local hostnames, MAC addresses, email addresses, SSH targets, chat or account IDs, tokens and any names in the `PUBLIC_TEXT_DENYLIST` repository secret (a comma or newline separated list of machine names). It reports the category and line, never the value. Put `public-text-ok` on a line that is a deliberate example. `scripts/check_issue_policy.py` (workflow `issue-policy.yml`) labels a bug report `needs-info` until it carries the sanitized diagnostics bundle or sanitization report, the version and evidence.
 
-## The diagnostics bundle, completed (#1020)
+## The diagnostics bundle, completed
 
 `/print-handy bundle` in chat now **uploads the bundle as a file in the
 chat** (it is also written to the state folder as
@@ -801,7 +800,7 @@ while a listener is down, the bot also polls Moonraker directly, and a
 pause, error or stop the printer itself reports gets one degraded
 notice per reported state, labeled as coming from a direct check.
 
-## IFS jam: telling a real drag from a false trigger (#1020)
+## IFS jam: telling a real drag from a false trigger
 
 A "Filament jam detected (IFS)" pause is the printer's own call: the
 `zmod_ifs` motion sensor declares a jam when the extruder advances

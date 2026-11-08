@@ -1,6 +1,6 @@
 # Install on a Hermes box
 
-> **New installs default to the standalone bot** (#524): `bot.mode` defaults to `standalone`, and the
+> **New installs default to the standalone bot**: `bot.mode` defaults to `standalone`, and the
 > shipped config templates say so. Start with [docs/STANDALONE.md](STANDALONE.md) and
 > `scripts/install-standalone.sh` unless you specifically want Print Handy hosted inside a Hermes
 > profile. This page remains the install path for that explicit choice — `bot.mode: hermes` is still
@@ -117,7 +117,7 @@ in `config/after-update.sh`.
 
 Not shipped here. Install them yourself if you want them: `image_gen`.
 
-## Migration notes: the default mode is now standalone (#524)
+## Migration notes: the default mode is now standalone
 
 The `bot.mode` default flipped from `hermes` to `standalone`. Whether an update changes your
 install depends on where your mode is stated:

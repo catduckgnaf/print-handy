@@ -32,7 +32,7 @@ Setup asks seven small steps, validating each answer before moving on:
    not a full URL. A model with no address accepts only `skip`.
 6. **Spoolman URL** (optional) — validated as a URL. Spoolman is printer-independent, so
    this step is offered for every model, including models with no Moonraker connection.
-   The Spoolman included in the Docker stack (#214) is at `http://spoolman:8000`; an
+   The Spoolman included in the Docker stack is at `http://spoolman:8000`; an
    existing external Spoolman keeps its own URL, exactly as in the CLI setup wizard.
 7. **Bot token stored securely** — this step never collects the token. It explains how to
    store it: as the environment variable named by `[discord] token_env` (default
@@ -61,7 +61,7 @@ repeated back) and offers four replies:
 - `apply` — the explicit consent to write. Only then are the collected settings merged
   into `config/local.yaml` through the same merge the CLI setup wizard uses: values already
   in the file always win, and no secret is written (the flow collected none).
-- `add` — set up another printer (#337). The flow asks for the first printer's id (the base
+- `add` — set up another printer. The flow asks for the first printer's id (the base
   flow never needed one) and then, per added printer, its id, model, own channel and
   Printer URL (a URL or a hostname, matching that printer). Applying then writes a `[[printers]]` roster instead of the single-printer
   sections — and refuses, leaving the file untouched, when the existing file already
@@ -84,7 +84,7 @@ until `apply` at the review step.
 
 1. **Printer model** — a model key from the registry, as in setup.
 2. **Display name** — the name the which-printer picker and announcements show when several
-   printers share the channel (#536). It must differ from your other printers' names; the
+   printers share the channel. It must differ from your other printers' names; the
    roster id is derived from it.
 3. **Connection fields for that model's kind** — a Moonraker URL; a Bambu Lab LAN address,
    serial and the LAN-mode choice; a PrusaLink host; an Elegoo SDCP host (with the note that

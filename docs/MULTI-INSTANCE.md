@@ -136,7 +136,7 @@ one Discord server:
 | Container children | The bot only — **no Moonraker listener runs** for a Bambu connection, and the bundled Spoolman is disabled | The Moonraker listener and the bot (bundled Spoolman disabled) |
 
 The last row is the [Which processes run](DOCKER.md#which-processes-run) table applied: the
-supervisor starts the listener only where the configured connection is Moonraker (#256),
+supervisor starts the listener only where the configured connection is Moonraker,
 so instance A has no listener to keep healthy and instance B does — neither needs any
 per-instance process tuning. The two instances may use the same Discord bot token (see
 Chat separation): an approval tapped in `#a1-prints` can only ever start the A1, because
