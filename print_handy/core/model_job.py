@@ -8575,7 +8575,14 @@ def _print_flashforge_stock(adapter, state, gcode, job, job_path, wait_s, reprin
 
 
 def _require_idle(st):
-    state,fn,busy=_printer_phase(st)
+    try:
+        state,fn,busy=_printer_phase(st)
+    except OSError:
+        # Moonraker unreachable: every transport failure urllib surfaces on this read
+        # (refused, timeout, reset) is an OSError — URLError subclasses it. Name the
+        # refusal like the busy guard below instead of leaking a raw traceback (#1049).
+        # State/parse errors are RuntimeError/ValueError and keep propagating.
+        raise SystemExit("REFUSED: printer is offline/unreachable. Nothing uploaded or started.")
     if state == "printing" or busy == "Printing":
         raise SystemExit(f"REFUSED: printer is busy ({state}, {fn}). Nothing uploaded or started.")
     if st.get("display_off") == 0 and state not in ("standby", "complete", "cancelled", "error"):
