@@ -150,6 +150,18 @@ jobs:
           command -v openscad && command -v xvfb-run && command -v tesseract || { apt-get update -q && apt-get install -y -q openscad xvfb xauth tesseract-ocr; }
           openscad --version
           tesseract --version | head -n 1
+      - name: Install Node.js for the Cloudflare Worker example tests
+        # Same pattern as the shipped-binary installs above: the reference
+        # Cloudflare Workers in examples/cloudflare are shipped product
+        # surface (the documented opt-in stateless fuzzy/vision layer), and
+        # their tests use Node's built-in runner. The Workers run on
+        # Cloudflare, not in the image, so Node is a test-only tool here;
+        # the offline legs install it so tests/test_cloudflare_examples.py
+        # executes instead of skipping with "node is not installed"
+        # (2026-11-07 test-suite cleanup, round 2).
+        run: |
+          command -v node || { apt-get update -q && apt-get install -y -q nodejs; }
+          node --version
       - name: Build the native bounds extension for the offline legs
         # The dedicated native-bounds job builds the Rust/PyO3 extension
         # (#952) and runs tests/pipeline/test_native_bounds.py against it.
@@ -676,6 +688,42 @@ jobs:
         env:
           PRINT_HANDY_SPOOLMAN_TEST_URL: http://localhost:7912
         run: python -m pytest -v -rs tests/services
+
+  state-volume-mount:
+    name: State volume (real bind mount)
+    # The one state-volume test that exercises the entrypoint against a
+    # REAL bind mount (tests/test_state_volume.py, the unstubbed mountpoint
+    # detector) needs user+mount namespaces. Inside the offline job's
+    # container, unshare -rm is refused, so the test skipped there with
+    # "user and mount namespaces are not available". This job runs the
+    # single test on the runner VM itself (no job container), where
+    # unprivileged namespaces work, and proves it before running: if the
+    # probe cannot create namespaces even after lifting Ubuntu 24.04's
+    # AppArmor restriction, the job fails loudly instead of the test
+    # silently skipping again (2026-11-07 test-suite cleanup, round 2).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: python -m pip install ".[test]"
+      - name: Prove user and mount namespaces work on this runner
+        run: |
+          if ! unshare -rm true 2>/dev/null; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          unshare -rm true
+      - name: Real bind-mounted state volume test
+        env:
+          # The suite is container-marked (#971); this job provides the
+          # environment the marked test needs, so it opts in explicitly,
+          # exactly like the offline-tests job does.
+          PRINT_HANDY_IN_CONTAINER: '1'
+        run: python -m pytest -v -rs "tests/test_state_volume.py::TestEntrypointMigration::test_legacy_data_and_a_real_bind_mounted_state_volume_is_copied"
 
   spelling:
     # US-spelling watch for prose (catduck, 2026-10-29): scans only the lines
