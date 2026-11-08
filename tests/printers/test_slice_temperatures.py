@@ -13,6 +13,7 @@ import pytest
 
 from print_handy import printers, settings
 from print_handy.core import orca_adapter, slice_guard, spoolman_client
+from print_handy.printers.bambulab import profiles
 
 ROOT = Path(__file__).resolve().parents[2]
 STATE = ROOT / "tests" / "pipeline" / "fixtures" / "printer_hardware.json"
@@ -38,13 +39,61 @@ def adapter_for(model):
     return printers.get(model, settings.load(local=False, environ={"PRINT_HANDY__PRINTER__MODEL": model}))
 
 
+# The two shapes of the one genuine material refusal, as pinned by tests/printers/test_bambulab_a1.py:
+# profiles._no_profile ("no checked vendor filament profile for '<material>' (checked: ...)") and the
+# adapter's templates-folder refusal ("has no <KEY> filament profile (its filament.json is <kind>)").
+# profiles.ProfileError also covers missing, unreadable or unchecked profile installs; those are
+# environment failures, so the message has to name the material refusal itself for a skip to count.
+_REFUSAL_SHAPES = ("no checked vendor filament profile for", " filament profile (its filament.json is")
+
+
 def material_refused(adapter, material, tmp_path):
-    """A printer that has no checked profile for a material refuses it before Orca (Bambu Lab)."""
+    """A printer that has no checked profile for a material refuses it before Orca (Bambu Lab).
+
+    Only that refusal counts. Any other error from filament_template — a broken
+    profile install, a missing template file, an adapter regression — propagates
+    and fails the test instead of being masked as a skip.
+    """
     try:
         adapter.filament_template(Path(adapter.config.get("orca_templates", tmp_path)), material)
-    except Exception:
-        return True
+    except profiles.ProfileError as exc:
+        return any(shape in str(exc) for shape in _REFUSAL_SHAPES)
     return False
+
+
+class _StubAdapter:
+    """filament_template stub with a real adapter's config shape and one canned outcome."""
+
+    def __init__(self, outcome):
+        self.config = {}
+        self.outcome = outcome
+
+    def filament_template(self, templates, material):
+        if isinstance(self.outcome, Exception):
+            raise self.outcome
+        return Path(templates) / "filament.json"
+
+
+def test_material_refused_counts_only_the_checked_profile_refusal(tmp_path):
+    refusal = profiles.ProfileError(
+        "Bambu Lab A1: no checked vendor filament profile for 'TPU' (checked: PLA, PETG); "
+        "load a checked material or add one (docs/BAMBU-LAB.md). Nothing was sliced")
+    assert material_refused(_StubAdapter(refusal), "TPU", tmp_path)
+    folder_refusal = profiles.ProfileError(
+        "Bambu Lab A1: the [orca] templates folder /x has no TPU filament profile "
+        "(its filament.json is PLA). Nothing was sliced")
+    assert material_refused(_StubAdapter(folder_refusal), "TPU", tmp_path)
+    # A missing profile install is an environment failure, not a material refusal.
+    not_installed = profiles.ProfileError("Bambu Lab A1 Orca profiles are not installed in /x")
+    assert not material_refused(_StubAdapter(not_installed), "TPU", tmp_path)
+    assert not material_refused(_StubAdapter(None), "TPU", tmp_path)
+
+
+def test_material_refused_lets_other_errors_fail_the_test(tmp_path):
+    with pytest.raises(RuntimeError, match="adapter exploded"):
+        material_refused(_StubAdapter(RuntimeError("adapter exploded")), "TPU", tmp_path)
+    with pytest.raises(FileNotFoundError):
+        material_refused(_StubAdapter(FileNotFoundError("filament.json")), "TPU", tmp_path)
 
 
 @pytest.fixture
