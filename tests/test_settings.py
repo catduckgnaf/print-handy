@@ -812,6 +812,18 @@ class UnknownSettingsTests(unittest.TestCase):
         self.assertNotIn("ticks", data["listener"])
         self.assertIn("[listener] ticks", settings.unknown_settings_warning())
 
+    def test_credential_shaped_keys_in_files_stay_refused(self):
+        # Secrets are environment-only: a credential-shaped key in a
+        # settings file is refused, never warned-and-dropped — silently
+        # accepting it could mask a secret written into the file. (The
+        # [notify] mqtt_password case is pinned in test_notify_mqtt.py.)
+        path = self.local("discord:\n  api_token: hunter2\n")
+        with self.assertRaisesRegex(settings.SettingsError, "unknown setting"):
+            settings.load(local=path, environ={})
+        path = self.local("vault:\n  password: hunter2\n", "other.yaml")
+        with self.assertRaisesRegex(settings.SettingsError, "unknown section"):
+            settings.load(local=path, environ={})
+
     def test_ai_tier_unknown_key_stays_refused(self):
         # Closed tables keep their own validators: [ai.*] tier keys are not
         # part of the open settings space above (test_ai_routes pins this

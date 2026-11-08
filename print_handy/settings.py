@@ -285,6 +285,23 @@ def _unknown_message(source, section, key):
 _unknown_settings = []
 
 
+_CREDENTIAL_WORDS = ("password", "secret", "token", "api_key", "apikey",
+                     "private_key", "credential")
+
+
+def _credential_shaped(key):
+    """True when an unknown key's name looks like a credential.
+
+    Credential-shaped keys in settings FILES stay refused rather than
+    warned-and-dropped: secrets are environment-only in Print Handy, and
+    silently accepting one could mask that a secret was written into a
+    settings file. Known keys are never affected — this is consulted only
+    on the unknown-key path.
+    """
+    lowered = str(key).lower()
+    return any(word in lowered for word in _CREDENTIAL_WORDS)
+
+
 def _note_unknown(entry):
     if entry not in _unknown_settings:
         _unknown_settings.append(entry)
@@ -324,6 +341,8 @@ def _check_keys(home, extra, source):
                 # as mqtt_password — is refused, never silently accepted as
                 # a setting (test_notify_mqtt pins this).
                 raise SettingsError(f"{source}: unknown section [{section}]")
+            if isinstance(values, dict) and any(_credential_shaped(k) for k in values):
+                raise SettingsError(f"{source}: unknown section [{section}]")
             _note_unknown(f"{source}: unknown section [{section}]")
             continue
         if not isinstance(values, dict):
@@ -343,6 +362,9 @@ def _check_keys(home, extra, source):
                 if section == "notify":
                     # The closed [notify] table (see the unknown-section
                     # branch above): non-optional keys stay refused.
+                    raise SettingsError(_unknown_message(source, section, key))
+                if _credential_shaped(key):
+                    # Refused, not warned-and-dropped (see _credential_shaped).
                     raise SettingsError(_unknown_message(source, section, key))
                 if (section, key) == ("printer", "family"):
                     # The one deliberate exception: family is a RETIRED key
