@@ -113,6 +113,26 @@ def enabled(cfg=None) -> bool:
     return bool((cfg.get("vision") or {}).get("local_detector_enabled", False))
 
 
+def watch_source(cfg=None) -> str:
+    """The operator's verdict-source choice for the camera watchdog
+    (#455): ``vision.watch_source`` — "auto" (the default route
+    precedence), "endpoint" (endpoint routes only) or "local" (this
+    detector only). Settings validation guarantees the value in a loaded
+    config; anything unexpected in a hand-built dict reads as "auto", so
+    a partial config can never break the watch."""
+    cfg = _config.cfg() if cfg is None else cfg
+    source = str((cfg.get("vision") or {}).get("watch_source") or "auto").strip().lower()
+    return source if source in ("auto", "endpoint", "local") else "auto"
+
+
+def watch_uses_detector(cfg=None) -> bool:
+    """Whether the watchdog may judge frames with this detector at all:
+    the detector switch is on, or the operator pinned the watch to the
+    local source (``watch_source = "local"`` is itself the enablement
+    for the watch; the switch keeps its auto-mode meaning)."""
+    return enabled(cfg) or watch_source(cfg) == "local"
+
+
 def model_path(cfg=None) -> Path:
     """Where the ONNX weights live: the operator's
     ``vision.local_model_path`` when set, else ``models/`` under the
@@ -609,7 +629,7 @@ def detector_status(cfg=None) -> tuple[str, str]:
     judging a frame: ``off`` / ``ready`` / ``unavailable``. Never touches
     the network and never downloads."""
     cfg = _config.cfg() if cfg is None else cfg
-    if not enabled(cfg):
+    if not watch_uses_detector(cfg):
         return "off", ("vision.local_detector_enabled is false; the camera watchdog "
                        "needs a vision endpoint, PRINT_VISION_URL or this detector")
     try:

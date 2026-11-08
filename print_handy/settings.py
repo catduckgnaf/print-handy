@@ -141,6 +141,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("vision", "roast_enabled"): bool,
                  ("vision", "local_detector_enabled"): bool,
                  ("vision", "local_model_path"): str,
+                 ("vision", "watch_source"): str,
                  ("vision", "auto_light_off_minutes"): int,
                  ("vision", "light_object"): str,
                  ("spool", "prompt_brand"): bool,
@@ -970,6 +971,14 @@ def _check_mixed_shape(extra, environ):
                             + ", ".join(offenders))
 
 
+# [vision] watch_source (#455): which route judges the camera watchdog's
+# frames. "auto" is today's precedence (PRINT_VISION_URL, then the chat
+# endpoint, then the local detector when no endpoint route is configured);
+# "endpoint" pins the watch to the endpoint routes and never consults the
+# local detector; "local" pins the watch to the built-in local detector
+# and never calls an endpoint. Label reads and roasts are not verdicts and
+# never follow this setting.
+WATCH_SOURCES = ("auto", "endpoint", "local")
 BOT_MODES = ("hermes", "standalone")
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
 LOG_FORMATS = ("text", "json")
@@ -1368,6 +1377,22 @@ def _validate_vision(data):
         raise SettingsError(f"[vision] local_model_path must be a path string or empty, "
                             f"got {local_model_path!r}")
     vision["local_model_path"] = local_model_path.strip()
+    # Verdict source for the camera watchdog (#455): "auto" keeps the
+    # route precedence described above; "endpoint" never consults the
+    # local detector for the watch; "local" judges watch frames with the
+    # local detector even when an endpoint is configured (and counts as
+    # enabling the detector for the watch — local_detector_enabled keeps
+    # its auto-mode meaning). Only the watchdog's verdicts follow this;
+    # label reads and roasts keep their own routes.
+    watch_source = vision.setdefault("watch_source", "auto")
+    if not isinstance(watch_source, str):
+        raise SettingsError(f"[vision] watch_source must be one of "
+                            f"{', '.join(WATCH_SOURCES)}, got {watch_source!r}")
+    watch_source = watch_source.strip().lower()
+    if watch_source not in WATCH_SOURCES:
+        raise SettingsError(f"[vision] watch_source must be one of "
+                            f"{', '.join(WATCH_SOURCES)}, got {watch_source!r}")
+    vision["watch_source"] = watch_source
     # Auto light-off (#516): off by default (0). When set above zero, the
     # printer's light turns on at print start and, after a print ends,
     # off again once the camera verdict has seen an empty plate for

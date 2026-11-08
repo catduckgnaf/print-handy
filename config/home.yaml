@@ -225,6 +225,14 @@ vision:
   # (about 202 MB) downloads once into a models folder under the Hermes
   # home, SHA-256 verified; nothing leaves the machine.
   local_detector_enabled: false
+  # Which route judges the camera watchdog's frames (#455): auto (the
+  # default precedence — PRINT_VISION_URL, then the chat endpoint, then
+  # the local detector when no endpoint route is configured), endpoint
+  # (endpoint routes only; the local detector is never consulted for the
+  # watch) or local (the local detector only, even when an endpoint is
+  # configured; counts as enabling the detector for the watch). Label
+  # reads and roasts never follow this setting.
+  watch_source: auto
   # Path to the local detector's ONNX model file. Empty uses the default
   # location and the pinned model; set it to a file you placed yourself
   # to run fully offline.

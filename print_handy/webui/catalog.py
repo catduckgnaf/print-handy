@@ -127,6 +127,7 @@ GROUP_OF = {
     "vision.roast_enabled": "images",
     "vision.local_detector_enabled": "images",
     "vision.local_model_path": "images",
+    "vision.watch_source": "images",
     "vision.auto_light_off_minutes": "images",
     "vision.light_object": "images",
     "visual_watch.enabled": "images",
@@ -416,6 +417,16 @@ CATALOG = (
            "only — roasts, spool-label reads and the empty-plate check "
            "still need a vision endpoint.",
            validator="settings vision check"),
+    _field("vision", "watch_source", "Watchdog verdict source", "picker",
+           "Which route judges the camera watchdog's frames (#455): auto "
+           "keeps the default precedence (PRINT_VISION_URL, then the vision "
+           "endpoint, then the local detector when no endpoint route is "
+           "configured); endpoint pins the watch to the endpoint routes "
+           "and never consults the local detector; local pins the watch "
+           "to the local detector and never calls an endpoint, and counts "
+           "as enabling the detector for the watch. Spool-label reads and "
+           "roasts never follow this setting.",
+           choices=tuple(settings.WATCH_SOURCES), validator="settings vision check"),
     _field("vision", "local_model_path", "Local detector model path", "text",
            "Where the local failure detector's ONNX model file lives. "
            "Empty uses the default location (a models folder under the "

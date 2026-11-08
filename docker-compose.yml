@@ -42,6 +42,8 @@ services:
       # pinned model (~202 MB) downloads once into /data/state/models.
       PRINT_HANDY__VISION__LOCAL_DETECTOR_ENABLED: ${PRINT_HANDY__VISION__LOCAL_DETECTOR_ENABLED:-false}
       PRINT_HANDY__VISION__LOCAL_MODEL_PATH: ${PRINT_HANDY__VISION__LOCAL_MODEL_PATH:-}
+      # Watchdog verdict source (#455): auto, endpoint or local.
+      PRINT_HANDY__VISION__WATCH_SOURCE: ${PRINT_HANDY__VISION__WATCH_SOURCE:-auto}
       # Auto light-off (#516): light on at print start, off after the plate
       # has been seen empty for this many minutes. 0 = off (the default).
       PRINT_HANDY__VISION__AUTO_LIGHT_OFF_MINUTES: ${PRINT_HANDY__VISION__AUTO_LIGHT_OFF_MINUTES:-0}
