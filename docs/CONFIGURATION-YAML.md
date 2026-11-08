@@ -41,7 +41,7 @@ Example:
 
 ```yaml
 printer:
-  model: flashforge.ad5x
+  model: klipper.generic
 visual_watch:
   enabled: true
   sensitivity: 3

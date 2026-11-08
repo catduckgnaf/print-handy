@@ -2655,19 +2655,37 @@ _strip_json_fence = _visual_watch._strip_json_fence
 VisualPrintWatch = _visual_watch.VisualPrintWatch
 _VISION_BASE = _config.service_url("vision_chat_url")
 _VISION_MODEL = str(_config.cfg()["vision"]["model"])
-_VISION_CONTEXT = (
-    "Printer: Flashforge AD5X, enclosed, smooth PEI plate. "
-    "Reply with JSON only, no markdown: {\"verdict\":\"ok|air|spaghetti|detached|empty_idle|uncertain\",\"reason\":\"short\"}. "
-    "ok means plastic is on the bed and printing normally. "
-    "air means the bed is empty while a print should be there. "
-    "spaghetti means a tangled failed extrusion. "
-    "detached means a printed part has come off the plate. "
-    "empty_idle means the printer is idle and the bed is empty. "
-    "uncertain means the frame is not clear enough to judge."
-)
 
 
-_VISION_CONTEXT = "Printer: Flashforge AD5X, enclosed, smooth PEI plate. Reply JSON verdict ok|air|spaghetti|detached|empty_idle|uncertain. "
+def _vision_context() -> str:
+    """The verdict context for a Moonraker frame, built from the serving printer.
+
+    The Bambu and family contexts are built from their printer's label for
+    the same reason (bambu_watch.vision_context): a frame judged against
+    another printer's description is a wrong prompt — this context used to
+    name the Flashforge AD5X whatever printer the listener served. The
+    name is the serving printer's configured name or model label
+    (printers.current().display_name, the same source the completion
+    summary uses). No enclosure or plate claim is made: the listener does
+    not know them for an arbitrary Moonraker printer
+    (family_control._idle_context takes the same care).
+    """
+    label = ""
+    try:
+        label = printers.current().display_name
+    except Exception:
+        label = ""
+    label = str(label or "").strip() or "3D printer"
+    return (
+        f"Printer: {label}, build plate. "
+        "Reply with JSON only, no markdown: {\"verdict\":\"ok|air|spaghetti|detached|empty_idle|uncertain\",\"reason\":\"short\"}. "
+        "ok means plastic is on the bed and printing normally. "
+        "air means the bed is empty while a print should be there. "
+        "spaghetti means a tangled failed extrusion. "
+        "detached means a printed part has come off the plate. "
+        "empty_idle means the printer is idle and the bed is empty. "
+        "uncertain means the frame is not clear enough to judge."
+    )
 
 
 def _fetch_snapshot(url):
@@ -2736,11 +2754,6 @@ def _camera_snapshot_bytes():
     return _fetch_snapshot(direct)
 
 
-
-
-_VISION_CONTEXT = "Printer: Flashforge AD5X, enclosed, smooth PEI plate. Reply JSON verdict ok|air|spaghetti|detached|empty_idle|uncertain. "
-
-
 # The camera-watch timer beat (#913): fine enough for the 60 s empty-bed
 # re-check and the 120 s early-layer interval, cheap when nothing is due.
 VISUAL_TIMER_S = 15
@@ -2761,7 +2774,7 @@ def _visual_verdict(image, prompt, streak=None, local_fallback=False, idle=False
     """
     return _visual_watch.visual_verdict(
         image, prompt, chat_url=_vision_chat_url, model=_VISION_MODEL,
-        api_key=lambda: _profile_env_value("CLIPROXY_API_KEY"), context=_VISION_CONTEXT,
+        api_key=lambda: _profile_env_value("CLIPROXY_API_KEY"), context=_vision_context(),
         local_streak=streak, local_fallback=local_fallback, idle=idle)
 
 

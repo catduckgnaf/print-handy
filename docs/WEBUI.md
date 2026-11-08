@@ -369,7 +369,7 @@ So dashboards can offer exclude-object, `GET /api/printers/<id>/status` now also
 
 ```bash
 curl -X POST -H "X-WebUI-Token: $WEBUI_ACCESS_TOKEN" -H "Content-Type: application/json" \
-     -d '{"confirm": true}' http://127.0.0.1:8765/api/printers/flashforge-ad5x/cancel
+     -d '{"confirm": true}' http://127.0.0.1:8765/api/printers/garage-printer/cancel
 ```
 
 Still open from #708: Docker defaults, Bearer auth, extended telemetry, and the camera proxy.

@@ -108,7 +108,7 @@ def render(roster, *, form_token, notice=None, error=None, theme=shell.DEFAULT_T
         '<form method="post" action="/printers">'
         f'<input type="hidden" name="{CSRF_FIELD}" value="{esc(form_token)}">'
         '<div class="field"><label for="p-name">Name</label>'
-        '<input id="p-name" name="name" required placeholder="Garage AD5X"></div>'
+        '<input id="p-name" name="name" required placeholder="e.g. Garage printer"></div>'
         '<div class="field"><label for="p-model">Model</label>'
         f'<select id="p-model" name="model" required><option value="">Pick a model</option>{options}'
         '</select></div>'
