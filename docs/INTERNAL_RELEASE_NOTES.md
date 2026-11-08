@@ -60,6 +60,7 @@
 - 2.2.6 digest pin (PR #1012): docs/DOCKER.md and the in-repo Unraid template pin the shipped 2.2.6 multi-arch index digest.
 - Timing split and parity (PR #993): the timing work splits slicer time from Python time, brings Bambu zip output to parity, validates and caps the bounds cache, and applies a cpuset budget (partial #952).
 - Real-Orca timing case (PR #997): a large-plate case for the real-Orca timing leg, reporting only.
+- Slicing baselines for 2.2.7 (PR #1073): timing baselines re-recorded from CI run 42464271849 on the release commit (bc4c7ab), with the documented parts-512 fast-runner correction; the real-slicer leg stays reporting-only — no variance refresh was run for this release, so no promotion to a blocking gate is proposed (recorded on #734 via #1072).
 - Testing hardening (PR #999): version parity checks, the upstream step-size regression policy (minor steps get targeted tests; major steps get a deep dive), and invariant suites.
 - PR tests policy (PR #1004): every PR body must answer the Tests added and regression scoping template section, enforced by scripts/check_contribution.py, with matching reviewer-checklist items.
 - Corpus CAD assets (PR #1000): reproducible Mac mini rack mount CAD assets for the #998 work, as test corpus.
