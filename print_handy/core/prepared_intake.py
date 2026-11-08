@@ -2462,6 +2462,56 @@ async def print_gcode_file(event, adapter, root, path, timeout=None, printer_id=
     return {'action': 'skip', 'reason': f'yolo G-code {outcome.status.lower()}'}
 
 
+def supports_decision(flagged, finding, clearance):
+    """(show, reason, inputs) for the supports question (#1020 F).
+
+    ``show`` is True only on evidence: a slicer floating-region finding,
+    a risky clearance report, or the slice's own flagged bit (which the
+    background slice derives from those same two sources). A flat model
+    — no finding, not flagged, clearance clean — never shows the menu.
+
+    ``reason`` names the evidence **with its numbers** (how many
+    floating regions; the smallest clearance in mm), because "supports
+    are recommended" without the measurement is not a decision the
+    operator can judge. ``inputs`` is the raw decision record: it is
+    logged at composition and stored on the intake record with the
+    clearance report and the finding, so a shown (or hidden) menu can
+    be audited later.
+    """
+    from . import support_clearance
+
+    risky = support_clearance.risky(clearance)
+    reasons = []
+    if finding:
+        objects = finding.get('objects') or []
+        texts = finding.get('texts') or []
+        count = len(objects) or len(texts)
+        if count == 1:
+            reasons.append("the slicer found 1 floating region that needs support")
+        elif count:
+            reasons.append(f"the slicer found {count} floating regions that need support")
+        else:
+            reasons.append("the slicer found floating regions that need support")
+    if risky:
+        gaps = []
+        for f in (clearance or {}).get('findings') or []:
+            window = f.get('clearance_mm') or {}
+            if isinstance(window.get('min'), (int, float)):
+                gaps.append(window['min'])
+        if gaps:
+            reasons.append(f"an underside clears what is below it by only "
+                           f"{min(gaps):.1f} mm — too low for supports to reach")
+        else:
+            reasons.append("a low-clearance underside leaves no room for supports to reach")
+    if not reasons and flagged:
+        reasons.append("the slice was flagged for supports")
+    show = bool(flagged or finding or risky)
+    inputs = {'flagged': bool(flagged), 'finding': bool(finding),
+              'clearance_risky': bool(risky),
+              'clearance_codes': support_clearance.codes(clearance) if clearance else []}
+    return show, '; '.join(reasons), inputs
+
+
 async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, printer_id=None,
                         before_start=None, confirm_target=False):
     from . import model_job as mj
@@ -3395,15 +3445,20 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
             clearance = latest.get('support_clearance')
             if clearance is None and early.clearance:
                 clearance = early.clearance
-            is_flagged = bool(early.flagged or early.finding or support_clearance.risky(clearance))
+            is_flagged, sup_reason, sup_inputs = supports_decision(
+                early.flagged, early.finding, clearance)
+            # #1020 F1/F3: the decision is logged with its inputs either
+            # way, and the audit record (reason, inputs, clearance report,
+            # slicer finding) rides on the job so it lands in JOB.json.
+            question_audit = {'shown': is_flagged, 'reason': sup_reason,
+                              'inputs': sup_inputs, 'clearance': clearance,
+                              'finding': early.finding}
+            latest['supports_question'] = question_audit
+            logger.info("supports question for %s: shown=%s reason=%r inputs=%s",
+                        names, is_flagged, sup_reason, sup_inputs)
 
             if is_flagged:
-                reasons = []
-                if early.finding:
-                    reasons.append('floating regions found')
-                if support_clearance.risky(clearance):
-                    reasons.append('low clearance underside found')
-                rec_reason = ', '.join(reasons) or 'floating regions found'
+                rec_reason = sup_reason or 'floating regions found'
                 sup_est = _variant_estimate_str(early.job_with_supports, early.supports_result)
                 nosup_est = _variant_estimate_str(early.job_no_supports, early.result)
                 flag_lines = [
@@ -3500,6 +3555,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     if hasattr(early, 'settle'):
                         await early.settle()
                     mj.record_support_decision(folder, True)
+                    mj.record_supports_question(folder, question_audit)
                     # "With supports" does NOT waive a low-clearance finding
                     # (#922 gap 2): supports cannot fit into a sub-1.0 mm gap,
                     # so no clearance acknowledgement is recorded for this
@@ -3515,6 +3571,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     if hasattr(early, 'settle'):
                         await early.settle()
                     mj.record_support_decision(folder, False)
+                    mj.record_supports_question(folder, question_audit)
                     if early.finding:
                         # An explicit override, bound to the slicer warning
                         # and the artifact hash (#922 gap 3) -- never a
@@ -3539,6 +3596,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     choice = 0
                     if hasattr(early, 'settle'):
                         await early.settle()
+                    mj.record_supports_question(folder, question_audit)
                     # The explicit waiver (#922 gap 2): the only menu choice
                     # that satisfies a low-clearance finding without a
                     # verified geometry repair.

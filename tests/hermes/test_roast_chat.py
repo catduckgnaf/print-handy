@@ -78,7 +78,11 @@ def test_a_failed_print_gets_its_status_bank(history, tmp_path):
     line = reply.split(": ", 1)[1]
     ctx = engine.build_context("Dragon Egg", duration_s=5400, material="PLA", grams=40,
                                print_number=2, finish_hour=2)
-    failed = {engine.render(t, ctx) for _id, t in engine.load_corpus()["banks"]["failed"]}
+    corpus = engine.load_corpus()
+    failed = {engine.render(t, ctx) for _id, t in corpus["banks"]["failed"]}
+    failed |= {framed for text in (t for _id, t in corpus["banks"]["failed"])
+               if (rendered := engine.render(text, ctx))
+               for framed in engine.framing_options(rendered, "failed", ctx, corpus)}
     assert line in failed
 
 

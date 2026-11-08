@@ -73,28 +73,45 @@ def test_title_keywords_match_through_the_shared_fuzzy_layer():
     assert _pool_names(ctx("Benchi test"))[0] == "title:benchy"       # one-edit typo
     assert _pool_names(ctx("Dragn pack"))[0] == "title:dragon"
     assert _pool_names(ctx("Brakcet set"))[0] == "title:bracket"     # transposition
-    # Two edits away stays unmatched: the shared fuzzy policy, not loosened
-    # for roasts (a curated TYPO_FORMS entry is how "benchie" gets in).
-    assert _pool_names(ctx("Benchie test")) == ["generic"]
+    # Two edits away stays unmatched by the bounded pass: the shared fuzzy
+    # policy is not loosened for roasts. A curated TYPO_FORMS entry is how
+    # a two-edit form gets in — "benchie" has one since #1017 batch 2, so
+    # it matches, while an uncurated two-edit form still does not.
+    assert _pool_names(ctx("Benchie test"))[0] == "title:benchy"
+    assert _pool_names(ctx("Benchee test")) == ["generic"]
     assert _pool_names(ctx("Big DRAGONS set"))[0] == "title:dragon"   # case + plural
     assert _pool_names(ctx("Phone Stand v3"))[0] == "title:phone stand"
     assert _pool_names(ctx("Boxer figurine")) == ["generic"]          # "box" is a short word: exact only
 
 
+def _renders_and_framed(texts, c, pool_name):
+    """Every line a draw from these texts may ship: the plain renders plus
+    their framed forms (#1017 batch 2 framing is presentation, same entry)."""
+    corpus = roast.load_corpus()
+    out = set()
+    for text in texts:
+        line = roast.render(text, c)
+        if line is None:
+            continue
+        out.add(line)
+        out.update(roast.framing_options(line, pool_name, c, corpus))
+    return out
+
+
 def test_a_failed_benchy_never_gets_success_language():
+    c = ctx("Benchy", grams=40, material="PLA")
+    texts = {t for _id, t in roast.load_corpus()["banks"]["failed"]}
+    allowed = _renders_and_framed(texts, c, "failed")
     for seed in range(20):
-        line = roast.roast(ctx("Benchy", grams=40, material="PLA"), status="failed",
-                           rng=random.Random(seed))
-        texts = {t for _id, t in roast.load_corpus()["banks"]["failed"]}
-        assert any(roast.render(t, ctx("Benchy", grams=40, material="PLA")) == line for t in texts)
+        line = roast.roast(c, status="failed", rng=random.Random(seed))
+        assert line in allowed
 
 
 def test_a_template_needing_an_unknown_fact_is_never_drawn():
     corpus = roast.load_corpus()
     lines = {roast.roast(ctx("Widget"), rng=random.Random(seed)) for seed in range(300)}
-    renders = {roast.render(t, ctx("Widget")) for _id, t in corpus["banks"]["generic"]
-               + corpus["banks"]["one_liners"]}
-    assert lines <= renders - {None}
+    texts = {t for _id, t in corpus["banks"]["generic"] + corpus["banks"]["one_liners"]}
+    assert lines <= _renders_and_framed(texts, ctx("Widget"), "generic")
 
 
 # ---------------------------------------------------------------- selection
@@ -117,8 +134,11 @@ def test_history_window_prevents_repeats_until_every_eligible_line_is_used(tmp_p
     eligible = _eligible(ctx("Widget"))
     lines = [roast.roast(ctx("Widget"), state_path=state, rng=rng) for _ in range(len(eligible))]
     assert all(lines) and len(set(lines)) == len(eligible)  # every eligible line once, no repeat
-    # Past that, the least recently used line comes back first, never nothing.
-    assert roast.roast(ctx("Widget"), state_path=state, rng=rng) == lines[0]
+    # Past that, the least recently used line comes back first, never nothing
+    # (possibly framed: framing is the same entry in different dress).
+    back = roast.roast(ctx("Widget"), state_path=state, rng=rng)
+    assert back == lines[0] or back in roast.framing_options(lines[0], "generic", ctx("Widget"),
+                                                             roast.load_corpus())
 
 
 def test_one_roast_per_print_even_on_replay(tmp_path):
@@ -195,3 +215,96 @@ def test_generate_roast_has_no_model_call():
     body = ast.get_source_segment(source, fn)
     for bad in ("ai_routes", "urlopen", "CLIPROXY", "roast_model", "chat_url"):
         assert bad not in body, bad
+
+
+# ------------------------------------------------- stable ids and families (#1017 batch 2)
+
+def test_entries_carry_stable_ids_and_families():
+    corpus = roast.load_corpus()
+    ids = [eid for rows in corpus["banks"].values() for eid, _t in rows]
+    ids += [eid for rows in corpus["title_reactions"].values() for eid, _t in rows]
+    assert len(ids) == len(set(ids)), "ids are unique across the corpus"
+    assert all(corpus["families"][eid] for eid in ids), "every entry names a family"
+    # No drawable id is a content hash any more: the phase-1 shape was
+    # "bank:<10 hex chars>", and an id in that shape would still reset
+    # when its line is edited.
+    import re as _re
+    assert not any(_re.fullmatch(r".+:[0-9a-f]{10}", eid) for eid in ids)
+
+
+def test_parse_entry_keeps_the_phase1_shape_working():
+    legacy_id, legacy_family, text = roast.parse_entry("generic", "A legacy line.")
+    assert legacy_id == roast.entry_id("generic", "A legacy line.")
+    assert legacy_family == legacy_id and text == "A legacy line."
+    eid, family, text = roast.parse_entry(
+        "generic", {"id": "generic-a-line", "family": "generic-fam", "text": "A stored line."})
+    assert (eid, family, text) == ("generic-a-line", "generic-fam", "A stored line.")
+    eid, family, _t = roast.parse_entry("generic", {"id": "generic-b", "text": "No family."})
+    assert family == eid, "a missing family defaults to the entry itself"
+    with pytest.raises(roast.CorpusError):
+        roast.parse_entry("generic", {"text": "No id at all."})
+
+
+def test_a_phase1_state_file_keeps_its_history_under_the_new_ids(tmp_path):
+    corpus = roast.load_corpus()
+    eid, text = corpus["banks"]["generic"][0]
+    legacy = roast.entry_id("generic", text)
+    assert corpus["aliases"][legacy] == eid
+    state = tmp_path / "state.json"
+    state.write_text(json.dumps({
+        "version": 1, "corpus": "phase-1-digest",
+        "bags": {"generic": [legacy]},
+        "history": [legacy],
+        "chosen": {"job@1": {"line": "A stored line.", "id": legacy, "at": 1}},
+    }), encoding="utf-8")
+    normalized = roast._normalized(roast._load_state(state), corpus)
+    assert normalized["history"] == [eid]
+    assert normalized["bags"] == {"generic": [eid]}
+    assert normalized["chosen"]["job@1"]["id"] == eid
+    assert normalized["chosen"]["job@1"]["line"] == "A stored line."
+
+
+def test_family_window_passes_over_a_recent_family(tmp_path):
+    # A fake corpus of two same-family lines and one other line, drawn
+    # through the engine's own draw: after the family is drawn once, the
+    # next draws take the other family's line, never the sibling.
+    corpus = roast.load_corpus()
+    entries = [("fam-a", "Alpha {title}."), ("fam-b", "Beta {title}."), ("other", "Gamma {title}.")]
+    families = {"fam-a": "fam", "fam-b": "fam", "other": "other"}
+    state = roast._normalized({}, corpus)
+    state["history"] = ["fam-a"]
+    picked = roast._draw("generic", entries, ctx("Widget"), state,
+                         random.Random(0), corpus["blocklist"], families=families)
+    assert picked[0] == "other"
+
+
+# ---------------------------------------------------------------- framing
+
+def test_framing_options_respect_pool_and_contract():
+    corpus = roast.load_corpus()
+    c = ctx("Benchy", grams=40, material="PLA")
+    generic = roast.framing_options("Benchy has docked at last.", "generic", c, corpus)
+    assert generic, "a generic line can be framed"
+    assert all(roast.framed_problem(option, corpus["blocklist"]) is None for option in generic)
+    assert all(option.startswith(("In ", "Breaking", "Dear", "Live", "Once", "With", "Attention",
+                                  "History", "From", "The", "In", "As", "Roll", "Dateline", "It",
+                                  "Picture", "Behold", "Benchy has docked at last,"))
+               for option in generic)
+    failed = roast.framing_options("Benchy ended as a modern art piece.", "failed", c, corpus)
+    assert failed and all(option.startswith("Benchy ended as a modern art piece. ") for option in failed)
+    assert roast.framing_options("Benchy took all night.", "overnight", c, corpus) == []
+    assert roast.framed_problem("One. Two. Three.") == "more than two sentences"
+    assert roast.framed_problem('A "quoted" frame.') == "quotes"
+
+
+def test_framed_draws_still_count_as_the_base_entry(tmp_path):
+    # Over many seeded draws, framed lines appear, every shipped line is a
+    # plain or framed form of an eligible entry, and the year simulation's
+    # no-repeat rule (history holds entry ids) is untouched by framing.
+    corpus = roast.load_corpus()
+    texts = {t for _id, t in corpus["banks"]["generic"] + corpus["banks"]["one_liners"]}
+    allowed = _renders_and_framed(texts, ctx("Widget"), "generic")
+    lines = {roast.roast(ctx("Widget"), rng=random.Random(seed)) for seed in range(300)}
+    assert lines <= allowed
+    assert any(line not in {roast.render(t, ctx("Widget")) for t in texts} for line in lines), \
+        "framing actually happens over 300 seeded draws"

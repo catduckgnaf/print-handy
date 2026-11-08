@@ -22,7 +22,7 @@ gcodes = 1
 scale = 1.0
 # The operator chose "Slice and print with supports" on the pre-slice summary.
 supports = true
-prompts = ["floating regions found"]
+prompts = ["floating region"]
 slots = 1
 
 [model]

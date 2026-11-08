@@ -18,6 +18,9 @@ attach":
   export (``user-1``, ``channel-1``, …) so lines still correlate;
 * local paths, emails, MACs, serial-shaped values and URL query strings
   are replaced;
+* the operator's own machine names (``[public_text] denylist``, #1020)
+  become pseudonyms too, and a path inside the app's own data or install
+  directories stays readable — only paths outside them are replaced;
 * a **verification pass** then re-runs the whole pipeline over the result:
   anything the first pass missed is removed there and counted, so an
   export never silently ships a value this module claims to strip.
@@ -37,6 +40,7 @@ LABELS = (
     ("secrets", "secrets/tokens"),
     ("ip_addresses", "IP addresses"),
     ("hostnames", "hostnames"),
+    ("machine_names", "operator machine names"),
     ("user_ids", "user IDs"),
     ("channel_ids", "channel IDs"),
     ("paths", "file paths"),
@@ -88,7 +92,8 @@ class Sanitizer:
     """One export's sanitizer: pseudonym maps live here, so the same raw
     value always becomes the same pseudonym within the export."""
 
-    def __init__(self, *, known_user_ids=(), known_channel_ids=()):
+    def __init__(self, *, known_user_ids=(), known_channel_ids=(),
+                 machine_names=(), keep_path_roots=()):
         self.counts: Counter = Counter()
         self.verification_counts: Counter = Counter()
         self._users: dict[str, str] = {}
@@ -96,6 +101,31 @@ class Sanitizer:
         self._hosts: dict[str, str] = {}
         self._ips: dict[str, str] = {}
         self._emails: dict[str, str] = {}
+        self._machines: dict[str, str] = {}
+        # Operator machine names (#1020): whole-word, case-insensitive,
+        # the same matching shape as the public-text policy checker, so
+        # the name is caught in prose and inside a kept app path alike.
+        self._machine_patterns = [
+            re.compile(r"(?i)(?<![A-Za-z0-9])" + re.escape(str(name).strip()) + r"(?![A-Za-z0-9])")
+            for name in machine_names if str(name).strip()]
+        # Paths under one of these roots are the app's own data/install
+        # directories (#1020): they keep their layout but are relabeled
+        # relative to the root's label (``app-data/state/...``), so the
+        # absolute prefix — a home directory, a volume path — never
+        # leaves the machine. Every other local path is replaced. Roots
+        # are (root, label) pairs (a bare root gets the label
+        # ``app-path``), longest root first so a nested root wins. No
+        # roots (the default) keeps the stricter remove-every-path
+        # behavior for callers that pass none.
+        pairs = []
+        for item in keep_path_roots or ():
+            if isinstance(item, (tuple, list)) and len(item) == 2:
+                root, label = str(item[0]).rstrip("/"), str(item[1]).strip() or "app-path"
+            else:
+                root, label = str(item).rstrip("/"), "app-path"
+            if root:
+                pairs.append((root, label))
+        self._keep_roots = tuple(sorted(pairs, key=lambda pair: len(pair[0]), reverse=True))
         # Known IDs first (longest first so a channel id that contains a
         # user id still wins), so lines naming them correlate even when a
         # value never matches a generic pattern.
@@ -124,6 +154,27 @@ class Sanitizer:
 
     def _email(self, raw):
         return self._pseudo(self._emails, raw, "email")
+
+    def _machine(self, raw):
+        return self._pseudo(self._machines, raw.lower(), "machine")
+
+    def _kept_path(self, raw):
+        """(label, root) when ``raw`` is under an app root, else None."""
+        for root, label in self._keep_roots:
+            if raw == root or raw.startswith(root + "/"):
+                return label, root
+        return None
+
+    def _path_repl(self, counts):
+        def repl(match):
+            raw = match.group(0)
+            kept = self._kept_path(raw)
+            counts.update(["paths"])
+            if kept is not None:
+                label, root = kept
+                return label + raw[len(root):]
+            return "<local path>"
+        return repl
 
     # -- one pass ------------------------------------------------------------
     def _secrets(self, text, counts):
@@ -209,9 +260,11 @@ class Sanitizer:
             lambda m: (counts.update(["ip_addresses"]) or self._ip(m.group(0)))
             if ("::" in m.group(0) or re.search(r"[A-Fa-f]", m.group(0))) else m.group(0), out)
         out = _INTERNAL_HOST.sub(lambda m: counts.update(["hostnames"]) or self._host(m.group(0).lower()), out)
-        out = _WINDOWS_PATH.sub(lambda m: counts.update(["paths"]) or "<local path>", out)
+        for pattern in self._machine_patterns:
+            out = pattern.sub(lambda m: counts.update(["machine_names"]) or self._machine(m.group(0)), out)
+        out = _WINDOWS_PATH.sub(self._path_repl(counts), out)
         out = _HOME_PATH.sub(lambda m: counts.update(["paths"]) or "<local path>", out)
-        out = _POSIX_PATH.sub(lambda m: counts.update(["paths"]) or "<local path>", out)
+        out = _POSIX_PATH.sub(self._path_repl(counts), out)
         out = _SERIAL_CTX.sub(
             lambda m: counts.update(["serial_numbers"]) or f"{m.group(1)}{m.group(2)}<serial>", out)
         out = _SERIAL_DASHED.sub(lambda m: counts.update(["serial_numbers"]) or "<serial>", out)

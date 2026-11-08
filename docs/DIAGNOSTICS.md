@@ -747,3 +747,101 @@ Every print alert is posted by the per-printer listener, so a listener that hang
 ## Public text in issues and pull requests (#1020)
 
 Issues, pull requests, comments and commit messages are public, and edit history keeps old versions. `scripts/check_public_text.py` (workflow `public-text.yml`) flags home and NAS paths, private IP addresses, local hostnames, MAC addresses, email addresses, SSH targets, chat or account IDs, tokens and any names in the `PUBLIC_TEXT_DENYLIST` repository secret (a comma or newline separated list of machine names). It reports the category and line, never the value. Put `public-text-ok` on a line that is a deliberate example. `scripts/check_issue_policy.py` (workflow `issue-policy.yml`) labels a bug report `needs-info` until it carries the sanitized diagnostics bundle or sanitization report, the version and evidence.
+
+## The diagnostics bundle, completed (#1020)
+
+`/print-handy bundle` in chat now **uploads the bundle as a file in the
+chat** (it is also written to the state folder as
+`diagnostics-bundle.md`); on the host,
+`python3 -m print_handy.diagnostics_bundle` writes the same file, and
+`--printer-logs` adds the printer-side logs. Every failure notice from
+the outage watch (down, hourly reminder, and the budget-exhausted
+critical below) attaches the bundle automatically.
+
+What the bundle carries beyond versions and the redacted config summary:
+
+- **Runtime status**: the image tag and commit SHA when the environment
+  records them (`PRINT_HANDY_IMAGE_TAG` / `PRINT_HANDY_IMAGE_SHA`; the
+  image digest is always shown when present), each printer's listener
+  heartbeat age and event-loop lag, the supervisor's persisted restart
+  counts per printer (including a spent budget), and the
+  capture-directory names with their lengths — the #1020 hang was a
+  capture name that outgrew its limit.
+- **Listener stack dumps**: when the watchdog's SIGUSR1 dump fired, the
+  dump is in the state folder (`listener_stack_dump.log` next to the
+  heartbeat) and tailed into the bundle. The listener writes its
+  heartbeat from a dedicated thread and records `loop_lag_ms` in it: a
+  heartbeat that stays fresh while the lag grows past 90 seconds reads
+  as "listener event loop blocked or stalled" in the healthcheck, which
+  is what the watchdog and the outage notices key on.
+- **Printer logs** (`--printer-logs`): for each Moonraker printer, the
+  console history from Moonraker's `gcode_store`, plus the `klippy.log`,
+  ZMod console and screen logs the printer serves. Each source's clock
+  is labeled: the console history is epoch-anchored and shown in UTC,
+  while the ZMod console file writes its own clock — in the #1020
+  incident it ran about 10 hours behind Moonraker time — so correlate
+  events through the console history, never by comparing the console
+  file's timestamps with Moonraker's.
+
+The export sanitizer also removes the operator's own machine names:
+list them under `[public_text] denylist` in the settings file (a list of
+names; see SETTINGS.md) and exports replace them with consistent
+pseudonyms. Paths inside Print Handy's own data and install directories
+keep their layout, relabeled relative to the root (`app-data/state/…`,
+`app-install/…`) so the absolute prefix never leaves the machine; any
+other local path is removed.
+
+**Budget-exhausted escalation.** The supervisor persists its per-printer
+restart record (`supervisor_listener.json` in the printer's state
+directory). When a listener's restart budget is spent, the bot's next
+outage notice for that printer is a louder **CRITICAL** post naming both
+bundle commands, pinned in Discord where pinning is available; hourly
+reminders afterwards keep naming the exhaustion. **Degraded notices:**
+while a listener is down, the bot also polls Moonraker directly, and a
+pause, error or stop the printer itself reports gets one degraded
+notice per reported state, labeled as coming from a direct check.
+
+## IFS jam: telling a real drag from a false trigger (#1020)
+
+A "Filament jam detected (IFS)" pause is the printer's own call: the
+`zmod_ifs` motion sensor declares a jam when the extruder advances
+`detection_length` (10 mm by default) without the encoder's stall bit
+changing for the current port. Print Handy posts the pause with the
+measured facts (duration, layer, slot, `next_cmd_delay`,
+`detection_length`, head switch sensor present or not) and never
+resumes it on its own. To separate a real drag from a false trigger,
+work through this procedure on a test print, not a job you care about:
+
+1. **Read the jam post's facts.** Note the slot (named with its IFS
+   channel), `next_cmd_delay` and `detection_length`. `next_cmd_delay`
+   was changed from 0.2 to 0.02 on 2026-11-03; long prints completed at
+   0.02 afterwards, so it is a variable to test, not a proven cause.
+2. **Check the physical path on the suspect slot.** Unload and reload
+   the filament by hand: spool tangles, a kinked or tightly bent tube,
+   a dragging spool holder and a rough filament path all feel like
+   resistance the other slots do not have. Fix anything you find and
+   retest before touching settings.
+3. **Compare slow measured extrusion across all four slots.** With the
+   hotend at printing temperature and no print running, extrude the
+   same fixed length (for example 50 mm) at the same slow feed rate on
+   the suspect slot, then on each other slot. A slot that stalls,
+   clicks or visibly lags against the other three is a real drag on
+   that path; four equal extrusions point away from the path.
+4. **Watch the encoder state.** During the suspect slot's slow
+   extrusion, watch the `zmod_ifs` state (Moonraker's objects query, or
+   the console) and note whether the current port's stall bit toggles
+   as filament moves. Filament moving with no stall-bit change is the
+   false-trigger signature: the sensor cannot see the motion it is
+   polling for.
+5. **A/B `next_cmd_delay`.** Set `[zmod_ifs] next_cmd_delay` back to
+   0.2 and repeat the same test. If the jam recurs at 0.02 but not at
+   0.2 — with steps 2–4 showing a clean path and a live encoder — the
+   trigger is the polling timing, not the filament: keep 0.2 and say so
+   on the report.
+6. **Report with evidence.** Whichever way it lands, attach a bundle
+   built with `--printer-logs` (`python3 -m print_handy.diagnostics_bundle
+   --printer-logs`) so both clocks' records are in one file, and note
+   which step separated the cause.
+
+Never defeat the sensor to make a print finish: a defeated sensor also
+stops catching the real jams this procedure exists to find.

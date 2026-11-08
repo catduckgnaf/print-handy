@@ -42,7 +42,7 @@ button = "Slice and print without supports"
 
 [expect]
 # Orca reports floating regions here; the operator answered "Slice and print without supports" before bed-clear.
-prompts = ["floating regions found"]
+prompts = ["floating region"]
 status = "STARTED"
 parts = ["body", "hat", "band", "gold", "ink", "blush"]
 gcodes = 1

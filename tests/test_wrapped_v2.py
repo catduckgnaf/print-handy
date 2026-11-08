@@ -510,6 +510,58 @@ class ClipJoinTests(unittest.TestCase):
         self.assertNotIn("This one failed", flat)
 
 
+# ------------------------------------------------- after a repair (#1017)
+    # A duplicate-number repair renumbers the later print and keeps the
+    # old number as print_number_was; clips delivered before the repair
+    # still carry the old number in their names.
+
+    def test_resolve_clip_number_follows_a_renumbered_record(self):
+        records = [{"print_number": 90, "print_number_was": 12,
+                    "started_at": "2026-04-01T16:00:00Z"}]
+        self.assertEqual(
+            wrapped_video.resolve_clip_print_number(
+                "20260401-1200-Widget-print-12.mp4", records), 90)
+
+    def test_resolve_clip_number_uses_the_start_stamp_when_two_records_claim_it(self):
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("America/New_York")
+        records = [
+            {"print_number": 12, "started_at": "2026-03-01T17:00:00Z"},   # 12:00 EST
+            {"print_number": 90, "print_number_was": 12,
+             "started_at": "2026-04-01T16:00:00Z"},                        # 12:00 EDT
+        ]
+        self.assertEqual(
+            wrapped_video.resolve_clip_print_number(
+                "20260401-1200-Widget-print-12.mp4", records, tz), 90)
+        self.assertEqual(
+            wrapped_video.resolve_clip_print_number(
+                "20260301-1200-Widget-print-12.mp4", records, tz), 12)
+
+    def test_resolve_clip_number_falls_back_when_the_stamp_matches_nobody(self):
+        records = [
+            {"print_number": 12, "started_at": "2026-03-01T17:00:00Z"},
+            {"print_number": 90, "print_number_was": 12,
+             "started_at": "2026-04-01T16:00:00Z"},
+        ]
+        self.assertEqual(
+            wrapped_video.resolve_clip_print_number(
+                "20260501-1200-Widget-print-12.mp4", records), 12)
+        self.assertEqual(
+            wrapped_video.resolve_clip_print_number("20260501-1200-Widget-print-7.mp4", records), 7)
+        self.assertIsNone(wrapped_video.resolve_clip_print_number("random-clip.mp4", records))
+
+    def test_detailed_finder_resolves_clip_numbers_with_records(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "archive"; archive.mkdir()
+            clip = archive / "20260401-1200-Widget-print-12.mp4"
+            clip.write_bytes(b"x")
+            data = {"timelapse": {"archive_dir": str(archive)}, "paths": {"cache": str(Path(tmp) / "no")}}
+            records = [{"print_number": 90, "print_number_was": 12,
+                        "started_at": "2026-04-01T16:00:00Z"}]
+            detailed = wrapped_video.default_clip_finder_detailed(data, 2026, records=records)
+        self.assertEqual([d["print_number"] for d in detailed], [90])
+
+
 class PageRenderTests(unittest.TestCase):
     def test_data_page_shows_recorded_pasta_caveat_and_blocks(self):
         from print_handy.webui import data as data_module
@@ -602,3 +654,4 @@ class DuplicatePrintNumberTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -60,6 +60,11 @@ from typing import Any, Callable
 from ..core import filament_color
 from . import spool_sync
 
+
+def _slot(slot: int) -> str:
+    """A slot named with its base in user-visible text (#1020 D1)."""
+    return filament_color.slot_display(slot)
+
 # An undelivered lane announcement is retried this often (the #483 cadence).
 LANE_RETRY_S = 300.0
 
@@ -126,6 +131,10 @@ def normalize_lane(slot: int, record: dict[str, Any]) -> dict[str, Any]:
         "slot": int(slot),
         "spool_id": _spool_id(record.get("spool_id")),
         "lane": record.get("lane"),
+        # The inner ``lane`` value converted to a 1-based slot, exactly
+        # once, here (#1020 D2): consumers compare ``lane_slot`` with
+        # ``slot`` instead of re-converting (or forgetting to).
+        "lane_slot": spool_sync.slot_from_lane_index0(record.get("lane")),
         "scan_time": str(scan_time),
         "color": str(color or ""),
         "material": str(material or ""),
@@ -191,6 +200,56 @@ def parse_lane_data(value: Any) -> dict[int, dict[str, Any]] | None:
         if slot in spool_sync.SLOTS:
             lanes[slot] = normalize_lane(slot, record)
     return lanes
+
+
+def slot_agreement_warning(*, job_slot=None, ffm_channel=None, ifs_chan=None,
+                           helix_slot=None, filename=None) -> str | None:
+    """The print-start slot self-check (#1020 D3).
+
+    Compares the four slot sources — the job's requested
+    ``physical_slot``, ZMod ``FFMInfo.channel``, ``zmod_ifs`` ``Chan``
+    and the HelixScreen seated slot — after conversion (every input
+    here is already a 1-based slot; the Helix value arrives converted
+    by :func:`spool_sync.slot_from_lane_index0`). Returns a warning
+    naming every source when at least two known sources disagree, and
+    None when they agree or fewer than two are known: a partial read
+    never cries wolf.
+    """
+    known = [(label, value) for label, value in (
+        ("the job requested", job_slot),
+        ("FFMInfo.channel reports", ffm_channel),
+        ("zmod_ifs Chan reports", ifs_chan),
+        ("HelixScreen seated", helix_slot),
+    ) if isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 4]
+    if len({value for _label, value in known}) < 2:
+        return None
+    from print_handy.core import filament_color
+
+    detail = "; ".join(f"{label} {filament_color.slot_display(value)}"
+                       for label, value in known)
+    subject = f" for {filename}" if filename else ""
+    return (f"**Slot check warning{subject}:** the slot sources disagree — {detail}. "
+            "The filament may not be where the job expects it. Check the loaded slot "
+            "at the printer before trusting slot-based alerts for this print.")
+
+
+def helix_seated_slot(lanes: dict[int, dict[str, Any]] | None,
+                      spool_id: Any) -> int | None:
+    """Where HelixScreen believes the job's spool sits, or None (#1020 D3).
+
+    ``lanes`` is :func:`parse_lane_data` output. The seated slot is the
+    outer key of the record naming ``spool_id`` — unless that record's
+    inner ``lane`` converts to a different slot, in which case the
+    converted value is what HelixScreen's own numbering means, and it
+    is returned so the self-check can disagree with it.
+    """
+    if not lanes or spool_id is None:
+        return None
+    for slot, lane in lanes.items():
+        if lane.get("spool_id") == spool_id:
+            converted = lane.get("lane_slot")
+            return converted if converted is not None else slot
+    return None
 
 
 def lane_fingerprint(lane: dict[str, Any]) -> dict[str, Any]:
@@ -300,7 +359,7 @@ def apply_screen_assignment(printer_id: str, slot: int, spool_id: int | None, *,
     settled = (result.get("assignments") or {}).get(int(slot))
     if settled != spool_id:
         raise spool_sync.SpoolError(
-            f"spool reconcile settled slot {slot} on {settled!r}, not the screen's "
+            f"spool reconcile settled {_slot(slot)} on {settled!r}, not the screen's "
             f"{spool_id!r}; the change was not adopted")
     return result
 
@@ -543,7 +602,7 @@ class LaneDataWatcher:
                 if blocked is not None:
                     return blocked
             if self._defer_mid_print(slot, action, pending, noted,
-                                     f"slot {slot} was unloaded"):
+                                     f"{_slot(slot)} was unloaded"):
                 return True
             try:
                 self._apply(slot, None)
@@ -551,7 +610,7 @@ class LaneDataWatcher:
                 return False  # not adopted: a later poll retries the converge
             self._drop_noted(pending, noted, slot)
             self._queue(pending, noted, slot, "unloaded",
-                        f"**HelixScreen change:** slot {slot} was unloaded at the printer "
+                        f"**HelixScreen change:** {_slot(slot)} was unloaded at the printer "
                         f"screen (spool #{old_fp['spool_id']} removed). Print Handy's records "
                         "were updated from Spoolman to match.",
                         action, spool_id=None)
@@ -564,7 +623,7 @@ class LaneDataWatcher:
         if spool_id is None:
             what = " / ".join(part for part in (lane["material"], lane["color"]) if part) or "filament"
             self._queue(pending, noted, slot, "unresolved",
-                        f"**HelixScreen change:** slot {slot} shows {what} loaded at the "
+                        f"**HelixScreen change:** {_slot(slot)} shows {what} loaded at the "
                         "printer screen, but the screen does not name a Spoolman spool for "
                         "it. No spool was guessed or bound. Record it with "
                         f"`/spool change {slot} <spool#>`.",
@@ -580,7 +639,7 @@ class LaneDataWatcher:
             fate = "is archived in Spoolman" if status == "archived" \
                 else "no longer exists in Spoolman"
             self._queue(pending, noted, slot, "stale_spool",
-                        f"**HelixScreen lane needs attention:** slot {slot} on the screen is "
+                        f"**HelixScreen lane needs attention:** {_slot(slot)} on the screen is "
                         f"linked to spool #{spool_id}, which {fate}. Nothing was overwritten. "
                         f"Relink the slot with `/spool change {slot} <spool#>`, or clear the "
                         "lane on the screen.",
@@ -592,7 +651,7 @@ class LaneDataWatcher:
         if conflicts:
             named = "; ".join(conflicts)
             self._queue(pending, noted, slot, "locked",
-                        f"**HelixScreen lane needs attention:** slot {slot} — {named}. "
+                        f"**HelixScreen lane needs attention:** {_slot(slot)} — {named}. "
                         "Nothing was overwritten: a value declared on the screen outranks "
                         "Print Handy. Fix the locked value on the screen, or relink the "
                         f"slot with `/spool change {slot} <spool#>`.",
@@ -604,7 +663,7 @@ class LaneDataWatcher:
         spool_material = _norm_text(filament.get("material"))
         if lane_material and spool_material and lane_material != spool_material:
             self._queue(pending, noted, slot, "identity_conflict",
-                        f"**HelixScreen lane needs attention:** slot {slot} on the screen names "
+                        f"**HelixScreen lane needs attention:** {_slot(slot)} on the screen names "
                         f"spool #{spool_id} as {lane['material']}, but Spoolman records that "
                         f"spool as {filament.get('material')}. Nothing was rebound. Check which "
                         f"spool is really in the slot, then relink it with "
@@ -629,7 +688,7 @@ class LaneDataWatcher:
                         noted[str(slot)] = action
                         self._queue(pending, noted, slot, "runout_load",
                                     f"**HelixScreen change:** spool #{spool_id} was loaded into "
-                                    f"slot {slot} at the printer screen while a print is paused "
+                                    f"{_slot(slot)} at the printer screen while a print is paused "
                                     "for a runout. No runout feed is wired here, so nothing was "
                                     "changed — answer the spool question in chat with "
                                     f"`{spool_id}` so usage tracking resumes on the right spool.",
@@ -645,7 +704,7 @@ class LaneDataWatcher:
                 self._drop_noted(pending, noted, slot)
                 self._queue(pending, noted, slot, "runout_load",
                             f"**HelixScreen change:** spool #{spool_id} ({_spool_label(spool)}) "
-                            f"was loaded into slot {slot} at the printer screen during a paused "
+                            f"was loaded into {_slot(slot)} at the printer screen during a paused "
                             "runout. It was fed into the runout recovery: the slot is bound to "
                             "it and filament usage is charged to it again.",
                             action, spool_id=spool_id)
@@ -654,7 +713,7 @@ class LaneDataWatcher:
 
         # -- mid-print: note once, apply when the print ends -----------------
         if self._defer_mid_print(slot, action, pending, noted,
-                                  f"spool #{spool_id} was loaded into slot {slot}"):
+                                  f"spool #{spool_id} was loaded into {_slot(slot)}"):
             return True
 
         # -- the plain screen-side load/swap ---------------------------------
@@ -666,7 +725,7 @@ class LaneDataWatcher:
         prior = (old_fp or {}).get("spool_id")
         swap = f" Spool #{prior} was replaced." if prior and prior != spool_id else ""
         self._queue(pending, noted, slot, "loaded",
-                    f"**HelixScreen change:** slot {slot} now holds spool #{spool_id} "
+                    f"**HelixScreen change:** {_slot(slot)} now holds spool #{spool_id} "
                     f"({_spool_label(spool)}), loaded at the printer screen.{swap} "
                     "Print Handy's records were updated from Spoolman to match.",
                     action, spool_id=spool_id)
@@ -707,9 +766,9 @@ class LaneDataWatcher:
         noted[str(slot)] = marker
         spool_id = old_fp.get("spool_id")
         self._queue(pending, noted, slot, "unverified_unload",
-                    f"**HelixScreen change not verified:** slot {slot}'s lane record "
+                    f"**HelixScreen change not verified:** {_slot(slot)}'s lane record "
                     f"(spool #{spool_id}) disappeared from Moonraker `lane_data`, but the "
-                    f"printer still reports filament loaded in slot {slot}. ZMod's OrcaSlicer "
+                    f"printer still reports filament loaded in {_slot(slot)}. ZMod's OrcaSlicer "
                     "lane sync writes the same namespace and can delete Print Handy's record, "
                     "so this was not treated as an unload: nothing was changed. If the slot "
                     "really was emptied, Print Handy unloads it once the printer reports it "

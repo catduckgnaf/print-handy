@@ -70,6 +70,10 @@ class CombinedSupervisorTests(unittest.TestCase):
                 'exit "${PRINT_HANDY_TEST_WEBUI_GATE:-3}";; '
                 '*print_handy.live_gate*) '
                 'exit "${PRINT_HANDY_TEST_LIVE_GATE:-3}";; '
+                # supervise.sh persists each listener restart through
+                # this module (#1020); the fake just acknowledges it.
+                '*print_handy.supervisor_state*) '
+                'exit 0;; '
                 '*print_handy.listeners*) ' + listener_child + ';; '
                 'esac\n')
         fake.write_text('#!/bin/bash\n' + gate + child)

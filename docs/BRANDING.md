@@ -50,7 +50,7 @@ Copy these as written. Each one is sized for where it goes.
 
 ## Voice
 
-- **Funny about the model, never about safety.** Keep approval prompts, heat and motion warnings, refusals and errors plain and exact. Put roasts only in the print-start message, one per print, when an LLM or vision endpoint is configured; never put them in completion messages or safety copy.
+- **Funny about the model, never about safety.** Keep approval prompts, heat and motion warnings, refusals and errors plain and exact. Put roasts only where they belong: one per print on the completion post, the failure and cancel posts, and a confirmed-spaghetti camera alert, drawn from the local roast corpus (no LLM, no endpoint, #1002); never in safety copy.
 - **Short, concrete and task-first.** Say what the reader can do, then link to details. Avoid repetitive reassurance and exhaustive inventories on entry pages.
 - **Local-first, stated honestly.** Print Handy itself runs on the owner's machine and has no Print Handy cloud. Chat providers carry messages and files; model downloads and optional hosted AI use the network. Never claim that nothing leaves the house.
 - **Mark optional features clearly.** Camera monitoring, AI, live viewing and printer controls are optional or separately enabled. Do not imply camera analysis guarantees safe unattended printing.

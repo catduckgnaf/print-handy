@@ -26,6 +26,7 @@ def without_added(data):
     data.pop("ai", None)  # #818 added the empty optional [ai] tier tables, after capture
     data.pop("notify", None)  # #622's section joined the defaults tree in the 2.2.2 settings-surface fix, after capture
     data.pop("material_tuning", None)  # #783's shipped PLA tuning, added after capture
+    data.pop("public_text", None)  # #1020's [public_text] denylist, added after capture
     data.pop("purge", None)  # #832's purge plan settings, added after capture
     data.pop("zmod", None)  # #832's ZMod plugin settings, added after capture
     for key in ("lan_host", "lan_serial", "lan_access_code_env"):  # added by #187, after capture

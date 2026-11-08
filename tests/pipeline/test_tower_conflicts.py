@@ -63,10 +63,9 @@ def _tower_spy(monkeypatch):
     return seen
 
 
-@tcg.needs_coupon
 def test_overlapping_parts_of_one_build_item_export_as_one_object(tmp_path):
     # Separate Orca objects whose footprints touch fail Orca's path-conflict check.
-    src = tcg.ROOT / 'three/three_core_geometry.3mf'
+    src = tcg.COUPON
     st = json.loads(tcg.STATE.read_text())
     mapping, report = export_color_geometry(src, tmp_path / 'out.3mf', tcg.decisions(src, st))
     with zipfile.ZipFile(tmp_path / 'out.3mf') as z:

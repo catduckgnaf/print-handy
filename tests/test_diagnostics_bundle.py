@@ -116,3 +116,101 @@ class BundleTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RuntimeAndPrinterLogsTests(unittest.TestCase):
+    """#1020 C1/C2: runtime status in the bundle, and --printer-logs."""
+
+    def _data(self, tmp, extra_toml=""):
+        path = Path(tmp) / "local.toml"
+        path.write_text(f'[paths]\nhermes_home = "{tmp}/hermes"\ncache = "{tmp}/cache"\n'
+                        + extra_toml)
+        return settings.load(local=path, environ={})
+
+    def test_runtime_section_reports_heartbeat_supervisor_and_captures(self):
+        import json as _json
+
+        from print_handy import healthcheck, supervisor_state
+
+        with tempfile.TemporaryDirectory() as tmp:
+            data = self._data(tmp)
+            printer_id = settings.default_printer_id(data)
+            beat_path = healthcheck.heartbeat_path(data, printer_id)
+            beat_path.parent.mkdir(parents=True, exist_ok=True)
+            beat_path.write_text(_json.dumps(
+                {"time": 900.0, "loop_lag_ms": 2500, "runtime": "x", "pid": 1}))
+            supervisor_state.write(printer_id, restarts=6, budget=5, window_s=600,
+                                   exhausted=True, data=data)
+            long_name = "p" * 120
+            (Path(tmp) / "cache" / "timelapse" / long_name).mkdir(parents=True)
+            with mock.patch.dict(os.environ, {"PRINT_HANDY_IMAGE_TAG": "nightly-2026-11-07",
+                                              "PRINT_HANDY_IMAGE_SHA": "7c3a2bd"}):
+                section = diagnostics_bundle.runtime_section(data, now=1000.0)
+        self.assertIn("tag nightly-2026-11-07, commit 7c3a2bd", section)
+        self.assertIn("heartbeat age 100s, loop lag 2.5s", section)
+        self.assertIn("supervisor restarts 6 of budget 5 in 600s", section)
+        self.assertIn("BUDGET EXHAUSTED", section)
+        self.assertIn(f"{long_name} (120)", section)
+
+    def test_runtime_section_survives_missing_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = self._data(tmp)
+            section = diagnostics_bundle.runtime_section(data, now=1000.0)
+        self.assertIn("no heartbeat file", section)
+        self.assertIn("not recorded", section)
+
+    def test_bundle_carries_the_runtime_and_stack_dump_sections(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = self._data(tmp)
+            text = diagnostics_bundle.build_bundle(data, include_doctor=False)
+        self.assertIn("## Runtime status", text)
+        self.assertIn("## Listener stack dumps", text)
+
+    def _printer_data(self, tmp):
+        return self._data(tmp, '[[printers]]\nid = "ad5x"\nmodel = "flashforge.ad5x"\n'
+                               'moonraker_url = "http://printer.invalid:7125"\n')
+
+    def test_printer_logs_pull_console_klippy_and_zmod_with_clock_labels(self):
+        import json as _json
+
+        store = _json.dumps({"result": {"gcode_store": [
+            {"message": "// hello", "time": 1762470000.0, "type": "response"},
+            {"message": "!! Filament jam detected (IFS)", "time": 1762470061.0, "type": "response"},
+        ]}}).encode()
+        listing = _json.dumps({"result": {"dirs_files": [
+            {"path": "klippy.log"}, {"path": "console.log"}, {"path": "moonraker.log"}]}}).encode()
+        files = {
+            "/server/gcode_store?count=200": store,
+            "/server/files/directory?path=logs": listing,
+            "/server/files/logs/klippy.log": b"klippy line one\nklippy line two\n",
+            "/server/files/logs/console.log": b"12:40:31 jam on console clock\n",
+        }
+
+        def fetch(url):
+            for suffix, payload in files.items():
+                if url.endswith(suffix):
+                    return payload
+            return None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            data = self._printer_data(tmp)
+            section = diagnostics_bundle.printer_logs_section(data, fetch=fetch)
+        self.assertIn("Filament jam detected (IFS)", section)
+        self.assertIn("epoch-anchored and shown in UTC", section)
+        self.assertIn("klippy line two", section)
+        self.assertIn("10 hours behind Moonraker time", section)
+        self.assertIn("jam on console clock", section)
+
+    def test_printer_logs_degrade_when_the_printer_is_unreachable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = self._printer_data(tmp)
+            section = diagnostics_bundle.printer_logs_section(data, fetch=lambda url: None)
+        self.assertIn("Console history: unavailable", section)
+        self.assertIn("no klippy, console or screen log", section)
+
+    def test_printer_logs_skip_non_moonraker_printers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = self._data(tmp)
+            section = diagnostics_bundle.printer_logs_section(data, fetch=lambda url: None)
+        self.assertIn("not a Moonraker printer", section)
+

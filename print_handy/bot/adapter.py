@@ -121,6 +121,15 @@ class StandaloneAdapter(BasePlatformAdapter):
             return SendResult(False, error=str(exc))
         return SendResult(True, message_id=str(message_id))
 
+    async def pin_message(self, chat_id, message_id):
+        """Pin a message this adapter sent (#1020 B3: the budget-exhausted
+        outage escalation). Optional capability: the outage path checks
+        for it with getattr and carries on without it elsewhere."""
+        channel = await self._channel(chat_id)
+        message = await channel.fetch_message(int(message_id))
+        await message.pin()
+        return True
+
     async def send_clarify(self, chat_id, question, choices, clarify_id, session_key, metadata=None):
         """One message with one button per choice. A press resolves ``clarify_id`` in the registry."""
         import discord

@@ -3,65 +3,305 @@
  "_phase": "seed-v0 (#1002 attachment 1, 2026-11-07)",
  "_license": "Original to Print Handy; MIT with the project.",
  "entries": [
-  "Another successful print, another shelf quietly wondering where its free space went.",
-  "The printer did the work, but someone here will absolutely take the credit.",
-  "Somewhere, a store-bought version is feeling deeply disrespected right now.",
-  "Congratulations, your robot butler has completed another very important plastic errand.",
-  "That sound you hear is a spool getting lighter and confidence getting louder.",
-  "Finished, flawless, and already being photographed like a newborn with better layer lines.",
-  "You watched a machine melt plastic for hours and called it supervision, respectfully.",
-  "The hobby promised one small print and somehow delivered a whole lifestyle.",
-  "Proof that patience, electricity, and stubbornness can become a physical object.",
-  "Another masterpiece enters the collection, population growing, storage plan still pending.",
-  "The printer has finished, so the human may now resume pretending to relax.",
-  "Hours of humming, moments of checking, and seconds of triumph complete the ritual.",
-  "A triumph of engineering, assuming triumph includes checking the camera every ten minutes.",
-  "Some collect art, some collect stamps, and some manufacture their own clutter proudly.",
-  "Done at last, with not a single dramatic bed peel, which feels suspiciously professional.",
-  "The filament is gone, the object is real, and the excuse budget is empty.",
-  "Behold, the result of saying just one more print with a straight face.",
-  "Another object joins the household, and the shelf negotiations begin anew.",
-  "Slow, steady, and successful: basically a turtle with a heating element and fans.",
-  "The machine printed, the human hovered, and together they call that teamwork.",
-  "Victory is sweet, smells faintly of warm plastic, and needs a place to sit.",
-  "Completed without drama, which for this hobby counts as a special occasion.",
-  "Your future self thanks you for making this instead of buying it in minutes.",
-  "A whole print finished, and only minimal staring through a camera was required.",
-  "The bed is cooling, the part is perfect, and someone is already planning another.",
-  "Imagine explaining this hobby to aliens: we melt string into shapes for joy.",
-  "Another layer-by-layer magic trick, performed extremely slowly by a very patient box.",
-  "Finished successfully, which means the next print will be twice as ambitious, naturally.",
-  "The spool lost some weight, the desk gained some glory, and everyone wins here.",
-  "This is what peak productivity looks like when productivity wears a plastic costume.",
-  "Done, dusted, and admired from at least four angles for quality assurance purposes.",
-  "The printer rested its motors while the human immediately opened another model tab.",
-  "A successful print today keeps the just-buy-it comments away, but only barely.",
-  "Somewhere a designer uploaded a file, and this household turned it into homework.",
-  "Warm plastic, cool result, and a human pretending this was all effortless.",
-  "Another finish line crossed at a pace that would embarrass a glacier, beautifully.",
-  "The collection grows, the storage bins multiply, and nobody learns a single thing.",
-  "Completed: one object, zero shortcuts, and several hours of premium robot humming.",
-  "You did not just print a thing; you scheduled joy several hours in advance.",
-  "The machine has delivered, and the human has already forgotten the waiting part.",
-  "Success tastes like victory and looks like it needs a tiny display stand.",
-  "Another print, another reason the craft store thinks you live there now.",
-  "Finished cleanly, which is the printer showing off and honestly earning it.",
-  "The art of turning electricity and string into shelf decorations continues undefeated.",
-  "Hours invested, object acquired, and the phrase useful hobby defended once again.",
-  "A robot made this slowly so a human could feel accomplished quickly.",
-  "The print is done, the camera can rest, and the hovering may officially end.",
-  "Done and looking sharp enough to make the calibration cubes quietly jealous.",
-  "Plastic has been promoted to product, pending approval from the nearest shelf.",
-  "Another successful session of a human watching a robot do crafts, applauding softly.",
-  "The finish is so clean that even the first layer is bragging quietly.",
-  "This hobby runs on patience, plastic, and pretending the storage problem is solved.",
-  "Completed beautifully, proving that slow and steady occasionally wins the entire race.",
-  "A new object has arrived, and it brought its own photo shoot with it.",
-  "The printer clocked out proudly while the human started a victory lap indoors.",
-  "Some chase trophies; this household manufactures them one layer at a time.",
-  "Finished at last: the waiting was long, the hovering was longer, the smile longest.",
-  "Another day, another object that definitely needed to exist, according to local sources.",
-  "The spool is lighter, the desk is fuller, and the cycle remains gloriously unbroken.",
-  "Success again, which can only mean the next project just got more ambitious."
+  {
+   "id": "one_liners-another-successful-print-another-shelf",
+   "family": "one_liners-another-successful-print-another-shelf",
+   "text": "Another successful print, another shelf quietly wondering where its free space went."
+  },
+  {
+   "id": "one_liners-the-printer-did-the-work",
+   "family": "one_liners-the-printer-did-the-work",
+   "text": "The printer did the work, but someone here will absolutely take the credit."
+  },
+  {
+   "id": "one_liners-somewhere-a-store-bought-version",
+   "family": "one_liners-somewhere-a-store-bought-version",
+   "text": "Somewhere, a store-bought version is feeling deeply disrespected right now."
+  },
+  {
+   "id": "one_liners-congratulations-your-robot-butler-has",
+   "family": "one_liners-congratulations-your-robot-butler-has",
+   "text": "Congratulations, your robot butler has completed another very important plastic errand."
+  },
+  {
+   "id": "one_liners-that-sound-you-hear-is",
+   "family": "one_liners-that-sound-you-hear-is",
+   "text": "That sound you hear is a spool getting lighter and confidence getting louder."
+  },
+  {
+   "id": "one_liners-finished-flawless-and-already-being",
+   "family": "one_liners-finished-flawless-and-already-being",
+   "text": "Finished, flawless, and already being photographed like a newborn with better layer lines."
+  },
+  {
+   "id": "one_liners-you-watched-a-machine-melt",
+   "family": "one_liners-you-watched-a-machine-melt",
+   "text": "You watched a machine melt plastic for hours and called it supervision, respectfully."
+  },
+  {
+   "id": "one_liners-the-hobby-promised-one-small",
+   "family": "one_liners-the-hobby-promised-one-small",
+   "text": "The hobby promised one small print and somehow delivered a whole lifestyle."
+  },
+  {
+   "id": "one_liners-proof-that-patience-electricity-and",
+   "family": "one_liners-proof-that-patience-electricity-and",
+   "text": "Proof that patience, electricity, and stubbornness can become a physical object."
+  },
+  {
+   "id": "one_liners-another-masterpiece-enters-the-collection",
+   "family": "one_liners-another-masterpiece-enters-the-collection",
+   "text": "Another masterpiece enters the collection, population growing, storage plan still pending."
+  },
+  {
+   "id": "one_liners-the-printer-has-finished-so",
+   "family": "one_liners-the-printer-has-finished-so",
+   "text": "The printer has finished, so the human may now resume pretending to relax."
+  },
+  {
+   "id": "one_liners-hours-of-humming-moments-of",
+   "family": "one_liners-hours-of-humming-moments-of",
+   "text": "Hours of humming, moments of checking, and seconds of triumph complete the ritual."
+  },
+  {
+   "id": "one_liners-a-triumph-of-engineering-assuming",
+   "family": "one_liners-a-triumph-of-engineering-assuming",
+   "text": "A triumph of engineering, assuming triumph includes checking the camera every ten minutes."
+  },
+  {
+   "id": "one_liners-some-collect-art-some-collect",
+   "family": "one_liners-some-collect-art-some-collect",
+   "text": "Some collect art, some collect stamps, and some manufacture their own clutter proudly."
+  },
+  {
+   "id": "one_liners-done-at-last-with-not",
+   "family": "one_liners-done-at-last-with-not",
+   "text": "Done at last, with not a single dramatic bed peel, which feels suspiciously professional."
+  },
+  {
+   "id": "one_liners-the-filament-is-gone-the",
+   "family": "one_liners-the-filament-is-gone-the",
+   "text": "The filament is gone, the object is real, and the excuse budget is empty."
+  },
+  {
+   "id": "one_liners-behold-the-result-of-saying",
+   "family": "one_liners-behold-the-result-of-saying",
+   "text": "Behold, the result of saying just one more print with a straight face."
+  },
+  {
+   "id": "one_liners-another-object-joins-the-household",
+   "family": "one_liners-another-object-joins-the-household",
+   "text": "Another object joins the household, and the shelf negotiations begin anew."
+  },
+  {
+   "id": "one_liners-slow-steady-and-successful-basically",
+   "family": "one_liners-slow-steady-and-successful-basically",
+   "text": "Slow, steady, and successful: basically a turtle with a heating element and fans."
+  },
+  {
+   "id": "one_liners-the-machine-printed-the-human",
+   "family": "one_liners-the-machine-printed-the-human",
+   "text": "The machine printed, the human hovered, and together they call that teamwork."
+  },
+  {
+   "id": "one_liners-victory-is-sweet-smells-faintly",
+   "family": "one_liners-victory-is-sweet-smells-faintly",
+   "text": "Victory is sweet, smells faintly of warm plastic, and needs a place to sit."
+  },
+  {
+   "id": "one_liners-completed-without-drama-which-for",
+   "family": "one_liners-completed-without-drama-which-for",
+   "text": "Completed without drama, which for this hobby counts as a special occasion."
+  },
+  {
+   "id": "one_liners-your-future-self-thanks-you",
+   "family": "one_liners-your-future-self-thanks-you",
+   "text": "Your future self thanks you for making this instead of buying it in minutes."
+  },
+  {
+   "id": "one_liners-a-whole-print-finished-and",
+   "family": "one_liners-a-whole-print-finished-and",
+   "text": "A whole print finished, and only minimal staring through a camera was required."
+  },
+  {
+   "id": "one_liners-the-bed-is-cooling-the",
+   "family": "one_liners-the-bed-is-cooling-the",
+   "text": "The bed is cooling, the part is perfect, and someone is already planning another."
+  },
+  {
+   "id": "one_liners-imagine-explaining-this-hobby-to",
+   "family": "one_liners-imagine-explaining-this-hobby-to",
+   "text": "Imagine explaining this hobby to aliens: we melt string into shapes for joy."
+  },
+  {
+   "id": "one_liners-another-layer-by-layer-magic",
+   "family": "one_liners-another-layer-by-layer-magic",
+   "text": "Another layer-by-layer magic trick, performed extremely slowly by a very patient box."
+  },
+  {
+   "id": "one_liners-finished-successfully-which-means-the",
+   "family": "one_liners-finished-successfully-which-means-the",
+   "text": "Finished successfully, which means the next print will be twice as ambitious, naturally."
+  },
+  {
+   "id": "one_liners-the-spool-lost-some-weight",
+   "family": "one_liners-the-spool-lost-some-weight",
+   "text": "The spool lost some weight, the desk gained some glory, and everyone wins here."
+  },
+  {
+   "id": "one_liners-this-is-what-peak-productivity",
+   "family": "one_liners-this-is-what-peak-productivity",
+   "text": "This is what peak productivity looks like when productivity wears a plastic costume."
+  },
+  {
+   "id": "one_liners-done-dusted-and-admired-from",
+   "family": "one_liners-done-dusted-and-admired-from",
+   "text": "Done, dusted, and admired from at least four angles for quality assurance purposes."
+  },
+  {
+   "id": "one_liners-the-printer-rested-its-motors",
+   "family": "one_liners-the-printer-rested-its-motors",
+   "text": "The printer rested its motors while the human immediately opened another model tab."
+  },
+  {
+   "id": "one_liners-a-successful-print-today-keeps",
+   "family": "one_liners-a-successful-print-today-keeps",
+   "text": "A successful print today keeps the just-buy-it comments away, but only barely."
+  },
+  {
+   "id": "one_liners-somewhere-a-designer-uploaded-a",
+   "family": "one_liners-somewhere-a-designer-uploaded-a",
+   "text": "Somewhere a designer uploaded a file, and this household turned it into homework."
+  },
+  {
+   "id": "one_liners-warm-plastic-cool-result-and",
+   "family": "one_liners-warm-plastic-cool-result-and",
+   "text": "Warm plastic, cool result, and a human pretending this was all effortless."
+  },
+  {
+   "id": "one_liners-another-finish-line-crossed-at",
+   "family": "one_liners-another-finish-line-crossed-at",
+   "text": "Another finish line crossed at a pace that would embarrass a glacier, beautifully."
+  },
+  {
+   "id": "one_liners-the-collection-grows-the-storage",
+   "family": "one_liners-the-collection-grows-the-storage",
+   "text": "The collection grows, the storage bins multiply, and nobody learns a single thing."
+  },
+  {
+   "id": "one_liners-completed-one-object-zero-shortcuts",
+   "family": "one_liners-completed-one-object-zero-shortcuts",
+   "text": "Completed: one object, zero shortcuts, and several hours of premium robot humming."
+  },
+  {
+   "id": "one_liners-you-did-not-just-print",
+   "family": "one_liners-you-did-not-just-print",
+   "text": "You did not just print a thing; you scheduled joy several hours in advance."
+  },
+  {
+   "id": "one_liners-the-machine-has-delivered-and",
+   "family": "one_liners-the-machine-has-delivered-and",
+   "text": "The machine has delivered, and the human has already forgotten the waiting part."
+  },
+  {
+   "id": "one_liners-success-tastes-like-victory-and",
+   "family": "one_liners-success-tastes-like-victory-and",
+   "text": "Success tastes like victory and looks like it needs a tiny display stand."
+  },
+  {
+   "id": "one_liners-another-print-another-reason-the",
+   "family": "one_liners-another-print-another-reason-the",
+   "text": "Another print, another reason the craft store thinks you live there now."
+  },
+  {
+   "id": "one_liners-finished-cleanly-which-is-the",
+   "family": "one_liners-finished-cleanly-which-is-the",
+   "text": "Finished cleanly, which is the printer showing off and honestly earning it."
+  },
+  {
+   "id": "one_liners-the-art-of-turning-electricity",
+   "family": "one_liners-the-art-of-turning-electricity",
+   "text": "The art of turning electricity and string into shelf decorations continues undefeated."
+  },
+  {
+   "id": "one_liners-hours-invested-object-acquired-and",
+   "family": "one_liners-hours-invested-object-acquired-and",
+   "text": "Hours invested, object acquired, and the phrase useful hobby defended once again."
+  },
+  {
+   "id": "one_liners-a-robot-made-this-slowly",
+   "family": "one_liners-a-robot-made-this-slowly",
+   "text": "A robot made this slowly so a human could feel accomplished quickly."
+  },
+  {
+   "id": "one_liners-the-print-is-done-the",
+   "family": "one_liners-the-print-is-done-the",
+   "text": "The print is done, the camera can rest, and the hovering may officially end."
+  },
+  {
+   "id": "one_liners-done-and-looking-sharp-enough",
+   "family": "one_liners-done-and-looking-sharp-enough",
+   "text": "Done and looking sharp enough to make the calibration cubes quietly jealous."
+  },
+  {
+   "id": "one_liners-plastic-has-been-promoted-to",
+   "family": "one_liners-plastic-has-been-promoted-to",
+   "text": "Plastic has been promoted to product, pending approval from the nearest shelf."
+  },
+  {
+   "id": "one_liners-another-successful-session-of-a",
+   "family": "one_liners-another-successful-session-of-a",
+   "text": "Another successful session of a human watching a robot do crafts, applauding softly."
+  },
+  {
+   "id": "one_liners-the-finish-is-so-clean",
+   "family": "one_liners-the-finish-is-so-clean",
+   "text": "The finish is so clean that even the first layer is bragging quietly."
+  },
+  {
+   "id": "one_liners-this-hobby-runs-on-patience",
+   "family": "one_liners-this-hobby-runs-on-patience",
+   "text": "This hobby runs on patience, plastic, and pretending the storage problem is solved."
+  },
+  {
+   "id": "one_liners-completed-beautifully-proving-that-slow",
+   "family": "one_liners-completed-beautifully-proving-that-slow",
+   "text": "Completed beautifully, proving that slow and steady occasionally wins the entire race."
+  },
+  {
+   "id": "one_liners-a-new-object-has-arrived",
+   "family": "one_liners-a-new-object-has-arrived",
+   "text": "A new object has arrived, and it brought its own photo shoot with it."
+  },
+  {
+   "id": "one_liners-the-printer-clocked-out-proudly",
+   "family": "one_liners-the-printer-clocked-out-proudly",
+   "text": "The printer clocked out proudly while the human started a victory lap indoors."
+  },
+  {
+   "id": "one_liners-some-chase-trophies-this-household",
+   "family": "one_liners-some-chase-trophies-this-household",
+   "text": "Some chase trophies; this household manufactures them one layer at a time."
+  },
+  {
+   "id": "one_liners-finished-at-last-the-waiting",
+   "family": "one_liners-finished-at-last-the-waiting",
+   "text": "Finished at last: the waiting was long, the hovering was longer, the smile longest."
+  },
+  {
+   "id": "one_liners-another-day-another-object-that",
+   "family": "one_liners-another-day-another-object-that",
+   "text": "Another day, another object that definitely needed to exist, according to local sources."
+  },
+  {
+   "id": "one_liners-the-spool-is-lighter-the",
+   "family": "one_liners-the-spool-is-lighter-the",
+   "text": "The spool is lighter, the desk is fuller, and the cycle remains gloriously unbroken."
+  },
+  {
+   "id": "one_liners-success-again-which-can-only",
+   "family": "one_liners-success-again-which-can-only",
+   "text": "Success again, which can only mean the next project just got more ambitious."
+  }
  ]
 }

@@ -188,7 +188,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
 # The keys of one [ai.<tier>] table (#818); the tables are file only, so they are not in OPTIONAL_KEYS.
 AI_TIER_KEYS = ("chat_url", "model", "fallback_model", "fallback_url", "api_key_env",
                 "fallback_api_key_env", "timeout_s")
-ENV_LISTS = {("delivery", "methods"), ("zmod", "plugins")}
+ENV_LISTS = {("delivery", "methods"), ("zmod", "plugins"), ("public_text", "denylist")}
 # Settings whose value is a word or a list of names ([zmod] plugins: "auto" or a list). The default
 # is the word, so the type check accepts either shape; _validate_purge checks the content.
 MIXED_KEYS = {("zmod", "plugins")}
@@ -1343,9 +1343,10 @@ def _validate_vision(data):
 
     ``roast_enabled`` is on by default. Roasts come from the local roast
     corpus (core/roast.py, #1002) with no LLM and no endpoint: exactly one
-    line per print on the completion post, and on request in chat ("roast
-    my last print"), on every platform. Set it false to turn roasts off
-    without touching the camera watchdog. ``roast_model`` is kept so older
+    line per print on the completion post, one on the failure and cancel
+    posts and on a confirmed-spaghetti camera alert, and on request in
+    chat ("roast my last print"), on every platform. Set it false to turn
+    roasts off without touching the camera watchdog. ``roast_model`` is kept so older
     configs load unchanged; roasts no longer read it. Absent in an older
     config means the default (on).
     """
@@ -1584,6 +1585,23 @@ def _validate_logging(data):
             raise SettingsError(f"[logging] levels.{name} must be one of "
                                 f"{', '.join(LOG_LEVELS)}, got {value!r}")
         levels[name] = normalised
+
+
+def _validate_public_text(data):
+    """The [public_text] section (#1020): operator machine names the log
+    sanitizer strips from exports. Absent means the shipped empty list."""
+    section = data.setdefault("public_text", {})
+    names = section.setdefault("denylist", [])
+    if not isinstance(names, (list, tuple)) or not all(isinstance(n, str) for n in names):
+        raise SettingsError(f"[public_text] denylist must be a list of machine names, got {names!r}")
+    section["denylist"] = [name.strip() for name in names if name.strip()]
+
+
+def public_text_denylist(data=None):
+    """The configured operator machine names for the export sanitizer (#1020)."""
+    data = current() if data is None else data
+    names = (data.get("public_text") or {}).get("denylist") or []
+    return [str(name).strip() for name in names if str(name).strip()]
 
 
 def _validate_bot(data):
@@ -1859,6 +1877,7 @@ def validate(data):
     _validate_spool(data)
     _validate_notify(data)
     _validate_logging(data)
+    _validate_public_text(data)
     _validate_webui(data)
     _validate_timelapse(data)
     _validate_camera_source(data)

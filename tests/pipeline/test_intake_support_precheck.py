@@ -205,8 +205,8 @@ def test_flagged_orca_warning_offers_supports_before_bed_clear(env, monkeypatch)
     choices = last_q['choices']
     assert choices[0] == 'Slice and print with supports (bed is clear)'
     assert choices[1] == 'Slice and print without supports (bed is clear)'
-    assert 'floating regions found' in last_q['question']
-    assert 'Slice and print with supports (recommended: floating regions found)' in last_q['question']
+    assert 'the slicer found 1 floating region that needs support' in last_q['question']
+    assert 'Slice and print with supports (recommended: the slicer found 1 floating region that needs support)' in last_q['question']
 
     # Both no-supports and with-supports slices were run in background
     assert len(env.slice_calls) >= 2
@@ -272,7 +272,7 @@ def test_slow_first_slice_warning_still_offers_supports_before_bed_clear(env, mo
     adapter, result, receipt = run_flow(env, [1, 0, 0])
     last_q = adapter.questions[-1]
     assert last_q['choices'][0] == 'Slice and print with supports (bed is clear)'
-    assert 'floating regions found' in last_q['question']
+    assert 'the slicer found 1 floating region that needs support' in last_q['question']
     assert receipt['status'] == 'STARTED'
 
 

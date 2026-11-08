@@ -69,7 +69,7 @@ message. `python3 -m print_handy.doctor` warns when a Hermes profile holds the s
 | `agent.model` | empty | Agent model name; optional — empty omits `model` from the request |
 | `agent.api_key_env` | `AGENT_API_KEY` | Name of the environment variable that holds the agent endpoint's API key, if it needs one |
 | `agent.timeout_s` | `120` | Agent request timeout (one attempt, no retries) |
-| `vision.roast_enabled` | `true` | The one-line roast: one per print on the completion post, plus on request in chat ("roast my last print"), on every platform. From the local roast corpus, no LLM or endpoint (#1002). `false` turns roasts off; camera checks are unaffected |
+| `vision.roast_enabled` | `true` | The one-line roast: one per print on the completion post, the failure and cancel posts and a confirmed-spaghetti camera alert, plus on request in chat ("roast my last print"), on every platform. From the local roast corpus, no LLM or endpoint (#1002). `false` turns roasts off; camera checks are unaffected |
 | `vision.roast_model` | `luna-latest` | Legacy, unused since #1002 (roasts are local); kept so older configs load |
 
 Every key can come from the environment as `PRINT_HANDY__SECTION__KEY`, for example

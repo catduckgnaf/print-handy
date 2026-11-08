@@ -1,23 +1,127 @@
 {
  "_about": "Completed prints of a job printed at least twice ({times} is how many).",
- "_phase": "seed-v0 (#1002 attachment 1, 2026-11-07)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2)",
  "_license": "Original to Print Handy; MIT with the project.",
  "entries": [
-  "Print number {times} of {title} — at this point, the printer can make this one from memory.",
-  "{title} returns for appearance number {times}, and the crowd of previous copies welcomes its newest sibling.",
-  "Copy number {times} of {title} has arrived, and the earlier copies are pretending not to notice.",
-  "{printer} has printed {title} {times} times now, which legally makes it a production facility.",
-  "At print number {times}, {title} is no longer a project; it is a recurring character.",
-  "{title} number {times} is done, and the shelf is starting to look like a reunion photo.",
-  "Another {title}, number {times} in the saga, and each one arrives slightly more confident than the last.",
-  "{times} prints of {title} means either it is very useful or someone keeps losing them.",
-  "{title} has been printed {times} times, and at this point the slicer just sighs and complies.",
-  "Print {times} of {title} complete — the original copy has started charging the others rent.",
-  "Number {times} off the line: {title} again, because one was clearly just the trailer.",
-  "{title} print number {times} joins the collection, and the collection is now basically a fan club.",
-  "This is {title}, round number {times}, and the rematch keeps ending exactly the same way.",
-  "With {times} copies, {title} could start a small club and elect its first copy president.",
-  "{printer} finished {title} number {times}, then immediately checked whether another one was queued behind it.",
-  "Print number {times}: {title} once more, proving demand is high or storage is very forgiving."
+  {
+   "id": "repeat_print-print-number-times-of-title",
+   "family": "repeat_print-print-number-times-of-title",
+   "text": "Print number {times} of {title} — at this point, the printer can make this one from memory."
+  },
+  {
+   "id": "repeat_print-title-returns-for-appearance-number",
+   "family": "repeat_print-title-returns-for-appearance-number",
+   "text": "{title} returns for appearance number {times}, and the crowd of previous copies welcomes its newest sibling."
+  },
+  {
+   "id": "repeat_print-copy-number-times-of-title",
+   "family": "repeat_print-copy-number-times-of-title",
+   "text": "Copy number {times} of {title} has arrived, and the earlier copies are pretending not to notice."
+  },
+  {
+   "id": "repeat_print-printer-has-printed-title-times",
+   "family": "repeat_print-printer-has-printed-title-times",
+   "text": "{printer} has printed {title} {times} times now, which legally makes it a production facility."
+  },
+  {
+   "id": "repeat_print-at-print-number-times-title",
+   "family": "repeat_print-at-print-number-times-title",
+   "text": "At print number {times}, {title} is no longer a project; it is a recurring character."
+  },
+  {
+   "id": "repeat_print-title-number-times-is-done",
+   "family": "repeat_print-title-number-times-is-done",
+   "text": "{title} number {times} is done, and the shelf is starting to look like a reunion photo."
+  },
+  {
+   "id": "repeat_print-another-title-number-times-in",
+   "family": "repeat_print-another-title-number-times-in",
+   "text": "Another {title}, number {times} in the saga, and each one arrives slightly more confident than the last."
+  },
+  {
+   "id": "repeat_print-times-prints-of-title-means",
+   "family": "repeat_print-times-prints-of-title-means",
+   "text": "{times} prints of {title} means either it is very useful or someone keeps losing them."
+  },
+  {
+   "id": "repeat_print-title-has-been-printed-times",
+   "family": "repeat_print-title-has-been-printed-times",
+   "text": "{title} has been printed {times} times, and at this point the slicer just sighs and complies."
+  },
+  {
+   "id": "repeat_print-print-times-of-title-complete",
+   "family": "repeat_print-print-times-of-title-complete",
+   "text": "Print {times} of {title} complete — the original copy has started charging the others rent."
+  },
+  {
+   "id": "repeat_print-number-times-off-the-line",
+   "family": "repeat_print-number-times-off-the-line",
+   "text": "Number {times} off the line: {title} again, because one was clearly just the trailer."
+  },
+  {
+   "id": "repeat_print-title-print-number-times-joins",
+   "family": "repeat_print-title-print-number-times-joins",
+   "text": "{title} print number {times} joins the collection, and the collection is now basically a fan club."
+  },
+  {
+   "id": "repeat_print-this-is-title-round-number",
+   "family": "repeat_print-this-is-title-round-number",
+   "text": "This is {title}, round number {times}, and the rematch keeps ending exactly the same way."
+  },
+  {
+   "id": "repeat_print-with-times-copies-title-could",
+   "family": "repeat_print-with-times-copies-title-could",
+   "text": "With {times} copies, {title} could start a small club and elect its first copy president."
+  },
+  {
+   "id": "repeat_print-printer-finished-title-number-times",
+   "family": "repeat_print-printer-finished-title-number-times",
+   "text": "{printer} finished {title} number {times}, then immediately checked whether another one was queued behind it."
+  },
+  {
+   "id": "repeat_print-print-number-times-title-once",
+   "family": "repeat_print-print-number-times-title-once",
+   "text": "Print number {times}: {title} once more, proving demand is high or storage is very forgiving."
+  },
+  {
+   "id": "repeat_print-title-attempt-number-times-the",
+   "family": "repeat_print-title-attempt-number-times-the",
+   "text": "{title}, attempt number {times}; the version history is getting its own postal code."
+  },
+  {
+   "id": "repeat_print-by-copy-times-title-has",
+   "family": "repeat_print-by-copy-times-title-has",
+   "text": "By copy {times}, {title} has become the family's unofficial currency."
+  },
+  {
+   "id": "repeat_print-title-is-back-for-round",
+   "family": "repeat_print-title-is-back-for-round",
+   "text": "{title} is back for round {times}, because apparently scarcity is a design flaw."
+  },
+  {
+   "id": "repeat_print-at-times-prints-title-should",
+   "family": "repeat_print-at-times-prints-title-should",
+   "text": "At {times} prints, {title} should start issuing loyalty cards."
+  },
+  {
+   "id": "repeat_print-another-title-makes-times-the",
+   "family": "repeat_print-another-title-makes-times-the",
+   "text": "Another {title} makes {times}; the first one is considering a trademark."
+  },
+  {
+   "id": "repeat_print-title-reached-production-run-times",
+   "family": "repeat_print-title-reached-production-run-times",
+   "text": "{title} reached production run {times}, and the garage is demanding warehouse zoning."
+  },
+  {
+   "id": "repeat_print-copy-times-of-title-confirms",
+   "family": "repeat_print-copy-times-of-title-confirms",
+   "text": "Copy {times} of {title} confirms this was never going to be a one-off."
+  },
+  {
+   "id": "repeat_print-title-has-appeared-times-times",
+   "family": "repeat_print-title-has-appeared-times-times",
+   "text": "{title} has appeared {times} times; the slicer can probably close its eyes now."
+  }
  ]
 }
