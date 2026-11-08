@@ -1,62 +1,64 @@
-# Print Handy 2.2.6 — your year in plastic, plus a bot that fixes its own homework
+# Print Handy 2.2.7 — your prints, wrapped; roasts with no AI; a watchdog that can judge locally
 
-This one is a double feature. Print Handy Wrapped lands: a Data tab that turns your print history into charts, and a once-a-year recap of everything you printed — the triumphs, the spaghetti, the 2 a.m. decisions. And when a slice goes wrong, the bot can now look at the failure and offer to fix the model for your printer instead of just delivering the bad news. One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.2.6, also tagged latest.
+One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.2.7, also tagged latest.
 
 ## What you can do
 
-### See your year in prints: Wrapped and the Data tab
+### See your printing, wrapped
+- Wrapped collects per-print stats as you go — time patterns, repeat counts, colors, materials, and pasta, failed and stopped prints as three separate headline numbers — and presents them as a scrolling page with the video embedded, plus a 9:16 story version. Sharing is opt-in (public or link-only). (#986) (#1001)
 
-Turn on `timelapse.wrapped_enabled` and the Web UI grows a Data tab: read-only statistics over your print records — hours printed, filament used, failures, and breakdowns by printer, material, color, vendor, spool and nozzle — plus Print Handy Wrapped, the once-a-year recap built from the same records. Flip on `timelapse.wrapped_ai_video` as well and the Wrapped page can compile a local video of the year (stat cards plus your timelapses) when you ask for it; it is generated on your machine and never sent anywhere. Both switches are off by default, and while they are off the pages are not in the navigation and their routes refuse by name. (#958, building on #956)
+### Print multi-part projects like one job
+- Upload several files and they stay linked as one multi-part project; `/print-again` asks which scope you mean and reprints the right plates, with a bed-clear confirmation per plate. (#1009) (#1038)
+- Design sessions gained deterministic multi-part engineering checks to build on. (#1016)
+- A project component can declare its role and its assembly placement; declared parts get placed-bounds reporting, pairwise collision checks and a rack-ear clearance check by declaration instead of by filename guessing. (#1055)
 
-### "Fix this for my printer"
+### Get roasted by a corpus, not a cloud
+- Roasts are written by a local corpus and engine now — no LLM is called, at all, and there is no AI fallback. Custom roast banks and a community corpus path are in. (#1014) (#1022) (#1054)
+- Ask in plain language, typos and all: the fuzzy vocabulary grew across errors, questions, software, brands, colors and slicing terms, and fuzzy still only ever suggests — it never answers by itself. (#1027)
 
-When a slice fails, a slice is refused, or a post-slice gate fails, intake now offers an AI fix next to the existing choices — and an uploaded file followed by "fix this", "repair this" or "make this printable" starts the same flow. The fix proposes changes from the edit vocabulary, a bounded geometry repair, and/or a mesh repair (welded vertices, filled holes, fixed winding — with designed openings listed and kept open when you say so). Every proposal is shown first, applying it works on a copy (your source file is never overwritten), and the fixed job re-slices through the full intake so every gate runs again. A fix is never a waiver: nothing is recorded as Print anyway, and starting the print still needs the normal approvals. With no AI configured, the fix simply is not offered and intake behaves as before. A bare G-code file sliced for a different printer is refused plainly, with a request for the source model — G-code cannot be safely retargeted and is never rewritten. (#980, hardened by #987)
+### Only get pinged for your own prints
+- When a print ends, the Discord post mentions only the person who started that print — not everyone who shares the channel. Button follow-up posts keep the same rule. (#1029) (#1033)
 
-### Yolo mode, for files you vouch for
+### Let the watchdog judge where you want
+- New `vision.watch_source` setting (`auto` / `endpoint` / `local`): pin the camera watchdog to your vision endpoint, or judge frames locally on your own machine even when an endpoint is configured. (#1034)
+- Teach it your empty plate: `/print-plate-calibrate` captures a reference photo (you confirm it first), and the idle checks can then judge the plate locally. Off by default. (#1065)
+- A stall alert now names what changed in the frame, not just that something stalled. (#1064)
 
-Say `yolo` with a file and Print Handy prints it without the usual questions — including a sliced `.gcode` or `.gcode.3mf` drop, which prints as sent. The checks still run and are reported; they just do not hold the print hostage. This is deliberately loud, deliberately named, and entirely your call: the file is treated as operator-vouched. (#965)
-
-### Honest support gates, no more dead ends
-
-The post-slice support gates grew up. Coverage is now graded on the underside footprint a region actually occupies, per copy and per plate (#966), validated against fixtures reproducing the documented intake scenarios (#974). When a check cannot run at all — a part that matches no object, an unreadable plate file — intake says so and asks Print anyway / Cancel instead of leaving you at a dead end (#976), and the with-supports path got the same real Print anyway choice instead of a loop back to "choose supports" (#964).
-
-### The bot understands more typos
-
-The fuzzy vocabulary learned a few hundred more of the ways humans actually type: 54 more misspellings mined from real chat history and everyday slips (#955), then 441 more in phase 3 (#992) — including the one everyone was waiting for: spegatti now finds the spaghetti. Fuzzy still only ever suggests; it never answers by itself.
-
-### New printer on the roster: Bambu Lab H3C (initial support)
-
-The Bambu Lab H3C joins with initial support: verified machine facts (330×320×325 bed, 9 tools, 0.2–0.8 nozzles), its 32X error-code prefix wired into the HMS table, and docs. It is deliberately not registered for slicing yet — the bundled Orca build carries no H3C profiles, and support that cannot slice is not support. That lands when Orca does. (#994)
-
-### Stay signed in
-
-The Web UI's "Keep me signed in" now means it: remembered sessions last 30 days and survive restarts, so the dashboard stops asking for your token every time the container breathes. (#953)
-
-### Fresh paint
-
-The icon set is black everywhere now — one consistent set across the app, the docs and the bot surfaces. (#957)
+### More new tricks
+- Timelapses can encode on the GPU (Intel, AMD and NVIDIA paths) with a named CPU fallback when no GPU is usable. (#1018)
+- Ran out of filament mid-print? The bot asks what happened; "same spool — I fixed the feed" settles the question without touching your Spoolman records, and the print is never auto-resumed by answering. (#1066)
+- If an AI mesh repair sealed holes to fix your model, the confirmation now says so — with the count — before you apply it, so a part that is supposed to have openings does not get silently plugged. (#1071)
+- Outage and jam follow-through: outage notices escalate instead of repeating themselves, files can be bundled right in chat, spool slot names are clearer, and jam posts carry the supports-decision evidence with them. (#1025)
+- Live camera groundwork: the Discord Activity now serves a sign-in bootstrap so it can authenticate with the bot's allowlist. The live sitting itself is still an operator-run test. (#1053)
+- Try the static live demo of the chat flow, and find the official Print-Handy support Discord linked from the README and docs. (#1035) (#1041)
 
 ## Fixes
 
-- "Print it again" now reprints the model that actually printed last. It used to resolve to whatever link was last shared in the channel, or whichever archived job was touched most recently — including jobs that were prepared but never printed. Reprints now resolve from launch records, scoped to the channel's printer, and a follow-up-born intake asks "Print {title}?" first. (#988, fixing #979)
-- Print-now starts now reconcile the intake receipt: a confirmed start marks the receipt started instead of leaving it pending, and an accepted-but-unconfirmed start is marked pending rather than lost. (#975)
-- The container image now sets `PRINT_HANDY_ORCA_CMD` itself, so `docker exec` sessions and anything spawned outside the entrypoint find the bundled slicer without being told. (#973)
-- Container-only tests are marked as such, so a local test run outside the image shows honest skips instead of failures. (#977)
-- The upstream bump bot got better at explaining itself: identity failures are diagnosed, secret shapes are validated before use, and it authenticates with the app's client ID. (#991)
+- A config typo no longer kills startup: unknown settings now warn and are ignored instead of failing the bot (see Upgrade for the exceptions that still fail closed). (#1061)
+- Print numbers: per-print follow-ups after the numbering rework — reprints, mentions and timelapse names resolve to the right print. (#1013)
+- The Moonraker listener hang, the supervisor watchdog and outage notices were fixed, along with two follow-up batches closing the gaps they found. (#1021) (#1019) (#1023)
+- Print-now with Moonraker unreachable now raises the named offline refusal instead of failing quietly. (#1057)
+- Design renders keep the first WARNING line in the error text, so the actual problem is the first thing you see. (#1056)
+- The Docker image build creates the site-packages core directory before the bounds copy, and CI now builds the full image on pull requests so a broken image fails before merge, not after. (#1024) (#1015)
 
 ## Upgrade and compatibility
 
-- Nothing to rename, move or re-enter. Wrapped and its video are off by default; yolo changes nothing unless you say the word.
-- Bundled components moved: Spoolman 0.27.1 (#989) and Bambu Studio 02.09.01.70 (#990).
-- The 2.2.5 digest pin in the docs and the in-repo Unraid template was refreshed as part of this range (#954), and the repo root finished its tidy-up: registry, knowledge and firmware data now live inside the package (#962), Python packaging is consolidated in `pyproject.toml` (#961), the stray root files moved out (#959), and the in-repo Unraid template ships with empty ExtraParams — the hardening lives in Compose and the image, where it belongs (#960).
+- **Unknown settings behavior changed (#1061):** settings Print Handy does not know — in a config file or a `PRINT_HANDY__*` environment variable — now produce a warning and are ignored, instead of stopping startup. Four cases still fail closed on purpose: credential-shaped keys in settings files, malformed `PRINT_HANDY__PRINTERS__` entries, unknown keys inside AI tier settings, and the retired `[printer]` family key.
+- **Roasts no longer use an LLM (#1022):** if you had AI roasts configured, roast text now comes from the local corpus. Nothing to change; the jokes are homegrown now.
+- **Print-end posts mention the starter (#1029):** on Discord, a finished, canceled or errored print now mentions the user who started it. Set `discord.mention_starter_on_complete` to `false` if you do not want the ping.
+- **New settings, all safe by default:** `vision.watch_source` (default `auto`, the old behavior), `vision.local_empty_enabled` (default off) and `discord.mention_starter_on_complete` (default on, above). (#1034) (#1065) (#1029)
 
 ## Technical details and contributors
 
-- Report-only Codecov patch coverage on the offline test legs; project coverage stays off on purpose, because a single percentage would misstate a suite that also drives real slicers and corpus fixtures (#967).
-- Release engineering: this release ships with an automated release check (version surfaces, ancestry-based notes coverage, full-notes spelling scan, parity suites) and a written release checklist built from an audit of every past release's catches and misses — because the first draft of these notes was missing most of this list, again, and now a machine says so. (#1006) The slicing-speed baselines were re-recorded for this release in their own PR before tagging, with one heavy case deliberately recorded from a representative runner after the release run landed on the fast runner group twice. (#1007)
+- Motion bounds got a native Rust/PyO3 parser with the Python fallback kept, then a hardening phase: G20 refused, the GIL released during parses, a pinned rustup, and a `.so`-only runtime. (#1010) (#1015)
+- Slicing-speed work: the timing gate now splits slicer time from Python time, Bambu zip output is at parity, the bounds cache is validated and capped, and a cpuset budget applies; the real-Orca timing leg gained a large-plate case (reporting only). Slicing baselines were re-recorded for this release. (#993) (#997) (#1073)
+- GPU inference flavors (`ORT_FLAVOR`) for the local failure detector, for hosts that want the accelerated build. (#1036)
+- Testing: a hardening pass (version parity, upstream step-size policy, invariant suites), a required tests-added and regression-scoping answer on every PR, dead-test cleanup with shipped-binary and native tests in offline CI, and deep-dive expansions across Spoolman (5 to 38 real-server tests), the Web UI (real-HTTP coverage), OpenSCAD (real-binary coverage), fuzzy search and a Stage 0 vision-verdict evaluation harness with reproducible CAD assets. (#999) (#1004) (#1026) (#1030) (#1043) (#1044) (#1045) (#1047) (#1048) (#1052) (#1062) (#1000) (#1040)
+- Docs: the 2.2.6 image digest is pinned in the Docker docs and the in-repo Unraid template. (#1012)
 
 ## Verification and known limitations
 
-- Offline test suite and CI on the release head; the slicing-speed baselines were re-recorded from a green CI run on main before tagging (one heavy case recorded from a representative runner, documented in its baseline entry).
-- No live printer, live chat or Docker-on-this-machine pass was run for this release — there is no Docker daemon or printer reachable from the build machine, and offline results are not live proof. The owed live checks are listed on the release checklist issue (#1005).
-- Uranium (the maintainer's Unraid host) pulls the new image at the machine, as with past releases.
+- Every change above passed the offline suites and CI on its exact head before merging; the release candidate image was built from the tag and checked before publishing (the provenance block on the GitHub Release lists the runs and digests).
+- Not live-verified tonight, stated plainly: no real-printer acceptance run, no per-vendor GPU encode proof, no real-camera accuracy pass for the local detector or the empty-plate reference, no live Discord Activity sitting, and no live runout recovery on a real printer. Those stay open as operator follow-ups on the release checklist (#1072), the same disposition as 2.2.6.
+- Wrapped sharing is public or link-only; encrypted private sharing is not in this release.
+- One harness note for operators who follow the release checks: the upgrade lifecycle check cannot pass against the shipped 2.2.6 image, because 2.2.6 hard-exits on the newer settings keys the check seeds. That is the bug #1061 fixed — from 2.2.7 onward the check can pass end to end.
