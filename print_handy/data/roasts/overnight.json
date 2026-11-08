@@ -1,6 +1,6 @@
 {
  "_about": "Completed prints that finished between midnight and 6 AM after at least 2 hours.",
- "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022)",
  "_license": "Original to Print Handy; MIT with the project.",
  "entries": [
   {
@@ -142,6 +142,151 @@
    "id": "overnight-title-completed-at-hour-the",
    "family": "overnight-title-completed-at-hour-the",
    "text": "{title} completed at {hour}; the only witness was the router blinking disapproval."
+  },
+  {
+   "id": "overnight-title-finished-at-hour-nothing",
+   "family": "overnight-title-finished-at-hour-nothing",
+   "text": "{title} finished at {hour}; nothing says sweet dreams like a shrieking stepper motor."
+  },
+  {
+   "id": "overnight-at-hour-title-crossed-the",
+   "family": "overnight-at-hour-title-crossed-the",
+   "text": "At {hour}, {title} crossed the finish line while the whole house slept peacefully."
+  },
+  {
+   "id": "overnight-title-completed-at-hour-the-2",
+   "family": "overnight-title-completed-at-hour-the-2",
+   "text": "{title} completed at {hour}; the cooling fan sang lullabies of pure anxiety."
+  },
+  {
+   "id": "overnight-while-you-were-dreaming-title",
+   "family": "overnight-while-you-were-dreaming-title",
+   "text": "While you were dreaming, {title} spent until {hour} making noise on the workbench."
+  },
+  {
+   "id": "overnight-title-finished-at-hour-morning",
+   "family": "overnight-title-finished-at-hour-morning",
+   "text": "{title} finished at {hour}; morning-you now inherits this questionable nocturnal decision."
+  },
+  {
+   "id": "overnight-at-hour-title-was-ready",
+   "family": "overnight-at-hour-title-was-ready",
+   "text": "At {hour}, {title} was ready; the only witness was a blinking status LED."
+  },
+  {
+   "id": "overnight-title-ran-all-night-until",
+   "family": "overnight-title-ran-all-night-until",
+   "text": "{title} ran all night until {hour}; night-shift plastic production never takes vacations."
+  },
+  {
+   "id": "overnight-finishing-title-at-hour-is",
+   "family": "overnight-finishing-title-at-hour-is",
+   "text": "Finishing {title} at {hour} is peak goblin behavior for an adult hobbyist."
+  },
+  {
+   "id": "overnight-title-finished-at-hour-printer",
+   "family": "overnight-title-finished-at-hour-printer",
+   "text": "{title} finished at {hour}; {printer} ran the graveyard shift without complaint."
+  },
+  {
+   "id": "overnight-at-hour-title-finished-cooling",
+   "family": "overnight-at-hour-title-finished-cooling",
+   "text": "At {hour}, {title} finished cooling; the nocturnal print fairies did their worst."
+  },
+  {
+   "id": "overnight-title-wrapped-up-at-hour-2",
+   "family": "overnight-title-wrapped-up-at-hour-2",
+   "text": "{title} wrapped up at {hour}; sleep was sacrificed so plastic could slowly exist."
+  },
+  {
+   "id": "overnight-midnight-arrived-hour-passed-and",
+   "family": "overnight-midnight-arrived-hour-passed-and",
+   "text": "Midnight arrived, {hour} passed, and {title} finally finished its secret night mission."
+  },
+  {
+   "id": "overnight-title-emerged-at-hour-the-2",
+   "family": "overnight-title-emerged-at-hour-the-2",
+   "text": "{title} emerged at {hour}; the nozzle worked through the darkest night hours."
+  },
+  {
+   "id": "overnight-at-hour-title-completed-sneaking",
+   "family": "overnight-at-hour-title-completed-sneaking",
+   "text": "At {hour}, {title} completed; sneaking downstairs to check layer adhesion is real."
+  },
+  {
+   "id": "overnight-title-finished-at-hour-waking",
+   "family": "overnight-title-finished-at-hour-waking",
+   "text": "{title} finished at {hour}; waking up to inspect plastic is true dedication."
+  },
+  {
+   "id": "overnight-the-darkness-of-night-birthed",
+   "family": "overnight-the-darkness-of-night-birthed",
+   "text": "The darkness of night birthed {title} at {hour}; daylight may regret this development."
+  },
+  {
+   "id": "overnight-title-concluded-at-hour-the",
+   "family": "overnight-title-concluded-at-hour-the",
+   "text": "{title} concluded at {hour}; the fan vibrations rattled the bedroom floorboards gently."
+  },
+  {
+   "id": "overnight-at-hour-title-was-done-2",
+   "family": "overnight-at-hour-title-was-done-2",
+   "text": "At {hour}, {title} was done; your alarm clock was merely an afterthought."
+  },
+  {
+   "id": "overnight-title-ran-until-hour-printer",
+   "family": "overnight-title-ran-until-hour-printer",
+   "text": "{title} ran until {hour}; {printer} demands overtime pay immediately."
+  },
+  {
+   "id": "overnight-finishing-title-at-hour-means",
+   "family": "overnight-finishing-title-at-hour-means",
+   "text": "Finishing {title} at {hour} means the house survived another unattended nocturnal hazard."
+  },
+  {
+   "id": "overnight-title-wrapped-at-hour-the",
+   "family": "overnight-title-wrapped-at-hour-the",
+   "text": "{title} wrapped at {hour}; the hotend glowed softly like a demonic nightlight."
+  },
+  {
+   "id": "overnight-at-hour-title-popped-free",
+   "family": "overnight-at-hour-title-popped-free",
+   "text": "At {hour}, {title} popped free; midnight engineering triumphs over good judgment again."
+  },
+  {
+   "id": "overnight-title-ran-until-hour-the",
+   "family": "overnight-title-ran-until-hour-the",
+   "text": "{title} ran until {hour}; the electric meter spun like an Olympic gymnast."
+  },
+  {
+   "id": "overnight-at-hour-title-completed-morning",
+   "family": "overnight-at-hour-title-completed-morning",
+   "text": "At {hour}, {title} completed; morning coffee will be served with plastic inspection."
+  },
+  {
+   "id": "overnight-title-finished-at-hour-sleep",
+   "family": "overnight-title-finished-at-hour-sleep",
+   "text": "{title} finished at {hour}; sleep hygiene took a backseat to layer lines."
+  },
+  {
+   "id": "overnight-through-the-quiet-night-title",
+   "family": "overnight-through-the-quiet-night-title",
+   "text": "Through the quiet night, {title} hummed along, finally finishing at {hour} sharp."
+  },
+  {
+   "id": "overnight-title-reached-the-top-layer",
+   "family": "overnight-title-reached-the-top-layer",
+   "text": "{title} reached the top layer at {hour}; the bed heater sighed happily."
+  },
+  {
+   "id": "overnight-at-hour-title-was-born",
+   "family": "overnight-at-hour-title-was-born",
+   "text": "At {hour}, {title} was born; late-night slicer confidence meets the cold dawn."
+  },
+  {
+   "id": "overnight-title-concluded-at-hour-the-2",
+   "family": "overnight-title-concluded-at-hour-the-2",
+   "text": "{title} concluded at {hour}; the nocturnal printer demon has been appeased."
   }
  ]
 }

@@ -127,6 +127,125 @@ def _record_for(number: int) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def history_facts(current_title: str, current_gcode: str = "", current_color: str = "",
+                  exclude_record_id: str = "", prints_dir: Path | None = None,
+                  status: str = "", exclude_number: int | None = None) -> dict[str, Any]:
+    """Extract user print-history facts for local roasts (#1002 Phase 2).
+
+    Reads records from prints_dir (via print_stats.load_records_from_dir)
+    sorted chronologically by started_at. Fail-soft returning {} on any error.
+    """
+    try:
+        from ..core import print_stats
+        if prints_dir is None:
+            try:
+                from . import print_records
+                prints_dir = getattr(print_records, "PRINTS_DIR", None)
+            except Exception:
+                prints_dir = None
+        if prints_dir is None or not Path(prints_dir).is_dir():
+            return {}
+        records, _ = print_stats.load_records_from_dir(prints_dir)
+        if not records:
+            return {}
+
+        def _sort_key(r):
+            return str(r.get("started_at") or r.get("completed_at") or "")
+
+        records.sort(key=_sort_key)
+
+        # Filter out current and subsequent prints
+        filtered = []
+        for r in records:
+            p_num = r.get("print_number")
+            if exclude_number is not None and isinstance(p_num, int):
+                if p_num >= exclude_number:
+                    continue
+            r_id = str(r.get("record_id") or "")
+            r_key = str(print_stats.record_key(r)) if hasattr(print_stats, "record_key") else ""
+            if exclude_record_id and (r_id == exclude_record_id or r_key == exclude_record_id):
+                continue
+            filtered.append(r)
+        records = filtered
+
+        out: dict[str, Any] = {}
+        curr_title_fold = " ".join(str(current_title or "").split()).casefold()
+        curr_gcode_stem = " ".join(
+            str(current_gcode or "").replace("\\", "/").rsplit("/", 1)[-1].split()
+        ).casefold()
+
+        # 1. last_title: title of the most recent prior record (whose title != current_title)
+        for r in reversed(records):
+            t = str(r.get("title") or "").strip()
+            if t and " ".join(t.split()).casefold() != curr_title_fold:
+                out["last_title"] = t
+                break
+
+        # 2. prev_fails: number of prior records with the same print identity
+        # whose status was in ("failed", "cancelled", "canceled")
+        prev_fails = 0
+        for r in records:
+            r_status = str(r.get("status") or "").strip().lower()
+            if r_status in ("failed", "cancelled", "canceled"):
+                r_title = " ".join(str(r.get("title") or "").split()).casefold()
+                r_gcode = " ".join(
+                    str(r.get("gcode_file") or "").replace("\\", "/").rsplit("/", 1)[-1].split()
+                ).casefold()
+                matches = False
+                if curr_title_fold and r_title == curr_title_fold:
+                    matches = True
+                elif curr_gcode_stem and r_gcode == curr_gcode_stem:
+                    matches = True
+                if matches:
+                    prev_fails += 1
+        if prev_fails >= 1:
+            out["prev_fails"] = prev_fails
+
+        # 3. fail_streak: count of consecutive trailing failed/cancelled records
+        # immediately preceding (and including, if current status is failed/cancelled) this job
+        fail_streak = 1 if status.lower() in ("failed", "cancelled", "canceled") else 0
+        for r in reversed(records):
+            r_status = str(r.get("status") or "").strip().lower()
+            if r_status in ("failed", "cancelled", "canceled"):
+                fail_streak += 1
+            else:
+                break
+        if fail_streak >= 2:
+            out["fail_streak"] = fail_streak
+
+        # 4. color_streak: count of consecutive trailing records (including current)
+        # with the same normalized color name (when >= 3)
+        curr_color_clean = str(current_color or "").strip().casefold()
+        if curr_color_clean:
+            color_streak = 1
+            for r in reversed(records):
+                r_color = str(r.get("filament_color") or r.get("color") or "").strip().casefold()
+                if r_color and r_color == curr_color_clean:
+                    color_streak += 1
+                else:
+                    break
+            if color_streak >= 3:
+                out["color_streak"] = color_streak
+
+        # 5. top_color: most frequent filament_color across records if it appears >= 3 times
+        from collections import Counter
+        color_counts = Counter()
+        for r in records:
+            c = str(r.get("filament_color") or r.get("color") or "").strip()
+            if c:
+                color_counts[c] += 1
+        if str(current_color or "").strip():
+            color_counts[str(current_color).strip()] += 1
+        if color_counts:
+            most_common_color, count = color_counts.most_common(1)[0]
+            if count >= 3:
+                out["top_color"] = most_common_color
+
+        return out
+    except Exception:
+        return {}
+
+
 def facts_for(row: dict[str, Any], tz=None) -> tuple[dict[str, Any], str]:
     """(facts, status) for one printed_jobs row, from its record and job."""
     from . import discord_print_summary as summary
@@ -171,6 +290,17 @@ def facts_for(row: dict[str, Any], tz=None) -> tuple[dict[str, Any], str]:
             facts["finish_hour"] = (when.astimezone(tz) if tz else when).hour
     except ValueError:
         pass
+
+    # History facts (#1002 Phase 2)
+    record_id = str(record.get("record_id") or "")
+    rec_title = str(row.get("title") or record.get("title") or "")
+    rec_gcode = str(record.get("gcode_file") or (job or {}).get("filename") or "")
+    rec_color = str(facts.get("color") or "")
+    hf = history_facts(rec_title, current_gcode=rec_gcode, current_color=rec_color,
+                       exclude_record_id=record_id, status=status,
+                       exclude_number=int(row["index"]))
+    facts.update(hf)
+
     return facts, status
 
 
@@ -194,4 +324,4 @@ def roast_reply(text: Any, *, rows=None, state_path=None, rng=None, tz=None) -> 
     return f"Print #{row['index']}, {engine.scrub_title(row['title']) or 'that print'}: {line}"
 
 
-__all__ = ["RoastLookupError", "facts_for", "resolve", "roast_reply", "roast_request"]
+__all__ = ["RoastLookupError", "facts_for", "history_facts", "resolve", "roast_reply", "roast_request"]
