@@ -1,0 +1,1 @@
+{"choices":[{"finish_reason":"stop","index":0,"message":{"content":"{\"verdict\": \"spaghetti\", \"reason\": \"filament tangled on the bed\"}","role":"assistant"}}],"id":"chatcmpl-recorded-003","model":"recorded-vision-model","object":"chat.completion","usage":{"completion_tokens":14,"prompt_tokens":90,"total_tokens":104}}

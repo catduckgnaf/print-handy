@@ -1,0 +1,1 @@
+{"choices":[{"finish_reason":"stop","index":0,"message":{"content":"{\"verdict\": \"ok\", \"reason\": \"the print looks fine\"}","role":"assistant"}}],"id":"chatcmpl-recorded-002","model":"recorded-vision-model","object":"chat.completion","usage":{"completion_tokens":12,"prompt_tokens":90,"total_tokens":102}}
