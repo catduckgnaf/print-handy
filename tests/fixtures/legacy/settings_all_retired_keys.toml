@@ -1,0 +1,13 @@
+# A local settings file carrying every retired or renamed key at once.
+# printer.ifs_slots -> printer.filament_slots and
+# webui.secure_cookie -> webui.cookie_secure are the settings.KEY_ALIASES
+# entries (#672); services.openviking_url is retired configuration the
+# loader drops. See README.md in this directory for provenance.
+[printer]
+ifs_slots = 3
+
+[webui]
+secure_cookie = true
+
+[services]
+openviking_url = "http://old.invalid"

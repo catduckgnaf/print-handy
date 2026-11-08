@@ -5,6 +5,7 @@
 # Print Handy
 
 [![CI](https://github.com/catduckgnaf/print-handy/actions/workflows/ci.yml/badge.svg)](https://github.com/catduckgnaf/print-handy/actions/workflows/ci.yml)
+[![Discord](https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?logo=discord&logoColor=white)](https://discord.gg/mT2Ht3nqZu)
 
 **Bambu Handy for every printer, local-first.** I made Print Handy as a local-only solution: it runs on your own machine, talks to your printers on your own network, and keeps your models, spools and print history on that machine. There is no Print Handy cloud for them to go to. Paste a model link from your phone into Discord, Telegram or Matrix, tap a few buttons, and go live your life. Print Handy slices it, matches your spools, asks before it prints, watches the camera for spaghetti, sends the timelapse, and roasts your model on the way out.
 
@@ -12,7 +13,7 @@ You do not need AI, and you do not need Discord. Every core flow works with no m
 
 Current release: **2.2.6**
 
-[Get started](#get-started) · [See it in action](#see-it-in-action) · [Documentation](https://catduckgnaf.github.io/print-handy-docs/) · [Contribute](CONTRIBUTING.md) · [Releases](https://github.com/catduckgnaf/print-handy/releases)
+[Get started](#get-started) · [See it in action](#see-it-in-action) · [Documentation](https://catduckgnaf.github.io/print-handy-docs/) · [Discord server](https://discord.gg/mT2Ht3nqZu) · [Contribute](CONTRIBUTING.md) · [Releases](https://github.com/catduckgnaf/print-handy/releases)
 
 ## Why this exists
 
@@ -162,6 +163,10 @@ Print Handy is careful, but it isn't a guarantee:
 - A camera alert or classification is not a guarantee of safe unattended printing.
 - Only use models you are allowed to download and process — and never attach private models, credentials or personal printer logs to a public issue without reviewing them first.
 
+## Community and support
+
+The **Print Handy Discord server** is the community home: [discord.gg/mT2Ht3nqZu](https://discord.gg/mT2Ht3nqZu). Ask in **#support** when you are stuck, talk printers in **#printers**, and watch **#updates** for what shipped. The server also carries a second, non-LLM Print Handy instance for trying the bot and testing new builds, and channels for the Home Assistant integrations. Bugs and feature requests still belong in [Issues](https://github.com/catduckgnaf/print-handy/issues) — that is where they get tracked — but Discord is where the conversation happens first.
+
 ## Find the right guide
 
 | I want to… | Go here |
@@ -172,6 +177,7 @@ Print Handy is careful, but it isn't a guarantee:
 | Run Print Handy for two or more printers | [More than one printer](docs/MULTI-INSTANCE.md) |
 | Set up the bot on Telegram or Matrix | [Telegram bot setup](docs/TELEGRAM-BOT-SETUP.md) · [Matrix bot setup](docs/MATRIX-BOT-SETUP.md) |
 | Look up commands, settings and integrations | [Detailed project reference](docs/PROJECT-REFERENCE.md) |
+| Get help or ask a question | [Print Handy Discord server](https://discord.gg/mT2Ht3nqZu) (#support) |
 | Report a problem or contribute | [Contribution guide](CONTRIBUTING.md) · [Issues](https://github.com/catduckgnaf/print-handy/issues) |
 | See what shipped in each release | [GitHub releases](https://github.com/catduckgnaf/print-handy/releases) |
 | Write or review release notes | [Release-note guide](docs/RELEASE-NOTES.md) · [Internal history](docs/INTERNAL_RELEASE_NOTES.md) |

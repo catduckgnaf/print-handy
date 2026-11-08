@@ -211,6 +211,10 @@ NON_BUMPED_COMPONENTS = {
         "surface": "Dockerfile bounds-build stage, CI native-bounds job and CI offline legs",
         "pin": "rustup toolchain 1.99.1, maturin==1.16.0, native/bounds/Cargo.lock",
     },
+    "discord-embedded-app-sdk": {
+        "surface": "vendored single-file JS bundle in print_handy/discord_embedded_app_sdk.js, served by the #311 Activity server from its own origin",
+        "pin": "@discord/embedded-app-sdk 2.5.0 (npm); a bump replaces the bundle file whole at a new pin, deliberately, because the bundle is reviewed as shipped code, not resolved at install time",
+    },
 }
 
 

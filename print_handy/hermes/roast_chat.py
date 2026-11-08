@@ -370,7 +370,19 @@ def roast_reply(text: Any, *, rows=None, state_path=None, rng=None, tz=None) -> 
         return str(exc)
     facts, status = facts_for(row, tz=tz)
     ctx = engine.build_context(row["title"], **facts)
-    line = engine.roast(ctx, status=status, state_path=state_path, rng=rng)
+    # The operator's custom bank (#1002 Phase 4) joins a requested roast
+    # too, read from the live config the same way the listener reads it;
+    # no config (or no bank named there) means the shipped corpus alone.
+    custom_path = None
+    try:
+        from . import _config
+
+        custom_path = str((_config.cfg().get("vision") or {}).get("roast_custom_bank")
+                          or "").strip() or None
+    except Exception:
+        custom_path = None
+    line = engine.roast(ctx, status=status, state_path=state_path, rng=rng,
+                        custom_path=custom_path)
     if not line:
         return f"I could not find a roast that fits print #{row['index']} right now."
     return f"Print #{row['index']}, {engine.scrub_title(row['title']) or 'that print'}: {line}"

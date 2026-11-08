@@ -150,13 +150,77 @@ def test_page_is_self_contained_and_speaks_go2rtc_mse():
     assert la.DEFAULT_STREAM_NAME in page
 
 
+# --------------------------------------------------------------------- the sign-in bootstrap
+
+def test_bootstrap_page_runs_the_sdk_authorize_flow_and_nothing_else():
+    # The 2026-10-30 #311 status check's blocker 1: the Activity could
+    # never sign anyone in, because the only page was behind the session
+    # it was supposed to create. The bootstrap page is the unauthenticated
+    # start: it loads the vendored SDK from this same origin, runs
+    # authorize() for a one-time code, posts the code (and only the code)
+    # to /api/token, then reloads / so the session cookie the exchange
+    # sets brings back the real page. Nothing external, no feed, no
+    # stream name: a leaked bootstrap teaches an attacker nothing.
+    page = la.BOOTSTRAP_PAGE
+    assert "http://" not in page and "https://" not in page
+    assert f'from "{la.SDK_ROUTE}"' in page and "DiscordSDK" in page
+    assert "authorize" in page and '"/api/token"' in page
+    assert '"identify"' in page
+    assert "/api/ws" not in page and la.DEFAULT_STREAM_NAME not in page
+    assert CODE not in page and TOKEN not in page
+
+
+def test_bootstrap_page_carries_the_configured_client_id_only():
+    served = la.bootstrap_page_for("700000000000000001")
+    assert '"700000000000000001"' in served
+    assert "__CLIENT_ID_JSON__" not in served
+    # No client id configured: the page still serves and says so in its
+    # own flow (the JS refuses before touching the SDK), never crashes.
+    assert '""' in la.bootstrap_page_for("")
+
+
+def test_sdk_bundle_is_the_pinned_vendored_sdk():
+    # The SDK is vendored, not fetched: the CSP allows no external hosts,
+    # so the bundle ships in the package at a recorded pin. The header
+    # names the pin; the bundle is the SDK's own single-file build.
+    bundle = la.sdk_bundle()
+    assert bundle.startswith(b"/*")
+    header = bundle[:800].decode("utf-8", "replace")
+    assert "@discord/embedded-app-sdk" in header and la.SDK_VERSION in header
+    assert "MIT" in header
+    assert b"DiscordSDK" in bundle and len(bundle) > 100_000
+
+
+def test_sdk_route_serves_the_bundle_and_the_bootstrap_csp_allows_it(server):
+    instance, _ = server
+    status, headers, payload = _request(instance, "GET", la.SDK_ROUTE)
+    assert status == 200
+    assert headers["Content-Type"].startswith("text/javascript")
+    assert payload == la.sdk_bundle()
+    # The SDK route is open like /health: it is public library code and
+    # reveals no configuration (the client id is not in it).
+    assert b"700000000000000001" not in payload
+    status, headers, _ = _request(instance, "GET", "/")
+    assert status == 200
+    csp = headers["Content-Security-Policy"]
+    assert "script-src 'self'" in csp and "connect-src 'self'" in csp
+    # The authenticated feed page keeps its stricter inline-only CSP.
+    _, headers, _ = _request(
+        instance, "POST", "/api/token", body=json.dumps({"code": CODE}),
+        headers={"Content-Type": "application/json"})
+    cookie = headers["Set-Cookie"].split(";", 1)[0]
+    _, headers, _ = _request(instance, "GET", "/", headers={"Cookie": cookie})
+    assert "script-src 'unsafe-inline'" in headers["Content-Security-Policy"]
+
+
 # --------------------------------------------------------------------- the HTTP surface
 
 @pytest.fixture()
 def server():
     transport = FakeTransport()
     instance = la.make_server("127.0.0.1", 0, transport=transport,
-                              allowlist=ALLOWLIST, secret=SECRET)
+                              allowlist=ALLOWLIST, secret=SECRET,
+                              client_id="700000000000000001")
     thread = threading.Thread(target=instance.serve_forever, daemon=True)
     thread.start()
     yield instance, transport
@@ -182,8 +246,13 @@ def test_health_is_open_and_reveals_nothing(server):
 
 def test_page_requires_a_session_and_the_exchange_sets_one(server):
     instance, _ = server
-    status, _, _ = _request(instance, "GET", "/")
-    assert status == 403
+    # Without a session, / serves the sign-in bootstrap, never the feed
+    # page: the bootstrap is the only unauthenticated page, and it can
+    # do nothing but run the authorize -> /api/token flow below.
+    status, _, payload = _request(instance, "GET", "/")
+    assert status == 200
+    assert payload.decode() == la.bootstrap_page_for("700000000000000001")
+    assert payload.decode() != la.ACTIVITY_PAGE
     status, headers, payload = _request(
         instance, "POST", "/api/token", body=json.dumps({"code": CODE}),
         headers={"Content-Type": "application/json"})
