@@ -36,7 +36,7 @@ def without_added(data):
     data.get("bot", {}).pop("platform", None)  # added by #164, after the golden files were captured
     for key in ("auto_light_off_minutes", "light_object"):  # added by #516, after capture
         data.get("vision", {}).pop(key, None)
-    for key in ("local_detector_enabled", "local_model_path"):  # added by #455, after capture
+    for key in ("local_detector_enabled", "local_model_path", "local_empty_enabled"):  # added by #455, after capture
         data.get("vision", {}).pop(key, None)
     for key in ("vertical_short", "vertical_short_mode", "vertical_short_overlay"):  # added by #317, after capture
         data.get("timelapse", {}).pop(key, None)

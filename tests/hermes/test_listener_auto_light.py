@@ -34,7 +34,7 @@ def _listener(monkeypatch, *, verdict=("empty_idle", "clear"), snapshot=b"frame"
     if callable(verdict):
         monkeypatch.setattr(mel, "_visual_verdict", verdict)
     else:
-        monkeypatch.setattr(mel, "_visual_verdict", lambda image, prompt: verdict)
+        monkeypatch.setattr(mel, "_visual_verdict", lambda image, prompt, **kwargs: verdict)
     return listener, policy, sent
 
 

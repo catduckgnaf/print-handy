@@ -52,7 +52,7 @@ print('PAYLOAD ' + json.dumps({'root': str(settings.ROOT), 'plugin': str(PLUGIN)
     report = json.loads(next(line[8:] for line in result.stdout.splitlines() if line.startswith("PAYLOAD ")))
     assert report["root"] == str(payload)
     assert report["plugin"].startswith(str(payload))
-    assert "ok    handlers: 29" in result.stdout
+    assert "ok    handlers: 30" in result.stdout
 
 
 def test_no_orca_fit_refuses_without_an_artifact(tmp_path):

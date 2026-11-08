@@ -2746,7 +2746,7 @@ _VISION_CONTEXT = "Printer: Flashforge AD5X, enclosed, smooth PEI plate. Reply J
 VISUAL_TIMER_S = 15
 
 
-def _visual_verdict(image, prompt, streak=None, local_fallback=False):
+def _visual_verdict(image, prompt, streak=None, local_fallback=False, idle=False):
     """The shared verdict call (visual_watch.visual_verdict) with this listener's values.
 
     ``streak`` is the print watch's per-print local-detector escalation
@@ -2754,11 +2754,15 @@ def _visual_verdict(image, prompt, streak=None, local_fallback=False):
     checks judge single frames, so they leave it None. ``local_fallback``
     is true inside a risky print's early-layer window (#913): a failed
     endpoint then falls back to the local detector when its model exists.
+    ``idle`` marks the idle plate checks (auto light-off, next-plate
+    offer): only they may be answered by the Stage 1 plate-reference
+    producer — the in-print watch never passes it, so the in-print empty
+    recheck stays endpoint-only.
     """
     return _visual_watch.visual_verdict(
         image, prompt, chat_url=_vision_chat_url, model=_VISION_MODEL,
         api_key=lambda: _profile_env_value("CLIPROXY_API_KEY"), context=_VISION_CONTEXT,
-        local_streak=streak, local_fallback=local_fallback)
+        local_streak=streak, local_fallback=local_fallback, idle=idle)
 
 
 def _record_watchdog_event(filename, verdict, *, streak=None, action="none",
@@ -4257,7 +4261,8 @@ class Listener:
             if await asyncio.to_thread(_visual_watch.frame_dark, image):
                 verdict, detail = "uncertain", "camera frame completely dark"
             else:
-                verdict, detail = await asyncio.to_thread(_visual_verdict, image, _AUTO_LIGHT_PROMPT)
+                verdict, detail = await asyncio.to_thread(
+                    _visual_verdict, image, _AUTO_LIGHT_PROMPT, idle=True)
             action = policy.note_verdict(verdict, time.time())
             log(f"auto light idle check verdict={verdict} detail={detail!r}")
             if action == "turn_off":
@@ -4317,7 +4322,15 @@ class Listener:
         if not image or await asyncio.to_thread(_visual_watch.frame_dark, image):
             next_plate_offer.observe(None)
             return
-        verdict, detail = await asyncio.to_thread(_visual_verdict, image, _AUTO_LIGHT_PROMPT)
+        verdict, detail = await asyncio.to_thread(
+            _visual_verdict, image, _AUTO_LIGHT_PROMPT, idle=True)
+        if verdict == "uncertain":
+            # Stage 1 (#455): the calibrated plate reference may certify
+            # the empty bed the offer waits for (see light_idle_tick).
+            from . import local_empty as _local_empty
+            local = await asyncio.to_thread(_local_empty.idle_verdict, image)
+            if local is not None:
+                verdict, detail = local
         log(f"next plate bed check verdict={verdict} detail={detail!r}")
         choice = next_plate_offer.observe(verdict)
         if not isinstance(choice, dict):

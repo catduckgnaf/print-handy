@@ -263,6 +263,12 @@ local_detector_enabled = false
 # location and the pinned model; set it to a file you placed yourself
 # to run fully offline.
 local_model_path = ""
+# Local empty-plate reference (#455): off by default. When on, the idle
+# checks (auto light-off, next-plate offer) can judge the plate against
+# a reference photo of your empty plate, captured once with
+# /print-plate-calibrate capture in chat — entirely local. A reference
+# older than 30 days stops being trusted.
+local_empty_enabled = false
 # Auto light-off (#516): 0 = off (the default). When set (30 suggested), the
 # Moonraker listener turns the printer's light on at print start and, after a
 # print ends, off again once the camera has seen an empty plate for that many

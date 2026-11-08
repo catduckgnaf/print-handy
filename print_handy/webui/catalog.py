@@ -128,6 +128,7 @@ GROUP_OF = {
     "vision.roast_custom_bank": "images",
     "vision.local_detector_enabled": "images",
     "vision.local_model_path": "images",
+    "vision.local_empty_enabled": "images",
     "vision.auto_light_off_minutes": "images",
     "vision.light_object": "images",
     "visual_watch.enabled": "images",
@@ -434,6 +435,15 @@ CATALOG = (
            "Empty uses the default location (a models folder under the "
            "Hermes home) and the pinned model; name a model file you "
            "placed yourself to run fully offline.",
+           validator="settings vision check"),
+    _field("vision", "local_empty_enabled", "Local empty-plate reference", "toggle",
+           "The idle empty-plate checks (auto light-off, the next-plate "
+           "offer) can judge the plate against a reference photo of your "
+           "empty plate, captured once with /print-plate-calibrate in "
+           "chat — entirely on this machine, no vision endpoint needed. "
+           "Off by default. Idle checks only; a reference older than "
+           "30 days stops being trusted, so capture again after moving "
+           "the camera or the plate.",
            validator="settings vision check"),
     _field("vision", "auto_light_off_minutes", "Auto light-off minutes", "number",
            "Auto light-off (#516): the printer light turns on when a print "

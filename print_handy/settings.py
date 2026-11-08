@@ -146,6 +146,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("vision", "roast_custom_bank"): str,
                  ("vision", "local_detector_enabled"): bool,
                  ("vision", "local_model_path"): str,
+                 ("vision", "local_empty_enabled"): bool,
                  ("vision", "auto_light_off_minutes"): int,
                  ("vision", "light_object"): str,
                  ("spool", "prompt_brand"): bool,
@@ -1474,6 +1475,18 @@ def _validate_vision(data):
         raise SettingsError(f"[vision] local_model_path must be a path string or empty, "
                             f"got {local_model_path!r}")
     vision["local_model_path"] = local_model_path.strip()
+    # Local empty-plate producer (#455 item 4, Stage 1): off by default,
+    # and a separate switch from the failure detector — a different
+    # mechanism (difference against a calibrated plate reference,
+    # hermes.local_empty) with a different failure mode. When on, idle
+    # plate checks (auto light-off, the next-plate offer) can be answered
+    # locally when no vision endpoint route is configured; it respects
+    # vision.watch_source's routing rule and never feeds the in-print
+    # watch.
+    local_empty = vision.setdefault("local_empty_enabled", False)
+    if not isinstance(local_empty, bool):
+        raise SettingsError(f"[vision] local_empty_enabled must be true or false, "
+                            f"got {local_empty!r}")
     # Auto light-off (#516): off by default (0). When set above zero, the
     # printer's light turns on at print start and, after a print ends,
     # off again once the camera verdict has seen an empty plate for
