@@ -224,3 +224,58 @@ def test_mention_setting_defaults_on_and_validates(tmp_path):
     data = settings.load(local=False,
                          environ={"PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE": "false"})
     assert data["discord"]["mention_starter_on_complete"] is False
+
+
+# ------------------------------------------------- button posts (follow-up)
+
+def test_button_post_threads_the_starter_mention(monkeypatch):
+    """A terminal alert posted with buttons (the firmware-shutdown post
+    carries the error event text) pings its starter like a plain post."""
+    from print_handy.hermes import print_alert_buttons as pab
+    calls = []
+
+    def fake_buttons(token, channel_id, content, kind, filename, **kwargs):
+        calls.append(kwargs)
+        return True
+
+    monkeypatch.setattr(pab, "post_with_buttons", fake_buttons)
+    monkeypatch.setattr(mel, "_bot_token", lambda: "tok")
+    monkeypatch.setattr(mel, "_buttonless_standalone", lambda: False)
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    assert mel.post_alert(f"**Printer firmware stopped.**\nPrint stopped with an error\n<@{STARTER}>",
+                          "shutdown", "plate.gcode")
+    assert calls[-1] == {"mention_user_id": STARTER}
+    # A pause alert has no starter line and keeps the plain call shape.
+    assert mel.post_alert("Print paused: Widget", "paused", "plate.gcode")
+    assert calls[-1] == {}
+
+
+def test_button_post_allows_only_the_named_user_to_ping(monkeypatch, tmp_path):
+    from print_handy.hermes import print_alert_buttons as pab
+    seen = []
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return b"{}"
+
+    def fake_open(request, timeout):
+        seen.append(json.loads(request.data))
+        return Response()
+
+    monkeypatch.setattr(pab, "STATE", tmp_path / "alerts.json")
+    monkeypatch.setattr(pab.urllib.request, "urlopen", fake_open)
+    assert pab.post_with_buttons("tok", "42", f"stopped\n<@{STARTER}>", "shutdown", "plate.gcode",
+                                 mention_user_id=STARTER)
+    assert seen[-1]["allowed_mentions"] == {"parse": [], "users": [STARTER]}
+    assert pab.post_with_buttons("tok", "42", "paused", "paused", "plate.gcode")
+    assert seen[-1]["allowed_mentions"] == {"parse": []}
+    assert pab.post_with_buttons("tok", "42", "x", "shutdown", "plate.gcode", mention_user_id="<@1>")
+    assert seen[-1]["allowed_mentions"] == {"parse": []}

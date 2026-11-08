@@ -24,7 +24,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from ..core import fuzzy
+from ..core import fuzzy, projects
 from . import _config
 
 BASE = _config.moonraker_url()
@@ -766,6 +766,14 @@ def resolve_print(query: str = "", archive: Path | None = None) -> dict[str, Any
         if hit is None:
             raise NextPlateError(f"there is no print #{n}. Type /print-again list")
         return _target_from_record(hit["record"], archive)
+    if parse_plate_ref(query):
+        # An exact plate alias (82A) targets that plate (#1008). When no
+        # project plate carries the alias, fall through to the title paths —
+        # a model can legitimately be named like one.
+        try:
+            return resolve_plate_ref(query, archive)
+        except NextPlateError:
+            pass
     hits = match_printed(query, rows)
     if not hits:
         near = fuzzy_printed(query, rows)
@@ -779,6 +787,266 @@ def resolve_print(query: str = "", archive: Path | None = None) -> dict[str, Any
         options = "\n".join(f"{r['index']}. {r['title']} ({_et(r['launched_at'])})" for r in hits[:AGAIN_LIST_LIMIT])
         raise NextPlateError(f"\"{query}\" matches {len(hits)} printed jobs:\n{options}\nPick one with /print-again <number>")
     return _target_from_record(hits[0]["record"], archive)
+
+
+_PLATE_REF = re.compile(r"#?(\d+)([A-Za-z]+)")
+
+
+def parse_plate_ref(query: str) -> tuple[int, str] | None:
+    """'82A' / '#82aa' -> (82, 'AA'); anything else -> None. Read only."""
+    m = _PLATE_REF.fullmatch(str(query or "").strip())
+    if not m:
+        return None
+    return int(m.group(1)), m.group(2).upper()
+
+
+def _project_number_of(job_path: Path, rows: list[dict[str, Any]]) -> int | None:
+    """A job's registry number: its earliest launch's row index.
+
+    The project number anchors on the job's own permanent number (the first
+    plate launched claims it for the project; see print_records), which is
+    exactly the earliest printed_jobs row for this job.
+    """
+    mine = [r for r in rows if Path(r["job_json"]).resolve() == job_path.resolve()]
+    if not mine:
+        return None
+    return int(min(mine, key=lambda r: r["launched_at"])["index"])
+
+
+def project_for_job(job_path: Path, archive: Path | None = None,
+                    numbers_path: Path | None = None, plans_dir: Path | None = None,
+                    _rows: list[dict[str, Any]] | None = None) -> dict[str, Any] | None:
+    """The multi-plate project an archived job belongs to, or None.
+
+    Plates and component labels come from the JOB.json's embedded
+    multipart_plan (slice-time structure); completion counts are refreshed
+    from the live plan file when one exists, because the embedded copy is
+    never updated after slicing. The project number comes from the plan
+    state when a launch claimed one, else from the job's registry number —
+    never invented (core.projects.project_ref refuses unknown numbers).
+    """
+    job_path = Path(job_path)
+    try:
+        job = json.loads(job_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    plan = job.get("multipart_plan")
+    if not job.get("project_id") or not isinstance(plan, dict):
+        return None
+    parts = [p for p in plan.get("parts") or [] if isinstance(p, dict)]
+    if len(parts) < 2:
+        return None
+    live: dict[str, Any] = {}
+    if plan.get("plan_id"):
+        try:
+            from .print_next import load_plan
+
+            live = load_plan(str(plan["plan_id"]), plans_dir) or {}
+        except Exception:
+            live = {}
+    live_parts = {str(p.get("id")): p for p in live.get("parts") or [] if isinstance(p, dict)}
+    number: int | None = None
+    for source in (live, plan):
+        n = source.get("project_number")
+        if isinstance(n, int) and not isinstance(n, bool) and n > 0:
+            number = n
+            break
+    if number is None:
+        rows = _rows if _rows is not None else printed_jobs(archive, numbers_path)
+        number = _project_number_of(job_path, rows)
+    plates: list[dict[str, Any]] = []
+    for pos, part in enumerate(parts):
+        suffix = part.get("project_plate_suffix")
+        if not isinstance(suffix, str) or not re.fullmatch(r"[A-Z]+", suffix):
+            suffix = projects.plate_suffix(pos)
+        live_part = live_parts.get(str(part.get("id")), {})
+
+        def _count(key: str, default: int) -> int:
+            for source in (live_part, part):
+                value = source.get(key)
+                if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                    return value
+            return default
+
+        quantity = _count("quantity", 1) or 1
+        plates.append({
+            "part_id": part.get("id"), "suffix": suffix,
+            "ref": projects.project_ref(number, suffix),
+            "label": str(part.get("label") or part.get("id") or f"plate {pos + 1}"),
+            "gcode": part.get("gcode_path"),
+            "quantity": quantity,
+            "completed_quantity": min(_count("completed_quantity", 0), quantity),
+        })
+    return {"project_id": str(job["project_id"]),
+            "project_number": number,
+            "title": str(plan.get("title") or job.get("title") or job_path.parent.name),
+            "plan_id": plan.get("plan_id"),
+            "job_json": str(job_path),
+            "plates": plates}
+
+
+def target_project_info(target: dict[str, Any], archive: Path | None = None,
+                        numbers_path: Path | None = None,
+                        plans_dir: Path | None = None) -> dict[str, Any] | None:
+    """The project a resolved /print-again target belongs to, or None."""
+    if not target.get("job_json"):
+        return None
+    return project_for_job(Path(str(target["job_json"])), archive, numbers_path, plans_dir)
+
+
+def project_plate_for_target(info: dict[str, Any],
+                             target: dict[str, Any]) -> dict[str, Any] | None:
+    """The plate of ``info`` whose G-code the resolved target would print."""
+    gcode = str(Path(str(target.get("gcode") or "")).resolve())
+    for plate in info["plates"]:
+        if plate.get("gcode") and str(Path(str(plate["gcode"])).resolve()) == gcode:
+            return plate
+    return None
+
+
+def _launch_record_for(gcode: Path) -> Path | None:
+    stem = gcode.name.split(".", 1)[0]
+    for suffix in (".launch.json", ".upload.json"):
+        candidate = gcode.with_name(stem + suffix)
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _plate_target(plate: dict[str, Any], info: dict[str, Any],
+                  archive: Path) -> dict[str, Any]:
+    """A start target for one project plate, from its own launch record.
+
+    Only plates that were actually launched can be reprinted this way; a
+    plate that never printed has no verified G-code launch to repeat and
+    stays on the normal /print-next path.
+    """
+    from .print_next import NextPlateError
+
+    if not plate.get("gcode"):
+        raise NextPlateError(f"plate {plate['suffix']} has no recorded G-code")
+    record = _launch_record_for(Path(str(plate["gcode"])).resolve())
+    if record is None:
+        raise NextPlateError(
+            f"plate {plate['ref'] or plate['suffix']} was never printed; "
+            "it cannot be reprinted with /print-again")
+    target = _target_from_record(record, archive)
+    target.update({"project_id": info["project_id"],
+                   "project_number": info["project_number"],
+                   "project_title": info["title"],
+                   "project_plate_ref": plate["ref"],
+                   "project_plate_suffix": plate["suffix"]})
+    return target
+
+
+def resolve_plate_ref(query: str, archive: Path | None = None,
+                      numbers_path: Path | None = None,
+                      plans_dir: Path | None = None) -> dict[str, Any]:
+    """Resolve an exact plate alias ('82A') to that plate's reprint target.
+
+    Exact by construction: the number must be a project's anchored number
+    and the suffix one of its plates. Anything else raises — an alias never
+    falls back to a fuzzy or title guess.
+    """
+    from .print_next import NextPlateError
+
+    parsed = parse_plate_ref(query)
+    if parsed is None:
+        raise NextPlateError(f"\"{query}\" is not a plate reference like 82A")
+    number, suffix = parsed
+    archive = (archive or ARCHIVE).resolve()
+    rows = printed_jobs(archive, numbers_path)
+    seen: set[str] = set()
+    for row in rows:
+        job_key = str(Path(row["job_json"]).resolve())
+        if job_key in seen:
+            continue
+        seen.add(job_key)
+        info = project_for_job(Path(job_key), archive, numbers_path, plans_dir, _rows=rows)
+        if info is None or info["project_number"] != number:
+            continue
+        for plate in info["plates"]:
+            if plate["suffix"] == suffix:
+                return _plate_target(plate, info, archive)
+        raise NextPlateError(
+            f"project {number} has no plate {number}{suffix}; its plates are "
+            + ", ".join(p["ref"] or p["suffix"] for p in info["plates"]))
+    raise NextPlateError(f"there is no project print {number}{suffix}. Type /print-again list")
+
+
+def project_scope_targets(target: dict[str, Any], scope: str,
+                          archive: Path | None = None,
+                          numbers_path: Path | None = None,
+                          plans_dir: Path | None = None) -> list[dict[str, Any]]:
+    """Ordered reprint targets for a project scope ('entire' or 'remaining').
+
+    'remaining' keeps only plates whose live plan counts are unfinished.
+    Plates that were never launched are skipped with the rest — reprinting
+    repeats verified launches; unprinted plates belong to /print-next.
+    Every target is annotated with its scope note for the confirmations.
+    """
+    from .print_next import NextPlateError
+
+    archive = (archive or ARCHIVE).resolve()
+    info = target_project_info(target, archive, numbers_path, plans_dir)
+    if info is None:
+        raise NextPlateError("that print is not part of a multi-plate project")
+    plates = info["plates"]
+    if scope == "remaining":
+        plates = [p for p in plates if p["completed_quantity"] < p["quantity"]]
+        if not plates:
+            raise NextPlateError(
+                f"every plate of project {info['project_number']} is already printed; "
+                "nothing remains. Pick 'Entire project' to print it all again")
+    elif scope != "entire":
+        raise NextPlateError(f"unknown reprint scope \"{scope}\"")
+    targets: list[dict[str, Any]] = []
+    for plate in plates:
+        try:
+            targets.append(_plate_target(plate, info, archive))
+        except NextPlateError:
+            continue
+    if not targets:
+        raise NextPlateError("none of those plates has a verified earlier print to repeat")
+    label = (f"entire project {info['project_number']}" if scope == "entire"
+             else f"the remaining plates of project {info['project_number']}")
+    for pos, t in enumerate(targets):
+        ref = t.get("project_plate_ref") or t.get("project_plate_suffix")
+        t["scope_note"] = (f"Scope: {label} — {len(targets)} "
+                           f"{'plate' if len(targets) == 1 else 'plates'}. "
+                           f"This is plate {ref}, {pos + 1} of {len(targets)}; "
+                           "each following plate asks for its own bed-clear confirmation.")
+    return targets
+
+
+def scope_question(target: dict[str, Any], info: dict[str, Any]) -> str:
+    """The /print-again scope question for a project plate (#1008).
+
+    A choice, never an authorization: whichever scope is picked, the first
+    plate still goes through the normal bed-clear confirmation, and every
+    later plate asks again via /print-again next.
+    """
+    plate = project_plate_for_target(info, target)
+    ref = (plate or {}).get("ref") or (plate or {}).get("suffix") or "one plate"
+    number = info["project_number"]
+    head = f"Project {number} — {info['title']}" if number else f"Project — {info['title']}"
+    return (f"{head} has {len(info['plates'])} plates, and you picked plate {ref}. "
+            "Print just this plate, the entire project, or only the plates that are not finished yet?")
+
+
+def project_plate_list_text(info: dict[str, Any]) -> str:
+    """The 'Choose a plate' answer: every plate with its exact alias."""
+    number = info["project_number"]
+    head = f"Project {number} — {info['title']}:" if number else f"Project — {info['title']}:"
+    lines = [head]
+    for plate in info["plates"]:
+        state = ("printed" if plate["completed_quantity"] >= plate["quantity"]
+                 else "not finished")
+        ref = plate["ref"]
+        pick = f"/print-again {ref}" if ref else "its print number from /print-again list"
+        lines.append(f"{ref or plate['suffix']}: {plate['label']} — {state}. Reprint it with {pick}.")
+    lines.append("Nothing started.")
+    return "\n".join(lines)
 
 
 def _record_printer_id(record: Path, archive: Path) -> str | None:
@@ -877,6 +1145,8 @@ def _per_copy_clause(seconds, grams) -> str:
 
 def again_question(target: dict[str, Any]) -> str:
     note = " It was re-sliced since the last run, so this uses the current slice." if target.get("resliced") else ""
+    if target.get("scope_note"):
+        note += f" {target['scope_note']}"
     copies = int(target.get("copies") or 1)
     many = (f" Copy 1 of {copies}; after each one finishes I'll ask you to clear the bed for the next."
             if copies > 1 else "")
@@ -893,6 +1163,14 @@ def again_question(target: dict[str, Any]) -> str:
 
 def next_copy_question(target: dict[str, Any]) -> str:
     """Confirmation for `/print-again next`: this copy's figures plus the remaining totals (#438)."""
+    if target.get("project_sequence"):
+        ref = target.get("project_plate_ref") or target.get("project_plate_suffix") or "next"
+        question = (f"Print plate {ref} ({target['title']}) of project "
+                    f"{target.get('project_number')}?")
+        per = _per_copy_clause(*_copy_figures(target.get("gcode")))
+        if per:
+            question += f"\nThis plate: {per}."
+        return question + "\nConfirm the bed is clear."
     n, total = int(target["copy_number"]), int(target["copies"])
     question = f"Print copy {n} of {total} of {target['title']}?"
     seconds, grams = _copy_figures(target.get("gcode"))
@@ -1043,6 +1321,33 @@ def queue_copies(target: dict[str, Any], path: Path | None = None,
                   "queued_at": time.time()}, path, printer_id)
 
 
+def queue_project_sequence(targets: list[dict[str, Any]], path: Path | None = None,
+                           printer_id: str | None = None) -> None:
+    """Remember the plates of a project-scope reprint not yet started (#1008).
+
+    Written after the first plate starts, mirroring queue_copies: ``started``
+    counts the plates already started, and /print-again next walks the rest
+    in order, each behind its own bed-clear confirmation. Starts nothing.
+    A fresh run's plates are a new logical run — the original project's plan
+    counters are never touched by reprints.
+    """
+    if len(targets) <= 1:
+        _write_queue(None, path, printer_id)
+        return
+    first = targets[0]
+    _write_queue({"kind": "project_sequence",
+                  "project_id": first.get("project_id"),
+                  "project_number": first.get("project_number"),
+                  "title": first.get("project_title") or first["title"],
+                  "entries": [{"job_json": t["job_json"], "gcode": t["gcode"],
+                               "title": t["title"], "gcode_sha256": t["gcode_sha256"],
+                               "plate_ref": t.get("project_plate_ref"),
+                               "plate_suffix": t.get("project_plate_suffix")}
+                              for t in targets],
+                  "total": len(targets), "started": 1,
+                  "queued_at": time.time()}, path, printer_id)
+
+
 def pending_copy(path: Path | None = None, printer_id: str | None = None) -> dict[str, Any] | None:
     q = _read_queue(path, printer_id)
     return q if q and int(q.get("started", 0)) < int(q.get("total", 0)) else None
@@ -1057,6 +1362,27 @@ def next_copy_target(path: Path | None = None, archive: Path | None = None,
     if q is None:
         raise NextPlateError("no copies are queued")
     archive = (archive or ARCHIVE).resolve()
+    if q.get("kind") == "project_sequence":
+        entries = q.get("entries") or []
+        idx = int(q.get("started", 0))
+        if idx >= len(entries):
+            raise NextPlateError("the queued project plates are all started")
+        entry = entries[idx]
+        gcode = Path(entry["gcode"]).resolve()
+        job_path = Path(entry["job_json"]).resolve()
+        if not gcode.is_file() or not job_path.is_file() or not job_path.is_relative_to(archive):
+            raise NextPlateError("the queued plate's files are gone; queue cleared")
+        return {"plan_id": "print-again", "part_id": job_path.parent.name[:60],
+                "label": entry["title"], "where": "",
+                "title": entry["title"], "copy": int(time.time()), "copy_number": idx + 1,
+                "quantity": int(q["total"]), "copies": int(q["total"]),
+                "reprint": True, "resliced": False, "job_json": str(job_path),
+                "gcode": str(gcode), "gcode_sha256": _sha256(gcode),
+                "project_sequence": True, "project_id": q.get("project_id"),
+                "project_number": q.get("project_number"),
+                "project_title": q.get("title"),
+                "project_plate_ref": entry.get("plate_ref"),
+                "project_plate_suffix": entry.get("plate_suffix")}
     gcode = Path(q["gcode"]).resolve()
     job_path = Path(q["job_json"]).resolve()
     if not gcode.is_file() or not job_path.is_file() or not job_path.is_relative_to(archive):
@@ -1089,7 +1415,25 @@ def next_copy_prompt(finished_filename: str, path: Path | None = None,
 
     Uploaded names embed the G-code SHA-256, so the match is exact."""
     q = pending_copy(path, printer_id)
-    if q is None or not q.get("gcode_sha256") or q["gcode_sha256"] not in str(finished_filename or ""):
+    if q is None:
+        return None
+    if q.get("kind") == "project_sequence":
+        entries = q.get("entries") or []
+        started = int(q.get("started", 0))
+        if not 1 <= started <= len(entries):
+            return None
+        done = entries[started - 1]
+        if not done.get("gcode_sha256") or done["gcode_sha256"] not in str(finished_filename or ""):
+            return None
+        ref = done.get("plate_ref") or done.get("plate_suffix") or ""
+        head = f"Plate {ref} of project {q.get('project_number')} ({q.get('title')}) is done."
+        if started < len(entries):
+            nxt = entries[started]
+            nref = nxt.get("plate_ref") or nxt.get("plate_suffix") or ""
+            return (f"{head} Clear the bed, then type `/print-again next` for plate "
+                    f"{nref} ({nxt['title']}). `/print-again stop` drops the remaining plates.")
+        return f"{head} That was the last plate of the queued project run."
+    if not q.get("gcode_sha256") or q["gcode_sha256"] not in str(finished_filename or ""):
         return None
     started, total = int(q["started"]), int(q["total"])
     left = total - started

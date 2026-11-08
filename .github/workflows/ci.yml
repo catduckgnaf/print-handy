@@ -559,7 +559,7 @@ jobs:
       - name: Slicer tests and Discord flow corpus with real Orca
         env:
           PRINT_HANDY_TEST_SHARD: ${{ matrix.shard }}/3
-        run: xvfb-run -a python -m pytest -v -s tests/slicer tests/corpus
+        run: xvfb-run -a python -m pytest -v -s tests/slicer tests/corpus tests/pipeline/test_first_layer_workflow.py
 
   slicer-test-stable-result:
     if: always()

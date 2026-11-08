@@ -31,13 +31,18 @@ from typing import Any
 from ..core import fuzzy
 
 _VOCABULARY = frozenset({"roast", "print", "last", "latest", "recent", "previous", "again"})
+_ROAST_LEAD = r"^(?:please\s+|pls\s+)?(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?|go\s+ahead\s+and\s+|now\s+)?"
 _ROAST_RE = re.compile(
-    r"^(?:please\s+|pls\s+)?(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?|go\s+ahead\s+and\s+|now\s+)?"
-    r"roast\s+(?P<q>.*?)\s*[?.!]*$", re.I)
+    rf"{_ROAST_LEAD}(?:roast|rost|raost)\s+(?P<q>.*?)\s*[?.!]*$", re.I)
+_GIVE_ROAST_RE = re.compile(
+    rf"{_ROAST_LEAD}give\s+(?:me\s+|us\s+|my\s+print\s+|the\s+print\s+|this\s+print\s+|that\s+print\s+)?a\s+roast\s*[?.!]*$", re.I)
+_BURN_RE = re.compile(
+    rf"{_ROAST_LEAD}burn\s+(?P<q>(?:(?:my|the|this|that)\s+)?(?:(?:last|latest|recent|previous|failed)\s+)?print)\s*[?.!]*$", re.I)
 _LAST_WORDS = {"", "it", "that", "this", "me", "us", "one", "last", "latest", "recent", "previous",
                "last print", "latest print", "recent print", "previous print", "last one",
                "that print", "this print", "the print", "my print", "it again", "that one",
-               "this one", "the last one", "my last one"}
+               "this one", "the last one", "my last one",
+               "this disaster", "that disaster", "this mess", "that mess", "disaster", "mess"}
 _LEADERS = re.compile(r"^(?:my|our|the|that|this|your)\s+", re.I)
 _TRAILERS = re.compile(r"\s+(?:print|one|please|again|for\s+me)$", re.I)
 _NUMBER_RE = re.compile(r"^(?:print\s+)?(?:number\s+|no\.?\s*)?#?(\d+)$", re.I)
@@ -56,31 +61,54 @@ def roast_request(text: Any) -> str | None:
     clean = " ".join(str(text or "").split()).strip()
     if not clean or clean.startswith("/") or len(clean) > 120:
         return None
-    match = _ROAST_RE.match(clean)
-    if match is None:
-        corrected = fuzzy.correct_typos(clean, _VOCABULARY)
-        match = _ROAST_RE.match(corrected)
-        if match is None:
-            return None
-    query = " ".join(match.group("q").split()).strip(" ?.!,")
+
+    def _match_request(t: str) -> tuple[bool, str]:
+        if _GIVE_ROAST_RE.match(t):
+            return True, ""
+        m_burn = _BURN_RE.match(t)
+        if m_burn:
+            return True, m_burn.group("q")
+        m_roast = _ROAST_RE.match(t)
+        if m_roast:
+            return True, m_roast.group("q")
+        return False, ""
+
+    matched, raw_q = _match_request(clean)
+    if not matched:
+        folded = fuzzy.typo_fold(clean)
+        matched, raw_q = _match_request(folded)
+        if not matched:
+            corrected = fuzzy.correct_typos(folded, _VOCABULARY)
+            matched, raw_q = _match_request(corrected)
+            if not matched:
+                return None
+
+    query = " ".join(raw_q.split()).strip(" ?.!,")
+    if re.search(r"https?://", query, re.I):
+        return None  # a roast of a link is not a printed job
 
     def _bare(text):
         for _ in range(3):
             text = _TRAILERS.sub("", _LEADERS.sub("", text)).strip()
         return text
 
-    # "the lasst one" -> last print: the request words are typo-corrected;
-    # a model name keeps the person's own spelling for the title search.
-    corrected = _bare(fuzzy.correct_typos(query, _VOCABULARY)) if query else ""
-    if corrected.casefold() in _LAST_WORDS:
+    # Typo-fold and correct vocabulary words in query
+    folded_q = fuzzy.typo_fold(query) if query else ""
+    corrected = _bare(fuzzy.correct_typos(folded_q, _VOCABULARY)) if folded_q else ""
+    if (query.casefold() in _LAST_WORDS
+            or (folded_q and folded_q.casefold() in _LAST_WORDS)
+            or corrected.casefold() in _LAST_WORDS):
         return ""
     number = _NUMBER_RE.match(corrected)
     if number:
         return number.group(1)
-    query = _bare(query)
-    if re.search(r"https?://", query, re.I):
-        return None  # a roast of a link is not a printed job
-    return query
+    bare_q = _bare(query)
+    folded_bare = fuzzy.typo_fold(bare_q)
+    if folded_bare.casefold() in {"failed", "failed print", "last failed", "last failed print",
+                                  "failed one", "failure", "spaghetti", "cancelled", "canceled",
+                                  "cancelled print", "canceled print"}:
+        bare_q = folded_bare
+    return bare_q
 
 
 class RoastLookupError(LookupError):
@@ -100,7 +128,31 @@ def resolve(query: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
         if hit is None:
             raise RoastLookupError(f"There is no print #{int(query)}. Type /print-again list to see them.")
         return hit
+
     hits = pc.match_printed(query, rows)
+    if not hits:
+        q_fold = " ".join(query.strip().casefold().split())
+        q_typo = " ".join(fuzzy.typo_fold(query).strip().casefold().split())
+        failed_targets = {"failed", "failed print", "last failed", "last failed print",
+                          "failed one", "failure", "spaghetti"}
+        cancelled_targets = {"cancelled", "canceled", "cancelled print", "canceled print"}
+        all_targets = failed_targets | cancelled_targets
+
+        if q_fold in all_targets or q_typo in all_targets:
+            want_cancelled = q_fold in cancelled_targets or q_typo in cancelled_targets
+            for r in rows:
+                rec = _record_for(r.get("index", 0))
+                st = STATUS_MAP.get(str(rec.get("status") or r.get("status") or "").strip().lower(), "")
+                if want_cancelled and st == "cancelled":
+                    return r
+                if not want_cancelled and st == "failed":
+                    return r
+            if q_fold in {"spaghetti", "failure"} or q_typo in {"spaghetti", "failure"}:
+                return rows[0]
+            if want_cancelled:
+                raise RoastLookupError("None of your recent prints were cancelled. Type /print-again list to see them.")
+            raise RoastLookupError("None of your recent prints failed. Type /print-again list to see them.")
+
     if hits:
         titles = {pc._fold(r["title"]) for r in hits}
         if len(titles) == 1:
