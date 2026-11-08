@@ -26,7 +26,7 @@ class Fact:
 
 # OrcaSlicer release whose BBL vendor profiles were checked: (tag, commit). A provenance reference only; the
 # profiles (AGPL-3.0) are not in this repository. See docs/BAMBU-LAB.md "Provenance and licence".
-ORCA_RELEASE = ("v2.5.0-rc", "af2ffb8cddd2f3c0bdadc56d9cc3945fb23577ea")
+ORCA_RELEASE = ("v2.5.0", "40ecc66f78ed72dc368e0c1ebe40d77f00cc8a19")
 ORCA_PROFILE_ROOT = "resources/profiles/BBL"
 # Print Handy's only changes to the flattened vendor profiles, by kind. The shared post-slice guard allows only
 # Normal Lift and no arc fitting; settings IDs let it match the effective settings Orca writes back.
@@ -814,8 +814,8 @@ A2L = {
 # bambulab.com directly are marked unverified, like the other models' BAMBU facts.
 #
 # There is deliberately NO orca_profiles / orca_filaments / orca_identity here, and no
-# MODEL module, registry entry or adapter for the H3C: the pinned OrcaSlicer v2.5.0-rc
-# (ORCA_RELEASE above; resources/profiles/BBL at af2ffb8cddd2f3c0bdadc56d9cc3945fb23577ea)
+# MODEL module, registry entry or adapter for the H3C: the pinned OrcaSlicer v2.5.0
+# (ORCA_RELEASE above; resources/profiles/BBL at 40ecc66f78ed72dc368e0c1ebe40d77f00cc8a19)
 # carries no H3C profiles at all — its BBL index and machine folder were checked and
 # contain none — so no identity can be computed with Print Handy's flatten + sha256
 # pipeline, and registration without an identity is not a supported shape (the profile
