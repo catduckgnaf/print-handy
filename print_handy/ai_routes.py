@@ -2,7 +2,7 @@
 
 Three tiers, each with its own endpoint settings under ``[ai.<tier>]``:
 
-* ``small``: the print-start roast, the camera and image check, label reading.
+* ``small``: the camera and image check, label reading.
 * ``chat``: questions the scripted handlers cannot answer.
 * ``heavy``: model-file editing and repair, deep image work. The repair
   feature (#978, ``core/ai_fix.py``) calls it: "Fix this for my printer"
@@ -133,7 +133,7 @@ def _default_route(tier, cfg, purpose) -> Compat:
                       _secret(design.get("api_key_env") or llm.get("api_key_env")),
                       float(design.get("timeout_s") or 0))
     vision = cfg.get("vision") or {}
-    model = vision.get("roast_model") if purpose == "roast" else vision.get("model")
+    model = vision.get("model")
     url = str((cfg.get("services") or {}).get("vision_chat_url") or "").rstrip("/")
     return Compat(url, str(model or ""), _secret("CLIPROXY_API_KEY"))
 
@@ -245,7 +245,7 @@ def call(tier, messages, *, images=(), compat=None, purpose="", max_tokens=200,
 
     ``served_by`` is the model name that produced the answer, the fallback's
     when the primary failed. ``compat`` replaces the tier's default route for
-    callers that resolve their own settings; ``purpose`` ("roast") picks the
+    callers that resolve their own settings; ``purpose`` picks the
     default model within a tier. Raises AINotConfigured or AIKeyMissing before
     anything is sent, and otherwise the last transport or parse error when
     every leg failed. Only a failed primary is retried, once, on the fallback.

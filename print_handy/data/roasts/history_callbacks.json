@@ -1,0 +1,441 @@
+{
+ "_about": "Roasts referencing the user's previous print ({last_title}) or consecutive failure streaks ({fail_streak}) (#1002 Phase 2).",
+ "_phase": 2,
+ "_license": "CC0-1.0",
+ "entries": {
+  "previous_print": [
+   {
+    "id": "history-previous-print-from-last-title-to-title",
+    "family": "history-previous-print-from-last-title-to-title",
+    "text": "From {last_title} to {title} is pure aesthetic chaos."
+   },
+   {
+    "id": "history-previous-print-first-last-title-now-title",
+    "family": "history-previous-print-first-last-title-now-title",
+    "text": "First {last_title}, now {title}; what a bizarre trajectory."
+   },
+   {
+    "id": "history-previous-print-going-from-last-title-to",
+    "family": "history-previous-print-going-from-last-title-to",
+    "text": "Going from {last_title} to {title} makes zero sense."
+   },
+   {
+    "id": "history-previous-print-your-leap-from-last-title",
+    "family": "history-previous-print-your-leap-from-last-title",
+    "text": "Your leap from {last_title} to {title} is wildly erratic."
+   },
+   {
+    "id": "history-previous-print-switching-from-last-title-to",
+    "family": "history-previous-print-switching-from-last-title-to",
+    "text": "Switching from {last_title} to {title} raises serious questions."
+   },
+   {
+    "id": "history-previous-print-printing-title-right-after-last",
+    "family": "history-previous-print-printing-title-right-after-last",
+    "text": "Printing {title} right after {last_title} feels completely unhinged."
+   },
+   {
+    "id": "history-previous-print-moving-from-last-title-to",
+    "family": "history-previous-print-moving-from-last-title-to",
+    "text": "Moving from {last_title} to {title} is true whiplash."
+   },
+   {
+    "id": "history-previous-print-first-last-title-then-title",
+    "family": "history-previous-print-first-last-title-then-title",
+    "text": "First {last_title}, then {title}; what an odd progression."
+   },
+   {
+    "id": "history-previous-print-going-from-last-title-straight",
+    "family": "history-previous-print-going-from-last-title-straight",
+    "text": "Going from {last_title} straight to {title} is bewildering."
+   },
+   {
+    "id": "history-previous-print-you-followed-last-title-with",
+    "family": "history-previous-print-you-followed-last-title-with",
+    "text": "You followed {last_title} with {title}; pick a lane."
+   },
+   {
+    "id": "history-previous-print-from-last-title-to-title-2",
+    "family": "history-previous-print-from-last-title-to-title-2",
+    "text": "From {last_title} to {title}: your slicer has mood swings."
+   },
+   {
+    "id": "history-previous-print-first-last-title-now-title-2",
+    "family": "history-previous-print-first-last-title-now-title-2",
+    "text": "First {last_title}, now {title}; your queue is unpredictable."
+   },
+   {
+    "id": "history-previous-print-swapping-last-title-for-title",
+    "family": "history-previous-print-swapping-last-title-for-title",
+    "text": "Swapping {last_title} for {title} is an eccentric choice."
+   },
+   {
+    "id": "history-previous-print-going-from-last-title-to-2",
+    "family": "history-previous-print-going-from-last-title-to-2",
+    "text": "Going from {last_title} to {title} proves nothing makes sense."
+   },
+   {
+    "id": "history-previous-print-you-printed-last-title-then",
+    "family": "history-previous-print-you-printed-last-title-then",
+    "text": "You printed {last_title}, then pivoted hard to {title}."
+   },
+   {
+    "id": "history-previous-print-from-last-title-to-title-3",
+    "family": "history-previous-print-from-last-title-to-title-3",
+    "text": "From {last_title} to {title} is a chaotic jump."
+   },
+   {
+    "id": "history-previous-print-first-last-title-now-title-3",
+    "family": "history-previous-print-first-last-title-now-title-3",
+    "text": "First {last_title}, now {title}; your printer is confused."
+   },
+   {
+    "id": "history-previous-print-printing-title-after-last-title",
+    "family": "history-previous-print-printing-title-after-last-title",
+    "text": "Printing {title} after {last_title} is sheer queue madness."
+   },
+   {
+    "id": "history-previous-print-moving-from-last-title-to-2",
+    "family": "history-previous-print-moving-from-last-title-to-2",
+    "text": "Moving from {last_title} to {title} shows zero thematic focus."
+   },
+   {
+    "id": "history-previous-print-from-last-title-to-title-4",
+    "family": "history-previous-print-from-last-title-to-title-4",
+    "text": "From {last_title} to {title} is a radical shift."
+   },
+   {
+    "id": "history-previous-print-first-last-title-now-title-4",
+    "family": "history-previous-print-first-last-title-now-title-4",
+    "text": "First {last_title}, now {title}; the variety is jarring."
+   },
+   {
+    "id": "history-previous-print-pivoting-from-last-title-to",
+    "family": "history-previous-print-pivoting-from-last-title-to",
+    "text": "Pivoting from {last_title} to {title} defies all logic."
+   },
+   {
+    "id": "history-previous-print-your-jump-from-last-title",
+    "family": "history-previous-print-your-jump-from-last-title",
+    "text": "Your jump from {last_title} to {title} lacks coherence."
+   },
+   {
+    "id": "history-previous-print-printing-title-directly-after-last",
+    "family": "history-previous-print-printing-title-directly-after-last",
+    "text": "Printing {title} directly after {last_title} is fascinatingly random."
+   },
+   {
+    "id": "history-previous-print-from-last-title-to-title-5",
+    "family": "history-previous-print-from-last-title-to-title-5",
+    "text": "From {last_title} to {title} is an emotional rollercoaster."
+   },
+   {
+    "id": "history-previous-print-first-last-title-now-title-5",
+    "family": "history-previous-print-first-last-title-now-title-5",
+    "text": "First {last_title}, now {title}; what inspired this sequence?"
+   },
+   {
+    "id": "history-previous-print-going-from-last-title-to-3",
+    "family": "history-previous-print-going-from-last-title-to-3",
+    "text": "Going from {last_title} to {title} is confusingly ambitious."
+   },
+   {
+    "id": "history-previous-print-you-paired-last-title-with",
+    "family": "history-previous-print-you-paired-last-title-with",
+    "text": "You paired {last_title} with {title}; an alarming combo."
+   },
+   {
+    "id": "history-previous-print-from-last-title-to-title-6",
+    "family": "history-previous-print-from-last-title-to-title-6",
+    "text": "From {last_title} to {title} is quite the leap."
+   },
+   {
+    "id": "history-previous-print-first-last-title-then-title-2",
+    "family": "history-previous-print-first-last-title-then-title-2",
+    "text": "First {last_title}, then {title}; your build plate sighs."
+   },
+   {
+    "id": "history-previous-print-switching-from-last-title-to-2",
+    "family": "history-previous-print-switching-from-last-title-to-2",
+    "text": "Switching from {last_title} to {title} is remarkably abrupt."
+   },
+   {
+    "id": "history-previous-print-printing-title-right-after-last-2",
+    "family": "history-previous-print-printing-title-right-after-last-2",
+    "text": "Printing {title} right after {last_title} feels very chaotic."
+   },
+   {
+    "id": "history-previous-print-from-last-title-to-title-7",
+    "family": "history-previous-print-from-last-title-to-title-7",
+    "text": "From {last_title} to {title}: an utterly wild detour."
+   },
+   {
+    "id": "history-previous-print-first-last-title-now-title-6",
+    "family": "history-previous-print-first-last-title-now-title-6",
+    "text": "First {last_title}, now {title}; your queue lacks direction."
+   },
+   {
+    "id": "history-previous-print-going-from-last-title-to-4",
+    "family": "history-previous-print-going-from-last-title-to-4",
+    "text": "Going from {last_title} to {title} represents serious inconsistency."
+   },
+   {
+    "id": "history-previous-print-you-moved-from-last-title",
+    "family": "history-previous-print-you-moved-from-last-title",
+    "text": "You moved from {last_title} to {title} without explanation."
+   },
+   {
+    "id": "history-previous-print-from-last-title-to-title-8",
+    "family": "history-previous-print-from-last-title-to-title-8",
+    "text": "From {last_title} to {title} is a sudden change."
+   },
+   {
+    "id": "history-previous-print-first-last-title-now-title-7",
+    "family": "history-previous-print-first-last-title-now-title-7",
+    "text": "First {last_title}, now {title}; what a disjointed duo."
+   },
+   {
+    "id": "history-previous-print-pivoting-from-last-title-into",
+    "family": "history-previous-print-pivoting-from-last-title-into",
+    "text": "Pivoting from {last_title} into {title} is completely bewildering."
+   },
+   {
+    "id": "history-previous-print-your-shift-from-last-title",
+    "family": "history-previous-print-your-shift-from-last-title",
+    "text": "Your shift from {last_title} to {title} is perplexing."
+   },
+   {
+    "id": "history-previous-print-printing-title-right-after-last-3",
+    "family": "history-previous-print-printing-title-right-after-last-3",
+    "text": "Printing {title} right after {last_title} makes heads spin."
+   },
+   {
+    "id": "history-previous-print-from-last-title-to-title-9",
+    "family": "history-previous-print-from-last-title-to-title-9",
+    "text": "From {last_title} to {title} is an unexpected turn."
+   },
+   {
+    "id": "history-previous-print-first-last-title-now-title-8",
+    "family": "history-previous-print-first-last-title-now-title-8",
+    "text": "First {last_title}, now {title}; the whiplash is real."
+   },
+   {
+    "id": "history-previous-print-going-from-last-title-to-5",
+    "family": "history-previous-print-going-from-last-title-to-5",
+    "text": "Going from {last_title} to {title} suggests extreme indecision."
+   },
+   {
+    "id": "history-previous-print-you-followed-up-last-title",
+    "family": "history-previous-print-you-followed-up-last-title",
+    "text": "You followed up {last_title} with {title}; utterly strange."
+   },
+   {
+    "id": "history-previous-print-from-last-title-to-title-10",
+    "family": "history-previous-print-from-last-title-to-title-10",
+    "text": "From {last_title} to {title}: the duality of human nature."
+   },
+   {
+    "id": "history-previous-print-first-last-title-then-title-3",
+    "family": "history-previous-print-first-last-title-then-title-3",
+    "text": "First {last_title}, then {title}; what an eccentric pipeline."
+   },
+   {
+    "id": "history-previous-print-switching-from-last-title-to-3",
+    "family": "history-previous-print-switching-from-last-title-to-3",
+    "text": "Switching from {last_title} to {title} is delightfully incoherent."
+   }
+  ],
+  "fail_streak": [
+   {
+    "id": "history-fail-streak-that-is-fail-streak-consecutive",
+    "family": "history-fail-streak-that-is-fail-streak-consecutive",
+    "text": "That is {fail_streak} consecutive failed prints; {printer} is weeping."
+   },
+   {
+    "id": "history-fail-streak-fail-streak-prints-in-a",
+    "family": "history-fail-streak-fail-streak-prints-in-a",
+    "text": "{fail_streak} prints in a row have failed; check your leveling."
+   },
+   {
+    "id": "history-fail-streak-a-brutal-streak-of-fail",
+    "family": "history-fail-streak-a-brutal-streak-of-fail",
+    "text": "A brutal streak of {fail_streak} failed prints across your machines."
+   },
+   {
+    "id": "history-fail-streak-fail-streak-dead-prints-in",
+    "family": "history-fail-streak-fail-streak-dead-prints-in",
+    "text": "{fail_streak} dead prints in a row; clean the bed surface."
+   },
+   {
+    "id": "history-fail-streak-that-makes-fail-streak-straight",
+    "family": "history-fail-streak-that-makes-fail-streak-straight",
+    "text": "That makes {fail_streak} straight failures; the scrap bin is full."
+   },
+   {
+    "id": "history-fail-streak-you-are-on-a-streak",
+    "family": "history-fail-streak-you-are-on-a-streak",
+    "text": "You are on a streak of {fail_streak} failed attempts."
+   },
+   {
+    "id": "history-fail-streak-fail-streak-consecutive-prints-have",
+    "family": "history-fail-streak-fail-streak-consecutive-prints-have",
+    "text": "{fail_streak} consecutive prints have died on the build plate."
+   },
+   {
+    "id": "history-fail-streak-a-grim-streak-of-fail",
+    "family": "history-fail-streak-a-grim-streak-of-fail",
+    "text": "A grim streak of {fail_streak} ruined prints in a row."
+   },
+   {
+    "id": "history-fail-streak-that-is-fail-streak-straight",
+    "family": "history-fail-streak-that-is-fail-streak-straight",
+    "text": "That is {fail_streak} straight failures; maybe dry your filament spool."
+   },
+   {
+    "id": "history-fail-streak-fail-streak-failed-prints-in",
+    "family": "history-fail-streak-fail-streak-failed-prints-in",
+    "text": "{fail_streak} failed prints in a row; bed adhesion is nonexistent."
+   },
+   {
+    "id": "history-fail-streak-your-printer-logged-fail-streak",
+    "family": "history-fail-streak-your-printer-logged-fail-streak",
+    "text": "Your printer logged {fail_streak} consecutive failures without remorse."
+   },
+   {
+    "id": "history-fail-streak-a-streak-of-fail-streak",
+    "family": "history-fail-streak-a-streak-of-fail-streak",
+    "text": "A streak of {fail_streak} failed prints is testing your sanity."
+   },
+   {
+    "id": "history-fail-streak-that-makes-fail-streak-dead",
+    "family": "history-fail-streak-that-makes-fail-streak-dead",
+    "text": "That makes {fail_streak} dead prints in a row; calibrate z-offset."
+   },
+   {
+    "id": "history-fail-streak-fail-streak-straight-failures-printer",
+    "family": "history-fail-streak-fail-streak-straight-failures-printer",
+    "text": "{fail_streak} straight failures; {printer} seems to be on strike."
+   },
+   {
+    "id": "history-fail-streak-you-have-now-failed-fail",
+    "family": "history-fail-streak-you-have-now-failed-fail",
+    "text": "You have now failed {fail_streak} consecutive prints in this streak."
+   },
+   {
+    "id": "history-fail-streak-a-painful-streak-of-fail",
+    "family": "history-fail-streak-a-painful-streak-of-fail",
+    "text": "A painful streak of {fail_streak} failures; reconsider your slicer settings."
+   },
+   {
+    "id": "history-fail-streak-that-is-fail-streak-ruined",
+    "family": "history-fail-streak-that-is-fail-streak-ruined",
+    "text": "That is {fail_streak} ruined prints in a row; check nozzle clog."
+   },
+   {
+    "id": "history-fail-streak-fail-streak-prints-failed-consecutively",
+    "family": "history-fail-streak-fail-streak-prints-failed-consecutively",
+    "text": "{fail_streak} prints failed consecutively; the plastic graveyard keeps expanding."
+   },
+   {
+    "id": "history-fail-streak-your-current-streak-sits-at",
+    "family": "history-fail-streak-your-current-streak-sits-at",
+    "text": "Your current streak sits at {fail_streak} straight printing disasters."
+   },
+   {
+    "id": "history-fail-streak-that-makes-fail-streak-failed",
+    "family": "history-fail-streak-that-makes-fail-streak-failed",
+    "text": "That makes {fail_streak} failed prints in a row; clean the plate."
+   },
+   {
+    "id": "history-fail-streak-fail-streak-consecutive-failures-check",
+    "family": "history-fail-streak-fail-streak-consecutive-failures-check",
+    "text": "{fail_streak} consecutive failures; check belt tension and bed leveling."
+   },
+   {
+    "id": "history-fail-streak-a-streak-of-fail-streak-2",
+    "family": "history-fail-streak-a-streak-of-fail-streak-2",
+    "text": "A streak of {fail_streak} dead prints; the scrap pile grows."
+   },
+   {
+    "id": "history-fail-streak-that-is-fail-streak-straight-2",
+    "family": "history-fail-streak-that-is-fail-streak-straight-2",
+    "text": "That is {fail_streak} straight failed attempts on the build plate."
+   },
+   {
+    "id": "history-fail-streak-fail-streak-failed-prints-in-2",
+    "family": "history-fail-streak-fail-streak-failed-prints-in-2",
+    "text": "{fail_streak} failed prints in a row; maybe walk away today."
+   },
+   {
+    "id": "history-fail-streak-your-printer-recorded-fail-streak",
+    "family": "history-fail-streak-your-printer-recorded-fail-streak",
+    "text": "Your printer recorded {fail_streak} consecutive print fatalities."
+   },
+   {
+    "id": "history-fail-streak-a-tragic-streak-of-fail",
+    "family": "history-fail-streak-a-tragic-streak-of-fail",
+    "text": "A tragic streak of {fail_streak} failed prints without relief."
+   },
+   {
+    "id": "history-fail-streak-that-makes-fail-streak-consecutive",
+    "family": "history-fail-streak-that-makes-fail-streak-consecutive",
+    "text": "That makes {fail_streak} consecutive failures; inspect your hotend assembly."
+   },
+   {
+    "id": "history-fail-streak-fail-streak-dead-prints-in-2",
+    "family": "history-fail-streak-fail-streak-dead-prints-in-2",
+    "text": "{fail_streak} dead prints in a row; verify temperature and retraction."
+   },
+   {
+    "id": "history-fail-streak-you-have-achieved-a-streak",
+    "family": "history-fail-streak-you-have-achieved-a-streak",
+    "text": "You have achieved a streak of {fail_streak} straight print failures."
+   },
+   {
+    "id": "history-fail-streak-that-is-fail-streak-ruined-2",
+    "family": "history-fail-streak-that-is-fail-streak-ruined-2",
+    "text": "That is {fail_streak} ruined prints in sequence; time to troubleshoot."
+   },
+   {
+    "id": "history-fail-streak-fail-streak-prints-in-a-2",
+    "family": "history-fail-streak-fail-streak-prints-in-a-2",
+    "text": "{fail_streak} prints in a row collapsed into plastic junk."
+   },
+   {
+    "id": "history-fail-streak-a-rough-streak-of-fail",
+    "family": "history-fail-streak-a-rough-streak-of-fail",
+    "text": "A rough streak of {fail_streak} failed jobs on the printer."
+   },
+   {
+    "id": "history-fail-streak-that-makes-fail-streak-straight-2",
+    "family": "history-fail-streak-that-makes-fail-streak-straight-2",
+    "text": "That makes {fail_streak} straight casualties on your build sheet."
+   },
+   {
+    "id": "history-fail-streak-fail-streak-consecutive-prints-failed",
+    "family": "history-fail-streak-fail-streak-consecutive-prints-failed",
+    "text": "{fail_streak} consecutive prints failed; inspect the extruder drive gear."
+   },
+   {
+    "id": "history-fail-streak-your-current-run-is-fail",
+    "family": "history-fail-streak-your-current-run-is-fail",
+    "text": "Your current run is {fail_streak} failed prints and mounting frustration."
+   },
+   {
+    "id": "history-fail-streak-that-is-fail-streak-dead",
+    "family": "history-fail-streak-that-is-fail-streak-dead",
+    "text": "That is {fail_streak} dead prints in a row; check first layer height."
+   },
+   {
+    "id": "history-fail-streak-fail-streak-straight-failed-jobs",
+    "family": "history-fail-streak-fail-streak-straight-failed-jobs",
+    "text": "{fail_streak} straight failed jobs; the printer demands an offering."
+   },
+   {
+    "id": "history-fail-streak-a-streak-of-fail-streak-3",
+    "family": "history-fail-streak-a-streak-of-fail-streak-3",
+    "text": "A streak of {fail_streak} failed prints; your waste bucket is overflowing."
+   }
+  ]
+ }
+}

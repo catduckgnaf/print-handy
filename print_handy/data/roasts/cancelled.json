@@ -1,6 +1,6 @@
 {
  "_about": "Cancelled prints only. Gentle: the target is the print, never the operator.",
- "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022)",
  "_license": "Original to Print Handy; MIT with the project.",
  "entries": [
   {
@@ -142,6 +142,236 @@
    "id": "cancelled-title-was-cancelled-proving-someone",
    "family": "cancelled-title-was-cancelled-proving-someone",
    "text": "{title} was cancelled, proving someone here can recognize sunk costs."
+  },
+  {
+   "id": "cancelled-you-pulled-the-plug-on-2",
+   "family": "cancelled-you-pulled-the-plug-on-2",
+   "text": "You pulled the plug on {title}; that was pure mercy intervention."
+  },
+  {
+   "id": "cancelled-cancelling-title-early-was-an",
+   "family": "cancelled-cancelling-title-early-was-an",
+   "text": "Cancelling {title} early was an act of mercy for everyone."
+  },
+  {
+   "id": "cancelled-you-saw-where-title-was",
+   "family": "cancelled-you-saw-where-title-was",
+   "text": "You saw where {title} was headed and hit abort without hesitation."
+  },
+  {
+   "id": "cancelled-title-was-cancelled-before-the",
+   "family": "cancelled-title-was-cancelled-before-the",
+   "text": "{title} was cancelled before the spaghetti monster could finish claiming it."
+  },
+  {
+   "id": "cancelled-stopping-title-after-duration-saved",
+   "family": "cancelled-stopping-title-after-duration-saved",
+   "text": "Stopping {title} after {duration} saved the remaining spool from severe embarrassment."
+  },
+  {
+   "id": "cancelled-you-intervened-on-title-before",
+   "family": "cancelled-you-intervened-on-title-before",
+   "text": "You intervened on {title} before physics could commit a public crime."
+  },
+  {
+   "id": "cancelled-title-was-aborted-even-the",
+   "family": "cancelled-title-was-aborted-even-the",
+   "text": "{title} was aborted; even the printer seemed relieved to stop humming."
+  },
+  {
+   "id": "cancelled-pulling-the-plug-on-title",
+   "family": "cancelled-pulling-the-plug-on-title",
+   "text": "Pulling the plug on {title} was the most responsible parenting today."
+  },
+  {
+   "id": "cancelled-title-was-cancelled-at-layer",
+   "family": "cancelled-title-was-cancelled-at-layer",
+   "text": "{title} was cancelled at layer twenty; dignity was salvaged just in time."
+  },
+  {
+   "id": "cancelled-you-pressed-emergency-stop-on",
+   "family": "cancelled-you-pressed-emergency-stop-on",
+   "text": "You pressed emergency stop on {title}, and the workshop sighed with relief."
+  },
+  {
+   "id": "cancelled-stopping-title-saved-grams-grams",
+   "family": "cancelled-stopping-title-saved-grams-grams",
+   "text": "Stopping {title} saved {grams} grams from participating in an obvious disaster."
+  },
+  {
+   "id": "cancelled-you-cut-power-to-title",
+   "family": "cancelled-you-cut-power-to-title",
+   "text": "You cut power to {title}; sometimes surrender is the smartest strategy."
+  },
+  {
+   "id": "cancelled-title-was-cancelled-after-duration",
+   "family": "cancelled-title-was-cancelled-after-duration",
+   "text": "{title} was cancelled after {duration}; that was twenty minutes too late."
+  },
+  {
+   "id": "cancelled-aborting-title-was-not-quitting",
+   "family": "cancelled-aborting-title-was-not-quitting",
+   "text": "Aborting {title} was not quitting; it was tactical retreat from catastrophe."
+  },
+  {
+   "id": "cancelled-you-stopped-title-before-the",
+   "family": "cancelled-you-stopped-title-before-the",
+   "text": "You stopped {title} before the nozzle welded itself into modern sculpture."
+  },
+  {
+   "id": "cancelled-title-got-the-red-button",
+   "family": "cancelled-title-got-the-red-button",
+   "text": "{title} got the red button treatment, preserving whatever little peace remained."
+  },
+  {
+   "id": "cancelled-cancelling-title-spared-the-build",
+   "family": "cancelled-cancelling-title-spared-the-build",
+   "text": "Cancelling {title} spared the build plate another hour of unmitigated chaos."
+  },
+  {
+   "id": "cancelled-you-pulled-the-emergency-brake",
+   "family": "cancelled-you-pulled-the-emergency-brake",
+   "text": "You pulled the emergency brake on {title}; disaster averted by seconds."
+  },
+  {
+   "id": "cancelled-title-was-terminated-before-its",
+   "family": "cancelled-title-was-terminated-before-its",
+   "text": "{title} was terminated before its warped corners could breach earth atmosphere."
+  },
+  {
+   "id": "cancelled-the-abort-button-rescued-title",
+   "family": "cancelled-the-abort-button-rescued-title",
+   "text": "The abort button rescued {title} from becoming another sad viral clip."
+  },
+  {
+   "id": "cancelled-you-ended-title-at-duration",
+   "family": "cancelled-you-ended-title-at-duration",
+   "text": "You ended {title} at {duration}; the spool will forever honor your mercy."
+  },
+  {
+   "id": "cancelled-stopping-title-early-was-a",
+   "family": "cancelled-stopping-title-early-was-a",
+   "text": "Stopping {title} early was a gift to yourself and the power grid."
+  },
+  {
+   "id": "cancelled-title-was-cancelled-because-even",
+   "family": "cancelled-title-was-cancelled-because-even",
+   "text": "{title} was cancelled because even the first three layers looked guilty."
+  },
+  {
+   "id": "cancelled-you-hit-cancel-on-title",
+   "family": "cancelled-you-hit-cancel-on-title",
+   "text": "You hit cancel on {title}; that was pure self-defense against plastic chaos."
+  },
+  {
+   "id": "cancelled-title-was-decommissioned-early-the",
+   "family": "cancelled-title-was-decommissioned-early-the",
+   "text": "{title} was decommissioned early; the scrap bin receives another half-baked idea."
+  },
+  {
+   "id": "cancelled-calling-time-on-title-after",
+   "family": "cancelled-calling-time-on-title-after",
+   "text": "Calling time on {title} after {duration} prevented an expensive plastic funeral."
+  },
+  {
+   "id": "cancelled-you-unplugged-title-with-the",
+   "family": "cancelled-you-unplugged-title-with-the",
+   "text": "You unplugged {title} with the firm resolve of a seasoned firefighter."
+  },
+  {
+   "id": "cancelled-title-was-halted-mid-layer",
+   "family": "cancelled-title-was-halted-mid-layer",
+   "text": "{title} was halted mid-layer; that was a preventative strike against spaghetti."
+  },
+  {
+   "id": "cancelled-the-cancel-button-saved-title",
+   "family": "cancelled-the-cancel-button-saved-title",
+   "text": "The cancel button saved {title} from fulfilling its doomed plastic destiny."
+  },
+  {
+   "id": "cancelled-you-mercifully-pulled-the-plug",
+   "family": "cancelled-you-mercifully-pulled-the-plug",
+   "text": "You mercifully pulled the plug on {title} before anyone could witness it."
+  },
+  {
+   "id": "cancelled-title-was-stopped-cold-the",
+   "family": "cancelled-title-was-stopped-cold-the",
+   "text": "{title} was stopped cold; the nozzle can finally rest its weary heart."
+  },
+  {
+   "id": "cancelled-aborting-title-preserved-grams-grams",
+   "family": "cancelled-aborting-title-preserved-grams-grams",
+   "text": "Aborting {title} preserved {grams} grams for a project with actual prospects."
+  },
+  {
+   "id": "cancelled-you-pressed-pause-on-title",
+   "family": "cancelled-you-pressed-pause-on-title",
+   "text": "You pressed pause on {title} and turned it into a permanent cancellation."
+  },
+  {
+   "id": "cancelled-title-was-cancelled-sometimes-the",
+   "family": "cancelled-title-was-cancelled-sometimes-the",
+   "text": "{title} was cancelled; sometimes the best edit is the delete key."
+  },
+  {
+   "id": "cancelled-hitting-cancel-on-title-proved",
+   "family": "cancelled-hitting-cancel-on-title-proved",
+   "text": "Hitting cancel on {title} proved you still possess working survival instincts."
+  },
+  {
+   "id": "cancelled-title-was-terminated-the-bed",
+   "family": "cancelled-title-was-terminated-the-bed",
+   "text": "{title} was terminated; the bed scraper arrived for an early extraction."
+  },
+  {
+   "id": "cancelled-you-pulled-title-off-life",
+   "family": "cancelled-you-pulled-title-off-life",
+   "text": "You pulled {title} off life support after {duration} of agonizing stringing."
+  },
+  {
+   "id": "cancelled-cancelling-title-was-an-act",
+   "family": "cancelled-cancelling-title-was-an-act",
+   "text": "Cancelling {title} was an act of civic duty toward clean air."
+  },
+  {
+   "id": "cancelled-title-was-cancelled-before-the-2",
+   "family": "cancelled-title-was-cancelled-before-the-2",
+   "text": "{title} was cancelled before the layer shift became a recognized landmark."
+  },
+  {
+   "id": "cancelled-you-stepped-in-and-cancelled",
+   "family": "cancelled-you-stepped-in-and-cancelled",
+   "text": "You stepped in and cancelled {title}; the spool thanks you tearfully."
+  },
+  {
+   "id": "cancelled-title-was-aborted-that-was",
+   "family": "cancelled-title-was-aborted-that-was",
+   "text": "{title} was aborted; that was thirty grams of disaster safely prevented."
+  },
+  {
+   "id": "cancelled-stopping-title-mid-stroke-was",
+   "family": "cancelled-stopping-title-mid-stroke-was",
+   "text": "Stopping {title} mid-stroke was the most sensible decision made all day."
+  },
+  {
+   "id": "cancelled-title-was-unplugged-before-the",
+   "family": "cancelled-title-was-unplugged-before-the",
+   "text": "{title} was unplugged before the spaghetti could stage a violent rebellion."
+  },
+  {
+   "id": "cancelled-you-aborted-title-after-duration",
+   "family": "cancelled-you-aborted-title-after-duration",
+   "text": "You aborted {title} after {duration}; cutting losses is an essential skill."
+  },
+  {
+   "id": "cancelled-title-was-mercifully-cancelled-we",
+   "family": "cancelled-title-was-mercifully-cancelled-we",
+   "text": "{title} was mercifully cancelled; we will pretend this print never started."
+  },
+  {
+   "id": "cancelled-the-red-button-claimed-title",
+   "family": "cancelled-the-red-button-claimed-title",
+   "text": "The red button claimed {title}, saving the workbench from further embarrassment."
   }
  ]
 }
