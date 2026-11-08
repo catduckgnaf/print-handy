@@ -158,6 +158,59 @@ def test_family_idle_context_claims_nothing_without_facts():
     assert context.startswith("Printer: OctoPrint printer, build plate.")
     assert "enclosed" not in context
     assert "empty_idle" in context  # the verdict vocabulary survives
+# -- Bambu vision context ------------------------------------------------------
+
+
+def _bambu_adapter(label, facts_dict):
+    import types
+
+    return types.SimpleNamespace(label=label, facts=facts_dict)
+
+
+def test_bambu_vision_context_does_not_call_an_a1_enclosed():
+    """An A1's frames must not be judged against an enclosed printer's description.
+
+    Regression: bambu_watch.vision_context claimed "enclosed, smooth PEI
+    plate" for every Bambu printer. The A1 line is open-frame, and the
+    model's sourced facts (printers/bambulab/facts.py) record no enclosure
+    for it, so its context must claim no enclosure at all — and the plate
+    the facts do record for it is textured PEI, not smooth.
+    """
+    from print_handy.hermes import bambu_watch
+    from print_handy.printers.bambulab import facts
+
+    context = bambu_watch.vision_context(_bambu_adapter("Bambu Lab A1", facts.A1))
+    assert context.startswith("Printer: Bambu Lab A1")
+    assert "enclosed" not in context
+    assert "smooth" not in context
+    assert "textured PEI plate" in context
+    assert "empty_idle" in context  # the verdict vocabulary survives
+
+
+def test_bambu_vision_context_names_an_open_frame_when_the_facts_say_so():
+    from print_handy.hermes import bambu_watch
+    from print_handy.printers.bambulab import facts
+
+    context = bambu_watch.vision_context(_bambu_adapter("Bambu Lab A1 mini", facts.A1MINI))
+    assert "open frame" in context
+    assert "enclosed" not in context
+
+
+def test_bambu_vision_context_keeps_enclosed_for_a_p1s():
+    from print_handy.hermes import bambu_watch
+    from print_handy.printers.bambulab import facts
+
+    context = bambu_watch.vision_context(_bambu_adapter("Bambu Lab P1S", facts.P1S))
+    assert "enclosed, textured PEI plate" in context
+    assert "smooth" not in context
+
+
+def test_bambu_vision_context_claims_nothing_without_facts():
+    from print_handy.hermes import bambu_watch
+
+    context = bambu_watch.vision_context(_bambu_adapter("Bambu Lab printer", {}))
+    assert context.startswith("Printer: Bambu Lab printer. ")
+    assert "enclosed" not in context and "PEI" not in context
 
 
 def test_visual_alert_posts_image_and_components_together(monkeypatch, tmp_path):
