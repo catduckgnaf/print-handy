@@ -107,7 +107,7 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         self.httpd = server.make_server(
             data, environ=self.environ, port=0,
             snapshot_func=lambda: FAKE_SNAPSHOT,
-            camera_snapshot_func=lambda printer_id=None: JPEG_BYTES)
+            camera_snapshot_func=lambda printer_id=None: (200, JPEG_BYTES, "image/jpeg"))
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
         self.thread.start()
         self.addCleanup(self.httpd.server_close)
@@ -189,7 +189,9 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         # browser fetch of it must return the fake source's JPEG bytes.
         response = self.page.request.get(
             self.base + "/api/printers/default/camera/snapshot")
-        self.assertEqual(response.status, 200)
+        self.assertEqual(response.status, 200, response.text() if response.status != 200 else "")
+        self.assertEqual(response.headers.get("content-type"), "image/jpeg")
+        self.assertEqual(response.body(), JPEG_BYTES)
         self.assertTrue(response.body().startswith(b"\xff\xd8"),
                         "the snapshot is a JPEG from the fake source")
 
