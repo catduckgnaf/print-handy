@@ -1221,42 +1221,83 @@ def manual_resume_tracking_message(filename, slot=None, compatible_spools=None):
     )
 
 
-def _with_completion_roast(message, completion_message):
-    """The completion post with its one roast, placed under the completion text.
+def _completion_roast_line(message, completion_message):
+    """The one roast line for a pending completion, or "" when there is none.
 
-    The roast rides the post that carries the timelapse, so it lands after
-    the video is ready rather than on the start post. It goes before any
-    MEDIA: attachment lines, which must stay on their own lines. Best-effort:
-    no recorded title, a disabled switch or a model failure leaves the post
-    exactly as it was.
+    Best-effort: no recorded title, a disabled switch or a generation
+    failure returns "" and the post goes out exactly as it was. The line
+    is keyed to the print, so asking again for the same delivery returns
+    the same line without drawing a second roast.
     """
     try:
         state = announcer.load_state()
         title, summary = announcer.pending_roast_subject(state, completion_message)
         if not title or not str(message).startswith(completion_message):
-            return message
+            return ""
         facts, key = announcer.pending_roast_facts(state, completion_message)
-        roast = generate_roast(title, summary, facts=facts, key=key)
+        return generate_roast(title, summary, facts=facts, key=key) or ""
     except Exception as exc:
         log(f"completion roast skipped: {exc!r}")
-        return message
+        return ""
+
+
+def _with_completion_roast(message, completion_message):
+    """The completion post with its one roast, placed under the completion text.
+
+    Used when the post carries no attachment: the roast goes before any
+    suffix lines (a timelapse-not-attached note stays last), which keeps
+    MEDIA:-free posts a single message. A post that does carry a timelapse
+    is handled by _post_completion instead — there the roast must land
+    under the video, and no in-message order can do that.
+    """
+    roast = _completion_roast_line(message, completion_message)
     if not roast:
         return message
     return f"{completion_message}\n\n{roast}{message[len(completion_message):]}"
 
 
+def _acknowledge_completion(completion_message):
+    """Clear a delivered completion's pending notice and its roast subject."""
+    state = announcer.load_state()
+    if announcer.pending_completion_message(state) == completion_message:
+        announcer.clear_pending_roast_subject(state)
+        announcer.clear_pending_completion_message(state, completion_message)
+        announcer.clear_pending_timelapse_job_key(state)
+        announcer.clear_pending_timelapse_routing(state)
+        state["announced_completion"] = True
+        announcer.save_state(state)
+
+
 def _post_completion(message, completion_message):
-    """Acknowledge only a matching pending notice after transport success."""
+    """Acknowledge only a matching pending notice after transport success.
+
+    A post carrying a timelapse (a MEDIA: attachment) delivers its roast
+    as a separate follow-up post, so the roast lands UNDER the video in
+    the chat: on Discord a message's text always renders above its
+    attachments, and the Telegram and Matrix senders likewise post text
+    before files, so a roast inside the timelapse's own message — wherever
+    it sits in the string — always appears above the video. The follow-up
+    is best-effort and never un-delivers the completion: the notice is
+    acknowledged on the timelapse post's success alone, and a refused
+    timelapse post posts no roast at all, leaving it pending for the
+    caller's text-only fallback post to carry inline.
+    """
+    if re.search(r"MEDIA:\S+", str(message)):
+        roast = _completion_roast_line(message, completion_message)
+        delivered = post(message)
+        if not delivered:
+            return delivered
+        _acknowledge_completion(completion_message)
+        if roast:
+            try:
+                if not post(roast):
+                    log("completion roast follow-up post failed; the timelapse post stands")
+            except Exception as exc:
+                log(f"completion roast follow-up post failed: {exc!r}; the timelapse post stands")
+        return delivered
     delivered = post(_with_completion_roast(message, completion_message))
     if delivered:
-        state = announcer.load_state()
-        if announcer.pending_completion_message(state) == completion_message:
-            announcer.clear_pending_roast_subject(state)
-            announcer.clear_pending_completion_message(state, completion_message)
-            announcer.clear_pending_timelapse_job_key(state)
-            announcer.clear_pending_timelapse_routing(state)
-            state["announced_completion"] = True
-            announcer.save_state(state)
+        _acknowledge_completion(completion_message)
     return delivered
 
 
