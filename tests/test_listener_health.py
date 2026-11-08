@@ -11,7 +11,12 @@ from print_handy import healthcheck as health
 
 class ListenerHealthTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
+        # ignore_cleanup_errors: the healthcheck writer thread (#1020) can
+        # land a beat in this directory while cleanup is removing it, which
+        # otherwise fails teardown with "Directory not empty" even though
+        # every assertion passed (CI run 42433786000, offline-tests 3.12
+        # shard 2: OSError Errno 39 in TemporaryDirectory.cleanup).
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.addCleanup(self.tmp.cleanup)
         self.path = Path(self.tmp.name) / "listener_health.json"
         patch = mock.patch.object(health, "heartbeat_path", return_value=self.path)
@@ -173,7 +178,8 @@ class PerPrinterHeartbeatTests(unittest.TestCase):
     ]}
 
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
+        # Same writer-thread teardown race as ListenerHealthTests above.
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.addCleanup(self.tmp.cleanup)
         root = Path(self.tmp.name)
         patch = mock.patch.object(
