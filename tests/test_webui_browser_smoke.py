@@ -12,9 +12,9 @@ file and skips every test with the reason below; nothing here imports
 playwright at module level, and no browser is ever launched outside
 the gate.
 
-What a CI browser job needs (not provided by this file):
+What the browser CI job provides:
 
-* a job (separate from the offline legs) with
+* a dedicated blocking job (separate from the offline legs) with
   ``PRINT_HANDY_BROWSER_SMOKE=1`` in its environment;
 * ``playwright`` installed (``pip install playwright``) and a headless
   Chromium for it (``playwright install --with-deps chromium``);
@@ -26,8 +26,9 @@ What a CI browser job needs (not provided by this file):
 
 Inside the gate the smoke set walks the real served pages in a real
 browser: the login page renders, logging in lands on the status page,
-the first-run walkthrough renders and advances one step, the controls
-and camera-bearing pages load, and every page is asserted free of
+the first-run walkthrough renders and advances one step, actual settings
+search filters using JavaScript and a control POST without authorization is refused;
+the camera snapshot route loads, and every page is asserted free of
 uncaught JavaScript errors (``pageerror``) with its expected markers
 present. A page that returns 200 with broken JavaScript is exactly
 the failure this set exists to catch -- the in-process Web UI tests
@@ -61,7 +62,15 @@ BROWSER_SMOKE = os.environ.get(GATE_ENV) == "1" and _playwright_importable()
 # A 1x1 white JPEG-shaped payload is unnecessary: the fake snapshot seam
 # takes any bytes; the browser only needs the page and its <img> wiring.
 FAKE_SNAPSHOT = {
-    "state": "printing", "file": "smoke.gcode", "progress": 0.5,
+    # Match the real snapshot contract. A tiny dict missing bot/listener
+    # reaches a Web UI 500 rather than exercising the actual page.
+    "version": "0.browser", "host": "browser-fixture", "ok": True,
+    "printer": {"name": "Flashforge AD5X", "model": "flashforge.ad5x",
+                "vendor": "flashforge", "connection": "moonraker"},
+    "bot": {"platform": "discord", "mode": "standalone",
+            "ok": True, "reason": "connected",
+            "heartbeat": {"connected": True}},
+    "listener": {"required": True, "ok": True, "reason": "alive"},
     "spoolman": {"bundled": True, "url": "http://127.0.0.1:8000", "ok": True,
                  "detail": "HTTP 200"},
     "services": {"spoolman_url": "http://127.0.0.1:8000"},
@@ -138,8 +147,9 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         self.login()
         self.assertTrue(self.page.url.rstrip("/").endswith(
             (":%d" % self.httpd.server_address[1], "/")), self.page.url)
-        self.assertIn("smoke.gcode", self.page.content(),
-                      "the status page shows the fake snapshot's job")
+        self.assertIn("Flashforge AD5X", self.page.content(),
+                      "the status page must show the real snapshot contract")
+        self.assertNotIn("Print Handy error", self.page.content())
 
     def test_walkthrough_renders_and_advances(self):
         from print_handy.webui import walkthrough
