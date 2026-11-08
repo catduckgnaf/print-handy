@@ -57,7 +57,7 @@ There is no SDCP listener, so a print Print Handy launches is followed by a laun
 
 `services.moonraker_url` and `services.octoprint_url` must stay empty for a Centauri model; settings refuse to load otherwise.
 
-In the combined Docker container the supervisor honours that: for a Centauri Carbon model it does not start the Moonraker listener at all, and the healthcheck does not require one, so the container starts, stays up and reports healthy with just the bot (with a token) and the bundled Spoolman — see [Which processes run](DOCKER.md#which-processes-run).
+In the combined Docker container the supervisor honors that: for a Centauri Carbon model it does not start the Moonraker listener at all, and the healthcheck does not require one, so the container starts, stays up and reports healthy with just the bot (with a token) and the bundled Spoolman — see [Which processes run](DOCKER.md#which-processes-run).
 
 ## What is not supported
 
