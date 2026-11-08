@@ -52,3 +52,40 @@ def test_oversized_model_is_flagged_red(tmp_path, monkeypatch):
     monkeypatch.setattr(render_preview.subprocess, 'run', spy)
     render_preview.render(stl, scale=1.2)
     assert '[0.9,0.25,0.2]' in seen['scad']
+
+
+# ------------------------------------------- real OpenSCAD binary (expansion)
+
+
+def test_sheet_is_a_real_labelled_four_view_png(tmp_path):
+    from PIL import Image, ImageStat
+    stl = _offset_box(tmp_path, (40, 20, 10), (0, 0, 0))
+    dest = tmp_path / 'sheet.png'
+    out = render_preview.render_sheet(stl, dimensions=[40, 20, 10], dest=dest)
+    assert Path(out) == dest and dest.is_file()
+    image = Image.open(dest).convert('RGB')
+    assert image.size == (900, 700)  # 2x2 tiles of 450x350
+    colors = image.getcolors(maxcolors=1_000_000)
+    assert colors is not None and len(colors) > 100
+    # Every quadrant carries a real rendered view, not a blank tile.
+    for x in (0, 450):
+        for y in (0, 350):
+            tile = image.crop((x, y, x + 450, y + 350))
+            assert max(ImageStat.Stat(tile).stddev) > 2.0
+
+
+def test_render_from_a_unicode_and_space_path(tmp_path):
+    from PIL import Image
+    folder = tmp_path / 'ü plate'
+    folder.mkdir()
+    stl = _offset_box(folder, (30, 30, 30), (0, 0, 0))
+    out = render_preview.render(stl)
+    assert Path(out).is_file()
+    assert Image.open(out).size == (900, 700)
+
+
+def test_render_refuses_a_non_stl_file(tmp_path):
+    text = tmp_path / 'notes.txt'
+    text.write_text('not a model', encoding='utf-8')
+    with pytest.raises(ValueError, match='STL models only'):
+        render_preview.render(text)

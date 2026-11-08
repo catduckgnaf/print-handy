@@ -242,6 +242,37 @@ hooks because `hermes_cli` is an external package nothing provides.
 Legitimate opt-in gates (real slicer, real Spoolman, private corpus) are
 unchanged and each names the job that satisfies it in the audit file.
 
+## OpenSCAD real-binary expansion (2026-11-07)
+
+OpenSCAD is a shipped dependency, and "lots of OpenSCAD testing" is a
+standing direction, so the real-binary surface was mapped and then widened.
+Every product path that shells out to the binary, and how it is tested:
+
+| Product path | Coverage |
+|---|---|
+| Design render seam (`core/design.py` `render_scad`: `--hardwarnings`, minimal env, rlimits, timeout) | Real binary in `tests/core/test_design.py`: exact dimensions/volume, a bored block's removed volume, `$fn` tessellation vs volume, tiny/large scales (0.5 / 2 / 250 mm), unknown-variable refusal under `--hardwarnings`, syntax-error text, empty-geometry refusal, a 2-second timeout on a 300-sphere union, a Unicode/space source path |
+| Design engine turns (`DesignEngine.run_turn`: render, validate, preview, repair loop, session store) | Real renders behind the scripted model in the same file: parameter-driven geometry changes across turns, warning-class repair with the real error fed back, the preview as a real 900x700 four-view sheet (pixel-checked), pruning after real renders, a Unicode/space cache path; edit-session real renders were already covered |
+| Preview rendering (`core/render_preview.py` `render` / `render_sheet`) | Real binary in `tests/pipeline/test_render_preview.py`: the sheet is 900x700 with four non-blank tiles and labels, a render from a Unicode/space path, non-STL refusal (centering/oversize scene checks were already covered) |
+| CAD split execution (`core/cad_split.py` `_run_openscad`, `prepare_cad_split(execute_openscad=True)`) | Real binary in `tests/core/test_cad_split.py`: `-D` defines choosing parts and scaling geometry, and `prepare_cad_split` end to end — a custom one-bore plan and the shipped rack preset — asserting half dimensions, the cut interface on the cut plane, volume conservation against the expected bore removal, the combined plate, the dowels, and the on-disk validation report |
+| Design dispatch (`plugins/print-feedback` `design_dispatch`) | Real renders behind the fake transport in `tests/test_design_dispatch.py`: Slice it / Change it / Cancel were already covered; added a warning-class design repaired through dispatch before posting, and a parametrized design whose rendered dimensions are what the post claims |
+| Sandbox pre-scan, extraction, parameters (`scan_scad`, `extract_scad`, `scad_params`) | No binary needed; covered with fakes in `tests/core/test_design.py` and `test_design_841.py` |
+| Bot check design row (`bot/__main__.py`) | A PATH probe; covered with `which` mocked in `tests/bot/test_design_check_row.py` |
+
+All real-binary tests use the existing gates (`needs_scad` /
+`needs_openscad` skipif on `shutil.which`), so they skip on a machine
+without OpenSCAD and execute in every offline CI leg, which installs it.
+
+Finds from this pass: executing the rack preset for real showed its half
+boxes clip a Y-offset source, so the end-to-end test's source is centered
+(the fake-run test cannot see clipping); and `render_scad`'s error text
+drops the `WARNING:` line that `--hardwarnings` made fatal, filed as
+issue #1046 (the tests pin the text that is returned today). Deliberately
+not covered end to end: the Mac Mini preset's two-shell split path (nine
+OpenSCAD runs against a synthetic two-shell source; its union seam is
+covered by the `_run_openscad` define tests) and `model_job`'s
+`prepare_cad_split` call site, which the intake suites cover with the
+execution layer faked.
+
 ## Testing-hardening pass (2026-11-07)
 
 A deep dive over version coverage and the merged-PR archaeology produced the
