@@ -2,6 +2,8 @@
 
 # Unreleased
 
+- Restored GPU inference builds for the local failure detector (#455): the `ORT_FLAVOR` build argument (`cpu` default, `openvino`, `cuda`) from #1036 is back in the Dockerfile, the manual Docker image validation workflow takes the flavor as an input again, and DOCKER.md's GPU section again documents the self-built flavors. #1034's squash commit had dropped the build-side work while the detector-side provider selection stayed; the default (`cpu`) changes nothing and the published image keeps the CPU ONNX Runtime build. GPU inference is not verified on real hardware.
+
 # Version 2.2.7
 
 **Release Date:** 2026-11-08
