@@ -8,6 +8,7 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import urllib.error
 from pathlib import Path
 from unittest import mock
 
@@ -206,6 +207,34 @@ def test_stale_idle_check_cannot_start_a_second_job_after_the_first_started(prin
         model_job.print_now(b)
     assert len(uploads(printer.run)) == 1 and len(start_requests(printer.mr)) == 1
     assert "approvals" not in json.loads(b.read_text())
+
+
+# 2b. An unreachable Moonraker at the start guard is a named refusal, not a traceback (#1049).
+
+@pytest.mark.parametrize("transport_error", [
+    urllib.error.URLError(OSError(111, "Connection refused")),  # the probe from #1049
+    TimeoutError("timed out"),
+    ConnectionResetError(104, "Connection reset by peer"),
+])
+def test_unreachable_moonraker_at_the_start_guard_is_a_named_refusal(printer, transport_error):
+    jp, g = make_job(printer.root, "a")
+    printer.phase.side_effect = transport_error  # _printer_phase's Moonraker read fails in transport
+    with pytest.raises(SystemExit) as excinfo:
+        model_job.print_now(jp)
+    assert str(excinfo.value) == ("REFUSED: printer is offline/unreachable. "
+                                  "Nothing uploaded or started.")
+    assert printer.run.call_count == 0  # no upload or any other subprocess ran
+    assert start_requests(printer.mr) == []
+    assert "approvals" not in json.loads(jp.read_text())
+
+
+def test_a_state_read_error_at_the_start_guard_is_not_relabelled_offline(printer):
+    """Only transport failures convert: a state the guard cannot interpret keeps its own error."""
+    jp, g = make_job(printer.root, "a")
+    printer.phase.side_effect = RuntimeError("Moonraker print state unknown: 'weird'")
+    with pytest.raises(RuntimeError, match="print state unknown"):
+        model_job.print_now(jp)
+    assert printer.run.call_count == 0
 
 
 # 3. A crash after submission is uncertain until reconciled, never replayed.
