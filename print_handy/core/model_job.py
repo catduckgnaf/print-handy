@@ -3681,6 +3681,13 @@ def record_start(gcode_path, moonraker_name=None, started_at=None, print_number=
         ctx['printer_profile'] = 'Reviewed Orca AD5X native multicolor'
     if (job or {}).get('delivery_format'):
         ctx['delivery_format'] = job['delivery_format']
+    starter = (job or {}).get('started_by')
+    if isinstance(starter, dict) and starter.get('user_id'):
+        # The intake-stamped requester rides the start context into the
+        # print record, so the completion sidecar lookup can still name the
+        # starter after the job folder is gone.
+        ctx['started_by'] = {'platform': str(starter.get('platform') or 'discord'),
+                             'user_id': str(starter['user_id'])}
     if isinstance((job or {}).get('spoolman_usage_pending'), dict):
         # Launch-time accounting failure (#387): carry the pending marker and
         # its intended spool into the start record and the completion sidecar,
