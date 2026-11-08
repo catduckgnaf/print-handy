@@ -119,6 +119,50 @@ class ListenerHealthTests(unittest.TestCase):
         self.assertIn("SIGUSR1 stack dump", text)
         self.assertIn("Thread", text)
 
+    def test_stack_dump_is_registered_in_faulthandler_at_c_level(self):
+        # The dump must not depend on the main thread returning to Python
+        # bytecode (a hang may hold the GIL in C): faulthandler.register
+        # writes it from the C signal handler, chained to the Python stamp.
+        import faulthandler
+        import signal
+
+        target = Path(self.tmp.name) / "listener_stack_dump.log"
+        self.addCleanup(signal.signal, signal.SIGUSR1, signal.SIG_DFL)
+        self.addCleanup(faulthandler.unregister, signal.SIGUSR1)
+        with mock.patch.object(health, "stack_dump_path", return_value=target), \
+                mock.patch.object(faulthandler, "register", wraps=faulthandler.register) as register:
+            health.install_stack_dump_handler()
+        register.assert_called_once()
+        args, kwargs = register.call_args
+        self.assertEqual(signal.SIGUSR1, args[0])
+        self.assertTrue(kwargs["all_threads"])
+        self.assertTrue(kwargs["chain"])
+        self.assertEqual(str(target), kwargs["file"].name)
+
+    def test_stack_dump_rearm_keeps_the_c_level_dump(self):
+        # A second install (the listeners entry point and a listener's own
+        # main can both arm it) must not leave the Python handler alone.
+        import signal
+        import time as time_module
+
+        first = Path(self.tmp.name) / "first.log"
+        second = Path(self.tmp.name) / "second.log"
+        import faulthandler
+        self.addCleanup(signal.signal, signal.SIGUSR1, signal.SIG_DFL)
+        self.addCleanup(faulthandler.unregister, signal.SIGUSR1)
+        for target in (first, second):
+            with mock.patch.object(health, "stack_dump_path", return_value=target):
+                health.install_stack_dump_handler()
+        os.kill(os.getpid(), signal.SIGUSR1)
+        deadline = time_module.time() + 3
+        while time_module.time() < deadline:
+            if "(above)" in second.read_text():
+                break
+            time_module.sleep(0.05)
+        dump = second.read_text().lower()
+        self.assertIn("thread 0x", dump.split("armed at", 1)[1])
+        self.assertLess(dump.index("thread 0x"), dump.index("(above)"))
+
 
 class PerPrinterHeartbeatTests(unittest.TestCase):
     """#336: heartbeats live under printers/<id>/ and are checked per printer."""

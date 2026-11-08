@@ -2,10 +2,29 @@
 import copy
 import json
 import pytest
+import tempfile
 from pathlib import Path
 from unittest import mock
 
+from print_handy import settings
 from print_handy.core import model_job as job
+
+
+@pytest.fixture
+def slicer_work():
+    """A job folder the real slicer's sandbox can see, for the real_slicer tests.
+
+    Flatpak Orca has a private /tmp and cannot read host temp files, so a real
+    slice's job folder must live inside the checkout, which sits under $HOME on
+    the home box and the CI runner (the same rule tests/slicer follows with its
+    own .slicer-work dir). pytest's tmp_path is under /tmp: the sandbox reports
+    the input STL missing, Orca exits -3 and the prepare fails as a slicer
+    error even though the model and profiles are fine.
+    """
+    work = settings.ROOT / '.slicer-work'
+    work.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=work) as tmp:
+        yield Path(tmp)
 
 
 @pytest.fixture(autouse=True)
@@ -36,8 +55,8 @@ def offline_hardware(monkeypatch):
 
 
 @pytest.mark.real_slicer
-def test_real_slicer_prepares_one_layer_without_network(tmp_path):
-    with mock.patch.object(job, 'ARCHIVE', tmp_path), \
+def test_real_slicer_prepares_one_layer_without_network(slicer_work):
+    with mock.patch.object(job, 'ARCHIVE', slicer_work), \
          mock.patch.object(job, 'request_json', side_effect=AssertionError('network forbidden')):
         output = job.prepare_first_layer(1, 'white', 'PLA', 10)
     text = output.read_text()
@@ -73,8 +92,8 @@ def test_selection_mismatch_refuses_before_slicing(
 
 
 @pytest.mark.real_slicer
-def test_real_slicer_prepares_orca_one_layer_without_network(tmp_path):
-    with mock.patch.object(job, 'ARCHIVE', tmp_path), \
+def test_real_slicer_prepares_orca_one_layer_without_network(slicer_work):
+    with mock.patch.object(job, 'ARCHIVE', slicer_work), \
          mock.patch.object(job, 'request_json', side_effect=AssertionError('network forbidden')):
         output = job.prepare_first_layer(1, 'white', 'PLA', 10, slicer='orca')
     text = output.read_text()

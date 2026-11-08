@@ -1090,8 +1090,13 @@ def create_and_bind_insertion(slot: int, values: dict[str, Any], spool_sync,
 
 def post_with_buttons(token: str, channel_id: str, content: str, kind: str, filename: str,
                       connection: str | None = None, printer_id: str | None = None,
-                      identity: Any = None) -> bool:
+                      identity: Any = None, mention_user_id: str | None = None) -> bool:
     """Post the alert with buttons. False means the caller should fall back to plain text.
+
+    ``mention_user_id`` is the one user a terminal alert may ping (the
+    print's starter, read from the post's own starter-mention line, the
+    way ``bot.rest.send`` does for plain posts); every other mention in
+    the text stays inert.
 
     A family pause alert (#460) names its connection (and roster printer
     id) so handle_click routes the press to that family's own control;
@@ -1109,8 +1114,11 @@ def post_with_buttons(token: str, channel_id: str, content: str, kind: str, file
     if identity:
         extra["identity"] = str(identity)
     aid = record(kind, filename, **extra)
+    allowed: dict[str, Any] = {"parse": []}
+    if mention_user_id is not None and str(mention_user_id).isdigit():
+        allowed["users"] = [str(mention_user_id)]
     body = json.dumps({"content": content[:1990], "components": components(aid, kind),
-                       "allowed_mentions": {"parse": []}}).encode()
+                       "allowed_mentions": allowed}).encode()
     req = urllib.request.Request(f"{rest.API}/channels/{channel_id}/messages", data=body,
                                  method="POST", headers={"Authorization": f"Bot {token}",
                                                          "Content-Type": "application/json",

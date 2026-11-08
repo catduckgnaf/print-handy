@@ -150,39 +150,68 @@ def stack_dump_path(data=None, printer_id=None):
     return settings.printer_state_dir(resolved, data) / STACK_DUMP_NAME
 
 
+#: The open stack-dump file faulthandler writes into. It must stay open:
+#: the C-level handler writes to its descriptor with no Python running.
+_STACK_DUMP_FILE = None
+
+
 def install_stack_dump_handler(data=None, printer_id=None):
-    """Dump every thread's stack on SIGUSR1, to stderr and a state file (#1020 A4).
+    """Dump every thread's stack on SIGUSR1, to a state file and stderr (#1020 A4).
 
     The container supervisor sends SIGUSR1 to a listener whose heartbeat
     went stale, just before it restarts it, so the hang names its own
-    stack. The dump goes to stderr (the container log the bundle tails)
-    and to ``listener_stack_dump.log`` in the printer's state folder, so
-    it survives even when the log tail does not reach it. The handler
-    never raises and never exits: the supervisor's TERM/KILL still does
-    the restarting. Returns the state-file path, or None when signals
-    are unavailable (non-main thread, platform without SIGUSR1).
+    stack. Two layers, because a hang is exactly when Python may not run:
+
+    - ``faulthandler.register`` writes every thread's stack to
+      ``listener_stack_dump.log`` beside the heartbeat from the C signal
+      handler itself, so the dump lands even while C code holds the GIL
+      (a stuck extension call, a GIL-holding loop in another thread). A
+      Python-level handler only runs once the main thread gets back to
+      bytecode, which a real hang may never do.
+    - It chains to a Python handler that stamps the time in the file and
+      repeats the dump to stderr (the container log the bundle tails)
+      whenever the interpreter does get to run it.
+
+    Never raises and never exits: the supervisor's TERM/KILL still does
+    the restarting. Calling it again re-arms cleanly (the faulthandler
+    registration is replaced, not stacked). Returns the state-file path,
+    or None when signals are unavailable (non-main thread, platform
+    without SIGUSR1).
     """
+    global _STACK_DUMP_FILE
     try:
         import faulthandler
         import signal
         if not hasattr(signal, "SIGUSR1"):
             return None
         target = stack_dump_path(data, printer_id)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(target, "a", encoding="utf-8", buffering=1)
+        handle.write(f"\n--- SIGUSR1 stack dumps armed at {time.time():.0f} for pid {os.getpid()}; "
+                     "faulthandler writes each dump below ---\n")
 
-        def _dump(signum, frame):
+        def _stamp(signum, frame):
+            try:
+                handle.write(f"--- SIGUSR1 stack dump at {time.time():.0f} (above) ---\n")
+            except Exception:
+                pass
             try:
                 faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
             except Exception:
                 pass
+
+        # A re-arm must not leave an earlier registration in place: for an
+        # already-registered signal faulthandler only swaps the file, so the
+        # Python handler installed below would silently replace the C one.
+        faulthandler.unregister(signal.SIGUSR1)
+        signal.signal(signal.SIGUSR1, _stamp)
+        faulthandler.register(signal.SIGUSR1, file=handle, all_threads=True, chain=True)
+        previous, _STACK_DUMP_FILE = _STACK_DUMP_FILE, handle
+        if previous is not None and previous is not handle:
             try:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                with open(target, "a", encoding="utf-8") as handle:
-                    handle.write(f"\n--- SIGUSR1 stack dump at {time.time():.0f} ---\n")
-                    faulthandler.dump_traceback(file=handle, all_threads=True)
+                previous.close()
             except Exception:
                 pass
-
-        signal.signal(signal.SIGUSR1, _dump)
         return target
     except (ImportError, AttributeError, ValueError, OSError):
         return None
