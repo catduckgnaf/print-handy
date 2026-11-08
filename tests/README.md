@@ -520,3 +520,76 @@ Promote only when a refreshed variance record shows zero failing pairings at the
 `slack_s`, measured with whatever normalization the gate then uses. Then remove `--warn-only` and
 `continue-on-error` from `slicer-timing-real` and add it to the required checks. `test_timing_gate.py` pins the current
 split: the mock leg blocks, the real leg reports.
+
+## Deep-dive expansion (2026-11-07)
+
+The "what other tests?" deep dive (P1/P2/P3 proposals) landed as one expansion PR. What each item added, and
+the honest limits:
+
+- **Parser differential + property tests** — `tests/core/test_parser_differential_property.py` and
+  `tests/pipeline/test_gcode_parser_differential.py`: seeded generators (stdlib `random`, fixed seed ranges;
+  no new dependency) drive generated meshes and G-code through paired implementations — mesh fast path vs
+  forced-off reference, `mesh_fast` vs a slow bounds/volume reference, layer G-code parsing vs a slow
+  reference, native vs Python bounds. The native side keeps the existing gate (it runs where the extension
+  is built, including the offline CI legs that require it).
+- **Hostile-model corpus** — `tests/pipeline/test_hostile_intake.py`: XXE and entity-expansion 3MF payloads,
+  a high-ratio archive bomb, hostile part names (containment proven by walking the export tree), non-image
+  thumbnails, and declared-vs-actual triangle counts. Payloads are generated in-test; no binary fixtures.
+- **Print-lifecycle failure injection** — `tests/bot/test_lifecycle_failure_injection.py`: scripted failures
+  at the deepest seams the fakes support — busy-printer start refusal, Spoolman down at completion (usage
+  filed pending, per #387), Discord REST 429/5xx on the terminal post (named outcome, exactly-once
+  delivery), listener restart mid-print reconciliation. One gap is documented in the file and filed as
+  #1049: print-now with Moonraker offline raises a raw URLError instead of a named REFUSED outcome; the
+  fix is a separate lane. The docker fake Moonraker only reports an idle printer, so scenarios are staged
+  at the transport seams, not through it.
+- **Klipper-generic + Sovol/Marlin parity** — `tests/printers/test_klipper_generic_behavior.py` and
+  `tests/printers/test_sovol_marlin_behavior.py`: recorded-shape behavioral suites at Bambu-fixture depth
+  for the Moonraker families (all `sovol.*` resolve to the Klipper adapter) and the OctoPrint families
+  (`sovol_marlin.*`, `octoprint.marlin`). Not covered, for lack of any in-repo recorded shape: Moonraker
+  WebSocket event frames and vendor-specific Moonraker dialects.
+- **Real-slicer timing leg** — the hermes leg is unchanged and still reporting-only: the promotion criteria
+  above (a refreshed variance record showing zero failing pairings) are not yet met for the real-Orca leg,
+  and `stl-large-plate` variance is explicitly unmeasured, so this PR does not promote it. What landed
+  instead: the standalone Discord transport now times `single-part` on the real leg (3 repeats, recorded
+  as a proposed baseline for review, kept out of the comparison until a baseline is recorded), pinned by
+  `tests/test_ci_slicer_timing_workflow.py`.
+- **Upgrade golden fixtures** — `tests/fixtures/legacy/` + `tests/test_upgrade_golden_fixtures.py`: frozen
+  pre-rename / pre-#1029 shapes run through today's readers (print-again planning, Wrapped aggregates,
+  settings load with every retired key at once). Provenance per fixture is in `tests/fixtures/legacy/README.md`;
+  one fixture (the pre-#392 Obsidian note body) is marked inferred there.
+- **Replay beyond print-start** — `tests/replay/test_completion_replay.py` with recordings in
+  `tests/replay/recordings/`: pause / cancel / complete / error sequences through the real listener,
+  including the starter mention on terminal posts. The recordings are synthetic in the recorder's format
+  (labeled in each file): no real scrubbed recordings of those flows exist in the repo.
+- **Cross-transport render parity** — `tests/bot/test_transport_render_parity.py`: the same events rendered
+  through Discord, Telegram and Matrix, asserting shared facts, platform mention rules, per-platform
+  limits, and the no-LLM unmatched-text contract. There is no distinct CLI renderer in the tree; the
+  CLI/standalone surface posts the same shared text through these senders.
+- **Concurrency round 2** — `tests/test_concurrency_round2.py`: two printers binding against one
+  Spoolman, start-while-printing, two users claiming one approval prompt, and torn/mid-prune record
+  reads. Print Handy has no records pruner of its own, so the prune race is staged at the filesystem.
+- **Supervisor soak** — `tests/test_supervisor_soak.py`: multi-day fake-clock runs over the outage
+  notifier and persisted restart budget (once-per-incident alerts, budget exhaustion and recovery,
+  restart persistence). The restart-counting rule itself lives in `docker/supervise.sh` bash, which has
+  no fake-clock seam; the soak drives the persisted state through the real `supervisor_state` code.
+- **Browser smoke** — `tests/test_webui_browser_smoke.py`: a small Playwright set (login, walkthrough,
+  controls, camera, no page errors) gated on `PRINT_HANDY_BROWSER_SMOKE=1` plus an importable `playwright`,
+  mirroring the real-slicer gate. It skips in the normal suite and is unexecuted until a CI job installs a
+  browser (`playwright install --with-deps chromium`); that job is not added here.
+- **Mutation pilot** — `tests/test_mutation_pilot.py` + `tests/MUTATION-PILOT.md`: 17 hand-built mutants
+  across the bounds dispatcher and the slot-naming conversion, each paired with its killer test; 17/17
+  killed, measured against scratch copies (method in the note).
+- **AI/vision provider contracts** — `tests/test_ai_provider_contracts.py` + recorded shapes in
+  `tests/fixtures/provider_responses/`: success, malformed, refusal, 401/429/500, timeout and wrong-shape
+  responses replayed through the real parsing seams; every failure degrades to the code's named outcome.
+- **Coverage floors** — `scripts/coverage_floors.py` + `tests/test_coverage_floors.py`: per-module line
+  floors for five guard modules (start guard, launch state, refusal/failure wording, diagnostics plain
+  path), measured from a focused guard-test run and set below it. The offline CI legs run the check
+  reporting-only (continue-on-error) against each shard's own coverage.xml until the floors are confirmed
+  against a merged full-suite report.
+- **Non-Docker install surface** — `tests/test_install_surface_acceptance.py`: script syntax, systemd
+  template vs installer constant consistency, the root plugin trio, and a real sandboxed standalone
+  install (throwaway HOME) that completes and creates exactly the pinned path set. Named gap: no
+  standalone uninstaller exists in the repo — install creates two user units plus the data folder and
+  nothing removes them; the tests pin the created set as the contract a future uninstaller must match.
+  A real VM job (systemd user session, real Moonraker) remains operator territory.
