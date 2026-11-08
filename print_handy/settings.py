@@ -334,6 +334,12 @@ def _check_keys(home, extra, source):
                         raise SettingsError(f"{source}: [{section}] {key} should be {expected_type.__name__}, got {value!r}")
                     kept[key] = value
                     continue
+                if (section, key) == ("printer", "family"):
+                    # The one deliberate exception: family is a RETIRED key
+                    # with a migration path, not an unknown one. Silently
+                    # ignoring it would run the printer on the wrong profile,
+                    # so it keeps failing by name (test_adapters pins this).
+                    raise SettingsError(_unknown_message(source, section, key))
                 _note_unknown(_unknown_message(source, section, key))
                 continue
             if (section, key) in MIXED_KEYS and isinstance(value, (str, list)):
@@ -442,6 +448,10 @@ def _from_env(home, environ, declared=None):
                 # Unknown setting (#1058): a variable a newer release added
                 # must not stop this one from starting (rollback). Warn via
                 # unknown_settings_warning() and skip the variable entirely.
+                # [printer] family stays the exception (see _check_keys):
+                # a retired key with a migration path, refused by name.
+                if (section, key) == ("printer", "family"):
+                    raise SettingsError(_unknown_message(f"${name}", section, key))
                 _note_unknown(_unknown_message(f"${name}", section, key))
                 continue
         else:
