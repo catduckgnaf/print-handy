@@ -3,7 +3,7 @@
 The H3C (Bambu's nine-tool Swaptek changer) arrived with Bambu Studio 02.09.01.70.
 Its facts were read from that pinned Studio commit's own files (the device
 definition resources/printers/N10.json and the H3C machine profiles — see the H3C
-block in facts.py). The pinned OrcaSlicer v2.5.0-rc carries no H3C profiles, so no
+block in facts.py). The pinned OrcaSlicer v2.5.0 carries no H3C profiles, so no
 checked Orca identity exists and the model is not registered: these tests pin the
 recorded facts AND the deliberate absences, so the gap stays visible and the
 registration, when an Orca release brings H3C profiles, is a conscious #356-style

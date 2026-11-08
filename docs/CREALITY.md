@@ -21,7 +21,7 @@ Bed sizes are the pinned Orca profiles' printable areas — the values slicing e
 
 ## Set up the profiles
 
-Print Handy ships no Creality slicer profiles (OrcaSlicer's Creality profiles are AGPL-3.0). Generate them from your own OrcaSlicer v2.5.0-rc installation (the one shipped slicer; the 2.5 line since #356):
+Print Handy ships no Creality slicer profiles (OrcaSlicer's Creality profiles are AGPL-3.0). Generate them from your own OrcaSlicer v2.5.0 installation (the one shipped slicer; the 2.5 line since #356):
 
 ```bash
 python3 scripts/creality-templates.py --printer k1 --resources <OrcaSlicer resources folder>

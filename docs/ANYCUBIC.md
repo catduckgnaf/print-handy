@@ -22,7 +22,7 @@ Bed sizes are the pinned Orca profiles' printable areas — the values slicing e
 
 ## Set up the profiles
 
-Print Handy ships no Anycubic slicer profiles (OrcaSlicer's Anycubic profiles are AGPL-3.0). Generate them from your own OrcaSlicer v2.5.0-rc installation (the shipped slicer; the 2.5 line since #356; its Anycubic profiles are unchanged from v2.5.0-beta, so the recorded beta identities cover it):
+Print Handy ships no Anycubic slicer profiles (OrcaSlicer's Anycubic profiles are AGPL-3.0). Generate them from your own OrcaSlicer v2.5.0 installation (the shipped slicer; the 2.5 line since #356; its Anycubic profiles are unchanged from v2.5.0-beta, so the recorded beta identities cover it):
 
 ```bash
 python3 scripts/anycubic-templates.py --printer kobra2 --resources <OrcaSlicer resources folder>

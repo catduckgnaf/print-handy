@@ -8,7 +8,7 @@ registered when that line became the shipped slicer (#356, on v2.5.0-alpha).
 
 The H3C (Bambu's nine-tool Swaptek changer, launched with Bambu Studio 02.09.01.70) has initial
 support only: its sourced facts and its HMS serial prefix (32X) are recorded in facts.py, but it is
-NOT a registered model — the pinned OrcaSlicer v2.5.0-rc carries no H3C profiles, so no checked
+NOT a registered model — the pinned OrcaSlicer v2.5.0 carries no H3C profiles, so no checked
 identity can be computed for it. See facts.py (the H3C block) and docs/BAMBU-LAB.md.
 
 Print Handy slices, validates and packages; a person moves the file. When the operator configures
