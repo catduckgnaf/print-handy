@@ -51,6 +51,17 @@ def test_unresolved_configuration_exits_2(monkeypatch):
     assert bot_gate.main() == 2
 
 
+def test_unknown_settings_warn_at_the_gate_not_exit_2(platform, capsys, monkeypatch):
+    # #1058: settings the running version does not know are named on stderr
+    # and the gate still decides normally — they never make it "unresolved".
+    from print_handy import settings
+    monkeypatch.setattr(settings, "unknown_settings_warning",
+                        lambda: "unknown setting(s) ignored: [listener] ticks")
+    platform("discord", DISCORD_BOT_TOKEN="t")
+    assert bot_gate.main() == 0
+    assert "bot gate: WARNING unknown setting(s) ignored: [listener] ticks" in capsys.readouterr().err
+
+
 def test_supervisor_and_healthcheck_use_the_gate():
     supervisor = (ROOT / "docker" / "supervise.sh").read_text()
     assert "python3 -m print_handy.bot_gate" in supervisor

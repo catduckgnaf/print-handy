@@ -47,6 +47,10 @@ def main():
     except Exception as exc:  # configuration unresolved: stop, never guess
         print(f"bot gate: configuration unresolved: {exc}", file=sys.stderr)
         return 2
+    from . import settings
+    warning = settings.unknown_settings_warning()
+    if warning:
+        print(f"bot gate: WARNING {warning}", file=sys.stderr)
     print(detail)
     return 0 if start else 3
 

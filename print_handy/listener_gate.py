@@ -33,6 +33,9 @@ def _roster():
     except settings.SettingsError as exc:
         print(f"listener gate: configuration unresolved: {exc}", file=sys.stderr)
         return 2
+    warning = settings.unknown_settings_warning()
+    if warning:
+        print(f"listener gate: WARNING {warning}", file=sys.stderr)
     for entry in entries:
         print(entry["id"])
     return 0
@@ -55,6 +58,9 @@ def main(argv=None):
     except settings.SettingsError as exc:
         print(f"listener gate: configuration unresolved: {exc}", file=sys.stderr)
         return 2
+    warning = settings.unknown_settings_warning()
+    if warning:
+        print(f"listener gate: WARNING {warning}", file=sys.stderr)
     if domain is None:
         connection = healthcheck.listener_connection(printer_id=printer_id)
         print(f"listener gate: {who}connection {connection!r} has no registered listener domain; not starting one")
