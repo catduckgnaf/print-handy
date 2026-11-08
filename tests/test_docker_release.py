@@ -687,7 +687,7 @@ class WebuiContainerTests(unittest.TestCase):
 
     def test_webui_is_documented_in_the_docker_guide(self):
         docker_doc = (ROOT / "docs" / "DOCKER.md").read_text()
-        self.assertIn("## Web UI (optional, #286)", docker_doc)
+        self.assertIn("## Web UI (optional)", docker_doc)
         self.assertIn("PRINT_HANDY__WEBUI__ENABLED", docker_doc)
         self.assertIn("WEBUI_ACCESS_TOKEN", docker_doc)
 
@@ -730,11 +730,11 @@ class SpoolmanLanTests(unittest.TestCase):
 
     def test_lan_access_is_documented(self):
         docker_doc = (ROOT / "docs" / "DOCKER.md").read_text()
-        self.assertIn("Optional LAN access (#443", docker_doc)
+        self.assertIn("Optional LAN access:", docker_doc)
         self.assertIn("http://<unraid-ip>:7912", docker_doc)
         self.assertIn("/api/v1/info", docker_doc)
         zmod_doc = (ROOT / "docs" / "ZMOD.md").read_text()
-        self.assertIn("Bundled Spoolman from printer Moonraker (#443)", zmod_doc)
+        self.assertIn("Bundled Spoolman from printer Moonraker", zmod_doc)
         self.assertIn("server: http://<unraid-ip>:7912", zmod_doc)
 
 
@@ -794,7 +794,7 @@ class LiveContainerTests(unittest.TestCase):
 
     def test_live_view_is_documented_in_the_docker_guide(self):
         docker_doc = (ROOT / "docs" / "DOCKER.md").read_text()
-        self.assertIn("## Live camera in Discord (optional, #311)", docker_doc)
+        self.assertIn("## Live camera in Discord (optional)", docker_doc)
         self.assertIn("PRINT_HANDY__LIVE_STREAM__ENABLED", docker_doc)
         self.assertIn("TUNNEL_TOKEN", docker_doc)
 
