@@ -320,6 +320,12 @@ def test_decide_grid():
 def test_expanded_vocabulary_scale_and_integrity():
     total_entries = len(fuzzy_vocabulary.PHRASE_FORMS) + len(fuzzy_vocabulary.TOKEN_FORMS)
     assert total_entries >= 1000, f"Expected at least 1,000 entries, found {total_entries}"
+    # Phase 3 scale pins (#1002 Phase 3)
+    assert len(fuzzy_vocabulary.PHRASE_FORMS) >= 250
+    assert len(fuzzy_vocabulary.TOKEN_FORMS) >= 1800
+    assert len(fuzzy_vocabulary.TYPO_FORMS) >= 1400
+    assert len(fuzzy_vocabulary.REAL_WORDS) >= 120
+    assert len(fuzzy_vocabulary.PRINTING_VOCABULARY) >= 570
     # Verify all phrase keys are lowercased tuples of non-empty strings
     for (w1, w2), targets in fuzzy_vocabulary.PHRASE_FORMS.items():
         assert w1 == w1.lower() and w1.strip() == w1 and w1
@@ -429,3 +435,92 @@ def test_sensorless_homing_typo_still_finds_the_archived_print():
     # Codex on #855: 'sensorless' -> 'sensorless homing' was expanded twice by the windowed
     # scorer while the target folded to one token, so this archive match fell from 90 to 0.
     assert fuzzy.windowed_fuzzy_score("sensorless homming", "Sensorless Homing Test") >= 80
+
+
+
+# ----------------------------------------------- domain taxonomy (#1002 Phase 3)
+
+def test_domain_categories_presence_and_integrity():
+    expected_categories = {
+        "models", "slicer", "defects", "materials",
+        "colors", "hardware", "habits", "commands",
+    }
+    assert set(fuzzy_vocabulary.DOMAIN_CATEGORIES.keys()) == expected_categories
+    for cat, terms in fuzzy_vocabulary.DOMAIN_CATEGORIES.items():
+        assert len(terms) > 0, f"Category {cat} is unexpectedly empty"
+        for term in terms:
+            assert isinstance(term, str) and term.strip() == term and term == term.lower()
+
+
+@pytest.mark.parametrize("term,category", [
+    # Canonical terms and aliases across all 8 categories
+    ("becnhy", "models"),
+    ("benchy", "models"),
+    ("skadis", "models"),
+    ("infill", "slicer"),
+    ("coast", "slicer"),
+    ("spegatti", "defects"),
+    ("stringing", "defects"),
+    ("warping", "defects"),
+    ("ptg", "materials"),
+    ("petg", "materials"),
+    ("pla", "materials"),
+    ("black", "colors"),
+    ("blck", "colors"),
+    ("rainbow", "colors"),
+    ("hotnd", "hardware"),
+    ("hotend", "hardware"),
+    ("nozzle", "hardware"),
+    ("bed tramming", "habits"),
+    ("nozzle torching", "habits"),
+    ("manual leveling", "habits"),
+    ("g28", "commands"),
+    ("g29", "commands"),
+    ("m221", "commands"),
+])
+def test_classify_domain_term(term, category):
+    assert fuzzy_vocabulary.classify_domain_term(term) == category
+
+
+@pytest.mark.parametrize("invalid", ["", "   ", "random non domain term", "xyz123abc", None, 123])
+def test_classify_domain_term_unknown_or_invalid(invalid):
+    assert fuzzy_vocabulary.classify_domain_term(invalid) is None
+
+
+def test_extract_domain_entities_multicategory():
+    text = "getting stringin with blck ptg on my hotnd"
+    entities = fuzzy_vocabulary.extract_domain_entities(text)
+    assert entities == {
+        "defects": ["stringing"],
+        "colors": ["black"],
+        "materials": ["petg"],
+        "hardware": ["hotend"],
+    }
+
+
+@pytest.mark.parametrize("empty_input", ["", "   ", "nothing special here", None, 42])
+def test_extract_domain_entities_empty_or_no_entities(empty_input):
+    assert fuzzy_vocabulary.extract_domain_entities(empty_input) == {}
+
+
+# ----------------------------------------- 2-token compound phrases (#1002 Phase 3)
+
+@pytest.mark.parametrize("phrase,target_concept", [
+    ("waste chute", "wastechute"),
+    ("poop chute", "poopchute"),
+    ("tree support", "treesupport"),
+    ("organic supports", "organicsupport"),
+    ("gyroid infill", "gyroidinfill"),
+    ("bed adhesion", "bedadhesion"),
+    ("corner lifting", "warping"),
+    ("bird nest", "spaghetti"),
+    ("layer separation", "delamination"),
+    ("calibration cube", "calibrationcube"),
+    ("temp tower", "temperature tower"),
+    ("flexi dragon", "flexidragon"),
+    ("grid finity", "gridfinity"),
+])
+def test_phase3_compound_phrase_forms(phrase, target_concept):
+    tokens = tuple(phrase.split())
+    assert tokens in fuzzy_vocabulary.PHRASE_FORMS
+    assert fuzzy.fuzzy_score(phrase, target_concept) >= fuzzy.FUZZY_FLOOR

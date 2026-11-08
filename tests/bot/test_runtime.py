@@ -305,7 +305,7 @@ def test_listener_alert_buttons_are_wired_and_checked(cfg):
     assert clicked.replies[-1]["content"] == "Resumed."
 
 
-def test_discord_client_registers_commands_and_reports_connection(cfg):
+def test_discord_client_registers_commands_and_reports_connection_proc(cfg):
     """The real discord.py Bot subclass, set up offline: slash commands, handlers, heartbeat, disconnects."""
     from print_handy.bot import client, health
 
@@ -328,7 +328,8 @@ def test_discord_client_registers_commands_and_reports_connection(cfg):
             for task in bot._background:
                 task.cancel()
 
-    run(flow())
+    with mock.patch("print_handy.healthcheck.process_identity", return_value="12345"):
+        run(flow())
 
 
 @pytest.mark.parametrize("name", ["Print Bitch", "Print Handy"])
@@ -669,3 +670,57 @@ def test_did_you_mean_pick_list_none_of_these_dispatches_nothing(cfg):
     assert seen == []
     assert out == {"action": "skip", "reason": "command list"}
     assert discord.sent[-1] == runtime.unmatched_text(cfg["discord"]["bot_name"])
+
+
+# ----------------------------------------------- #1002 Phase 3: Conversational routing pins
+
+@pytest.mark.parametrize("text,expected", [
+    # Pasta/spaghetti & adhesion complaints -> /print-troubleshoot first-layer
+    ("it's making spaghetti", "/print-troubleshoot first-layer"),
+    ("my print is making spegatti", "/print-troubleshoot first-layer"),
+    ("print turned into pasta", "/print-troubleshoot first-layer"),
+    ("bed adhesion failed", "/print-troubleshoot first-layer"),
+    ("bed adheasion failed", "/print-troubleshoot first-layer"),
+    ("print popped off the bed", "/print-troubleshoot first-layer"),
+    ("corners are warping", "/print-troubleshoot first-layer"),
+    ("elephants foot", "/print-troubleshoot first-layer"),
+    # Clog/jam complaints -> /print-troubleshoot clog
+    ("extruder is skipping", "/print-troubleshoot clog"),
+    ("nozzle is jammed", "/print-troubleshoot clog"),
+    ("hotend is clogged", "/print-troubleshoot clog"),
+    ("hotnd is clogged", "/print-troubleshoot clog"),
+    ("nothing is coming out of the nozzle", "/print-troubleshoot clog"),
+    # Ringing/ghosting -> /print-troubleshoot ringing
+    ("ghosting on my print", "/print-troubleshoot ringing"),
+    ("ripples on the print", "/print-troubleshoot ringing"),
+    # Defect lookups -> /print-lookup ...
+    ("too much stringing", "/print-lookup stringing"),
+    ("too much stringin", "/print-lookup stringing"),
+    ("layers shifted", "/print-lookup layer shift"),
+    ("layer separation", "/print-lookup layer separation"),
+    ("wet filament", "/print-lookup wet filament"),
+    # Reprint / next plate
+    ("retry that print", "/print-again"),
+    ("print another copy", "/print-again"),
+    ("start the next plate", "/print-next"),
+    # Status, ETA, temp & camera
+    ("what's the eta", "/print-status"),
+    ("how much time is left", "/print-status"),
+    ("what temp is the bed", "/print-status"),
+    ("hotnd temperature", "/print-status"),
+    ("how hot is the nozzle", "/print-status"),
+    ("show me the camera", "/print-camera"),
+    ("take a snapshot", "/print-camera"),
+    # Spools
+    ("what's in the ams", "/print-spools"),
+    ("what is in the ifs", "/print-spools"),
+    ("how much filament is left", "/print-spools"),
+    # Misspelled commands
+    ("cancle the print", "/print-stop"),
+    ("pauze the print", "/print-pause"),
+    # Negative guards
+    ("print statue", None),
+    ("statue", None),
+])
+def test_phase3_command_suggestion_pins(text, expected):
+    assert runtime.command_suggestion(text) == expected
