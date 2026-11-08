@@ -11,23 +11,33 @@ the engine stays small.
 Selection, in order:
 
 1. **Status first.** A failed, cancelled or spaghetti print draws only from
-   its status bank; success language never reaches a failed print. (Only
-   completed prints are wired in Phase 1; the status banks are shipped and
-   validated so the wiring can follow.)
+   its status bank; success language never reaches a failed print. The
+   status banks are wired to the failure, cancel and confirmed-spaghetti
+   posts as well as to chat requests (#1017 batch 2).
 2. **Title reaction** (a known keyword in the title, completed prints only),
    then **context** banks (overnight, long, heavy, repeat, short — each only
    when the fact it talks about is actually known), then the **generic**
    templates and one-liners.
 3. Inside a bank: a persisted **shuffle bag** (no entry again until the bag
    empties) plus a **history window** of recent entries across all banks. An
-   exhausted bank falls through to the next. When everything eligible is in
-   the history window, the least recently used eligible entry is taken —
-   bounded work, never a loop.
+   entry whose **family** was drawn inside the family window is passed over
+   while any other fresh entry exists, so a line and its variants do not
+   cluster. An exhausted bank falls through to the next. When everything
+   eligible is in the history window, the least recently used eligible entry
+   is taken — bounded work, never a loop.
 4. **Contract** after filling: one sentence, at most 20 words, no quotes,
    no hashtags, bounded length. A line that fails is skipped, never trimmed.
 5. **One roast per print.** With a ``key`` the chosen line is stored, so a
    retried or replayed delivery returns the same line without advancing the
    bag twice.
+6. **Framing.** A drawn line may be framed with corpus fragments: an
+   opener or a comparison on a generic line, a verdict after a status
+   line. The framed line must pass the framed contract (bounded words and
+   length, at most two sentences, blocklist clean) or the plain line
+   ships. A framed line keeps its base entry's id and family — framing
+   is presentation, not a new joke. Compliment fragments are not
+   assembled: no template carries a grammatical frame for them, and an
+   insert that does not parse is worse than none.
 
 Any failure (missing corpus, broken state file, nothing eligible) returns
 "" and the post goes out unchanged, exactly the best-effort contract the
@@ -59,9 +69,13 @@ TEMPLATE_BANKS = ("generic",) + CONTEXT_BANKS + tuple(STATUS_BANKS.values())
 
 MAX_WORDS = 20
 MAX_CHARS = 200
+FRAMED_MAX_WORDS = 36
+FRAMED_MAX_CHARS = 260
+FRAMED_CHANCE = 0.5
 TITLE_MAX_CHARS = 40
 TITLE_MAX_WORDS = 6
 HISTORY_WINDOW = 200
+FAMILY_WINDOW = 30
 CHOSEN_KEEP = 200
 LONG_PRINT_S = 6 * 3600
 SHORT_PRINT_S = 30 * 60
@@ -81,8 +95,39 @@ class CorpusError(RuntimeError):
 # ---------------------------------------------------------------- corpus
 
 def entry_id(bank: str, text: str) -> str:
-    """Stable id of one entry: its bank and a hash of its text."""
+    """The Phase 1 id of one entry: its bank and a hash of its text.
+
+    Kept for two compat jobs: entries still written as bare strings get
+    this id, and a persisted Phase 1 state file's ids are translated to
+    the stored stable ids through the corpus's alias map (an unchanged
+    line's hash id still names it). New entries carry their id in the
+    bank file itself, so editing a line no longer changes its id.
+    """
     return f"{bank}:{hashlib.sha1(text.encode('utf-8')).hexdigest()[:10]}"
+
+
+def parse_entry(bank: str, raw: Any) -> tuple[str, str, str]:
+    """One bank entry as (id, family, text).
+
+    The stored shape is ``{"id": ..., "family": ..., "text": ...}``; the
+    id and family are stable across edits of the text. A bare string is
+    the Phase 1 shape and keeps its content-hash id, as its own family.
+    """
+    if isinstance(raw, str):
+        if not raw.strip():
+            raise CorpusError(f"roast bank {bank}.json has an empty entry")
+        legacy = entry_id(bank, raw)
+        return legacy, legacy, raw
+    if isinstance(raw, dict):
+        eid, family, text = raw.get("id"), raw.get("family"), raw.get("text")
+        if not (isinstance(eid, str) and eid.strip()):
+            raise CorpusError(f"roast bank {bank}.json entry has no stable id: {raw!r}")
+        if not (isinstance(text, str) and text.strip()):
+            raise CorpusError(f"roast entry {eid} has no text")
+        if not (isinstance(family, str) and family.strip()):
+            family = eid
+        return eid, family, text
+    raise CorpusError(f"roast bank {bank}.json entry is neither text nor an entry object: {raw!r}")
 
 
 def _read_bank(name: str) -> Any:
@@ -96,24 +141,39 @@ def _read_bank(name: str) -> Any:
 @functools.lru_cache(maxsize=1)
 def load_corpus() -> dict[str, Any]:
     """The whole corpus: {"banks": {name: [(id, text)]}, "title_reactions":
-    {keyword: [(id, text)]}, "fragments": {...}, "blocklist": [...], "version"}."""
+    {keyword: [(id, text)]}, "fragments": {...}, "blocklist": [...],
+    "families": {id: family}, "aliases": {phase-1 hash id: stable id},
+    "version"}."""
     banks: dict[str, list[tuple[str, str]]] = {}
+    families: dict[str, str] = {}
+    aliases: dict[str, str] = {}
+
+    def collect(bank: str, rows: Any) -> list[tuple[str, str]]:
+        if not isinstance(rows, list):
+            raise CorpusError(f"roast bank {bank}.json must be a list of entries")
+        out = []
+        for raw in rows:
+            eid, family, text = parse_entry(bank, raw)
+            if eid in families:
+                raise CorpusError(f"roast entry id {eid} is used twice")
+            families[eid] = family
+            aliases[entry_id(bank, text)] = eid
+            out.append((eid, text))
+        return out
+
     for name in TEMPLATE_BANKS + ("one_liners",):
-        rows = _read_bank(name)
-        if not isinstance(rows, list) or not all(isinstance(r, str) and r.strip() for r in rows):
-            raise CorpusError(f"roast bank {name}.json must be a list of non-empty strings")
-        banks[name] = [(entry_id(name, r), r) for r in rows]
+        banks[name] = collect(name, _read_bank(name))
     reactions_raw = _read_bank("title_reactions")
     if not isinstance(reactions_raw, dict):
         raise CorpusError("title_reactions.json entries must map keyword -> list")
-    reactions = {str(k).lower(): [(entry_id(f"title:{k}", r), r) for r in v]
-                 for k, v in reactions_raw.items()}
+    reactions = {str(k).lower(): collect(f"title:{k}", v) for k, v in reactions_raw.items()}
     fragments = _read_bank("fragments")
     blocklist = [str(w).lower() for w in _read_bank("blocklist")]
-    digest = hashlib.sha1(json.dumps([banks, reactions, fragments], sort_keys=True)
+    digest = hashlib.sha1(json.dumps([banks, reactions, fragments, families], sort_keys=True)
                           .encode("utf-8")).hexdigest()[:12]
     return {"banks": banks, "title_reactions": reactions, "fragments": fragments,
-            "blocklist": blocklist, "version": digest}
+            "blocklist": blocklist, "families": families, "aliases": aliases,
+            "version": digest}
 
 
 def corpus_size() -> int:
@@ -345,22 +405,42 @@ def _save_state(path: Path | None, state: Mapping[str, Any]) -> None:
         raise
 
 
-def _normalized(state: Mapping[str, Any], version: str) -> dict[str, Any]:
+def _normalized(state: Mapping[str, Any], corpus: Mapping[str, Any]) -> dict[str, Any]:
+    """State in the current corpus's id space.
+
+    Ids a Phase 1 state file carries are content hashes; the corpus's
+    alias map names the same (unchanged) lines by their stable ids, so
+    history, bags and stored choices survive the migration — and any
+    later corpus edit, since ids no longer derive from the text. Ids
+    with no alias (a line since removed or reworded past recognition)
+    stay as they are: they match nothing eligible and age out of the
+    windows on their own.
+    """
+    aliases = corpus.get("aliases") or {}
+
+    def translate(eid: Any) -> Any:
+        return aliases.get(eid, eid) if isinstance(eid, str) else eid
+
     bags = state.get("bags") if isinstance(state.get("bags"), dict) else {}
-    if state.get("corpus") != version:
-        bags = {}  # entries changed: rebuild bags, keep history (ids are content hashes)
+    bags = {pool: [translate(e) for e in bag if isinstance(e, str)]
+            for pool, bag in bags.items() if isinstance(bag, list)}
     raw_history = state.get("history")
-    history = [h for h in (raw_history if isinstance(raw_history, list) else [])
+    history = [translate(h) for h in (raw_history if isinstance(raw_history, list) else [])
                if isinstance(h, str)][-HISTORY_WINDOW:]
-    chosen = state.get("chosen") if isinstance(state.get("chosen"), dict) else {}
-    return {"version": 1, "corpus": version, "bags": dict(bags), "history": history,
-            "chosen": dict(chosen)}
+    chosen = {}
+    for key, value in (state.get("chosen") if isinstance(state.get("chosen"), dict) else {}).items():
+        if isinstance(value, dict):
+            value = {**value, "id": translate(value.get("id"))}
+        chosen[key] = value
+    return {"version": 1, "corpus": corpus["version"], "bags": bags,
+            "history": history, "chosen": chosen}
 
 
 # ---------------------------------------------------------------- selection
 
 def _draw(pool_name: str, entries: list[tuple[str, str]], ctx: Mapping[str, Any],
           state: dict[str, Any], rng: random.Random, blocklist: list[str],
+          families: Mapping[str, str] | None = None,
           ignore_history: bool = False) -> tuple[str, str] | None:
     recent = set(state["history"])
     eligible: dict[str, str] = {}
@@ -378,6 +458,15 @@ def _draw(pool_name: str, entries: list[tuple[str, str]], ctx: Mapping[str, Any]
     fresh = [eid for eid in eligible if eid not in recent]
     if not fresh:
         return None
+    if families:
+        # Family window: a line whose family was drawn recently (the line
+        # itself is already excluded by the history window; this catches
+        # its variants and its framed forms) is passed over while any
+        # other fresh entry exists.
+        recent_families = {families.get(h) for h in state["history"][-FAMILY_WINDOW:]}
+        preferred = [eid for eid in fresh if families.get(eid) not in recent_families]
+        if preferred:
+            fresh = preferred
     bag = [eid for eid in state["bags"].get(pool_name) or [] if eid in fresh]
     if not bag:
         bag = sorted(fresh)
@@ -385,6 +474,82 @@ def _draw(pool_name: str, entries: list[tuple[str, str]], ctx: Mapping[str, Any]
     eid = bag.pop()
     state["bags"][pool_name] = bag
     return eid, eligible[eid]
+
+
+# ---------------------------------------------------------------- framing
+
+_SENTENCE_END_RE = re.compile(r"[.!?](?=\s|$)")
+
+
+def framed_problem(line: str, blocklist: list[str] | tuple[str, ...] = ()) -> str | None:
+    """Why a framed line breaks the framed contract, or None when it holds.
+
+    Framing buys a second sentence and a higher word bound than the flat
+    contract; quotes, hashtags, line breaks and the blocklist still bar
+    a line outright.
+    """
+    if not line or not line.strip():
+        return "empty"
+    if len(line) > FRAMED_MAX_CHARS:
+        return "too long"
+    if len(line.split()) > FRAMED_MAX_WORDS:
+        return "over framed word bound"
+    if '"' in line or "“" in line or "”" in line:
+        return "quotes"
+    if _HASHTAG_RE.search(line):
+        return "hashtag"
+    if "\n" in line or "\r" in line:
+        return "multi-line"
+    if len(_SENTENCE_END_RE.findall(line)) > 2:
+        return "more than two sentences"
+    low = line.lower()
+    for word in blocklist:
+        if re.search(rf"(?<![a-z]){re.escape(word)}(?![a-z])", low):
+            return f"blocklisted word {word!r}"
+    return None
+
+
+def framing_options(line: str, pool_name: str, ctx: Mapping[str, Any],
+                    corpus: Mapping[str, Any]) -> list[str]:
+    """Every contract-passing framed form of one drawn line.
+
+    Generic-pool lines take an opener (only the clause-introducing
+    openers, the ones ending in a comma or colon — an opener that runs
+    into its clause, like "the tale of", would not parse against an
+    arbitrary template) or a comparison hung off the end of the line.
+    Status-pool lines take a verdict as a second sentence. Other pools
+    are not framed: their lines already carry the print's specific
+    facts. Fragments that need an unknown slot are skipped, never
+    filled with an invented fact.
+    """
+    fragments = corpus.get("fragments") or {}
+    blocklist = corpus.get("blocklist") or []
+    out: list[str] = []
+
+    def offer(candidate: str) -> None:
+        if framed_problem(candidate, blocklist) is None and candidate not in out:
+            out.append(candidate)
+
+    if pool_name == "generic":
+        for opener in fragments.get("openers") or []:
+            rendered = render(opener, ctx)
+            if rendered is None or not rendered.rstrip().endswith((",", ":")):
+                continue
+            base = line
+            if rendered.rstrip().endswith(",") and base[:1].isupper() and base[1:2].islower():
+                base = base[:1].lower() + base[1:]
+            offer(f"{rendered} {base}")
+        for comparison in fragments.get("comparisons") or []:
+            rendered = render(comparison, ctx)
+            if rendered is None:
+                continue
+            offer(f"{line.rstrip().rstrip('.!?')}, {rendered}.")
+    elif pool_name in STATUS_BANKS.values():
+        for verdict in fragments.get("verdicts") or []:
+            rendered = render(verdict, ctx)
+            if rendered is not None:
+                offer(f"{line} {rendered}")
+    return out
 
 
 def roast(ctx: Mapping[str, Any], *, status: str = "completed", key: str | None = None,
@@ -399,7 +564,7 @@ def roast(ctx: Mapping[str, Any], *, status: str = "completed", key: str | None 
 
 def _roast(ctx, *, status, key, state_path, rng):
     corpus = load_corpus()
-    state = _normalized(_load_state(state_path), corpus["version"])
+    state = _normalized(_load_state(state_path), corpus)
     if key:
         previous = state["chosen"].get(key)
         if isinstance(previous, dict) and isinstance(previous.get("line"), str):
@@ -407,18 +572,27 @@ def _roast(ctx, *, status, key, state_path, rng):
     rng = rng or random.Random()
     pools = candidate_pools(ctx, status, corpus)
     picked = None
+    picked_pool = None
     for name, entries in pools:
-        picked = _draw(name, entries, ctx, state, rng, corpus["blocklist"])
+        picked = _draw(name, entries, ctx, state, rng, corpus["blocklist"],
+                       families=corpus["families"])
         if picked:
+            picked_pool = name
             break
     if picked is None and pools:
         # Everything eligible is in the history window: take the least
         # recently used line from the broadest pool rather than nothing.
         name, entries = pools[-1]
-        picked = _draw(name, entries, ctx, state, rng, corpus["blocklist"], ignore_history=True)
+        picked = _draw(name, entries, ctx, state, rng, corpus["blocklist"],
+                       families=corpus["families"], ignore_history=True)
+        picked_pool = name
     if picked is None:
         return ""
     eid, line = picked
+    if picked_pool and rng.random() < FRAMED_CHANCE:
+        options = framing_options(line, picked_pool, ctx, corpus)
+        if options:
+            line = rng.choice(options)
     state["history"] = [h for h in state["history"] if h != eid][-(HISTORY_WINDOW - 1):] + [eid]
     if key:
         state["chosen"][key] = {"line": line, "id": eid, "at": int(time.time())}
@@ -434,5 +608,6 @@ def _roast(ctx, *, status, key, state_path, rng):
 
 
 __all__ = ["SLOTS", "STATUSES", "CorpusError", "build_context", "candidate_pools",
-           "contract_problem", "corpus_size", "entry_id", "load_corpus", "render",
+           "contract_problem", "corpus_size", "entry_id", "framed_problem",
+           "framing_options", "load_corpus", "parse_entry", "render",
            "roast", "scrub_title"]

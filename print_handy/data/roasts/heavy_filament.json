@@ -1,23 +1,127 @@
 {
  "_about": "Completed prints that used 150 grams or more.",
- "_phase": "seed-v0 (#1002 attachment 1, 2026-11-07)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2)",
  "_license": "Original to Print Handy; MIT with the project.",
  "entries": [
-  "{grams} grams for {title} — that is not a print, that is a filament commitment with witnesses.",
-  "{title} ate {grams} grams of {material}, and the spool is now reconsidering its life choices.",
-  "At {grams} grams, {title} has its own gravitational pull and possibly its own weather system.",
-  "{printer} turned {grams} grams of {color} {material} into {title}, which is alchemy with more stringing.",
-  "{title} weighs in at {grams} grams, officially heavier than the patience that produced it.",
-  "The spool gave {grams} grams to {title} and would like that sacrifice acknowledged in the group chat.",
-  "{grams} grams later, {title} is less desk accessory and more small, determined furniture.",
-  "{title} consumed {grams} grams like it was training for a filament-eating contest nobody announced.",
-  "With {grams} grams inside it, {title} could survive a drop, a move, and light emotional neglect.",
-  "{material} stocks fell sharply after {title} personally withdrew {grams} grams from the spool.",
-  "{title} is {grams} grams of {color} confidence, and subtlety was left out of the slice entirely.",
-  "Printing {title} took {grams} grams, so the next spool in line just quietly scooted backward.",
-  "{grams} grams of filament walked into {printer} and walked out as one very committed {title}.",
-  "{title} now contains {grams} grams, several life lessons, and most of a spool's retirement savings.",
-  "That is {grams} grams dedicated to {title}, a level of support most houseplants never receive.",
-  "{printer} spent {grams} grams on {title}, and the empty spool core is now just modern art."
+  {
+   "id": "heavy_filament-grams-grams-for-title-that",
+   "family": "heavy_filament-grams-grams-for-title-that",
+   "text": "{grams} grams for {title} — that is not a print, that is a filament commitment with witnesses."
+  },
+  {
+   "id": "heavy_filament-title-ate-grams-grams-of",
+   "family": "heavy_filament-title-ate-grams-grams-of",
+   "text": "{title} ate {grams} grams of {material}, and the spool is now reconsidering its life choices."
+  },
+  {
+   "id": "heavy_filament-at-grams-grams-title-has",
+   "family": "heavy_filament-at-grams-grams-title-has",
+   "text": "At {grams} grams, {title} has its own gravitational pull and possibly its own weather system."
+  },
+  {
+   "id": "heavy_filament-printer-turned-grams-grams-of",
+   "family": "heavy_filament-printer-turned-grams-grams-of",
+   "text": "{printer} turned {grams} grams of {color} {material} into {title}, which is alchemy with more stringing."
+  },
+  {
+   "id": "heavy_filament-title-weighs-in-at-grams",
+   "family": "heavy_filament-title-weighs-in-at-grams",
+   "text": "{title} weighs in at {grams} grams, officially heavier than the patience that produced it."
+  },
+  {
+   "id": "heavy_filament-the-spool-gave-grams-grams",
+   "family": "heavy_filament-the-spool-gave-grams-grams",
+   "text": "The spool gave {grams} grams to {title} and would like that sacrifice acknowledged in the group chat."
+  },
+  {
+   "id": "heavy_filament-grams-grams-later-title-is",
+   "family": "heavy_filament-grams-grams-later-title-is",
+   "text": "{grams} grams later, {title} is less desk accessory and more small, determined furniture."
+  },
+  {
+   "id": "heavy_filament-title-consumed-grams-grams-like",
+   "family": "heavy_filament-title-consumed-grams-grams-like",
+   "text": "{title} consumed {grams} grams like it was training for a filament-eating contest nobody announced."
+  },
+  {
+   "id": "heavy_filament-with-grams-grams-inside-it",
+   "family": "heavy_filament-with-grams-grams-inside-it",
+   "text": "With {grams} grams inside it, {title} could survive a drop, a move, and light emotional neglect."
+  },
+  {
+   "id": "heavy_filament-material-stocks-fell-sharply-after",
+   "family": "heavy_filament-material-stocks-fell-sharply-after",
+   "text": "{material} stocks fell sharply after {title} personally withdrew {grams} grams from the spool."
+  },
+  {
+   "id": "heavy_filament-title-is-grams-grams-of",
+   "family": "heavy_filament-title-is-grams-grams-of",
+   "text": "{title} is {grams} grams of {color} confidence, and subtlety was left out of the slice entirely."
+  },
+  {
+   "id": "heavy_filament-printing-title-took-grams-grams",
+   "family": "heavy_filament-printing-title-took-grams-grams",
+   "text": "Printing {title} took {grams} grams, so the next spool in line just quietly scooted backward."
+  },
+  {
+   "id": "heavy_filament-grams-grams-of-filament-walked",
+   "family": "heavy_filament-grams-grams-of-filament-walked",
+   "text": "{grams} grams of filament walked into {printer} and walked out as one very committed {title}."
+  },
+  {
+   "id": "heavy_filament-title-now-contains-grams-grams",
+   "family": "heavy_filament-title-now-contains-grams-grams",
+   "text": "{title} now contains {grams} grams, several life lessons, and most of a spool's retirement savings."
+  },
+  {
+   "id": "heavy_filament-that-is-grams-grams-dedicated",
+   "family": "heavy_filament-that-is-grams-grams-dedicated",
+   "text": "That is {grams} grams dedicated to {title}, a level of support most houseplants never receive."
+  },
+  {
+   "id": "heavy_filament-printer-spent-grams-grams-on",
+   "family": "heavy_filament-printer-spent-grams-grams-on",
+   "text": "{printer} spent {grams} grams on {title}, and the empty spool core is now just modern art."
+  },
+  {
+   "id": "heavy_filament-title-consumed-grams-grams-the",
+   "family": "heavy_filament-title-consumed-grams-grams-the",
+   "text": "{title} consumed {grams} grams; the spool has requested a formal accounting."
+  },
+  {
+   "id": "heavy_filament-grams-grams-went-into-title",
+   "family": "heavy_filament-grams-grams-went-into-title",
+   "text": "{grams} grams went into {title}, and none of them received overtime."
+  },
+  {
+   "id": "heavy_filament-title-cost-grams-grams-of",
+   "family": "heavy_filament-title-cost-grams-grams-of",
+   "text": "{title} cost {grams} grams of plastic and an entire spool's trust."
+  },
+  {
+   "id": "heavy_filament-at-grams-grams-title-has-2",
+   "family": "heavy_filament-at-grams-grams-title-has-2",
+   "text": "At {grams} grams, {title} has crossed from accessory into structural commitment."
+  },
+  {
+   "id": "heavy_filament-title-is-grams-grams-of-2",
+   "family": "heavy_filament-title-is-grams-grams-of-2",
+   "text": "{title} is {grams} grams of evidence that infill is a personality trait."
+  },
+  {
+   "id": "heavy_filament-printer-fed-grams-grams-into",
+   "family": "heavy_filament-printer-fed-grams-grams-into",
+   "text": "{printer} fed {grams} grams into {title} and asked whether this qualifies as bulk manufacturing."
+  },
+  {
+   "id": "heavy_filament-an-accountant-would-call-grams",
+   "family": "heavy_filament-an-accountant-would-call-grams",
+   "text": "An accountant would call {grams} grams for {title} a material event."
+  },
+  {
+   "id": "heavy_filament-title-required-grams-grams-so",
+   "family": "heavy_filament-title-required-grams-grams-so",
+   "text": "{title} required {grams} grams, so the filament budget filed for protective custody."
+  }
  ]
 }

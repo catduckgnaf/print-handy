@@ -159,7 +159,12 @@ def test_generate_roast_runs_by_default_and_stops_when_the_switch_is_off(monkeyp
     monkeypatch.setattr("urllib.request.urlopen", lambda *a, **kw: calls.append(a) or None)
     assert mel.roast_enabled() is True
     line = mel.generate_roast(TITLE)
-    assert line and len(line.split()) <= 20 and '"' not in line
+    # A plain line fits the flat contract; a framed one (#1017 batch 2)
+    # fits the framed contract — either way it is one bounded local line.
+    from print_handy.core import roast as roast_engine
+    assert line and '"' not in line
+    assert (roast_engine.contract_problem(line) is None
+            or roast_engine.framed_problem(line) is None)
     assert calls == []  # never a model call
     monkeypatch.setitem(mel._config.cfg()["vision"], "roast_enabled", False)
     assert mel.roast_enabled() is False
@@ -857,3 +862,66 @@ def test_generate_roast_same_key_same_line(monkeypatch, tmp_path):
     monkeypatch.setattr(mel, "log", lambda line: None)
     first = mel.generate_roast(TITLE, facts={"duration_s": 3600}, key="job@1")
     assert first and all(mel.generate_roast(TITLE, key="job@1") == first for _ in range(5))
+
+
+# ------------------------------------------------- status-bank wiring (#1017 batch 2)
+
+def _bank_lines(bank, title, facts=None):
+    """Every line a status post for this title may carry: plain or framed."""
+    from print_handy.core import roast as engine
+    corpus = engine.load_corpus()
+    context = engine.build_context(title, **(facts or {}))
+    out = set()
+    for _id, text in corpus["banks"][bank]:
+        rendered = engine.render(text, context)
+        if rendered:
+            out.add(rendered)
+            out.update(engine.framing_options(rendered, bank, context, corpus))
+    return out
+
+
+def test_cancel_report_carries_a_cancelled_bank_roast(monkeypatch, tmp_path):
+    monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast.json")
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setattr(mel, "capture_stop", lambda filename, trigger: None)
+    posted = []
+    monkeypatch.setattr(mel, "post", lambda text: posted.append(text) or True)
+    from print_handy.hermes import klipper_report
+    monkeypatch.setattr(klipper_report, "report", lambda filename, reason=None: "REPORT")
+    mel.post_cancel_report("Benchy.gcode", reason="operator")
+    assert len(posted) == 1
+    assert posted[0].startswith(mel.print_summary.format_event("cancelled", "Benchy.gcode"))
+    roast_line = posted[0].rsplit("\n\n", 1)[-1]
+    assert roast_line in _bank_lines("cancelled", "Benchy")
+
+
+def test_failure_and_pasta_status_roasts_draw_from_their_own_banks(monkeypatch, tmp_path):
+    monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast.json")
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    failed = mel._with_status_roast("FAILED POST", "Dragon.gcode", "failed", "failed:dragon")
+    assert failed.startswith("FAILED POST\n\n")
+    assert failed.rsplit("\n\n", 1)[-1] in _bank_lines("failed", "Dragon")
+    pasta = mel._with_status_roast("PASTA POST", "Dragon.gcode", "spaghetti", "spaghetti:dragon")
+    assert pasta.rsplit("\n\n", 1)[-1] in _bank_lines("spaghetti", "Dragon")
+    # Same key, same line: a reposted notice never draws a second roast.
+    assert mel._with_status_roast("FAILED POST", "Dragon.gcode", "failed", "failed:dragon") == failed
+
+
+def test_status_roast_leaves_the_post_unchanged_when_the_switch_is_off(monkeypatch, tmp_path):
+    monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast.json")
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    monkeypatch.setitem(mel._config.cfg()["vision"], "roast_enabled", False)
+    assert mel._with_status_roast("POST", "Dragon.gcode", "failed", "failed:dragon") == "POST"
+    assert mel._with_status_roast("POST", "Dragon.gcode", "cancelled", "cancelled:dragon") == "POST"
+
+
+def test_pasta_roast_is_gated_on_a_spaghetti_verdict():
+    """The spaghetti bank rides only a confirmed spaghetti verdict: the
+    visual check's alert block calls the status-roast helper inside the
+    verdict == "spaghetti" branch, not for risk flags (uncertain, air)."""
+    import inspect
+    source = inspect.getsource(mel.Listener.visual_check)
+    gate = source.index('verdict == "spaghetti"')
+    call = source.index("_with_status_roast")
+    assert gate < call
+    assert source.count("_with_status_roast") == 1

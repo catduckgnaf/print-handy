@@ -67,7 +67,7 @@ A line that must keep a British spelling (quoted upstream text, an exact identif
 - Link related issues. Use `Fixes #N` only when the pull request is intended to close that issue after merge.
 - Include test results and distinguish automated tests from manual or live checks. Do not include secrets or personal information in examples or logs.
 - Keep the PR in draft while implementation or required checks are incomplete. Respond to review feedback with focused updates.
-- Before merging, update the branch with `main` and wait for CI on that head. `main` requires branches to be up to date for its required checks (since 2026-11-07, #1017), because a stale green PR can break `main`: #999 was green but tested before #988 renamed a function it used.
+- Merging runs on the required checks, not on branch freshness (policy changed 2026-11-07, #1017 batch 2). `main`'s required checks (offline tests on both Python versions, spoolman, and the stable slicer test) do **not** require the branch to be up to date, and the repository has auto-merge on: enable auto-merge on your PR and GitHub merges it once those checks pass on the PR's own head. The up-to-date rule was tried and removed the same day because every merge to `main` forced a fresh full CI run on every open PR. The risk it guarded against is real — #999 was green but had been tested before #988 renamed a function it used — so when your change touches code that has moved on `main` since you branched, update the branch and let CI run on the new head before merging anyway.
 
 ## Documentation and release notes
 

@@ -400,7 +400,7 @@ Failures are named in chat with the cause and the remedy: the host could not be 
 | | `spool_nag_s` | `600` | Reminder interval for an unanswered spool question |
 | | `start_claim_ttl_s` | `1800` | How long a start button stays claimed |
 | `vision` | `model`, `roast_model` | `gemini-latest`, `luna-latest` | Model for camera checks; `roast_model` is legacy and unused (roasts are local, #1002) |
-| | `roast_enabled` | `true` | The roast switch: one line per print on the completion post and on request in chat, from the local corpus with no LLM, on every platform; `false` turns roasts off, camera checks unaffected |
+| | `roast_enabled` | `true` | The roast switch: one line per print on the completion post, the failure and cancel posts and a confirmed-spaghetti camera alert, and on request in chat, from the local corpus with no LLM, on every platform; `false` turns roasts off, camera checks unaffected |
 | `visual_watch` | `enabled`, `sensitivity` | `true`, `3` | Camera monitoring switch; sensitivity from 1 to 5 |
 | | `early_layers`, `early_interval_s` | `10`, `120` | Early-layer mode window (layers) and interval (seconds) for risky prints (#913) |
 | | `auto_pause_early` | `false` | Opt-in auto-pause after 2 suspicious checks during early layers (never cancels) (#913) |

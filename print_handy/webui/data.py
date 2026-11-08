@@ -186,7 +186,8 @@ def wrapped_view(data, year=None, *, records_vault=None):
     # own name, not inside the record aggregate. V2: the detailed
     # finder also joins clips to print numbers by delivery name.
     try:
-        detailed = video_module.default_clip_finder_detailed(data, int(year))
+        detailed = video_module.default_clip_finder_detailed(
+            data, int(year), records=records, tz=tz)
     except Exception:
         detailed = []
     clips_by_print = [{"print_number": entry["print_number"],
@@ -254,6 +255,8 @@ def make_video(data, year, *, records_vault=None, out_dir=None, export_silent=Fa
     except (TypeError, ValueError):
         return 400, {"ok": False, "reason": "year must be a whole number. Nothing was compiled."}
     target_dir = Path(out_dir) if out_dir is not None else _vault(data, records_vault) / "wrapped"
+    video_kwargs.setdefault("records", records)
+    video_kwargs.setdefault("tz", _display_tz(data))
     result = video_module.build_wrapped_video(
         int(year), wrapped, target_dir, data=data, export_silent=export_silent,
         **video_kwargs)

@@ -1,87 +1,466 @@
 {
  "_about": "Keyword (matched through core.fuzzy, typo tolerant) -> lines about that kind of object.",
- "_phase": "seed-v0 (#1002 attachment 1, 2026-11-07)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2)",
  "_license": "Original to Print Handy; MIT with the project.",
  "entries": {
   "benchy": [
-   "Ah, {title} — the little boat that judges every printer and finds most of them merely adequate.",
-   "{title} has docked at last, ready to be photographed from exactly one flattering angle.",
-   "Every printer must face {title} eventually, like a tiny floating exam with a smokestack."
+   {
+    "id": "title-benchy-ah-title-the-little-boat",
+    "family": "title-benchy",
+    "text": "Ah, {title} — the little boat that judges every printer and finds most of them merely adequate."
+   },
+   {
+    "id": "title-benchy-title-has-docked-at-last",
+    "family": "title-benchy",
+    "text": "{title} has docked at last, ready to be photographed from exactly one flattering angle."
+   },
+   {
+    "id": "title-benchy-every-printer-must-face-title",
+    "family": "title-benchy",
+    "text": "Every printer must face {title} eventually, like a tiny floating exam with a smokestack."
+   }
   ],
   "box": [
-   "{title} is a container with big dreams, mostly involving containing slightly smaller containers.",
-   "A fresh {title} joins the eternal quest to put things inside other things, neatly.",
-   "{title} is empty right now, but give it a week and it will contain pure mystery."
+   {
+    "id": "title-box-title-is-a-container-with",
+    "family": "title-box",
+    "text": "{title} is a container with big dreams, mostly involving containing slightly smaller containers."
+   },
+   {
+    "id": "title-box-a-fresh-title-joins-the",
+    "family": "title-box",
+    "text": "A fresh {title} joins the eternal quest to put things inside other things, neatly."
+   },
+   {
+    "id": "title-box-title-is-empty-right-now",
+    "family": "title-box",
+    "text": "{title} is empty right now, but give it a week and it will contain pure mystery."
+   }
   ],
   "bracket": [
-   "{title} is here to hold things up, emotionally unavailable but structurally extremely supportive.",
-   "Nobody celebrates {title} at parties, yet everything it holds would fall apart without it.",
-   "{title}: the unsung hero whose entire personality is two holes and quiet reliability."
+   {
+    "id": "title-bracket-title-is-here-to-hold",
+    "family": "title-bracket",
+    "text": "{title} is here to hold things up, emotionally unavailable but structurally extremely supportive."
+   },
+   {
+    "id": "title-bracket-nobody-celebrates-title-at-parties",
+    "family": "title-bracket",
+    "text": "Nobody celebrates {title} at parties, yet everything it holds would fall apart without it."
+   },
+   {
+    "id": "title-bracket-title-the-unsung-hero-whose",
+    "family": "title-bracket",
+    "text": "{title}: the unsung hero whose entire personality is two holes and quiet reliability."
+   }
   ],
   "dragon": [
-   "{title} has hatched, and it is already acting like it owns the treasure and the shelf.",
-   "Behold {title}, a fearsome dragon whose main power is looking cool next to dice.",
-   "{title} arrived with wings, attitude, and absolutely no plans to guard anything but the desk."
+   {
+    "id": "title-dragon-title-has-hatched-and-it",
+    "family": "title-dragon",
+    "text": "{title} has hatched, and it is already acting like it owns the treasure and the shelf."
+   },
+   {
+    "id": "title-dragon-behold-title-a-fearsome-dragon",
+    "family": "title-dragon",
+    "text": "Behold {title}, a fearsome dragon whose main power is looking cool next to dice."
+   },
+   {
+    "id": "title-dragon-title-arrived-with-wings-attitude",
+    "family": "title-dragon",
+    "text": "{title} arrived with wings, attitude, and absolutely no plans to guard anything but the desk."
+   }
   ],
   "gear": [
-   "{title} is ready to mesh, spin, and take credit for the whole machine working.",
-   "One more {title} for the collection, because a single gear is just a round decoration.",
-   "{title} has teeth, purpose, and strong opinions about meshing with its neighbors."
+   {
+    "id": "title-gear-title-is-ready-to-mesh",
+    "family": "title-gear",
+    "text": "{title} is ready to mesh, spin, and take credit for the whole machine working."
+   },
+   {
+    "id": "title-gear-one-more-title-for-the",
+    "family": "title-gear",
+    "text": "One more {title} for the collection, because a single gear is just a round decoration."
+   },
+   {
+    "id": "title-gear-title-has-teeth-purpose-and",
+    "family": "title-gear",
+    "text": "{title} has teeth, purpose, and strong opinions about meshing with its neighbors."
+   }
   ],
   "helmet": [
-   "{title} is complete, sized for a hero, a costume, or a very confident houseplant.",
-   "Behold {title}, protection for a head that has clearly made some ambitious plans.",
-   "{title} looks ready for battle, provided the battle is indoors and mostly posing."
+   {
+    "id": "title-helmet-title-is-complete-sized-for",
+    "family": "title-helmet",
+    "text": "{title} is complete, sized for a hero, a costume, or a very confident houseplant."
+   },
+   {
+    "id": "title-helmet-behold-title-protection-for-a",
+    "family": "title-helmet",
+    "text": "Behold {title}, protection for a head that has clearly made some ambitious plans."
+   },
+   {
+    "id": "title-helmet-title-looks-ready-for-battle",
+    "family": "title-helmet",
+    "text": "{title} looks ready for battle, provided the battle is indoors and mostly posing."
+   }
   ],
   "hook": [
-   "{title} is small, curved, and about to carry far more responsibility than it signed up for.",
-   "Behold {title}, the tiny wall hero that will hold keys, coats, and household chaos.",
-   "{title} will spend its life hanging around, which is either lazy or literally the job."
+   {
+    "id": "title-hook-title-is-small-curved-and",
+    "family": "title-hook",
+    "text": "{title} is small, curved, and about to carry far more responsibility than it signed up for."
+   },
+   {
+    "id": "title-hook-behold-title-the-tiny-wall",
+    "family": "title-hook",
+    "text": "Behold {title}, the tiny wall hero that will hold keys, coats, and household chaos."
+   },
+   {
+    "id": "title-hook-title-will-spend-its-life",
+    "family": "title-hook",
+    "text": "{title} will spend its life hanging around, which is either lazy or literally the job."
+   }
   ],
   "mask": [
-   "{title} is ready for a mysterious entrance at a party nobody has planned yet.",
-   "With {title} complete, someone can now look dramatic while remaining completely anonymous at the store.",
-   "{title}: instant intrigue, zero actual secrets, and a very committed eye-hole game."
+   {
+    "id": "title-mask-title-is-ready-for-a",
+    "family": "title-mask",
+    "text": "{title} is ready for a mysterious entrance at a party nobody has planned yet."
+   },
+   {
+    "id": "title-mask-with-title-complete-someone-can",
+    "family": "title-mask",
+    "text": "With {title} complete, someone can now look dramatic while remaining completely anonymous at the store."
+   },
+   {
+    "id": "title-mask-title-instant-intrigue-zero-actual",
+    "family": "title-mask",
+    "text": "{title}: instant intrigue, zero actual secrets, and a very committed eye-hole game."
+   }
   ],
   "organizer": [
-   "{title} promises this is the year the desk finally stays tidy for a full week.",
-   "Behold {title}, a tiny city planner for pens, cables, and good intentions.",
-   "{title} will organize everything perfectly, right up until someone opens a drawer nearby."
+   {
+    "id": "title-organizer-title-promises-this-is-the",
+    "family": "title-organizer",
+    "text": "{title} promises this is the year the desk finally stays tidy for a full week."
+   },
+   {
+    "id": "title-organizer-behold-title-a-tiny-city",
+    "family": "title-organizer",
+    "text": "Behold {title}, a tiny city planner for pens, cables, and good intentions."
+   },
+   {
+    "id": "title-organizer-title-will-organize-everything-perfectly",
+    "family": "title-organizer",
+    "text": "{title} will organize everything perfectly, right up until someone opens a drawer nearby."
+   }
   ],
   "phone stand": [
-   "{title} is ready to hold a phone at the perfect angle for ignoring notifications comfortably.",
-   "With {title} on duty, the phone finally has a throne worthy of its screen time.",
-   "{title} exists so a phone can recline like royalty while its owner does actual work."
+   {
+    "id": "title-phone stand-title-is-ready-to-hold",
+    "family": "title-phone stand",
+    "text": "{title} is ready to hold a phone at the perfect angle for ignoring notifications comfortably."
+   },
+   {
+    "id": "title-phone stand-with-title-on-duty-the",
+    "family": "title-phone stand",
+    "text": "With {title} on duty, the phone finally has a throne worthy of its screen time."
+   },
+   {
+    "id": "title-phone stand-title-exists-so-a-phone",
+    "family": "title-phone stand",
+    "text": "{title} exists so a phone can recline like royalty while its owner does actual work."
+   }
   ],
   "planter": [
-   "{title} is ready for a plant that will either thrive or be dramatically replaced monthly.",
-   "A new home for greenery: {title}, now accepting one plant and unlimited optimism.",
-   "{title} gives a houseplant the fancy apartment it has been manifesting all spring."
+   {
+    "id": "title-planter-title-is-ready-for-a",
+    "family": "title-planter",
+    "text": "{title} is ready for a plant that will either thrive or be dramatically replaced monthly."
+   },
+   {
+    "id": "title-planter-a-new-home-for-greenery",
+    "family": "title-planter",
+    "text": "A new home for greenery: {title}, now accepting one plant and unlimited optimism."
+   },
+   {
+    "id": "title-planter-title-gives-a-houseplant-the",
+    "family": "title-planter",
+    "text": "{title} gives a houseplant the fancy apartment it has been manifesting all spring."
+   }
   ],
   "skull": [
-   "{title} has emerged, spooky on the outside and completely hollow where it counts.",
-   "Behold {title}, the only skull in the house that improves with shelf lighting.",
-   "{title} looks like it has ancient secrets, but it mostly just holds pens now."
+   {
+    "id": "title-skull-title-has-emerged-spooky-on",
+    "family": "title-skull",
+    "text": "{title} has emerged, spooky on the outside and completely hollow where it counts."
+   },
+   {
+    "id": "title-skull-behold-title-the-only-skull",
+    "family": "title-skull",
+    "text": "Behold {title}, the only skull in the house that improves with shelf lighting."
+   },
+   {
+    "id": "title-skull-title-looks-like-it-has",
+    "family": "title-skull",
+    "text": "{title} looks like it has ancient secrets, but it mostly just holds pens now."
+   }
   ],
   "star": [
-   "{title} has arrived, five points of pure confidence and zero plans to twinkle responsibly.",
-   "Behold {title}, a celebrity among shapes, ready for its close-up on the highest shelf.",
-   "{title} proves that being pointy in five directions is a complete personality."
+   {
+    "id": "title-star-title-has-arrived-five-points",
+    "family": "title-star",
+    "text": "{title} has arrived, five points of pure confidence and zero plans to twinkle responsibly."
+   },
+   {
+    "id": "title-star-behold-title-a-celebrity-among",
+    "family": "title-star",
+    "text": "Behold {title}, a celebrity among shapes, ready for its close-up on the highest shelf."
+   },
+   {
+    "id": "title-star-title-proves-that-being-pointy",
+    "family": "title-star",
+    "text": "{title} proves that being pointy in five directions is a complete personality."
+   }
   ],
   "sword": [
-   "{title} has been forged, more or less, in the ancient fires of a warm nozzle.",
-   "With {title} complete, someone is now legally required to make swooshing noises while holding it.",
-   "{title}: all the drama of a legendary blade, none of the sharpening responsibilities."
+   {
+    "id": "title-sword-title-has-been-forged-more",
+    "family": "title-sword",
+    "text": "{title} has been forged, more or less, in the ancient fires of a warm nozzle."
+   },
+   {
+    "id": "title-sword-with-title-complete-someone-is",
+    "family": "title-sword",
+    "text": "With {title} complete, someone is now legally required to make swooshing noises while holding it."
+   },
+   {
+    "id": "title-sword-title-all-the-drama-of",
+    "family": "title-sword",
+    "text": "{title}: all the drama of a legendary blade, none of the sharpening responsibilities."
+   }
   ],
   "toy": [
-   "{title} is officially too cute to be called a test print, whatever anyone says.",
-   "A wild {title} appears, and productivity in the room drops by a measurable amount.",
-   "{title} was made for play, but it will mostly supervise from the shelf, judging quietly."
+   {
+    "id": "title-toy-title-is-officially-too-cute",
+    "family": "title-toy",
+    "text": "{title} is officially too cute to be called a test print, whatever anyone says."
+   },
+   {
+    "id": "title-toy-a-wild-title-appears-and",
+    "family": "title-toy",
+    "text": "A wild {title} appears, and productivity in the room drops by a measurable amount."
+   },
+   {
+    "id": "title-toy-title-was-made-for-play",
+    "family": "title-toy",
+    "text": "{title} was made for play, but it will mostly supervise from the shelf, judging quietly."
+   }
   ],
   "vase": [
-   "{title} is ready to hold flowers, water, and the secret that it is mostly decorative confidence.",
-   "A new {title} enters the home, immediately promoted to chief dust collector with excellent curves.",
-   "{title} proves once again that a container with no lid can still contain unlimited style."
+   {
+    "id": "title-vase-title-is-ready-to-hold",
+    "family": "title-vase",
+    "text": "{title} is ready to hold flowers, water, and the secret that it is mostly decorative confidence."
+   },
+   {
+    "id": "title-vase-a-new-title-enters-the",
+    "family": "title-vase",
+    "text": "A new {title} enters the home, immediately promoted to chief dust collector with excellent curves."
+   },
+   {
+    "id": "title-vase-title-proves-once-again-that",
+    "family": "title-vase",
+    "text": "{title} proves once again that a container with no lid can still contain unlimited style."
+   }
+  ],
+  "clip": [
+   {
+    "id": "title-clip-title-has-one-job-hold",
+    "family": "title-clip",
+    "text": "{title} has one job: hold together everything except the printer budget."
+   },
+   {
+    "id": "title-clip-title-is-tiny-useful-and",
+    "family": "title-clip",
+    "text": "{title} is tiny, useful, and already bracing for an unreasonable workload."
+   },
+   {
+    "id": "title-clip-title-holds-the-line-the",
+    "family": "title-clip",
+    "text": "{title} holds the line, the cables, and the whole operation together, barely."
+   }
+  ],
+  "cable": [
+   {
+    "id": "title-cable-title-promises-tidy-wiring-which",
+    "family": "title-cable",
+    "text": "{title} promises tidy wiring, which is adorable given the rest of this desk."
+   },
+   {
+    "id": "title-cable-title-attempts-diplomacy-between-cables",
+    "family": "title-cable",
+    "text": "{title} attempts diplomacy between cables that have spent years fighting."
+   },
+   {
+    "id": "title-cable-title-has-brought-order-to",
+    "family": "title-cable",
+    "text": "{title} has brought order to exactly one cable; the rest remain at large."
+   }
+  ],
+  "mount": [
+   {
+    "id": "title-mount-title-exists-because-buying-a",
+    "family": "title-mount",
+    "text": "{title} exists because buying a bracket would have been insufficiently complicated."
+   },
+   {
+    "id": "title-mount-title-looks-sturdy-enough-to",
+    "family": "title-mount",
+    "text": "{title} looks sturdy enough to support an alarming amount of misplaced confidence."
+   },
+   {
+    "id": "title-mount-title-is-now-load-bearing",
+    "family": "title-mount",
+    "text": "{title} is now load-bearing, emotionally if not structurally."
+   }
+  ],
+  "enclosure": [
+   {
+    "id": "title-enclosure-title-gives-an-object-its",
+    "family": "title-enclosure",
+    "text": "{title} gives an object its own tiny house before you finish yours."
+   },
+   {
+    "id": "title-enclosure-title-made-a-respectable-shelter",
+    "family": "title-enclosure",
+    "text": "{title} made a respectable shelter for something that probably doesn't pay rent."
+   },
+   {
+    "id": "title-enclosure-title-is-a-tiny-house",
+    "family": "title-enclosure",
+    "text": "{title} is a tiny house that will somehow end up storing screws."
+   }
+  ],
+  "holder": [
+   {
+    "id": "title-holder-title-is-a-dedicated-parking",
+    "family": "title-holder",
+    "text": "{title} is a dedicated parking space for an object that kept escaping."
+   },
+   {
+    "id": "title-holder-title-exists-to-hold-one",
+    "family": "title-holder",
+    "text": "{title} exists to hold one thing while the rest of the room stays chaotic."
+   },
+   {
+    "id": "title-holder-title-reports-for-duty-holding",
+    "family": "title-holder",
+    "text": "{title} reports for duty, holding the one thing it was born to hold."
+   }
+  ],
+  "hinge": [
+   {
+    "id": "title-hinge-title-introduces-moving-parts-into",
+    "family": "title-hinge",
+    "text": "{title} introduces moving parts into a hobby already rich in surprises."
+   },
+   {
+    "id": "title-hinge-title-bends-the-rules-of",
+    "family": "title-hinge",
+    "text": "{title} bends the rules of what should have been a simple connection."
+   },
+   {
+    "id": "title-hinge-title-swings-between-genius-and",
+    "family": "title-hinge",
+    "text": "{title} swings between genius and liability, smoothly and repeatedly."
+   }
+  ],
+  "jig": [
+   {
+    "id": "title-jig-title-is-a-tool-for",
+    "family": "title-jig",
+    "text": "{title} is a tool for making the next tool slightly less embarrassing."
+   },
+   {
+    "id": "title-jig-title-makes-repetitive-work-precise",
+    "family": "title-jig",
+    "text": "{title} makes repetitive work precise, unlike the decision to print it at midnight."
+   },
+   {
+    "id": "title-jig-title-ensures-the-next-mistake",
+    "family": "title-jig",
+    "text": "{title} ensures the next mistake happens in exactly the same place every time."
+   }
+  ],
+  "drawer": [
+   {
+    "id": "title-drawer-title-offers-the-comforting-illusion",
+    "family": "title-drawer",
+    "text": "{title} offers the comforting illusion that the desk is now organized."
+   },
+   {
+    "id": "title-drawer-title-is-where-small-things",
+    "family": "title-drawer",
+    "text": "{title} is where small things go to become officially missing."
+   },
+   {
+    "id": "title-drawer-title-slides-open-to-reveal",
+    "family": "title-drawer",
+    "text": "{title} slides open to reveal the thing you needed last week."
+   }
+  ],
+  "adapter": [
+   {
+    "id": "title-adapter-title-is-a-peace-treaty",
+    "family": "title-adapter",
+    "text": "{title} is a peace treaty between two objects that refuse to cooperate."
+   },
+   {
+    "id": "title-adapter-title-solves-a-compatibility-problem",
+    "family": "title-adapter",
+    "text": "{title} solves a compatibility problem that capitalism kindly manufactured."
+   },
+   {
+    "id": "title-adapter-title-lets-two-stubborn-objects",
+    "family": "title-adapter",
+    "text": "{title} lets two stubborn objects finally shake hands."
+   }
+  ],
+  "rack": [
+   {
+    "id": "title-rack-title-takes-one-more-step",
+    "family": "title-rack",
+    "text": "{title} takes one more step toward making the server closet look intentional."
+   },
+   {
+    "id": "title-rack-title-is-proof-even-a",
+    "family": "title-rack",
+    "text": "{title} is proof even a homelab can benefit from pretending to be organized."
+   },
+   {
+    "id": "title-rack-title-is-one-slot-closer",
+    "family": "title-rack",
+    "text": "{title} is one slot closer to a setup that actually looks planned."
+   }
+  ],
+  "keychain": [
+   {
+    "id": "title-keychain-title-gives-a-keyring-the",
+    "family": "title-keychain",
+    "text": "{title} gives a keyring the weight and drama of a museum exhibit."
+   },
+   {
+    "id": "title-keychain-title-will-be-impossible-to",
+    "family": "title-keychain",
+    "text": "{title} will be impossible to find precisely when the keys are needed."
+   },
+   {
+    "id": "title-keychain-title-makes-the-keys-heavier",
+    "family": "title-keychain",
+    "text": "{title} makes the keys heavier, fancier, and somehow easier to lose."
+   }
   ]
  }
 }

@@ -1,27 +1,147 @@
 {
  "_about": "Cancelled prints only. Gentle: the target is the print, never the operator.",
- "_phase": "seed-v0 (#1002 attachment 1, 2026-11-07)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2)",
  "_license": "Original to Print Handy; MIT with the project.",
  "entries": [
-  "You pulled the plug on {title}, a mercy decision historians will call correct.",
-  "{title} was cancelled at {duration}, the print equivalent of leaving the party early.",
-  "Cancelling {title} saved {grams} grams of {material} from a fate they did not deserve.",
-  "{title} got voted off the print bed, and the tribe of one has spoken.",
-  "You looked at {title}, checked the clock, and chose peace, which is respectable.",
-  "{printer} thanks you for ending {title} before things got truly embarrassing for everyone.",
-  "{title} was not cancelled, it was released from its obligations ahead of schedule.",
-  "The stop button was pressed on {title}, and honestly it never saw it coming.",
-  "{title} in {color} had a good run, right up until you regained your senses.",
-  "Stopping {title} early was not quitting; it was editing with extreme prejudice.",
-  "You gave {title} a full {duration} to impress you, generous bordering on charitable.",
-  "{title} has been cancelled by popular demand, where the demand was entirely yours.",
-  "Some prints finish, but {title} got an early retirement package and a firm handshake.",
-  "The wisest move in printing is knowing when to stop, and {title} thanks you.",
-  "You cancelled {title} before the spaghetti phase, a decision aged in wisdom.",
-  "{material} everywhere sends its thanks: {title} will not be wasting any more of it.",
-  "{title} was going places, mostly wrong ones, so the cancellation was a public service.",
-  "Ending {title} took courage, a steady hand, and one very final button press.",
-  "{title} joins the honorable ranks of prints stopped while dignity was still available.",
-  "You did not fail {title}; you simply declined to let it finish failing."
+  {
+   "id": "cancelled-you-pulled-the-plug-on",
+   "family": "cancelled-you-pulled-the-plug-on",
+   "text": "You pulled the plug on {title}, a mercy decision historians will call correct."
+  },
+  {
+   "id": "cancelled-title-was-cancelled-at-duration",
+   "family": "cancelled-title-was-cancelled-at-duration",
+   "text": "{title} was cancelled at {duration}, the print equivalent of leaving the party early."
+  },
+  {
+   "id": "cancelled-cancelling-title-saved-grams-grams",
+   "family": "cancelled-cancelling-title-saved-grams-grams",
+   "text": "Cancelling {title} saved {grams} grams of {material} from a fate they did not deserve."
+  },
+  {
+   "id": "cancelled-title-got-voted-off-the",
+   "family": "cancelled-title-got-voted-off-the",
+   "text": "{title} got voted off the print bed, and the tribe of one has spoken."
+  },
+  {
+   "id": "cancelled-you-looked-at-title-checked",
+   "family": "cancelled-you-looked-at-title-checked",
+   "text": "You looked at {title}, checked the clock, and chose peace, which is respectable."
+  },
+  {
+   "id": "cancelled-printer-thanks-you-for-ending",
+   "family": "cancelled-printer-thanks-you-for-ending",
+   "text": "{printer} thanks you for ending {title} before things got truly embarrassing for everyone."
+  },
+  {
+   "id": "cancelled-title-was-not-cancelled-it",
+   "family": "cancelled-title-was-not-cancelled-it",
+   "text": "{title} was not cancelled, it was released from its obligations ahead of schedule."
+  },
+  {
+   "id": "cancelled-the-stop-button-was-pressed",
+   "family": "cancelled-the-stop-button-was-pressed",
+   "text": "The stop button was pressed on {title}, and honestly it never saw it coming."
+  },
+  {
+   "id": "cancelled-title-in-color-had-a",
+   "family": "cancelled-title-in-color-had-a",
+   "text": "{title} in {color} had a good run, right up until you regained your senses."
+  },
+  {
+   "id": "cancelled-stopping-title-early-was-not",
+   "family": "cancelled-stopping-title-early-was-not",
+   "text": "Stopping {title} early was not quitting; it was editing with extreme prejudice."
+  },
+  {
+   "id": "cancelled-you-gave-title-a-full",
+   "family": "cancelled-you-gave-title-a-full",
+   "text": "You gave {title} a full {duration} to impress you, generous bordering on charitable."
+  },
+  {
+   "id": "cancelled-title-has-been-cancelled-by",
+   "family": "cancelled-title-has-been-cancelled-by",
+   "text": "{title} has been cancelled by popular demand, where the demand was entirely yours."
+  },
+  {
+   "id": "cancelled-some-prints-finish-but-title",
+   "family": "cancelled-some-prints-finish-but-title",
+   "text": "Some prints finish, but {title} got an early retirement package and a firm handshake."
+  },
+  {
+   "id": "cancelled-the-wisest-move-in-printing",
+   "family": "cancelled-the-wisest-move-in-printing",
+   "text": "The wisest move in printing is knowing when to stop, and {title} thanks you."
+  },
+  {
+   "id": "cancelled-you-cancelled-title-before-the",
+   "family": "cancelled-you-cancelled-title-before-the",
+   "text": "You cancelled {title} before the spaghetti phase, a decision aged in wisdom."
+  },
+  {
+   "id": "cancelled-material-everywhere-sends-its-thanks",
+   "family": "cancelled-material-everywhere-sends-its-thanks",
+   "text": "{material} everywhere sends its thanks: {title} will not be wasting any more of it."
+  },
+  {
+   "id": "cancelled-title-was-going-places-mostly",
+   "family": "cancelled-title-was-going-places-mostly",
+   "text": "{title} was going places, mostly wrong ones, so the cancellation was a public service."
+  },
+  {
+   "id": "cancelled-ending-title-took-courage-a",
+   "family": "cancelled-ending-title-took-courage-a",
+   "text": "Ending {title} took courage, a steady hand, and one very final button press."
+  },
+  {
+   "id": "cancelled-title-joins-the-honorable-ranks",
+   "family": "cancelled-title-joins-the-honorable-ranks",
+   "text": "{title} joins the honorable ranks of prints stopped while dignity was still available."
+  },
+  {
+   "id": "cancelled-you-did-not-fail-title",
+   "family": "cancelled-you-did-not-fail-title",
+   "text": "You did not fail {title}; you simply declined to let it finish failing."
+  },
+  {
+   "id": "cancelled-title-was-cancelled-before-it",
+   "family": "cancelled-title-was-cancelled-before-it",
+   "text": "{title} was cancelled before it could develop a convincing excuse."
+  },
+  {
+   "id": "cancelled-title-received-a-stop-order",
+   "family": "cancelled-title-received-a-stop-order",
+   "text": "{title} received a stop order from management, effective immediately."
+  },
+  {
+   "id": "cancelled-production-on-title-has-been",
+   "family": "cancelled-production-on-title-has-been",
+   "text": "Production on {title} has been suspended pending a reality check."
+  },
+  {
+   "id": "cancelled-title-left-the-queue-early",
+   "family": "cancelled-title-left-the-queue-early",
+   "text": "{title} left the queue early; the spool is calling it a strategic retreat."
+  },
+  {
+   "id": "cancelled-title-was-pulled-from-production",
+   "family": "cancelled-title-was-pulled-from-production",
+   "text": "{title} was pulled from production before the printer could finish its opening statement."
+  },
+  {
+   "id": "cancelled-the-committee-has-postponed-title",
+   "family": "cancelled-the-committee-has-postponed-title",
+   "text": "The committee has postponed {title} until the idea sounds better."
+  },
+  {
+   "id": "cancelled-title-is-on-indefinite-leave",
+   "family": "cancelled-title-is-on-indefinite-leave",
+   "text": "{title} is on indefinite leave from the build plate."
+  },
+  {
+   "id": "cancelled-title-was-cancelled-proving-someone",
+   "family": "cancelled-title-was-cancelled-proving-someone",
+   "text": "{title} was cancelled, proving someone here can recognize sunk costs."
+  }
  ]
 }

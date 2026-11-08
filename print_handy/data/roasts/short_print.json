@@ -1,27 +1,147 @@
 {
  "_about": "Completed prints under 30 minutes.",
- "_phase": "seed-v0 (#1002 attachment 1, 2026-11-07)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2)",
  "_license": "Original to Print Handy; MIT with the project.",
  "entries": [
-  "{title} finished in {duration} — blink, and the entire epic saga was already over.",
-  "After all that setup, {title} printed faster than the warm-up small talk about printing it.",
-  "{title}: {duration} of printing, three days of deciding whether it was worth printing.",
-  "The build plate spent longer getting ready than {title} spent becoming a finished object.",
-  "{printer} cleared its throat, printed {title}, and was basically done before the fan found its rhythm.",
-  "{title} used {grams} grams and {duration} — a snack-sized print with main-character confidence.",
-  "Somewhere, a {duration} timer is jealous of how quickly {title} wrapped up its whole career.",
-  "{title} in {color} {material} arrived so fast, the completion post feels like a drumroll for a sneeze.",
-  "That was less a print and more {printer} briefly thinking about {title} really, really hard.",
-  "{title} finished before the coffee cooled, which is efficient, adorable, and slightly suspicious.",
-  "A whole {duration} for {title} — the printer barely had time to feel important about it.",
-  "{title} is done already, and the slicer spent longer naming the file than printing it.",
-  "The legend of {title} began, printed, and concluded within a single snack break.",
-  "{printer} printed {title} in {duration} and immediately looked around for a bigger assignment.",
-  "{title} came off the plate so quickly, it should legally be considered a magic trick.",
-  "All that anticipation for {title}, and it was over before the progress bar got comfortable.",
-  "{title} took {duration} — plenty of time if you are plastic, less if you are waiting.",
-  "Tiny job, tiny timeline: {title} finished before anyone could even brag about starting it.",
-  "{title} in {material} is complete, and the grand total of patience required was almost none.",
-  "{printer} made {title} so fast that quality control was mostly just surprised nodding."
+  {
+   "id": "short_print-title-finished-in-duration-blink",
+   "family": "short_print-title-finished-in-duration-blink",
+   "text": "{title} finished in {duration} — blink, and the entire epic saga was already over."
+  },
+  {
+   "id": "short_print-after-all-that-setup-title",
+   "family": "short_print-after-all-that-setup-title",
+   "text": "After all that setup, {title} printed faster than the warm-up small talk about printing it."
+  },
+  {
+   "id": "short_print-title-duration-of-printing-three",
+   "family": "short_print-title-duration-of-printing-three",
+   "text": "{title}: {duration} of printing, three days of deciding whether it was worth printing."
+  },
+  {
+   "id": "short_print-the-build-plate-spent-longer",
+   "family": "short_print-the-build-plate-spent-longer",
+   "text": "The build plate spent longer getting ready than {title} spent becoming a finished object."
+  },
+  {
+   "id": "short_print-printer-cleared-its-throat-printed",
+   "family": "short_print-printer-cleared-its-throat-printed",
+   "text": "{printer} cleared its throat, printed {title}, and was basically done before the fan found its rhythm."
+  },
+  {
+   "id": "short_print-title-used-grams-grams-and",
+   "family": "short_print-title-used-grams-grams-and",
+   "text": "{title} used {grams} grams and {duration} — a snack-sized print with main-character confidence."
+  },
+  {
+   "id": "short_print-somewhere-a-duration-timer-is",
+   "family": "short_print-somewhere-a-duration-timer-is",
+   "text": "Somewhere, a {duration} timer is jealous of how quickly {title} wrapped up its whole career."
+  },
+  {
+   "id": "short_print-title-in-color-material-arrived",
+   "family": "short_print-title-in-color-material-arrived",
+   "text": "{title} in {color} {material} arrived so fast, the completion post feels like a drumroll for a sneeze."
+  },
+  {
+   "id": "short_print-that-was-less-a-print",
+   "family": "short_print-that-was-less-a-print",
+   "text": "That was less a print and more {printer} briefly thinking about {title} really, really hard."
+  },
+  {
+   "id": "short_print-title-finished-before-the-coffee",
+   "family": "short_print-title-finished-before-the-coffee",
+   "text": "{title} finished before the coffee cooled, which is efficient, adorable, and slightly suspicious."
+  },
+  {
+   "id": "short_print-a-whole-duration-for-title",
+   "family": "short_print-a-whole-duration-for-title",
+   "text": "A whole {duration} for {title} — the printer barely had time to feel important about it."
+  },
+  {
+   "id": "short_print-title-is-done-already-and",
+   "family": "short_print-title-is-done-already-and",
+   "text": "{title} is done already, and the slicer spent longer naming the file than printing it."
+  },
+  {
+   "id": "short_print-the-legend-of-title-began",
+   "family": "short_print-the-legend-of-title-began",
+   "text": "The legend of {title} began, printed, and concluded within a single snack break."
+  },
+  {
+   "id": "short_print-printer-printed-title-in-duration",
+   "family": "short_print-printer-printed-title-in-duration",
+   "text": "{printer} printed {title} in {duration} and immediately looked around for a bigger assignment."
+  },
+  {
+   "id": "short_print-title-came-off-the-plate",
+   "family": "short_print-title-came-off-the-plate",
+   "text": "{title} came off the plate so quickly, it should legally be considered a magic trick."
+  },
+  {
+   "id": "short_print-all-that-anticipation-for-title",
+   "family": "short_print-all-that-anticipation-for-title",
+   "text": "All that anticipation for {title}, and it was over before the progress bar got comfortable."
+  },
+  {
+   "id": "short_print-title-took-duration-plenty-of",
+   "family": "short_print-title-took-duration-plenty-of",
+   "text": "{title} took {duration} — plenty of time if you are plastic, less if you are waiting."
+  },
+  {
+   "id": "short_print-tiny-job-tiny-timeline-title",
+   "family": "short_print-tiny-job-tiny-timeline-title",
+   "text": "Tiny job, tiny timeline: {title} finished before anyone could even brag about starting it."
+  },
+  {
+   "id": "short_print-title-in-material-is-complete",
+   "family": "short_print-title-in-material-is-complete",
+   "text": "{title} in {material} is complete, and the grand total of patience required was almost none."
+  },
+  {
+   "id": "short_print-printer-made-title-so-fast",
+   "family": "short_print-printer-made-title-so-fast",
+   "text": "{printer} made {title} so fast that quality control was mostly just surprised nodding."
+  },
+  {
+   "id": "short_print-title-finished-in-duration-barely",
+   "family": "short_print-title-finished-in-duration-barely",
+   "text": "{title} finished in {duration}, barely long enough for the nozzle to develop opinions."
+  },
+  {
+   "id": "short_print-title-took-duration-the-printer",
+   "family": "short_print-title-took-duration-the-printer",
+   "text": "{title} took {duration}; the printer spent more time negotiating its temperature."
+  },
+  {
+   "id": "short_print-in-duration-title-went-from",
+   "family": "short_print-in-duration-title-went-from",
+   "text": "In {duration}, {title} went from idea to a tiny new storage problem."
+  },
+  {
+   "id": "short_print-title-wrapped-in-duration-dramatic",
+   "family": "short_print-title-wrapped-in-duration-dramatic",
+   "text": "{title} wrapped in {duration}; dramatic music would have outlasted the print."
+  },
+  {
+   "id": "short_print-title-needed-duration-a-remarkably",
+   "family": "short_print-title-needed-duration-a-remarkably",
+   "text": "{title} needed {duration}, a remarkably short sentence in filament prison."
+  },
+  {
+   "id": "short_print-title-finished-in-duration-even",
+   "family": "short_print-title-finished-in-duration-even",
+   "text": "{title} finished in {duration}; even the progress bar looked surprised."
+  },
+  {
+   "id": "short_print-duration-for-title-feels-less",
+   "family": "short_print-duration-for-title-feels-less",
+   "text": "{duration} for {title} feels less like manufacturing and more like an industrial hiccup."
+  },
+  {
+   "id": "short_print-printer-completed-title-in-duration",
+   "family": "short_print-printer-completed-title-in-duration",
+   "text": "{printer} completed {title} in {duration}, then wondered whether that counted as exercise."
+  }
  ]
 }
