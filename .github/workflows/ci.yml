@@ -449,14 +449,14 @@ jobs:
       - name: Install the pinned OrcaSlicer bundle and GNOME runtime
         run: sh scripts/install-orca-flatpak.sh
       - name: Warm-up slice (not timed; first flatpak start pays one-off costs)
-        run: xvfb-run -a python -m tests.corpus.time_corpus --real-slicer --transport hermes --case single-part || true
+        run: xvfb-run -a python -m tests.corpus.time_corpus --real-slicer --transport direct --case single-part || true
       - name: Time the real-slicer cases (3 repeats, hermes transport)
         run: |
           mkdir -p slicer-timing
           # shellcheck disable=SC2086 # TIMING_CASES is a list of --case arguments
           for i in 1 2 3; do
             # A failed flow is reported by the comparison below; it must not stop the remaining repeats.
-            xvfb-run -a python -m tests.corpus.time_corpus --real-slicer --transport hermes $TIMING_CASES \
+            xvfb-run -a python -m tests.corpus.time_corpus --real-slicer --transport direct $TIMING_CASES \
               --json "slicer-timing/run-$i.json" \
               || echo "::warning title=Timing (reporting only)::repeat $i had a failed or errored flow"
           done

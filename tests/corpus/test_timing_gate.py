@@ -6,7 +6,7 @@ BASE = {"tolerance": 0.25, "slack_s": 1.0,
 
 
 def row(wall, prompt=2.0, result="PASS"):
-    return {"case": "single-part", "transport": "hermes", "result": result,
+    return {"case": "single-part", "transport": "direct", "result": result,
             "wall_s": wall, "first_prompt_s": prompt}
 
 
@@ -77,7 +77,7 @@ def test_per_case_fit_check_baseline_uses_tolerance():
 def test_fit_check_is_measured_from_the_real_intake_flow(tmp_path):
     from tests.corpus import harness, time_corpus
     case = next(harness.load_case(f) for f in harness.case_dirs() if f.name == "must-shrink")
-    row_ = time_corpus.run_one(case, "hermes", False, tmp_path)
+    row_ = time_corpus.run_one(case, "direct", False, tmp_path)
     assert row_["result"] == "PASS", row_
     assert row_["fit_check_s"] is not None and 0 <= row_["fit_check_s"] <= row_["wall_s"]
 
