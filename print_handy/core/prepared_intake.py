@@ -2462,6 +2462,20 @@ async def print_gcode_file(event, adapter, root, path, timeout=None, printer_id=
     return {'action': 'skip', 'reason': f'yolo G-code {outcome.status.lower()}'}
 
 
+def with_supports_line(reason, estimate, finding, clearance):
+    """The with-supports line of the Ready question.
+
+    Supports are recommended only when they can help. A risky clearance with
+    no slicer finding means the only evidence is a gap supports cannot reach,
+    so recommending them would contradict the reason given.
+    """
+    from . import support_clearance
+
+    if not finding and support_clearance.risky(clearance):
+        return f"- Slice and print with supports (not recommended: {reason}): {estimate}"
+    return f"- Slice and print with supports (recommended: {reason or 'floating regions found'}): {estimate}"
+
+
 def supports_decision(flagged, finding, clearance):
     """(show, reason, inputs) for the supports question (#1020 F).
 
@@ -2500,7 +2514,7 @@ def supports_decision(flagged, finding, clearance):
                 gaps.append(window['min'])
         if gaps:
             reasons.append(f"an underside clears what is below it by only "
-                           f"{min(gaps):.1f} mm — too low for supports to reach")
+                           f"{support_clearance._fmt(min(gaps))} mm — too low for supports to reach")
         else:
             reasons.append("a low-clearance underside leaves no room for supports to reach")
     if not reasons and flagged:
@@ -3458,11 +3472,10 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                         names, is_flagged, sup_reason, sup_inputs)
 
             if is_flagged:
-                rec_reason = sup_reason or 'floating regions found'
                 sup_est = _variant_estimate_str(early.job_with_supports, early.supports_result)
                 nosup_est = _variant_estimate_str(early.job_no_supports, early.result)
                 flag_lines = [
-                    f"- Slice and print with supports (recommended: {rec_reason}): {sup_est}",
+                    with_supports_line(sup_reason, sup_est, early.finding, clearance),
                     f"- Slice and print without supports: {nosup_est}",
                 ]
                 modeled = modeled_supports.safe_describe(path)

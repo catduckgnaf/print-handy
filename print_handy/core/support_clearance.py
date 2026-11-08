@@ -44,6 +44,7 @@ of printability: the post-slice toolpath check consumes ``regions``.
 
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -484,7 +485,13 @@ def _analyze_parts(parts, source_sha256, gap_mm=GAP_MM, area_mm2=AREA_MM2, span_
         # 2.0 mm and touches a zero-clearance anchor cell at its root, is a
         # wall rooting into the shelf below it -- not a floating underside.
         anchored = any((int(c) + d) in anchor_cells for c in cells for d in (-1, 1, -w, w))
-        if (r['sloped'] and r['width_mm'] < WEDGE_WIDTH_MM
+        # The overall bounding width of a strip that follows a curved or
+        # L-shaped edge (a bottom chamfer) says nothing about how wide the
+        # strip is. On a sloped face the rise over the slope gives the real
+        # width across the strip.
+        nz = r['slope_nz']
+        rise_width = (r['z_mm']['max'] - r['z_mm']['min']) * nz / math.sqrt(max(1.0 - nz * nz, 1e-6))
+        if (r['sloped'] and min(r['width_mm'], rise_width) < WEDGE_WIDTH_MM
                 and WEDGE_COS_MIN <= r['slope_nz'] <= WEDGE_COS_MAX and anchored):
             r['kind'] = 'sloped_wedge_root'
             report['regions'].append(r)
