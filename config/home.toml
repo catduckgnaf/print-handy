@@ -245,6 +245,13 @@ model = "gemini-latest"
 # (vision_chat_url plus CLIPROXY_API_KEY), on every platform, Telegram included.
 # Set false to turn roasts off; camera checks keep using the same endpoint.
 roast_enabled = true
+# Custom roast bank (#1002 Phase 4): empty (the default) means the
+# shipped roast corpus alone. Set it to the path of a JSON file of your
+# own roast lines and the valid entries are drawn alongside the shipped
+# lines; entries pass the same validation as the shipped corpus, and a
+# file that cannot be read is ignored with the problem named in the log.
+# See "Adding roast lines" in CONTRIBUTING.md for the file format.
+roast_custom_bank = ""
 # Local failure detector (#455): off by default. When on, the camera
 # watchdog can judge frames with the built-in ONNX detector on installs
 # with no vision endpoint route configured (PRINT_VISION_URL and

@@ -24,6 +24,18 @@ offline:
   :data:`SESSION_SECRET_ENV` names, the same indirection as every
   other Print Handy secret; the Discord client secret likewise lives
   in :data:`CLIENT_SECRET_ENV`.
+- :data:`BOOTSTRAP_PAGE` — the one unauthenticated page (the fix for
+  the 2026-10-30 status check's blocker 1: the Activity could never
+  sign anyone in, because the only page sat behind the session it was
+  supposed to create). Served by ``GET /`` when no valid session
+  cookie arrives, it loads the vendored Embedded App SDK from this
+  same origin (:data:`SDK_ROUTE`; the SDK ships in the package because
+  the CSP allows no external hosts), runs the SDK ``authorize()`` for
+  a one-time code, posts the code to ``POST /api/token``, and reloads
+  ``/`` — the session cookie the exchange sets then brings back
+  :data:`ACTIVITY_PAGE`. The bootstrap carries no stream name and no
+  feed: a leaked bootstrap URL teaches an attacker nothing, and only
+  the server-side allowlist exchange can mint a session.
 - :data:`ACTIVITY_PAGE` — the single self-contained page. It speaks
   go2rtc's MSE-over-WebSocket protocol on ``/api/ws`` (on MediaSource
   open it sends ``{"type": "mse", "value": [<codecs>]}``, the server
@@ -41,7 +53,8 @@ offline:
   ``GET /health`` answers openly (it reveals nothing: no stream name,
   no configuration). ``POST /api/token`` runs the code exchange and
   sets the session cookie. ``GET /`` serves the page only with a
-  valid session cookie and 403 otherwise. The default bind is
+  valid session cookie, and the sign-in bootstrap (above) without
+  one. The default bind is
   loopback; this module never publishes anything to the internet.
 - The feed itself — ``GET /api/ws`` (stage 4). go2rtc stays
   loopback-only and is never exposed raw: this server is the one
@@ -95,12 +108,14 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Mapping, Protocol
 
 from .live_stream import GO2RTC_STREAM_NAME, feed_stream_name
 
 __all__ = [
     "ACTIVITY_PAGE",
+    "BOOTSTRAP_PAGE",
     "CLIENT_SECRET_ENV",
     "DEFAULT_STREAM_NAME",
     "FEED_UPSTREAM",
@@ -110,11 +125,15 @@ __all__ = [
     "ActivityAuthError",
     "AuthResult",
     "OAuthTransport",
+    "SDK_ROUTE",
+    "SDK_VERSION",
     "UrllibOAuthTransport",
     "authenticate_code",
+    "bootstrap_page_for",
     "client_secret",
     "make_server",
     "make_session_token",
+    "sdk_bundle",
     "session_secret",
     "verify_session_token",
 ]
@@ -140,6 +159,48 @@ _MAX_TOKEN_BODY = 4096
 _PAGE_CSP = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
              "connect-src 'self' ws: wss:; media-src 'self' blob:; img-src 'self' data:; "
              "base-uri 'none'; form-action 'none'")
+
+#: The pinned Discord Embedded App SDK this server vendors and serves
+#: itself (docs/COMPONENTS.md). The Activity pages' CSP allows no
+#: external hosts, so the SDK can never be fetched from a CDN at
+#: runtime: the single-file bundle ships in the package beside this
+#: module and is served from SDK_ROUTE on this same origin. A bump
+#: replaces the bundle file whole at a new pin; nothing patches it.
+SDK_VERSION = "2.5.0"
+SDK_BUNDLE_FILE = "discord_embedded_app_sdk.js"
+SDK_ROUTE = "/sdk.js"
+# The bootstrap page's CSP: like the feed page's, plus 'self' as a
+# script source so the vendored SDK module may load from SDK_ROUTE.
+# Nothing external is allowed here either.
+_BOOTSTRAP_CSP = ("default-src 'none'; script-src 'self' 'unsafe-inline'; "
+                  "style-src 'unsafe-inline'; connect-src 'self'; "
+                  "img-src 'self' data:; base-uri 'none'; form-action 'none'")
+
+_sdk_bundle_cache = None
+
+
+def sdk_bundle() -> bytes:
+    """The vendored Embedded App SDK bundle, read once and cached.
+
+    Raises OSError when the bundle is missing (a broken package); the
+    handler turns that into a plain 500, because sign-in — never the
+    feed an existing session is watching — is what the bundle serves.
+    """
+    global _sdk_bundle_cache
+    if _sdk_bundle_cache is None:
+        _sdk_bundle_cache = Path(__file__).with_name(SDK_BUNDLE_FILE).read_bytes()
+    return _sdk_bundle_cache
+
+
+def bootstrap_page_for(client_id) -> str:
+    """BOOTSTRAP_PAGE with the deployment's Discord client ID filled in.
+
+    The client ID is a plain identifier (it is in every invite URL),
+    never a secret; it is substituted as a JSON string literal, the
+    same replace-don't-format pattern the feed page's stream name
+    uses, so an unexpected value cannot break out of the script.
+    """
+    return BOOTSTRAP_PAGE.replace("__CLIENT_ID_JSON__", json.dumps(str(client_id or "")))
 
 
 class ActivityAuthError(RuntimeError):
@@ -426,6 +487,98 @@ ACTIVITY_PAGE = """<!DOCTYPE html>
 """
 
 
+# --------------------------------------------------------------------- the sign-in bootstrap page
+
+# The one page served without a session (see the module docstring).
+# It deliberately contains no feed and no stream name, and the only
+# value the server fills in is the Discord client ID — a plain
+# identifier. The flow is the SDK's own: ready(), authorize() for a
+# one-time code with the identify scope (all the server's /users/@me
+# check needs), the code posted to /api/token, then a reload of / so
+# the session cookie set by the exchange serves the feed page. The
+# access token never comes back to this page: the server exchanges
+# the code itself and keeps the token server-side, exactly like the
+# rest of this module's auth design.
+BOOTSTRAP_PAGE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Print Handy live view</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 1rem; background: #1e1f22; color: #f2f3f5; }
+  #status { padding: 0.75rem; border: 1px solid #4e5058; border-radius: 6px; }
+</style>
+</head>
+<body>
+<h1>Printer live view</h1>
+<p id="status">Signing you in with Discord…</p>
+<script type="module">
+import { DiscordSDK } from "/sdk.js";
+
+var status = document.getElementById("status");
+function fail(message) { status.textContent = message; }
+var CLIENT_ID = __CLIENT_ID_JSON__;
+
+async function main() {
+  if (!CLIENT_ID) {
+    fail("This live view is not fully configured: the server has no Discord " +
+         "client ID. The operator needs to set DISCORD_CLIENT_ID and restart.");
+    return;
+  }
+  var sdk;
+  try {
+    sdk = new DiscordSDK(CLIENT_ID);
+    await sdk.ready();
+  } catch (e) {
+    fail("Open this page from the Print Handy activity inside the Discord " +
+         "voice channel — sign-in only works there.");
+    return;
+  }
+  var code;
+  try {
+    var auth = await sdk.commands.authorize({
+      client_id: CLIENT_ID,
+      response_type: "code",
+      state: "ph-live-signin",
+      prompt: "none",
+      scope: ["identify"]
+    });
+    code = auth.code;
+  } catch (e) {
+    fail("Discord did not hand over a sign-in code, so the live view cannot " +
+         "start. Close the activity and launch it again.");
+    return;
+  }
+  // The code is single-use and goes only to this server's own exchange
+  // endpoint — never into this page's text, a log, or anywhere else.
+  var res;
+  try {
+    res = await fetch("/api/token", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({code: code})
+    });
+  } catch (e) {
+    fail("The sign-in answer could not reach the Print Handy server. " +
+         "Check the tunnel is up, then launch the activity again.");
+    return;
+  }
+  if (!res.ok) {
+    fail("Print Handy refused this sign-in. Only accounts on the bot's " +
+         "allowlist can watch the live view.");
+    return;
+  }
+  window.location.replace("/" + window.location.search);
+}
+
+main();
+</script>
+</body>
+</html>
+"""
+
+
 # --------------------------------------------------------------------- the HTTP surface
 
 #: How often an idle relay direction re-checks its end conditions, and
@@ -508,19 +661,30 @@ def _pump(client, upstream, should_close=None):
 
 def make_handler(*, transport, allowlist, secret, page=ACTIVITY_PAGE, clock=time.time,
                  on_viewer=None, on_leave=None, feed_upstream=FEED_UPSTREAM,
-                 stream_name=DEFAULT_STREAM_NAME, session_active=None):
+                 stream_name=DEFAULT_STREAM_NAME, session_active=None,
+                 client_id="", bootstrap_page=BOOTSTRAP_PAGE):
     """A BaseHTTPRequestHandler class bound to the given auth pieces.
 
-    Routes: ``GET /health`` (open; reveals nothing), ``POST /api/token``
+    Routes: ``GET /health`` (open; reveals nothing), ``GET /sdk.js``
+    (the vendored Embedded App SDK bundle; open — it is public library
+    code and carries no configuration), ``POST /api/token``
     (the OAuth exchange; sets the session cookie on success, 403 on any
-    refusal), ``GET /`` (the page, with a valid session cookie only,
-    403 otherwise), ``POST /api/leave`` (the page's leave beacon; a
+    refusal), ``GET /`` (the feed page, with a valid session cookie
+    only; without one, the sign-in bootstrap page, which can do
+    nothing but run the authorize -> /api/token flow), ``POST
+    /api/leave`` (the page's leave beacon; a
     valid session cookie is required), ``GET /api/ws`` (the feed: a
     valid session cookie and the one published stream name required,
     then the WebSocket upgrade is proxied to go2rtc on loopback).
     Everything else is 404, and other methods are 405. Request logging
     is silenced: request lines can carry codes and cookies, and neither
     belongs in a log.
+
+    ``client_id`` is the Discord application ID the bootstrap page
+    hands the SDK's authorize call; the supervised entrypoint passes
+    the deployment's DISCORD_CLIENT_ID (live_gate). It is a plain
+    identifier, not a secret. Without it the bootstrap still serves
+    and its own flow reports the misconfiguration.
 
     ``on_viewer(user_id)`` / ``on_leave(user_id)`` are the stage 4
     presence callbacks: a successful exchange and every authenticated
@@ -546,6 +710,8 @@ def make_handler(*, transport, allowlist, secret, page=ACTIVITY_PAGE, clock=time
     supervised entrypoint always wires it).
     """
     served_page = page.replace('|| "camera"', f'|| "{stream_name}"')
+    served_bootstrap = bootstrap_page.replace("__CLIENT_ID_JSON__",
+                                              json.dumps(str(client_id or "")))
 
     def _session_live():
         if session_active is None:
@@ -691,12 +857,20 @@ def make_handler(*, transport, allowlist, secret, page=ACTIVITY_PAGE, clock=time
             if path == "/health":
                 self._json(200, {"ok": True, "service": "print-handy-live"})
                 return
+            if path == SDK_ROUTE:
+                try:
+                    bundle = sdk_bundle()
+                except OSError:
+                    self._json(500, {"ok": False,
+                                     "error": "the sign-in bundle is unavailable"})
+                    return
+                self._send(200, bundle, "text/javascript; charset=utf-8")
+                return
             if path == "/":
                 user_id = self._session_user()
                 if user_id is None:
-                    self._send(403, "Not authorised. Open the Print Handy activity "
-                                    "from the Discord voice channel and sign in there.",
-                               "text/plain; charset=utf-8")
+                    self._send(200, served_bootstrap, "text/html; charset=utf-8",
+                               extra=(("Content-Security-Policy", _BOOTSTRAP_CSP),))
                     return
                 _notify(on_viewer, user_id)
                 self._send(200, served_page, "text/html; charset=utf-8",
@@ -900,7 +1074,8 @@ def main(argv=None) -> int:
         allowlist=allowlist, secret=session_secret(),
         on_viewer=presence.note_viewer, on_leave=presence.note_leave,
         session_active=presence.is_live,
-        stream_name=stream_name)
+        stream_name=stream_name,
+        client_id=config.client_id)
     print(f"live activity: serving on 127.0.0.1:{config.port} "
           f"for {config.activity_origin} (stream {stream_name})")
     ticker = threading.Thread(target=_tick, daemon=True)

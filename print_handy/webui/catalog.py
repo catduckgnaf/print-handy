@@ -125,6 +125,7 @@ GROUP_OF = {
     "services.vision_chat_url": "images",
     "vision.model": "images",
     "vision.roast_enabled": "images",
+    "vision.roast_custom_bank": "images",
     "vision.local_detector_enabled": "images",
     "vision.local_model_path": "images",
     "vision.local_empty_enabled": "images",
@@ -411,6 +412,13 @@ CATALOG = (
            "request in chat (\"roast my last print\"), on every platform. "
            "On by default; it comes from the local roast corpus and needs no "
            "LLM or endpoint. Off turns roasts off without disabling camera checks.",
+           validator="settings vision check"),
+    _field("vision", "roast_custom_bank", "Roast custom bank", "text",
+           "Path to a JSON file of your own roast lines (#1002 Phase 4), "
+           "drawn alongside the shipped local corpus on completed prints. "
+           "Empty (the default) means no custom bank. Entries pass the "
+           "same validation as the shipped corpus; a file that cannot be "
+           "read is ignored with the problem named in the log.",
            validator="settings vision check"),
     _field("vision", "local_detector_enabled", "Local failure detector", "toggle",
            "Built-in ONNX failure detector for the camera watchdog (#455): "

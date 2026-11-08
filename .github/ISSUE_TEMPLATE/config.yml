@@ -1,5 +1,8 @@
 blank_issues_enabled: true
 contact_links:
+  - name: Print Handy Discord — support, chat and the live demo server
+    url: https://discord.gg/mT2Ht3nqZu
+    about: Ask questions and get help in the community Discord before opening an issue.
   - name: Project documentation
     url: https://github.com/catduckgnaf/print-handy/tree/main/docs
     about: Setup, configuration and printer guides live in the versioned docs — please check there before opening an issue.

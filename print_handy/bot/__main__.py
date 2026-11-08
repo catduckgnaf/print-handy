@@ -197,12 +197,23 @@ def checks(cfg):
     else:
         try:
             from ..core import roast as roast_engine
-            size = roast_engine.corpus_size()
+            # The operator's custom bank (#1002 Phase 4) counts toward the
+            # corpus when one is configured; its problems are named here
+            # as well as in the log, so a bad bank is visible, not silent.
+            custom_bank = str(vision.get("roast_custom_bank") or "").strip()
+            size = roast_engine.corpus_size(custom_bank or None)
+            problems = roast_engine.load_corpus(custom_bank or None)["custom_problems"] \
+                if custom_bank else []
         except Exception as exc:
             add("roast", False, f"on, but the local roast corpus could not be read ({exc})")
         else:
-            add("roast", True, f"on (local corpus, {size} lines, no LLM; "
-                               "set vision.roast_enabled=false to turn roasts off)")
+            if problems:
+                add("roast", False, f"on (local corpus, {size} lines, no LLM), but the "
+                                    f"custom roast bank named by vision.roast_custom_bank "
+                                    f"has problems: {problems[0]}")
+            else:
+                add("roast", True, f"on (local corpus, {size} lines, no LLM; "
+                                   "set vision.roast_enabled=false to turn roasts off)")
     # Local failure detector (#455): the built-in ONNX route for the camera
     # watchdog on installs with no vision endpoint. Off by default; when on
     # it judges frames only while no endpoint route is configured (endpoint
