@@ -50,11 +50,6 @@ class Endpoint:
             {"choices": [{"message": {"content": self.answer}}]}).encode())
 
 
-def _write(path, tris):
-    support_clearance._write_binary_stl(path, tris)
-    return path
-
-
 def _floating_box(path, underside=0.4, size=10.0):
     """A closed box whose underside floats ``underside`` mm over the plate."""
     import numpy as np
