@@ -281,7 +281,7 @@ class OverrideTests(unittest.TestCase):
             "design": {"enabled", "chat_url", "model", "api_key_env", "timeout_s", "repair_attempts"},
             "listener": {"tick_s", "ifs_presence_poll_s", "spool_nag_s", "start_claim_ttl_s"},
             "vision": {"model", "roast_enabled", "roast_custom_bank", "local_detector_enabled",
-                       "local_model_path", "local_empty_enabled",
+                       "local_model_path", "watch_source", "local_empty_enabled",
                        "auto_light_off_minutes", "light_object"},
             "spool": {"prompt_brand"},
             "visual_watch": {"enabled", "sensitivity", "early_layers", "early_interval_s", "auto_pause_early"},

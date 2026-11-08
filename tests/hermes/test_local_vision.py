@@ -9,6 +9,7 @@ contract — input [1, 3, H, W], outputs boxes [1, N, 1, 4] / confs
 band is reachable with a solid-colour frame. Downloads are faked at the
 urlopen seam; no test touches the network or the real 202 MB model.
 """
+import contextlib
 import copy
 import hashlib
 import io
@@ -389,6 +390,37 @@ def test_settings_reject_wrong_types(tmp_path):
         settings.load(home=settings.HOME, local=local, environ={})
 
 
+def test_settings_watch_source_default_env_and_validation(tmp_path):
+    data = settings.load(home=settings.HOME, local=False, environ={})
+    assert data["vision"]["watch_source"] == "auto"
+    env = {"PRINT_HANDY__VISION__WATCH_SOURCE": "Local"}
+    data = settings.load(home=settings.HOME, local=False, environ=env)
+    assert data["vision"]["watch_source"] == "local"  # stored normalized
+    local = tmp_path / "local.yaml"
+    local.write_text("vision:\n  watch_source: sometimes\n")
+    with pytest.raises(settings.SettingsError, match="watch_source"):
+        settings.load(home=settings.HOME, local=local, environ={})
+    local.write_text("vision:\n  watch_source: 42\n")
+    with pytest.raises(settings.SettingsError, match="watch_source"):
+        settings.load(home=settings.HOME, local=local, environ={})
+
+
+def test_watch_source_accessor_defaults_and_normalizes():
+    assert lv.watch_source(cfg_with()) == "auto"
+    assert lv.watch_source(cfg_with(watch_source="LOCAL")) == "local"
+    assert lv.watch_source(cfg_with(watch_source="bogus")) == "auto"
+    assert lv.watch_uses_detector(cfg_with()) is True
+    assert lv.watch_uses_detector(cfg_with(local_detector_enabled=False)) is False
+    assert lv.watch_uses_detector(
+        cfg_with(local_detector_enabled=False, watch_source="local")) is True
+
+
+def test_status_ready_when_watch_source_is_local_and_switch_off():
+    cfg = cfg_with(local_detector_enabled=False, watch_source="local")
+    state, detail = lv.detector_status(cfg)
+    assert state == "ready" and "present" in detail
+
+
 # --------------------------------------------------------------- verdict routing
 
 
@@ -496,6 +528,120 @@ def test_visual_extract_never_uses_the_local_detector(monkeypatch, process_cfg):
                                chat_url=lambda: "", model="m",
                                api_key=lambda: "", context="")
     assert result is None and consulted == []
+
+
+# ------------------------------------------------- watch_source (#455)
+
+
+@contextlib.contextmanager
+def _watch_cfg(**vision):
+    """Process config with the given [vision] overrides, restored after."""
+    previous = copy.deepcopy(_config.cfg())
+    data = copy.deepcopy(previous)
+    data["vision"].update(vision)
+    _config.set_override(data)
+    try:
+        yield data
+    finally:
+        _config.set_override(previous)
+
+
+def test_local_source_never_calls_an_endpoint(monkeypatch):
+    """watch_source=local: PRINT_VISION_URL and a working chat endpoint
+    are both configured, yet the detector judges and no HTTP call is made."""
+    monkeypatch.setenv("PRINT_VISION_URL", "http://detector.invalid/judge")
+    calls = []
+
+    def counting_urlopen(request, timeout=None):
+        calls.append(1)
+        return _url_response()
+
+    monkeypatch.setattr("urllib.request.urlopen", counting_urlopen)
+    with _watch_cfg(local_detector_enabled=True, local_model_path=str(FIXTURE),
+                    watch_source="local"):
+        verdict, detail = _verdict(
+            frame(235), chat_url=lambda: "http://vision.invalid/v1/chat/completions",
+            api_key=lambda: "key")
+    assert verdict == "spaghetti" and "local failure detector" in detail
+    assert calls == []
+
+
+def test_local_source_counts_as_enabling_the_detector_for_the_watch():
+    with _watch_cfg(local_detector_enabled=False, local_model_path=str(FIXTURE),
+                    watch_source="local"):
+        verdict, detail = _verdict(frame(235))
+    assert verdict == "spaghetti" and "local failure detector" in detail
+
+
+def test_local_source_detector_failure_degrades_generically(monkeypatch):
+    monkeypatch.setattr(lv, "_ort_error", RuntimeError("no runtime"))
+    with _watch_cfg(local_detector_enabled=True, local_model_path=str(FIXTURE),
+                    watch_source="local"):
+        verdict, detail = _verdict(frame(235))
+    assert (verdict, detail) == ("uncertain", "the vision check could not be completed")
+
+
+def test_endpoint_source_missing_key_never_consults_the_detector(monkeypatch):
+    consulted = []
+    monkeypatch.setattr(lv, "local_verdict",
+                        lambda image, streak=None: consulted.append(1) or ("spaghetti", "local"))
+    with _watch_cfg(local_detector_enabled=True, local_model_path=str(FIXTURE),
+                    watch_source="endpoint"):
+        verdict, detail = _verdict(frame(235))
+    assert (verdict, detail) == ("uncertain", "vision key is not configured")
+    assert consulted == []
+
+
+def test_endpoint_source_failed_endpoint_never_falls_back(monkeypatch):
+    """Endpoint mode suppresses even the #913 early-layer fallback."""
+    monkeypatch.setattr(vw._config, "service_url",
+                        lambda key: "http://vision.invalid/v1" if key == "vision_chat_url" else "")
+
+    def failing_urlopen(request, timeout=None):
+        raise OSError("endpoint down")
+
+    monkeypatch.setattr("urllib.request.urlopen", failing_urlopen)
+    consulted = []
+    monkeypatch.setattr(lv, "local_verdict",
+                        lambda image, streak=None: consulted.append(1) or ("spaghetti", "local"))
+    with _watch_cfg(local_detector_enabled=True, local_model_path=str(FIXTURE),
+                    watch_source="endpoint"):
+        verdict, detail = _verdict(
+            frame(235), chat_url=lambda: "http://vision.invalid/v1/chat/completions",
+            api_key=lambda: "key", local_fallback=True)
+    assert (verdict, detail) == ("uncertain", "the vision check could not be completed")
+    assert consulted == []
+
+
+def test_endpoint_source_uses_the_endpoint_when_it_answers(monkeypatch):
+    monkeypatch.setattr("urllib.request.urlopen",
+                        lambda request, timeout=None: _chat_response())
+    with _watch_cfg(local_detector_enabled=True, local_model_path=str(FIXTURE),
+                    watch_source="endpoint"):
+        verdict, detail = _verdict(
+            frame(235), chat_url=lambda: "http://vision.invalid/v1/chat/completions",
+            api_key=lambda: "key")
+    assert (verdict, detail) == ("ok", "chat endpoint")
+
+
+def test_vision_ready_follows_watch_source(monkeypatch):
+    # local: detector readiness is the whole gate — and the pin counts
+    # as enabling the detector for the watch (switch off still ready).
+    with _watch_cfg(local_detector_enabled=False, local_model_path=str(FIXTURE),
+                    watch_source="local"):
+        assert vw.vision_ready(lambda: "") is True
+    # endpoint: the detector alone never makes the watch ready.
+    monkeypatch.setattr(vw._config, "service_url", lambda key: "")
+    with _watch_cfg(local_detector_enabled=True, local_model_path=str(FIXTURE),
+                    watch_source="endpoint"):
+        assert vw.vision_ready(lambda: "key") is False
+    # local with a model path that cannot even be checked: not ready.
+    with _watch_cfg(local_detector_enabled=True,
+                    local_model_path="/nonexistent-dir-455/model.onnx",
+                    watch_source="local"):
+        monkeypatch.setattr(lv, "detector_status",
+                            lambda cfg=None: ("unavailable", "no runtime"))
+        assert vw.vision_ready(lambda: "") is False
 
 
 # --------------------------------------------------------------- temporal escalation

@@ -450,46 +450,6 @@ class NativeBoundsStageTests(unittest.TestCase):
         self.assertNotIn("rustup", runtime)
 
 
-class OrtFlavorStageTests(unittest.TestCase):
-    """GPU inference flavors for the local detector (#455): ORT_FLAVOR
-    swaps the runtime stage's ONNX Runtime distribution after the plain
-    install; the published image builds with the default (cpu), which
-    must stay a literal no-op."""
-
-    def runtime(self):
-        return DOCKERFILE.split("FROM debian:13-slim AS runtime", 1)[1]
-
-    def test_flavor_arg_defaults_to_cpu_in_the_runtime_stage(self):
-        self.assertIn("ARG ORT_FLAVOR=cpu", self.runtime())
-
-    def test_cpu_branch_is_a_noop_and_unknown_flavors_refuse(self):
-        runtime = self.runtime()
-        self.assertIn("cpu) ;;", runtime)
-        self.assertIn("*) echo 'ORT_FLAVOR must be cpu, openvino or cuda' >&2; exit 2 ;;", runtime)
-        # The flavor step runs after the plain install it modifies.
-        self.assertLess(runtime.index("pip install --no-cache-dir ."),
-                        runtime.index('case "$ORT_FLAVOR" in'))
-
-    def test_openvino_flavor_is_amd64_only_and_pinned(self):
-        runtime = self.runtime()
-        self.assertIn('if [ "$TARGETARCH" != "amd64" ]', runtime)
-        self.assertIn("onnxruntime-openvino publishes no arm64 wheel", runtime)
-        self.assertIn('pip install --no-cache-dir "onnxruntime-openvino==1.24.1"', runtime)
-        self.assertIn("libonnxruntime_providers_openvino.so", runtime)
-
-    def test_cuda_flavor_is_pinned_with_its_runtime_extras(self):
-        runtime = self.runtime()
-        self.assertIn('pip install --no-cache-dir "onnxruntime-gpu[cuda,cudnn]==1.31.1"', runtime)
-        self.assertIn("libonnxruntime_providers_cuda.so", runtime)
-
-    def test_flavors_swap_the_distribution_the_plain_install_brought(self):
-        runtime = self.runtime()
-        # Both flavors uninstall the CPU distribution before installing
-        # theirs — the two distributions ship the same module and must
-        # never coexist.
-        self.assertEqual(runtime.count("pip uninstall -y onnxruntime"), 2)
-
-
 class ContainerTimezoneTests(unittest.TestCase):
     """TZ: the image carries a default container timezone (America/New_York)
     that Compose, .env.example, the Unraid template and the docs all expose,

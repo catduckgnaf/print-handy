@@ -252,16 +252,37 @@ def vision_ready(api_key, log=None):
     """True when a frame can actually be judged: PRINT_VISION_URL, vision_chat_url with
     its key, or the built-in local failure detector (#455).
 
+    ``vision.watch_source`` narrows what counts (#455): "local" counts
+    the detector (plus a calibrated plate reference for the idle checks,
+    as below), "endpoint" counts only the endpoint routes, and
+    "auto" (the default) counts any of them.
+
     Without one, every verdict degrades to "uncertain", and "uncertain"
     alerts, so the watch would post a false alert at every check. The
     watch stays off instead, as docs/DOCKER.md describes, and says so once.
     """
     global _vision_missing_logged
+    source = local_vision.watch_source()
+    if source == "local":
+        if local_vision.detector_ready():
+            return True
+        if local_empty.reference_ready():
+            # Stage 1 (#455): a calibrated plate reference can answer the
+            # idle checks the idle consumers gate on here, even when the
+            # detector is not ready; the in-print watch under "local"
+            # still judges with the detector only.
+            return True
+        if log is not None and not _vision_missing_logged:
+            _vision_missing_logged = True
+            log("camera watch skipped: vision.watch_source is local but the local "
+                "failure detector is not ready (see the local detector row in "
+                "bot check)")
+        return False
     if os.environ.get("PRINT_VISION_URL"):
         return True
     if (ai_routes.overrides_route("small") or _config.service_url("vision_chat_url")) and chat_key_ready(api_key):
         return True
-    if local_vision.detector_ready():
+    if source == "auto" and local_vision.detector_ready():
         return True
     if local_empty.reference_ready():
         # Stage 1 (#455): a calibrated plate reference can answer idle
@@ -269,10 +290,16 @@ def vision_ready(api_key, log=None):
         return True
     if log is not None and not _vision_missing_logged:
         _vision_missing_logged = True
-        log("camera watch skipped: no vision endpoint (set services.vision_chat_url with "
-            "CLIPROXY_API_KEY, which a local or LAN endpoint does not need, or "
-            "PRINT_VISION_URL, or enable the local detector with "
-            "vision.local_detector_enabled)")
+        if source == "endpoint":
+            log("camera watch skipped: vision.watch_source is endpoint but no vision "
+                "endpoint is configured (set services.vision_chat_url with "
+                "CLIPROXY_API_KEY, which a local or LAN endpoint does not need, or "
+                "PRINT_VISION_URL)")
+        else:
+            log("camera watch skipped: no vision endpoint (set services.vision_chat_url with "
+                "CLIPROXY_API_KEY, which a local or LAN endpoint does not need, or "
+                "PRINT_VISION_URL, or enable the local detector with "
+                "vision.local_detector_enabled)")
     return False
 
 
@@ -328,28 +355,34 @@ def _vision_answer(image, prompt, *, chat_url, model, api_key, context):
         return content
 
 
-def _local_verdict(image, streak=None):
-    """The built-in local detector's verdict (#455), or None when it is not enabled.
+def _detector_verdict(image, streak=None):
+    """The built-in local detector's verdict (#455), fail-soft.
 
-    Consulted only when no endpoint route is configured — the endpoint
-    routes keep their precedence untouched, and a configured-but-failing
-    endpoint still degrades generically rather than falling through. The
-    detector's own failures degrade exactly like a broken endpoint's:
-    ("uncertain", ...) with the real error logged.
-
-    ``streak`` is the calling print watch's per-print
-    :class:`local_vision.FailureStreak` (temporal escalation); callers
-    that are not a print watch (idle plate checks) pass none and get
-    single-frame verdicts.
+    The detector's own failures degrade exactly like a broken endpoint's:
+    ("uncertain", ...) with the real error logged. ``streak`` is the
+    calling print watch's per-print :class:`local_vision.FailureStreak`
+    (temporal escalation); callers that are not a print watch (idle plate
+    checks) pass none and get single-frame verdicts.
     """
-    if not local_vision.enabled():
-        return None
     try:
         return local_vision.local_verdict(image, streak=streak)
     except Exception as exc:
         logger.warning("vision check failed via local detector: %s: %s",
                        type(exc).__name__, exc)
         return "uncertain", "the vision check could not be completed"
+
+
+def _local_verdict(image, streak=None):
+    """The local detector as the auto route's stand-in (#455), or None
+    when the detector is not enabled.
+
+    Consulted only when no endpoint route is configured — the endpoint
+    routes keep their precedence untouched, and a configured-but-failing
+    endpoint still degrades generically rather than falling through.
+    """
+    if not local_vision.enabled():
+        return None
+    return _detector_verdict(image, streak)
 
 
 def _chat_route_configured(api_key):
@@ -409,6 +442,11 @@ def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_st
     ``local_fallback`` (early-layer mode, #913) lets a failed configured
     endpoint fall back to the local detector when its model is present.
 
+    ``vision.watch_source`` overrides the route order (#455): "local"
+    judges with the detector directly and never calls an endpoint;
+    "endpoint" never consults the detector for the watch (including the
+    #913 fallback); "auto" (the default) is the order above.
+
     ``idle`` marks an idle plate check (the auto light-off and
     next-plate consumers). Only an idle call may be answered by the
     Stage 1 plate-reference producer (``local_empty``), and only at the
@@ -417,6 +455,13 @@ def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_st
     watch (which never passes ``idle``) can never receive a local
     ``empty_idle``.
     """
+    source = local_vision.watch_source()
+    if source == "local":
+        if idle:
+            empty = local_empty.idle_verdict(image)
+            if empty is not None:
+                return empty
+        return _detector_verdict(image, local_streak)
     endpoint = os.environ.get("PRINT_VISION_URL")
     try:
         parsed = _vision_answer(image, prompt, chat_url=chat_url, model=model,
@@ -424,20 +469,7 @@ def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_st
         if not isinstance(parsed, dict):
             raise TypeError(f"vision answer is not a JSON object ({type(parsed).__name__})")
     except _VisionKeyMissing:
-        if idle:
-            empty = local_empty.idle_verdict(image)
-            if empty is not None:
-                return empty
-        local = _local_verdict(image, local_streak)
-        if local is not None:
-            return local
-        return "uncertain", "vision key is not configured"
-    except Exception as exc:
-        # The chat route can also fail simply by being half-configured
-        # (its URL unset raises inside the call when a key exists): that
-        # is "no endpoint route configured", so the local detector stands
-        # in. A configured endpoint that fails does NOT fall through.
-        if not endpoint and not _chat_route_configured(api_key):
+        if source == "auto":
             if idle:
                 empty = local_empty.idle_verdict(image)
                 if empty is not None:
@@ -445,7 +477,22 @@ def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_st
             local = _local_verdict(image, local_streak)
             if local is not None:
                 return local
-        elif local_fallback:
+        return "uncertain", "vision key is not configured"
+    except Exception as exc:
+        # The chat route can also fail simply by being half-configured
+        # (its URL unset raises inside the call when a key exists): that
+        # is "no endpoint route configured", so the local detector stands
+        # in (auto source only — "endpoint" never consults it). A
+        # configured endpoint that fails does NOT fall through.
+        if source == "auto" and not endpoint and not _chat_route_configured(api_key):
+            if idle:
+                empty = local_empty.idle_verdict(image)
+                if empty is not None:
+                    return empty
+            local = _local_verdict(image, local_streak)
+            if local is not None:
+                return local
+        elif local_fallback and source == "auto":
             # #913: in early-layer mode a failed or timed-out endpoint call
             # falls back to the local detector when its model is present.
             logger.warning("vision check failed via %s: %s: %s; trying the local detector",

@@ -38,6 +38,7 @@ def without_added(data):
         data.get("vision", {}).pop(key, None)
     for key in ("local_detector_enabled", "local_model_path", "local_empty_enabled"):  # added by #455, after capture
         data.get("vision", {}).pop(key, None)
+    data.get("vision", {}).pop("watch_source", None)  # added by #455's verdict source, after capture
     for key in ("vertical_short", "vertical_short_mode", "vertical_short_overlay"):  # added by #317, after capture
         data.get("timelapse", {}).pop(key, None)
     data.get("timelapse", {}).pop("mode_explicit", None)  # added by the P2-261 fix (Codex backlog burn-down), after capture

@@ -290,14 +290,7 @@ The selection, the device checks, the named fallback notes and the CPU fallback 
 
 #### GPU and the local failure detector
 
-Passing a GPU through accelerates **encoding only** in the published image. The local failure detector (`vision.local_detector_enabled`, #455) runs on ONNX Runtime, and the published image installs the PyPI `onnxruntime` wheel, which is the CPU build. The detector's provider selection uses CUDA, TensorRT, OpenVINO, CoreML, DirectML or ROCm when the installed build offers them, in that preference order, but the published build never does. When a GPU device is visible and the build is CPU-only, `bot check`'s **local detector** row says so. On CPU, one check of the pinned model takes roughly 0.2–0.3 s, and the watchdog checks only every few minutes, so CPU detection works without a GPU.
-
-To run the detector on a GPU, build the image yourself with the `ORT_FLAVOR` build argument, which swaps the ONNX Runtime distribution after the normal install (the default, `cpu`, changes nothing):
-
-- `docker build --build-arg ORT_FLAVOR=openvino .` — Intel iGPU/Arc inference through the same `/dev/dri` passthrough as VAAPI encoding. **amd64 only**: `onnxruntime-openvino` publishes no arm64 wheel, and the build refuses other architectures rather than failing in pip. Its newest published build (1.24.1) trails the CPU/CUDA line; the pin in the Dockerfile names it.
-- `docker build --build-arg ORT_FLAVOR=cuda .` — NVIDIA inference. The flavor carries its CUDA/cuDNN user-space libraries; the host driver still comes from the NVIDIA runtime, so grant a GPU the same way as for NVENC. The image is large (the CUDA libraries are gigabytes) — it is a separate build, never the published one.
-
-Each flavor proves itself during the build (the provider bridge library it must ship is asserted), and the manual Docker image validation workflow takes the flavor as an input. **GPU inference is not verified on real hardware**: no project host with a GPU has run a flavor build yet, so treat it as wired and build-checked, with the first accelerated run still owed — the same status GPU encoding had when it landed.
+Passing a GPU through accelerates **encoding only** today. The local failure detector (`vision.local_detector_enabled`, #455) runs on ONNX Runtime, and the image installs the PyPI `onnxruntime` wheel, which is the CPU build. The detector's provider selection would use CUDA, OpenVINO or ROCm if the installed build offered them, but this image's build never does. When a GPU device is visible and the build is CPU-only, `bot check`'s **local detector** row says so. On CPU, one check of the pinned model takes roughly 0.2–0.3 s, and the watchdog checks only every few minutes, so CPU detection works without a GPU. GPU inference builds are a later #455 stage.
 
 ## First-run configuration
 

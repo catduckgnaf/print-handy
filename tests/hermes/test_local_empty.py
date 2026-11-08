@@ -229,9 +229,12 @@ def test_visual_verdict_idle_consults_the_reference_when_no_endpoint_route(
 
 def test_visual_verdict_print_watch_never_consults_the_reference(cfg, monkeypatch):
     """The in-print path (no idle flag) stays endpoint/detector-only:
-    Stage 1 wires idle consumers only."""
+    Stage 1 wires idle consumers only. The fixture pins
+    watch_source "local", whose route is the detector seam
+    (_detector_verdict); had the reference been consulted, the
+    calibrated EMPTY frame would have answered "empty_idle"."""
     calibrate(cfg)
-    monkeypatch.setattr(vw, "_local_verdict",
+    monkeypatch.setattr(vw, "_detector_verdict",
                         lambda image, streak=None: ("uncertain", "no route"))
     monkeypatch.delenv("PRINT_VISION_URL", raising=False)
     monkeypatch.setattr(vw.ai_routes, "overrides_route", lambda tier: False)

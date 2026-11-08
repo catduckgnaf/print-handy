@@ -15,11 +15,6 @@ on:
         type: choice
         options: [development, stable]
         default: development
-      ort_flavor:
-        description: ONNX Runtime flavor for the local failure detector (#455); openvino is amd64-only
-        type: choice
-        options: [cpu, openvino, cuda]
-        default: cpu
       architecture:
         description: Target architecture (built on the matching native runner, never emulated)
         type: choice
@@ -47,7 +42,6 @@ jobs:
       IMAGE: print-handy-validation:${{ github.run_id }}-${{ github.run_attempt }}
       # Inputs reach the shell only as environment variables, never interpolated into scripts.
       APP_CHANNEL: ${{ inputs.app_channel }}
-      ORT_FLAVOR: ${{ inputs.ort_flavor }}
       ARCHITECTURE: ${{ inputs.architecture }}
       PLATFORM: ${{ inputs.architecture == 'arm64' && 'linux/arm64' || 'linux/amd64' }}
       # One image is published (#353): the full image, WITH_ORCA=true and
@@ -72,7 +66,7 @@ jobs:
           [ "$(grep -cE 'asset_(amd64|arm64)=' docker/orca-prebuilt.sh)" = 2 ] || { echo "expected two pinned Orca assets (one build x two architectures)"; exit 1; }
           mkdir -p evidence
           { echo "source_sha=$GITHUB_SHA"; grep -E 'version=|revision=|sha256_|asset_' docker/orca-prebuilt.sh
-            echo "app_channel=$APP_CHANNEL architecture=$ARCHITECTURE platform=$PLATFORM with_orca=$WITH_ORCA with_go2rtc=$WITH_GO2RTC with_bambu=$WITH_BAMBU spoolman=$SPOOLMAN_MODE ort_flavor=$ORT_FLAVOR"
+            echo "app_channel=$APP_CHANNEL architecture=$ARCHITECTURE platform=$PLATFORM with_orca=$WITH_ORCA with_go2rtc=$WITH_GO2RTC with_bambu=$WITH_BAMBU spoolman=$SPOOLMAN_MODE"
           } | tee evidence/pins.txt
       - name: Free runner disk
         run: |
@@ -88,7 +82,6 @@ jobs:
           start=$(date -u +%FT%TZ)
           docker buildx build --platform "$PLATFORM" --progress=plain --load -t "$IMAGE" \
             --build-arg "APP_CHANNEL=$APP_CHANNEL" \
-            --build-arg "ORT_FLAVOR=$ORT_FLAVOR" \
             --build-arg "WITH_ORCA=$WITH_ORCA" \
             --build-arg "WITH_GO2RTC=$WITH_GO2RTC" \
             --build-arg "WITH_BAMBU=$WITH_BAMBU" \

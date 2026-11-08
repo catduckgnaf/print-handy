@@ -43,6 +43,8 @@ services:
       # pinned model (~202 MB) downloads once into /data/state/models.
       PRINT_HANDY__VISION__LOCAL_DETECTOR_ENABLED: ${PRINT_HANDY__VISION__LOCAL_DETECTOR_ENABLED:-false}
       PRINT_HANDY__VISION__LOCAL_MODEL_PATH: ${PRINT_HANDY__VISION__LOCAL_MODEL_PATH:-}
+      # Watchdog verdict source (#455): auto, endpoint or local.
+      PRINT_HANDY__VISION__WATCH_SOURCE: ${PRINT_HANDY__VISION__WATCH_SOURCE:-auto}
       # Local empty-plate reference (#455): idle empty-plate checks can
       # compare the camera frame against a reference photo captured once
       # with /print-plate-calibrate. Off by default.
