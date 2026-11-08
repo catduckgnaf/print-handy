@@ -1732,7 +1732,17 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     cfg_host, cfg_port, _token = check_start(data, environ)
     bind_host = cfg_host if host is None else host
     bind_port = cfg_port if port is None else int(port)
-    server = ThreadingHTTPServer((bind_host, bind_port), _Handler)
+    try:
+        server = ThreadingHTTPServer((bind_host, bind_port), _Handler)
+    except OSError as exc:
+        # A bind failure (port already in use, address not available) is a
+        # start refusal like the ones check_start raises: name it the same
+        # way, so serve() prints it and exits 2 instead of dying with a raw
+        # OSError traceback (#1042).
+        raise WebUIServerError(
+            f"webui: not started: could not bind {bind_host}:{bind_port} "
+            f"({exc.strerror or exc}); another process may already be using "
+            "that port — stop it or set a different [webui] port") from exc
     server.settings_data = data
     setattr(server, "cookie_secure", bool((data or {}).get("webui", {}).get("cookie_secure", False)))
     server.access = access_module.resolve(data, bind_host, environ)
