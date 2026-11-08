@@ -893,6 +893,82 @@ class OrcaPlanning(unittest.TestCase):
         self.assertEqual(pin.version, "2.5.0-rc")
 
 
+class OrcaPluginTripwire(unittest.TestCase):
+    """The #1087 tripwire: an Orca bump stops if the upstream CLI
+    entry point ever starts loading plugins."""
+
+    CLEAN = (
+        "// OrcaSlicer CLI entry point\n"
+        "static bool start_gui = false;\n"
+        "// plugins are a GUI concern; the orca_plugins folder is data-dir state\n"
+        "int CLI::run(int argc, char** argv) { return 0; }\n"
+    )
+    POISONED = (
+        "// OrcaSlicer CLI entry point\n"
+        "#include \"slic3r/plugin/PluginManager.hpp\"\n"
+        "int CLI::run(int argc, char** argv) {\n"
+        "    PluginManager::initialize();\n"
+        "    plugin_hooks::install();\n"
+        "    return 0;\n"
+        "}\n"
+    )
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = fixture_root(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def api_for(self, releases, commit="e" * 40):
+        commits = {(bump.ORCA_REPO, release.tag): commit for release in releases}
+        return FakeApi(release_lists={bump.ORCA_REPO: releases}, commits=commits)
+
+    def test_references_carry_line_numbers(self):
+        self.assertEqual(
+            bump.cli_plugin_references(self.POISONED),
+            [(2, "PluginManager"), (4, "PluginManager"), (5, "plugin_hooks")],
+        )
+
+    def test_plugin_prose_alone_stays_silent(self):
+        # Paths and comments that merely mention plugins contain
+        # neither token; the tripwire must not fire on them.
+        self.assertEqual(bump.cli_plugin_references(self.CLEAN), [])
+
+    def test_verify_raises_for_a_plugin_loading_cli(self):
+        with self.assertRaises(bump.BumpError):
+            bump.verify_orca_cli_source(self.POISONED, "f" * 40)
+
+    def test_verify_reports_a_clean_cli(self):
+        line = bump.verify_orca_cli_source(self.CLEAN, "f" * 40)
+        self.assertIn("tripwire", line)
+
+    def test_plan_stops_before_the_bundle_download(self):
+        calls = []
+        releases = [make_orca_release("2.5.0", assets=orca_assets("2.5.0"))]
+        with self.assertRaises(bump.BumpError):
+            bump.plan_orca(
+                self.root, self.api_for(releases), NOW,
+                fetcher=fake_orca_fetcher(calls),
+                source_fetcher=fake_orca_source_fetcher([]),
+                sweeper=lambda root, tree, packed: matched_sweep(),
+                cli_source_fetcher=lambda api, revision: self.POISONED,
+            )
+        self.assertEqual(calls, [])
+
+    def test_plan_provenance_records_the_tripwire(self):
+        releases = [make_orca_release("2.5.0", assets=orca_assets("2.5.0"))]
+        plan = bump.plan_orca(
+            self.root, self.api_for(releases), NOW,
+            fetcher=fake_orca_fetcher([]),
+            source_fetcher=fake_orca_source_fetcher([]),
+            sweeper=lambda root, tree, packed: matched_sweep(),
+            cli_source_fetcher=lambda api, revision: self.CLEAN,
+        )
+        self.assertEqual(plan.action, "bump")
+        self.assertTrue(any("tripwire" in line for line in plan.provenance))
+
+
 class OrcaVerifyIdentities(unittest.TestCase):
     def test_all_matched_summarizes(self):
         lines = bump.verify_orca_identities(matched_sweep())

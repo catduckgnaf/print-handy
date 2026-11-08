@@ -190,3 +190,47 @@ def test_dedicated_support_filament_never_points_past_the_plates_one_filament(tm
     assert out["support_interface_filament"] == job["support_interface_filament"] == "0"
     assert len(out["filament_colour"]) == 1
     assert job["enable_support"] == "1"  # the author's supports stay on, in the plate's filament
+
+
+def _adopted_project(tmp_path, project, job=None):
+    path = tmp_path / "imported.3mf"
+    write_3mf(path, [("Base", 1, box(30, 30, 10), (60, 60))], [("Plate 1", [0])], PALETTE,
+              project_extra=project)
+    changed = orca_adapter.adopt_job_settings(path, job or {"curr_bed_type": "Cool Plate"})
+    with zipfile.ZipFile(path) as archive:
+        adopted = json.loads(archive.read("Metadata/project_settings.config"))
+    return adopted, changed
+
+
+def test_plugin_keys_are_stripped_from_an_imported_project(tmp_path):
+    # #1087 insurance: Orca's CLI never loads plugins today, but an
+    # imported project naming a slicing-pipeline plugin has both
+    # plugin keys removed at intake, so a future CLI that does load
+    # them finds nothing to load.
+    project = dict(FOREIGN, slicing_pipeline_plugin="acme.plugin:SlicingPipeline",
+                   plugins="acme.plugin")
+    adopted, changed = _adopted_project(tmp_path, project)
+    assert "slicing_pipeline_plugin" not in adopted
+    assert "plugins" not in adopted
+    assert changed["slicing_pipeline_plugin"] == ["acme.plugin:SlicingPipeline", None]
+    assert changed["plugins"] == ["acme.plugin", None]
+    # Ordinary author intent the job does not set is not foreign; it survives.
+    assert adopted["sparse_infill_pattern"] == FOREIGN["sparse_infill_pattern"]
+    assert adopted["wall_loops"] == FOREIGN["wall_loops"]
+
+
+def test_plugin_keys_are_stripped_from_plate_overrides(tmp_path):
+    source = foreign_source(tmp_path / "source.3mf")
+    with zipfile.ZipFile(source) as archive:
+        entries = {info.filename: archive.read(info) for info in archive.infolist()}
+    settings = entries["Metadata/model_settings.config"].decode()
+    settings = settings.replace(
+        "<plate>", '<plate><metadata key="slicing_pipeline_plugin" value="acme.plugin"/>', 1)
+    entries["Metadata/model_settings.config"] = settings.encode()
+    with zipfile.ZipFile(source, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, data in entries.items():
+            archive.writestr(name, data)
+    orca_adapter.adopt_job_settings(source, {"curr_bed_type": "Cool Plate"})
+    with zipfile.ZipFile(source) as archive:
+        adopted = archive.read("Metadata/model_settings.config").decode()
+    assert "slicing_pipeline_plugin" not in adopted
