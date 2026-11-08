@@ -1,14 +1,9 @@
 {
  "_about": "Keyword (matched through core.fuzzy, typo tolerant) -> lines about that kind of object.",
- "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022)",
  "_license": "Original to Print Handy; MIT with the project.",
  "entries": {
   "benchy": [
-   {
-    "id": "title-benchy-ah-title-the-little-boat",
-    "family": "title-benchy",
-    "text": "Ah, {title} — the little boat that judges every printer and finds most of them merely adequate."
-   },
    {
     "id": "title-benchy-title-has-docked-at-last",
     "family": "title-benchy",
@@ -18,6 +13,16 @@
     "id": "title-benchy-every-printer-must-face-title",
     "family": "title-benchy",
     "text": "Every printer must face {title} eventually, like a tiny floating exam with a smokestack."
+   },
+   {
+    "id": "title-benchy-ah-title-the-tiny-boat",
+    "family": "title-benchy",
+    "text": "Ah, {title}, the tiny boat that judges your printer and finds it merely adequate."
+   },
+   {
+    "id": "title-benchy-title-is-four-grams-of",
+    "family": "title-benchy",
+    "text": "{title} is four grams of plastic sailing into your drawer of forgotten test prints."
    }
   ],
   "box": [
@@ -32,9 +37,14 @@
     "text": "A fresh {title} joins the eternal quest to put things inside other things, neatly."
    },
    {
-    "id": "title-box-title-is-empty-right-now",
+    "id": "title-box-title-is-empty-now-but",
     "family": "title-box",
-    "text": "{title} is empty right now, but give it a week and it will contain pure mystery."
+    "text": "{title} is empty now, but give it a week to collect pure clutter."
+   },
+   {
+    "id": "title-box-title-exists-solely-so-you",
+    "family": "title-box",
+    "text": "{title} exists solely so you can organize plastic junk inside slightly newer plastic junk."
    }
   ],
   "bracket": [
@@ -52,14 +62,14 @@
     "id": "title-bracket-title-the-unsung-hero-whose",
     "family": "title-bracket",
     "text": "{title}: the unsung hero whose entire personality is two holes and quiet reliability."
+   },
+   {
+    "id": "title-bracket-title-took-hours-to-print",
+    "family": "title-bracket",
+    "text": "{title} took hours to print and will instantly shear along the first weak layer line."
    }
   ],
   "dragon": [
-   {
-    "id": "title-dragon-title-has-hatched-and-it",
-    "family": "title-dragon",
-    "text": "{title} has hatched, and it is already acting like it owns the treasure and the shelf."
-   },
    {
     "id": "title-dragon-behold-title-a-fearsome-dragon",
     "family": "title-dragon",
@@ -69,6 +79,16 @@
     "id": "title-dragon-title-arrived-with-wings-attitude",
     "family": "title-dragon",
     "text": "{title} arrived with wings, attitude, and absolutely no plans to guard anything but the desk."
+   },
+   {
+    "id": "title-dragon-title-has-hatched-already-acting",
+    "family": "title-dragon",
+    "text": "{title} has hatched, already acting like it owns your shelf and all your filament."
+   },
+   {
+    "id": "title-dragon-title-is-fifty-articulated-joints",
+    "family": "title-dragon",
+    "text": "{title} is fifty articulated joints destined to collect dust until human civilization crumbles."
    }
   ],
   "gear": [
@@ -86,6 +106,11 @@
     "id": "title-gear-title-has-teeth-purpose-and",
     "family": "title-gear",
     "text": "{title} has teeth, purpose, and strong opinions about meshing with its neighbors."
+   },
+   {
+    "id": "title-gear-title-will-spin-happily-until",
+    "family": "title-gear",
+    "text": "{title} will spin happily until friction and poor tolerances reduce its teeth to plastic shavings."
    }
   ],
   "helmet": [
@@ -103,14 +128,14 @@
     "id": "title-helmet-title-looks-ready-for-battle",
     "family": "title-helmet",
     "text": "{title} looks ready for battle, provided the battle is indoors and mostly posing."
+   },
+   {
+    "id": "title-helmet-title-will-bravely-protect-you",
+    "family": "title-helmet",
+    "text": "{title} will bravely protect you from imaginary blows while resting on a dusty dresser forever."
    }
   ],
   "hook": [
-   {
-    "id": "title-hook-title-is-small-curved-and",
-    "family": "title-hook",
-    "text": "{title} is small, curved, and about to carry far more responsibility than it signed up for."
-   },
    {
     "id": "title-hook-behold-title-the-tiny-wall",
     "family": "title-hook",
@@ -120,6 +145,16 @@
     "id": "title-hook-title-will-spend-its-life",
     "family": "title-hook",
     "text": "{title} will spend its life hanging around, which is either lazy or literally the job."
+   },
+   {
+    "id": "title-hook-title-is-small-curved-and-2",
+    "family": "title-hook",
+    "text": "{title} is small, curved, and about to carry way more weight than layer adhesion allows."
+   },
+   {
+    "id": "title-hook-title-is-one-heavy-winter",
+    "family": "title-hook",
+    "text": "{title} is one heavy winter coat away from catastrophic delamination and drywall damage."
    }
   ],
   "mask": [
@@ -137,6 +172,11 @@
     "id": "title-mask-title-instant-intrigue-zero-actual",
     "family": "title-mask",
     "text": "{title}: instant intrigue, zero actual secrets, and a very committed eye-hole game."
+   },
+   {
+    "id": "title-mask-title-will-hide-your-identity",
+    "family": "title-mask",
+    "text": "{title} will hide your identity during daring midnight raids on the refrigerator cheese."
    }
   ],
   "organizer": [
@@ -154,6 +194,11 @@
     "id": "title-organizer-title-will-organize-everything-perfectly",
     "family": "title-organizer",
     "text": "{title} will organize everything perfectly, right up until someone opens a drawer nearby."
+   },
+   {
+    "id": "title-organizer-title-is-just-structured-compartments",
+    "family": "title-organizer",
+    "text": "{title} is just structured compartments for hoarding screws from long-discarded furniture."
    }
   ],
   "phone stand": [
@@ -171,6 +216,11 @@
     "id": "title-phone stand-title-exists-so-a-phone",
     "family": "title-phone stand",
     "text": "{title} exists so a phone can recline like royalty while its owner does actual work."
+   },
+   {
+    "id": "title-phone-stand-title-holds-your-device-at",
+    "family": "title-phone-stand",
+    "text": "{title} holds your device at the optimal angle for doomscrolling without straining your neck."
    }
   ],
   "planter": [
@@ -188,6 +238,11 @@
     "id": "title-planter-title-gives-a-houseplant-the",
     "family": "title-planter",
     "text": "{title} gives a houseplant the fancy apartment it has been manifesting all spring."
+   },
+   {
+    "id": "title-planter-title-has-zero-drainage-holes",
+    "family": "title-planter",
+    "text": "{title} has zero drainage holes and will drown an innocent succulent within three weeks."
    }
   ],
   "skull": [
@@ -205,6 +260,11 @@
     "id": "title-skull-title-looks-like-it-has",
     "family": "title-skull",
     "text": "{title} looks like it has ancient secrets, but it mostly just holds pens now."
+   },
+   {
+    "id": "title-skull-title-stares-into-eternity-wondering",
+    "family": "title-skull",
+    "text": "{title} stares into eternity wondering why its immortal polymer form holds paperclips."
    }
   ],
   "star": [
@@ -222,6 +282,11 @@
     "id": "title-star-title-proves-that-being-pointy",
     "family": "title-star",
     "text": "{title} proves that being pointy in five directions is a complete personality."
+   },
+   {
+    "id": "title-star-title-will-shine-brightly-before",
+    "family": "title-star",
+    "text": "{title} will shine brightly before spending eleven dark months in an attic bin."
    }
   ],
   "sword": [
@@ -239,6 +304,11 @@
     "id": "title-sword-title-all-the-drama-of",
     "family": "title-sword",
     "text": "{title}: all the drama of a legendary blade, none of the sharpening responsibilities."
+   },
+   {
+    "id": "title-sword-title-is-ready-for-glorious",
+    "family": "title-sword",
+    "text": "{title} is ready for glorious combat against cardboard boxes and unsuspecting houseplants."
    }
   ],
   "toy": [
@@ -256,14 +326,14 @@
     "id": "title-toy-title-was-made-for-play",
     "family": "title-toy",
     "text": "{title} was made for play, but it will mostly supervise from the shelf, judging quietly."
+   },
+   {
+    "id": "title-toy-title-brings-fifteen-minutes-of",
+    "family": "title-toy",
+    "text": "{title} brings fifteen minutes of joy before retiring to the great dust graveyard."
    }
   ],
   "vase": [
-   {
-    "id": "title-vase-title-is-ready-to-hold",
-    "family": "title-vase",
-    "text": "{title} is ready to hold flowers, water, and the secret that it is mostly decorative confidence."
-   },
    {
     "id": "title-vase-a-new-title-enters-the",
     "family": "title-vase",
@@ -273,6 +343,16 @@
     "id": "title-vase-title-proves-once-again-that",
     "family": "title-vase",
     "text": "{title} proves once again that a container with no lid can still contain unlimited style."
+   },
+   {
+    "id": "title-vase-title-is-ready-to-hold-2",
+    "family": "title-vase",
+    "text": "{title} is ready to hold water and the quiet terror of layer line seepage."
+   },
+   {
+    "id": "title-vase-title-looks-stunning-until-slow",
+    "family": "title-vase",
+    "text": "{title} looks stunning until slow capillary action drenches the table beneath it."
    }
   ],
   "clip": [
@@ -290,6 +370,26 @@
     "id": "title-clip-title-holds-the-line-the",
     "family": "title-clip",
     "text": "{title} holds the line, the cables, and the whole operation together, barely."
+   },
+   {
+    "id": "title-clip-title-was-printed-to-clamp",
+    "family": "title-clip",
+    "text": "{title} was printed to clamp a snack bag that is already empty."
+   },
+   {
+    "id": "title-clip-title-is-an-engineering-marvel",
+    "family": "title-clip",
+    "text": "{title} is an engineering marvel that will snap when opened slightly too wide."
+   },
+   {
+    "id": "title-clip-printing-title-took-forty-minutes",
+    "family": "title-clip",
+    "text": "Printing {title} took forty minutes when a wooden clothespin would have cost two pennies."
+   },
+   {
+    "id": "title-clip-title-will-hold-those-wires",
+    "family": "title-clip",
+    "text": "{title} will hold those wires together until ambient room temperature causes creep."
    }
   ],
   "cable": [
@@ -307,6 +407,26 @@
     "id": "title-cable-title-has-brought-order-to",
     "family": "title-cable",
     "text": "{title} has brought order to exactly one cable; the rest remain at large."
+   },
+   {
+    "id": "title-cable-title-promises-neat-desk-cable",
+    "family": "title-cable",
+    "text": "{title} promises neat desk cable routing, but chaotic wiring always finds a way to tangle."
+   },
+   {
+    "id": "title-cable-title-is-here-to-tame",
+    "family": "title-cable",
+    "text": "{title} is here to tame the rat nest of cords lurking behind your computer monitor."
+   },
+   {
+    "id": "title-cable-title-was-supposed-to-hide",
+    "family": "title-cable",
+    "text": "{title} was supposed to hide cables, but merely added plastic clutter around them."
+   },
+   {
+    "id": "title-cable-title-clips-onto-wires-so",
+    "family": "title-cable",
+    "text": "{title} clips onto wires so you can pretend your desk is minimalist."
    }
   ],
   "mount": [
@@ -324,6 +444,26 @@
     "id": "title-mount-title-is-now-load-bearing",
     "family": "title-mount",
     "text": "{title} is now load-bearing, emotionally if not structurally."
+   },
+   {
+    "id": "title-mount-title-holds-valuable-gear-using",
+    "family": "title-mount",
+    "text": "{title} holds valuable gear using five cents of polymer and an unearned amount of faith."
+   },
+   {
+    "id": "title-mount-you-printed-title-to-mount",
+    "family": "title-mount",
+    "text": "You printed {title} to mount hardware that will probably tear right out of the drywall."
+   },
+   {
+    "id": "title-mount-title-will-keep-your-gadget",
+    "family": "title-mount",
+    "text": "{title} will keep your gadget attached until the first hot afternoon softens the layers."
+   },
+   {
+    "id": "title-mount-title-is-a-custom-bracket",
+    "family": "title-mount",
+    "text": "{title} is a custom bracket solving a problem created by an earlier bracket."
    }
   ],
   "enclosure": [
@@ -341,6 +481,26 @@
     "id": "title-enclosure-title-is-a-tiny-house",
     "family": "title-enclosure",
     "text": "{title} is a tiny house that will somehow end up storing screws."
+   },
+   {
+    "id": "title-enclosure-title-wraps-sensitive-electronics-in",
+    "family": "title-enclosure",
+    "text": "{title} wraps sensitive electronics in an airtight cocoon of trapped heat and melting solder."
+   },
+   {
+    "id": "title-enclosure-title-protects-your-circuit-board",
+    "family": "title-enclosure",
+    "text": "{title} protects your circuit board while efficiently baking it in trapped heat."
+   },
+   {
+    "id": "title-enclosure-title-will-shield-your-electronics",
+    "family": "title-enclosure",
+    "text": "{title} will shield your electronics until you realize you forgot to route the power cable."
+   },
+   {
+    "id": "title-enclosure-title-turns-messy-loose-wires",
+    "family": "title-enclosure",
+    "text": "{title} turns messy loose wires into a tidy brick of hidden loose wires."
    }
   ],
   "holder": [
@@ -358,6 +518,26 @@
     "id": "title-holder-title-reports-for-duty-holding",
     "family": "title-holder",
     "text": "{title} reports for duty, holding the one thing it was born to hold."
+   },
+   {
+    "id": "title-holder-title-is-dedicated-to-holding",
+    "family": "title-holder",
+    "text": "{title} is dedicated to holding one specific tool you will misplace in five minutes anyway."
+   },
+   {
+    "id": "title-holder-title-is-a-custom-cradle",
+    "family": "title-holder",
+    "text": "{title} is a custom cradle for an item resting on the desk fine."
+   },
+   {
+    "id": "title-holder-title-will-faithfully-hold-its",
+    "family": "title-holder",
+    "text": "{title} will faithfully hold its designated cargo until clutter invades and buries it."
+   },
+   {
+    "id": "title-holder-you-printed-title-because-putting",
+    "family": "title-holder",
+    "text": "You printed {title} because putting things down on flat surfaces felt too mainstream."
    }
   ],
   "hinge": [
@@ -375,6 +555,26 @@
     "id": "title-hinge-title-swings-between-genius-and",
     "family": "title-hinge",
     "text": "{title} swings between genius and liability, smoothly and repeatedly."
+   },
+   {
+    "id": "title-hinge-title-was-printed-in-place",
+    "family": "title-hinge",
+    "text": "{title} was printed in place and fused solid, remaining in place forever."
+   },
+   {
+    "id": "title-hinge-title-will-swing-smoothly-for",
+    "family": "title-hinge",
+    "text": "{title} will swing smoothly for exactly three cycles before snapping at the pivot pin."
+   },
+   {
+    "id": "title-hinge-you-spent-hours-calibrating-tolerances",
+    "family": "title-hinge",
+    "text": "You spent hours calibrating tolerances just so {title} could squeak on every rotation."
+   },
+   {
+    "id": "title-hinge-title-joins-two-plastic-parts",
+    "family": "title-hinge",
+    "text": "{title} joins two plastic parts together with the structural rigidity of a damp saltine cracker."
    }
   ],
   "jig": [
@@ -392,6 +592,26 @@
     "id": "title-jig-title-ensures-the-next-mistake",
     "family": "title-jig",
     "text": "{title} ensures the next mistake happens in exactly the same place every time."
+   },
+   {
+    "id": "title-jig-title-was-printed-to-ensure",
+    "family": "title-jig",
+    "text": "{title} was printed to ensure repeatable accuracy for a cut you will only make once."
+   },
+   {
+    "id": "title-jig-you-printed-title-for-precision",
+    "family": "title-jig",
+    "text": "You printed {title} for precision work, but thermal shrinkage had completely different ideas."
+   },
+   {
+    "id": "title-jig-title-guarantees-your-drill-hole",
+    "family": "title-jig",
+    "text": "{title} guarantees your drill hole will be misaligned with absolute mathematical repeatability."
+   },
+   {
+    "id": "title-jig-title-took-all-afternoon-to",
+    "family": "title-jig",
+    "text": "{title} took all afternoon to fabricate just to save four seconds drilling."
    }
   ],
   "drawer": [
@@ -409,6 +629,26 @@
     "id": "title-drawer-title-slides-open-to-reveal",
     "family": "title-drawer",
     "text": "{title} slides open to reveal the thing you needed last week."
+   },
+   {
+    "id": "title-drawer-title-slides-out-smoothly-today",
+    "family": "title-drawer",
+    "text": "{title} slides out smoothly today, but ambient humidity will swell it shut by next week."
+   },
+   {
+    "id": "title-drawer-you-printed-title-to-store",
+    "family": "title-drawer",
+    "text": "You printed {title} to store tiny screws that will promptly spill into the mechanism."
+   },
+   {
+    "id": "title-drawer-title-offers-organized-storage-for",
+    "family": "title-drawer",
+    "text": "{title} offers organized storage for items that should have been recycled six months ago."
+   },
+   {
+    "id": "title-drawer-title-is-a-sliding-compartment",
+    "family": "title-drawer",
+    "text": "{title} is a sliding compartment whose primary function is hiding receipts you should file."
    }
   ],
   "adapter": [
@@ -426,6 +666,26 @@
     "id": "title-adapter-title-lets-two-stubborn-objects",
     "family": "title-adapter",
     "text": "{title} lets two stubborn objects finally shake hands."
+   },
+   {
+    "id": "title-adapter-title-connects-two-incompatible-fittings",
+    "family": "title-adapter",
+    "text": "{title} connects two incompatible fittings that were never meant to meet in civilized society."
+   },
+   {
+    "id": "title-adapter-title-connects-two-incompatible-fittings-2",
+    "family": "title-adapter",
+    "text": "{title} connects two incompatible fittings that reject each other with passion."
+   },
+   {
+    "id": "title-adapter-title-will-leak-air-and",
+    "family": "title-adapter",
+    "text": "{title} will leak air and water with impressive enthusiasm along every circumferential layer seam."
+   },
+   {
+    "id": "title-adapter-title-bridges-a-gap-that",
+    "family": "title-adapter",
+    "text": "{title} bridges a gap that duct tape could have bridged in seconds."
    }
   ],
   "rack": [
@@ -443,6 +703,26 @@
     "id": "title-rack-title-is-one-slot-closer",
     "family": "title-rack",
     "text": "{title} is one slot closer to a setup that actually looks planned."
+   },
+   {
+    "id": "title-rack-title-stands-tall-to-organize",
+    "family": "title-rack",
+    "text": "{title} stands tall to organize spools that you will keep buying faster than you print."
+   },
+   {
+    "id": "title-rack-you-built-title-to-display",
+    "family": "title-rack",
+    "text": "You built {title} to display filament rolls like trophies instead of printing useful objects."
+   },
+   {
+    "id": "title-rack-title-will-hold-your-collection",
+    "family": "title-rack",
+    "text": "{title} will hold your collection neatly until the structural joints begin to sag over time."
+   },
+   {
+    "id": "title-rack-title-turns-your-wall-into",
+    "family": "title-rack",
+    "text": "{title} turns your wall into an altar dedicated to unspooled polymer and buyer remorse."
    }
   ],
   "keychain": [
@@ -460,6 +740,2226 @@
     "id": "title-keychain-title-makes-the-keys-heavier",
     "family": "title-keychain",
     "text": "{title} makes the keys heavier, fancier, and somehow easier to lose."
+   },
+   {
+    "id": "title-keychain-title-will-rattle-in-your",
+    "family": "title-keychain",
+    "text": "{title} will rattle in your pocket until its thinnest loop snaps off."
+   },
+   {
+    "id": "title-keychain-title-was-gifted-to-a",
+    "family": "title-keychain",
+    "text": "{title} was gifted to a friend who politely lost it within minutes."
+   },
+   {
+    "id": "title-keychain-title-adds-bulk-to-your",
+    "family": "title-keychain",
+    "text": "{title} adds bulk to your keyring so you can scratch your phone screen more efficiently."
+   },
+   {
+    "id": "title-keychain-title-is-a-pocket-trinket",
+    "family": "title-keychain",
+    "text": "{title} is a pocket trinket whose lifespan is measured in short walks."
+   }
+  ],
+  "fidget": [
+   {
+    "id": "title-fidget-title-will-click-spin-and",
+    "family": "title-fidget",
+    "text": "{title} will click, spin, and drive everyone around you to the brink of insanity."
+   },
+   {
+    "id": "title-fidget-title-was-printed-to-improve",
+    "family": "title-fidget",
+    "text": "{title} was printed to improve focus, but now you just flip gears."
+   },
+   {
+    "id": "title-fidget-title-will-be-furiously-clicked",
+    "family": "title-fidget",
+    "text": "{title} will be furiously clicked during three meetings before the spring mechanism jams."
+   },
+   {
+    "id": "title-fidget-title-converts-nervous-anxiety-into",
+    "family": "title-fidget",
+    "text": "{title} converts nervous anxiety into the rhythmic rattling of loose plastic teeth."
+   }
+  ],
+  "cube": [
+   {
+    "id": "title-cube-title-was-printed-to-verify",
+    "family": "title-cube",
+    "text": "{title} was printed to verify precision, but its slight bulging corners prove otherwise."
+   },
+   {
+    "id": "title-cube-another-title-joins-the-lonely",
+    "family": "title-cube",
+    "text": "Another {title} joins the lonely pyramid of calibration cubes guarding your workstation."
+   },
+   {
+    "id": "title-cube-title-consumed-twenty-minutes-and",
+    "family": "title-cube",
+    "text": "{title} consumed twenty minutes and half a meter of filament just to measure twenty millimeters."
+   },
+   {
+    "id": "title-cube-behold-title-the-geometric-monument",
+    "family": "title-cube",
+    "text": "Behold {title}, the geometric monument to printing tests instead of actual projects."
+   }
+  ],
+  "tower": [
+   {
+    "id": "title-tower-title-stands-tall-like-a",
+    "family": "title-tower",
+    "text": "{title} stands tall like a stepped staircase of temperature regret and stringing."
+   },
+   {
+    "id": "title-tower-title-was-printed-for-tuning",
+    "family": "title-tower",
+    "text": "{title} was printed for tuning, but you chose the easiest temperature to read."
+   },
+   {
+    "id": "title-tower-title-displays-seven-distinct-zones",
+    "family": "title-tower",
+    "text": "{title} displays seven distinct zones of temperature incompetence along its fragile spine."
+   },
+   {
+    "id": "title-tower-each-bridge-on-title-droops",
+    "family": "title-tower",
+    "text": "Each bridge on {title} droops slightly lower, matching your declining enthusiasm for tuning."
+   }
+  ],
+  "octopus": [
+   {
+    "id": "title-octopus-title-slumps-on-the-desk",
+    "family": "title-octopus",
+    "text": "{title} slumps on the desk, eight tentacles ready to snag on every stray wire."
+   },
+   {
+    "id": "title-octopus-you-printed-title-to-show",
+    "family": "title-octopus",
+    "text": "You printed {title} to show off articulated joints, but its tentacles fused into stiff clubs."
+   },
+   {
+    "id": "title-octopus-title-will-spend-its-immortal",
+    "family": "title-octopus",
+    "text": "{title} will spend its immortal plastic existence staring blankly from a monitor bezel."
+   },
+   {
+    "id": "title-octopus-behold-title-the-cephalopod-whose",
+    "family": "title-octopus",
+    "text": "Behold {title}, the cephalopod whose primary ecological niche is gathering dust on bookshelves."
+   }
+  ],
+  "rex": [
+   {
+    "id": "title-rex-title-wiggles-its-tiny-articulated",
+    "family": "title-rex",
+    "text": "{title} wiggles its tiny articulated segments with pure ferocity and zero structural utility."
+   },
+   {
+    "id": "title-rex-title-represents-millions-of-years",
+    "family": "title-rex",
+    "text": "{title} represents millions of years of evolution flopping uselessly on your keyboard."
+   },
+   {
+    "id": "title-rex-title-would-roar-with-prehistoric",
+    "family": "title-rex",
+    "text": "{title} would roar with prehistoric fury if its tiny plastic jaw had not fused shut."
+   },
+   {
+    "id": "title-rex-you-printed-title-in-rainbow",
+    "family": "title-rex",
+    "text": "You printed {title} in rainbow filament because dignity was never an option."
+   }
+  ],
+  "slug": [
+   {
+    "id": "title-slug-title-rattles-along-the-table",
+    "family": "title-slug",
+    "text": "{title} rattles along the table like a noisy caterpillar made of regret."
+   },
+   {
+    "id": "title-slug-the-clicking-sound-of-title",
+    "family": "title-slug",
+    "text": "The clicking sound of {title} will slowly erode the patience of everyone in the room."
+   },
+   {
+    "id": "title-slug-title-is-thirty-concentric-rings",
+    "family": "title-slug",
+    "text": "{title} is thirty concentric rings of plastic pretending to be a beloved pet."
+   },
+   {
+    "id": "title-slug-you-printed-title-for-tactile",
+    "family": "title-slug",
+    "text": "You printed {title} for tactile stimulation, but now you just have a noisy plastic invertebrate."
+   }
+  ],
+  "shark": [
+   {
+    "id": "title-shark-title-swims-across-your-desk",
+    "family": "title-shark",
+    "text": "{title} swims across your desk with menacing teeth and completely hollow infill."
+   },
+   {
+    "id": "title-shark-title-reduces-the-ocean-apex",
+    "family": "title-shark",
+    "text": "{title} reduces the ocean apex predator to an articulated desk toy."
+   },
+   {
+    "id": "title-shark-title-will-bite-through-imaginary",
+    "family": "title-shark",
+    "text": "{title} will bite through imaginary waves while gathering sticky lint from the tabletop."
+   },
+   {
+    "id": "title-shark-behold-title-the-fearsome-carnivore",
+    "family": "title-shark",
+    "text": "Behold {title}, the fearsome carnivore whose greatest mortal enemy is a dropped pen."
+   }
+  ],
+  "axolotl": [
+   {
+    "id": "title-axolotl-title-smiles-cheerfully-despite-knowing",
+    "family": "title-axolotl",
+    "text": "{title} smiles cheerfully despite knowing its external gills are brittle and prone to snapping."
+   },
+   {
+    "id": "title-axolotl-title-was-printed-because-it",
+    "family": "title-axolotl",
+    "text": "{title} was printed because it was trending and now haunts your nightstand."
+   },
+   {
+    "id": "title-axolotl-title-stares-into-the-void",
+    "family": "title-axolotl",
+    "text": "{title} stares into the void with round plastic eyes until eternity ends."
+   },
+   {
+    "id": "title-axolotl-behold-title-the-aquatic-amphibian",
+    "family": "title-axolotl",
+    "text": "Behold {title}, the aquatic amphibian whose regeneration power does not apply to broken filament."
+   }
+  ],
+  "turtle": [
+   {
+    "id": "title-turtle-title-plods-across-the-desk",
+    "family": "title-turtle",
+    "text": "{title} plods across the desk at the exact speed of your unread work emails."
+   },
+   {
+    "id": "title-turtle-title-has-a-removable-shell",
+    "family": "title-turtle",
+    "text": "{title} has a removable shell that will be lost behind furniture soon."
+   },
+   {
+    "id": "title-turtle-title-carries-a-heavy-plastic",
+    "family": "title-turtle",
+    "text": "{title} carries a heavy plastic shell while judging your filament color choices."
+   },
+   {
+    "id": "title-turtle-behold-title-swimming-through-a",
+    "family": "title-turtle",
+    "text": "Behold {title}, swimming through a sea of desk clutter toward the nearest edge."
+   }
+  ],
+  "snake": [
+   {
+    "id": "title-snake-title-coils-across-the-floor",
+    "family": "title-snake",
+    "text": "{title} coils across the floor, waiting to startle unsuspecting houseguests."
+   },
+   {
+    "id": "title-snake-title-provides-sixty-flexible-links",
+    "family": "title-snake",
+    "text": "{title} provides sixty flexible links of pure slither and zero practical purpose."
+   },
+   {
+    "id": "title-snake-title-will-hiss-softly-when",
+    "family": "title-snake",
+    "text": "{title} will hiss softly when someone steps on its brittle tail segments."
+   },
+   {
+    "id": "title-snake-you-printed-title-in-lime",
+    "family": "title-snake",
+    "text": "You printed {title} in lime filament so nobody could mistake it for good taste."
+   }
+  ],
+  "spider": [
+   {
+    "id": "title-spider-title-sits-in-the-dark",
+    "family": "title-spider",
+    "text": "{title} sits in the dark waiting to terrify guests mistaking it for real."
+   },
+   {
+    "id": "title-spider-eight-spindly-legs-make-title",
+    "family": "title-spider",
+    "text": "Eight spindly legs make {title} look menacing until a light breeze knocks it over."
+   },
+   {
+    "id": "title-spider-title-spins-no-webs-catching",
+    "family": "title-spider",
+    "text": "{title} spins no webs, catching only stray cat hair and buyer remorse."
+   },
+   {
+    "id": "title-spider-you-printed-title-for-halloween",
+    "family": "title-spider",
+    "text": "You printed {title} for Halloween and now you cannot bear to put it in storage."
+   }
+  ],
+  "dummy": [
+   {
+    "id": "title-dummy-title-strikes-a-dynamic-fighting",
+    "family": "title-dummy",
+    "text": "{title} strikes a dynamic fighting pose while balancing precariously on a bookshelf edge."
+   },
+   {
+    "id": "title-dummy-title-took-four-hours-to",
+    "family": "title-dummy",
+    "text": "{title} took four hours to assemble, only to freeze in one awkward pose."
+   },
+   {
+    "id": "title-dummy-title-stands-ready-for-battle",
+    "family": "title-dummy",
+    "text": "{title} stands ready for battle, provided the enemy is a mild draft from the hallway."
+   },
+   {
+    "id": "title-dummy-title-is-a-miniature-plastic",
+    "family": "title-dummy",
+    "text": "{title} is a miniature plastic mannequin whose ball joints will loosen quickly."
+   }
+  ],
+  "gridfinity": [
+   {
+    "id": "title-gridfinity-title-locks-into-the-baseplate",
+    "family": "title-gridfinity",
+    "text": "{title} locks into the baseplate with clicks masking your chronic over-organization."
+   },
+   {
+    "id": "title-gridfinity-title-sorts-thirty-tiny-screws",
+    "family": "title-gridfinity",
+    "text": "{title} sorts thirty tiny screws using four hundred grams of premium filament."
+   },
+   {
+    "id": "title-gridfinity-title-is-modular-stackable-and",
+    "family": "title-gridfinity",
+    "text": "{title} is modular, stackable, and guaranteed to consume every spool you own."
+   },
+   {
+    "id": "title-gridfinity-title-turns-empty-drawer-space",
+    "family": "title-gridfinity",
+    "text": "{title} turns empty drawer space into an empire of tiny plastic grid prisons."
+   }
+  ],
+  "bin": [
+   {
+    "id": "title-bin-title-is-ready-to-catch",
+    "family": "title-bin",
+    "text": "{title} is ready to catch stray fasteners, loose washers, and forgotten hopes."
+   },
+   {
+    "id": "title-bin-title-clears-desk-clutter-by",
+    "family": "title-bin",
+    "text": "{title} clears desk clutter by replacing small clutter with larger plastic containers."
+   },
+   {
+    "id": "title-bin-title-will-sit-half-filled",
+    "family": "title-bin",
+    "text": "{title} will sit half-filled with random hardware until the end of recorded time."
+   },
+   {
+    "id": "title-bin-behold-title-the-rectangular-bucket",
+    "family": "title-bin",
+    "text": "Behold {title}, the rectangular bucket whose destiny is collecting sawdust and mysterious hex keys."
+   }
+  ],
+  "baseplate": [
+   {
+    "id": "title-baseplate-title-waits-in-the-drawer",
+    "family": "title-baseplate",
+    "text": "{title} waits in the drawer for modular containers you will never print."
+   },
+   {
+    "id": "title-baseplate-title-took-all-night-to",
+    "family": "title-baseplate",
+    "text": "{title} took all night to turn a smooth drawer into an uncomfortable waffle."
+   },
+   {
+    "id": "title-baseplate-title-lies-flat-with-pride",
+    "family": "title-baseplate",
+    "text": "{title} lies flat with pride, warping slightly upward at the outer corners."
+   },
+   {
+    "id": "title-baseplate-behold-title-the-plastic-floor",
+    "family": "title-baseplate",
+    "text": "Behold {title}, the plastic floor upon which an empire of tiny bins will eventually collapse."
+   }
+  ],
+  "multiboard": [
+   {
+    "id": "title-multiboard-title-turns-an-entire-drywall",
+    "family": "title-multiboard",
+    "text": "{title} turns an entire drywall surface into a modular hive of brackets."
+   },
+   {
+    "id": "title-multiboard-title-covers-the-wall-just",
+    "family": "title-multiboard",
+    "text": "{title} covers the wall just to hang three wrenches and some tape."
+   },
+   {
+    "id": "title-multiboard-title-grips-the-wall-with",
+    "family": "title-multiboard",
+    "text": "{title} grips the wall with anchors that will leave massive craters when you move out."
+   },
+   {
+    "id": "title-multiboard-title-is-an-intricate-wall",
+    "family": "title-multiboard",
+    "text": "{title} is an intricate wall grid costing more than three metal pegboards."
+   }
+  ],
+  "honeycomb": [
+   {
+    "id": "title-honeycomb-title-brings-hexagonal-efficiency-to",
+    "family": "title-honeycomb",
+    "text": "{title} brings hexagonal efficiency to a wall that really only needed a simple nail."
+   },
+   {
+    "id": "title-honeycomb-title-collects-dust-in-every",
+    "family": "title-honeycomb",
+    "text": "{title} collects dust in every hexagonal cell at an alarming, geometric rate."
+   },
+   {
+    "id": "title-honeycomb-title-looks-like-high-tech",
+    "family": "title-honeycomb",
+    "text": "{title} looks like high-tech hive architecture holding up a single pair of rusty pliers."
+   },
+   {
+    "id": "title-honeycomb-you-printed-title-because-hexagons",
+    "family": "title-honeycomb",
+    "text": "You printed {title} because hexagons are the bestagons, but your wall still looks chaotic."
+   }
+  ],
+  "skadis": [
+   {
+    "id": "title-skadis-title-hooks-into-the-swedish",
+    "family": "title-skadis",
+    "text": "{title} hooks into the Swedish pegboard with snug precision and immediate layer line creaking."
+   },
+   {
+    "id": "title-skadis-title-was-printed-because-buying",
+    "family": "title-skadis",
+    "text": "{title} was printed because buying official pegboard hooks felt like admitting defeat."
+   },
+   {
+    "id": "title-skadis-title-will-hold-your-craft",
+    "family": "title-skadis",
+    "text": "{title} will hold your craft supplies until someone bumps it and sends everything clattering down."
+   },
+   {
+    "id": "title-skadis-title-bridges-the-gap-between",
+    "family": "title-skadis",
+    "text": "{title} bridges the gap between flat-pack furniture and additive manufacturing ambition."
+   }
+  ],
+  "pegboard": [
+   {
+    "id": "title-pegboard-title-mounts-to-the-wall",
+    "family": "title-pegboard",
+    "text": "{title} mounts to the wall to support three times its weight in plastic."
+   },
+   {
+    "id": "title-pegboard-you-printed-title-because-driving",
+    "family": "title-pegboard",
+    "text": "You printed {title} because driving to the hardware store felt like an admission of failure."
+   },
+   {
+    "id": "title-pegboard-title-will-sag-under-the",
+    "family": "title-pegboard",
+    "text": "{title} will sag under the weight of metal tools it was never meant to support."
+   },
+   {
+    "id": "title-pegboard-title-is-a-hole-riddled",
+    "family": "title-pegboard",
+    "text": "{title} is a hole-riddled plank transforming your workspace into an ergonomic disaster."
+   }
+  ],
+  "tray": [
+   {
+    "id": "title-tray-title-sits-ready-to-receive",
+    "family": "title-tray",
+    "text": "{title} sits ready to receive car keys, loose coins, and pocket lint with quiet elegance."
+   },
+   {
+    "id": "title-tray-title-was-printed-to-stay",
+    "family": "title-tray",
+    "text": "{title} was printed to stay organized, but quickly became a flat clutter pile."
+   },
+   {
+    "id": "title-tray-title-gathers-household-miscellany-into",
+    "family": "title-tray",
+    "text": "{title} gathers household miscellany into a single, highly concentrated pile of indecision."
+   },
+   {
+    "id": "title-tray-behold-title-the-shallow-vessel",
+    "family": "title-tray",
+    "text": "Behold {title}, the shallow vessel where pocket clutter goes to retire indefinitely."
+   }
+  ],
+  "stand": [
+   {
+    "id": "title-stand-title-elevates-its-cargo-with",
+    "family": "title-stand",
+    "text": "{title} elevates its cargo with a center of gravity that screams top-heavy."
+   },
+   {
+    "id": "title-stand-you-printed-title-to-display",
+    "family": "title-stand",
+    "text": "You printed {title} to display an object that was resting on the table just fine."
+   },
+   {
+    "id": "title-stand-title-will-wobble-nervously-whenever",
+    "family": "title-stand",
+    "text": "{title} will wobble nervously whenever someone walks too heavily past the desk."
+   },
+   {
+    "id": "title-stand-behold-title-the-angled-pedestal",
+    "family": "title-stand",
+    "text": "Behold {title}, the angled pedestal whose primary skill is tipping over when bumped."
+   }
+  ],
+  "headphone": [
+   {
+    "id": "title-headphone-title-cradles-your-headset-with",
+    "family": "title-headphone",
+    "text": "{title} cradles your headset with the gentle care of stiff, unyielding thermoplastics."
+   },
+   {
+    "id": "title-headphone-title-suspends-your-headphones-above",
+    "family": "title-headphone",
+    "text": "{title} suspends your headphones above the desk instead of cluttering the mousepad."
+   },
+   {
+    "id": "title-headphone-title-will-slowly-leave-an",
+    "family": "title-headphone",
+    "text": "{title} will slowly leave an indentation in the foam padding of your expensive headset."
+   },
+   {
+    "id": "title-headphone-title-prevents-your-audio-gear",
+    "family": "title-headphone",
+    "text": "{title} prevents your audio gear from touching plain wooden furniture."
+   }
+  ],
+  "controller": [
+   {
+    "id": "title-controller-title-provides-a-dignified-resting",
+    "family": "title-controller",
+    "text": "{title} provides a dignified resting place for a gamepad you only use on weekends."
+   },
+   {
+    "id": "title-controller-title-displays-your-gamepad-like",
+    "family": "title-controller",
+    "text": "{title} displays your gamepad like an ancient artifact in a gaming museum."
+   },
+   {
+    "id": "title-controller-title-holds-the-controller-at",
+    "family": "title-controller",
+    "text": "{title} holds the controller at an angle optimized for collecting ambient cat dander."
+   },
+   {
+    "id": "title-controller-behold-title-the-plastic-throne",
+    "family": "title-controller",
+    "text": "Behold {title}, the plastic throne honoring hundreds of hours spent sitting on the couch."
+   }
+  ],
+  "tablet": [
+   {
+    "id": "title-tablet-title-props-up-your-screen",
+    "family": "title-tablet",
+    "text": "{title} props up your screen at an angle suitable for passive video consumption."
+   },
+   {
+    "id": "title-tablet-title-turns-your-portable-mobile",
+    "family": "title-tablet",
+    "text": "{title} turns your portable mobile tablet into an immovable desktop fixture."
+   },
+   {
+    "id": "title-tablet-title-grips-the-device-tightly",
+    "family": "title-tablet",
+    "text": "{title} grips the device tightly until a sudden swipe sends the entire assembly skidding."
+   },
+   {
+    "id": "title-tablet-behold-title-the-lightweight-easel",
+    "family": "title-tablet",
+    "text": "Behold {title}, the lightweight easel supporting five hundred dollars of delicate glass."
+   }
+  ],
+  "laptop": [
+   {
+    "id": "title-laptop-title-tilts-your-computer-keyboard",
+    "family": "title-laptop",
+    "text": "{title} tilts your computer keyboard upward to promote wrist confusion."
+   },
+   {
+    "id": "title-laptop-you-printed-title-to-improve",
+    "family": "title-laptop",
+    "text": "You printed {title} to improve airflow under a machine that mostly runs email clients."
+   },
+   {
+    "id": "title-laptop-title-will-support-your-laptop",
+    "family": "title-laptop",
+    "text": "{title} will support your laptop until thermal exhaust softens the contact points."
+   },
+   {
+    "id": "title-laptop-behold-title-the-plastic-wedge",
+    "family": "title-laptop",
+    "text": "Behold {title}, the plastic wedge transforming your laptop into a tilted desktop monument."
+   }
+  ],
+  "webcam": [
+   {
+    "id": "title-webcam-title-clips-your-camera-above",
+    "family": "title-webcam",
+    "text": "{title} clips your camera above the monitor at an unflattering, chin-heavy downward angle."
+   },
+   {
+    "id": "title-webcam-title-lets-coworkers-inspect-your",
+    "family": "title-webcam",
+    "text": "{title} lets coworkers inspect your forehead in stunning high definition."
+   },
+   {
+    "id": "title-webcam-title-will-hold-the-webcam",
+    "family": "title-webcam",
+    "text": "{title} will hold the webcam steady until someone types vigorously on the keyboard."
+   },
+   {
+    "id": "title-webcam-behold-title-the-bespoke-camera",
+    "family": "title-webcam",
+    "text": "Behold {title}, the bespoke camera mount that took three iterations to get level."
+   }
+  ],
+  "case": [
+   {
+    "id": "title-case-title-snaps-shut-around-delicate",
+    "family": "title-case",
+    "text": "{title} snaps shut around delicate electronics, risking cracked solder joints."
+   },
+   {
+    "id": "title-case-title-protects-your-project-but",
+    "family": "title-case",
+    "text": "{title} protects your project, but lacks a modeled hole for the power cable."
+   },
+   {
+    "id": "title-case-title-turns-a-sleek-development",
+    "family": "title-case",
+    "text": "{title} turns a sleek development board into a bulky, textured plastic brick."
+   },
+   {
+    "id": "title-case-title-is-a-custom-shell",
+    "family": "title-case",
+    "text": "{title} is a custom shell fitting like a glove after aggressive filing."
+   }
+  ],
+  "handle": [
+   {
+    "id": "title-handle-title-offers-a-comfortable-grip",
+    "family": "title-handle",
+    "text": "{title} offers a comfortable grip until someone pulls hard on a stuck drawer."
+   },
+   {
+    "id": "title-handle-title-replaces-broken-hardware-with",
+    "family": "title-handle",
+    "text": "{title} replaces broken hardware with a delightfully chunky prototype aesthetic."
+   },
+   {
+    "id": "title-handle-title-will-flex-slightly-with",
+    "family": "title-handle",
+    "text": "{title} will flex slightly with every tug, reminding you of its synthetic origins."
+   },
+   {
+    "id": "title-handle-behold-title-the-ergonomic-pull",
+    "family": "title-handle",
+    "text": "Behold {title}, the ergonomic pull that feels slightly rougher than anything in a store."
+   }
+  ],
+  "knob": [
+   {
+    "id": "title-knob-title-slides-onto-the-potentiometer",
+    "family": "title-knob",
+    "text": "{title} slides onto the potentiometer shaft with enough friction to shear the rotary pin."
+   },
+   {
+    "id": "title-knob-title-has-sharp-ridges-that",
+    "family": "title-knob",
+    "text": "{title} has sharp ridges that gently exfoliate your fingertips on every turn."
+   },
+   {
+    "id": "title-knob-title-turns-smoothly-though-the",
+    "family": "title-knob",
+    "text": "{title} turns smoothly, though the pointer indicator is off by roughly seven degrees."
+   },
+   {
+    "id": "title-knob-title-makes-a-household-appliance",
+    "family": "title-knob",
+    "text": "{title} makes a household appliance look like an unfinished science experiment."
+   }
+  ],
+  "latch": [
+   {
+    "id": "title-latch-title-clicks-into-place-with",
+    "family": "title-latch",
+    "text": "{title} clicks into place with a satisfying snap that will wear smooth after fifty uses."
+   },
+   {
+    "id": "title-latch-title-secures-a-door-that",
+    "family": "title-latch",
+    "text": "{title} secures a door that could easily be pushed open by a cat."
+   },
+   {
+    "id": "title-latch-title-provides-an-illusion-of",
+    "family": "title-latch",
+    "text": "{title} provides an illusion of security backed by the sheer strength of two perimeter walls."
+   },
+   {
+    "id": "title-latch-behold-title-the-sliding-bolt",
+    "family": "title-latch",
+    "text": "Behold {title}, the sliding bolt whose mechanical lock relies entirely on friction fit."
+   }
+  ],
+  "clamp": [
+   {
+    "id": "title-clamp-title-tightens-around-the-workpiece",
+    "family": "title-clamp",
+    "text": "{title} tightens around the workpiece until the layer lines audibly groan in agony."
+   },
+   {
+    "id": "title-clamp-you-printed-title-to-save",
+    "family": "title-clamp",
+    "text": "You printed {title} to save ten dollars, risking a workpiece worth ten times as much."
+   },
+   {
+    "id": "title-clamp-title-will-hold-steady-right",
+    "family": "title-clamp",
+    "text": "{title} will hold steady right up to the moment you apply actual clamping torque."
+   },
+   {
+    "id": "title-clamp-behold-title-the-mechanical-vise",
+    "family": "title-clamp",
+    "text": "Behold {title}, the mechanical vise that flexes outward the instant pressure is applied."
+   }
+  ],
+  "vise": [
+   {
+    "id": "title-vise-title-grips-parts-with-printed",
+    "family": "title-vise",
+    "text": "{title} grips parts with printed jaws that deform before holding anything securely."
+   },
+   {
+    "id": "title-vise-title-was-printed-for-light",
+    "family": "title-vise",
+    "text": "{title} was printed for light duty and fails under anything heavier than balsa."
+   },
+   {
+    "id": "title-vise-title-turns-smoothly-on-printed",
+    "family": "title-vise",
+    "text": "{title} turns smoothly on printed lead screws until plastic dust gums up the threads."
+   },
+   {
+    "id": "title-vise-title-demonstrates-that-forged-steel",
+    "family": "title-vise",
+    "text": "{title} demonstrates that forged steel tools exist for very sound reasons."
+   }
+  ],
+  "spacer": [
+   {
+    "id": "title-spacer-title-fills-a-tiny-mechanical",
+    "family": "title-spacer",
+    "text": "{title} fills a tiny mechanical void with three cents of compressed plastic rings."
+   },
+   {
+    "id": "title-spacer-you-printed-title-because-finding",
+    "family": "title-spacer",
+    "text": "You printed {title} because finding the correct washer in the garage felt impossible."
+   },
+   {
+    "id": "title-spacer-title-will-compress-under-bolting",
+    "family": "title-spacer",
+    "text": "{title} will compress under bolting pressure, quietly shifting your alignment over time."
+   },
+   {
+    "id": "title-spacer-behold-title-the-humble-cylindrical",
+    "family": "title-spacer",
+    "text": "Behold {title}, the humble cylindrical collar keeping two components from touching."
+   }
+  ],
+  "shim": [
+   {
+    "id": "title-shim-title-slips-beneath-the-wobble",
+    "family": "title-shim",
+    "text": "{title} slips beneath the wobble to level furniture that the house builder left crooked."
+   },
+   {
+    "id": "title-shim-you-printed-title-with-sub",
+    "family": "title-shim",
+    "text": "You printed {title} with sub-millimeter thickness to fix an uneven table leg forever."
+   },
+   {
+    "id": "title-shim-title-will-bear-the-crushing",
+    "family": "title-shim",
+    "text": "{title} will bear the crushing weight of a bookshelf with quiet, compressed humility."
+   },
+   {
+    "id": "title-shim-behold-title-the-wedge-proving",
+    "family": "title-shim",
+    "text": "Behold {title}, the wedge proving that bad carpentry can always be patched with plastic."
+   }
+  ],
+  "bushing": [
+   {
+    "id": "title-bushing-title-slides-along-the-smooth",
+    "family": "title-bushing",
+    "text": "{title} slides along the smooth rod with slightly more friction than common sense dictates."
+   },
+   {
+    "id": "title-bushing-you-replaced-a-metal-bearing",
+    "family": "title-bushing",
+    "text": "You replaced a metal bearing with {title} and gained five decibels of quiet, sticky dragging."
+   },
+   {
+    "id": "title-bushing-title-will-wear-oval-shaped",
+    "family": "title-bushing",
+    "text": "{title} will wear oval-shaped within three weeks of high-speed mechanical motion."
+   },
+   {
+    "id": "title-bushing-behold-title-the-self-lubricating",
+    "family": "title-bushing",
+    "text": "Behold {title}, the self-lubricating sleeve that forgets to lubricate itself under load."
+   }
+  ],
+  "bearing": [
+   {
+    "id": "title-bearing-title-rolls-on-plastic-balls",
+    "family": "title-bearing",
+    "text": "{title} rolls on plastic balls that sound like a tiny cement mixer."
+   },
+   {
+    "id": "title-bearing-you-printed-title-because-waiting",
+    "family": "title-bearing",
+    "text": "You printed {title} because waiting two days for postal delivery felt unbearable."
+   },
+   {
+    "id": "title-bearing-title-will-spin-with-tremendous",
+    "family": "title-bearing",
+    "text": "{title} will spin with tremendous hesitation and impressive rolling resistance."
+   },
+   {
+    "id": "title-bearing-behold-title-the-rotary-assembly",
+    "family": "title-bearing",
+    "text": "Behold {title}, the rotary assembly that proves injection molding still has a purpose."
+   }
+  ],
+  "pulley": [
+   {
+    "id": "title-pulley-title-guides-the-belt-along",
+    "family": "title-pulley",
+    "text": "{title} guides the belt along its teeth while generating a pleasant high-pitched whine."
+   },
+   {
+    "id": "title-pulley-you-printed-title-to-replace",
+    "family": "title-pulley",
+    "text": "You printed {title} to replace a metal wheel, ignoring the inevitable heat buildup."
+   },
+   {
+    "id": "title-pulley-title-will-guide-the-timing",
+    "family": "title-pulley",
+    "text": "{title} will guide the timing belt until friction melts the inner flange."
+   },
+   {
+    "id": "title-pulley-behold-title-the-grooved-wheel",
+    "family": "title-pulley",
+    "text": "Behold {title}, the grooved wheel whose rotational life depends on smooth layer transitions."
+   }
+  ],
+  "funnel": [
+   {
+    "id": "title-funnel-title-channels-liquids-through-a",
+    "family": "title-funnel",
+    "text": "{title} channels liquids through a narrow spout with high risk of inter-layer leakage."
+   },
+   {
+    "id": "title-funnel-you-printed-title-to-pour",
+    "family": "title-funnel",
+    "text": "You printed {title} to pour chemicals without spilling, trusting porous printed walls."
+   },
+   {
+    "id": "title-funnel-title-will-guide-resin-smoothly",
+    "family": "title-funnel",
+    "text": "{title} will guide resin smoothly while permanently staining its interior surfaces."
+   },
+   {
+    "id": "title-funnel-behold-title-the-conical-chute",
+    "family": "title-funnel",
+    "text": "Behold {title}, the conical chute that traps sticky residue in microscopic layer ridges."
+   }
+  ],
+  "chute": [
+   {
+    "id": "title-chute-title-guides-purged-filament-curls",
+    "family": "title-chute",
+    "text": "{title} guides purged filament curls down into a heap of colorful plastic debris."
+   },
+   {
+    "id": "title-chute-you-printed-title-to-direct",
+    "family": "title-chute",
+    "text": "You printed {title} to direct printer waste cleanly onto the carpet behind the workbench."
+   },
+   {
+    "id": "title-chute-title-will-channel-molten-plastic",
+    "family": "title-chute",
+    "text": "{title} will channel molten plastic curls until an extra-wide purge purge jams the throat."
+   },
+   {
+    "id": "title-chute-behold-title-the-waste-slide",
+    "family": "title-chute",
+    "text": "Behold {title}, the waste slide built to manage the copious droppings of modern printing."
+   }
+  ],
+  "bucket": [
+   {
+    "id": "title-bucket-title-sits-behind-the-machine",
+    "family": "title-bucket",
+    "text": "{title} sits behind the machine collecting purge curls like an oversized mechanical litterbox."
+   },
+   {
+    "id": "title-bucket-title-was-printed-to-contain",
+    "family": "title-bucket",
+    "text": "{title} was printed to contain waste, yielding two hundred grams of curls."
+   },
+   {
+    "id": "title-bucket-title-will-overflow-with-coiled",
+    "family": "title-bucket",
+    "text": "{title} will overflow with coiled filament coils long before you remember to empty it."
+   },
+   {
+    "id": "title-bucket-behold-title-the-receptacle-whose",
+    "family": "title-bucket",
+    "text": "Behold {title}, the receptacle whose sole destiny is being filled with hot synthetic droppings."
+   }
+  ],
+  "scraper": [
+   {
+    "id": "title-scraper-title-attacks-the-build-plate",
+    "family": "title-scraper",
+    "text": "{title} attacks the build plate with a blunt plastic edge dulling immediately."
+   },
+   {
+    "id": "title-scraper-title-spared-the-bed-from",
+    "family": "title-scraper",
+    "text": "{title} spared the bed from scratches by snapping its own blade in half."
+   },
+   {
+    "id": "title-scraper-title-will-pry-beneath-stubborn",
+    "family": "title-scraper",
+    "text": "{title} will pry beneath stubborn prints with maximum flex and minimal mechanical advantage."
+   },
+   {
+    "id": "title-scraper-behold-title-the-bed-scraper",
+    "family": "title-scraper",
+    "text": "Behold {title}, the bed scraper that sacrifices its own edge to spare the magnetic coating."
+   }
+  ],
+  "spool": [
+   {
+    "id": "title-spool-title-holds-a-kilogram-of",
+    "family": "title-spool",
+    "text": "{title} holds a kilogram of filament that will promptly unspool itself into a chaotic tangle."
+   },
+   {
+    "id": "title-spool-you-printed-title-to-save",
+    "family": "title-spool",
+    "text": "You printed {title} to save money on filament refills, spending three refill rolls of plastic."
+   },
+   {
+    "id": "title-spool-title-will-spin-on-its",
+    "family": "title-spool",
+    "text": "{title} will spin on its roller until friction causes the extruder to skip steps."
+   },
+   {
+    "id": "title-spool-behold-title-the-empty-reel",
+    "family": "title-spool",
+    "text": "Behold {title}, the empty reel that demands more filament than it will ever dispense."
+   }
+  ],
+  "rewinder": [
+   {
+    "id": "title-rewinder-title-tensions-filament-with-springs",
+    "family": "title-rewinder",
+    "text": "{title} tensions filament with springs that will eventually snap and launch parts across the room."
+   },
+   {
+    "id": "title-rewinder-title-prevents-feeder-jams-while",
+    "family": "title-rewinder",
+    "text": "{title} prevents feeder jams while introducing four new mechanical failure points."
+   },
+   {
+    "id": "title-rewinder-title-will-rewind-loose-filament",
+    "family": "title-rewinder",
+    "text": "{title} will rewind loose filament with alarming vigor until the clutch slips."
+   },
+   {
+    "id": "title-rewinder-title-is-a-complex-contraption",
+    "family": "title-rewinder",
+    "text": "{title} is a complex contraption solving problems caused by too many spools."
+   }
+  ],
+  "drybox": [
+   {
+    "id": "title-drybox-title-seals-filament-away-from",
+    "family": "title-drybox",
+    "text": "{title} seals filament away from humidity behind gasket seals of questionable airtight integrity."
+   },
+   {
+    "id": "title-drybox-title-keeps-spools-dry-while",
+    "family": "title-drybox",
+    "text": "{title} keeps spools dry while you obsessively check the hygrometer all day."
+   },
+   {
+    "id": "title-drybox-title-will-protect-your-hygroscopic",
+    "family": "title-drybox",
+    "text": "{title} will protect your hygroscopic polymers until you forget to close the latch."
+   },
+   {
+    "id": "title-drybox-behold-title-the-plastic-sarcophagus",
+    "family": "title-drybox",
+    "text": "Behold {title}, the plastic sarcophagus preserving filament against the humid wrath of summer."
+   }
+  ],
+  "desiccant": [
+   {
+    "id": "title-desiccant-title-holds-silica-beads-that",
+    "family": "title-desiccant",
+    "text": "{title} holds silica beads that will slowly turn pink while you forget to bake them."
+   },
+   {
+    "id": "title-desiccant-you-printed-title-with-tiny",
+    "family": "title-desiccant",
+    "text": "You printed {title} with tiny perforations that allow fine silica dust to shower your printer."
+   },
+   {
+    "id": "title-desiccant-title-will-absorb-ambient-moisture",
+    "family": "title-desiccant",
+    "text": "{title} will absorb ambient moisture until its beads become completely saturated and useless."
+   },
+   {
+    "id": "title-desiccant-behold-title-the-slotted-pod",
+    "family": "title-desiccant",
+    "text": "Behold {title}, the slotted pod keeping silica gel from rattling freely inside the spool core."
+   }
+  ],
+  "guide": [
+   {
+    "id": "title-guide-title-directs-filament-toward-the",
+    "family": "title-guide",
+    "text": "{title} directs filament toward the extruder at an angle that barely reduces friction."
+   },
+   {
+    "id": "title-guide-you-printed-title-so-the",
+    "family": "title-guide",
+    "text": "You printed {title} so the filament path looks tidy, adding another point for snagging."
+   },
+   {
+    "id": "title-guide-title-will-groove-deeply-under",
+    "family": "title-guide",
+    "text": "{title} will groove deeply under the relentless sawing motion of abrasive filaments."
+   },
+   {
+    "id": "title-guide-behold-title-the-tiny-arm",
+    "family": "title-guide",
+    "text": "Behold {title}, the tiny arm keeping your filament roll from jumping off the carriage."
+   }
+  ],
+  "duct": [
+   {
+    "id": "title-duct-title-blasts-cool-air-across",
+    "family": "title-duct",
+    "text": "{title} blasts cool air across the nozzle tip while melting gently along its lower lip."
+   },
+   {
+    "id": "title-duct-title-provides-superior-cooling-while",
+    "family": "title-duct",
+    "text": "{title} provides superior cooling while warping against the heater block."
+   },
+   {
+    "id": "title-duct-title-will-channel-airflow-with",
+    "family": "title-duct",
+    "text": "{title} will channel airflow with extreme turbulence and very little directional focus."
+   },
+   {
+    "id": "title-duct-behold-title-the-cooling-horn",
+    "family": "title-duct",
+    "text": "Behold {title}, the cooling horn whose tip will droop after ten hours of printing ABS."
+   }
+  ],
+  "shroud": [
+   {
+    "id": "title-shroud-title-encloses-the-hotend-making",
+    "family": "title-shroud",
+    "text": "{title} encloses the hotend, making nozzle changes three times more difficult."
+   },
+   {
+    "id": "title-shroud-title-makes-the-printhead-look",
+    "family": "title-shroud",
+    "text": "{title} makes the printhead look like a stealth bomber instead of a glue gun."
+   },
+   {
+    "id": "title-shroud-title-will-trap-radiated-heat",
+    "family": "title-shroud",
+    "text": "{title} will trap radiated heat until its mounting tabs loosen and rattle incessantly."
+   },
+   {
+    "id": "title-shroud-behold-title-the-decorative-cowl",
+    "family": "title-shroud",
+    "text": "Behold {title}, the decorative cowl protecting innocent fingers from accidental burns."
+   }
+  ],
+  "riser": [
+   {
+    "id": "title-riser-title-lifts-the-glass-lid",
+    "family": "title-riser",
+    "text": "{title} lifts the glass lid just enough to let trapped heat escape."
+   },
+   {
+    "id": "title-riser-you-printed-title-so-your",
+    "family": "title-riser",
+    "text": "You printed {title} so your PTFE tube stops rubbing against the top glass panel."
+   },
+   {
+    "id": "title-riser-title-elevates-the-roof-of",
+    "family": "title-riser",
+    "text": "{title} elevates the roof of your printer, turning a compact cube into an awkward high-rise."
+   },
+   {
+    "id": "title-riser-behold-title-the-plastic-perimeter",
+    "family": "title-riser",
+    "text": "Behold {title}, the plastic perimeter giving your printhead the headroom it always craved."
+   }
+  ],
+  "filter": [
+   {
+    "id": "title-filter-title-houses-activated-carbon-pellets",
+    "family": "title-filter",
+    "text": "{title} houses activated carbon pellets that will do very little against burning styrene fumes."
+   },
+   {
+    "id": "title-filter-you-printed-title-to-clean",
+    "family": "title-filter",
+    "text": "You printed {title} to clean chamber exhaust, hoping the smell of warm plastic fades away."
+   },
+   {
+    "id": "title-filter-title-will-circulate-air-through",
+    "family": "title-filter",
+    "text": "{title} will circulate air through carbon granules until the tiny fan bearing starts rattling."
+   },
+   {
+    "id": "title-filter-behold-title-the-filtration-canister",
+    "family": "title-filter",
+    "text": "Behold {title}, the filtration canister providing peace of mind and very little actual airflow."
+   }
+  ],
+  "mandalorian": [
+   {
+    "id": "title-mandalorian-title-brings-bounty-hunter-helmet",
+    "family": "title-mandalorian",
+    "text": "{title} brings bounty hunter helmet glamor to a bedroom that lacks any other galactic decor."
+   },
+   {
+    "id": "title-mandalorian-title-took-forty-sleepless-hours",
+    "family": "title-mandalorian",
+    "text": "{title} took forty sleepless hours to print instead of doing your laundry."
+   },
+   {
+    "id": "title-mandalorian-title-looks-like-impenetrable-beskar",
+    "family": "title-mandalorian",
+    "text": "{title} looks like impenetrable beskar steel until dropped on a soft carpet."
+   },
+   {
+    "id": "title-mandalorian-behold-title-the-warrior-helm",
+    "family": "title-mandalorian",
+    "text": "Behold {title}, the warrior helm that will never see combat outside of convention selfies."
+   }
+  ],
+  "stormtrooper": [
+   {
+    "id": "title-stormtrooper-title-is-printed-with-pristine",
+    "family": "title-stormtrooper",
+    "text": "{title} is printed with pristine white surfaces guaranteed to miss every single target."
+   },
+   {
+    "id": "title-stormtrooper-you-printed-title-with-imperial",
+    "family": "title-stormtrooper",
+    "text": "You printed {title} with imperial precision, but the layer lines are clearly visible."
+   },
+   {
+    "id": "title-stormtrooper-title-will-guard-your-shelf",
+    "family": "title-stormtrooper",
+    "text": "{title} will guard your shelf with the legendary accuracy of an imperial conscript."
+   },
+   {
+    "id": "title-stormtrooper-title-ensures-you-bump-into",
+    "family": "title-stormtrooper",
+    "text": "{title} ensures you bump into every low doorframe in the entire house."
+   }
+  ],
+  "armor": [
+   {
+    "id": "title-armor-title-covers-your-chest-with",
+    "family": "title-armor",
+    "text": "{title} covers your chest with rigid plates that make bending over completely impossible."
+   },
+   {
+    "id": "title-armor-title-makes-you-look-invincible",
+    "family": "title-armor",
+    "text": "{title} makes you look invincible at conventions, but sitting down is forbidden."
+   },
+   {
+    "id": "title-armor-title-will-protect-your-torso",
+    "family": "title-armor",
+    "text": "{title} will protect your torso against foam darts and harsh ambient criticism."
+   },
+   {
+    "id": "title-armor-behold-title-the-plastic-cuirass",
+    "family": "title-armor",
+    "text": "Behold {title}, the plastic cuirass that squeaks rhythmically with every single breath."
+   }
+  ],
+  "gauntlet": [
+   {
+    "id": "title-gauntlet-title-slips-over-your-forearm",
+    "family": "title-gauntlet",
+    "text": "{title} slips over your forearm with the mighty resonance of hollow plastic clacking."
+   },
+   {
+    "id": "title-gauntlet-title-has-articulated-knuckles-that",
+    "family": "title-gauntlet",
+    "text": "{title} has articulated knuckles that will pinch your skin on every flex."
+   },
+   {
+    "id": "title-gauntlet-title-will-make-reaching-for",
+    "family": "title-gauntlet",
+    "text": "{title} will make reaching for a beverage look dramatic, clumsy, and terrifying."
+   },
+   {
+    "id": "title-gauntlet-title-grants-plus-five-armor",
+    "family": "title-gauntlet",
+    "text": "{title} grants plus five armor points and minus ten manual dexterity."
+   }
+  ],
+  "katana": [
+   {
+    "id": "title-katana-title-extends-with-a-swift",
+    "family": "title-katana",
+    "text": "{title} extends with a swift flick of the wrist before jamming halfway inside the scabbard."
+   },
+   {
+    "id": "title-katana-you-printed-title-in-concentric",
+    "family": "title-katana",
+    "text": "You printed {title} in concentric telescoping tubes that will fly apart on the fifth swing."
+   },
+   {
+    "id": "title-katana-title-holds-a-razor-sharp",
+    "family": "title-katana",
+    "text": "{title} holds a razor-sharp plastic edge that can barely slice through warm butter."
+   },
+   {
+    "id": "title-katana-title-replaces-ancient-steel-folding",
+    "family": "title-katana",
+    "text": "{title} replaces ancient steel folding techniques with twenty percent infill geometry."
+   }
+  ],
+  "dagger": [
+   {
+    "id": "title-dagger-title-conceals-a-wicked-edge",
+    "family": "title-dagger",
+    "text": "{title} conceals a wicked edge designed for dramatic backstabs during roleplay sessions."
+   },
+   {
+    "id": "title-dagger-you-printed-title-because-a",
+    "family": "title-dagger",
+    "text": "You printed {title} because a full-sized sword would have taken twenty more hours to print."
+   },
+   {
+    "id": "title-dagger-title-will-rest-menacingly-in",
+    "family": "title-dagger",
+    "text": "{title} will rest menacingly in a sheath until someone notices the dull layer ridges."
+   },
+   {
+    "id": "title-dagger-behold-title-the-compact-rogue",
+    "family": "title-dagger",
+    "text": "Behold {title}, the compact rogue blade whose greatest threat is a light papercut."
+   }
+  ],
+  "lightsaber": [
+   {
+    "id": "title-lightsaber-title-extends-with-neon-plastic",
+    "family": "title-lightsaber",
+    "text": "{title} extends with neon plastic segments that rattle loudly instead of humming with energy."
+   },
+   {
+    "id": "title-lightsaber-you-printed-title-to-fulfill",
+    "family": "title-lightsaber",
+    "text": "You printed {title} to fulfill childhood dreams, but the blade segments refuse to collapse."
+   },
+   {
+    "id": "title-lightsaber-title-will-illuminate-your-living",
+    "family": "title-lightsaber",
+    "text": "{title} will illuminate your living room with zero plasma and one hundred percent mechanical noise."
+   },
+   {
+    "id": "title-lightsaber-behold-title-an-elegant-weapon",
+    "family": "title-lightsaber",
+    "text": "Behold {title}, an elegant weapon for a more civilized age of filament consumption."
+   }
+  ],
+  "blaster": [
+   {
+    "id": "title-blaster-title-looks-ready-to-defeat",
+    "family": "title-blaster",
+    "text": "{title} looks ready to defeat galactic empires, provided they are defeated by posing."
+   },
+   {
+    "id": "title-blaster-title-has-an-orange-safety",
+    "family": "title-blaster",
+    "text": "{title} has an orange safety tip so neighbors know you lack lasers."
+   },
+   {
+    "id": "title-blaster-title-will-emit-silent-pew",
+    "family": "title-blaster",
+    "text": "{title} will emit silent pew-pew sounds whenever you carry it into the hallway."
+   },
+   {
+    "id": "title-blaster-behold-title-the-prop-sidearm",
+    "family": "title-blaster",
+    "text": "Behold {title}, the prop sidearm featuring intricate greebles and absolutely zero moving triggers."
+   }
+  ],
+  "shield": [
+   {
+    "id": "title-shield-title-deflects-imaginary-arrows-while",
+    "family": "title-shield",
+    "text": "{title} deflects imaginary arrows while flexing precariously against your forearm."
+   },
+   {
+    "id": "title-shield-title-was-glued-together-across",
+    "family": "title-shield",
+    "text": "{title} was glued together across four bed tiles with desperate hope."
+   },
+   {
+    "id": "title-shield-title-will-protect-you-from",
+    "family": "title-shield",
+    "text": "{title} will protect you from foam projectiles until the center seam gives out."
+   },
+   {
+    "id": "title-shield-behold-title-the-heraldic-barrier",
+    "family": "title-shield",
+    "text": "Behold {title}, the heraldic barrier that can withstand anything except direct sunlight."
+   }
+  ],
+  "wand": [
+   {
+    "id": "title-wand-title-channels-mystical-arcane-energy",
+    "family": "title-wand",
+    "text": "{title} channels mystical arcane energy through twenty percent gyroid infill."
+   },
+   {
+    "id": "title-wand-you-swished-and-flicked-title",
+    "family": "title-wand",
+    "text": "You swished and flicked {title} around the living room, but the dishes remain unwashed."
+   },
+   {
+    "id": "title-wand-title-chose-you-at-the",
+    "family": "title-wand",
+    "text": "{title} chose you at the build plate, mostly because your retraction settings were dialed in."
+   },
+   {
+    "id": "title-wand-title-is-a-magical-conduit",
+    "family": "title-wand",
+    "text": "{title} is a magical conduit unable to cast spells unclogging its own nozzle."
+   }
+  ],
+  "crown": [
+   {
+    "id": "title-crown-title-perches-on-your-head",
+    "family": "title-crown",
+    "text": "{title} perches on your head with spiky points that dig into scalp."
+   },
+   {
+    "id": "title-crown-you-crowned-yourself-monarch-of",
+    "family": "title-crown",
+    "text": "You crowned yourself monarch of the workshop with {title}, a regal band of golden plastic."
+   },
+   {
+    "id": "title-crown-title-will-proclaim-your-royal",
+    "family": "title-crown",
+    "text": "{title} will proclaim your royal authority until someone points out the z-seam on the front."
+   },
+   {
+    "id": "title-crown-behold-title-the-royal-circlet",
+    "family": "title-crown",
+    "text": "Behold {title}, the royal circlet granting sovereignty over empty filament boxes."
+   }
+  ],
+  "horn": [
+   {
+    "id": "title-horn-title-curves-gracefully-upward-from",
+    "family": "title-horn",
+    "text": "{title} curves gracefully upward from the headband with demonic flair and hollow weight."
+   },
+   {
+    "id": "title-horn-you-printed-title-for-a",
+    "family": "title-horn",
+    "text": "You printed {title} for a costume party and now you cannot fit through standard doorways."
+   },
+   {
+    "id": "title-horn-title-will-make-you-look",
+    "family": "title-horn",
+    "text": "{title} will make you look menacing until one horn snags on a low-hanging chandelier."
+   },
+   {
+    "id": "title-horn-behold-title-the-sinister-headpiece",
+    "family": "title-horn",
+    "text": "Behold {title}, the sinister headpiece proving that horns look better in fiction than on doorframes."
+   }
+  ],
+  "dice": [
+   {
+    "id": "title-dice-title-bounces-across-the-table",
+    "family": "title-dice",
+    "text": "{title} bounces across the table with an internal air bubble that subtly favors rolling ones."
+   },
+   {
+    "id": "title-dice-you-printed-title-to-save",
+    "family": "title-dice",
+    "text": "You printed {title} to save gaming money, but your tabletop group questions the balance."
+   },
+   {
+    "id": "title-dice-title-will-roll-with-dramatic",
+    "family": "title-dice",
+    "text": "{title} will roll with dramatic suspense before settling on an inevitable critical failure."
+   },
+   {
+    "id": "title-dice-behold-title-the-polyhedral-randomizer",
+    "family": "title-dice",
+    "text": "Behold {title}, the polyhedral randomizer whose weight distribution is known only to the slicer."
+   }
+  ],
+  "miniature": [
+   {
+    "id": "title-miniature-title-stands-proudly-at-twenty",
+    "family": "title-miniature",
+    "text": "{title} stands proudly at twenty-eight millimeters with facial details blurred by layer lines."
+   },
+   {
+    "id": "title-miniature-you-printed-title-to-lead",
+    "family": "title-miniature",
+    "text": "You printed {title} to lead your tabletop army, but its spear snapped during support removal."
+   },
+   {
+    "id": "title-miniature-title-will-lead-heroic-campaigns",
+    "family": "title-miniature",
+    "text": "{title} will lead heroic campaigns across felt battlemats until someone drops a rulebook on it."
+   },
+   {
+    "id": "title-miniature-behold-title-the-tiny-warrior",
+    "family": "title-miniature",
+    "text": "Behold {title}, the tiny warrior whose legendary bravery is rivaled only by its brittleness."
+   }
+  ],
+  "terrain": [
+   {
+    "id": "title-terrain-title-turns-the-dining-table",
+    "family": "title-terrain",
+    "text": "{title} turns the dining table into a ruined medieval fortress of unpainted gray plastic."
+   },
+   {
+    "id": "title-terrain-you-spent-thirty-hours-printing",
+    "family": "title-terrain",
+    "text": "You spent thirty hours printing {title} and will probably never bother painting its stonework."
+   },
+   {
+    "id": "title-terrain-title-provides-tactical-cover-for",
+    "family": "title-terrain",
+    "text": "{title} provides tactical cover for miniatures who will inevitably tip over on its steps."
+   },
+   {
+    "id": "title-terrain-behold-title-the-scenic-obstacle",
+    "family": "title-terrain",
+    "text": "Behold {title}, the scenic obstacle turning your dining room into a perpetual warzone."
+   }
+  ],
+  "tile": [
+   {
+    "id": "title-tile-title-builds-a-modular-dungeon",
+    "family": "title-tile",
+    "text": "{title} builds a modular dungeon that your gaming players will bypass completely."
+   },
+   {
+    "id": "title-tile-title-creates-an-intricate-modular",
+    "family": "title-tile",
+    "text": "{title} creates an intricate modular map that takes an hour to pack."
+   },
+   {
+    "id": "title-tile-title-will-click-together-with",
+    "family": "title-tile",
+    "text": "{title} will click together with its neighbors until a single broken clip ruins the layout."
+   },
+   {
+    "id": "title-tile-behold-title-the-interlocking-dungeon",
+    "family": "title-tile",
+    "text": "Behold {title}, the interlocking dungeon pavement supporting countless imaginary adventures."
+   }
+  ],
+  "pokeball": [
+   {
+    "id": "title-pokeball-title-snaps-open-to-launch",
+    "family": "title-pokeball",
+    "text": "{title} snaps open to launch its plastic contents across the floor."
+   },
+   {
+    "id": "title-pokeball-you-printed-title-to-catch",
+    "family": "title-pokeball",
+    "text": "You printed {title} to catch pocket monsters, but mostly caught the eye of nostalgic visitors."
+   },
+   {
+    "id": "title-pokeball-title-sits-on-a-shelf",
+    "family": "title-pokeball",
+    "text": "{title} sits on a shelf because dropping it on concrete shatters it."
+   },
+   {
+    "id": "title-pokeball-behold-title-the-spherical-container",
+    "family": "title-pokeball",
+    "text": "Behold {title}, the spherical container that holds nothing except childhood nostalgia."
+   }
+  ],
+  "statue": [
+   {
+    "id": "title-statue-title-stands-in-frozen-classical",
+    "family": "title-statue",
+    "text": "{title} stands in frozen classical majesty, immortalized in three hundred grams of plastic."
+   },
+   {
+    "id": "title-statue-title-simulates-fine-marble-with",
+    "family": "title-statue",
+    "text": "{title} simulates fine marble with layer lines that still feel like plastic."
+   },
+   {
+    "id": "title-statue-title-will-stare-stoically-into",
+    "family": "title-statue",
+    "text": "{title} will stare stoically into the room while accumulating a dignified layer of dust."
+   },
+   {
+    "id": "title-statue-behold-title-the-grand-monument",
+    "family": "title-statue",
+    "text": "Behold {title}, the grand monument honoring historical art with petroleum-derived polymers."
+   }
+  ],
+  "bust": [
+   {
+    "id": "title-bust-title-displays-a-noble-profile",
+    "family": "title-bust",
+    "text": "{title} displays a noble profile with detailed locks of hair and a prominent z-seam."
+   },
+   {
+    "id": "title-bust-you-printed-title-to-look",
+    "family": "title-bust",
+    "text": "You printed {title} to look cultured, placing a plastic philosopher next to your gaming rig."
+   },
+   {
+    "id": "title-bust-title-will-gaze-thoughtfully-at",
+    "family": "title-bust",
+    "text": "{title} will gaze thoughtfully at the wall, wondering why its pedestal is slightly hollow."
+   },
+   {
+    "id": "title-bust-behold-title-the-sculpted-head",
+    "family": "title-bust",
+    "text": "Behold {title}, the sculpted head whose classical dignity is somewhat undercut by plastic sheen."
+   }
+  ],
+  "trophy": [
+   {
+    "id": "title-trophy-title-awards-top-honors-for",
+    "family": "title-trophy",
+    "text": "{title} awards top honors for an achievement that was completely fabricated for this print."
+   },
+   {
+    "id": "title-trophy-you-printed-title-to-celebrate",
+    "family": "title-trophy",
+    "text": "You printed {title} to celebrate yourself because nobody else was offering gold awards."
+   },
+   {
+    "id": "title-trophy-title-shines-with-silk-gold",
+    "family": "title-trophy",
+    "text": "{title} shines with silk gold filament, claiming victory over your own dwindling patience."
+   },
+   {
+    "id": "title-trophy-behold-title-the-gilded-monument",
+    "family": "title-trophy",
+    "text": "Behold {title}, the gilded monument to self-congratulation and excessive top layers."
+   }
+  ],
+  "coaster": [
+   {
+    "id": "title-coaster-title-guards-the-coffee-table",
+    "family": "title-coaster",
+    "text": "{title} guards the coffee table against condensation rings using unsealed, porous plastic."
+   },
+   {
+    "id": "title-coaster-you-printed-title-with-intricate",
+    "family": "title-coaster",
+    "text": "You printed {title} with intricate geometric grooves that will trap spilled coffee forever."
+   },
+   {
+    "id": "title-coaster-title-sticks-to-sweaty-beverage",
+    "family": "title-coaster",
+    "text": "{title} sticks to sweaty beverage glasses and falls with a loud clatter."
+   },
+   {
+    "id": "title-coaster-behold-title-the-drink-mat",
+    "family": "title-coaster",
+    "text": "Behold {title}, the drink mat that lets liquid seep directly through to the table below."
+   }
+  ],
+  "soap": [
+   {
+    "id": "title-soap-title-cradles-the-soap-bar",
+    "family": "title-soap",
+    "text": "{title} cradles the soap bar with drainage slots that will slowly fill with slimy residue."
+   },
+   {
+    "id": "title-soap-you-printed-title-to-modernize",
+    "family": "title-soap",
+    "text": "You printed {title} to modernize the bathroom, introducing raw layer lines to damp soap scum."
+   },
+   {
+    "id": "title-soap-title-will-harbor-bathroom-moisture",
+    "family": "title-soap",
+    "text": "{title} will harbor bathroom moisture and mysterious bacterial colonies in its micro-ridges."
+   },
+   {
+    "id": "title-soap-behold-title-the-shower-accessory",
+    "family": "title-soap",
+    "text": "Behold {title}, the shower accessory that turns dissolving soap into an archaeological fossil."
+   }
+  ],
+  "squeezer": [
+   {
+    "id": "title-squeezer-title-forces-toothpaste-out-with",
+    "family": "title-squeezer",
+    "text": "{title} forces toothpaste out with the mechanical mercy of an industrial press."
+   },
+   {
+    "id": "title-squeezer-you-printed-title-to-save",
+    "family": "title-squeezer",
+    "text": "You printed {title} to save twenty cents of paste using fifty cents of premium filament."
+   },
+   {
+    "id": "title-squeezer-title-clamps-down-until-the",
+    "family": "title-squeezer",
+    "text": "{title} clamps down until the tube bursts open in messy protest."
+   },
+   {
+    "id": "title-squeezer-behold-title-the-winding-key",
+    "family": "title-squeezer",
+    "text": "Behold {title}, the winding key turning morning hygiene into a minor mechanical ordeal."
+   }
+  ],
+  "opener": [
+   {
+    "id": "title-opener-title-pries-at-bottle-caps",
+    "family": "title-opener",
+    "text": "{title} pries at bottle caps until its printed pry lip rounds over and slips uselessly."
+   },
+   {
+    "id": "title-opener-title-uses-an-inserted-coin",
+    "family": "title-opener",
+    "text": "{title} uses an inserted coin to reinvent a tool in every drawer."
+   },
+   {
+    "id": "title-opener-title-will-crack-open-soda",
+    "family": "title-opener",
+    "text": "{title} will crack open soda bottles with surprising leverage and alarming creaking noises."
+   },
+   {
+    "id": "title-opener-behold-title-the-party-trick",
+    "family": "title-opener",
+    "text": "Behold {title}, the party trick bottle opener that snaps in half on the second beverage."
+   }
+  ],
+  "tag": [
+   {
+    "id": "title-tag-title-dangles-from-your-luggage",
+    "family": "title-tag",
+    "text": "{title} dangles from your luggage, bravely waiting for airline baggage handlers to snap it off."
+   },
+   {
+    "id": "title-tag-you-printed-title-with-your",
+    "family": "title-tag",
+    "text": "You printed {title} with your phone number embossed so strangers can return your lost keys."
+   },
+   {
+    "id": "title-tag-title-will-flap-against-your",
+    "family": "title-tag",
+    "text": "{title} will flap against your backpack zipper until the eyelet hole finally tears through."
+   },
+   {
+    "id": "title-tag-behold-title-the-identification-badge",
+    "family": "title-tag",
+    "text": "Behold {title}, the identification badge that looks like a miniature credit card of plastic."
+   }
+  ],
+  "nameplate": [
+   {
+    "id": "title-nameplate-title-announces-your-workplace-title",
+    "family": "title-nameplate",
+    "text": "{title} announces your workplace title with crisp letters that look like prototype lettering."
+   },
+   {
+    "id": "title-nameplate-you-printed-title-for-your",
+    "family": "title-nameplate",
+    "text": "You printed {title} for your desk to proclaim an authority nobody officially granted you."
+   },
+   {
+    "id": "title-nameplate-title-stands-angled-toward-visitors",
+    "family": "title-nameplate",
+    "text": "{title} stands angled toward visitors, daring them to misspell your name one more time."
+   },
+   {
+    "id": "title-nameplate-behold-title-the-desk-sign",
+    "family": "title-nameplate",
+    "text": "Behold {title}, the desk sign that elevates middle management into high-contrast plastic."
+   }
+  ],
+  "hueforge": [
+   {
+    "id": "title-hueforge-title-blends-thin-filament-layers",
+    "family": "title-hueforge",
+    "text": "{title} blends thin filament layers into art that shines in direct light."
+   },
+   {
+    "id": "title-hueforge-you-spent-five-hours-swapping",
+    "family": "title-hueforge",
+    "text": "You spent five hours swapping spools just so {title} could display subtle monochromatic shading."
+   },
+   {
+    "id": "title-hueforge-title-is-essentially-a-two",
+    "family": "title-hueforge",
+    "text": "{title} is essentially a two-dimensional photograph with a texture that collects ambient dust."
+   },
+   {
+    "id": "title-hueforge-behold-title-the-optical-illusion",
+    "family": "title-hueforge",
+    "text": "Behold {title}, the optical illusion that tricks observers into thinking you painted with plastic."
+   }
+  ],
+  "lithophane": [
+   {
+    "id": "title-lithophane-title-looks-like-a-faded",
+    "family": "title-lithophane",
+    "text": "{title} looks like a faded white topographic disaster until you shine a flashlight through it."
+   },
+   {
+    "id": "title-lithophane-title-displays-a-family-photo",
+    "family": "title-lithophane",
+    "text": "{title} displays a family photo that looks spooky until backlit by bulbs."
+   },
+   {
+    "id": "title-lithophane-title-turns-a-cherished-family",
+    "family": "title-lithophane",
+    "text": "{title} turns a cherished family memory into a rigid relief carved by plastic."
+   },
+   {
+    "id": "title-lithophane-behold-title-the-monochrome-light",
+    "family": "title-lithophane",
+    "text": "Behold {title}, the monochrome light box panel that looks like textured drywall in daylight."
+   }
+  ],
+  "voronoi": [
+   {
+    "id": "title-voronoi-title-is-eighty-percent-empty",
+    "family": "title-voronoi",
+    "text": "{title} is eighty percent empty air and twenty percent fragile webbing that snaps on touch."
+   },
+   {
+    "id": "title-voronoi-title-has-organic-cellular-holes",
+    "family": "title-voronoi",
+    "text": "{title} has organic cellular holes that snag every cleaning cloth in reach."
+   },
+   {
+    "id": "title-voronoi-title-demonstrates-mathematical-tessellation-while",
+    "family": "title-voronoi",
+    "text": "{title} demonstrates mathematical tessellation while serving practically no structural function."
+   },
+   {
+    "id": "title-voronoi-title-proves-that-removing-ninety",
+    "family": "title-voronoi",
+    "text": "{title} proves that removing ninety percent of a model makes it art."
+   }
+  ],
+  "bookmark": [
+   {
+    "id": "title-bookmark-title-slides-between-pages-with",
+    "family": "title-bookmark",
+    "text": "{title} slides between pages with enough thickness to permanently bend the book binding."
+   },
+   {
+    "id": "title-bookmark-you-printed-title-with-paper",
+    "family": "title-bookmark",
+    "text": "You printed {title} with paper-thin layers to mark a chapter you will probably never finish."
+   },
+   {
+    "id": "title-bookmark-title-peeks-out-from-the",
+    "family": "title-bookmark",
+    "text": "{title} peeks out from the novel until snapping along a horizontal seam."
+   },
+   {
+    "id": "title-bookmark-behold-title-the-plastic-strip",
+    "family": "title-bookmark",
+    "text": "Behold {title}, the plastic strip that replaced a perfectly functional folded paper receipt."
+   }
+  ],
+  "lamp": [
+   {
+    "id": "title-lamp-title-diffuses-led-glow-with",
+    "family": "title-lamp",
+    "text": "{title} diffuses LED glow with charming ambiance and a faint aroma of warm plastic."
+   },
+   {
+    "id": "title-lamp-title-lights-your-room-hoping",
+    "family": "title-lamp",
+    "text": "{title} lights your room, hoping the bulb never softens the printed shade."
+   },
+   {
+    "id": "title-lamp-title-casts-soft-shadows-across",
+    "family": "title-lamp",
+    "text": "{title} casts soft shadows across the wall, highlighting every seam line in the shade."
+   },
+   {
+    "id": "title-lamp-behold-title-the-ambient-luminaire",
+    "family": "title-lamp",
+    "text": "Behold {title}, the ambient luminaire that proves anything can be a lamp with enough wiring."
+   }
+  ],
+  "moon": [
+   {
+    "id": "title-moon-title-glows-with-cratered-lunar",
+    "family": "title-moon",
+    "text": "{title} glows with cratered lunar textures, hiding its hollow core and internal light fixture."
+   },
+   {
+    "id": "title-moon-you-printed-title-across-thirty",
+    "family": "title-moon",
+    "text": "You printed {title} across thirty sleepless hours to bring a miniature moon into your bedroom."
+   },
+   {
+    "id": "title-moon-title-will-illuminate-your-nightstand",
+    "family": "title-moon",
+    "text": "{title} will illuminate your nightstand with the gentle radiance of textured white polymer."
+   },
+   {
+    "id": "title-moon-behold-title-the-celestial-orb",
+    "family": "title-moon",
+    "text": "Behold {title}, the celestial orb whose gravitational pull mostly attracts curious fingertips."
+   }
+  ],
+  "ornament": [
+   {
+    "id": "title-ornament-title-hangs-from-a-pine",
+    "family": "title-ornament",
+    "text": "{title} hangs from a pine branch, waiting for the cat to swat it."
+   },
+   {
+    "id": "title-ornament-you-printed-title-to-celebrate",
+    "family": "title-ornament",
+    "text": "You printed {title} to celebrate the holidays with custom plastic that will outlive civilization."
+   },
+   {
+    "id": "title-ornament-title-sparkles-under-tree-lights",
+    "family": "title-ornament",
+    "text": "{title} sparkles under tree lights before spending eleven months in an attic."
+   },
+   {
+    "id": "title-ornament-behold-title-the-festive-bauble",
+    "family": "title-ornament",
+    "text": "Behold {title}, the festive bauble proving that holiday spirit can be extruded layer by layer."
+   }
+  ],
+  "snowflake": [
+   {
+    "id": "title-snowflake-title-features-delicate-hexagonal-crystal",
+    "family": "title-snowflake",
+    "text": "{title} features delicate hexagonal crystal symmetry that will snap if dropped onto the rug."
+   },
+   {
+    "id": "title-snowflake-title-was-printed-in-twenty",
+    "family": "title-snowflake",
+    "text": "{title} was printed in twenty identical copies, defying natural snow uniqueness."
+   },
+   {
+    "id": "title-snowflake-title-will-dangle-in-the",
+    "family": "title-snowflake",
+    "text": "{title} will dangle in the window, pretending to be cold ice while staying stubbornly plastic."
+   },
+   {
+    "id": "title-snowflake-behold-title-the-geometric-winter",
+    "family": "title-snowflake",
+    "text": "Behold {title}, the geometric winter crystal that will never melt even under warm indoor lights."
+   }
+  ],
+  "pumpkin": [
+   {
+    "id": "title-pumpkin-title-grins-with-a-carved",
+    "family": "title-pumpkin",
+    "text": "{title} grins with a carved grimace that will never rot like real autumn gourds."
+   },
+   {
+    "id": "title-pumpkin-you-printed-title-in-bright",
+    "family": "title-pumpkin",
+    "text": "You printed {title} in bright orange filament so your porch decor remains eternally fresh."
+   },
+   {
+    "id": "title-pumpkin-title-will-house-an-led",
+    "family": "title-pumpkin",
+    "text": "{title} will house an LED tea light while judging every child looking for chocolate."
+   },
+   {
+    "id": "title-pumpkin-behold-title-the-immortal-jack",
+    "family": "title-pumpkin",
+    "text": "Behold {title}, the immortal jack-o-lantern that will never collapse into a soggy pile of mush."
+   }
+  ],
+  "egg": [
+   {
+    "id": "title-egg-title-twists-open-on-printed",
+    "family": "title-egg",
+    "text": "{title} twists open on printed screw threads to reveal whatever tiny trinket you hid inside."
+   },
+   {
+    "id": "title-egg-title-has-colorful-pastel-bands",
+    "family": "title-egg",
+    "text": "{title} has colorful pastel bands that took longer than boiling real eggs."
+   },
+   {
+    "id": "title-egg-title-will-survive-the-easter",
+    "family": "title-egg",
+    "text": "{title} will survive the Easter lawn hunt and jam the lawnmower blades."
+   },
+   {
+    "id": "title-egg-behold-title-the-polymer-oval",
+    "family": "title-egg",
+    "text": "Behold {title}, the polymer oval that will never spoil or hatch into anything useful."
+   }
+  ],
+  "whistle": [
+   {
+    "id": "title-whistle-title-produces-a-piercing-hundred",
+    "family": "title-whistle",
+    "text": "{title} produces a piercing hundred-decibel shriek that immediately regrets being printed indoors."
+   },
+   {
+    "id": "title-whistle-title-was-blown-once-to",
+    "family": "title-whistle",
+    "text": "{title} was blown once to test the pea, instantly deafening the house."
+   },
+   {
+    "id": "title-whistle-title-will-sit-on-your",
+    "family": "title-whistle",
+    "text": "{title} will sit on your emergency keychain, ready to irritate neighbors at a moment notice."
+   },
+   {
+    "id": "title-whistle-behold-title-the-pocket-noisemaker",
+    "family": "title-whistle",
+    "text": "Behold {title}, the pocket noisemaker whose sonic power far exceeds its miniature size."
+   }
+  ],
+  "ocarina": [
+   {
+    "id": "title-ocarina-title-plays-a-recognizable-tune",
+    "family": "title-ocarina",
+    "text": "{title} plays a recognizable tune if you can ignore the slightly off-pitch layer turbulence."
+   },
+   {
+    "id": "title-ocarina-you-printed-title-to-summon",
+    "family": "title-ocarina",
+    "text": "You printed {title} to summon horses and change the weather, but only summoned annoyed roommates."
+   },
+   {
+    "id": "title-ocarina-title-will-toot-cheerful-medieval",
+    "family": "title-ocarina",
+    "text": "{title} will toot cheerful medieval melodies until moisture from your breath collects inside."
+   },
+   {
+    "id": "title-ocarina-behold-title-the-wind-instrument",
+    "family": "title-ocarina",
+    "text": "Behold {title}, the wind instrument proving that musical acoustic resonance can be printed."
+   }
+  ],
+  "cutter": [
+   {
+    "id": "title-cutter-title-presses-into-cookie-dough",
+    "family": "title-cutter",
+    "text": "{title} presses into cookie dough with an edge that dulls after three rounds of baking."
+   },
+   {
+    "id": "title-cutter-you-printed-title-to-bake",
+    "family": "title-cutter",
+    "text": "You printed {title} to bake festive biscuits, ignoring warnings about food safety on printed walls."
+   },
+   {
+    "id": "title-cutter-title-will-leave-intricate-shapes",
+    "family": "title-cutter",
+    "text": "{title} will leave intricate shapes in dough before getting lost in the utensil drawer."
+   },
+   {
+    "id": "title-cutter-behold-title-the-baking-outline",
+    "family": "title-cutter",
+    "text": "Behold {title}, the baking outline that turns flour and butter into themed holiday treats."
+   }
+  ],
+  "stamp": [
+   {
+    "id": "title-stamp-title-presses-into-clay-with",
+    "family": "title-stamp",
+    "text": "{title} presses into clay with firm pressure, leaving an impression surrounded by layer ridges."
+   },
+   {
+    "id": "title-stamp-you-printed-title-to-brand",
+    "family": "title-stamp",
+    "text": "You printed {title} to brand your pottery, giving ancient ceramics a modern digital signature."
+   },
+   {
+    "id": "title-stamp-title-will-transfer-ink-with",
+    "family": "title-stamp",
+    "text": "{title} will transfer ink with uneven coverage unless rocked with extreme precision."
+   },
+   {
+    "id": "title-stamp-behold-title-the-embossing-tool",
+    "family": "title-stamp",
+    "text": "Behold {title}, the embossing tool that leaves a tiny digital fingerprint on everything it touches."
+   }
+  ],
+  "frame": [
+   {
+    "id": "title-frame-title-borders-your-photo-with",
+    "family": "title-frame",
+    "text": "{title} borders your photo with clean corners meeting at roughly ninety degrees."
+   },
+   {
+    "id": "title-frame-you-printed-title-to-frame",
+    "family": "title-frame",
+    "text": "You printed {title} to frame artwork, using ten dollars of filament to frame a postcard."
+   },
+   {
+    "id": "title-frame-title-will-hold-glass-and",
+    "family": "title-frame",
+    "text": "{title} will hold glass and backing securely until hung on an uneven nail."
+   },
+   {
+    "id": "title-frame-behold-title-the-picture-border",
+    "family": "title-frame",
+    "text": "Behold {title}, the picture border whose custom dimensions make finding glass an adventure."
+   }
+  ],
+  "shelf": [
+   {
+    "id": "title-shelf-title-cantilevers-out-from-the",
+    "family": "title-shelf",
+    "text": "{title} cantilevers out from the wall with bold architectural confidence and zero load-bearing rating."
+   },
+   {
+    "id": "title-shelf-title-holds-small-curios-while",
+    "family": "title-shelf",
+    "text": "{title} holds small curios while slowly sagging under the weight of mugs."
+   },
+   {
+    "id": "title-shelf-title-will-support-your-knickknacks",
+    "family": "title-shelf",
+    "text": "{title} will support your knickknacks until ambient summer heat softens the mounting screws."
+   },
+   {
+    "id": "title-shelf-behold-title-the-floating-ledge",
+    "family": "title-shelf",
+    "text": "Behold {title}, the floating ledge that looks minimalist until it tilts downward under gravity."
+   }
+  ],
+  "cap": [
+   {
+    "id": "title-cap-title-snaps-over-the-tube",
+    "family": "title-cap",
+    "text": "{title} snaps over the tube opening with an airtight seal that feels surprisingly snug."
+   },
+   {
+    "id": "title-cap-title-replaces-a-lost-closure",
+    "family": "title-cap",
+    "text": "{title} replaces a lost closure after an hour spent measuring with calipers."
+   },
+   {
+    "id": "title-cap-title-shields-threads-from-dust",
+    "family": "title-cap",
+    "text": "{title} shields threads from dust until someone leaves it on the bench."
+   },
+   {
+    "id": "title-cap-behold-title-the-humble-dome",
+    "family": "title-cap",
+    "text": "Behold {title}, the humble dome keeping open pipe ends from collecting shop dirt."
+   }
+  ],
+  "plug": [
+   {
+    "id": "title-plug-title-inserts-into-an-unsightly",
+    "family": "title-plug",
+    "text": "{title} inserts into an unsightly hole with an interference fit that may never come out."
+   },
+   {
+    "id": "title-plug-you-printed-title-to-hide",
+    "family": "title-plug",
+    "text": "You printed {title} to hide an accidental drill hole and pretend the mistake was intentional."
+   },
+   {
+    "id": "title-plug-title-will-block-dust-and",
+    "family": "title-plug",
+    "text": "{title} will block dust and drafts with the stoic silence of a synthetic cork."
+   },
+   {
+    "id": "title-plug-behold-title-the-small-cylinder",
+    "family": "title-plug",
+    "text": "Behold {title}, the small cylinder whose entire destiny is filling a void."
+   }
+  ],
+  "cover": [
+   {
+    "id": "title-cover-title-conceals-bare-wiring-and",
+    "family": "title-cover",
+    "text": "{title} conceals bare wiring and questionable electrical work beneath a smooth facade."
+   },
+   {
+    "id": "title-cover-title-keeps-dust-out-of",
+    "family": "title-cover",
+    "text": "{title} keeps dust out of the slot while adding subtle surface texture."
+   },
+   {
+    "id": "title-cover-title-will-snap-over-the",
+    "family": "title-cover",
+    "text": "{title} will snap over the opening and stay there until maintenance requires prying it off."
+   },
+   {
+    "id": "title-cover-behold-title-the-protective-panel",
+    "family": "title-cover",
+    "text": "Behold {title}, the protective panel keeping wandering fingers away from live contacts."
+   }
+  ],
+  "lid": [
+   {
+    "id": "title-lid-title-sits-atop-the-container",
+    "family": "title-lid",
+    "text": "{title} sits atop the container with a fit that varies wildly with room temperature."
+   },
+   {
+    "id": "title-lid-you-printed-title-because-the",
+    "family": "title-lid",
+    "text": "You printed {title} because the original jar lid vanished into the laundry room void."
+   },
+   {
+    "id": "title-lid-title-will-seal-in-freshness",
+    "family": "title-lid",
+    "text": "{title} will seal in freshness, provided freshness enjoys breathing through porous wall seams."
+   },
+   {
+    "id": "title-lid-behold-title-the-flat-topper",
+    "family": "title-lid",
+    "text": "Behold {title}, the flat topper that turns an open cylinder into a closed mystery box."
+   }
+  ],
+  "spinner": [
+   {
+    "id": "title-spinner-title-whirs-between-your-fingers",
+    "family": "title-spinner",
+    "text": "{title} whirs between your fingers, spinning on cheap steel bearings for twenty uninterrupted seconds."
+   },
+   {
+    "id": "title-spinner-you-printed-title-seven-years",
+    "family": "title-spinner",
+    "text": "You printed {title} seven years after the trend died, keeping the fidget flame alive."
+   },
+   {
+    "id": "title-spinner-title-will-spin-on-your",
+    "family": "title-spinner",
+    "text": "{title} will spin on your desk until an errant finger drops it onto hardwood floors."
+   },
+   {
+    "id": "title-spinner-behold-title-the-three-winged",
+    "family": "title-spinner",
+    "text": "Behold {title}, the three-winged centrifuge whose primary product is momentary distraction."
+   }
+  ],
+  "ring": [
+   {
+    "id": "title-ring-title-slips-over-your-finger",
+    "family": "title-ring",
+    "text": "{title} slips over your finger with layer lines that provide mild exfoliative friction."
+   },
+   {
+    "id": "title-ring-title-was-printed-to-measure",
+    "family": "title-ring",
+    "text": "{title} was printed to measure ring size, resulting in three-cent finger jewelry."
+   },
+   {
+    "id": "title-ring-title-will-proclaim-your-commitment",
+    "family": "title-ring",
+    "text": "{title} will proclaim your commitment to additive manufacturing right on your knuckle."
+   },
+   {
+    "id": "title-ring-behold-title-the-circular-band",
+    "family": "title-ring",
+    "text": "Behold {title}, the circular band that proves plastic jewelry can be almost wearable."
+   }
+  ],
+  "coin": [
+   {
+    "id": "title-coin-title-flips-through-the-air",
+    "family": "title-coin",
+    "text": "{title} flips through the air with a clatter lacking the sound of silver."
+   },
+   {
+    "id": "title-coin-you-printed-title-to-make",
+    "family": "title-coin",
+    "text": "You printed {title} to make important life decisions with a randomized fifty-fifty toss."
+   },
+   {
+    "id": "title-coin-title-lands-on-the-table",
+    "family": "title-coin",
+    "text": "{title} lands on the table with the financial authority of plastic tokens."
+   },
+   {
+    "id": "title-coin-behold-title-the-minted-token",
+    "family": "title-coin",
+    "text": "Behold {title}, the minted token with relief lettering commemorating nothing in particular."
+   }
+  ],
+  "token": [
+   {
+    "id": "title-token-title-stands-in-for-a",
+    "family": "title-token",
+    "text": "{title} stands in for a lost game component with questionable color matching and no shame."
+   },
+   {
+    "id": "title-token-you-printed-title-so-family",
+    "family": "title-token",
+    "text": "You printed {title} so family board game night could proceed without missing player pieces."
+   },
+   {
+    "id": "title-token-title-will-advance-around-the",
+    "family": "title-token",
+    "text": "{title} will advance around the game board until someone mistakes it for a dropped snack."
+   },
+   {
+    "id": "title-token-behold-title-the-replacement-counter",
+    "family": "title-token",
+    "text": "Behold {title}, the replacement counter keeping the tabletop game playable for another evening."
    }
   ]
  }

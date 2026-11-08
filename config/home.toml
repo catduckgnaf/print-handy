@@ -241,8 +241,6 @@ start_claim_ttl_s = 1800
 
 [vision]
 model = "gemini-latest"
-# Model used for the one line roast on the print started post (vision_chat_url, key CLIPROXY_API_KEY).
-roast_model = "luna-latest"
 # The roast itself: on by default whenever an LLM/vision endpoint is available
 # (vision_chat_url plus CLIPROXY_API_KEY), on every platform, Telegram included.
 # Set false to turn roasts off; camera checks keep using the same endpoint.

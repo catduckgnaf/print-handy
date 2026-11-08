@@ -1,6 +1,6 @@
 {
  "_about": "Completed prints that used 150 grams or more.",
- "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022)",
  "_license": "Original to Print Handy; MIT with the project.",
  "entries": [
   {
@@ -122,6 +122,176 @@
    "id": "heavy_filament-title-required-grams-grams-so",
    "family": "heavy_filament-title-required-grams-grams-so",
    "text": "{title} required {grams} grams, so the filament budget filed for protective custody."
+  },
+  {
+   "id": "heavy_filament-title-consumed-grams-grams-that",
+   "family": "heavy_filament-title-consumed-grams-grams-that",
+   "text": "{title} consumed {grams} grams; that spool was practically liquidated for this object."
+  },
+  {
+   "id": "heavy_filament-at-grams-grams-title-is",
+   "family": "heavy_filament-at-grams-grams-title-is",
+   "text": "At {grams} grams, {title} is heavy enough to serve as an improvised anchor."
+  },
+  {
+   "id": "heavy_filament-title-ate-grams-grams-the",
+   "family": "heavy_filament-title-ate-grams-grams-the",
+   "text": "{title} ate {grams} grams; the spool core is now looking completely skeletal."
+  },
+  {
+   "id": "heavy_filament-we-sacrificed-grams-grams-for",
+   "family": "heavy_filament-we-sacrificed-grams-grams-for",
+   "text": "We sacrificed {grams} grams for {title}; the plastic footprint is officially immense."
+  },
+  {
+   "id": "heavy_filament-title-absorbed-grams-grams-you",
+   "family": "heavy_filament-title-absorbed-grams-grams-you",
+   "text": "{title} absorbed {grams} grams; you are essentially printing solid plastic bricks now."
+  },
+  {
+   "id": "heavy_filament-that-is-grams-grams-dedicated-2",
+   "family": "heavy_filament-that-is-grams-grams-dedicated-2",
+   "text": "That is {grams} grams dedicated to {title}; your filament budget is screaming silently."
+  },
+  {
+   "id": "heavy_filament-title-weighs-grams-grams-drop",
+   "family": "heavy_filament-title-weighs-grams-grams-drop",
+   "text": "{title} weighs {grams} grams; drop it and test the structural integrity of flooring."
+  },
+  {
+   "id": "heavy_filament-the-spool-gave-grams-grams-2",
+   "family": "heavy_filament-the-spool-gave-grams-grams-2",
+   "text": "The spool gave {grams} grams to {title}; please hold a brief commemorative service."
+  },
+  {
+   "id": "heavy_filament-title-devoured-grams-grams-the",
+   "family": "heavy_filament-title-devoured-grams-grams-the",
+   "text": "{title} devoured {grams} grams; the extruder gears definitely earned their keep today."
+  },
+  {
+   "id": "heavy_filament-at-grams-grams-title-could",
+   "family": "heavy_filament-at-grams-grams-title-could",
+   "text": "At {grams} grams, {title} could survive nuclear fallout and mild domestic neglect."
+  },
+  {
+   "id": "heavy_filament-title-swallowed-grams-grams-the",
+   "family": "heavy_filament-title-swallowed-grams-grams-the",
+   "text": "{title} swallowed {grams} grams; the spool holder is spinning in stunned disbelief."
+  },
+  {
+   "id": "heavy_filament-you-poured-grams-grams-into",
+   "family": "heavy_filament-you-poured-grams-grams-into",
+   "text": "You poured {grams} grams into {title}; subtle infill was clearly never an option."
+  },
+  {
+   "id": "heavy_filament-title-demanded-grams-grams-the",
+   "family": "heavy_filament-title-demanded-grams-grams-the",
+   "text": "{title} demanded {grams} grams; the cardboard spool core is visible from across room."
+  },
+  {
+   "id": "heavy_filament-that-is-grams-grams-inside",
+   "family": "heavy_filament-that-is-grams-grams-inside",
+   "text": "That is {grams} grams inside {title}; you printed a small, dense plastic asteroid."
+  },
+  {
+   "id": "heavy_filament-title-consumed-grams-grams-the-2",
+   "family": "heavy_filament-title-consumed-grams-grams-the-2",
+   "text": "{title} consumed {grams} grams; the filament manufacturer sends their heartfelt thank-you card."
+  },
+  {
+   "id": "heavy_filament-at-grams-grams-title-has-3",
+   "family": "heavy_filament-at-grams-grams-title-has-3",
+   "text": "At {grams} grams, {title} has achieved genuine gravitational pull on the workbench."
+  },
+  {
+   "id": "heavy_filament-title-drank-grams-grams-like",
+   "family": "heavy_filament-title-drank-grams-grams-like",
+   "text": "{title} drank {grams} grams like water; the spool will never truly recover."
+  },
+  {
+   "id": "heavy_filament-feeding-grams-grams-to-title",
+   "family": "heavy_filament-feeding-grams-grams-to-title",
+   "text": "Feeding {grams} grams to {title} is the definition of lavish filament expenditure."
+  },
+  {
+   "id": "heavy_filament-title-clocked-in-at-grams",
+   "family": "heavy_filament-title-clocked-in-at-grams",
+   "text": "{title} clocked in at {grams} grams; the shelf groaned when receiving it."
+  },
+  {
+   "id": "heavy_filament-that-was-grams-grams-of",
+   "family": "heavy_filament-that-was-grams-grams-of",
+   "text": "That was {grams} grams of commitment to {title}; hope you like heavy decor."
+  },
+  {
+   "id": "heavy_filament-title-consumed-grams-grams-the-3",
+   "family": "heavy_filament-title-consumed-grams-grams-the-3",
+   "text": "{title} consumed {grams} grams; the spool is officially on its retirement victory-lap."
+  },
+  {
+   "id": "heavy_filament-at-grams-grams-title-is-2",
+   "family": "heavy_filament-at-grams-grams-title-is-2",
+   "text": "At {grams} grams, {title} is less an accessory and more a blunt weapon."
+  },
+  {
+   "id": "heavy_filament-you-spent-grams-grams-on",
+   "family": "heavy_filament-you-spent-grams-grams-on",
+   "text": "You spent {grams} grams on {title}; that spool deserved a much better legacy."
+  },
+  {
+   "id": "heavy_filament-title-used-grams-grams-the",
+   "family": "heavy_filament-title-used-grams-grams-the",
+   "text": "{title} used {grams} grams; the infill was set to sheer unadulterated paranoia."
+  },
+  {
+   "id": "heavy_filament-with-grams-grams-inside-title",
+   "family": "heavy_filament-with-grams-grams-inside-title",
+   "text": "With {grams} grams inside, {title} will outlive the desk it currently rests upon."
+  },
+  {
+   "id": "heavy_filament-title-swallowed-grams-grams-the-2",
+   "family": "heavy_filament-title-swallowed-grams-grams-the-2",
+   "text": "{title} swallowed {grams} grams; the filament delivery driver knows your name now."
+  },
+  {
+   "id": "heavy_filament-that-grams-gram-chunk-of",
+   "family": "heavy_filament-that-grams-gram-chunk-of",
+   "text": "That {grams} gram chunk of plastic called {title} could double as doorstop."
+  },
+  {
+   "id": "heavy_filament-title-burned-through-grams-grams",
+   "family": "heavy_filament-title-burned-through-grams-grams",
+   "text": "{title} burned through {grams} grams; the spool looks like an abandoned wheel."
+  },
+  {
+   "id": "heavy_filament-at-grams-grams-title-represents",
+   "family": "heavy_filament-at-grams-grams-title-represents",
+   "text": "At {grams} grams, {title} represents serious financial and emotional investment in plastic."
+  },
+  {
+   "id": "heavy_filament-you-dedicated-grams-grams-to",
+   "family": "heavy_filament-you-dedicated-grams-grams-to",
+   "text": "You dedicated {grams} grams to {title}; please tell us it serves a purpose."
+  },
+  {
+   "id": "heavy_filament-title-ate-grams-grams-the-2",
+   "family": "heavy_filament-title-ate-grams-grams-the-2",
+   "text": "{title} ate {grams} grams; the empty spool is now available for craft projects."
+  },
+  {
+   "id": "heavy_filament-that-is-grams-grams-of",
+   "family": "heavy_filament-that-is-grams-grams-of",
+   "text": "That is {grams} grams of polymer that will never see the light again."
+  },
+  {
+   "id": "heavy_filament-title-consumed-grams-grams-the-4",
+   "family": "heavy_filament-title-consumed-grams-grams-the-4",
+   "text": "{title} consumed {grams} grams; the extruder motor is sweating through its casing."
+  },
+  {
+   "id": "heavy_filament-at-grams-grams-title-is-3",
+   "family": "heavy_filament-at-grams-grams-title-is-3",
+   "text": "At {grams} grams, {title} is officially the heaviest regret on the workbench."
   }
  ]
 }

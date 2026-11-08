@@ -102,3 +102,44 @@ def test_no_model_is_ever_called(history, tmp_path, monkeypatch):
     from print_handy import ai_routes
     monkeypatch.setattr(ai_routes, "call", boom)
     assert roast_chat.roast_reply("roast my last print", rows=history, state_path=tmp_path / "s.json")
+
+
+# --- #1002 Phase 2: history facts, color & dark humor chat roasts ---
+
+def test_history_facts_calculation(tmp_path, monkeypatch):
+    prints = tmp_path / "Prints"
+    prints.mkdir()
+    monkeypatch.setattr(print_records, "PRINTS_DIR", prints)
+
+    # Write a sequence of historical records: 3 prints of Black, then 2 failures
+    records = [
+        {"print_number": 1, "title": "Baseplate", "status": "completed", "filament_color": "Black", "gcode_file": "base.gcode"},
+        {"print_number": 2, "title": "Gears", "status": "failed", "filament_color": "Black", "gcode_file": "gear.gcode"},
+        {"print_number": 3, "title": "Gears retry", "status": "failed", "filament_color": "Black", "gcode_file": "gear.gcode"},
+    ]
+    for r in records:
+        (prints / f"print-{r['print_number']:04d}.json").write_text(json.dumps(r))
+
+    facts = roast_chat.history_facts("Gears final", current_gcode="gear.gcode", current_color="Black", status="completed")
+    assert facts.get("last_title") == "Gears retry"
+    assert facts.get("prev_fails") == 2
+    assert facts.get("fail_streak") == 2
+    assert facts.get("color_streak") == 4
+    assert facts.get("top_color") == "Black"
+
+
+def test_roast_chat_color_and_dark_humor(history, tmp_path):
+    from print_handy.core import roast as engine
+    state = tmp_path / "state.json"
+    # Overwrite row 3 record with Silk Gold color
+    record_path = tmp_path / "Prints" / "print-0003.json"
+    data = json.loads(record_path.read_text())
+    data["filament_color"] = "Silk Gold"
+    record_path.write_text(json.dumps(data))
+
+    reply = roast_chat.roast_reply("roast my last print", rows=history, state_path=state, rng=random.Random(10))
+    assert reply.startswith("Print #3, Benchy: ")
+    line = reply.split(": ", 1)[1]
+    assert line
+    # Contract holds
+    assert engine.contract_problem(line) is None

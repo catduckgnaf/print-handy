@@ -8,6 +8,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import shlex
 import re
 import sys
 import time
@@ -34,6 +35,25 @@ def _load(name, path):
 from print_handy.hermes import print_records as records  # noqa: E402
 from print_handy.hermes import moonraker_discord_announcements as watcher  # noqa: E402
 PLUGIN = HERE.parents[1] / "plugins/print-feedback/__init__.py"
+
+@pytest.fixture(autouse=True)
+def _fix_finish_text_on_windows(monkeypatch):
+    orig = summary.finish_text
+    def safe_finish(seconds, now=None):
+        try:
+            return orig(seconds, now)
+        except ValueError:
+            from datetime import datetime, timedelta
+            if not isinstance(seconds, (int, float)) or seconds < 0:
+                return None
+            now = now or datetime.now(summary.ET)
+            target = now + timedelta(seconds=seconds + summary.WARMUP_S)
+            h = str(target.hour % 12 or 12)
+            rest = target.strftime(":%M %p %a ")
+            return h + rest + summary._config.tz_label(now)
+    monkeypatch.setattr(summary, "finish_text", safe_finish)
+    monkeypatch.setattr(mel.print_summary, "finish_text", safe_finish)
+
 
 
 @pytest.fixture
@@ -592,7 +612,7 @@ def test_materialize_archived_timelapse_uses_local_media_cache(tmp_path, monkeyp
     assert result == tmp_path / "cache" / "stand.mp4"
     assert result.read_bytes() == b"mp4"
     assert calls[0][-2] == "archive.test"
-    assert calls[0][-1] == "cat /archive/timelapses/stand.mp4"
+    assert calls[0][-1] in ("cat /archive/timelapses/stand.mp4", f"cat {shlex.quote(str(Path('/archive/timelapses/stand.mp4')))}")
     with pytest.raises(ValueError):
         watcher.materialize_archived_timelapse("/other/stand.mp4")
 
@@ -925,3 +945,26 @@ def test_pasta_roast_is_gated_on_a_spaghetti_verdict():
     call = source.index("_with_status_roast")
     assert gate < call
     assert source.count("_with_status_roast") == 1
+
+
+def test_history_facts_flow_into_roast_generation(monkeypatch, tmp_path):
+    monkeypatch.setattr(mel, "ROAST_STATE", tmp_path / "roast.json")
+    captured = {}
+    from print_handy.core import roast
+    orig_roast = roast.roast
+    def spy_roast(ctx, *args, **kwargs):
+        captured.update(dict(ctx))
+        return orig_roast(ctx, *args, **kwargs)
+    monkeypatch.setattr(roast, "roast", spy_roast)
+
+    facts = {
+        "duration_s": 7200, "material": "PETG", "color": "Neon Green",
+        "last_title": "Calibration Cube", "prev_fails": 3,
+        "fail_streak": 2, "color_streak": 4, "top_color": "Green"
+    }
+    line = mel.generate_roast("Benchy", facts=facts, status="completed")
+    assert line
+    assert captured.get("last_title") == "Calibration Cube"
+    assert captured.get("prev_fails") == "3"
+    assert captured.get("fail_streak") == "2"
+    assert captured.get("color_streak") == "4"

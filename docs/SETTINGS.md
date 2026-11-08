@@ -131,7 +131,7 @@ Schema, validation limits and TOML migration: [CONFIGURATION-YAML.md](CONFIGURAT
 | `listener.spool_nag_s` | `PRINT_HANDY__LISTENER__SPOOL_NAG_S` | `600` | Reminder interval for an unanswered spool question |
 | `listener.start_claim_ttl_s` | `PRINT_HANDY__LISTENER__START_CLAIM_TTL_S` | `1800` | How long a start button stays claimed |
 | `vision.model` | `PRINT_HANDY__VISION__MODEL` | `gemini-latest` | Model for camera checks. The default is a CLIProxyAPI alias: set your own server's vision model name |
-| `vision.roast_model` | `PRINT_HANDY__VISION__ROAST_MODEL` | `luna-latest` | Legacy, unused: roasts come from the local roast corpus with no model since #1002. Kept so older configs load unchanged |
+| `vision.roast_model` | `PRINT_HANDY__VISION__ROAST_MODEL` | empty | Legacy, removed from Web UI and sample configs: roasts come from the local roast corpus with no model since #1002. Kept so older configs load unchanged as a silent no-op |
 | `vision.roast_enabled` | `PRINT_HANDY__VISION__ROAST_ENABLED` | `true` | The one-line roast: exactly one per print on the completion post, one on the failure and cancel posts and on a confirmed-spaghetti camera alert, plus on request in chat ("roast my last print", "roast print 84"), on every platform. Drawn from the local roast corpus (`print_handy/data/roasts/`) with no LLM and no endpoint (#1002). `false` turns roasts off without disabling camera checks |
 | `vision.local_detector_enabled` | `PRINT_HANDY__VISION__LOCAL_DETECTOR_ENABLED` | `false` | Built-in local failure detector for the camera watchdog (#455): when `true`, frames are judged by an ONNX detector on this machine whenever no vision endpoint route is configured, so a no-LLM, no-cloud install still gets bad-print detection. Off by default; see [Local failure detector](#local-failure-detector) |
 | `vision.local_model_path` | `PRINT_HANDY__VISION__LOCAL_MODEL_PATH` | empty | Path of the local detector's ONNX model file. Empty uses the default location (a `models` folder under the Hermes home) and the pinned model; set it to a file you placed yourself to run fully offline |
@@ -276,10 +276,9 @@ Things to know:
   `.local` / `.lan` / `.home.arpa` name), since a local server usually takes
   no key. A hosted vision URL without its key keeps the camera watch off
   rather than posting a false alert at every check.
-- **Set the model names.** `vision.model` and `vision.roast_model` default to
-  `gemini-latest` and `luna-latest`, aliases that only a CLIProxyAPI setup
-  knows. With any other server, set them to that server's model names, and
-  pick a vision-capable model for `vision.model`.
+- **Set the model name.** `vision.model` defaults to `gemini-latest`,
+  an alias that only a CLIProxyAPI setup knows. With any other server,
+  set it to that server's model name, and pick a vision-capable model.
 - **The URL is the full chat completions path**, for example
   `http://ollama:11434/v1/chat/completions` for an Ollama container or
   `https://api.openai.com/v1/chat/completions`.

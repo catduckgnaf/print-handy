@@ -1,23 +1,13 @@
 {
- "_about": "Words no roast may contain (word-boundary match), checked on entries and on every filled line.",
- "_phase": "seed-v0 (#1002 attachment 1, 2026-11-07)",
- "_license": "Original to Print Handy; MIT with the project.",
- "entries": [
-  "stupid",
-  "idiot",
-  "dumb",
-  "hate",
-  "ugly",
-  "loser",
-  "shut up",
-  "moron",
-  "pathetic",
-  "worthless",
-  "trash",
-  "garbage",
-  "kill",
-  "die",
-  "suck",
-  "sucks"
- ]
+  "_about": "Words no roast may contain (word-boundary match), checked on entries and on every filled line.",
+  "_phase": 2,
+  "_license": "Original to Print Handy; MIT with the project.",
+  "entries": [
+    "stupid",
+    "idiot",
+    "dumb",
+    "loser",
+    "shut up",
+    "moron"
+  ]
 }

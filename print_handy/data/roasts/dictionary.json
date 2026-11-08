@@ -1,0 +1,7202 @@
+{
+  "_about": "Print Handy 3D printing dictionary and taxonomy for local roasts and fuzzy vocabulary expansion (#1002 Phase 2).",
+  "_phase": 2,
+  "_license": "CC0-1.0",
+  "categories": {
+    "models": [
+      {
+        "term": "benchy",
+        "category": "models",
+        "aliases": [
+          "3d benchy",
+          "benchie",
+          "calibration boat",
+          "tugboat"
+        ],
+        "typos": [
+          "becnhy",
+          "bnechy",
+          "bency"
+        ],
+        "roast_tag": "benchy"
+      },
+      {
+        "term": "box",
+        "category": "models",
+        "aliases": [
+          "storage box",
+          "container",
+          "organizer box"
+        ],
+        "typos": [
+          "bxo",
+          "vox"
+        ],
+        "roast_tag": "box"
+      },
+      {
+        "term": "bracket",
+        "category": "models",
+        "aliases": [
+          "shelf bracket",
+          "corner bracket",
+          "mounting bracket",
+          "angle bracket"
+        ],
+        "typos": [
+          "braket",
+          "brackt",
+          "barcket"
+        ],
+        "roast_tag": "bracket"
+      },
+      {
+        "term": "dragon",
+        "category": "models",
+        "aliases": [
+          "crystal dragon",
+          "articulated dragon",
+          "wyrm",
+          "drake"
+        ],
+        "typos": [
+          "dragn",
+          "dragin",
+          "daragon"
+        ],
+        "roast_tag": "dragon"
+      },
+      {
+        "term": "gear",
+        "category": "models",
+        "aliases": [
+          "spur gear",
+          "cog",
+          "pinion",
+          "planetary gear"
+        ],
+        "typos": [
+          "gaer",
+          "geer"
+        ],
+        "roast_tag": "gear"
+      },
+      {
+        "term": "helmet",
+        "category": "models",
+        "aliases": [
+          "costume helmet",
+          "cosplay helmet",
+          "armor helmet",
+          "cowl"
+        ],
+        "typos": [
+          "helmt",
+          "hlemet"
+        ],
+        "roast_tag": "helmet"
+      },
+      {
+        "term": "hook",
+        "category": "models",
+        "aliases": [
+          "wall hook",
+          "coat hook",
+          "hanger hook",
+          "towel hook"
+        ],
+        "typos": [
+          "hool",
+          "hok"
+        ],
+        "roast_tag": "hook"
+      },
+      {
+        "term": "mask",
+        "category": "models",
+        "aliases": [
+          "costume mask",
+          "face mask",
+          "cosplay mask",
+          "half mask"
+        ],
+        "typos": [
+          "makk",
+          "msak"
+        ],
+        "roast_tag": "mask"
+      },
+      {
+        "term": "organizer",
+        "category": "models",
+        "aliases": [
+          "desk organizer",
+          "drawer organizer",
+          "tool organizer",
+          "caddy"
+        ],
+        "typos": [
+          "orginizer",
+          "organizr",
+          "organzer"
+        ],
+        "roast_tag": "organizer"
+      },
+      {
+        "term": "phone stand",
+        "category": "models",
+        "aliases": [
+          "cell phone stand",
+          "mobile stand",
+          "desk phone stand"
+        ],
+        "typos": [
+          "phone snad",
+          "phonestand",
+          "fone stand"
+        ],
+        "roast_tag": "phone stand"
+      },
+      {
+        "term": "planter",
+        "category": "models",
+        "aliases": [
+          "flower pot",
+          "plant pot",
+          "succulent planter"
+        ],
+        "typos": [
+          "plnter",
+          "planetr"
+        ],
+        "roast_tag": "planter"
+      },
+      {
+        "term": "skull",
+        "category": "models",
+        "aliases": [
+          "cranium",
+          "skeleton head",
+          "decorative skull"
+        ],
+        "typos": [
+          "skul",
+          "sukll"
+        ],
+        "roast_tag": "skull"
+      },
+      {
+        "term": "star",
+        "category": "models",
+        "aliases": [
+          "tree star",
+          "pentagram",
+          "geometric star"
+        ],
+        "typos": [
+          "stat",
+          "stra"
+        ],
+        "roast_tag": "star"
+      },
+      {
+        "term": "sword",
+        "category": "models",
+        "aliases": [
+          "blade",
+          "collapsible sword",
+          "broadsword",
+          "katana sword"
+        ],
+        "typos": [
+          "swrod",
+          "sward",
+          "sowrd"
+        ],
+        "roast_tag": "sword"
+      },
+      {
+        "term": "toy",
+        "category": "models",
+        "aliases": [
+          "action figure",
+          "plaything",
+          "desk toy"
+        ],
+        "typos": [
+          "tiy",
+          "tyo"
+        ],
+        "roast_tag": "toy"
+      },
+      {
+        "term": "vase",
+        "category": "models",
+        "aliases": [
+          "spiral vase",
+          "flower vase",
+          "urn"
+        ],
+        "typos": [
+          "vaes",
+          "vse"
+        ],
+        "roast_tag": "vase"
+      },
+      {
+        "term": "clip",
+        "category": "models",
+        "aliases": [
+          "binder clip",
+          "cable clip",
+          "bag clip",
+          "retention clip"
+        ],
+        "typos": [
+          "clp",
+          "cilp"
+        ],
+        "roast_tag": "clip"
+      },
+      {
+        "term": "cable",
+        "category": "models",
+        "aliases": [
+          "wire guide",
+          "cable organizer",
+          "cord keeper"
+        ],
+        "typos": [
+          "cabel",
+          "cbl"
+        ],
+        "roast_tag": "cable"
+      },
+      {
+        "term": "mount",
+        "category": "models",
+        "aliases": [
+          "wall mount",
+          "bracket mount",
+          "holder mount"
+        ],
+        "typos": [
+          "monut",
+          "moun"
+        ],
+        "roast_tag": "mount"
+      },
+      {
+        "term": "enclosure",
+        "category": "models",
+        "aliases": [
+          "electronics enclosure",
+          "case box",
+          "housing"
+        ],
+        "typos": [
+          "enclosre",
+          "enclsure"
+        ],
+        "roast_tag": "enclosure"
+      },
+      {
+        "term": "holder",
+        "category": "models",
+        "aliases": [
+          "caddy",
+          "stand holder",
+          "cradle"
+        ],
+        "typos": [
+          "hoder",
+          "holdr"
+        ],
+        "roast_tag": "holder"
+      },
+      {
+        "term": "hinge",
+        "category": "models",
+        "aliases": [
+          "print in place hinge",
+          "box hinge",
+          "pivot hinge"
+        ],
+        "typos": [
+          "higne",
+          "hing"
+        ],
+        "roast_tag": "hinge"
+      },
+      {
+        "term": "jig",
+        "category": "models",
+        "aliases": [
+          "alignment jig",
+          "drilling jig",
+          "guide jig",
+          "assembly fixture"
+        ],
+        "typos": [
+          "jigg",
+          "ijg"
+        ],
+        "roast_tag": "jig"
+      },
+      {
+        "term": "drawer",
+        "category": "models",
+        "aliases": [
+          "pull out drawer",
+          "storage drawer",
+          "sliding tray"
+        ],
+        "typos": [
+          "drwer",
+          "drawr"
+        ],
+        "roast_tag": "drawer"
+      },
+      {
+        "term": "adapter",
+        "category": "models",
+        "aliases": [
+          "connector adapter",
+          "hose adapter",
+          "fitting adapter"
+        ],
+        "typos": [
+          "adaptor",
+          "adaptr"
+        ],
+        "roast_tag": "adapter"
+      },
+      {
+        "term": "rack",
+        "category": "models",
+        "aliases": [
+          "spool rack",
+          "drying rack",
+          "storage rack",
+          "shelf rack"
+        ],
+        "typos": [
+          "rakc",
+          "rak"
+        ],
+        "roast_tag": "rack"
+      },
+      {
+        "term": "keychain",
+        "category": "models",
+        "aliases": [
+          "key ring",
+          "key fob",
+          "key tag"
+        ],
+        "typos": [
+          "keychan",
+          "kychain"
+        ],
+        "roast_tag": "keychain"
+      },
+      {
+        "term": "fidget",
+        "category": "models",
+        "aliases": [
+          "fidget spinner",
+          "fidget clicker",
+          "sensory toy",
+          "fidget gear"
+        ],
+        "typos": [
+          "figet",
+          "fidgt"
+        ],
+        "roast_tag": "fidget"
+      },
+      {
+        "term": "cube",
+        "category": "models",
+        "aliases": [
+          "calibration cube",
+          "xyz cube",
+          "test cube"
+        ],
+        "typos": [
+          "cuve",
+          "cub"
+        ],
+        "roast_tag": "cube"
+      },
+      {
+        "term": "tower",
+        "category": "models",
+        "aliases": [
+          "temperature tower",
+          "temp tower",
+          "retraction tower"
+        ],
+        "typos": [
+          "towr",
+          "twor"
+        ],
+        "roast_tag": "tower"
+      },
+      {
+        "term": "octopus",
+        "category": "models",
+        "aliases": [
+          "articulated octopus",
+          "flexi octopus",
+          "cephalopod"
+        ],
+        "typos": [
+          "octopuss",
+          "octupus"
+        ],
+        "roast_tag": "octopus"
+      },
+      {
+        "term": "rex",
+        "category": "models",
+        "aliases": [
+          "t-rex",
+          "tyrannosaurus",
+          "flexi rex",
+          "articulated rex"
+        ],
+        "typos": [
+          "rexx",
+          "rxe"
+        ],
+        "roast_tag": "rex"
+      },
+      {
+        "term": "slug",
+        "category": "models",
+        "aliases": [
+          "articulated slug",
+          "flexi slug",
+          "fidget slug"
+        ],
+        "typos": [
+          "sulg",
+          "slugg"
+        ],
+        "roast_tag": "slug"
+      },
+      {
+        "term": "shark",
+        "category": "models",
+        "aliases": [
+          "articulated shark",
+          "flexi shark"
+        ],
+        "typos": [
+          "shrk",
+          "shart"
+        ],
+        "roast_tag": "shark"
+      },
+      {
+        "term": "axolotl",
+        "category": "models",
+        "aliases": [
+          "flexi axolotl",
+          "articulated axolotl",
+          "mexican walking fish"
+        ],
+        "typos": [
+          "axoltl",
+          "axolot",
+          "axalotl"
+        ],
+        "roast_tag": "axolotl"
+      },
+      {
+        "term": "turtle",
+        "category": "models",
+        "aliases": [
+          "articulated turtle",
+          "sea turtle",
+          "flexi turtle"
+        ],
+        "typos": [
+          "trtle",
+          "turtel"
+        ],
+        "roast_tag": "turtle"
+      },
+      {
+        "term": "snake",
+        "category": "models",
+        "aliases": [
+          "articulated snake",
+          "flexi snake",
+          "jointed snake"
+        ],
+        "typos": [
+          "sanke",
+          "snke"
+        ],
+        "roast_tag": "snake"
+      },
+      {
+        "term": "spider",
+        "category": "models",
+        "aliases": [
+          "articulated spider",
+          "spooky spider",
+          "halloween spider"
+        ],
+        "typos": [
+          "spidr",
+          "spdr"
+        ],
+        "roast_tag": "spider"
+      },
+      {
+        "term": "dummy",
+        "category": "models",
+        "aliases": [
+          "dummy 13",
+          "lucky 13",
+          "action dummy",
+          "posable figure"
+        ],
+        "typos": [
+          "dumy",
+          "dumm"
+        ],
+        "roast_tag": "dummy"
+      },
+      {
+        "term": "gridfinity",
+        "category": "models",
+        "aliases": [
+          "gridfinity bin",
+          "gridfinity organizer",
+          "zack freedman system"
+        ],
+        "typos": [
+          "gridfininty",
+          "gridfiniti"
+        ],
+        "roast_tag": "gridfinity"
+      },
+      {
+        "term": "bin",
+        "category": "models",
+        "aliases": [
+          "storage bin",
+          "parts bin",
+          "sort bin"
+        ],
+        "typos": [
+          "bnn",
+          "bni"
+        ],
+        "roast_tag": "bin"
+      },
+      {
+        "term": "baseplate",
+        "category": "models",
+        "aliases": [
+          "grid baseplate",
+          "mounting plate",
+          "bottom plate"
+        ],
+        "typos": [
+          "baseplat",
+          "bseplate"
+        ],
+        "roast_tag": "baseplate"
+      },
+      {
+        "term": "multiboard",
+        "category": "models",
+        "aliases": [
+          "multiboard wall",
+          "multiconnect",
+          "modular pegboard"
+        ],
+        "typos": [
+          "multibord",
+          "multiboar"
+        ],
+        "roast_tag": "multiboard"
+      },
+      {
+        "term": "honeycomb",
+        "category": "models",
+        "aliases": [
+          "honeycomb wall",
+          "hsw",
+          "hex storage wall"
+        ],
+        "typos": [
+          "honycomb",
+          "honeycom"
+        ],
+        "roast_tag": "honeycomb"
+      },
+      {
+        "term": "skadis",
+        "category": "models",
+        "aliases": [
+          "ikea skadis",
+          "skadis hook",
+          "skadis pegboard"
+        ],
+        "typos": [
+          "skadiss"
+        ],
+        "roast_tag": "skadis"
+      },
+      {
+        "term": "pegboard",
+        "category": "models",
+        "aliases": [
+          "perforated board",
+          "tool board",
+          "wall pegboard"
+        ],
+        "typos": [
+          "pegbord",
+          "pegbaord"
+        ],
+        "roast_tag": "pegboard"
+      },
+      {
+        "term": "tray",
+        "category": "models",
+        "aliases": [
+          "catchall tray",
+          "valet tray",
+          "sorting tray"
+        ],
+        "typos": [
+          "tary",
+          "trai"
+        ],
+        "roast_tag": "tray"
+      },
+      {
+        "term": "stand",
+        "category": "models",
+        "aliases": [
+          "display stand",
+          "pedestal",
+          "easel stand"
+        ],
+        "typos": [
+          "stnd",
+          "snad"
+        ],
+        "roast_tag": "stand"
+      },
+      {
+        "term": "headphone",
+        "category": "models",
+        "aliases": [
+          "headphone hanger",
+          "headset stand",
+          "headphone mount"
+        ],
+        "typos": [
+          "headphon",
+          "hedphone"
+        ],
+        "roast_tag": "headphone"
+      },
+      {
+        "term": "controller",
+        "category": "models",
+        "aliases": [
+          "controller stand",
+          "gamepad holder",
+          "xbox stand",
+          "ps5 stand"
+        ],
+        "typos": [
+          "controler",
+          "cntroller"
+        ],
+        "roast_tag": "controller"
+      },
+      {
+        "term": "tablet",
+        "category": "models",
+        "aliases": [
+          "tablet stand",
+          "ipad holder",
+          "tablet cradle"
+        ],
+        "typos": [
+          "tablt",
+          "tabelt"
+        ],
+        "roast_tag": "tablet"
+      },
+      {
+        "term": "laptop",
+        "category": "models",
+        "aliases": [
+          "laptop stand",
+          "vertical laptop stand",
+          "laptop riser"
+        ],
+        "typos": [
+          "lapotp",
+          "labtop"
+        ],
+        "roast_tag": "laptop"
+      },
+      {
+        "term": "webcam",
+        "category": "models",
+        "aliases": [
+          "camera mount",
+          "webcam stand",
+          "webcam bracket"
+        ],
+        "typos": [
+          "web cam",
+          "webcm"
+        ],
+        "roast_tag": "webcam"
+      },
+      {
+        "term": "case",
+        "category": "models",
+        "aliases": [
+          "protective case",
+          "shell case",
+          "project box"
+        ],
+        "typos": [
+          "caes",
+          "cse"
+        ],
+        "roast_tag": "case"
+      },
+      {
+        "term": "handle",
+        "category": "models",
+        "aliases": [
+          "door handle",
+          "drawer handle",
+          "pull handle"
+        ],
+        "typos": [
+          "handl",
+          "hndle"
+        ],
+        "roast_tag": "handle"
+      },
+      {
+        "term": "knob",
+        "category": "models",
+        "aliases": [
+          "rotary knob",
+          "control knob",
+          "drawer knob"
+        ],
+        "typos": [
+          "knbo",
+          "nob"
+        ],
+        "roast_tag": "knob"
+      },
+      {
+        "term": "latch",
+        "category": "models",
+        "aliases": [
+          "door latch",
+          "toggle latch",
+          "sliding latch"
+        ],
+        "typos": [
+          "ltch",
+          "lach"
+        ],
+        "roast_tag": "latch"
+      },
+      {
+        "term": "clamp",
+        "category": "models",
+        "aliases": [
+          "c clamp",
+          "spring clamp",
+          "bar clamp",
+          "bench clamp"
+        ],
+        "typos": [
+          "clmp",
+          "clmap"
+        ],
+        "roast_tag": "clamp"
+      },
+      {
+        "term": "vise",
+        "category": "models",
+        "aliases": [
+          "bench vise",
+          "screw vise",
+          "mini vise"
+        ],
+        "typos": [
+          "vice",
+          "vis"
+        ],
+        "roast_tag": "vise"
+      },
+      {
+        "term": "spacer",
+        "category": "models",
+        "aliases": [
+          "standoff spacer",
+          "bushing spacer",
+          "washer spacer"
+        ],
+        "typos": [
+          "spacr",
+          "sapcer"
+        ],
+        "roast_tag": "spacer"
+      },
+      {
+        "term": "shim",
+        "category": "models",
+        "aliases": [
+          "leveling shim",
+          "spacing shim",
+          "alignment shim"
+        ],
+        "typos": [
+          "shm",
+          "sihm"
+        ],
+        "roast_tag": "shim"
+      },
+      {
+        "term": "bushing",
+        "category": "models",
+        "aliases": [
+          "sleeve bushing",
+          "linear bushing",
+          "polymer bushing"
+        ],
+        "typos": [
+          "bushin",
+          "bushng"
+        ],
+        "roast_tag": "bushing"
+      },
+      {
+        "term": "bearing",
+        "category": "models",
+        "aliases": [
+          "ball bearing",
+          "608 bearing",
+          "roller bearing"
+        ],
+        "typos": [
+          "bearng",
+          "bering"
+        ],
+        "roast_tag": "bearing"
+      },
+      {
+        "term": "pulley",
+        "category": "models",
+        "aliases": [
+          "timing pulley",
+          "gt2 pulley",
+          "cable pulley"
+        ],
+        "typos": [
+          "puly",
+          "pullye"
+        ],
+        "roast_tag": "pulley"
+      },
+      {
+        "term": "funnel",
+        "category": "models",
+        "aliases": [
+          "resin funnel",
+          "filter funnel",
+          "kitchen funnel"
+        ],
+        "typos": [
+          "funel",
+          "fnnel"
+        ],
+        "roast_tag": "funnel"
+      },
+      {
+        "term": "chute",
+        "category": "models",
+        "aliases": [
+          "purge chute",
+          "slide chute"
+        ],
+        "typos": [
+          "chuet",
+          "shute"
+        ],
+        "roast_tag": "chute"
+      },
+      {
+        "term": "bucket",
+        "category": "models",
+        "aliases": [
+          "purge bucket",
+          "scrap bucket",
+          "bin bucket"
+        ],
+        "typos": [
+          "buckt",
+          "buket"
+        ],
+        "roast_tag": "bucket"
+      },
+      {
+        "term": "scraper",
+        "category": "models",
+        "aliases": [
+          "bed scraper",
+          "putty scraper",
+          "plastic scraper"
+        ],
+        "typos": [
+          "scrapr",
+          "scarper"
+        ],
+        "roast_tag": "scraper"
+      },
+      {
+        "term": "spool",
+        "category": "models",
+        "aliases": [
+          "filament spool",
+          "empty spool",
+          "reusable spool"
+        ],
+        "typos": [
+          "spol",
+          "spooll"
+        ],
+        "roast_tag": "spool"
+      },
+      {
+        "term": "rewinder",
+        "category": "models",
+        "aliases": [
+          "auto rewinder",
+          "spool rewinder",
+          "filament winder"
+        ],
+        "typos": [
+          "rewindr",
+          "rewnider"
+        ],
+        "roast_tag": "rewinder"
+      },
+      {
+        "term": "drybox",
+        "category": "models",
+        "aliases": [
+          "dry box",
+          "desiccant box",
+          "filament drybox"
+        ],
+        "typos": [
+          "drybx",
+          "dryvox"
+        ],
+        "roast_tag": "drybox"
+      },
+      {
+        "term": "desiccant",
+        "category": "models",
+        "aliases": [
+          "silica gel container",
+          "desiccant pod",
+          "moisture absorber"
+        ],
+        "typos": [
+          "desicant",
+          "dessicant"
+        ],
+        "roast_tag": "desiccant"
+      },
+      {
+        "term": "guide",
+        "category": "models",
+        "aliases": [
+          "cable guide",
+          "bearing guide"
+        ],
+        "typos": [
+          "gudie",
+          "giude"
+        ],
+        "roast_tag": "guide"
+      },
+      {
+        "term": "duct",
+        "category": "models",
+        "aliases": [
+          "fan duct",
+          "airflow duct",
+          "blower duct"
+        ],
+        "typos": [
+          "dct",
+          "dut"
+        ],
+        "roast_tag": "duct"
+      },
+      {
+        "term": "shroud",
+        "category": "models",
+        "aliases": [
+          "hotend shroud",
+          "cooling shroud"
+        ],
+        "typos": [
+          "shrod",
+          "shruod"
+        ],
+        "roast_tag": "shroud"
+      },
+      {
+        "term": "riser",
+        "category": "models",
+        "aliases": [
+          "lid riser",
+          "glass riser",
+          "enclosure riser"
+        ],
+        "typos": [
+          "risr",
+          "riesr"
+        ],
+        "roast_tag": "riser"
+      },
+      {
+        "term": "filter",
+        "category": "models",
+        "aliases": [
+          "carbon filter housing",
+          "bento box filter",
+          "exhaust filter"
+        ],
+        "typos": [
+          "filtr",
+          "fliter"
+        ],
+        "roast_tag": "filter"
+      },
+      {
+        "term": "mandalorian",
+        "category": "models",
+        "aliases": [
+          "mando helmet",
+          "beskar helmet",
+          "boba fett armor"
+        ],
+        "typos": [
+          "mandolorian",
+          "mandalorin"
+        ],
+        "roast_tag": "mandalorian"
+      },
+      {
+        "term": "stormtrooper",
+        "category": "models",
+        "aliases": [
+          "trooper helmet",
+          "storm trooper armor",
+          "clone trooper"
+        ],
+        "typos": [
+          "stormtroper",
+          "stormtropr"
+        ],
+        "roast_tag": "stormtrooper"
+      },
+      {
+        "term": "armor",
+        "category": "models",
+        "aliases": [
+          "cosplay armor",
+          "chestplate",
+          "pauldrons",
+          "shoulder armor"
+        ],
+        "typos": [
+          "armr",
+          "amror"
+        ],
+        "roast_tag": "armor"
+      },
+      {
+        "term": "gauntlet",
+        "category": "models",
+        "aliases": [
+          "cosplay gauntlet",
+          "arm bracer",
+          "infinity gauntlet"
+        ],
+        "typos": [
+          "gantlet",
+          "gauntlt"
+        ],
+        "roast_tag": "gauntlet"
+      },
+      {
+        "term": "katana",
+        "category": "models",
+        "aliases": [
+          "samurai katana",
+          "collapsible katana",
+          "ninja blade"
+        ],
+        "typos": [
+          "katna",
+          "ktaana"
+        ],
+        "roast_tag": "katana"
+      },
+      {
+        "term": "dagger",
+        "category": "models",
+        "aliases": [
+          "prop dagger",
+          "costume dagger",
+          "kunai"
+        ],
+        "typos": [
+          "daggr",
+          "dager"
+        ],
+        "roast_tag": "dagger"
+      },
+      {
+        "term": "lightsaber",
+        "category": "models",
+        "aliases": [
+          "light saber",
+          "laser sword",
+          "jedi hilt"
+        ],
+        "typos": [
+          "lightsabr",
+          "litesaber"
+        ],
+        "roast_tag": "lightsaber"
+      },
+      {
+        "term": "blaster",
+        "category": "models",
+        "aliases": [
+          "sci-fi blaster",
+          "prop blaster",
+          "ray gun"
+        ],
+        "typos": [
+          "blastr",
+          "balster"
+        ],
+        "roast_tag": "blaster"
+      },
+      {
+        "term": "shield",
+        "category": "models",
+        "aliases": [
+          "cosplay shield",
+          "prop shield",
+          "buckler"
+        ],
+        "typos": [
+          "sheild",
+          "shild"
+        ],
+        "roast_tag": "shield"
+      },
+      {
+        "term": "wand",
+        "category": "models",
+        "aliases": [
+          "magic wand",
+          "wizard wand",
+          "cosplay wand"
+        ],
+        "typos": [
+          "wnd",
+          "wannd"
+        ],
+        "roast_tag": "wand"
+      },
+      {
+        "term": "crown",
+        "category": "models",
+        "aliases": [
+          "tiara",
+          "circlet",
+          "royal crown"
+        ],
+        "typos": [
+          "crwn",
+          "corwn"
+        ],
+        "roast_tag": "crown"
+      },
+      {
+        "term": "horn",
+        "category": "models",
+        "aliases": [
+          "cosplay horns",
+          "demon horns",
+          "viking horn"
+        ],
+        "typos": [
+          "hrn",
+          "hornn"
+        ],
+        "roast_tag": "horn"
+      },
+      {
+        "term": "dice",
+        "category": "models",
+        "aliases": [
+          "polyhedral dice",
+          "d20",
+          "gaming dice",
+          "dice tower piece"
+        ],
+        "typos": [
+          "dcie",
+          "dce"
+        ],
+        "roast_tag": "dice"
+      },
+      {
+        "term": "miniature",
+        "category": "models",
+        "aliases": [
+          "tabletop mini",
+          "dnd miniature",
+          "warhammer mini",
+          "figurine"
+        ],
+        "typos": [
+          "minature",
+          "miniture"
+        ],
+        "roast_tag": "miniature"
+      },
+      {
+        "term": "terrain",
+        "category": "models",
+        "aliases": [
+          "tabletop terrain",
+          "scatter terrain",
+          "dungeon tile"
+        ],
+        "typos": [
+          "terain",
+          "terrian"
+        ],
+        "roast_tag": "terrain"
+      },
+      {
+        "term": "tile",
+        "category": "models",
+        "aliases": [
+          "hex tile",
+          "modular tile",
+          "grid tile"
+        ],
+        "typos": [
+          "tle",
+          "tiel"
+        ],
+        "roast_tag": "tile"
+      },
+      {
+        "term": "pokeball",
+        "category": "models",
+        "aliases": [
+          "poke ball",
+          "creature ball",
+          "cosplay sphere"
+        ],
+        "typos": [
+          "pokebal",
+          "pokeballl"
+        ],
+        "roast_tag": "pokeball"
+      },
+      {
+        "term": "statue",
+        "category": "models",
+        "aliases": [
+          "sculpture",
+          "figurine",
+          "character model"
+        ],
+        "typos": [
+          "statu",
+          "statye"
+        ],
+        "roast_tag": "statue"
+      },
+      {
+        "term": "bust",
+        "category": "models",
+        "aliases": [
+          "portrait bust",
+          "character bust",
+          "classical bust"
+        ],
+        "typos": [
+          "buts",
+          "bsut"
+        ],
+        "roast_tag": "bust"
+      },
+      {
+        "term": "trophy",
+        "category": "models",
+        "aliases": [
+          "award trophy",
+          "winner cup",
+          "pedestal trophy"
+        ],
+        "typos": [
+          "tropy",
+          "trohpy"
+        ],
+        "roast_tag": "trophy"
+      },
+      {
+        "term": "coaster",
+        "category": "models",
+        "aliases": [
+          "drink coaster",
+          "mug coaster",
+          "cup mat"
+        ],
+        "typos": [
+          "coastr",
+          "caoster"
+        ],
+        "roast_tag": "coaster"
+      },
+      {
+        "term": "soap",
+        "category": "models",
+        "aliases": [
+          "soap dish",
+          "soap holder",
+          "soap tray"
+        ],
+        "typos": [
+          "sope",
+          "saop"
+        ],
+        "roast_tag": "soap"
+      },
+      {
+        "term": "squeezer",
+        "category": "models",
+        "aliases": [
+          "toothpaste squeezer",
+          "tube squeezer",
+          "paste wringer"
+        ],
+        "typos": [
+          "squeezr",
+          "sqeezer"
+        ],
+        "roast_tag": "squeezer"
+      },
+      {
+        "term": "opener",
+        "category": "models",
+        "aliases": [
+          "bottle opener",
+          "can opener",
+          "cap opener"
+        ],
+        "typos": [
+          "openr",
+          "opner"
+        ],
+        "roast_tag": "opener"
+      },
+      {
+        "term": "tag",
+        "category": "models",
+        "aliases": [
+          "luggage tag",
+          "dog tag",
+          "label tag"
+        ],
+        "typos": [
+          "tga",
+          "tgg"
+        ],
+        "roast_tag": "tag"
+      },
+      {
+        "term": "nameplate",
+        "category": "models",
+        "aliases": [
+          "desk nameplate",
+          "door sign",
+          "badge plate"
+        ],
+        "typos": [
+          "nameplat",
+          "namplate"
+        ],
+        "roast_tag": "nameplate"
+      },
+      {
+        "term": "hueforge",
+        "category": "models",
+        "aliases": [
+          "filament painting",
+          "hueforge print",
+          "layered relief"
+        ],
+        "typos": [
+          "hueforg",
+          "heuforge"
+        ],
+        "roast_tag": "hueforge"
+      },
+      {
+        "term": "lithophane",
+        "category": "models",
+        "aliases": [
+          "light relief",
+          "backlit photo",
+          "litho lamp"
+        ],
+        "typos": [
+          "lithophan",
+          "lithopane"
+        ],
+        "roast_tag": "lithophane"
+      },
+      {
+        "term": "voronoi",
+        "category": "models",
+        "aliases": [
+          "voronoi pattern",
+          "cellular structure",
+          "mesh lattice"
+        ],
+        "typos": [
+          "vornoi",
+          "voronoy"
+        ],
+        "roast_tag": "voronoi"
+      },
+      {
+        "term": "bookmark",
+        "category": "models",
+        "aliases": [
+          "book page marker",
+          "reading tab",
+          "page clip"
+        ],
+        "typos": [
+          "bookmrk",
+          "bokmark"
+        ],
+        "roast_tag": "bookmark"
+      },
+      {
+        "term": "lamp",
+        "category": "models",
+        "aliases": [
+          "desk lamp",
+          "shade lamp",
+          "led lamp"
+        ],
+        "typos": [
+          "lmp",
+          "lampp"
+        ],
+        "roast_tag": "lamp"
+      },
+      {
+        "term": "moon",
+        "category": "models",
+        "aliases": [
+          "moon lamp",
+          "lunar sphere",
+          "celestial globe"
+        ],
+        "typos": [
+          "mon",
+          "mooon"
+        ],
+        "roast_tag": "moon"
+      },
+      {
+        "term": "ornament",
+        "category": "models",
+        "aliases": [
+          "holiday ornament",
+          "tree bauble",
+          "hanging decor"
+        ],
+        "typos": [
+          "ornamnet",
+          "ornmnt"
+        ],
+        "roast_tag": "ornament"
+      },
+      {
+        "term": "snowflake",
+        "category": "models",
+        "aliases": [
+          "ice crystal",
+          "winter snowflake",
+          "hex snowflake"
+        ],
+        "typos": [
+          "snowflak",
+          "snowfalke"
+        ],
+        "roast_tag": "snowflake"
+      },
+      {
+        "term": "pumpkin",
+        "category": "models",
+        "aliases": [
+          "jack o lantern",
+          "halloween pumpkin",
+          "gourd"
+        ],
+        "typos": [
+          "pumpkn",
+          "pumkin"
+        ],
+        "roast_tag": "pumpkin"
+      },
+      {
+        "term": "egg",
+        "category": "models",
+        "aliases": [
+          "surprise egg",
+          "easter egg",
+          "dragon egg"
+        ],
+        "typos": [
+          "eggg",
+          "geg"
+        ],
+        "roast_tag": "egg"
+      },
+      {
+        "term": "whistle",
+        "category": "models",
+        "aliases": [
+          "emergency whistle",
+          "storm whistle",
+          "pea whistle"
+        ],
+        "typos": [
+          "whislte",
+          "whiste"
+        ],
+        "roast_tag": "whistle"
+      },
+      {
+        "term": "ocarina",
+        "category": "models",
+        "aliases": [
+          "flute instrument",
+          "ocarina wind",
+          "musical pipe"
+        ],
+        "typos": [
+          "ocarine",
+          "ocarnia"
+        ],
+        "roast_tag": "ocarina"
+      },
+      {
+        "term": "cutter",
+        "category": "models",
+        "aliases": [
+          "cookie cutter",
+          "dough cutter",
+          "clay cutter"
+        ],
+        "typos": [
+          "cuttr",
+          "cuter"
+        ],
+        "roast_tag": "cutter"
+      },
+      {
+        "term": "stamp",
+        "category": "models",
+        "aliases": [
+          "ink stamp",
+          "clay stamp",
+          "embossing stamp"
+        ],
+        "typos": [
+          "stmp",
+          "satmp"
+        ],
+        "roast_tag": "stamp"
+      },
+      {
+        "term": "frame",
+        "category": "models",
+        "aliases": [
+          "picture frame",
+          "photo frame",
+          "border frame"
+        ],
+        "typos": [
+          "frem",
+          "fraem"
+        ],
+        "roast_tag": "frame"
+      },
+      {
+        "term": "shelf",
+        "category": "models",
+        "aliases": [
+          "wall shelf",
+          "floating shelf",
+          "bracket shelf"
+        ],
+        "typos": [
+          "shlf",
+          "shefl"
+        ],
+        "roast_tag": "shelf"
+      },
+      {
+        "term": "cap",
+        "category": "models",
+        "aliases": [
+          "protective cap",
+          "end cap",
+          "bottle cap"
+        ],
+        "typos": [
+          "cpp",
+          "cpa"
+        ],
+        "roast_tag": "cap"
+      },
+      {
+        "term": "plug",
+        "category": "models",
+        "aliases": [
+          "hole plug",
+          "port plug",
+          "dust plug"
+        ],
+        "typos": [
+          "plg",
+          "pulg"
+        ],
+        "roast_tag": "plug"
+      },
+      {
+        "term": "cover",
+        "category": "models",
+        "aliases": [
+          "switch cover",
+          "slot cover",
+          "lens cover"
+        ],
+        "typos": [
+          "covr",
+          "cvoer"
+        ],
+        "roast_tag": "cover"
+      },
+      {
+        "term": "lid",
+        "category": "models",
+        "aliases": [
+          "box lid",
+          "canister lid",
+          "container cover"
+        ],
+        "typos": [
+          "ldd",
+          "ldi"
+        ],
+        "roast_tag": "lid"
+      },
+      {
+        "term": "spinner",
+        "category": "models",
+        "aliases": [
+          "bearing spinner",
+          "hand spinner",
+          "rotary spinner"
+        ],
+        "typos": [
+          "spinr",
+          "spiner"
+        ],
+        "roast_tag": "spinner"
+      },
+      {
+        "term": "ring",
+        "category": "models",
+        "aliases": [
+          "finger ring",
+          "sizing ring",
+          "loop band"
+        ],
+        "typos": [
+          "rnig",
+          "rng"
+        ],
+        "roast_tag": "ring"
+      },
+      {
+        "term": "coin",
+        "category": "models",
+        "aliases": [
+          "challenge coin",
+          "token coin",
+          "commemorative coin"
+        ],
+        "typos": [
+          "ciun",
+          "cion"
+        ],
+        "roast_tag": "coin"
+      },
+      {
+        "term": "token",
+        "category": "models",
+        "aliases": [
+          "game token",
+          "poker token",
+          "counter token"
+        ],
+        "typos": [
+          "tokn",
+          "tken"
+        ],
+        "roast_tag": "token"
+      },
+      {
+        "term": "wrench",
+        "category": "models",
+        "aliases": [
+          "spanner",
+          "hex wrench",
+          "printed wrench"
+        ],
+        "typos": [
+          "wrenh",
+          "wrech"
+        ]
+      },
+      {
+        "term": "calicat",
+        "category": "models",
+        "aliases": [
+          "calibration cat",
+          "cali cat"
+        ],
+        "typos": [
+          "calycat",
+          "calict"
+        ]
+      },
+      {
+        "term": "flexi rex",
+        "category": "models",
+        "aliases": [
+          "flexirex",
+          "articulated t-rex"
+        ],
+        "typos": [
+          "flexy rex",
+          "flexirex"
+        ]
+      },
+      {
+        "term": "grogu",
+        "category": "models",
+        "aliases": [
+          "baby yoda",
+          "the child"
+        ],
+        "typos": [
+          "gorgu",
+          "grugu"
+        ]
+      },
+      {
+        "term": "yoda",
+        "category": "models",
+        "aliases": [
+          "jedi master",
+          "master yoda"
+        ],
+        "typos": [
+          "yodaa"
+        ]
+      },
+      {
+        "term": "pikachu",
+        "category": "models",
+        "aliases": [
+          "pika",
+          "electric mouse"
+        ],
+        "typos": [
+          "pikaqu",
+          "pikashu"
+        ]
+      },
+      {
+        "term": "charizard",
+        "category": "models",
+        "aliases": [
+          "fire dragon",
+          "flame monster"
+        ],
+        "typos": [
+          "chrizard",
+          "charzard"
+        ]
+      },
+      {
+        "term": "groot",
+        "category": "models",
+        "aliases": [
+          "baby groot",
+          "tree guardian"
+        ],
+        "typos": [
+          "grrot",
+          "gorot"
+        ]
+      },
+      {
+        "term": "iron man",
+        "category": "models",
+        "aliases": [
+          "iron man helmet",
+          "tony stark mask"
+        ],
+        "typos": [
+          "ironman",
+          "iron mn"
+        ]
+      },
+      {
+        "term": "batman",
+        "category": "models",
+        "aliases": [
+          "dark knight cowl",
+          "bat cowl"
+        ],
+        "typos": [
+          "batmn",
+          "btman"
+        ]
+      },
+      {
+        "term": "cable chain",
+        "category": "models",
+        "aliases": [
+          "drag chain",
+          "energy chain"
+        ],
+        "typos": [
+          "cabel chain",
+          "cbl chain"
+        ]
+      },
+      {
+        "term": "poop chute",
+        "category": "models",
+        "aliases": [
+          "waste chute",
+          "purge chute"
+        ],
+        "typos": [
+          "pop chute",
+          "poop shute"
+        ]
+      },
+      {
+        "term": "filament guide",
+        "category": "models",
+        "aliases": [
+          "guide wheel",
+          "ptfe guide"
+        ],
+        "typos": [
+          "filament gide",
+          "filamnet guide"
+        ]
+      }
+    ],
+    "slicer": [
+      {
+        "term": "infill",
+        "category": "slicer",
+        "aliases": [
+          "internal fill",
+          "core fill"
+        ],
+        "typos": [
+          "infll",
+          "infil"
+        ]
+      },
+      {
+        "term": "layer height",
+        "category": "slicer",
+        "aliases": [
+          "slice thickness",
+          "z step"
+        ],
+        "typos": [
+          "layer heigt",
+          "layr height"
+        ]
+      },
+      {
+        "term": "perimeter",
+        "category": "slicer",
+        "aliases": [
+          "external perimeter",
+          "outer loop"
+        ],
+        "typos": [
+          "perimter",
+          "preimeter"
+        ]
+      },
+      {
+        "term": "wall",
+        "category": "slicer",
+        "aliases": [
+          "outer shell",
+          "contour"
+        ],
+        "typos": [
+          "wal",
+          "wll"
+        ]
+      },
+      {
+        "term": "brim",
+        "category": "slicer",
+        "aliases": [
+          "bed brim",
+          "adhesion brim"
+        ],
+        "typos": [
+          "birm",
+          "brm"
+        ]
+      },
+      {
+        "term": "raft",
+        "category": "slicer",
+        "aliases": [
+          "support raft",
+          "base raft"
+        ],
+        "typos": [
+          "rft",
+          "rafft"
+        ]
+      },
+      {
+        "term": "skirt",
+        "category": "slicer",
+        "aliases": [
+          "purge loop",
+          "outline skirt"
+        ],
+        "typos": [
+          "skrt",
+          "skrit"
+        ]
+      },
+      {
+        "term": "support",
+        "category": "slicer",
+        "aliases": [
+          "support structure",
+          "scaffold"
+        ],
+        "typos": [
+          "suport",
+          "spport"
+        ]
+      },
+      {
+        "term": "tree support",
+        "category": "slicer",
+        "aliases": [
+          "organic support",
+          "branching support"
+        ],
+        "typos": [
+          "treesupport",
+          "tree suport"
+        ]
+      },
+      {
+        "term": "organic support",
+        "category": "slicer",
+        "aliases": [
+          "tree support",
+          "smooth branches"
+        ],
+        "typos": [
+          "organicsupport",
+          "organc support"
+        ]
+      },
+      {
+        "term": "retraction",
+        "category": "slicer",
+        "aliases": [
+          "pullback",
+          "filament pullback"
+        ],
+        "typos": [
+          "retracton",
+          "retraciton"
+        ]
+      },
+      {
+        "term": "retraction speed",
+        "category": "slicer",
+        "aliases": [
+          "pullback speed",
+          "deretraction speed"
+        ],
+        "typos": [
+          "retract speed",
+          "retractionspeed"
+        ]
+      },
+      {
+        "term": "retraction distance",
+        "category": "slicer",
+        "aliases": [
+          "pullback distance",
+          "retract length"
+        ],
+        "typos": [
+          "retract distance",
+          "retractiondist"
+        ]
+      },
+      {
+        "term": "z hop",
+        "category": "slicer",
+        "aliases": [
+          "lift z",
+          "vertical hop"
+        ],
+        "typos": [
+          "zhop",
+          "z-hop"
+        ]
+      },
+      {
+        "term": "wipe",
+        "category": "slicer",
+        "aliases": [
+          "nozzle wipe",
+          "seam wipe"
+        ],
+        "typos": [
+          "wpe",
+          "wip"
+        ]
+      },
+      {
+        "term": "coast",
+        "category": "slicer",
+        "aliases": [
+          "coasting",
+          "pre-retraction coast"
+        ],
+        "typos": [
+          "cost",
+          "coasting"
+        ]
+      },
+      {
+        "term": "seam",
+        "category": "slicer",
+        "aliases": [
+          "layer seam",
+          "start point"
+        ],
+        "typos": [
+          "sem",
+          "smae"
+        ]
+      },
+      {
+        "term": "z seam",
+        "category": "slicer",
+        "aliases": [
+          "z-seam",
+          "vertical seam"
+        ],
+        "typos": [
+          "zseam",
+          "z seam alignment"
+        ]
+      },
+      {
+        "term": "scarf seam",
+        "category": "slicer",
+        "aliases": [
+          "angled seam",
+          "sloped seam"
+        ],
+        "typos": [
+          "scarfseam",
+          "scraf seam"
+        ]
+      },
+      {
+        "term": "flow rate",
+        "category": "slicer",
+        "aliases": [
+          "extrusion multiplier",
+          "flow ratio"
+        ],
+        "typos": [
+          "flowrate",
+          "flow rat"
+        ]
+      },
+      {
+        "term": "line width",
+        "category": "slicer",
+        "aliases": [
+          "extrusion width",
+          "bead width"
+        ],
+        "typos": [
+          "linewidth",
+          "line widht"
+        ]
+      },
+      {
+        "term": "cooling",
+        "category": "slicer",
+        "aliases": [
+          "part cooling",
+          "fan cooling"
+        ],
+        "typos": [
+          "coling",
+          "coolin"
+        ]
+      },
+      {
+        "term": "fan speed",
+        "category": "slicer",
+        "aliases": [
+          "part fan percentage",
+          "cooling fan speed"
+        ],
+        "typos": [
+          "fanspeed",
+          "fan sped"
+        ]
+      },
+      {
+        "term": "print speed",
+        "category": "slicer",
+        "aliases": [
+          "feedrate",
+          "deposition speed"
+        ],
+        "typos": [
+          "printspeed",
+          "prnt speed"
+        ]
+      },
+      {
+        "term": "travel speed",
+        "category": "slicer",
+        "aliases": [
+          "rapid movement speed",
+          "non-print speed"
+        ],
+        "typos": [
+          "travelspeed",
+          "travl speed"
+        ]
+      },
+      {
+        "term": "initial layer",
+        "category": "slicer",
+        "aliases": [
+          "first layer",
+          "bottom layer"
+        ],
+        "typos": [
+          "initiallayer",
+          "init layer"
+        ]
+      },
+      {
+        "term": "first layer",
+        "category": "slicer",
+        "aliases": [
+          "initial layer",
+          "layer one"
+        ],
+        "typos": [
+          "firstlayer",
+          "frst layer"
+        ]
+      },
+      {
+        "term": "ironing",
+        "category": "slicer",
+        "aliases": [
+          "surface ironing",
+          "top smoothing"
+        ],
+        "typos": [
+          "ironin",
+          "irning"
+        ]
+      },
+      {
+        "term": "fuzzy skin",
+        "category": "slicer",
+        "aliases": [
+          "textured exterior",
+          "rough surface"
+        ],
+        "typos": [
+          "fuzzyskin",
+          "fuzy skin"
+        ]
+      },
+      {
+        "term": "bridging",
+        "category": "slicer",
+        "aliases": [
+          "unsupported bridge",
+          "horizontal span"
+        ],
+        "typos": [
+          "bridgin",
+          "briding"
+        ]
+      },
+      {
+        "term": "bridge speed",
+        "category": "slicer",
+        "aliases": [
+          "bridging feedrate"
+        ],
+        "typos": [
+          "bridgespeed",
+          "brdge speed"
+        ]
+      },
+      {
+        "term": "bridge flow",
+        "category": "slicer",
+        "aliases": [
+          "bridging extrusion ratio"
+        ],
+        "typos": [
+          "bridgeflow",
+          "brdge flow"
+        ]
+      },
+      {
+        "term": "overhang",
+        "category": "slicer",
+        "aliases": [
+          "cantilever",
+          "sloped angle"
+        ],
+        "typos": [
+          "overhng",
+          "ovrhang"
+        ]
+      },
+      {
+        "term": "overhang speed",
+        "category": "slicer",
+        "aliases": [
+          "cantilever speed"
+        ],
+        "typos": [
+          "overhangspeed",
+          "overhng speed"
+        ]
+      },
+      {
+        "term": "acceleration",
+        "category": "slicer",
+        "aliases": [
+          "print acceleration",
+          "axis acceleration"
+        ],
+        "typos": [
+          "accel",
+          "acceleraton"
+        ]
+      },
+      {
+        "term": "jerk",
+        "category": "slicer",
+        "aliases": [
+          "junction deviation",
+          "cornering speed"
+        ],
+        "typos": [
+          "jrk",
+          "jrek"
+        ]
+      },
+      {
+        "term": "pressure advance",
+        "category": "slicer",
+        "aliases": [
+          "linear advance",
+          "k factor"
+        ],
+        "typos": [
+          "pressureadvance",
+          "pressur advance"
+        ]
+      },
+      {
+        "term": "input shaper",
+        "category": "slicer",
+        "aliases": [
+          "resonance compensation",
+          "frequency shaper"
+        ],
+        "typos": [
+          "inputshaper",
+          "inpt shaper"
+        ]
+      },
+      {
+        "term": "mesh bed leveling",
+        "category": "slicer",
+        "aliases": [
+          "auto bed mesh",
+          "bed topology"
+        ],
+        "typos": [
+          "bedmesh",
+          "mesh bedleveling"
+        ]
+      },
+      {
+        "term": "variable layer height",
+        "category": "slicer",
+        "aliases": [
+          "adaptive layer height"
+        ],
+        "typos": [
+          "variablelayerheight",
+          "var layer height"
+        ]
+      },
+      {
+        "term": "adaptive layers",
+        "category": "slicer",
+        "aliases": [
+          "smart layer slicing"
+        ],
+        "typos": [
+          "adaptivelayers",
+          "adaptiv layers"
+        ]
+      },
+      {
+        "term": "top layers",
+        "category": "slicer",
+        "aliases": [
+          "top solid layers",
+          "roof layers"
+        ],
+        "typos": [
+          "toplayers",
+          "tp layers"
+        ]
+      },
+      {
+        "term": "bottom layers",
+        "category": "slicer",
+        "aliases": [
+          "floor layers",
+          "bottom solid layers"
+        ],
+        "typos": [
+          "bottomlayers",
+          "bot layers"
+        ]
+      },
+      {
+        "term": "shell thickness",
+        "category": "slicer",
+        "aliases": [
+          "perimeter thickness",
+          "outer wall count"
+        ],
+        "typos": [
+          "shellthickness",
+          "shel thickness"
+        ]
+      },
+      {
+        "term": "extrusion multiplier",
+        "category": "slicer",
+        "aliases": [
+          "flow multiplier",
+          "extrusion factor"
+        ],
+        "typos": [
+          "extrusionmultiplier",
+          "ext multiplier"
+        ]
+      },
+      {
+        "term": "prime tower",
+        "category": "slicer",
+        "aliases": [
+          "purge tower",
+          "wipe tower"
+        ],
+        "typos": [
+          "primetower",
+          "prme tower"
+        ]
+      },
+      {
+        "term": "wipe tower",
+        "category": "slicer",
+        "aliases": [
+          "purge block",
+          "filament change tower"
+        ],
+        "typos": [
+          "wipetower",
+          "wpe tower"
+        ]
+      },
+      {
+        "term": "purge tower",
+        "category": "slicer",
+        "aliases": [
+          "waste tower",
+          "color transition tower"
+        ],
+        "typos": [
+          "purgetower",
+          "purgetowr"
+        ]
+      },
+      {
+        "term": "purge volume",
+        "category": "slicer",
+        "aliases": [
+          "flush volume",
+          "transition volume"
+        ],
+        "typos": [
+          "purgevolume",
+          "purg volume"
+        ]
+      },
+      {
+        "term": "flush volume",
+        "category": "slicer",
+        "aliases": [
+          "purge ratio",
+          "color flush amount"
+        ],
+        "typos": [
+          "flushvolume",
+          "flsh volume"
+        ]
+      },
+      {
+        "term": "avoid crossing perimeters",
+        "category": "slicer",
+        "aliases": [
+          "combing mode",
+          "stay inside perimeters"
+        ],
+        "typos": [
+          "avoidcrossingperimeters",
+          "avoid perimeters"
+        ]
+      },
+      {
+        "term": "combing",
+        "category": "slicer",
+        "aliases": [
+          "no-retraction travel",
+          "infill pathing"
+        ],
+        "typos": [
+          "combin",
+          "cmbing"
+        ]
+      },
+      {
+        "term": "monotonic",
+        "category": "slicer",
+        "aliases": [
+          "monotonic top surface",
+          "single direction fill"
+        ],
+        "typos": [
+          "monotonc",
+          "monotnic"
+        ]
+      },
+      {
+        "term": "concentric",
+        "category": "slicer",
+        "aliases": [
+          "concentric perimeter fill",
+          "offset contours"
+        ],
+        "typos": [
+          "concentrc",
+          "concentric fill"
+        ]
+      },
+      {
+        "term": "gyroid",
+        "category": "slicer",
+        "aliases": [
+          "gyroid infill",
+          "triply periodic infill"
+        ],
+        "typos": [
+          "gyrod",
+          "gyroid fill"
+        ]
+      },
+      {
+        "term": "grid infill",
+        "category": "slicer",
+        "aliases": [
+          "standard grid",
+          "orthogonal infill"
+        ],
+        "typos": [
+          "gridinfill",
+          "grd infill"
+        ]
+      },
+      {
+        "term": "triangles infill",
+        "category": "slicer",
+        "aliases": [
+          "triangular infill",
+          "delta fill"
+        ],
+        "typos": [
+          "trianglesinfill",
+          "triangle infill"
+        ]
+      },
+      {
+        "term": "honeycomb infill",
+        "category": "slicer",
+        "aliases": [
+          "hexagonal infill",
+          "hex fill"
+        ],
+        "typos": [
+          "honeycombinfill",
+          "hexinfill"
+        ]
+      },
+      {
+        "term": "cubic infill",
+        "category": "slicer",
+        "aliases": [
+          "3d cubic",
+          "cubic volume fill"
+        ],
+        "typos": [
+          "cubicinfill",
+          "cubc infill"
+        ]
+      },
+      {
+        "term": "lightning infill",
+        "category": "slicer",
+        "aliases": [
+          "tree-like internal support",
+          "fast infill"
+        ],
+        "typos": [
+          "lightninginfill",
+          "litening infill"
+        ]
+      },
+      {
+        "term": "infill density",
+        "category": "slicer",
+        "aliases": [
+          "infill percentage",
+          "fill ratio"
+        ],
+        "typos": [
+          "infilldensity",
+          "infil density"
+        ]
+      },
+      {
+        "term": "infill overlap",
+        "category": "slicer",
+        "aliases": [
+          "skin overlap",
+          "perimeter fill connection"
+        ],
+        "typos": [
+          "infilloverlap",
+          "infil overlap"
+        ]
+      },
+      {
+        "term": "min layer time",
+        "category": "slicer",
+        "aliases": [
+          "minimum layer cooling time"
+        ],
+        "typos": [
+          "minlayertime",
+          "min layer cooling"
+        ]
+      },
+      {
+        "term": "cool down",
+        "category": "slicer",
+        "aliases": [
+          "nozzle cooldown",
+          "post-print cooling"
+        ],
+        "typos": [
+          "cooldown",
+          "cool down temp"
+        ]
+      },
+      {
+        "term": "standby temperature",
+        "category": "slicer",
+        "aliases": [
+          "idle tool temp",
+          "inactive extruder heat"
+        ],
+        "typos": [
+          "standbytemp",
+          "standby temperature"
+        ]
+      },
+      {
+        "term": "chamber temperature",
+        "category": "slicer",
+        "aliases": [
+          "enclosure heat",
+          "ambient chamber temp"
+        ],
+        "typos": [
+          "chambertemperature",
+          "chamber temp"
+        ]
+      },
+      {
+        "term": "bed temperature",
+        "category": "slicer",
+        "aliases": [
+          "heated bed setting",
+          "build surface temp"
+        ],
+        "typos": [
+          "bedtemperature",
+          "bed temp"
+        ]
+      },
+      {
+        "term": "nozzle temperature",
+        "category": "slicer",
+        "aliases": [
+          "extruder temperature",
+          "hotend temp"
+        ],
+        "typos": [
+          "nozzletemperature",
+          "nozzle temp"
+        ]
+      },
+      {
+        "term": "preheat",
+        "category": "slicer",
+        "aliases": [
+          "warmup cycle",
+          "pre-print thermal soak"
+        ],
+        "typos": [
+          "pre heat",
+          "prheat"
+        ]
+      },
+      {
+        "term": "start gcode",
+        "category": "slicer",
+        "aliases": [
+          "initialization routine",
+          "startup script"
+        ],
+        "typos": [
+          "startgcode",
+          "start g code"
+        ]
+      },
+      {
+        "term": "end gcode",
+        "category": "slicer",
+        "aliases": [
+          "shutdown script",
+          "completion macro"
+        ],
+        "typos": [
+          "endgcode",
+          "end g code"
+        ]
+      },
+      {
+        "term": "pause at height",
+        "category": "slicer",
+        "aliases": [
+          "filament swap pause",
+          "color change height"
+        ],
+        "typos": [
+          "pauseatheight",
+          "pause height"
+        ]
+      },
+      {
+        "term": "filament change",
+        "category": "slicer",
+        "aliases": [
+          "m600 routine",
+          "spool swap"
+        ],
+        "typos": [
+          "filamentchange",
+          "fil change"
+        ]
+      },
+      {
+        "term": "color change",
+        "category": "slicer",
+        "aliases": [
+          "multi-material swap",
+          "layer color change"
+        ],
+        "typos": [
+          "colorchange",
+          "colour change"
+        ]
+      },
+      {
+        "term": "slicing",
+        "category": "slicer",
+        "aliases": [
+          "toolpath generation",
+          "mesh slicing"
+        ],
+        "typos": [
+          "slicin",
+          "slcing"
+        ]
+      },
+      {
+        "term": "build plate",
+        "category": "slicer",
+        "aliases": [
+          "print bed",
+          "substrate platform"
+        ],
+        "typos": [
+          "buildplate",
+          "bld plate"
+        ]
+      },
+      {
+        "term": "cut tool",
+        "category": "slicer",
+        "aliases": [
+          "mesh splitter",
+          "plane cut"
+        ],
+        "typos": [
+          "cuttool",
+          "cut tool"
+        ]
+      },
+      {
+        "term": "boolean mesh",
+        "category": "slicer",
+        "aliases": [
+          "mesh union",
+          "mesh subtraction"
+        ],
+        "typos": [
+          "booleanmesh",
+          "bool mesh"
+        ]
+      },
+      {
+        "term": "hollow mesh",
+        "category": "slicer",
+        "aliases": [
+          "shelling tool",
+          "internal cavity hollow"
+        ],
+        "typos": [
+          "hollowmesh",
+          "holow mesh"
+        ]
+      },
+      {
+        "term": "drain hole",
+        "category": "slicer",
+        "aliases": [
+          "resin release hole",
+          "suction relief hole"
+        ],
+        "typos": [
+          "drainhole",
+          "drn hole"
+        ]
+      },
+      {
+        "term": "auto arrange",
+        "category": "slicer",
+        "aliases": [
+          "plate nesting",
+          "automated layout"
+        ],
+        "typos": [
+          "autoarrange",
+          "auto arrange"
+        ]
+      },
+      {
+        "term": "auto orient",
+        "category": "slicer",
+        "aliases": [
+          "best print orientation",
+          "automatic rotation"
+        ],
+        "typos": [
+          "autoorient",
+          "auto orient"
+        ]
+      },
+      {
+        "term": "mesh scale",
+        "category": "slicer",
+        "aliases": [
+          "model resizing",
+          "percentage scale"
+        ],
+        "typos": [
+          "meshscale",
+          "mesh scale"
+        ]
+      },
+      {
+        "term": "mesh mirror",
+        "category": "slicer",
+        "aliases": [
+          "flip geometry",
+          "inverted axis mirror"
+        ],
+        "typos": [
+          "meshmirror",
+          "mirror mesh"
+        ]
+      },
+      {
+        "term": "mesh rotate",
+        "category": "slicer",
+        "aliases": [
+          "orientation tilt",
+          "angle rotation"
+        ],
+        "typos": [
+          "meshrotate",
+          "rotate mesh"
+        ]
+      },
+      {
+        "term": "elephant foot compensation",
+        "category": "slicer",
+        "aliases": [
+          "initial layer horizontal expansion"
+        ],
+        "typos": [
+          "elephants foot compensation",
+          "elefoot comp"
+        ]
+      },
+      {
+        "term": "draft angle",
+        "category": "slicer",
+        "aliases": [
+          "mold taper",
+          "vertical taper"
+        ],
+        "typos": [
+          "draftangle",
+          "draf angle"
+        ]
+      },
+      {
+        "term": "gap infill",
+        "category": "slicer",
+        "aliases": [
+          "thin wall fill",
+          "micro gap fill"
+        ],
+        "typos": [
+          "gapinfill",
+          "gap infil"
+        ]
+      },
+      {
+        "term": "seam gap",
+        "category": "slicer",
+        "aliases": [
+          "z seam gap percentage"
+        ],
+        "typos": [
+          "seamgap",
+          "sem gap"
+        ]
+      },
+      {
+        "term": "top surface skin",
+        "category": "slicer",
+        "aliases": [
+          "topmost finish layer",
+          "ironed skin"
+        ],
+        "typos": [
+          "topsurfaceskin",
+          "top skin"
+        ]
+      }
+    ],
+    "defects": [
+      {
+        "term": "stringing",
+        "category": "defects",
+        "aliases": [
+          "fine hairs",
+          "filament whiskers",
+          "cobwebbing"
+        ],
+        "typos": [
+          "stringin",
+          "strining"
+        ]
+      },
+      {
+        "term": "warping",
+        "category": "defects",
+        "aliases": [
+          "corner lifting",
+          "thermal curl",
+          "bed detachment"
+        ],
+        "typos": [
+          "warpn",
+          "warppin"
+        ]
+      },
+      {
+        "term": "bed adhesion failure",
+        "category": "defects",
+        "aliases": [
+          "print release",
+          "popped off bed",
+          "loose print"
+        ],
+        "typos": [
+          "bedadhesion",
+          "bed adhesion fail"
+        ]
+      },
+      {
+        "term": "layer shift",
+        "category": "defects",
+        "aliases": [
+          "stepper skip",
+          "axis displacement",
+          "shifted print"
+        ],
+        "typos": [
+          "layershift",
+          "layr shift"
+        ]
+      },
+      {
+        "term": "heat creep",
+        "category": "defects",
+        "aliases": [
+          "throat clogging",
+          "premature melting",
+          "cold end jam"
+        ],
+        "typos": [
+          "heatcreep",
+          "heet creep"
+        ]
+      },
+      {
+        "term": "nozzle clog",
+        "category": "defects",
+        "aliases": [
+          "blocked tip",
+          "extrusion blockage",
+          "partial clog"
+        ],
+        "typos": [
+          "nozzleclog",
+          "nozzle clogg"
+        ]
+      },
+      {
+        "term": "spaghetti",
+        "category": "defects",
+        "aliases": [
+          "failed bird nest",
+          "air extrusion noodles",
+          "pasta failure"
+        ],
+        "typos": [
+          "spagheti",
+          "spaghett"
+        ]
+      },
+      {
+        "term": "blobs",
+        "category": "defects",
+        "aliases": [
+          "extrusion zits",
+          "filament nodules",
+          "ooze warts"
+        ],
+        "typos": [
+          "blbs",
+          "blobb"
+        ]
+      },
+      {
+        "term": "zits",
+        "category": "defects",
+        "aliases": [
+          "surface pimples",
+          "seam dots",
+          "extrusion bumps"
+        ],
+        "typos": [
+          "zts",
+          "zitts"
+        ]
+      },
+      {
+        "term": "under extrusion",
+        "category": "defects",
+        "aliases": [
+          "starved flow",
+          "thin walls",
+          "sponge print"
+        ],
+        "typos": [
+          "underextrusion",
+          "underextrude"
+        ]
+      },
+      {
+        "term": "over extrusion",
+        "category": "defects",
+        "aliases": [
+          "overflowing plastic",
+          "heavy ridges",
+          "fat lines"
+        ],
+        "typos": [
+          "overextrusion",
+          "overextrude"
+        ]
+      },
+      {
+        "term": "layer separation",
+        "category": "defects",
+        "aliases": [
+          "interlayer splitting",
+          "delamination cracks"
+        ],
+        "typos": [
+          "layerseparation",
+          "layr separation"
+        ]
+      },
+      {
+        "term": "delamination",
+        "category": "defects",
+        "aliases": [
+          "cracking between layers",
+          "split walls"
+        ],
+        "typos": [
+          "delaminaton",
+          "delam"
+        ]
+      },
+      {
+        "term": "ghosting",
+        "category": "defects",
+        "aliases": [
+          "ringing echoes",
+          "vibration ripples",
+          "shadow artifacts"
+        ],
+        "typos": [
+          "ghostng",
+          "ghsting"
+        ]
+      },
+      {
+        "term": "ringing",
+        "category": "defects",
+        "aliases": [
+          "resonance ripples",
+          "frequency ghosting"
+        ],
+        "typos": [
+          "ringin",
+          "rnging"
+        ]
+      },
+      {
+        "term": "elephant foot",
+        "category": "defects",
+        "aliases": [
+          "first layer flare",
+          "squished bottom flare"
+        ],
+        "typos": [
+          "elephants foot",
+          "elephent foot"
+        ]
+      },
+      {
+        "term": "curling",
+        "category": "defects",
+        "aliases": [
+          "overhang lift",
+          "corner curl up",
+          "thermal curling"
+        ],
+        "typos": [
+          "curlin",
+          "crling"
+        ]
+      },
+      {
+        "term": "pillowing",
+        "category": "defects",
+        "aliases": [
+          "top skin holes",
+          "sagging top surface bubbles"
+        ],
+        "typos": [
+          "pillowin",
+          "pllowing"
+        ]
+      },
+      {
+        "term": "bridging sag",
+        "category": "defects",
+        "aliases": [
+          "drooping bridge strands",
+          "hanging filament loops"
+        ],
+        "typos": [
+          "bridgingsag",
+          "bridge sag"
+        ]
+      },
+      {
+        "term": "oozing",
+        "category": "defects",
+        "aliases": [
+          "hotend leakage",
+          "retraction dribble"
+        ],
+        "typos": [
+          "oozin",
+          "ozing"
+        ]
+      },
+      {
+        "term": "z banding",
+        "category": "defects",
+        "aliases": [
+          "horizontal ribs",
+          "wobble lines",
+          "periodic wall ridges"
+        ],
+        "typos": [
+          "zbanding",
+          "z-banding"
+        ]
+      },
+      {
+        "term": "salmon skinning",
+        "category": "defects",
+        "aliases": [
+          "diagonal texture waves",
+          "stepper resonance patterns"
+        ],
+        "typos": [
+          "salmonskin",
+          "salmon skin"
+        ]
+      },
+      {
+        "term": "scarring",
+        "category": "defects",
+        "aliases": [
+          "nozzle dragging marks",
+          "top surface scratches"
+        ],
+        "typos": [
+          "scarrin",
+          "scaring"
+        ]
+      },
+      {
+        "term": "first layer gap",
+        "category": "defects",
+        "aliases": [
+          "bed leveling void",
+          "unbonded bottom line"
+        ],
+        "typos": [
+          "firstlayergap",
+          "1st layer gap"
+        ]
+      },
+      {
+        "term": "first layer bubble",
+        "category": "defects",
+        "aliases": [
+          "air bubble beneath print",
+          "pei adhesion bubble"
+        ],
+        "typos": [
+          "firstlayerbubble",
+          "layer bubble"
+        ]
+      },
+      {
+        "term": "first layer scratch",
+        "category": "defects",
+        "aliases": [
+          "nozzle scrape on bed",
+          "bed gouge"
+        ],
+        "typos": [
+          "firstlayerscratch",
+          "bed scratch"
+        ]
+      },
+      {
+        "term": "bed collision",
+        "category": "defects",
+        "aliases": [
+          "head crash",
+          "z axis crash into bed"
+        ],
+        "typos": [
+          "bedcollision",
+          "bed crash"
+        ]
+      },
+      {
+        "term": "air printing",
+        "category": "defects",
+        "aliases": [
+          "printing with no plastic",
+          "dry extrusion"
+        ],
+        "typos": [
+          "airprinting",
+          "air print"
+        ]
+      },
+      {
+        "term": "filament grinding",
+        "category": "defects",
+        "aliases": [
+          "chewed filament",
+          "extruder tooth notch"
+        ],
+        "typos": [
+          "filamentgrinding",
+          "fil grinding"
+        ]
+      },
+      {
+        "term": "filament jam",
+        "category": "defects",
+        "aliases": [
+          "stuck spool",
+          "filament snag in tube"
+        ],
+        "typos": [
+          "filamentjam",
+          "fil jam"
+        ]
+      },
+      {
+        "term": "filament runout",
+        "category": "defects",
+        "aliases": [
+          "empty spool mid print",
+          "sensor trigger"
+        ],
+        "typos": [
+          "filamentrunout",
+          "fil runout"
+        ]
+      },
+      {
+        "term": "tangled spool",
+        "category": "defects",
+        "aliases": [
+          "filament knot",
+          "crossed loop on reel"
+        ],
+        "typos": [
+          "tangledspool",
+          "tangle spool"
+        ]
+      },
+      {
+        "term": "cracked layer",
+        "category": "defects",
+        "aliases": [
+          "structural split",
+          "thermal stress fracture"
+        ],
+        "typos": [
+          "crackedlayer",
+          "crack layer"
+        ]
+      },
+      {
+        "term": "extruder clicking",
+        "category": "defects",
+        "aliases": [
+          "skipped extruder steps",
+          "drive gear slip"
+        ],
+        "typos": [
+          "extruderclicking",
+          "clicking extruder"
+        ]
+      },
+      {
+        "term": "thermal runaway",
+        "category": "defects",
+        "aliases": [
+          "heating element fault",
+          "thermistor disconnect"
+        ],
+        "typos": [
+          "thermalrunaway",
+          "therml runaway"
+        ]
+      },
+      {
+        "term": "cold pull failure",
+        "category": "defects",
+        "aliases": [
+          "snapped tip during pull",
+          "stuck cleaning filament"
+        ],
+        "typos": [
+          "coldpullfail",
+          "cold pull error"
+        ]
+      },
+      {
+        "term": "thermal drift",
+        "category": "defects",
+        "aliases": [
+          "pid temperature swing",
+          "unstable hotend heat"
+        ],
+        "typos": [
+          "thermaldrift",
+          "temp drift"
+        ]
+      },
+      {
+        "term": "infill showing",
+        "category": "defects",
+        "aliases": [
+          "infill telegraphing",
+          "ghost infill through walls"
+        ],
+        "typos": [
+          "infilltelegraphing",
+          "visible infill"
+        ]
+      },
+      {
+        "term": "infill bleed",
+        "category": "defects",
+        "aliases": [
+          "inner pattern visible on exterior"
+        ],
+        "typos": [
+          "infillbleed",
+          "infil bleed"
+        ]
+      },
+      {
+        "term": "support failure",
+        "category": "defects",
+        "aliases": [
+          "collapsed tree support",
+          "toppled scaffold"
+        ],
+        "typos": [
+          "supportfailure",
+          "suport fail"
+        ]
+      },
+      {
+        "term": "brim detachment",
+        "category": "defects",
+        "aliases": [
+          "curled brim",
+          "lifted perimeter anchor"
+        ],
+        "typos": [
+          "brimdetachment",
+          "brim lift"
+        ]
+      },
+      {
+        "term": "corner lift",
+        "category": "defects",
+        "aliases": [
+          "thermal bed corner peel",
+          "unseated corner"
+        ],
+        "typos": [
+          "cornerlift",
+          "crner lift"
+        ]
+      },
+      {
+        "term": "bed warp",
+        "category": "defects",
+        "aliases": [
+          "taco bed",
+          "uneven aluminum plate curvature"
+        ],
+        "typos": [
+          "bedwarp",
+          "warped bed"
+        ]
+      },
+      {
+        "term": "uneven extrusion",
+        "category": "defects",
+        "aliases": [
+          "inconsistent line thickness",
+          "pulsing flow"
+        ],
+        "typos": [
+          "unevenextrusion",
+          "unevn extrusion"
+        ]
+      },
+      {
+        "term": "nozzle drag",
+        "category": "defects",
+        "aliases": [
+          "nozzle scraping infill",
+          "comb collision noise"
+        ],
+        "typos": [
+          "nozzledrag",
+          "nozzle scraping"
+        ]
+      },
+      {
+        "term": "overheating",
+        "category": "defects",
+        "aliases": [
+          "molten corners",
+          "insufficient cooling droop"
+        ],
+        "typos": [
+          "overheatin",
+          "ovrheating"
+        ]
+      },
+      {
+        "term": "dimensional inaccuracy",
+        "category": "defects",
+        "aliases": [
+          "wrong tolerances",
+          "shrunken dimensions"
+        ],
+        "typos": [
+          "dimensionalerror",
+          "dim inaccuracy"
+        ]
+      },
+      {
+        "term": "poor overhang",
+        "category": "defects",
+        "aliases": [
+          "drooping underside",
+          "messy steep slope"
+        ],
+        "typos": [
+          "pooroverhang",
+          "bad overhang"
+        ]
+      },
+      {
+        "term": "sagging",
+        "category": "defects",
+        "aliases": [
+          "downward droop",
+          "gravity pull on hot plastic"
+        ],
+        "typos": [
+          "saggin",
+          "sgagging"
+        ]
+      },
+      {
+        "term": "whiskering",
+        "category": "defects",
+        "aliases": [
+          "tiny retraction hairs",
+          "fine web trails"
+        ],
+        "typos": [
+          "whiskerin",
+          "whisker lines"
+        ]
+      },
+      {
+        "term": "cobwebbing",
+        "category": "defects",
+        "aliases": [
+          "dense stringing fibers",
+          "spiderweb plastic"
+        ],
+        "typos": [
+          "cobwebbin",
+          "cobwebs"
+        ]
+      },
+      {
+        "term": "pitting",
+        "category": "defects",
+        "aliases": [
+          "surface pinholes",
+          "moisture pop craters"
+        ],
+        "typos": [
+          "pittin",
+          "piting"
+        ]
+      },
+      {
+        "term": "voids",
+        "category": "defects",
+        "aliases": [
+          "internal air pockets",
+          "missing fill volume"
+        ],
+        "typos": [
+          "vods",
+          "voidss"
+        ]
+      },
+      {
+        "term": "partial clog",
+        "category": "defects",
+        "aliases": [
+          "necked flow",
+          "intermittent under extrusion"
+        ],
+        "typos": [
+          "partialclog",
+          "part clog"
+        ]
+      },
+      {
+        "term": "hotend leak",
+        "category": "defects",
+        "aliases": [
+          "plastic leaking above block",
+          "heater block seepage"
+        ],
+        "typos": [
+          "hotendleak",
+          "hot end leak"
+        ]
+      },
+      {
+        "term": "molten pool",
+        "category": "defects",
+        "aliases": [
+          "plastic puddle from pause",
+          "heat spot crater"
+        ],
+        "typos": [
+          "moltenpool",
+          "melt pool"
+        ]
+      },
+      {
+        "term": "blob of death",
+        "category": "defects",
+        "aliases": [
+          "giant hotend encased blob",
+          "catastrophic toolhead encasement"
+        ],
+        "typos": [
+          "blobofdeath",
+          "hotend blob"
+        ]
+      },
+      {
+        "term": "bird nest",
+        "category": "defects",
+        "aliases": [
+          "wire spool tangle",
+          "spool unravel loop"
+        ],
+        "typos": [
+          "birdnest",
+          "birds nest"
+        ]
+      },
+      {
+        "term": "brittle print",
+        "category": "defects",
+        "aliases": [
+          "wet filament failure",
+          "weak inter-layer bonding"
+        ],
+        "typos": [
+          "brittleprint",
+          "britle print"
+        ]
+      },
+      {
+        "term": "wall separation",
+        "category": "defects",
+        "aliases": [
+          "perimeter delamination",
+          "unbonded shell walls"
+        ],
+        "typos": [
+          "wallseparation",
+          "wal separation"
+        ]
+      },
+      {
+        "term": "layer skip",
+        "category": "defects",
+        "aliases": [
+          "missing Z step",
+          "intermittent height gap"
+        ],
+        "typos": [
+          "layerskip",
+          "layr skip"
+        ]
+      },
+      {
+        "term": "seam bulge",
+        "category": "defects",
+        "aliases": [
+          "over-extruded z seam",
+          "fat start point"
+        ],
+        "typos": [
+          "seambulge",
+          "sem bulge"
+        ]
+      },
+      {
+        "term": "rough top surface",
+        "category": "defects",
+        "aliases": [
+          "over-extruded top skin",
+          "plowed top layer"
+        ],
+        "typos": [
+          "roughtopsurface",
+          "rough skin"
+        ]
+      },
+      {
+        "term": "missing top layer",
+        "category": "defects",
+        "aliases": [
+          "incomplete pillowing roof",
+          "open infill top"
+        ],
+        "typos": [
+          "missingtoplayer",
+          "missing roof"
+        ]
+      },
+      {
+        "term": "gap between walls",
+        "category": "defects",
+        "aliases": [
+          "unjoined concentric perimeters",
+          "perimeter gap"
+        ],
+        "typos": [
+          "gapbetweenwalls",
+          "wall gap"
+        ]
+      }
+    ],
+    "materials": [
+      {
+        "term": "pla",
+        "category": "materials",
+        "aliases": [
+          "polylactic acid",
+          "standard pla",
+          "corn plastic"
+        ],
+        "typos": [
+          "plaa",
+          "pka"
+        ]
+      },
+      {
+        "term": "pla plus",
+        "category": "materials",
+        "aliases": [
+          "pla+",
+          "tough pla blend",
+          "pro pla"
+        ],
+        "typos": [
+          "plaplus",
+          "pla +"
+        ]
+      },
+      {
+        "term": "petg",
+        "category": "materials",
+        "aliases": [
+          "polyethylene terephthalate glycol",
+          "copolyester"
+        ],
+        "typos": [
+          "ptg",
+          "pet-g"
+        ]
+      },
+      {
+        "term": "abs",
+        "category": "materials",
+        "aliases": [
+          "acrylonitrile butadiene styrene"
+        ],
+        "typos": [
+          "abss",
+          "sbs"
+        ]
+      },
+      {
+        "term": "asa",
+        "category": "materials",
+        "aliases": [
+          "acrylonitrile styrene acrylate",
+          "uv resistant abs"
+        ],
+        "typos": [
+          "asaa",
+          "assa"
+        ]
+      },
+      {
+        "term": "tpu",
+        "category": "materials",
+        "aliases": [
+          "thermoplastic polyurethane",
+          "flexible filament",
+          "ninjaflex"
+        ],
+        "typos": [
+          "tpuu",
+          "tup"
+        ]
+      },
+      {
+        "term": "tpe",
+        "category": "materials",
+        "aliases": [
+          "thermoplastic elastomer",
+          "ultra flexible rubber"
+        ],
+        "typos": [
+          "tpee",
+          "tep"
+        ]
+      },
+      {
+        "term": "nylon",
+        "category": "materials",
+        "aliases": [
+          "polyamide",
+          "pa6",
+          "pa12"
+        ],
+        "typos": [
+          "nyln",
+          "nylon6"
+        ]
+      },
+      {
+        "term": "pc",
+        "category": "materials",
+        "aliases": [
+          "polycarbonate",
+          "lexan filament"
+        ],
+        "typos": [
+          "pcc",
+          "p-c"
+        ]
+      },
+      {
+        "term": "polycarbonate",
+        "category": "materials",
+        "aliases": [
+          "pc filament",
+          "high impact clear resin"
+        ],
+        "typos": [
+          "polycarbonte",
+          "polycarbonat"
+        ]
+      },
+      {
+        "term": "peek",
+        "category": "materials",
+        "aliases": [
+          "polyether ether ketone",
+          "high performance polymer"
+        ],
+        "typos": [
+          "pekk",
+          "pek"
+        ]
+      },
+      {
+        "term": "pei",
+        "category": "materials",
+        "aliases": [
+          "polyetherimide",
+          "ultem filament"
+        ],
+        "typos": [
+          "peii",
+          "pie"
+        ]
+      },
+      {
+        "term": "pvdf",
+        "category": "materials",
+        "aliases": [
+          "polyvinylidene fluoride",
+          "chemical resistant fluoropolymer"
+        ],
+        "typos": [
+          "pvdff",
+          "pvf"
+        ]
+      },
+      {
+        "term": "hips",
+        "category": "materials",
+        "aliases": [
+          "high impact polystyrene",
+          "dissolvable abs support"
+        ],
+        "typos": [
+          "hipss",
+          "hpis"
+        ]
+      },
+      {
+        "term": "pva",
+        "category": "materials",
+        "aliases": [
+          "polyvinyl alcohol",
+          "water soluble support"
+        ],
+        "typos": [
+          "pvaa",
+          "pav"
+        ]
+      },
+      {
+        "term": "bvoh",
+        "category": "materials",
+        "aliases": [
+          "butenediol vinyl alcohol copolymer",
+          "rapid soluble support"
+        ],
+        "typos": [
+          "bvhh",
+          "bvohh"
+        ]
+      },
+      {
+        "term": "pp",
+        "category": "materials",
+        "aliases": [
+          "polypropylene filament",
+          "living hinge polymer"
+        ],
+        "typos": [
+          "ppp",
+          "p-p"
+        ]
+      },
+      {
+        "term": "polypropylene",
+        "category": "materials",
+        "aliases": [
+          "pp plastic",
+          "olefin copolymer"
+        ],
+        "typos": [
+          "polypropelene",
+          "polypropilene"
+        ]
+      },
+      {
+        "term": "pom",
+        "category": "materials",
+        "aliases": [
+          "polyoxymethylene",
+          "acetal",
+          "delrin"
+        ],
+        "typos": [
+          "pomm",
+          "pmo"
+        ]
+      },
+      {
+        "term": "delrin",
+        "category": "materials",
+        "aliases": [
+          "acetal filament",
+          "polyacetal resin"
+        ],
+        "typos": [
+          "delrn",
+          "dlerin"
+        ]
+      },
+      {
+        "term": "carbon fiber",
+        "category": "materials",
+        "aliases": [
+          "cf composite",
+          "carbon filled polymer"
+        ],
+        "typos": [
+          "carbonfiber",
+          "crbon fiber"
+        ]
+      },
+      {
+        "term": "pla cf",
+        "category": "materials",
+        "aliases": [
+          "carbon fiber pla",
+          "pla-cf composite"
+        ],
+        "typos": [
+          "placf",
+          "pla-cf"
+        ]
+      },
+      {
+        "term": "petg cf",
+        "category": "materials",
+        "aliases": [
+          "carbon fiber petg",
+          "petg-cf composite"
+        ],
+        "typos": [
+          "petgcf",
+          "petg-cf"
+        ]
+      },
+      {
+        "term": "nylon cf",
+        "category": "materials",
+        "aliases": [
+          "pa-cf",
+          "carbon fiber nylon"
+        ],
+        "typos": [
+          "nyloncf",
+          "pa-cf"
+        ]
+      },
+      {
+        "term": "abs cf",
+        "category": "materials",
+        "aliases": [
+          "carbon fiber abs",
+          "abs-cf composite"
+        ],
+        "typos": [
+          "abscf",
+          "abs-cf"
+        ]
+      },
+      {
+        "term": "glass fiber",
+        "category": "materials",
+        "aliases": [
+          "gf composite",
+          "glass reinforced polymer"
+        ],
+        "typos": [
+          "glassfiber",
+          "glss fiber"
+        ]
+      },
+      {
+        "term": "pla gf",
+        "category": "materials",
+        "aliases": [
+          "glass fiber pla",
+          "pla-gf blend"
+        ],
+        "typos": [
+          "plagf",
+          "pla-gf"
+        ]
+      },
+      {
+        "term": "silk pla",
+        "category": "materials",
+        "aliases": [
+          "shiny pla",
+          "luster filament",
+          "silk finish polymer"
+        ],
+        "typos": [
+          "silpla",
+          "slk pla"
+        ]
+      },
+      {
+        "term": "matte pla",
+        "category": "materials",
+        "aliases": [
+          "non-reflective pla",
+          "flat finish pla"
+        ],
+        "typos": [
+          "matpla",
+          "mat pla"
+        ]
+      },
+      {
+        "term": "wood pla",
+        "category": "materials",
+        "aliases": [
+          "wood filled filament",
+          "timber filament"
+        ],
+        "typos": [
+          "woodpla",
+          "wod pla"
+        ]
+      },
+      {
+        "term": "glow in the dark",
+        "category": "materials",
+        "aliases": [
+          "phosphorescent filament",
+          "luminous pla"
+        ],
+        "typos": [
+          "glowinthedark",
+          "glow pla"
+        ]
+      },
+      {
+        "term": "metal pla",
+        "category": "materials",
+        "aliases": [
+          "bronze fill",
+          "copper fill",
+          "magnetic iron pla"
+        ],
+        "typos": [
+          "metalpla",
+          "metl pla"
+        ]
+      },
+      {
+        "term": "conductive pla",
+        "category": "materials",
+        "aliases": [
+          "electrically conductive filament",
+          "esd pla"
+        ],
+        "typos": [
+          "conductivepla",
+          "cond pla"
+        ]
+      },
+      {
+        "term": "magnetic pla",
+        "category": "materials",
+        "aliases": [
+          "ferromagnetic filament",
+          "iron filled pla"
+        ],
+        "typos": [
+          "magneticpla",
+          "mag pla"
+        ]
+      },
+      {
+        "term": "color change pla",
+        "category": "materials",
+        "aliases": [
+          "temperature shift filament",
+          "uv color change"
+        ],
+        "typos": [
+          "colorchangepla",
+          "colour change pla"
+        ]
+      },
+      {
+        "term": "thermochromic pla",
+        "category": "materials",
+        "aliases": [
+          "heat sensitive color shift filament"
+        ],
+        "typos": [
+          "thermochromicpla",
+          "thermo pla"
+        ]
+      },
+      {
+        "term": "translucent pla",
+        "category": "materials",
+        "aliases": [
+          "semi-clear pla",
+          "light diffusing filament"
+        ],
+        "typos": [
+          "translucentpla",
+          "trans pla"
+        ]
+      },
+      {
+        "term": "high speed pla",
+        "category": "materials",
+        "aliases": [
+          "rapid pla",
+          "high flow rate pla"
+        ],
+        "typos": [
+          "highspeedpla",
+          "hs pla"
+        ]
+      },
+      {
+        "term": "recycled pla",
+        "category": "materials",
+        "aliases": [
+          "eco pla",
+          "reclaimed scrap filament"
+        ],
+        "typos": [
+          "recycledpla",
+          "re-pla"
+        ]
+      },
+      {
+        "term": "high temp pla",
+        "category": "materials",
+        "aliases": [
+          "htpla",
+          "annealable pla"
+        ],
+        "typos": [
+          "hightemppla",
+          "ht-pla"
+        ]
+      },
+      {
+        "term": "tough pla",
+        "category": "materials",
+        "aliases": [
+          "impact resistant pla",
+          "engineering pla"
+        ],
+        "typos": [
+          "toughpla",
+          "tuff pla"
+        ]
+      },
+      {
+        "term": "standard resin",
+        "category": "materials",
+        "aliases": [
+          "photopolymer resin",
+          "405nm basic resin"
+        ],
+        "typos": [
+          "standardresin",
+          "std resin"
+        ]
+      },
+      {
+        "term": "water washable resin",
+        "category": "materials",
+        "aliases": [
+          "water cleanable photopolymer"
+        ],
+        "typos": [
+          "waterwashableresin",
+          "washable resin"
+        ]
+      },
+      {
+        "term": "tough resin",
+        "category": "materials",
+        "aliases": [
+          "abs-like photopolymer",
+          "impact resistant resin"
+        ],
+        "typos": [
+          "toughresin",
+          "tuf resin"
+        ]
+      },
+      {
+        "term": "flexible resin",
+        "category": "materials",
+        "aliases": [
+          "elastomeric resin",
+          "rubber-like photopolymer"
+        ],
+        "typos": [
+          "flexibleresin",
+          "flex resin"
+        ]
+      },
+      {
+        "term": "abs like resin",
+        "category": "materials",
+        "aliases": [
+          "engineering photopolymer",
+          "rigid tough resin"
+        ],
+        "typos": [
+          "abslikeresin",
+          "abs resin"
+        ]
+      },
+      {
+        "term": "dental resin",
+        "category": "materials",
+        "aliases": [
+          "biocompatible resin",
+          "orthodontic photopolymer"
+        ],
+        "typos": [
+          "dentalresin",
+          "dentl resin"
+        ]
+      },
+      {
+        "term": "castable resin",
+        "category": "materials",
+        "aliases": [
+          "burnout casting resin",
+          "jewelry wax photopolymer"
+        ],
+        "typos": [
+          "castableresin",
+          "cast resin"
+        ]
+      },
+      {
+        "term": "high temp resin",
+        "category": "materials",
+        "aliases": [
+          "thermal resistant photopolymer"
+        ],
+        "typos": [
+          "hightempresin",
+          "ht resin"
+        ]
+      },
+      {
+        "term": "plant based resin",
+        "category": "materials",
+        "aliases": [
+          "soy resin",
+          "eco photopolymer"
+        ],
+        "typos": [
+          "plantbasedresin",
+          "plant resin"
+        ]
+      },
+      {
+        "term": "ceramic resin",
+        "category": "materials",
+        "aliases": [
+          "silica filled photopolymer",
+          "fireable resin"
+        ],
+        "typos": [
+          "ceramicresin",
+          "ceram resin"
+        ]
+      },
+      {
+        "term": "polycarbonate blend",
+        "category": "materials",
+        "aliases": [
+          "pc-abs",
+          "pc-pbt alloy"
+        ],
+        "typos": [
+          "pcblend",
+          "pc alloy"
+        ]
+      },
+      {
+        "term": "flame retardant filament",
+        "category": "materials",
+        "aliases": [
+          "v0 rated filament",
+          "self-extinguishing abs"
+        ],
+        "typos": [
+          "flameretardant",
+          "fr filament"
+        ]
+      },
+      {
+        "term": "esun pla",
+        "category": "materials",
+        "aliases": [
+          "esun pla+",
+          "esun filament"
+        ],
+        "typos": [
+          "esunpla",
+          "e-sun pla"
+        ]
+      },
+      {
+        "term": "sunlu pla",
+        "category": "materials",
+        "aliases": [
+          "sunlu pla+",
+          "sunlu spool"
+        ],
+        "typos": [
+          "sunlupla",
+          "sunlu filament"
+        ]
+      },
+      {
+        "term": "polymaker polyterra",
+        "category": "materials",
+        "aliases": [
+          "polyterra pla",
+          "matte eco filament"
+        ],
+        "typos": [
+          "polyterra",
+          "polymakr polyterra"
+        ]
+      },
+      {
+        "term": "polymaker polymax",
+        "category": "materials",
+        "aliases": [
+          "polymax pla",
+          "high impact polymax"
+        ],
+        "typos": [
+          "polymax",
+          "polymakr polymax"
+        ]
+      },
+      {
+        "term": "hatchbox pla",
+        "category": "materials",
+        "aliases": [
+          "hatchbox 1.75mm",
+          "hatchbox filament"
+        ],
+        "typos": [
+          "hatchboxpla",
+          "hatchbx"
+        ]
+      },
+      {
+        "term": "overture petg",
+        "category": "materials",
+        "aliases": [
+          "overture 3d petg",
+          "overture filament"
+        ],
+        "typos": [
+          "overturepetg",
+          "ovrture petg"
+        ]
+      },
+      {
+        "term": "prusament pla",
+        "category": "materials",
+        "aliases": [
+          "josef prusa filament",
+          "precision prusament"
+        ],
+        "typos": [
+          "prusamentpla",
+          "prusa pla"
+        ]
+      },
+      {
+        "term": "prusament petg",
+        "category": "materials",
+        "aliases": [
+          "precision prusa petg",
+          "prusament orange"
+        ],
+        "typos": [
+          "prusamentpetg",
+          "prusa petg"
+        ]
+      },
+      {
+        "term": "bambu filament",
+        "category": "materials",
+        "aliases": [
+          "bambu lab basic pla",
+          "rfid spool filament"
+        ],
+        "typos": [
+          "bambufilament",
+          "bambu pla"
+        ]
+      },
+      {
+        "term": "formfutura",
+        "category": "materials",
+        "aliases": [
+          "formfutura premium polymer",
+          "easyfil"
+        ],
+        "typos": [
+          "formfutura filament",
+          "formfuturaa"
+        ]
+      },
+      {
+        "term": "colorfabb",
+        "category": "materials",
+        "aliases": [
+          "colorfabb ngen",
+          "colorfabb pla/pha"
+        ],
+        "typos": [
+          "colorfabb filament",
+          "colourfabb"
+        ]
+      },
+      {
+        "term": "atomic filament",
+        "category": "materials",
+        "aliases": [
+          "atomic high performance pla",
+          "atomic spool"
+        ],
+        "typos": [
+          "atomicfilament",
+          "atomic 3d"
+        ]
+      }
+    ],
+    "colors": [
+      {
+        "term": "black",
+        "category": "colors",
+        "aliases": [
+          "jet black",
+          "standard black",
+          "pitch black"
+        ],
+        "typos": [
+          "blck",
+          "blak"
+        ]
+      },
+      {
+        "term": "galaxy black",
+        "category": "colors",
+        "aliases": [
+          "sparkle black",
+          "prusa galaxy black",
+          "glitter black"
+        ],
+        "typos": [
+          "galaxyblack",
+          "galxy black"
+        ]
+      },
+      {
+        "term": "matte black",
+        "category": "colors",
+        "aliases": [
+          "flat black",
+          "non-reflective black"
+        ],
+        "typos": [
+          "matteblack",
+          "mat black"
+        ]
+      },
+      {
+        "term": "white",
+        "category": "colors",
+        "aliases": [
+          "pure white",
+          "standard white"
+        ],
+        "typos": [
+          "whte",
+          "whit"
+        ]
+      },
+      {
+        "term": "cool white",
+        "category": "colors",
+        "aliases": [
+          "bright white",
+          "arctic white",
+          "cold white"
+        ],
+        "typos": [
+          "coolwhite",
+          "col white"
+        ]
+      },
+      {
+        "term": "warm white",
+        "category": "colors",
+        "aliases": [
+          "ivory white",
+          "cream white",
+          "natural white"
+        ],
+        "typos": [
+          "warmwhite",
+          "wrm white"
+        ]
+      },
+      {
+        "term": "gray",
+        "category": "colors",
+        "aliases": [
+          "slate gray",
+          "neutral gray"
+        ],
+        "typos": [
+          "grey",
+          "gry"
+        ]
+      },
+      {
+        "term": "space gray",
+        "category": "colors",
+        "aliases": [
+          "metallic gray",
+          "apple gray"
+        ],
+        "typos": [
+          "spacegray",
+          "space grey"
+        ]
+      },
+      {
+        "term": "silver",
+        "category": "colors",
+        "aliases": [
+          "metallic silver",
+          "chrome silver",
+          "aluminum silver"
+        ],
+        "typos": [
+          "slver",
+          "silvr"
+        ]
+      },
+      {
+        "term": "gold",
+        "category": "colors",
+        "aliases": [
+          "metallic gold",
+          "bright gold"
+        ],
+        "typos": [
+          "gld",
+          "gool"
+        ]
+      },
+      {
+        "term": "silk gold",
+        "category": "colors",
+        "aliases": [
+          "shiny gold",
+          "luster gold",
+          "pearl gold"
+        ],
+        "typos": [
+          "silkgold",
+          "slk gold"
+        ]
+      },
+      {
+        "term": "bronze",
+        "category": "colors",
+        "aliases": [
+          "antique bronze",
+          "metallic bronze"
+        ],
+        "typos": [
+          "brnze",
+          "bronze finish"
+        ]
+      },
+      {
+        "term": "copper",
+        "category": "colors",
+        "aliases": [
+          "metallic copper",
+          "penny copper"
+        ],
+        "typos": [
+          "cppr",
+          "coper"
+        ]
+      },
+      {
+        "term": "brass",
+        "category": "colors",
+        "aliases": [
+          "metallic brass",
+          "golden brass"
+        ],
+        "typos": [
+          "brss",
+          "bras"
+        ]
+      },
+      {
+        "term": "red",
+        "category": "colors",
+        "aliases": [
+          "primary red",
+          "candy red"
+        ],
+        "typos": [
+          "rd",
+          "redd"
+        ]
+      },
+      {
+        "term": "crimson",
+        "category": "colors",
+        "aliases": [
+          "deep red",
+          "blood red",
+          "burgundy"
+        ],
+        "typos": [
+          "crmson",
+          "crimsn"
+        ]
+      },
+      {
+        "term": "ruby red",
+        "category": "colors",
+        "aliases": [
+          "gemstone red",
+          "translucent ruby"
+        ],
+        "typos": [
+          "rubyred",
+          "rby red"
+        ]
+      },
+      {
+        "term": "fire engine red",
+        "category": "colors",
+        "aliases": [
+          "bright scarlet",
+          "emergency red"
+        ],
+        "typos": [
+          "fireenginered",
+          "fire red"
+        ]
+      },
+      {
+        "term": "blue",
+        "category": "colors",
+        "aliases": [
+          "primary blue",
+          "true blue"
+        ],
+        "typos": [
+          "ble",
+          "blu"
+        ]
+      },
+      {
+        "term": "navy blue",
+        "category": "colors",
+        "aliases": [
+          "dark navy",
+          "midnight blue"
+        ],
+        "typos": [
+          "navyblue",
+          "nvy blue"
+        ]
+      },
+      {
+        "term": "sky blue",
+        "category": "colors",
+        "aliases": [
+          "baby blue",
+          "light azure"
+        ],
+        "typos": [
+          "skyblue",
+          "ski blue"
+        ]
+      },
+      {
+        "term": "cyan",
+        "category": "colors",
+        "aliases": [
+          "bright cyan",
+          "process cyan"
+        ],
+        "typos": [
+          "cyn",
+          "cyann"
+        ]
+      },
+      {
+        "term": "cobalt blue",
+        "category": "colors",
+        "aliases": [
+          "deep electric blue",
+          "vibrant cobalt"
+        ],
+        "typos": [
+          "cobaltblue",
+          "coblt blue"
+        ]
+      },
+      {
+        "term": "royal blue",
+        "category": "colors",
+        "aliases": [
+          "regal blue",
+          "deep sapphire blue"
+        ],
+        "typos": [
+          "royalblue",
+          "royl blue"
+        ]
+      },
+      {
+        "term": "green",
+        "category": "colors",
+        "aliases": [
+          "primary green",
+          "leaf green"
+        ],
+        "typos": [
+          "grn",
+          "gren"
+        ]
+      },
+      {
+        "term": "forest green",
+        "category": "colors",
+        "aliases": [
+          "dark pine green",
+          "hunter green"
+        ],
+        "typos": [
+          "forestgreen",
+          "forst green"
+        ]
+      },
+      {
+        "term": "emerald green",
+        "category": "colors",
+        "aliases": [
+          "jewel green",
+          "gemstone green"
+        ],
+        "typos": [
+          "emeraldgreen",
+          "emrald green"
+        ]
+      },
+      {
+        "term": "olive green",
+        "category": "colors",
+        "aliases": [
+          "army olive",
+          "military drab green"
+        ],
+        "typos": [
+          "olivegreen",
+          "olv green"
+        ]
+      },
+      {
+        "term": "lime green",
+        "category": "colors",
+        "aliases": [
+          "neon lime",
+          "bright yellow green"
+        ],
+        "typos": [
+          "limegreen",
+          "lme green"
+        ]
+      },
+      {
+        "term": "mint green",
+        "category": "colors",
+        "aliases": [
+          "pastel mint",
+          "seafoam green"
+        ],
+        "typos": [
+          "mintgreen",
+          "mnt green"
+        ]
+      },
+      {
+        "term": "yellow",
+        "category": "colors",
+        "aliases": [
+          "primary yellow",
+          "canary yellow"
+        ],
+        "typos": [
+          "ylow",
+          "yelow"
+        ]
+      },
+      {
+        "term": "neon yellow",
+        "category": "colors",
+        "aliases": [
+          "fluorescent yellow",
+          "hi-vis yellow"
+        ],
+        "typos": [
+          "neonyellow",
+          "non yellow"
+        ]
+      },
+      {
+        "term": "lemon yellow",
+        "category": "colors",
+        "aliases": [
+          "citrus yellow",
+          "bright lemon"
+        ],
+        "typos": [
+          "lemonyellow",
+          "lemn yellow"
+        ]
+      },
+      {
+        "term": "sunflower yellow",
+        "category": "colors",
+        "aliases": [
+          "warm yellow",
+          "golden yellow"
+        ],
+        "typos": [
+          "sunfloweryellow",
+          "sun yellow"
+        ]
+      },
+      {
+        "term": "orange",
+        "category": "colors",
+        "aliases": [
+          "primary orange",
+          "tangerine orange"
+        ],
+        "typos": [
+          "ornge",
+          "orang"
+        ]
+      },
+      {
+        "term": "neon orange",
+        "category": "colors",
+        "aliases": [
+          "safety orange",
+          "blaze orange"
+        ],
+        "typos": [
+          "neonorange",
+          "non orange"
+        ]
+      },
+      {
+        "term": "mandarin orange",
+        "category": "colors",
+        "aliases": [
+          "bright citrus orange",
+          "sunset orange"
+        ],
+        "typos": [
+          "mandarinorange",
+          "mndarin orange"
+        ]
+      },
+      {
+        "term": "purple",
+        "category": "colors",
+        "aliases": [
+          "violet purple",
+          "deep purple"
+        ],
+        "typos": [
+          "prple",
+          "purpl"
+        ]
+      },
+      {
+        "term": "violet",
+        "category": "colors",
+        "aliases": [
+          "blue violet",
+          "deep orchid"
+        ],
+        "typos": [
+          "violt",
+          "voilet"
+        ]
+      },
+      {
+        "term": "galaxy purple",
+        "category": "colors",
+        "aliases": [
+          "sparkle purple",
+          "cosmic purple"
+        ],
+        "typos": [
+          "galaxypurple",
+          "galxy purple"
+        ]
+      },
+      {
+        "term": "lavender",
+        "category": "colors",
+        "aliases": [
+          "pastel lavender",
+          "soft lilac"
+        ],
+        "typos": [
+          "lavndr",
+          "lavendar"
+        ]
+      },
+      {
+        "term": "pink",
+        "category": "colors",
+        "aliases": [
+          "primary pink",
+          "bubblegum pink"
+        ],
+        "typos": [
+          "pnk",
+          "pnik"
+        ]
+      },
+      {
+        "term": "rose pink",
+        "category": "colors",
+        "aliases": [
+          "dusty rose",
+          "petal pink"
+        ],
+        "typos": [
+          "rosepink",
+          "rse pink"
+        ]
+      },
+      {
+        "term": "magenta",
+        "category": "colors",
+        "aliases": [
+          "fuchsia pink",
+          "process magenta"
+        ],
+        "typos": [
+          "magnta",
+          "magente"
+        ]
+      },
+      {
+        "term": "fuchsia",
+        "category": "colors",
+        "aliases": [
+          "hot fuchsia",
+          "vivid purplish red"
+        ],
+        "typos": [
+          "fuchsa",
+          "fuschia"
+        ]
+      },
+      {
+        "term": "brown",
+        "category": "colors",
+        "aliases": [
+          "chocolate brown",
+          "earth brown"
+        ],
+        "typos": [
+          "brwn",
+          "bronw"
+        ]
+      },
+      {
+        "term": "chocolate brown",
+        "category": "colors",
+        "aliases": [
+          "dark cocoa brown",
+          "deep brown"
+        ],
+        "typos": [
+          "chocolatebrown",
+          "choc brown"
+        ]
+      },
+      {
+        "term": "tan",
+        "category": "colors",
+        "aliases": [
+          "desert tan",
+          "khaki brown"
+        ],
+        "typos": [
+          "tn",
+          "tann"
+        ]
+      },
+      {
+        "term": "beige",
+        "category": "colors",
+        "aliases": [
+          "sand beige",
+          "oatmeal"
+        ],
+        "typos": [
+          "bge",
+          "biege"
+        ]
+      },
+      {
+        "term": "bone white",
+        "category": "colors",
+        "aliases": [
+          "eggshell",
+          "off white",
+          "fossil white"
+        ],
+        "typos": [
+          "bonewhite",
+          "bne white"
+        ]
+      },
+      {
+        "term": "clear",
+        "category": "colors",
+        "aliases": [
+          "transparent clear",
+          "natural translucent"
+        ],
+        "typos": [
+          "clr",
+          "claer"
+        ]
+      },
+      {
+        "term": "translucent",
+        "category": "colors",
+        "aliases": [
+          "semi transparent",
+          "light diffusing clear"
+        ],
+        "typos": [
+          "translucnt",
+          "transluscent"
+        ]
+      },
+      {
+        "term": "transparent",
+        "category": "colors",
+        "aliases": [
+          "optically clear",
+          "see-through resin"
+        ],
+        "typos": [
+          "transparnt",
+          "transperent"
+        ]
+      },
+      {
+        "term": "smoke",
+        "category": "colors",
+        "aliases": [
+          "translucent black",
+          "tinted gray"
+        ],
+        "typos": [
+          "smke",
+          "smok"
+        ]
+      },
+      {
+        "term": "amber",
+        "category": "colors",
+        "aliases": [
+          "translucent amber",
+          "golden resin"
+        ],
+        "typos": [
+          "ambr",
+          "ambrr"
+        ]
+      },
+      {
+        "term": "teal",
+        "category": "colors",
+        "aliases": [
+          "blue-green teal",
+          "peacock blue"
+        ],
+        "typos": [
+          "tel",
+          "teall"
+        ]
+      },
+      {
+        "term": "turquoise",
+        "category": "colors",
+        "aliases": [
+          "light cyan-green",
+          "caribbean turquoise"
+        ],
+        "typos": [
+          "turquois",
+          "turqoise"
+        ]
+      },
+      {
+        "term": "aqua",
+        "category": "colors",
+        "aliases": [
+          "light aqua blue",
+          "water blue"
+        ],
+        "typos": [
+          "aqau",
+          "aquaa"
+        ]
+      },
+      {
+        "term": "coral",
+        "category": "colors",
+        "aliases": [
+          "salmon coral",
+          "peachy coral"
+        ],
+        "typos": [
+          "cral",
+          "corall"
+        ]
+      },
+      {
+        "term": "peach",
+        "category": "colors",
+        "aliases": [
+          "pastel peach",
+          "soft apricot"
+        ],
+        "typos": [
+          "pech",
+          "pach"
+        ]
+      },
+      {
+        "term": "charcoal",
+        "category": "colors",
+        "aliases": [
+          "dark charcoal gray",
+          "anthracite"
+        ],
+        "typos": [
+          "charcol",
+          "chacoal"
+        ]
+      },
+      {
+        "term": "gunmetal",
+        "category": "colors",
+        "aliases": [
+          "metallic dark gray",
+          "gunmetal silver"
+        ],
+        "typos": [
+          "gunmetl",
+          "gun metal"
+        ]
+      },
+      {
+        "term": "glitter",
+        "category": "colors",
+        "aliases": [
+          "sparkle finish",
+          "glitter flake"
+        ],
+        "typos": [
+          "glitr",
+          "gliter"
+        ]
+      },
+      {
+        "term": "rainbow",
+        "category": "colors",
+        "aliases": [
+          "multi color gradient",
+          "spectrum rainbow"
+        ],
+        "typos": [
+          "ranbow",
+          "rainbw"
+        ]
+      },
+      {
+        "term": "dual color",
+        "category": "colors",
+        "aliases": [
+          "coextruded dual tone",
+          "two-tone silk"
+        ],
+        "typos": [
+          "dualcolor",
+          "dual colour"
+        ]
+      },
+      {
+        "term": "tri color",
+        "category": "colors",
+        "aliases": [
+          "triple coextrusion",
+          "three-tone silk"
+        ],
+        "typos": [
+          "tricolor",
+          "tri colour"
+        ]
+      },
+      {
+        "term": "coextrusion",
+        "category": "colors",
+        "aliases": [
+          "multi-strand single filament",
+          "dual extrusion filament"
+        ],
+        "typos": [
+          "coextruson",
+          "co-extrusion"
+        ]
+      },
+      {
+        "term": "gradient",
+        "category": "colors",
+        "aliases": [
+          "ombre color transition",
+          "blend filament"
+        ],
+        "typos": [
+          "gradent",
+          "grdient"
+        ]
+      },
+      {
+        "term": "glow green",
+        "category": "colors",
+        "aliases": [
+          "phosphorescent green",
+          "night glow green"
+        ],
+        "typos": [
+          "glowgreen",
+          "glw green"
+        ]
+      },
+      {
+        "term": "glow blue",
+        "category": "colors",
+        "aliases": [
+          "phosphorescent aqua",
+          "night glow blue"
+        ],
+        "typos": [
+          "glowblue",
+          "glw blue"
+        ]
+      },
+      {
+        "term": "chameleon",
+        "category": "colors",
+        "aliases": [
+          "color shifting pearl",
+          "iridescent flip"
+        ],
+        "typos": [
+          "chamelon",
+          "chameleonn"
+        ]
+      },
+      {
+        "term": "iridescent",
+        "category": "colors",
+        "aliases": [
+          "oil slick shimmer",
+          "spectral reflection"
+        ],
+        "typos": [
+          "iridescnt",
+          "irredescent"
+        ]
+      },
+      {
+        "term": "pastel pink",
+        "category": "colors",
+        "aliases": [
+          "soft baby pink",
+          "powder pink"
+        ],
+        "typos": [
+          "pastelpink",
+          "pstl pink"
+        ]
+      },
+      {
+        "term": "pastel blue",
+        "category": "colors",
+        "aliases": [
+          "soft powder blue",
+          "baby blue pastel"
+        ],
+        "typos": [
+          "pastelblue",
+          "pstl blue"
+        ]
+      },
+      {
+        "term": "pastel green",
+        "category": "colors",
+        "aliases": [
+          "soft seafoam pastel",
+          "light mint pastel"
+        ],
+        "typos": [
+          "pastelgreen",
+          "pstl green"
+        ]
+      },
+      {
+        "term": "army green",
+        "category": "colors",
+        "aliases": [
+          "military olive drab",
+          "camo green"
+        ],
+        "typos": [
+          "armygreen",
+          "arm green"
+        ]
+      },
+      {
+        "term": "dark blue",
+        "category": "colors",
+        "aliases": [
+          "deep navy blue",
+          "midnight sapphire"
+        ],
+        "typos": [
+          "darkblue",
+          "drk blue"
+        ]
+      }
+    ],
+    "hardware": [
+      {
+        "term": "hotend",
+        "category": "hardware",
+        "aliases": [
+          "printhead hot zone",
+          "melting assembly"
+        ],
+        "typos": [
+          "hotnd",
+          "hot-end"
+        ]
+      },
+      {
+        "term": "nozzle",
+        "category": "hardware",
+        "aliases": [
+          "extrusion orifice",
+          "brass tip",
+          "dispensing nozzle"
+        ],
+        "typos": [
+          "nozle",
+          "nozzel"
+        ]
+      },
+      {
+        "term": "heatblock",
+        "category": "hardware",
+        "aliases": [
+          "heater block",
+          "thermal block"
+        ],
+        "typos": [
+          "heatblok",
+          "heetblock"
+        ]
+      },
+      {
+        "term": "heatbreak",
+        "category": "hardware",
+        "aliases": [
+          "thermal barrier",
+          "throat tube"
+        ],
+        "typos": [
+          "heatbrak",
+          "heetbreak"
+        ]
+      },
+      {
+        "term": "heatsink",
+        "category": "hardware",
+        "aliases": [
+          "cooling fin radiator",
+          "cold side heatsink"
+        ],
+        "typos": [
+          "heatsnk",
+          "heetsink"
+        ]
+      },
+      {
+        "term": "extruder",
+        "category": "hardware",
+        "aliases": [
+          "cold end feeder",
+          "filament drive unit"
+        ],
+        "typos": [
+          "extrudr",
+          "exturder"
+        ]
+      },
+      {
+        "term": "stepper motor",
+        "category": "hardware",
+        "aliases": [
+          "nema 17 motor",
+          "drive stepper"
+        ],
+        "typos": [
+          "steppermotor",
+          "steper motor"
+        ]
+      },
+      {
+        "term": "lead screw",
+        "category": "hardware",
+        "aliases": [
+          "z-axis threaded rod",
+          "t8 screw"
+        ],
+        "typos": [
+          "leadscrew",
+          "led screw"
+        ]
+      },
+      {
+        "term": "linear rail",
+        "category": "hardware",
+        "aliases": [
+          "mgn12 linear guide",
+          "smooth rail"
+        ],
+        "typos": [
+          "linearrail",
+          "liner rail"
+        ]
+      },
+      {
+        "term": "ball screw",
+        "category": "hardware",
+        "aliases": [
+          "recirculating ball spindle",
+          "precision z screw"
+        ],
+        "typos": [
+          "ballscrew",
+          "bal screw"
+        ]
+      },
+      {
+        "term": "timing belt",
+        "category": "hardware",
+        "aliases": [
+          "gt2 belt",
+          "toothed drive belt"
+        ],
+        "typos": [
+          "timingbelt",
+          "tming belt"
+        ]
+      },
+      {
+        "term": "idler",
+        "category": "hardware",
+        "aliases": [
+          "belt tension idler",
+          "smooth idler pulley"
+        ],
+        "typos": [
+          "idlr",
+          "ideler"
+        ]
+      },
+      {
+        "term": "pei sheet",
+        "category": "hardware",
+        "aliases": [
+          "polyetherimide build surface",
+          "pei sticker"
+        ],
+        "typos": [
+          "peisheet",
+          "pie sheet"
+        ]
+      },
+      {
+        "term": "magnetic bed",
+        "category": "hardware",
+        "aliases": [
+          "magnetic base plate",
+          "magnet sheet"
+        ],
+        "typos": [
+          "magneticbed",
+          "mag bed"
+        ]
+      },
+      {
+        "term": "heated bed",
+        "category": "hardware",
+        "aliases": [
+          "thermal print bed",
+          "heated platform"
+        ],
+        "typos": [
+          "heatedbed",
+          "heat bed"
+        ]
+      },
+      {
+        "term": "thermistor",
+        "category": "hardware",
+        "aliases": [
+          "ntc 100k sensor",
+          "temperature sensor"
+        ],
+        "typos": [
+          "thermistr",
+          "thermsitor"
+        ]
+      },
+      {
+        "term": "heater cartridge",
+        "category": "hardware",
+        "aliases": [
+          "heating element",
+          "ceramic heater core"
+        ],
+        "typos": [
+          "heatercartridge",
+          "heat cartridge"
+        ]
+      },
+      {
+        "term": "part cooling fan",
+        "category": "hardware",
+        "aliases": [
+          "blower fan",
+          "5015 radial fan"
+        ],
+        "typos": [
+          "partcoolingfan",
+          "cooling fan"
+        ]
+      },
+      {
+        "term": "hotend fan",
+        "category": "hardware",
+        "aliases": [
+          "heatsink fan",
+          "3010 axial fan"
+        ],
+        "typos": [
+          "hotendfan",
+          "hot end fan"
+        ]
+      },
+      {
+        "term": "auxiliary fan",
+        "category": "hardware",
+        "aliases": [
+          "side chamber fan",
+          "aux fan"
+        ],
+        "typos": [
+          "auxiliaryfan",
+          "auxfan"
+        ]
+      },
+      {
+        "term": "chamber fan",
+        "category": "hardware",
+        "aliases": [
+          "enclosure exhaust fan",
+          "ventilation fan"
+        ],
+        "typos": [
+          "chamberfan",
+          "chmbr fan"
+        ]
+      },
+      {
+        "term": "mainboard",
+        "category": "hardware",
+        "aliases": [
+          "motherboard",
+          "printer controller"
+        ],
+        "typos": [
+          "manboard",
+          "mainbord"
+        ]
+      },
+      {
+        "term": "motherboard",
+        "category": "hardware",
+        "aliases": [
+          "controller board",
+          "logic board"
+        ],
+        "typos": [
+          "mothrboard",
+          "motherbord"
+        ]
+      },
+      {
+        "term": "control board",
+        "category": "hardware",
+        "aliases": [
+          "skr board",
+          "mcu board"
+        ],
+        "typos": [
+          "controlboard",
+          "cntrol board"
+        ]
+      },
+      {
+        "term": "stepper driver",
+        "category": "hardware",
+        "aliases": [
+          "tmc2209 driver",
+          "silent stepper module"
+        ],
+        "typos": [
+          "stepperdriver",
+          "steper driver"
+        ]
+      },
+      {
+        "term": "endstop",
+        "category": "hardware",
+        "aliases": [
+          "limit switch",
+          "microswitch stop"
+        ],
+        "typos": [
+          "endstp",
+          "end-stop"
+        ]
+      },
+      {
+        "term": "optical endstop",
+        "category": "hardware",
+        "aliases": [
+          "infrared beam sensor",
+          "photo interrupter"
+        ],
+        "typos": [
+          "opticalendstop",
+          "optic endstop"
+        ]
+      },
+      {
+        "term": "bltouch",
+        "category": "hardware",
+        "aliases": [
+          "auto bed probe",
+          "hall effect leveling pin"
+        ],
+        "typos": [
+          "bl-touch",
+          "bl toch"
+        ]
+      },
+      {
+        "term": "cr touch",
+        "category": "hardware",
+        "aliases": [
+          "creality optical bed probe"
+        ],
+        "typos": [
+          "crtouch",
+          "cr-touch"
+        ]
+      },
+      {
+        "term": "inductive probe",
+        "category": "hardware",
+        "aliases": [
+          "metal proximity sensor",
+          "pinda probe"
+        ],
+        "typos": [
+          "inductiveprobe",
+          "induct probe"
+        ]
+      },
+      {
+        "term": "capacitive probe",
+        "category": "hardware",
+        "aliases": [
+          "dielectric bed sensor"
+        ],
+        "typos": [
+          "capacitiveprobe",
+          "capacitve probe"
+        ]
+      },
+      {
+        "term": "strain gauge",
+        "category": "hardware",
+        "aliases": [
+          "load cell sensor",
+          "nozzle contact probe"
+        ],
+        "typos": [
+          "straingauge",
+          "strain gage"
+        ]
+      },
+      {
+        "term": "accelerometer",
+        "category": "hardware",
+        "aliases": [
+          "adxl345 sensor",
+          "input shaper accelerometer"
+        ],
+        "typos": [
+          "accelrometer",
+          "accelerometr"
+        ]
+      },
+      {
+        "term": "bowden tube",
+        "category": "hardware",
+        "aliases": [
+          "ptfe guide tube",
+          "feed tube"
+        ],
+        "typos": [
+          "bowdentube",
+          "bodwen tube"
+        ]
+      },
+      {
+        "term": "ptfe tube",
+        "category": "hardware",
+        "aliases": [
+          "teflon liner tube",
+          "capricorn tube"
+        ],
+        "typos": [
+          "ptfetube",
+          "ptf tube"
+        ]
+      },
+      {
+        "term": "extruder gear",
+        "category": "hardware",
+        "aliases": [
+          "drive gear",
+          "filament feed gear"
+        ],
+        "typos": [
+          "extrudergear",
+          "ext gear"
+        ]
+      },
+      {
+        "term": "dual drive gear",
+        "category": "hardware",
+        "aliases": [
+          "bondtech style gears",
+          "dual grip hobbed gears"
+        ],
+        "typos": [
+          "dualdrivegear",
+          "dual drive"
+        ]
+      },
+      {
+        "term": "extruder lever",
+        "category": "hardware",
+        "aliases": [
+          "tension arm",
+          "idler arm"
+        ],
+        "typos": [
+          "extruderlever",
+          "ext lever"
+        ]
+      },
+      {
+        "term": "filament sensor",
+        "category": "hardware",
+        "aliases": [
+          "runout switch",
+          "motion encoder sensor"
+        ],
+        "typos": [
+          "filamentsensor",
+          "fil sensor"
+        ]
+      },
+      {
+        "term": "runout sensor",
+        "category": "hardware",
+        "aliases": [
+          "filament break detector",
+          "empty spool switch"
+        ],
+        "typos": [
+          "runoutsensor",
+          "run out sensor"
+        ]
+      },
+      {
+        "term": "spool holder",
+        "category": "hardware",
+        "aliases": [
+          "filament arm",
+          "spool roller axle"
+        ],
+        "typos": [
+          "spoolholder",
+          "spol holder"
+        ]
+      },
+      {
+        "term": "v wheel",
+        "category": "hardware",
+        "aliases": [
+          "polycarbonate v-slot roller",
+          "derlin wheel"
+        ],
+        "typos": [
+          "vwheel",
+          "v-wheel"
+        ]
+      },
+      {
+        "term": "eccentric nut",
+        "category": "hardware",
+        "aliases": [
+          "preload spacer nut",
+          "wheel adjustment nut"
+        ],
+        "typos": [
+          "eccentricnut",
+          "excentric nut"
+        ]
+      },
+      {
+        "term": "t nut",
+        "category": "hardware",
+        "aliases": [
+          "2020 extrusion hammer nut",
+          "drop-in t-nut"
+        ],
+        "typos": [
+          "tnut",
+          "t-nut"
+        ]
+      },
+      {
+        "term": "m3 screw",
+        "category": "hardware",
+        "aliases": [
+          "socket head m3 bolt",
+          "metric machine screw"
+        ],
+        "typos": [
+          "m3screw",
+          "m3 bolt"
+        ]
+      },
+      {
+        "term": "m4 screw",
+        "category": "hardware",
+        "aliases": [
+          "metric m4 hex bolt",
+          "frame screw"
+        ],
+        "typos": [
+          "m4screw",
+          "m4 bolt"
+        ]
+      },
+      {
+        "term": "m5 screw",
+        "category": "hardware",
+        "aliases": [
+          "v-wheel axle bolt",
+          "structural m5 screw"
+        ],
+        "typos": [
+          "m5screw",
+          "m5 bolt"
+        ]
+      },
+      {
+        "term": "heat set insert",
+        "category": "hardware",
+        "aliases": [
+          "brass threaded insert",
+          "heat-stake nut"
+        ],
+        "typos": [
+          "heatsetinsert",
+          "heat insert"
+        ]
+      },
+      {
+        "term": "soldering iron",
+        "category": "hardware",
+        "aliases": [
+          "heat stake iron",
+          "insert tool"
+        ],
+        "typos": [
+          "solderingiron",
+          "solder iron"
+        ]
+      },
+      {
+        "term": "flush cutters",
+        "category": "hardware",
+        "aliases": [
+          "wire snips",
+          "side nippers"
+        ],
+        "typos": [
+          "flushcutters",
+          "flsh cutters"
+        ]
+      },
+      {
+        "term": "hex key",
+        "category": "hardware",
+        "aliases": [
+          "allen wrench",
+          "hex driver"
+        ],
+        "typos": [
+          "hexkey",
+          "hx key"
+        ]
+      },
+      {
+        "term": "allen wrench",
+        "category": "hardware",
+        "aliases": [
+          "l-shaped hex wrench",
+          "metric allen key"
+        ],
+        "typos": [
+          "allenwrench",
+          "alln wrench"
+        ]
+      },
+      {
+        "term": "feeler gauge",
+        "category": "hardware",
+        "aliases": [
+          "gap measuring blade",
+          "bed leveling shim gauge"
+        ],
+        "typos": [
+          "feelergauge",
+          "feeler gage"
+        ]
+      },
+      {
+        "term": "nozzle needle",
+        "category": "hardware",
+        "aliases": [
+          "acupuncture needle",
+          "0.4mm unclogging wire"
+        ],
+        "typos": [
+          "nozzleneedle",
+          "nozzle wire"
+        ]
+      },
+      {
+        "term": "brass brush",
+        "category": "hardware",
+        "aliases": [
+          "nozzle cleaning brush",
+          "copper wire brush"
+        ],
+        "typos": [
+          "brassbrush",
+          "bras brush"
+        ]
+      },
+      {
+        "term": "silicone sock",
+        "category": "hardware",
+        "aliases": [
+          "hotend insulator sleeve",
+          "thermal heater block boot"
+        ],
+        "typos": [
+          "siliconesock",
+          "silicon sock"
+        ]
+      },
+      {
+        "term": "nozzle wiper",
+        "category": "hardware",
+        "aliases": [
+          "silicone cleaning blade",
+          "purging brush wiper"
+        ],
+        "typos": [
+          "nozzlewiper",
+          "nozzle wipe"
+        ]
+      },
+      {
+        "term": "purge bucket",
+        "category": "hardware",
+        "aliases": [
+          "poop bucket",
+          "purge bin"
+        ],
+        "typos": [
+          "purgebucket",
+          "purg bucket"
+        ]
+      },
+      {
+        "term": "waste chute",
+        "category": "hardware",
+        "aliases": [
+          "poop slide",
+          "purge ramp"
+        ],
+        "typos": [
+          "wastechute",
+          "wast chute"
+        ]
+      },
+      {
+        "term": "camera",
+        "category": "hardware",
+        "aliases": [
+          "monitoring webcam",
+          "timelapse camera"
+        ],
+        "typos": [
+          "camra",
+          "cmera"
+        ]
+      },
+      {
+        "term": "led light",
+        "category": "hardware",
+        "aliases": [
+          "chamber light strip",
+          "toolhead spotlight"
+        ],
+        "typos": [
+          "ledlight",
+          "led bar"
+        ]
+      },
+      {
+        "term": "hepa filter",
+        "category": "hardware",
+        "aliases": [
+          "particulate air filter",
+          "enclosure hepa"
+        ],
+        "typos": [
+          "hepafilter",
+          "hepa filtr"
+        ]
+      },
+      {
+        "term": "carbon filter",
+        "category": "hardware",
+        "aliases": [
+          "activated charcoal scrubber",
+          "voc air filter"
+        ],
+        "typos": [
+          "carbonfilter",
+          "crbon filter"
+        ]
+      },
+      {
+        "term": "dry box",
+        "category": "hardware",
+        "aliases": [
+          "sealed spool chamber",
+          "desiccant tote"
+        ],
+        "typos": [
+          "drybox chamber",
+          "dry-box"
+        ]
+      },
+      {
+        "term": "filament dryer",
+        "category": "hardware",
+        "aliases": [
+          "heated spool dehydrator",
+          "active dryer box"
+        ],
+        "typos": [
+          "filamentdryer",
+          "fil dryer"
+        ]
+      },
+      {
+        "term": "ams",
+        "category": "hardware",
+        "aliases": [
+          "automatic material system",
+          "multi color feeder"
+        ],
+        "typos": [
+          "amss",
+          "bambu ams"
+        ]
+      },
+      {
+        "term": "cfs",
+        "category": "hardware",
+        "aliases": [
+          "color filament system",
+          "creality multi-material unit"
+        ],
+        "typos": [
+          "cfss",
+          "c-f-s"
+        ]
+      },
+      {
+        "term": "mmu",
+        "category": "hardware",
+        "aliases": [
+          "multi material upgrade",
+          "prusa mmu3"
+        ],
+        "typos": [
+          "mmu3",
+          "mmuu"
+        ]
+      },
+      {
+        "term": "filament cutter",
+        "category": "hardware",
+        "aliases": [
+          "toolhead blade lever",
+          "spool change cutter"
+        ],
+        "typos": [
+          "filamentcutter",
+          "fil cutter"
+        ]
+      },
+      {
+        "term": "breakout board",
+        "category": "hardware",
+        "aliases": [
+          "toolhead pcb",
+          "canbus board"
+        ],
+        "typos": [
+          "breakoutboard",
+          "brkout board"
+        ]
+      },
+      {
+        "term": "bimetal heatbreak",
+        "category": "hardware",
+        "aliases": [
+          "copper titanium throat",
+          "all metal heatbreak"
+        ],
+        "typos": [
+          "bimetalheatbreak",
+          "bi-metal throat"
+        ]
+      },
+      {
+        "term": "ruby nozzle",
+        "category": "hardware",
+        "aliases": [
+          "olsson ruby tip",
+          "gemstone orifice"
+        ],
+        "typos": [
+          "rubynozzle",
+          "rby nozzle"
+        ]
+      },
+      {
+        "term": "hardened steel nozzle",
+        "category": "hardware",
+        "aliases": [
+          "wear resistant nozzle",
+          "abrasive filament tip"
+        ],
+        "typos": [
+          "hardenedsteelnozzle",
+          "steel nozzle"
+        ]
+      },
+      {
+        "term": "brass nozzle",
+        "category": "hardware",
+        "aliases": [
+          "standard thermal nozzle",
+          "stock 0.4mm nozzle"
+        ],
+        "typos": [
+          "brassnozzle",
+          "bras nozzle"
+        ]
+      },
+      {
+        "term": "tungsten carbide nozzle",
+        "category": "hardware",
+        "aliases": [
+          "ultra high wear nozzle",
+          "premium carbide tip"
+        ],
+        "typos": [
+          "tungstennozzle",
+          "carbide nozzle"
+        ]
+      },
+      {
+        "term": "high flow nozzle",
+        "category": "hardware",
+        "aliases": [
+          "volcano style tip",
+          "extended melt zone nozzle"
+        ],
+        "typos": [
+          "highflownozzle",
+          "hf nozzle"
+        ]
+      },
+      {
+        "term": "cht nozzle",
+        "category": "hardware",
+        "aliases": [
+          "core heating technology nozzle",
+          "three-channel splitter tip"
+        ],
+        "typos": [
+          "chtnozzle",
+          "c-h-t nozzle"
+        ]
+      },
+      {
+        "term": "spring steel plate",
+        "category": "hardware",
+        "aliases": [
+          "flexible build sheet",
+          "removable bed plate"
+        ],
+        "typos": [
+          "springsteelplate",
+          "flex plate"
+        ]
+      },
+      {
+        "term": "textured pei plate",
+        "category": "hardware",
+        "aliases": [
+          "powder coated pei sheet",
+          "rough texture bed"
+        ],
+        "typos": [
+          "texturedpei",
+          "textured plate"
+        ]
+      },
+      {
+        "term": "smooth pei plate",
+        "category": "hardware",
+        "aliases": [
+          "glossy pei sheet",
+          "flat bottom finish plate"
+        ],
+        "typos": [
+          "smoothpei",
+          "smooth plate"
+        ]
+      },
+      {
+        "term": "garolite plate",
+        "category": "hardware",
+        "aliases": [
+          "g10 sheet",
+          "epoxy glass bed plate"
+        ],
+        "typos": [
+          "garoliteplate",
+          "g10 bed"
+        ]
+      },
+      {
+        "term": "glass bed",
+        "category": "hardware",
+        "aliases": [
+          "borosilicate glass plate",
+          "carborundum bed"
+        ],
+        "typos": [
+          "glassbed",
+          "glss bed"
+        ]
+      },
+      {
+        "term": "belt tensioner",
+        "category": "hardware",
+        "aliases": [
+          "adjustable idler screw",
+          "tension spring knob"
+        ],
+        "typos": [
+          "belttensioner",
+          "belt tension"
+        ]
+      },
+      {
+        "term": "anti backlash nut",
+        "category": "hardware",
+        "aliases": [
+          "spring loaded brass nut",
+          "z backlash eliminator"
+        ],
+        "typos": [
+          "antibacklashnut",
+          "backlash nut"
+        ]
+      },
+      {
+        "term": "flexible coupling",
+        "category": "hardware",
+        "aliases": [
+          "z-axis motor coupler",
+          "plum coupler"
+        ],
+        "typos": [
+          "flexiblecoupling",
+          "z coupler"
+        ]
+      }
+    ],
+    "habits": [
+      {
+        "term": "bed watching",
+        "category": "habits",
+        "aliases": [
+          "watching layer one",
+          "staring at the nozzle",
+          "print hypnosis"
+        ],
+        "typos": [
+          "bedwatching",
+          "bed watchin"
+        ]
+      },
+      {
+        "term": "first layer inspection",
+        "category": "habits",
+        "aliases": [
+          "squish check",
+          "skirt line verification"
+        ],
+        "typos": [
+          "firstlayercheck",
+          "1st layer inspect"
+        ]
+      },
+      {
+        "term": "nozzle scrubbing",
+        "category": "habits",
+        "aliases": [
+          "wire brush cleaning",
+          "brass wiping ritual"
+        ],
+        "typos": [
+          "nozzlescrubbing",
+          "nozzle scrub"
+        ]
+      },
+      {
+        "term": "spaghetti surveillance",
+        "category": "habits",
+        "aliases": [
+          "camera monitoring paranoia",
+          "octoprint checking"
+        ],
+        "typos": [
+          "spaghettisurveillance",
+          "spaghetti check"
+        ]
+      },
+      {
+        "term": "glue sticking",
+        "category": "habits",
+        "aliases": [
+          "applying purple glue",
+          "bed adhesive ritual"
+        ],
+        "typos": [
+          "gluesticking",
+          "glue stick ritual"
+        ]
+      },
+      {
+        "term": "hairspray spraying",
+        "category": "habits",
+        "aliases": [
+          "aquanet application",
+          "glass bed hairspray"
+        ],
+        "typos": [
+          "hairspraying",
+          "hair spray ritual"
+        ]
+      },
+      {
+        "term": "bed tramming",
+        "category": "habits",
+        "aliases": [
+          "four corner leveling",
+          "sheet paper leveling ritual"
+        ],
+        "typos": [
+          "bedtramming",
+          "bed tram"
+        ]
+      },
+      {
+        "term": "manual leveling",
+        "category": "habits",
+        "aliases": [
+          "knob turning leveling",
+          "wheel adjustment"
+        ],
+        "typos": [
+          "manualleveling",
+          "manual level"
+        ]
+      },
+      {
+        "term": "z offset tuning",
+        "category": "habits",
+        "aliases": [
+          "live baby stepping",
+          "dialing in squish"
+        ],
+        "typos": [
+          "zoffsettuning",
+          "z offset tune"
+        ]
+      },
+      {
+        "term": "live z adjustment",
+        "category": "habits",
+        "aliases": [
+          "microstepping height",
+          "babystepping on the fly"
+        ],
+        "typos": [
+          "livezadjustment",
+          "live z adjust"
+        ]
+      },
+      {
+        "term": "cold pulling",
+        "category": "habits",
+        "aliases": [
+          "atomic pull method",
+          "nylon cleaning pull"
+        ],
+        "typos": [
+          "coldpulling",
+          "cold pull"
+        ]
+      },
+      {
+        "term": "nozzle torching",
+        "category": "habits",
+        "aliases": [
+          "butane burning clog",
+          "torch cleaning nozzle"
+        ],
+        "typos": [
+          "nozzletorching",
+          "nozzle torch"
+        ]
+      },
+      {
+        "term": "spool weighing",
+        "category": "habits",
+        "aliases": [
+          "measuring remaining grams",
+          "empty spool subtraction"
+        ],
+        "typos": [
+          "spoolweighing",
+          "spool weigh"
+        ]
+      },
+      {
+        "term": "filament baking",
+        "category": "habits",
+        "aliases": [
+          "dehydrating spools in oven",
+          "moisture baking"
+        ],
+        "typos": [
+          "filamentbaking",
+          "filament bake"
+        ]
+      },
+      {
+        "term": "filament drying",
+        "category": "habits",
+        "aliases": [
+          "food dehydrator spool heating",
+          "dryer cycle"
+        ],
+        "typos": [
+          "filamentdrying",
+          "filament dry"
+        ]
+      },
+      {
+        "term": "desiccant recharging",
+        "category": "habits",
+        "aliases": [
+          "microwaving silica gel",
+          "baking silica beads"
+        ],
+        "typos": [
+          "desiccantrecharging",
+          "desiccant recharge"
+        ]
+      },
+      {
+        "term": "timelapse recording",
+        "category": "habits",
+        "aliases": [
+          "octolapse setup",
+          "shutter sync video"
+        ],
+        "typos": [
+          "timelapserecording",
+          "timelapse record"
+        ]
+      },
+      {
+        "term": "benchy benchmarking",
+        "category": "habits",
+        "aliases": [
+          "printing endless boats",
+          "calibration obsession"
+        ],
+        "typos": [
+          "benchybenchmarking",
+          "benchy testing"
+        ]
+      },
+      {
+        "term": "infill peering",
+        "category": "habits",
+        "aliases": [
+          "staring at gyroid patterns",
+          "watching internal mesh"
+        ],
+        "typos": [
+          "infillpeering",
+          "infill staring"
+        ]
+      },
+      {
+        "term": "scrap hoarding",
+        "category": "habits",
+        "aliases": [
+          "saving failed plastic prints",
+          "saving purge curls"
+        ],
+        "typos": [
+          "scraphoarding",
+          "scrap hoard"
+        ]
+      },
+      {
+        "term": "poop collecting",
+        "category": "habits",
+        "aliases": [
+          "saving ams waste",
+          "displaying purge nuggets"
+        ],
+        "typos": [
+          "poopcollecting",
+          "purge hoarding"
+        ]
+      },
+      {
+        "term": "layer line caressing",
+        "category": "habits",
+        "aliases": [
+          "fingernail ridge test",
+          "scratching fresh surface"
+        ],
+        "typos": [
+          "layerlinecaressing",
+          "layer line feeling"
+        ]
+      },
+      {
+        "term": "caliper measuring",
+        "category": "habits",
+        "aliases": [
+          "obsessive digital caliper check",
+          "tolerance measuring"
+        ],
+        "typos": [
+          "calipermeasuring",
+          "caliper checking"
+        ]
+      },
+      {
+        "term": "overnight praying",
+        "category": "habits",
+        "aliases": [
+          "hoping print survives night",
+          "sleep anxiety"
+        ],
+        "typos": [
+          "overnightpraying",
+          "overnight prayer"
+        ]
+      },
+      {
+        "term": "print checking at 3am",
+        "category": "habits",
+        "aliases": [
+          "middle of night print peep",
+          "paranoid phone check"
+        ],
+        "typos": [
+          "3amprintcheck",
+          "night check"
+        ]
+      },
+      {
+        "term": "purge line peeling",
+        "category": "habits",
+        "aliases": [
+          "bed strip peeling satisfaction",
+          "prime line snap"
+        ],
+        "typos": [
+          "purgelinepeeling",
+          "purge line peel"
+        ]
+      },
+      {
+        "term": "support ripping",
+        "category": "habits",
+        "aliases": [
+          "satisfying support pull",
+          "needle nose support tear"
+        ],
+        "typos": [
+          "supportripping",
+          "support tear"
+        ]
+      },
+      {
+        "term": "fail rage quitting",
+        "category": "habits",
+        "aliases": [
+          "slamming power switch",
+          "scraping spaghetti in anger"
+        ],
+        "typos": [
+          "failragequit",
+          "rage quit print"
+        ]
+      },
+      {
+        "term": "spool rewinding",
+        "category": "habits",
+        "aliases": [
+          "untangling loose loops",
+          "manual spool rewind"
+        ],
+        "typos": [
+          "spoolrewinding",
+          "spool rewind"
+        ]
+      },
+      {
+        "term": "calibration cube printing",
+        "category": "habits",
+        "aliases": [
+          "printing twenty millimeter cubes forever"
+        ],
+        "typos": [
+          "calibrationcubeprinting",
+          "cube print habit"
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "term": "g28",
+        "category": "commands",
+        "aliases": [
+          "home all axes",
+          "auto home gcode"
+        ],
+        "typos": [
+          "g 28",
+          "g-28"
+        ]
+      },
+      {
+        "term": "g29",
+        "category": "commands",
+        "aliases": [
+          "bed auto leveling probe",
+          "mesh calibration command"
+        ],
+        "typos": [
+          "g 29",
+          "g-29"
+        ]
+      },
+      {
+        "term": "m104",
+        "category": "commands",
+        "aliases": [
+          "set hotend temperature",
+          "hotend heat without wait"
+        ],
+        "typos": [
+          "m 104",
+          "m-104"
+        ]
+      },
+      {
+        "term": "m109",
+        "category": "commands",
+        "aliases": [
+          "wait for hotend temperature",
+          "hotend target soak"
+        ],
+        "typos": [
+          "m 109",
+          "m-109"
+        ]
+      },
+      {
+        "term": "m140",
+        "category": "commands",
+        "aliases": [
+          "set bed temperature",
+          "bed heat without wait"
+        ],
+        "typos": [
+          "m 140",
+          "m-140"
+        ]
+      },
+      {
+        "term": "m190",
+        "category": "commands",
+        "aliases": [
+          "wait for bed temperature",
+          "bed target soak"
+        ],
+        "typos": [
+          "m 190",
+          "m-190"
+        ]
+      },
+      {
+        "term": "m106",
+        "category": "commands",
+        "aliases": [
+          "set fan speed",
+          "turn on part cooling fan"
+        ],
+        "typos": [
+          "m 106",
+          "m-106"
+        ]
+      },
+      {
+        "term": "m107",
+        "category": "commands",
+        "aliases": [
+          "turn off fan",
+          "cooling fan stop"
+        ],
+        "typos": [
+          "m 107",
+          "m-107"
+        ]
+      },
+      {
+        "term": "m84",
+        "category": "commands",
+        "aliases": [
+          "disable steppers",
+          "motor idle shutoff"
+        ],
+        "typos": [
+          "m 84",
+          "m-84"
+        ]
+      },
+      {
+        "term": "g90",
+        "category": "commands",
+        "aliases": [
+          "absolute positioning",
+          "absolute coordinates"
+        ],
+        "typos": [
+          "g 90",
+          "g-90"
+        ]
+      },
+      {
+        "term": "g91",
+        "category": "commands",
+        "aliases": [
+          "relative positioning",
+          "incremental coordinates"
+        ],
+        "typos": [
+          "g 91",
+          "g-91"
+        ]
+      },
+      {
+        "term": "g92",
+        "category": "commands",
+        "aliases": [
+          "set coordinate position",
+          "reset extruder zero"
+        ],
+        "typos": [
+          "g 92",
+          "g-92"
+        ]
+      },
+      {
+        "term": "g1",
+        "category": "commands",
+        "aliases": [
+          "coordinated linear move",
+          "controlled extrusion movement"
+        ],
+        "typos": [
+          "g 1",
+          "g01"
+        ]
+      },
+      {
+        "term": "g0",
+        "category": "commands",
+        "aliases": [
+          "rapid travel move",
+          "non-extrusion travel"
+        ],
+        "typos": [
+          "g 0",
+          "g00"
+        ]
+      },
+      {
+        "term": "m600",
+        "category": "commands",
+        "aliases": [
+          "filament change pause",
+          "manual filament swap macro"
+        ],
+        "typos": [
+          "m 600",
+          "m-600"
+        ]
+      },
+      {
+        "term": "m500",
+        "category": "commands",
+        "aliases": [
+          "save settings to eeprom",
+          "store configuration"
+        ],
+        "typos": [
+          "m 500",
+          "m-500"
+        ]
+      },
+      {
+        "term": "m501",
+        "category": "commands",
+        "aliases": [
+          "load settings from eeprom",
+          "restore configuration"
+        ],
+        "typos": [
+          "m 501",
+          "m-501"
+        ]
+      },
+      {
+        "term": "m502",
+        "category": "commands",
+        "aliases": [
+          "revert to factory defaults",
+          "reset configuration"
+        ],
+        "typos": [
+          "m 502",
+          "m-502"
+        ]
+      },
+      {
+        "term": "m503",
+        "category": "commands",
+        "aliases": [
+          "report eeprom settings",
+          "print active configuration"
+        ],
+        "typos": [
+          "m 503",
+          "m-503"
+        ]
+      },
+      {
+        "term": "m112",
+        "category": "commands",
+        "aliases": [
+          "emergency stop",
+          "immediate shutdown kill"
+        ],
+        "typos": [
+          "m 112",
+          "m-112"
+        ]
+      },
+      {
+        "term": "m220",
+        "category": "commands",
+        "aliases": [
+          "set feedrate speed percentage",
+          "speed factor override"
+        ],
+        "typos": [
+          "m 220",
+          "m-220"
+        ]
+      },
+      {
+        "term": "m221",
+        "category": "commands",
+        "aliases": [
+          "set flow percentage",
+          "extrusion factor override"
+        ],
+        "typos": [
+          "m 221",
+          "m-221"
+        ]
+      }
+    ]
+  }
+}
