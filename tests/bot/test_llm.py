@@ -85,6 +85,22 @@ def test_llm_picked_stop_still_waits_for_the_button_and_writes_nothing_without_i
     assert len(opener.requests) == 1 and opener.requests[0]["model"] == "small-model"
 
 
+def test_llm_keeps_bounded_context_per_session(llm_cfg):
+    """A follow-up gets its own short context, never another user's turn."""
+    llm.clear_history()
+    opener = FakeLLM("First answer")
+    llm.ask("My printer is noisy", "help", session="discord:one", cfg=llm_cfg, opener=opener)
+    opener.content = json.dumps({"reply": "Second answer", "command": None})
+    llm.ask("What should I check first?", "help", session="discord:one", cfg=llm_cfg, opener=opener)
+    llm.ask("Unrelated question", "help", session="discord:two", cfg=llm_cfg, opener=opener)
+    second = opener.requests[1]["messages"]
+    assert [(m["role"], m["content"]) for m in second[1:3]] == [
+        ("user", "My printer is noisy"), ("assistant", "First answer")]
+    assert [m["content"] for m in opener.requests[2]["messages"]] == [
+        mock.ANY, "Unrelated question"]
+    llm.clear_history()
+
+
 def test_llm_named_command_keeps_the_message_attachments(llm_cfg):
     """A command the LLM names is dispatched with the message's attachments
     (bonus, same defect as P2-222): dropping the dropped .scad made design

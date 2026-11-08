@@ -9,9 +9,18 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 
 from .. import ai_routes
 from ..hermes import _config
+
+# Conversation is intentionally short-lived and process-local.  It makes a
+# normal back-and-forth useful without turning the chat lane into another
+# records store (or leaking one channel's context into another).
+_HISTORY: dict[str, list[dict[str, str]]] = {}
+_HISTORY_LOCK = threading.Lock()
+MAX_HISTORY_MESSAGES = 8
+MAX_HISTORY_CHARS = 1200
 
 # What the model may run. Each of these is read-only or asks for a button before acting.
 ALLOWED = (
@@ -82,14 +91,36 @@ def _parse(content):
     return text, None
 
 
-def ask(text, help_text, *, cfg=None, opener=None):
+def clear_history(session=None):
+    """Forget one chat session (or all sessions).  Primarily useful at logout/tests."""
+    with _HISTORY_LOCK:
+        if session is None:
+            _HISTORY.clear()
+        else:
+            _HISTORY.pop(str(session), None)
+
+
+def ask(text, help_text, *, session=None, cfg=None, opener=None):
     """(reply, command or None). Raises on transport errors; the caller falls back to the help text.
 
     Goes through the chat tier (ai_routes), so [ai.chat] may add a fallback model.
     """
+    user_text = str(text)[:2000]
+    key = str(session or "")
+    with _HISTORY_LOCK:
+        history = [dict(message) for message in _HISTORY.get(key, ())] if key else []
     answer, _served_by = ai_routes.call(
-        "chat", [{"role": "system", "content": system_prompt(help_text)},
-                 {"role": "user", "content": str(text)[:2000]}],
+        "chat", [{"role": "system", "content": system_prompt(help_text)}, *history,
+                 {"role": "user", "content": user_text}],
         max_tokens=200, temperature=0.2, cfg=cfg or _config.cfg(), opener=opener)
     reply, command = _parse(answer)
-    return reply[:1500], allowed_command(command)
+    reply = reply[:1500]
+    # Do not cache a failed/empty turn, and do not retain unbounded prompts or
+    # replies.  The request snapshot above also means concurrent messages can
+    # never mutate a payload already on its way to the provider.
+    if key and reply:
+        turn = [{"role": "user", "content": user_text[:MAX_HISTORY_CHARS]},
+                {"role": "assistant", "content": reply[:MAX_HISTORY_CHARS]}]
+        with _HISTORY_LOCK:
+            _HISTORY[key] = (_HISTORY.get(key, []) + turn)[-MAX_HISTORY_MESSAGES:]
+    return reply, allowed_command(command)
