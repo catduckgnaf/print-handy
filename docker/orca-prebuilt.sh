@@ -16,21 +16,22 @@ case "$arch" in
 esac
 case "$channel" in
     stable)
-        # Print Handy ships ONE bundled OrcaSlicer: v2.5.0-rc (catduck's
-        # direction, 2026-11-05: one Orca only, the stable channel pins the
-        # RC, the preview channel and the beta pin are removed; there is no
-        # second channel). The 2.5 line is the first whose BBL vendor
+        # Print Handy ships ONE bundled OrcaSlicer: v2.5.0 (catduck's
+        # direction, 2026-11-05: one Orca only, the preview channel and
+        # the beta pin are removed; there is no second channel). The
+        # channel pinned the release candidate until the final shipped;
+        # upstream published v2.5.0-rc on 2026-11-01 and the v2.5.0 final
+        # on 2026-11-07. The 2.5 line is the first whose BBL vendor
         # profiles cover the H2C and A2L (#356), and the profiles pipeline
         # reads its packed preset caches (profiles/<Vendor>.opc) directly.
-        # Upstream published v2.5.0-rc on 2026-11-01; no final v2.5.0 exists
-        # yet. The exact build this one channel pins is recorded in this file
+        # The exact build this one channel pins is recorded in this file
         # and in the build-info file only.
-        version=2.5.0-rc
-        revision=af2ffb8cddd2f3c0bdadc56d9cc3945fb23577ea
-        sha256_amd64=203104a3b0a880975b476ff00cfdd3a8fd2beb95fd8bfb2a9a28fb2bcbb47159
-        sha256_arm64=fdd29d685ed54671a1a2887684fff4d888bd98b74809154a9731a788a7c6dced
-        asset_amd64=OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0-rc.AppImage
-        asset_arm64=OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.0-rc.AppImage
+        version=2.5.0
+        revision=40ecc66f78ed72dc368e0c1ebe40d77f00cc8a19
+        sha256_amd64=d13eb0a9cd618ed080ab6b82c64c0a60c4501aac91e88d5ac2c3b526fb141a7c
+        sha256_arm64=00a4fa0a2f9c1649abb8c438b0537ed1e58fed5206faa560c1c0fb4ab225f9cf
+        asset_amd64=OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.5.0.AppImage
+        asset_arm64=OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.5.0.AppImage
         ;;
     *) echo 'usage: orca-prebuilt.sh stable amd64|arm64' >&2; exit 2 ;;
 esac

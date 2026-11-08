@@ -482,7 +482,7 @@ end to end.
 The case is a generated solid 113 mm cube (`tests/corpus/cases/stl-large-plate`, written by
 `make_models.py` from its `case.toml` spec like every generated case). The model file is a 684-byte STL;
 the size is in the slice, not the fixture. On the AD5X template profile (gyroid 10%, 0.24 mm layers) a
-local reference slice (OrcaSlicer 2.5.0-alpha; CI pins 2.5.0-rc) produced a 54,614,337-byte /
+local reference slice (OrcaSlicer 2.5.0-alpha; CI pins 2.5.0) produced a 54,614,337-byte /
 1,970,123-line G-code — deliberately comparable to the 54,237,491-byte `plate_1.gcode` #952 measured.
 Every timing run records `gcode_bytes` per case in its JSON artifact, so the size class is checkable from
 the leg's own artifacts rather than from this note. Locally the flow took about 70 s wall per repeat, so

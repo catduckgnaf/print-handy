@@ -1,6 +1,6 @@
 """Bambu Lab H2C (inherits bambulab VENDOR). The H2C is a dual-nozzle H-series model: a 330 x 320 mm bed and
 325 mm height, a 350 C hotend, and no bed exclusion. It exists only in the OrcaSlicer 2.5 line's BBL
-profiles, the line Print Handy ships since #356 (v2.5.0-alpha first, now v2.5.0-rc). Its two extruders are described by facts
+profiles, the line Print Handy ships since #356 (v2.5.0-alpha first, now v2.5.0). Its two extruders are described by facts
 ("extruders": 2); print starts resolve AMS trays per filament slot through ams_mapping.py, like the
 H2D (#308). One recorded state loadout, like every Bambu model here.
 

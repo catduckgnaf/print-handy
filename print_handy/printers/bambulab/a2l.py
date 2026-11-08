@@ -1,7 +1,7 @@
 """Bambu Lab A2L (inherits bambulab VENDOR). The A2L is the large-format A-series bed-slinger: a 330 x 320 mm
 bed and 325 mm height, an open frame with an AMS Lite, and — as its OrcaSlicer machine profile declares —
 a single 0.4 mm nozzle. It exists only in the OrcaSlicer 2.5 line's BBL profiles, the line
-Print Handy ships since #356 (v2.5.0-alpha first, now v2.5.0-rc). Offline slicing, fit checks and G-code validation, plus the vendor's opt-in
+Print Handy ships since #356 (v2.5.0-alpha first, now v2.5.0). Offline slicing, fit checks and G-code validation, plus the vendor's opt-in
 read-only LAN status, like the A1.
 
 Sourced values: facts.py (A2L); docs/BAMBU-LAB.md. Templates: generated on the operator's

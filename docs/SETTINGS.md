@@ -482,7 +482,7 @@ These configure the Compose deployment, not Print Handy itself. Set them in `.en
 
 | Variable | Default | What it does |
 |---|---|---|
-| `PRINT_HANDY_ORCA_CHANNEL` | `stable` | Selects the one bundled OrcaSlicer at startup; Print Handy ships a single build (v2.5.0-rc), `preview` and `alpha` start on it with a startup notice (the preview channel was removed, so the setting can be dropped), and any other value stops the container |
+| `PRINT_HANDY_ORCA_CHANNEL` | `stable` | Selects the one bundled OrcaSlicer at startup; Print Handy ships a single build (v2.5.0), `preview` and `alpha` start on it with a startup notice (the preview channel was removed, so the setting can be dropped), and any other value stops the container |
 | `PRINT_HANDY_USER_CONFIG` | `$HOME/.config/print-handy/settings.yaml` | Your own settings file, layered over `PRINT_HANDY_CONFIG` and under environment variables. Optional (the default location may be absent), but a path set here must exist or startup stops; image updates never replace it. In Docker `HOME=/data`, so it is `/data/.config/print-handy/settings.yaml`, which the Unraid template maps to appdata `dot-config` |
 | `PRINT_HANDY_BUNDLED_SPOOLMAN` | `true` | `true` runs the bundled Spoolman API; `false` uses `services.spoolman_url` only |
 | `SPOOLMAN_HOST` | `127.0.0.1` | Bundled Spoolman bind address; widen it only together with an approved port mapping, see docs/DOCKER.md |
@@ -499,7 +499,7 @@ Image build inputs (`docker build --build-arg NAME=value`), not runtime settings
 | Argument | Default | What it does |
 |---|---|---|
 | `APP_CHANNEL` | `development` | Application provenance label, `stable` or `development`; it does not change the source checkout |
-| `WITH_ORCA` | `false` | `true` installs the one pinned official prebuilt OrcaSlicer release (v2.5.0-rc, SHA256 verified in `docker/orca-prebuilt.sh`; the single bundled build - earlier two-channel builds pinned v2.5.0-alpha in #356 and v2.5.0-beta after it); OrcaSlicer is never built from source; `false` omits it and slicing fails closed |
+| `WITH_ORCA` | `false` | `true` installs the one pinned official prebuilt OrcaSlicer release (v2.5.0, SHA256 verified in `docker/orca-prebuilt.sh`; the single bundled build - earlier two-channel builds pinned v2.5.0-alpha in #356 and v2.5.0-beta after it); OrcaSlicer is never built from source; `false` omits it and slicing fails closed |
 | `WITH_GO2RTC` | `true` | `true` installs the pinned official go2rtc prebuilt (v1.9.15, SHA256 verified in `docker/go2rtc-prebuilt.sh`) and the VAAPI driver stack for in-container timelapse capture; the published images set it; `false` omits both |
 | `ORT_FLAVOR` | `cpu` | ONNX Runtime flavor for the local failure detector: `cpu` is the published build and changes nothing; `openvino` (amd64 only) swaps in `onnxruntime-openvino` for Intel GPU inference; `cuda` swaps in `onnxruntime-gpu` with its CUDA/cuDNN extras as a separate large image. See [GPU and the local failure detector](DOCKER.md#gpu-passthrough-and-supported-combinations) |
 | `SPOOLMAN_REF` | `ff8efd517b76a4b2783f29c89e9b9fbcd8cd167b` | Pinned Spoolman v0.27.1 source commit; only its Python API backend is installed, never the web UI |

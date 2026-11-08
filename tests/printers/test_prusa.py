@@ -81,8 +81,8 @@ def test_prusa_settings_validation():
 def test_recorded_identity_is_a_real_pin(key):
     f = model_facts(key)
     entries = f["orca_identity"].value
-    # One pin per checked packaging (#356): 2.4.2's tree, then 2.5.0-alpha's and 2.5.0-beta's tree and packed cache (beta kept the vendor version).
-    assert [known["vendor_version"] for known in entries] == ["02.04.00.03", "02.04.00.17", "02.04.00.17", "02.04.00.17", "02.04.00.17"]
+    # One pin per checked packaging (#356): 2.4.2's tree, then 2.5.0-alpha's and 2.5.0-beta's tree and packed cache (beta kept the vendor version), then the 2.5.0 final's tree and packed cache (the final moved the vendor version; the release candidate matched the beta's entries, so it records none of its own).
+    assert [known["vendor_version"] for known in entries] == ["02.04.00.03", "02.04.00.17", "02.04.00.17", "02.04.00.17", "02.04.00.17", "02.04.00.18", "02.04.00.18"]
     for known in entries:
         assert all(re.fullmatch(r"[0-9a-f]{64}", d) for d in known["sha256"].values())
     assert all(fixture.identity(f)["sha256"] != known["sha256"] for known in entries)

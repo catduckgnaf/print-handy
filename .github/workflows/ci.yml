@@ -18,8 +18,8 @@ defaults:
 # these). ORCA_BUNDLE_VERSION is the one build docker/orca-prebuilt.sh ships (the stable channel);
 # tests/test_orca_pins.py fails when the two disagree or a pin is copied into a job.
 env:
-  ORCA_BUNDLE_VERSION: 2.5.0-rc
-  ORCA_BUNDLE_SHA256: f0140100eb3d26d021b68347da9d5ce8536fe78d3e839d6abd83f40b27457175
+  ORCA_BUNDLE_VERSION: 2.5.0
+  ORCA_BUNDLE_SHA256: 58c10feaa2df81f6385db628185ee6c5c656391de57974646a5f4dd40e7947b3
   ORCA_RUNTIME_REF: runtime/org.gnome.Platform/x86_64/50
   # Flathub ostree commit of that runtime (Build of the GNOME Runtime from 50.6-18-g0ed65ce92,
   # 2026-10-28), recorded from `flatpak remote-info flathub runtime/org.gnome.Platform/x86_64/50`.
