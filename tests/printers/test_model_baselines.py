@@ -33,7 +33,7 @@ SHARED_OWNER = "flashforge.ad5x"
 AD5X_ARTIFACT = ROOT / "tests/fixtures/printers/ad5x_zmod/silk_pla_slot2_sliced.gcode.txt"
 # The protected keys a real Orca artifact header carries (see the AD5X fixture).
 ARTIFACT_KEYS = ("machine_start_gcode", "machine_end_gcode", "post_process",
-                 "host_type", "printer_technology")
+                 "host_type", "printer_technology", "slicing_pipeline_plugin")
 # Models whose baseline ships, approved from model_artifact(key, adapter=True) (#868).
 SHIPPED = ("flashforge.ad5m", "flashforge.ad5m_pro", "flashforge.creator5", "flashforge.creator5_pro",
            "flashforge_stock.ad5x")

@@ -31,7 +31,12 @@ Phase C adds the Tier 3 component:
   and the beta pin were removed in #936), so the target is the
   newest release overall - newest of (latest final, latest
   prerelease) under prerelease-aware ordering. Finals wait the
-  usual 3 days; prereleases are exempt. A bump also sweeps every
+  usual 3 days; prereleases are exempt. The plan also runs the
+  #1087 tripwire: it fetches src/OrcaSlicer.cpp at the target
+  revision and stops the bump if that file ever references
+  PluginManager or plugin_hooks - the one upstream change that
+  would make Orca plugin keys live on the headless CLI path.
+  A bump also sweeps every
   recorded surface in the same commit and verifies the new
   bundle's vendor profiles against the identities recorded in the
   printer facts: Print Handy ships no vendor profiles (templates
@@ -168,6 +173,11 @@ ORCA_CI_FILE = ".github/workflows/ci.yml"
 ORCA_FLATPAK_SHA_TEST = "tests/test_ci_bambu_workflow.py"
 ORCA_GUARD_TEST = "tests/test_docker_release.py"
 ORCA_CONTRACT_TEST = "tests/test_docker_release_contract.py"
+# The #1087 tripwire: the upstream CLI entry point whose source must
+# stay free of plugin-loading references for Print Handy's plugin
+# keys (slicing_pipeline_plugin, plugins) to stay inert headless.
+ORCA_CLI_SOURCE_PATH = "src/OrcaSlicer.cpp"
+ORCA_PLUGIN_TOKENS = ("PluginManager", "plugin_hooks")
 BAMBULAB_FACTS = "print_handy/printers/bambulab/facts.py"
 BAMBULAB_P1S_TEST = "tests/printers/test_bambulab_p1s.py"
 DOC_BAMBU_A1 = "docs/BAMBU-A1-DOCKER.md"
@@ -1708,6 +1718,57 @@ def verify_orca_identities(results):
     return lines
 
 
+def cli_plugin_references(text):
+    """(line number, token) pairs naming plugin loading in a CLI source text.
+
+    Pure over the file text so the tripwire is testable offline:
+    the tokens are the two symbols whose appearance in
+    src/OrcaSlicer.cpp would mean the CLI entry point has started
+    initializing Orca's plugin system (#1087). Ordinary prose
+    mentions of plugins (paths, comments about the GUI) do not
+    contain either token and stay silent.
+    """
+    found = []
+    for lineno, line in enumerate(text.splitlines(), 1):
+        for token in ORCA_PLUGIN_TOKENS:
+            if token in line:
+                found.append((lineno, token))
+    return found
+
+
+def verify_orca_cli_source(text, revision):
+    """Stop the bump if the target revision's CLI entry point loads plugins.
+
+    Print Handy's hardening for the Orca plugin keys
+    (slicing_pipeline_plugin, plugins) rests on the source verdict
+    of #1087: at every checked revision, src/OrcaSlicer.cpp never
+    references PluginManager or plugin_hooks, so no plugin loads on
+    the headless --slice path. If a future release changes that,
+    the keys stop being inert and the bump must stop for a human
+    instead of shipping the new pin on the old assumption.
+    """
+    refs = cli_plugin_references(text)
+    if refs:
+        detail = ", ".join(f"line {lineno} ({token})" for lineno, token in refs[:5])
+        raise BumpError(
+            f"{ORCA_CLI_SOURCE_PATH} at {revision} references the plugin system "
+            f"({detail}) - the CLI may now load Orca plugins, so the plugin keys "
+            "Print Handy strips and protects are no longer inert; stopping for "
+            "a human to re-audit #1087 before this bump ships"
+        )
+    return (
+        f"CLI plugin tripwire (#1087): {ORCA_CLI_SOURCE_PATH} at {revision} "
+        "carries no PluginManager or plugin_hooks reference, so Orca plugins "
+        "still cannot load on the headless CLI path"
+    )
+
+
+def fetch_orca_cli_source(api, revision):
+    """The text of src/OrcaSlicer.cpp at an exact upstream revision."""
+    url = f"https://raw.githubusercontent.com/{ORCA_REPO}/{revision}/{ORCA_CLI_SOURCE_PATH}"
+    return api.download(url).decode("utf-8", "replace")
+
+
 def _orca_surface_edits(root, pin, new_pin, ci_sha, flatpak_sha):
     """Every recorded Orca surface, edited and drift-checked.
 
@@ -1842,7 +1903,8 @@ def _orca_surface_edits(root, pin, new_pin, ci_sha, flatpak_sha):
     return edits
 
 
-def plan_orca(root, api, now, fetcher=None, source_fetcher=None, sweeper=None):
+def plan_orca(root, api, now, fetcher=None, source_fetcher=None, sweeper=None,
+              cli_source_fetcher=None):
     text = (root / ORCA_FILE).read_text()
     pin = parse_orca(text)
     target = select_orca_target(api.list_releases(ORCA_REPO))
@@ -1858,6 +1920,11 @@ def plan_orca(root, api, now, fetcher=None, source_fetcher=None, sweeper=None):
                         reason=f"release is {age:.1f} days old; the gate is "
                                f"{MIN_RELEASE_AGE_DAYS} days (finals wait; prereleases are exempt)")
     revision = api.resolve_tag_commit(ORCA_REPO, target.tag)
+    # The #1087 tripwire runs before any large download: if this
+    # revision's CLI entry point has started loading plugins, the
+    # bump stops here instead of paying for the bundle first.
+    cli_fetch = cli_source_fetcher or fetch_orca_cli_source
+    tripwire_line = verify_orca_cli_source(cli_fetch(api, revision), revision)
     asset_amd64 = _orca_asset_name(pin.asset_amd64, pin.version, target.version)
     asset_arm64 = _orca_asset_name(pin.asset_arm64, pin.version, target.version)
     flatpak_name = f"OrcaSlicer-Linux-flatpak_V{target.version}_x86_64.flatpak"
@@ -1908,6 +1975,7 @@ def plan_orca(root, api, now, fetcher=None, source_fetcher=None, sweeper=None):
         f"Release: {target.html_url} (published {target.published_at.date().isoformat()}, "
         f"{kind}; {gate_note})",
         f"revision {revision}: the full commit {target.tag} resolves to (annotated tags dereferenced)",
+        tripwire_line,
         f"sha256_amd64 ({asset_amd64}): {prov_amd64}",
         f"sha256_arm64 ({asset_arm64}): {prov_arm64}",
         f"ORCA_BUNDLE_SHA256 ({flatpak_name}): {prov_flatpak}",

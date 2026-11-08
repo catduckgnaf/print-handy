@@ -17,5 +17,9 @@
   "printer_technology": {
     "sha256": "11a187af8435cf2ff3aa6674d584eacaed00fdbc610a062fec4e363ee286266e",
     "value": "FFF"
+  },
+  "slicing_pipeline_plugin": {
+    "sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+    "value": ""
   }
 }

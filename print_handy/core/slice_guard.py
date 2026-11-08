@@ -588,7 +588,7 @@ def classify_orca_failure(text, return_code=None):
     return "unknown_orca_failure"
 
 
-PROTECTED_KEYS = ("machine_start_gcode", "machine_end_gcode", "post_process", "print_host", "print_host_webui", "host_type", "printer_agent", "printer_technology")
+PROTECTED_KEYS = ("machine_start_gcode", "machine_end_gcode", "post_process", "print_host", "print_host_webui", "host_type", "printer_agent", "printer_technology", "slicing_pipeline_plugin")
 BASELINE_PATH = settings.ROOT / "config" / "protected-settings-baseline.json"
 
 def _canonical(value):

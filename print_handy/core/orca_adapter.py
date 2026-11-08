@@ -832,11 +832,16 @@ def sanitize_project_settings(path, log_text='', templates=None, slot_count=None
 
 # Project keys that describe another machine, its motion or its heat. On a 3MF Orca reads directly (a
 # derived plate copies its source byte for byte), one the job's own profile does not set is removed so
-# Orca falls back to its default, the same value a sliced STL gets (#868).
+# Orca falls back to its default, the same value a sliced STL gets (#868). The plugin keys
+# (slicing_pipeline_plugin, plugins) are literals on the same list as insurance (#1087): Orca's CLI
+# never loads plugins today, but an imported project naming one is stripped, so a future CLI that
+# does load them finds nothing to load; slice_guard's PROTECTED_KEYS cover slicing_pipeline_plugin
+# on sliced output as well.
 _FOREIGN_KEY = re.compile(
     r'.*_(?:speed|acceleration|jerk|gcode|temp|temperature)(?:_initial_layer(?:_single)?|_range_(?:low|high))?'
     r'|(?:machine|printer|printable|bed|nozzle|extruder|retract|retraction|z_hop|print_host|printhost)_.*'
-    r'|curr_bed_type|default_bed_type|host_type|post_process|z_hop|wipe|wipe_distance|travel_slope')
+    r'|curr_bed_type|default_bed_type|host_type|post_process|z_hop|wipe|wipe_distance|travel_slope'
+    r'|slicing_pipeline_plugin|plugins')
 # Multi-extruder variant bookkeeping (OrcaSlicer 2.5): the printer and filament halves must agree, and the
 # filament half stays, so these are never removed even though their names look like machine keys.
 _VARIANT_KEY = re.compile(r'.*_variant(?:_list)?|.*_extruder_id|extruder_type|nozzle_volume_type')

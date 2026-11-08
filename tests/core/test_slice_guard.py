@@ -187,6 +187,43 @@ class BaselineTests(unittest.TestCase):
         r = sg.enforce_approved_baseline(self.gcode(end="END_PRINT M84"), path=self.baseline)
         self.assertIn("machine_end_gcode", r.blocked[0])
 
+    def gcode_with_plugin(self, plugin=""):
+        path = self.dir / "out.gcode"
+        path.write_text(f"; machine_start_gcode = START_PRINT MESH=MESH_DATA\n"
+                        f"; machine_end_gcode = END_PRINT\n"
+                        f"; slicing_pipeline_plugin = {plugin}\nG28\n")
+        return path
+
+    def test_slicing_pipeline_plugin_is_recorded_when_the_output_carries_it(self):
+        # #1087: the key is protected, and a baseline approved from
+        # output carrying the (empty) line records it - the recorded
+        # AD5X slice in tests/fixtures carries exactly that line.
+        with contextlib.redirect_stdout(io.StringIO()):
+            sg.approve_baseline(self.gcode_with_plugin(), path=self.baseline)
+        recorded = json.loads(self.baseline.read_text())
+        self.assertIn("slicing_pipeline_plugin", recorded)
+        self.assertEqual(recorded["slicing_pipeline_plugin"]["value"], "")
+
+    def test_a_named_slicing_pipeline_plugin_is_blocked(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            sg.approve_baseline(self.gcode_with_plugin(), path=self.baseline)
+        self.assertTrue(sg.enforce_approved_baseline(self.gcode_with_plugin(), path=self.baseline).ok)
+        r = sg.enforce_approved_baseline(self.gcode_with_plugin("acme.plugin"), path=self.baseline)
+        self.assertEqual(r.status, "blocked")
+        self.assertIn("slicing_pipeline_plugin", r.blocked[0])
+
+    def test_a_baseline_that_never_recorded_the_key_leaves_it_unchecked(self):
+        # _baseline records only keys present in the approving output:
+        # a baseline approved from output without the plugin line has
+        # no entry for it, and enforcement compares recorded keys
+        # only. Models whose baselines predate the key gain the entry
+        # at their next approval from real output.
+        self.approve()
+        recorded = json.loads(self.baseline.read_text())
+        self.assertNotIn("slicing_pipeline_plugin", recorded)
+        self.assertTrue(sg.enforce_approved_baseline(
+            self.gcode_with_plugin("acme.plugin"), path=self.baseline).ok)
+
 
 P1S_EXCLUSION = ((0.0, 0.0), (18.0, 0.0), (18.0, 28.0), (0.0, 28.0))
 
