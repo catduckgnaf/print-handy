@@ -89,13 +89,13 @@ def _run(text, adapter=None, *, confirm_answer="Make this my empty plate"):
 
 
 def monkeypatch_cm(cm):
-    # _prompts() returns prompts.gateway() — the module itself when the own
-    # registry is active, whose register/wait_for_response are the names
-    # the plugin calls. Patch the module's functions for the fake.
+    # _confirm resolves its registry through prompts.gateway() at call
+    # time. Only this process (activate() never ran) reaches the module
+    # itself, and full-suite runs may have imported a tools package whose
+    # clarify_gateway shadows it — so point gateway() at the fake for the
+    # duration of the dispatch instead of relying on module identity.
     import print_handy.core.prompts as prompts_pkg
-    prompts_pkg.register = cm.register
-    prompts_pkg.wait_for_response = cm.wait_for_response
-    prompts_pkg.resolve_gateway_clarify = cm.resolve_gateway_clarify
+    prompts_pkg.gateway = lambda: cm
 
 
 def test_status_without_a_reference_names_the_remedy(env):
