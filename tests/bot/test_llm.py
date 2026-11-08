@@ -2,6 +2,7 @@
 import asyncio
 import io
 import json
+import threading
 from unittest import mock
 
 import pytest
@@ -25,6 +26,14 @@ class FakeLLM:
         assert req.full_url == LLM_URL, f"the LLM path reached {req.full_url}"
         self.requests.append(json.loads(req.data))
         return io.BytesIO(json.dumps({"choices": [{"message": {"content": self.content}}]}).encode())
+
+
+@pytest.fixture(autouse=True)
+def isolated_llm_history():
+    """Keep process-local conversation state from coupling independent tests."""
+    llm.clear_history()
+    yield
+    llm.clear_history()
 
 
 @pytest.fixture
@@ -83,6 +92,84 @@ def test_llm_picked_stop_still_waits_for_the_button_and_writes_nothing_without_i
     moonraker.assert_not_called()  # no Moonraker cancel: the button said keep printing
     assert discord.sent[0].startswith("I can stop it") and discord.sent[-1] == "Kept printing. Nothing sent."
     assert len(opener.requests) == 1 and opener.requests[0]["model"] == "small-model"
+
+
+def test_llm_keeps_bounded_context_per_session(llm_cfg):
+    """A follow-up gets its own short context, never another user's turn."""
+    llm.clear_history()
+    opener = FakeLLM("First answer")
+    llm.ask("My printer is noisy", "help", session="discord:one", cfg=llm_cfg, opener=opener)
+    opener.content = json.dumps({"reply": "Second answer", "command": None})
+    llm.ask("What should I check first?", "help", session="discord:one", cfg=llm_cfg, opener=opener)
+    llm.ask("Unrelated question", "help", session="discord:two", cfg=llm_cfg, opener=opener)
+    second = opener.requests[1]["messages"]
+    assert [(m["role"], m["content"]) for m in second[1:3]] == [
+        ("user", "My printer is noisy"), ("assistant", "First answer")]
+    assert [m["content"] for m in opener.requests[2]["messages"]] == [
+        mock.ANY, "Unrelated question"]
+    llm.clear_history()
+
+
+def test_llm_overlapping_asks_for_one_session_keep_both_turns_in_order(llm_cfg):
+    """Two asks for one session overlap (the bot serves messages on threads):
+    the second ask must still be answered with the first ask's completed turn
+    in its context, and the stored history must keep both turns in the order
+    they were asked — not in the order their replies happened to land."""
+    first_in_flight = threading.Event()
+    release_first = threading.Event()
+    second_in_flight = threading.Event()
+    payloads = {}
+    replies = {"first question": "First answer", "second question": "Second answer"}
+
+    class GatedLLM:
+        def __call__(self, req, timeout=None):
+            assert req.full_url == LLM_URL
+            body = json.loads(req.data)
+            user = body["messages"][-1]["content"]
+            payloads[user] = body["messages"]
+            if user == "first question":
+                first_in_flight.set()
+                assert release_first.wait(timeout=30)
+            elif user == "second question":
+                second_in_flight.set()
+            content = json.dumps({"reply": replies.get(user, "Quick answer"), "command": None})
+            return io.BytesIO(json.dumps({"choices": [{"message": {"content": content}}]}).encode())
+
+    opener = GatedLLM()
+    results = {}
+    first = threading.Thread(
+        target=lambda: results.__setitem__(
+            "first", llm.ask("first question", "help", session="discord:race",
+                             cfg=llm_cfg, opener=opener)))
+    first.start()
+    assert first_in_flight.wait(timeout=10)
+    # A different session is never serialized behind the blocked one.
+    other = llm.ask("other session question", "help", session="discord:other",
+                    cfg=llm_cfg, opener=opener)
+    assert other == ("Quick answer", None)
+    second = threading.Thread(
+        target=lambda: results.__setitem__(
+            "second", llm.ask("second question", "help", session="discord:race",
+                              cfg=llm_cfg, opener=opener)))
+    second.start()
+    # If the second ask can overlap, it reaches the provider now, while the
+    # first is still in flight; if asks are serialized per session it cannot,
+    # and this probe simply expires. Either way the first ask is then released
+    # and both complete — the assertions below are what separate the two.
+    second_in_flight.wait(timeout=1.0)
+    release_first.set()
+    first.join(timeout=10)
+    second.join(timeout=10)
+    assert not first.is_alive() and not second.is_alive()
+    assert results["first"][0] == "First answer" and results["second"][0] == "Second answer"
+    second_context = [(m["role"], m["content"]) for m in payloads["second question"]]
+    assert ("user", "first question") in second_context
+    assert ("assistant", "First answer") in second_context
+    # A third ask observes the stored history: both turns, in ask order.
+    llm.ask("third question", "help", session="discord:race", cfg=llm_cfg, opener=opener)
+    stored = [(m["role"], m["content"]) for m in payloads["third question"][1:-1]]
+    assert stored == [("user", "first question"), ("assistant", "First answer"),
+                      ("user", "second question"), ("assistant", "Second answer")]
 
 
 def test_llm_named_command_keeps_the_message_attachments(llm_cfg):
@@ -234,7 +321,7 @@ def test_ai_invocation_asks_the_llm_the_bare_question(llm_cfg):
     out = asyncio.run(core.handle_message(discord.message("ask ai: why is my print stringing")))
     assert out == {"action": "skip", "reason": "llm reply"}
     assert discord.sent == ["Stringing usually means wet filament or too much retraction."]
-    assert opener.requests[0]["messages"][1]["content"] == "why is my print stringing"
+    assert opener.requests[0]["messages"][-1]["content"] == "why is my print stringing"
 
 
 def test_ai_invocation_the_llm_declines_gets_the_ai_wording(llm_cfg):

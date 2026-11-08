@@ -856,7 +856,8 @@ class BotCore:
             return {"action": "skip", "reason": "agent reply"}
         if allow_llm and self.use_llm and llm.configured(self.cfg):
             try:
-                reply, command = await asyncio.to_thread(llm.ask, lane_text, self.help, cfg=self.cfg,
+                reply, command = await asyncio.to_thread(llm.ask, lane_text, self.help,
+                                                         session=session_key(source), cfg=self.cfg,
                                                          opener=self.llm_opener)
             except Exception as exc:
                 logger.warning("LLM reply failed, sending the unmatched reply: %r", exc)
