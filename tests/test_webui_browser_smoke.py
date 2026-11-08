@@ -12,9 +12,9 @@ file and skips every test with the reason below; nothing here imports
 playwright at module level, and no browser is ever launched outside
 the gate.
 
-What a CI browser job needs (not provided by this file):
+What the browser CI job provides:
 
-* a job (separate from the offline legs) with
+* a dedicated blocking job (separate from the offline legs) with
   ``PRINT_HANDY_BROWSER_SMOKE=1`` in its environment;
 * ``playwright`` installed (``pip install playwright``) and a headless
   Chromium for it (``playwright install --with-deps chromium``);
@@ -26,8 +26,9 @@ What a CI browser job needs (not provided by this file):
 
 Inside the gate the smoke set walks the real served pages in a real
 browser: the login page renders, logging in lands on the status page,
-the first-run walkthrough renders and advances one step, the controls
-and camera-bearing pages load, and every page is asserted free of
+the first-run walkthrough renders and advances one step, actual settings
+search filters using JavaScript and a control POST without authorization is refused;
+the camera snapshot route loads, and every page is asserted free of
 uncaught JavaScript errors (``pageerror``) with its expected markers
 present. A page that returns 200 with broken JavaScript is exactly
 the failure this set exists to catch -- the in-process Web UI tests
@@ -61,7 +62,15 @@ BROWSER_SMOKE = os.environ.get(GATE_ENV) == "1" and _playwright_importable()
 # A 1x1 white JPEG-shaped payload is unnecessary: the fake snapshot seam
 # takes any bytes; the browser only needs the page and its <img> wiring.
 FAKE_SNAPSHOT = {
-    "state": "printing", "file": "smoke.gcode", "progress": 0.5,
+    # Match the real snapshot contract. A tiny dict missing bot/listener
+    # reaches a Web UI 500 rather than exercising the actual page.
+    "version": "0.browser", "host": "browser-fixture", "ok": True,
+    "printer": {"name": "Flashforge AD5X", "model": "flashforge.ad5x",
+                "vendor": "flashforge", "connection": "moonraker"},
+    "bot": {"platform": "discord", "mode": "standalone",
+            "ok": True, "reason": "connected",
+            "heartbeat": {"connected": True}},
+    "listener": {"required": True, "ok": True, "reason": "alive"},
     "spoolman": {"bundled": True, "url": "http://127.0.0.1:8000", "ok": True,
                  "detail": "HTTP 200"},
     "services": {"spoolman_url": "http://127.0.0.1:8000"},
@@ -80,7 +89,7 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         from playwright.sync_api import sync_playwright
 
         from print_handy import settings
-        from print_handy.webui import server
+        from print_handy.webui import server, walkthrough
 
         import tempfile
 
@@ -88,14 +97,17 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         self.addCleanup(lambda: __import__("shutil").rmtree(self.tmp, True))
         local = self.tmp / "local.yaml"
         local.write_text(f"paths:\n  hermes_home: {self.tmp}/hermes\n"
-                         "webui:\n  enabled: true\n  port: 8765\n"
-                         f"  token: {TOKEN}\n")
-        self.environ = {"PRINT_HANDY_CONFIG": str(local)}
+                         "webui:\n  enabled: true\n  port: 8765\n")
+        self.environ = {"PRINT_HANDY_CONFIG": str(local), "WEBUI_ACCESS_TOKEN": TOKEN}
         data = settings.load(local=local, environ=self.environ)
+        # The status/login cases must not be redirected by the first-run
+        # walkthrough. The walkthrough test explicitly re-enables it.
+        walkthrough.save_state(data, {"step": 0, "done": True})
+        self.settings_data = data
         self.httpd = server.make_server(
             data, environ=self.environ, port=0,
             snapshot_func=lambda: FAKE_SNAPSHOT,
-            camera_snapshot_func=lambda printer_id=None: JPEG_BYTES)
+            camera_snapshot_func=lambda printer_id=None: (200, JPEG_BYTES, "image/jpeg"))
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
         self.thread.start()
         self.addCleanup(self.httpd.server_close)
@@ -135,39 +147,41 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         self.login()
         self.assertTrue(self.page.url.rstrip("/").endswith(
             (":%d" % self.httpd.server_address[1], "/")), self.page.url)
-        self.assertIn("smoke.gcode", self.page.content(),
-                      "the status page shows the fake snapshot's job")
+        self.assertIn("Flashforge AD5X", self.page.content(),
+                      "the status page must show the real snapshot contract")
+        self.assertNotIn("Print Handy error", self.page.content())
 
     def test_walkthrough_renders_and_advances(self):
-        self.login()
-        self.page.goto(self.base + "/walkthrough")
-        content = self.page.content()
-        if "/walkthrough" not in self.page.url or "step" not in content.lower():
-            self.skipTest("this install has no walkthrough pending; "
-                          "the render/advance path needs a first-run state")
-        # Advance: the walkthrough's own Next/Skip control, whatever the
-        # current step labels it -- pressing it must change the step.
-        before = content
-        button = (self.page.query_selector('button[name="action"][value="next"]')
-                  or self.page.query_selector('button[name="action"][value="skip"]')
-                  or self.page.query_selector(".step-actions button"))
-        self.assertIsNotNone(button, "the walkthrough offers an advance control")
-        button.click()
-        self.page.wait_for_load_state("load")
-        self.assertNotEqual(self.page.content(), before,
-                            "advancing changed the rendered step")
+        from print_handy.webui import walkthrough
 
-    def test_controls_page_loads_with_its_controls(self):
         self.login()
-        self.page.goto(self.base + "/")
-        # Follow the served navigation to the controls surface rather
-        # than guessing a path: the nav is the user-visible contract.
-        link = self.page.query_selector('a[href*="control"]')
-        if link is None:
-            self.skipTest("no controls link in the served navigation for this install")
-        link.click()
-        self.page.wait_for_load_state("load")
-        self.assertIn("control", self.page.content().lower())
+        walkthrough.restart(self.settings_data)
+        self.page.goto(self.base + "/walkthrough")
+        self.assertTrue(self.page.url.endswith("/walkthrough"), self.page.url)
+        self.assertEqual(self.page.locator('input[name="step"]').input_value(), "printer")
+        self.assertIn("Printer", self.page.content())
+        self.page.locator('button[name="action"][value="skip"]').click()
+        self.assertEqual(self.page.locator('input[name="step"]').input_value(), "chat")
+
+    def test_configuration_search_runs_javascript_and_restores_rows(self):
+        self.login()
+        self.page.goto(self.base + "/config")
+        rows = self.page.locator(".field")
+        self.assertGreater(rows.count(), 5, "configuration must render real fields")
+        search = self.page.locator("#field-search")
+        self.assertEqual(search.count(), 1)
+        search.fill("zz-this-setting-does-not-exist-zz")
+        self.assertEqual(self.page.locator(".field:visible").count(), 0)
+        search.fill("")
+        self.assertEqual(self.page.locator(".field:visible").count(), rows.count())
+
+    def test_control_post_refuses_browser_cookie_without_api_header(self):
+        self.login()
+        response = self.page.request.post(
+            self.base + "/api/printers/default/emergency_stop",
+            data={"confirm": True})
+        self.assertEqual(response.status, 401,
+                         "browser login cookies may never authorize printer commands")
 
     def test_camera_snapshot_serves_the_fake_frame(self):
         self.login()
@@ -175,7 +189,9 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         # browser fetch of it must return the fake source's JPEG bytes.
         response = self.page.request.get(
             self.base + "/api/printers/default/camera/snapshot")
-        self.assertEqual(response.status, 200)
+        self.assertEqual(response.status, 200, response.text() if response.status != 200 else "")
+        self.assertEqual(response.headers.get("content-type"), "image/jpeg")
+        self.assertEqual(response.body(), JPEG_BYTES)
         self.assertTrue(response.body().startswith(b"\xff\xd8"),
                         "the snapshot is a JPEG from the fake source")
 

@@ -770,6 +770,46 @@ jobs:
           PRINT_HANDY_IN_CONTAINER: '1'
         run: python -m pytest -v -rs "tests/test_state_volume.py::TestEntrypointMigration::test_legacy_data_and_a_real_bind_mounted_state_volume_is_copied"
 
+  webui-browser-smoke:
+    # #1052 shipped browser tests but never executed them. This separate gate
+    # runs Chromium against the actual loopback server and fails on skipped
+    # tests, instead of accepting five dormant skips as a green job.
+    name: Web UI browser smoke (Chromium)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: python -m pip install ".[test]" "playwright==1.56.0"
+      - name: Install the headless Chromium browser
+        run: python -m playwright install --with-deps chromium
+      - name: Run real-browser tests and record machine-readable results
+        env:
+          PRINT_HANDY_BROWSER_SMOKE: '1'
+        run: python -m pytest -q -rs tests/test_webui_browser_smoke.py --junitxml=browser-smoke.xml
+      - name: Refuse missing or skipped browser tests
+        run: |
+          python - <<'PY'
+          from xml.etree import ElementTree
+          root = ElementTree.parse("browser-smoke.xml").getroot()
+          suites = [root] if root.tag == "testsuite" else list(root.iter("testsuite"))
+          tests = sum(int(s.attrib.get("tests", 0)) for s in suites)
+          skipped = sum(int(s.attrib.get("skipped", 0)) for s in suites)
+          failed = sum(int(s.attrib.get("failures", 0)) + int(s.attrib.get("errors", 0)) for s in suites)
+          assert tests >= 5 and not skipped and not failed, (
+              f"Browser gate refused: tests={tests}, skipped={skipped}, failed={failed}")
+          print(f"All {tests} real-browser tests executed with no skips.")
+          PY
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: webui-browser-smoke
+          path: browser-smoke.xml
+
   spelling:
     # US-spelling watch for prose (catduck, 2026-10-29): scans only the lines
     # a change adds to Markdown files, plus the PR description, for the
