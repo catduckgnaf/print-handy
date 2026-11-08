@@ -1,6 +1,7 @@
 """Tests for intake support clearance and modeled support analysis (#911)."""
 
 import json
+import zipfile
 from pathlib import Path
 import pytest
 
@@ -9,7 +10,6 @@ from print_handy.core import support_clearance
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "support_clearance"
 MANIFEST_PATH = FIXTURES_DIR / "fixture_manifest.json"
 V12_FIXTURE = Path(__file__).parent.parent / "fixtures" / "modeled_supports_shelf.3mf"
-V14_FIXTURE = Path("/home/dysprosium/.hermes/profiles/homelab/workspace/print-handy-fixtures/911-handoff/models/Pixel_Patina_V14_Two_Color_Assembly.3mf")
 
 
 @pytest.fixture(scope="module")
@@ -121,11 +121,46 @@ def test_pixel_patina_v12_golden_regression():
     assert any("modeled supports touch only" in l for l in lines)
 
 
-def test_pixel_patina_v14_components():
-    """V14 component-based 3MF parses transforms and produces no false positive risks."""
-    if not V14_FIXTURE.is_file():
-        pytest.skip("V14 fixture not on disk")
-    rep = support_clearance.analyze(str(V14_FIXTURE))
+def _box_object_model(z0):
+    """One 30x30x10 box mesh as a component object file, underside at z0."""
+    # Corner indices 0-3 are the bottom face, 4-7 the top face.
+    verts = [(0, 0, z0), (30, 0, z0), (30, 30, z0), (0, 30, z0),
+             (0, 0, z0 + 10), (30, 0, z0 + 10), (30, 30, z0 + 10), (0, 30, z0 + 10)]
+    tris = [(0, 2, 1), (0, 3, 2), (4, 5, 6), (4, 6, 7), (0, 1, 5), (0, 5, 4),
+            (1, 2, 6), (1, 6, 5), (2, 3, 7), (2, 7, 6), (3, 0, 4), (3, 4, 7)]
+    v = "".join(f'<vertex x="{x}" y="{y}" z="{z}"/>' for x, y, z in verts)
+    t = "".join(f'<triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in tris)
+    return (f'<model unit="millimeter"><resources><object id="1"><mesh><vertices>{v}</vertices>'
+            f'<triangles>{t}</triangles></mesh></object></resources>'
+            f'<build><item objectid="1"/></build></model>')
+
+
+def test_component_based_3mf_parses_transforms_no_false_positives(tmp_path):
+    """Component-based 3MF parses transforms and produces no false positive risks.
+
+    Replaces the V14 test, which pointed at a Pixel_Patina_V14 file under a
+    hardcoded home-directory path on one operator machine and so skipped
+    everywhere else (2026-11-07 test-suite cleanup; see
+    tests/TEST-SUITE-AUDIT-2026-11-07.md). This synthetic assembly states the
+    same conditions: two components, one authored 0.4 mm above the plate in
+    its object file and pulled onto the plate by its component transform —
+    if transforms were dropped, its 900 mm2 underside at 0.4 mm would flag.
+    """
+    path = tmp_path / "components.3mf"
+    main = """<model xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" unit="millimeter"><resources>
+<object id="1" name="Left"><components><component p:path="/3D/Objects/object_1.model" objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 0"/></components></object>
+<object id="2" name="Right"><components><component p:path="/3D/Objects/object_2.model" objectid="1" transform="1 0 0 0 1 0 0 0 1 40 0 -0.4"/></components></object>
+</resources><build><item objectid="1"/><item objectid="2"/></build></model>"""
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("3D/Objects/object_1.model", _box_object_model(0))
+        archive.writestr("3D/Objects/object_2.model", _box_object_model(0.4))
+        archive.writestr("3D/3dmodel.model", main)
+        archive.writestr("3D/_rels/3dmodel.model.rels",
+                         '<Relationships>'
+                         '<Relationship Target="/3D/Objects/object_1.model" Id="rel-1"/>'
+                         '<Relationship Target="/3D/Objects/object_2.model" Id="rel-2"/>'
+                         '</Relationships>')
+    rep = support_clearance.analyze(str(path))
     assert rep["risky"] is False
     assert rep["low_gap_flags"] == 0
     assert rep["findings"] == []

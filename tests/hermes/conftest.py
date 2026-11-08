@@ -104,15 +104,6 @@ def _scratch_root_is_not_an_ancestor(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("TMPDIR", str(tmp_path_factory.mktemp("scratch-root")))
 
 
-@pytest.fixture
-def hermes_cli_plugins():
-    """Needs the real Hermes agent checkout for hermes_cli.plugins; skipped when absent."""
-    agent = str(Path(_config.cfg()["paths"]["hermes_agent"]).expanduser())
-    if agent not in sys.path:
-        sys.path.insert(0, agent)
-    pytest.importorskip("hermes_cli.plugins")
-
-
 @pytest.fixture(autouse=True)
 def _never_touch_live_printer(monkeypatch, request):
     """No test may send a POST to Moonraker or auto restart the printer."""

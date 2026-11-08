@@ -225,6 +225,23 @@ is gone. Other handler families listed above have no new ordering proof.
 The original five failures were not replayed on 2.1.9; fit_check_s has mock-runner evidence only; restart 503
 coverage is the Spoolman bind refusal, not a gateway restart.
 
+## Test-suite cleanup accounting (2026-11-07)
+
+A line-by-line audit of every file under `tests/` (per-file inventory,
+verdicts and evidence in `tests/TEST-SUITE-AUDIT-2026-11-07.md`). Headlines:
+the offline legs now install the shipped binaries they used to skip on
+(openscad, xvfb, tesseract-ocr) and build the native bounds extension, so
+the design, render-preview, label-OCR and native-bounds tests execute in
+every offline leg; the host-only sol_recovery coupon tests now run against
+a shipped corpus case; the post-it archive tests and the `reviewed-orca`
+coupon variant were removed as dead (they skipped on every machine); the
+V14 support-clearance test was rewritten as a synthetic component-based
+fixture after its hardcoded home-directory path was found; and the two
+Hermes dispatcher tests were rewritten against the plugin's registered
+hooks because `hermes_cli` is an external package nothing provides.
+Legitimate opt-in gates (real slicer, real Spoolman, private corpus) are
+unchanged and each names the job that satisfies it in the audit file.
+
 ## Testing-hardening pass (2026-11-07)
 
 A deep dive over version coverage and the merged-PR archaeology produced the

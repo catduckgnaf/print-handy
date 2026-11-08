@@ -4,18 +4,13 @@ Regression: Sticker Buddy (MakerWorld 2354477) carried Bambu's raft_first_layer_
 ("auto"), which Orca 2.4 rejects with return -18, failing the Discord intake closed.
 """
 import json
-import shutil
-import subprocess
 import sys
 import zipfile
 from pathlib import Path
 
 import pytest
 
-from print_handy import settings
 from print_handy.core import orca_adapter as adapter  # noqa: E402
-
-ARCHIVE = settings.current()['paths']['archive']
 
 LOG = ('Param values in 3mf/config error: \n'
        'raft_first_layer_expansion: -1 not in range [0.000000,340282346638528859811704183484516925440.000000]\n'
@@ -144,23 +139,12 @@ def test_failure_includes_orca_result_json_details(tmp_path, monkeypatch):
         raise AssertionError('failed Orca result was accepted')
 
 
-REAL = next(ARCHIVE.glob('sticker-buddy-one-handed-sticker-assistant-21g--*/derived/merged.3mf'), None)
-
-
-@pytest.mark.real_slicer
-@pytest.mark.skipif(REAL is None or not shutil.which('flatpak')
-                    or subprocess.run(['flatpak', 'info', 'com.orcaslicer.OrcaSlicer'], capture_output=True).returncode,
-                    reason='Sticker Buddy reference or Orca not on this host')
-def test_real_sticker_buddy_slices(tmp_path):
-    from print_handy.core import model_job
-    state = model_job.printer_state.load()
-    src = tmp_path / 'merged.3mf'
-    shutil.copy(REAL, src)
-    before = src.read_bytes()
-    out, prov, _ = adapter.slice_model(src, tmp_path / 'out', state, preserve_layout=True,
-                                       filament_slot=next(k for k, s in state['filament_slots'].items()
-                                                          if s.get('spoolman_id') == state['spool'].get('spoolman_id')))
-    assert out.stat().st_size > 0
-    assert prov['sanitized_author_settings'] == {
-        'raft_first_layer_expansion': ['-1', '0'], 'tree_support_wall_count': ['-1', '0']}
-    assert src.read_bytes() == before, 'source of record must never be mutated'
+# test_real_sticker_buddy_slices was removed in the 2026-11-07 test-suite
+# cleanup: it globbed the operator's print archive for the Sticker Buddy
+# derived model, which the test harness replaces with an empty temp dir,
+# so it skipped in every job including the real-slicer legs — the same
+# dead-by-construction pattern as the post-it archive tests. The sanitize
+# behavior it exercised (out-of-range author values clamped before the
+# slice, with the sanitized record reported) is covered by the offline
+# tests above against synthetic 3MFs. See
+# tests/TEST-SUITE-AUDIT-2026-11-07.md.

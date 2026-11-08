@@ -139,6 +139,36 @@ jobs:
         run: |
           command -v jq || { apt-get update -q && apt-get install -y -q jq; }
           jq --version
+      - name: Install OpenSCAD, xvfb and tesseract for the design and label tests
+        # Same pattern as ffmpeg and jq above: openscad, xvfb and
+        # tesseract-ocr are shipped runtime dependencies (the Dockerfile
+        # runtime stage installs all three — openscad for the design/CAD
+        # features, tesseract for spool label OCR). The offline legs install
+        # them too, so the design, render-preview and label-OCR tests
+        # execute here instead of skipping (2026-11-07 test-suite cleanup).
+        run: |
+          command -v openscad && command -v xvfb-run && command -v tesseract || { apt-get update -q && apt-get install -y -q openscad xvfb xauth tesseract-ocr; }
+          openscad --version
+          tesseract --version | head -n 1
+      - name: Build the native bounds extension for the offline legs
+        # The dedicated native-bounds job builds the Rust/PyO3 extension
+        # (#952) and runs tests/pipeline/test_native_bounds.py against it.
+        # The offline legs build it the same way so the native corpus cases
+        # in that file execute here too instead of skipping; the test step
+        # below sets PRINT_HANDY_BOUNDS_REQUIRE_NATIVE=1 so a missing
+        # extension is a hard failure here, never a silent skip.
+        run: |
+          command -v cargo || { apt-get update -q && apt-get install -y -q curl gcc; curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.99.1; }
+          export PATH="$HOME/.cargo/bin:$PATH"
+          python -m pip install "maturin==1.16.0"
+          mkdir -p native/bounds/print_handy/core
+          cp print_handy/__init__.py native/bounds/print_handy/__init__.py
+          cp print_handy/core/__init__.py native/bounds/print_handy/core/__init__.py
+          (cd native/bounds && maturin build --release --locked)
+          python -m pip install native/bounds/target/wheels/*.whl
+          PURELIB="$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+          cp "$PURELIB"/print_handy/core/_bounds_native*.so print_handy/core/
+          python -c 'import print_handy.core._bounds_native'
       - name: Strict xfail register
         # Every strict xfail needs an owner and an unexpired date. Runs before
         # the suite so an unregistered marker fails even when its test xpasses.
@@ -162,6 +192,9 @@ jobs:
           # image, so it opts in explicitly; local runs outside the image
           # skip the marked tests instead of failing on the environment.
           PRINT_HANDY_IN_CONTAINER: '1'
+          # The build step above installs the extension; require it so the
+          # native bounds corpus cannot silently skip in this job.
+          PRINT_HANDY_BOUNDS_REQUIRE_NATIVE: '1'
           COVERAGE_CORE: ${{ matrix.python-version == '3.12' && 'sysmon' || 'ctrace' }}
         run: python -m pytest -q -rs tests ${{ matrix.python-version == '3.12' && '--cov=print_handy --cov-report=xml:coverage.xml' || '' }}
       - name: Install Codecov upload dependencies (3.12 legs only)

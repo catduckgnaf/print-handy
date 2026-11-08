@@ -12,11 +12,6 @@ from .helpers import external  # noqa: E402
 print_next = external("print_next")
 from print_handy.core import source_colors  # noqa: E402
 
-from print_handy import settings
-
-ARCHIVE = settings.current()['paths']['archive']
-
-
 def manifest(*names):
     return {'source_sha256': 'x' * 64, 'painted': False, 'filaments': [],
             'parts': [{'key': f'{2 * i}:{2 * i - 1}', 'object_id': str(2 * i), 'name': n, 'source_extruder': 1}
@@ -69,19 +64,13 @@ def test_tower_reserve_is_only_a_fast_path():
     assert 'color_geometry.prime_tower_xy(loose_bounds, bed=bed, tower=tower_mm)' in body[fallback:]
 
 
-def test_postit_merges_on_one_plate_with_tower():
-    src = next(ARCHIVE.glob('holder-for-post-it-notes-stencils-included--bbb*/source/*.3mf'), None)
-    if src is None:
-        pytest.skip('post-it reference model not archived on this host')
-    from print_handy.core import printer_state
-    m = source_colors.inventory(src)
-    slots = {p['key']: (2 if 'Holder' in p['name'] else 1) for p in m['parts']}
-    plates = [{'id': 1, 'name': 'Plate 1', 'status': 'planned',
-               'object_ids': sorted({int(p['object_id']) for p in m['parts']})}]
-    verdict = plate_merge.plan(src, m, plates, slots, printer_state.load(), job={})
-    assert verdict['mode'] == 'merge' and verdict['reason'] is None
-    assert sorted(verdict['objects_out']) == ['2', '4', '6', '8']
-    assert len(verdict['prime_tower_xy_mm']) == 2
+# test_postit_merges_on_one_plate_with_tower was removed in the 2026-11-07
+# test-suite cleanup: it read the post-it reference model from the operator's
+# print archive, which the test harness replaces with an empty temp dir, so
+# it skipped on every machine and in every CI run. The family grouping it
+# exercised is covered by the synthetic-manifest tests above, and merge-mode
+# planning is covered by the plate_merge tests. See
+# tests/TEST-SUITE-AUDIT-2026-11-07.md.
 
 
 def _split_job(tmp_path):

@@ -96,11 +96,12 @@ def test_create_spool_canonicalizes_and_reuses(monkeypatch):
             return []
         return {"id": 77, **(body or {})}
 
+    # create_spool takes a client parameter (spool_sync.create_spool); the
+    # TypeError-to-skip guard that used to wrap this call predated that
+    # parameter and was removed in the 2026-11-07 test-suite cleanup.
     try:
         spool_sync.create_spool({"material": "pla plus", "color": "black", "brand": "sunlu", "grams": 1000},
                                 client=client)
-    except TypeError:
-        pytest.skip("create_spool has no client parameter")
     except spool_sync.SpoolError:
         pass
     assert not [c for c in calls if c[0] == "POST" and c[1] == "/api/v1/filament"]
