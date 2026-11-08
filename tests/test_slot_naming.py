@@ -103,6 +103,12 @@ class JamTests(unittest.TestCase):
         self.assertTrue(listener.pause_is_jam("Filament jam detected (IFS)"))
         self.assertEqual(listener.classify_pause("Filament jam detected (IFS)"), "jam")
         self.assertFalse(listener.pause_is_jam("Filament runout detected"))
+        # A whole word only: a jam inside another word or a file name in
+        # the pause text is an ordinary pause, not a jam post.
+        self.assertTrue(listener.pause_is_jam("Filament jammed in channel 2"))
+        self.assertTrue(listener.pause_is_jam("IFS: jam."))
+        self.assertFalse(listener.pause_is_jam("Paused: pajama_pants.gcode M600"))
+        self.assertFalse(listener.pause_is_jam("Paused before jam_jar_lid layer 3"))
         self.assertEqual(listener.classify_pause("Filament runout detected"), "runout")
         self.assertEqual(listener.classify_pause(""), "other")
 

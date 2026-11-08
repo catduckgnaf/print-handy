@@ -4698,6 +4698,7 @@ async def print_again_dispatch(event, gateway, **kwargs):
         await adapter.send(chat_id=source.chat_id, metadata=metadata, content='A print again prompt is already open. Nothing started.')
         return {'action': 'skip', 'reason': 'print again prompt already active'}
     _seen[key] = time.monotonic()
+    scope_targets = None
     try:
         is_next = query.casefold() in ('next', 'continue')
         if is_next:
@@ -4735,6 +4736,34 @@ async def print_again_dispatch(event, gateway, **kwargs):
                 _owner = _job_owner_pid(target['job_json'])
                 pid = _routed_form(_owner)
                 live_key = _live_key_for(source, gateway, _owner)
+        if not is_next and copies == 1 and pc.parse_plate_ref(query) is None:
+            # A project plate picked by number or title asks its scope first
+            # (#1008): never silently reprint one plate of a multi-plate
+            # project, and never guess the whole project either. An exact
+            # plate alias (82A) already named its scope, so it skips this.
+            info = await asyncio.to_thread(pc.target_project_info, target)
+            if info is not None:
+                has_remaining = any(p['completed_quantity'] < p['quantity'] for p in info['plates'])
+                picked = await _confirm(
+                    adapter, source, metadata, 'print-again-scope',
+                    pc.scope_question(target, info),
+                    list(pc.projects.scope_choices(True, has_remaining)),
+                    (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800),
+                    live_key=live_key)
+                if picked == 'Choose a plate':
+                    await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                       content=pc.project_plate_list_text(info))
+                    return {'action': 'skip', 'reason': 'print again project plate list shown'}
+                if picked in ('Entire project', 'Remaining unprinted plates'):
+                    scope_targets = await asyncio.to_thread(
+                        pc.project_scope_targets, target,
+                        'entire' if picked == 'Entire project' else 'remaining')
+                    target = scope_targets[0]
+                    question = pc.again_question(target)
+                elif picked != 'This plate only':
+                    await adapter.send(chat_id=source.chat_id, metadata=metadata,
+                                       content='Cancelled or expired. Nothing uploaded or started.')
+                    return {'action': 'skip', 'reason': 'print again scope cancelled'}
         answer = await _confirm(adapter, source, metadata, 'print-again', question,
                                 [pc.AGAIN_LABEL, pc.AGAIN_CANCEL_LABEL], (globals().get('_config').question_timeout_s() if globals().get('_config') else 1800),
                                 live_key=live_key, approval=True)
@@ -4762,6 +4791,9 @@ async def print_again_dispatch(event, gateway, **kwargs):
                 queue_owner = target_owner if target_owner is not None else channel_pid
                 if is_next:
                     await asyncio.to_thread(pc.mark_copy_started, printer_id=queue_owner)
+                elif scope_targets:
+                    await asyncio.to_thread(pc.queue_project_sequence, scope_targets,
+                                            printer_id=queue_owner)
                 else:
                     await asyncio.to_thread(pc.queue_copies, target, printer_id=queue_owner)
                 # The start claimed its announcement in model_job, so the
