@@ -393,16 +393,42 @@ def pause_alerts_for(adapter, filename, printer_id=None) -> PauseAlerts | None:
 
 # ------------------------------------------------------------- auto light (#516)
 
+def _fact_value(adapter, name):
+    """One sourced fact about the serving printer (its family's facts.py).
+
+    Returns the fact's value, or None when the model's facts do not record
+    it — an unrecorded fact is never claimed in the verdict context.
+    """
+    facts = getattr(adapter, "facts", None)
+    if isinstance(facts, dict):
+        fact = facts.get(name)
+        if fact is not None:
+            return getattr(fact, "value", fact)
+    return None
+
+
 def _idle_context(adapter) -> str:
     """The verdict context for a family printer's idle plate check.
 
     The Bambu watchdog's wording (bambu_watch.vision_context) with no
     plate-type claim: the vocabulary definitions are the verdict
     contract, and a frame judged against another printer's description
-    would be a wrong prompt.
+    would be a wrong prompt. The enclosure trait takes the same care
+    (the Moonraker and Bambu contexts are built from their serving
+    printer the same way): "enclosed" only when the serving model's
+    sourced facts record an enclosure, "open frame" only when they
+    record none, and no enclosure claim when the facts do not record
+    it — this context used to say "enclosed" for every family printer.
     """
     label = getattr(adapter, "label", None) or "3D printer"
-    return (f"Printer: {label}, enclosed, build plate. "
+    traits = []
+    enclosed = _fact_value(adapter, "enclosed")
+    if enclosed is True:
+        traits.append("enclosed")
+    elif enclosed is False:
+        traits.append("open frame")
+    traits.append("build plate")
+    return (f"Printer: {label}, {', '.join(traits)}. "
             "Reply with JSON only, no markdown: {\"verdict\":\"ok|air|spaghetti|detached|empty_idle|uncertain\",\"reason\":\"short\"}. "
             "ok means plastic is on the bed and printing normally. "
             "air means the bed is empty while a print should be there. "
