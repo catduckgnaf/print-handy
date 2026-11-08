@@ -358,6 +358,9 @@ def gate(data=None) -> int:
     """The supervisor/healthcheck decision: 0 start, 3 not started, 2 unresolved."""
     try:
         data = settings.current() if data is None else data
+        warning = settings.unknown_settings_warning()
+        if warning:
+            print(f"go2rtc gate: WARNING {warning}", file=sys.stderr)
         needed = needed_by(data)
         if not needed:
             print("go2rtc gate: timelapse capture and live viewing are both "

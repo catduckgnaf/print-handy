@@ -99,6 +99,9 @@ def main():
     except settings.SettingsError as exc:
         print(f"webui gate: configuration unresolved: {exc}", file=sys.stderr)
         return 2
+    warning = settings.unknown_settings_warning()
+    if warning:
+        print(f"webui gate: WARNING {warning}", file=sys.stderr)
     if enabled and port > 0:
         if not require_auth and not is_loopback(host):
             print(f"webui gate: enabled on {host}:{port} with authentication OFF "
