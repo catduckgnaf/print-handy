@@ -1,6 +1,6 @@
 {
  "_about": "Failed prints only. Gentle: the target is the print, never the operator.",
- "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022)",
  "_license": "Original to Print Handy; MIT with the project.",
  "entries": [
   {
@@ -192,6 +192,291 @@
    "id": "failed-title-is-now-a-cautionary",
    "family": "failed-title-is-now-a-cautionary",
    "text": "{title} is now a cautionary tale with excellent layer-by-layer documentation."
+  },
+  {
+   "id": "failed-title-has-flatlined-on-the",
+   "family": "failed-title-has-flatlined-on-the",
+   "text": "{title} has flatlined on the print bed; funeral arrangements are currently pending."
+  },
+  {
+   "id": "failed-a-moment-of-silence-for",
+   "family": "failed-a-moment-of-silence-for",
+   "text": "A moment of silence for {title}, which chose chaotic detachment over completion."
+  },
+  {
+   "id": "failed-title-has-been-transferred-to",
+   "family": "failed-title-has-been-transferred-to",
+   "text": "{title} has been transferred to the scrap bin morgue without further ceremony."
+  },
+  {
+   "id": "failed-the-bed-adhesion-betrayed-title",
+   "family": "failed-the-bed-adhesion-betrayed-title",
+   "text": "The bed adhesion betrayed {title}, sending another plastic dream into early retirement."
+  },
+  {
+   "id": "failed-title-suffered-catastrophic-delamination-the",
+   "family": "failed-title-suffered-catastrophic-delamination-the",
+   "text": "{title} suffered catastrophic delamination; the scrap bin welcomes its newest victim."
+  },
+  {
+   "id": "failed-lay-title-to-rest-the",
+   "family": "failed-lay-title-to-rest-the",
+   "text": "Lay {title} to rest; the nozzle gave up halfway through layer forty."
+  },
+  {
+   "id": "failed-title-ended-its-brief-earthly",
+   "family": "failed-title-ended-its-brief-earthly",
+   "text": "{title} ended its brief earthly existence as an unidentifiable plastic tumbleweed."
+  },
+  {
+   "id": "failed-the-print-bed-evicted-title",
+   "family": "failed-the-print-bed-evicted-title",
+   "text": "The print bed evicted {title} without notice; condolences to the spool."
+  },
+  {
+   "id": "failed-title-expired-after-duration-an",
+   "family": "failed-title-expired-after-duration-an",
+   "text": "{title} expired after {duration}; an obituary will not be published."
+  },
+  {
+   "id": "failed-the-coroner-reports-title-suffered",
+   "family": "failed-the-coroner-reports-title-suffered",
+   "text": "The coroner reports {title} suffered from fatal warp and complete loss of dignity."
+  },
+  {
+   "id": "failed-title-has-departed-this-world",
+   "family": "failed-title-has-departed-this-world",
+   "text": "{title} has departed this world, leaving behind {grams} grams of tangled sorrow."
+  },
+  {
+   "id": "failed-bed-adhesion-failed-title-the",
+   "family": "failed-bed-adhesion-failed-title-the",
+   "text": "Bed adhesion failed {title}; the burial plot in the scrap bucket awaits."
+  },
+  {
+   "id": "failed-title-fought-gravity-bravely-and",
+   "family": "failed-title-fought-gravity-bravely-and",
+   "text": "{title} fought gravity bravely and lost with astonishing speed and drama."
+  },
+  {
+   "id": "failed-an-untimely-demise-for-title",
+   "family": "failed-an-untimely-demise-for-title",
+   "text": "An untimely demise for {title}; the nozzle simply walked away in protest."
+  },
+  {
+   "id": "failed-title-has-officially-joined-the",
+   "family": "failed-title-has-officially-joined-the",
+   "text": "{title} has officially joined the plastic afterlife; play the funeral dirge softly."
+  },
+  {
+   "id": "failed-the-first-layer-promised-stability",
+   "family": "failed-the-first-layer-promised-stability",
+   "text": "The first layer promised stability, but {title} chose early collapse instead."
+  },
+  {
+   "id": "failed-title-perished-after-duration-please",
+   "family": "failed-title-perished-after-duration-please",
+   "text": "{title} perished after {duration}; please respect the grieving spool during this time."
+  },
+  {
+   "id": "failed-a-tragic-end-for-title",
+   "family": "failed-a-tragic-end-for-title",
+   "text": "A tragic end for {title}; {printer} has disavowed all responsibility."
+  },
+  {
+   "id": "failed-title-detached-mid-print-turning",
+   "family": "failed-title-detached-mid-print-turning",
+   "text": "{title} detached mid-print, turning {grams} grams into pure sorrow."
+  },
+  {
+   "id": "failed-the-autopsy-of-title-revealed",
+   "family": "failed-the-autopsy-of-title-revealed",
+   "text": "The autopsy of {title} revealed zero bed adhesion and extreme overambition."
+  },
+  {
+   "id": "failed-title-collapsed-into-abstract-geometry",
+   "family": "failed-title-collapsed-into-abstract-geometry",
+   "text": "{title} collapsed into abstract geometry; the recycling bin opens its loving arms."
+  },
+  {
+   "id": "failed-another-fallen-comrade-title-lost",
+   "family": "failed-another-fallen-comrade-title-lost",
+   "text": "Another fallen comrade: {title} lost its grip and plummeted into despair."
+  },
+  {
+   "id": "failed-title-has-concluded-its-brief",
+   "family": "failed-title-has-concluded-its-brief",
+   "text": "{title} has concluded its brief run as modern art nobody requested."
+  },
+  {
+   "id": "failed-the-obituary-for-title-notes",
+   "family": "failed-the-obituary-for-title-notes",
+   "text": "The obituary for {title} notes that bed leveling was entirely optional today."
+  },
+  {
+   "id": "failed-title-expired-on-the-plate",
+   "family": "failed-title-expired-on-the-plate",
+   "text": "{title} expired on the plate; cause of demise was sudden layer shift."
+  },
+  {
+   "id": "failed-gone-too-soon-title-has",
+   "family": "failed-gone-too-soon-title-has",
+   "text": "Gone too soon: {title} has retired to the bucket of broken dreams."
+  },
+  {
+   "id": "failed-title-surrendered-after-duration-proving",
+   "family": "failed-title-surrendered-after-duration-proving",
+   "text": "{title} surrendered after {duration}, proving physics remains completely undefeated."
+  },
+  {
+   "id": "failed-we-mourn-title-which-promised",
+   "family": "failed-we-mourn-title-which-promised",
+   "text": "We mourn {title}, which promised a functional part and delivered loose string."
+  },
+  {
+   "id": "failed-title-was-called-home-to",
+   "family": "failed-title-was-called-home-to",
+   "text": "{title} was called home to the scrap bin ahead of schedule."
+  },
+  {
+   "id": "failed-the-bed-plate-rejected-title",
+   "family": "failed-the-bed-plate-rejected-title",
+   "text": "The bed plate rejected {title} like a bad organ transplant."
+  },
+  {
+   "id": "failed-title-met-an-untimely-end",
+   "family": "failed-title-met-an-untimely-end",
+   "text": "{title} met an untimely end; the spatula will conduct the final rites."
+  },
+  {
+   "id": "failed-memorial-services-for-title-will",
+   "family": "failed-memorial-services-for-title-will",
+   "text": "Memorial services for {title} will be held near the workshop bin."
+  },
+  {
+   "id": "failed-title-flatlined-after-duration-the",
+   "family": "failed-title-flatlined-after-duration-the",
+   "text": "{title} flatlined after {duration}; the bed scraper performed the final extraction."
+  },
+  {
+   "id": "failed-the-nozzle-betrayed-title-turning",
+   "family": "failed-the-nozzle-betrayed-title-turning",
+   "text": "The nozzle betrayed {title}, turning solid ambition into melted plastic sorrow."
+  },
+  {
+   "id": "failed-title-has-been-declared-structurally",
+   "family": "failed-title-has-been-declared-structurally",
+   "text": "{title} has been declared structurally deceased by the local workshop authority."
+  },
+  {
+   "id": "failed-bed-adhesion-vanished-taking-title",
+   "family": "failed-bed-adhesion-vanished-taking-title",
+   "text": "Bed adhesion vanished, taking {title} down into the abyss of failure."
+  },
+  {
+   "id": "failed-title-gave-up-halfway-leaving",
+   "family": "failed-title-gave-up-halfway-leaving",
+   "text": "{title} gave up halfway, leaving an abstract memorial to poor calibration."
+  },
+  {
+   "id": "failed-the-spool-mourns-title-which",
+   "family": "failed-the-spool-mourns-title-which",
+   "text": "The spool mourns {title}, which used {grams} grams before collapsing completely."
+  },
+  {
+   "id": "failed-title-slipped-off-the-plate",
+   "family": "failed-title-slipped-off-the-plate",
+   "text": "{title} slipped off the plate and broke its little plastic spine."
+  },
+  {
+   "id": "failed-final-diagnosis-for-title-lack",
+   "family": "failed-final-diagnosis-for-title-lack",
+   "text": "Final diagnosis for {title}: lack of adhesion, excess optimism, terminal detachment."
+  },
+  {
+   "id": "failed-title-has-fallen-may-its",
+   "family": "failed-title-has-fallen-may-its",
+   "text": "{title} has fallen; may its layer lines find peace in the scrap bin."
+  },
+  {
+   "id": "failed-an-obituary-for-title-lived",
+   "family": "failed-an-obituary-for-title-lived",
+   "text": "An obituary for {title}: lived for {duration}, remembered for stringing."
+  },
+  {
+   "id": "failed-title-curled-at-the-corners",
+   "family": "failed-title-curled-at-the-corners",
+   "text": "{title} curled at the corners and perished from acute lack of grip."
+  },
+  {
+   "id": "failed-the-build-surface-disowned-title",
+   "family": "failed-the-build-surface-disowned-title",
+   "text": "The build surface disowned {title}; the scrap pile welcomed another orphan."
+  },
+  {
+   "id": "failed-title-suffered-an-unrecoverable-layer",
+   "family": "failed-title-suffered-an-unrecoverable-layer",
+   "text": "{title} suffered an unrecoverable layer shift and lost all self-respect."
+  },
+  {
+   "id": "failed-a-sudden-draft-ended-title",
+   "family": "failed-a-sudden-draft-ended-title",
+   "text": "A sudden draft ended {title}; physics showed zero sympathy on the bed."
+  },
+  {
+   "id": "failed-title-expired-after-brief-struggle",
+   "family": "failed-title-expired-after-brief-struggle",
+   "text": "{title} expired after brief struggle; burial will take place in municipal landfill."
+  },
+  {
+   "id": "failed-in-memory-of-title-grams",
+   "family": "failed-in-memory-of-title-grams",
+   "text": "In memory of {title}: {grams} grams that flew too close to the nozzle."
+  },
+  {
+   "id": "failed-title-lost-its-footing-and",
+   "family": "failed-title-lost-its-footing-and",
+   "text": "{title} lost its footing and faceplanted into the molten plastic abyss."
+  },
+  {
+   "id": "failed-the-bed-scraper-will-now",
+   "family": "failed-the-bed-scraper-will-now",
+   "text": "The bed scraper will now perform the final autopsy on {title}."
+  },
+  {
+   "id": "failed-title-suffered-premature-detachment-funeral",
+   "family": "failed-title-suffered-premature-detachment-funeral",
+   "text": "{title} suffered premature detachment; funeral flowers may be sent to the bin."
+  },
+  {
+   "id": "failed-the-brief-life-of-title",
+   "family": "failed-the-brief-life-of-title",
+   "text": "The brief life of {title} ended when gravity filed an emergency injunction."
+  },
+  {
+   "id": "failed-title-has-ceased-all-biological",
+   "family": "failed-title-has-ceased-all-biological",
+   "text": "{title} has ceased all biological and mechanical functions on this plate."
+  },
+  {
+   "id": "failed-farewell-title-your-layers-were",
+   "family": "failed-farewell-title-your-layers-were",
+   "text": "Farewell {title}; your layers were ambitious, but your foundation was pure fiction."
+  },
+  {
+   "id": "failed-title-entered-the-scrap-bin",
+   "family": "failed-title-entered-the-scrap-bin",
+   "text": "{title} entered the scrap bin without passing go or collecting dignity."
+  },
+  {
+   "id": "failed-the-coroner-declared-title-non",
+   "family": "failed-the-coroner-declared-title-non",
+   "text": "The coroner declared {title} non-viable after that aggressive layer shift."
+  },
+  {
+   "id": "failed-title-is-gone-the-hotend",
+   "family": "failed-title-is-gone-the-hotend",
+   "text": "{title} is gone; the hotend has already moved on without remorse."
   }
  ]
 }

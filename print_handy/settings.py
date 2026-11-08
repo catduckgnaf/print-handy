@@ -139,6 +139,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("printer", "zmod_delivery_format"): str,
                  ("visual_watch", "enabled"): bool,
                  ("vision", "roast_enabled"): bool,
+                 ("vision", "roast_model"): str,
                  ("vision", "local_detector_enabled"): bool,
                  ("vision", "local_model_path"): str,
                  ("vision", "auto_light_off_minutes"): int,

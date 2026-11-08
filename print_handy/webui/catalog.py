@@ -124,7 +124,6 @@ GROUP_OF = {
     "timelapse.capture_source_url": "images",
     "services.vision_chat_url": "images",
     "vision.model": "images",
-    "vision.roast_model": "images",
     "vision.roast_enabled": "images",
     "vision.local_detector_enabled": "images",
     "vision.local_model_path": "images",
@@ -406,9 +405,6 @@ CATALOG = (
            validator="settings services check"),
     _field("vision", "model", "Vision model", "text",
            "Model the vision endpoint uses for camera checks."),
-    _field("vision", "roast_model", "Roast model", "text",
-           "Legacy: roasts come from the local roast corpus and no longer use a "
-           "model (#1002). Kept so older configs load unchanged."),
     _field("vision", "roast_enabled", "Roast", "toggle",
            "The one-line roast: one per print on the completion post, and on "
            "request in chat (\"roast my last print\"), on every platform. "
@@ -422,7 +418,7 @@ CATALOG = (
            "bad-print detection. Off by default. The pinned model "
            "(Obico failure detector, AGPL-3.0 weights, about 202 MB) "
            "downloads once and is SHA-256 verified. It detects failures "
-           "only — roasts, spool-label reads and the empty-plate check "
+           "only — spool-label reads and the empty-plate check "
            "still need a vision endpoint.",
            validator="settings vision check"),
     _field("vision", "local_model_path", "Local detector model path", "text",

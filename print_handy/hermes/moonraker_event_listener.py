@@ -421,7 +421,8 @@ def roast_enabled(cfg=None):
 
 ROAST_STATE = _config.state_file("PRINT_HANDY_ROAST_STATE", "roast_state.json", per_instance=True)
 _ROAST_FACTS = ("duration_s", "material", "color", "grams", "printer", "copies",
-                "print_number", "times", "finish_hour")
+                "print_number", "times", "finish_hour", "last_title",
+                "prev_fails", "fail_streak", "color_streak", "top_color")
 
 
 def generate_roast(title, summary="", facts=None, key=None, status="completed"):
@@ -462,8 +463,21 @@ def _with_status_roast(text, filename, status, key, facts=None):
     a second roast for the same print. No LLM anywhere in this path.
     """
     try:
-        line = generate_roast(print_summary.safe_label(filename), facts=facts,
-                              key=key, status=status)
+        # The job's own facts (#1002 Phase 2): title, material, color and the
+        # print-history slots (prev_fails, fail_streak, ...) that unlock the
+        # reprint-failed and fail-streak pools. Caller facts (the measured
+        # duration) win; a cancelled print's sliced grams were never used.
+        title, known = print_summary.safe_label(filename), {}
+        try:
+            job, plate = print_summary.find_job(filename)
+            title = (job or {}).get("title") or title
+            known = dict(announcer.roast_facts(job, plate, {}) or {})
+        except Exception as exc:
+            log(f"{status} roast facts unavailable: {exc!r}")
+        if status == "cancelled":
+            known.pop("grams", None)
+        known.update(facts or {})
+        line = generate_roast(title, facts=known, key=key, status=status)
     except Exception as exc:
         log(f"{status} roast skipped: {exc!r}")
         return text

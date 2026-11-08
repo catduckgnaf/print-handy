@@ -100,12 +100,14 @@ class CatalogTests(unittest.TestCase):
                                ("services.camera_snapshot_url", "url"),
                                ("services.vision_chat_url", "url"),
                                ("vision.model", "text"),
-                               ("vision.roast_model", "text"),
+                               
                                ("vision.roast_enabled", "toggle")):
             with self.subTest(field=field_id):
                 field = field_by_id(field_id)
                 self.assertIsNotNone(field)
                 self.assertEqual(field.kind, kind)
+        self.assertIsNone(field_by_id("vision.roast_model"))
+        self.assertIsNotNone(field_by_id("vision.roast_enabled"))
         # The type/source pickers bind to the [timelapse] mode and
         # [services] camera_source settings (#246/#294/#295 contracts):
         # pickers carrying the settings-owned choice sets.
