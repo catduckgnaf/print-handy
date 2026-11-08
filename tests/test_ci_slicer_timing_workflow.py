@@ -76,6 +76,24 @@ class SlicerTimingWorkflowContract(unittest.TestCase):
         self.assertIn("--record", step["run"])
         self.assertIn("proposed-baseline-standalone.json", step["run"])
 
+    def test_standalone_proposed_baseline_is_guarded_on_timing_data(self):
+        # #1060: with no standalone timing files the glob stays literal,
+        # timing_gate fails reading it (hidden by || true) and the output
+        # redirection still creates a 0-byte proposed baseline that the
+        # artifact step uploads. The step must check at least one input
+        # file exists before invoking the gate, expand the matched files
+        # (not the literal glob) when it does, and say plainly that no
+        # proposal was written when there is no data.
+        steps = steps_by_name(timing_job())
+        run = steps[
+            "Proposed standalone baseline from this runner (for review, never applied automatically)"]["run"]
+        self.assertIn("files=(slicer-timing/standalone-run-*.json)", run)
+        self.assertIn('[ -f "${files[0]}" ]', run)
+        self.assertLess(run.index('[ -f "${files[0]}" ]'), run.index("timing_gate"))
+        self.assertIn('timing_gate "${files[@]}"', run)
+        self.assertIn("No standalone timing data from this runner", run)
+        self.assertIn("no proposed standalone baseline was written", run)
+
 
 if __name__ == "__main__":
     unittest.main()
