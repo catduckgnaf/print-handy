@@ -351,16 +351,18 @@ Failures are named in chat with the cause and the remedy: the host could not be 
 
 ### All settings
 
+The defaults below are what a fresh install resolves. The shipped configuration selects the `klipper.generic` model, so the printer-section defaults are that model's; the checked-in home configuration (`config/home.yaml`) selects `flashforge.ad5x` instead, and an install using it resolves the AD5X's own defaults (a 220 mm tallest print and 4 filament slots).
+
 | Section | Key | Default | What it does |
 |---|---|---|---|
 | `printer` | `name`, `firmware` | from the model | Shown in job summaries |
 | | `nozzle_type` | from the model or unset | Optional nozzle material; use a type supported by the selected printer model |
-| | `model` | `flashforge.ad5x` | Printer model: `flashforge.ad5x`, `flashforge.ad5m`, `flashforge.ad5m_pro`, `flashforge.creator5`, `flashforge.creator5_pro`, `sovol.sv06`, `klipper.generic`, `octoprint.marlin`, `bambulab.a1`, `bambulab.p1s`. Sets every default below |
+| | `model` | `klipper.generic` | Printer model: `flashforge.ad5x`, `flashforge.ad5m`, `flashforge.ad5m_pro`, `flashforge.creator5`, `flashforge.creator5_pro`, `sovol.sv06`, `klipper.generic`, `octoprint.marlin`, `bambulab.a1`, `bambulab.p1s`. The shipped configuration's default; the checked-in home configuration (`config/home.yaml`) selects `flashforge.ad5x` for the home install. Sets every default below |
 | | `start_macro`, `end_macro` | `PRINT_START`, `PRINT_END` | Start and end macros for stock Klipper models |
 | | `bed_mm` | `[220, 220]` | Usable print area |
-| | `max_print_height_mm` | `220` | Tallest allowed print |
+| | `max_print_height_mm` | `250` | Tallest allowed print |
 | | `nozzle_diameter_mm` | `0.4` | Slicing refuses any other nozzle |
-| | `filament_slots` | `4` | Filament slots; 1 for a single extruder |
+| | `filament_slots` | `1` | Filament slots; the selected model's count (a single-extruder model has 1, the AD5X has 4) |
 | | `tool_count` | `1` | Independent toolheads on a tool-changer model (Creator 5 / 5 Pro: 4, Prusa XL: 5); slicer tool *i* is toolhead *i*, never an IFS slot |
 | `layout` | `single_copy_edge_mm`, `multi_copy_edge_mm` | `1`, `3` | Distance from the bed edge |
 | | `spacing` | `minimum` | Part gap preset (`minimum`, `low`, `medium` Standard, `high`); fills the gap keys below unless one is set explicitly. See [SETTINGS.md](SETTINGS.md#part-spacing-presets) |
