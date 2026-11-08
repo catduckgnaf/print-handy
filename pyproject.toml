@@ -82,7 +82,6 @@ markers = [
 [tool.ruff]
 target-version = "py312"
 line-length = 120
-extend-exclude = ["hermes"]
 
 [tool.ruff.lint]
 select = ["E9", "F63", "F7", "F82"]
