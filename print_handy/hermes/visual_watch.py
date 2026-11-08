@@ -19,7 +19,7 @@ import os
 import urllib.request
 
 from .. import ai_routes
-from . import _config, local_vision
+from . import _config, local_empty, local_vision
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +210,10 @@ def vision_ready(api_key, log=None):
         return True
     if local_vision.detector_ready():
         return True
+    if local_empty.reference_ready():
+        # Stage 1 (#455): a calibrated plate reference can answer idle
+        # plate checks, which is what the idle consumers gate on here.
+        return True
     if log is not None and not _vision_missing_logged:
         _vision_missing_logged = True
         log("camera watch skipped: no vision endpoint (set services.vision_chat_url with "
@@ -327,8 +331,15 @@ def _local_fallback_verdict(image, streak=None):
     return verdict, f"local detector fallback: {detail}"[:300]
 
 
+# The idle plate-check prompt (auto light-off #516, next-plate offer
+# #621). The Moonraker listener and the family driver both judge idle
+# frames with this exact text (light_control.IDLE_CHECK_PROMPT); it is
+# kept here so the idle-check call sites share one literal.
+IDLE_CHECK_PROMPT_TEXT = "Is there plastic on the bed under the nozzle, or is there spaghetti/detachment?"
+
+
 def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_streak=None,
-                   local_fallback=False):
+                   local_fallback=False, idle=False):
     """Judge one frame. Returns (verdict, detail).
 
     Route order: PRINT_VISION_URL, then the chat endpoint
@@ -344,6 +355,14 @@ def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_st
     escalation state for the local route; the endpoint routes ignore it.
     ``local_fallback`` (early-layer mode, #913) lets a failed configured
     endpoint fall back to the local detector when its model is present.
+
+    ``idle`` marks an idle plate check (the auto light-off and
+    next-plate consumers). Only an idle call may be answered by the
+    Stage 1 plate-reference producer (``local_empty``), and only at the
+    point the local detector would be consulted — no endpoint route
+    configured — so an endpoint's answer always wins and the in-print
+    watch (which never passes ``idle``) can never receive a local
+    ``empty_idle``.
     """
     endpoint = os.environ.get("PRINT_VISION_URL")
     try:
@@ -352,6 +371,10 @@ def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_st
         if not isinstance(parsed, dict):
             raise TypeError(f"vision answer is not a JSON object ({type(parsed).__name__})")
     except _VisionKeyMissing:
+        if idle:
+            empty = local_empty.idle_verdict(image)
+            if empty is not None:
+                return empty
         local = _local_verdict(image, local_streak)
         if local is not None:
             return local
@@ -362,6 +385,10 @@ def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_st
         # is "no endpoint route configured", so the local detector stands
         # in. A configured endpoint that fails does NOT fall through.
         if not endpoint and not _chat_route_configured(api_key):
+            if idle:
+                empty = local_empty.idle_verdict(image)
+                if empty is not None:
+                    return empty
             local = _local_verdict(image, local_streak)
             if local is not None:
                 return local

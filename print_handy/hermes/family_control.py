@@ -421,7 +421,8 @@ def _family_verdict(adapter):
         from . import visual_watch as vw
         return vw.visual_verdict(
             image, prompt, chat_url=mel._vision_chat_url, model=mel._VISION_MODEL,
-            api_key=lambda: mel._profile_env_value("CLIPROXY_API_KEY"), context=context)
+            api_key=lambda: mel._profile_env_value("CLIPROXY_API_KEY"), context=context,
+            idle=True)
 
     return verdict
 
@@ -563,10 +564,26 @@ class FamilyAutoLight:
         Only a sustained empty_idle streak spanning the configured
         minutes switches the light off.
         """
-        from . import light_control, visual_watch
+        from . import light_control, local_empty, visual_watch
         policy = self._policy
         try:
             if not self._vision_ready():
+                # Stage 1 (#455): with no vision route ready, the
+                # calibrated plate reference is the one local producer
+                # that can still certify the empty plate — judge the
+                # frame with it alone (no endpoint, no failure detector).
+                image = self._snapshot() if self._snapshot is not None else None
+                if image is not None and not visual_watch.frame_dark(image):
+                    verdict = local_empty.idle_verdict(image)
+                    if verdict is not None:
+                        action = policy.note_verdict(verdict[0], self._clock())
+                        log(f"auto light idle check verdict={verdict[0]} "
+                            f"detail={verdict[1]!r} ({self.connection})")
+                        if action == "turn_off":
+                            self._send(False)
+                            log(f"auto light: plate seen empty for {policy.minutes} "
+                                f"minutes; light off ({self.connection})")
+                        return
                 policy.note_check(self._clock())
                 return
             if not self._available():
