@@ -1,0 +1,93 @@
+{
+ "session": "synthetic-detached-clean-01",
+ "label": "detached",
+ "source": "synthetic",
+ "license": "generated in-repo for this fixture set; no external data",
+ "synthetic": true,
+ "cadence_s": 60,
+ "layers": [
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10
+ ],
+ "notes": "Synthetic format fixture: the part pops off intact and sits elsewhere on the plate while printing continues \u2014 the clean-detach sub-case no local signal covers today.",
+ "frames": [
+  {
+   "file": "frame-001.jpg",
+   "label": "ok",
+   "source": "synthetic",
+   "license": "generated in-repo for this fixture set; no external data",
+   "synthetic": true
+  },
+  {
+   "file": "frame-002.jpg",
+   "label": "ok",
+   "source": "synthetic",
+   "license": "generated in-repo for this fixture set; no external data",
+   "synthetic": true
+  },
+  {
+   "file": "frame-003.jpg",
+   "label": "ok",
+   "source": "synthetic",
+   "license": "generated in-repo for this fixture set; no external data",
+   "synthetic": true
+  },
+  {
+   "file": "frame-004.jpg",
+   "label": "ok",
+   "source": "synthetic",
+   "license": "generated in-repo for this fixture set; no external data",
+   "synthetic": true
+  },
+  {
+   "file": "frame-005.jpg",
+   "label": "detached",
+   "source": "synthetic",
+   "license": "generated in-repo for this fixture set; no external data",
+   "synthetic": true
+  },
+  {
+   "file": "frame-006.jpg",
+   "label": "detached",
+   "source": "synthetic",
+   "license": "generated in-repo for this fixture set; no external data",
+   "synthetic": true
+  },
+  {
+   "file": "frame-007.jpg",
+   "label": "detached",
+   "source": "synthetic",
+   "license": "generated in-repo for this fixture set; no external data",
+   "synthetic": true
+  },
+  {
+   "file": "frame-008.jpg",
+   "label": "detached",
+   "source": "synthetic",
+   "license": "generated in-repo for this fixture set; no external data",
+   "synthetic": true
+  },
+  {
+   "file": "frame-009.jpg",
+   "label": "detached",
+   "source": "synthetic",
+   "license": "generated in-repo for this fixture set; no external data",
+   "synthetic": true
+  },
+  {
+   "file": "frame-010.jpg",
+   "label": "detached",
+   "source": "synthetic",
+   "license": "generated in-repo for this fixture set; no external data",
+   "synthetic": true
+  }
+ ]
+}
