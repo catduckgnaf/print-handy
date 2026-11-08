@@ -1,6 +1,6 @@
 {
  "_about": "Completed prints of a job printed at least twice ({times} is how many).",
- "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022)",
  "_license": "Original to Print Handy; MIT with the project.",
  "entries": [
   {
@@ -122,6 +122,226 @@
    "id": "repeat_print-title-has-appeared-times-times",
    "family": "repeat_print-title-has-appeared-times-times",
    "text": "{title} has appeared {times} times; the slicer can probably close its eyes now."
+  },
+  {
+   "id": "repeat_print-printing-title-for-time-number",
+   "family": "repeat_print-printing-title-for-time-number",
+   "text": "Printing {title} for time number {times}; did all previous copies snap along the layer lines?"
+  },
+  {
+   "id": "repeat_print-print-number-times-of-title-2",
+   "family": "repeat_print-print-number-times-of-title-2",
+   "text": "Print number {times} of {title} suggests an unlicensed sweatshop is operating in this room."
+  },
+  {
+   "id": "repeat_print-did-the-earlier-copies-of",
+   "family": "repeat_print-did-the-earlier-copies-of",
+   "text": "Did the earlier copies of {title} shatter, or are you cloning an entire plastic army?"
+  },
+  {
+   "id": "repeat_print-at-times-prints-of-title",
+   "family": "repeat_print-at-times-prints-of-title",
+   "text": "At {times} prints of {title}, this is no longer a hobby; it is an obsession."
+  },
+  {
+   "id": "repeat_print-title-run-number-times-how",
+   "family": "repeat_print-title-run-number-times-how",
+   "text": "{title} run number {times}; how many broken versions are already hiding in the scrap bin?"
+  },
+  {
+   "id": "repeat_print-printing-title-for-the-times",
+   "family": "repeat_print-printing-title-for-the-times",
+   "text": "Printing {title} for the {times} time proves either stubborn loyalty or terrible layer adhesion."
+  },
+  {
+   "id": "repeat_print-is-times-copies-of-title",
+   "family": "repeat_print-is-times-copies-of-title",
+   "text": "Is {times} copies of {title} enough, or is the entire house becoming a showroom?"
+  },
+  {
+   "id": "repeat_print-that-is-times-attempts-at",
+   "family": "repeat_print-that-is-times-attempts-at",
+   "text": "That is {times} attempts at {title}; hopefully this one actually survives the weekend."
+  },
+  {
+   "id": "repeat_print-copy-number-times-of-title-2",
+   "family": "repeat_print-copy-number-times-of-title-2",
+   "text": "Copy number {times} of {title} arrives, while the previous versions quietly fell apart."
+  },
+  {
+   "id": "repeat_print-we-are-printing-title-for",
+   "family": "repeat_print-we-are-printing-title-for",
+   "text": "We are printing {title} for time {times}; did someone sit on the last one?"
+  },
+  {
+   "id": "repeat_print-at-times-copies-title-has",
+   "family": "repeat_print-at-times-copies-title-has",
+   "text": "At {times} copies, {title} has officially achieved mass production without a single customer."
+  },
+  {
+   "id": "repeat_print-title-attempt-number-times-proves",
+   "family": "repeat_print-title-attempt-number-times-proves",
+   "text": "{title} attempt number {times} proves that persistence can easily replace calibration."
+  },
+  {
+   "id": "repeat_print-printing-title-times-times-did",
+   "family": "repeat_print-printing-title-times-times-did",
+   "text": "Printing {title} {times} times; did the previous ones delaminate on contact?"
+  },
+  {
+   "id": "repeat_print-this-is-round-times-for",
+   "family": "repeat_print-this-is-round-times-for",
+   "text": "This is round {times} for {title}, because the scrap bin demanded another sibling."
+  },
+  {
+   "id": "repeat_print-if-title-needs-times-prints",
+   "family": "repeat_print-if-title-needs-times-prints",
+   "text": "If {title} needs {times} prints, maybe the model is not the problem here."
+  },
+  {
+   "id": "repeat_print-times-copies-of-title-later",
+   "family": "repeat_print-times-copies-of-title-later",
+   "text": "{times} copies of {title} later, the local landfill is preparing an honorary plaque."
+  },
+  {
+   "id": "repeat_print-are-we-selling-title-or",
+   "family": "repeat_print-are-we-selling-title-or",
+   "text": "Are we selling {title}, or did the first {times} copies simply lack structural integrity?"
+  },
+  {
+   "id": "repeat_print-copy-number-times-of-title-3",
+   "family": "repeat_print-copy-number-times-of-title-3",
+   "text": "Copy number {times} of {title} is done; let us see how long the seams hold."
+  },
+  {
+   "id": "repeat_print-printing-title-for-the-times-2",
+   "family": "repeat_print-printing-title-for-the-times-2",
+   "text": "Printing {title} for the {times} time means {printer} has this mistake memorized."
+  },
+  {
+   "id": "repeat_print-another-title-makes-times-at",
+   "family": "repeat_print-another-title-makes-times-at",
+   "text": "Another {title} makes {times}; at this rate, every room gets its own duplicate."
+  },
+  {
+   "id": "repeat_print-the-world-now-possesses-times",
+   "family": "repeat_print-the-world-now-possesses-times",
+   "text": "The world now possesses {times} copies of {title}, despite asking for exactly zero."
+  },
+  {
+   "id": "repeat_print-round-times-of-title-did",
+   "family": "repeat_print-round-times-of-title-did",
+   "text": "Round {times} of {title}; did the previous version snap when you removed supports?"
+  },
+  {
+   "id": "repeat_print-printing-title-times-times-is",
+   "family": "repeat_print-printing-title-times-times-is",
+   "text": "Printing {title} {times} times is either dedicated quality control or pure denial."
+  },
+  {
+   "id": "repeat_print-at-times-prints-title-is",
+   "family": "repeat_print-at-times-prints-title-is",
+   "text": "At {times} prints, {title} is less a project and more an uncontrolled infestation."
+  },
+  {
+   "id": "repeat_print-copy-times-of-title-joins",
+   "family": "repeat_print-copy-times-of-title-joins",
+   "text": "Copy {times} of {title} joins the lineup of previous structural regrets."
+  },
+  {
+   "id": "repeat_print-printer-printed-title-times-times",
+   "family": "repeat_print-printer-printed-title-times-times",
+   "text": "{printer} printed {title} {times} times; even the firmware is questioning everything."
+  },
+  {
+   "id": "repeat_print-why-make-one-title-when",
+   "family": "repeat_print-why-make-one-title-when",
+   "text": "Why make one {title} when you can print {times} copies of dubious utility?"
+  },
+  {
+   "id": "repeat_print-that-is-times-prints-of",
+   "family": "repeat_print-that-is-times-prints-of",
+   "text": "That is {times} prints of {title}; did the dog chew the earlier ones?"
+  },
+  {
+   "id": "repeat_print-printing-title-for-the-times-3",
+   "family": "repeat_print-printing-title-for-the-times-3",
+   "text": "Printing {title} for the {times} time; the spool is crying for mercy now."
+  },
+  {
+   "id": "repeat_print-times-copies-of-title-proves",
+   "family": "repeat_print-times-copies-of-title-proves",
+   "text": "{times} copies of {title} proves that bed adhesion was not the real obstacle."
+  },
+  {
+   "id": "repeat_print-is-title-copy-times-the",
+   "family": "repeat_print-is-title-copy-times-the",
+   "text": "Is {title} copy {times} the final version, or should the spool brace itself?"
+  },
+  {
+   "id": "repeat_print-title-number-times-is-off",
+   "family": "repeat_print-title-number-times-is-off",
+   "text": "{title} number {times} is off the bed; may it outlast its doomed predecessors."
+  },
+  {
+   "id": "repeat_print-after-times-prints-of-title",
+   "family": "repeat_print-after-times-prints-of-title",
+   "text": "After {times} prints of {title}, you could probably assemble one from broken shards."
+  },
+  {
+   "id": "repeat_print-we-have-reached-times-prints",
+   "family": "repeat_print-we-have-reached-times-prints",
+   "text": "We have reached {times} prints of {title}; the recycling bin is filing a complaint."
+  },
+  {
+   "id": "repeat_print-copy-times-of-title-arrives",
+   "family": "repeat_print-copy-times-of-title-arrives",
+   "text": "Copy {times} of {title} arrives; did the first one break during assembly?"
+  },
+  {
+   "id": "repeat_print-printing-title-times-times-suggests",
+   "family": "repeat_print-printing-title-times-times-suggests",
+   "text": "Printing {title} {times} times suggests the designer forgot what tolerance means."
+  },
+  {
+   "id": "repeat_print-with-times-prints-of-title",
+   "family": "repeat_print-with-times-prints-of-title",
+   "text": "With {times} prints of {title}, the fleet of identical plastic trinkets grows stronger."
+  },
+  {
+   "id": "repeat_print-that-makes-times-copies-of",
+   "family": "repeat_print-that-makes-times-copies-of",
+   "text": "That makes {times} copies of {title}; are you gifting these or punishing friends?"
+  },
+  {
+   "id": "repeat_print-attempt-times-for-title-third",
+   "family": "repeat_print-attempt-times-for-title-third",
+   "text": "Attempt {times} for {title}; third time was not the charm, apparently."
+  },
+  {
+   "id": "repeat_print-title-returns-for-run-times",
+   "family": "repeat_print-title-returns-for-run-times",
+   "text": "{title} returns for run {times}; perhaps this one will stay in one piece."
+  },
+  {
+   "id": "repeat_print-printing-title-times-times-is-2",
+   "family": "repeat_print-printing-title-times-times-is-2",
+   "text": "Printing {title} {times} times is proof that hope springs eternal in 3D printing."
+  },
+  {
+   "id": "repeat_print-copy-number-times-of-title-4",
+   "family": "repeat_print-copy-number-times-of-title-4",
+   "text": "Copy number {times} of {title} is complete; please do not drop this one."
+  },
+  {
+   "id": "repeat_print-another-title-for-print-times",
+   "family": "repeat_print-another-title-for-print-times",
+   "text": "Another {title} for print {times}; the novelty wore off four copies ago."
+  },
+  {
+   "id": "repeat_print-times-runs-of-title-later",
+   "family": "repeat_print-times-runs-of-title-later",
+   "text": "{times} runs of {title} later, your plastic hoard reaches critical mass."
   }
  ]
 }

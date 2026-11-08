@@ -29,6 +29,67 @@ ET = _config.tz()  # the configured display timezone (discord.timezone); the nam
 VERBS = {"started": "Print started", "slice": "Print preparing", "complete": "Print complete", "cancelled": "Print cancelled",
          "error": "Print stopped with an error", "paused": "Print paused"}
 
+# Kinds that end a print. Only these carry the starter mention: the person
+# who started the print is @mentioned once, when it is over, and nobody is
+# mentioned by the start, slice or pause posts.
+TERMINAL_KINDS = ("complete", "cancelled", "error")
+_MENTION_LINE = re.compile(r"^<@(\d{17,20})>$", re.M)
+
+
+def starter_user_id(job):
+    """The Discord user ID of the person who started this job's print, or "".
+
+    The starter is the intake-stamped ``started_by`` record on JOB.json (or
+    the start-context sidecar). Anything else — no stamp, a starter from
+    another platform, a non-numeric ID — names nobody: a mention is never
+    invented for a print Print Handy did not watch someone start.
+    """
+    if not isinstance(job, dict):
+        return ""
+    starter = job.get("started_by")
+    if not isinstance(starter, dict):
+        return ""
+    if str(starter.get("platform") or "discord") != "discord":
+        return ""
+    user_id = str(starter.get("user_id") or "")
+    return user_id if user_id.isdigit() else ""
+
+
+def _starter_mentions_on():
+    """Whether terminal posts @mention the starter (settings + platform gate).
+
+    On unless ``discord.mention_starter_on_complete`` is set false. Discord
+    only: on a Telegram or Matrix install the same lifecycle text is posted
+    without a Discord mention string in it. Any settings failure means off —
+    a mention is a notification, never something to guess at.
+    """
+    try:
+        cfg = _config.cfg()
+        if str((cfg.get("bot") or {}).get("platform") or "discord") != "discord":
+            return False
+        return bool((cfg.get("discord") or {}).get("mention_starter_on_complete", True))
+    except Exception:
+        return False
+
+
+def starter_mention(job):
+    """The ``<@id>`` line for a terminal post, or "" when nobody is mentioned."""
+    if not _starter_mentions_on():
+        return ""
+    user_id = starter_user_id(job)
+    return f"<@{user_id}>" if user_id else ""
+
+
+def mention_user_id(text):
+    """The user ID a post text asks Discord to ping, or None.
+
+    The starter mention is the one mention written as its own line
+    (``<@id>`` alone) by format_event; the listener's Discord sender allows
+    exactly that user — and no one else — to be pinged by the post.
+    """
+    match = _MENTION_LINE.search(str(text or ""))
+    return match.group(1) if match else None
+
 
 def scrub(text):
     """Last line of defence: no hex run of 32+ characters ever reaches Discord."""
@@ -236,7 +297,8 @@ def find_job(filename, archive=None, context_path=None):
         if isinstance(entry, dict) and entry.get("title"):
             sl = entry.get("slicer_settings") or {}
             spool = entry.get("active_spool") or {}
-            job = {"title": entry["title"], "gcode": sl.get("local_gcode")}
+            job = {"title": entry["title"], "gcode": sl.get("local_gcode"),
+                   "started_by": entry.get("started_by")}
             plate = {"gcode": sl.get("local_gcode"), "plate": None, "parts": [],
                      "slot": None, "color": spool.get("color"), "material": spool.get("material"),
                      "seconds": parse_duration(entry.get("estimated_time"))}
@@ -416,6 +478,14 @@ def format_event(kind, filename, now=None, archive=None, context_path=None, extr
                 emit_queued(name, message)
         except Exception:
             pass
+    if kind in TERMINAL_KINDS:
+        # Appended after the notify emit on purpose: the MQTT/ntfy copy of
+        # the event keeps the plain text, and only the chat post carries the
+        # mention. The mention is its own line so the Discord sender can
+        # recognize — and allow — exactly this one ping (mention_user_id).
+        mention = starter_mention(job)
+        if mention:
+            message = f"{message}\n{mention}" if message else mention
     return message
 
 

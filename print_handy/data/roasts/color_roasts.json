@@ -1,0 +1,784 @@
+{
+ "_about": "Filament color and finish roasts keyed by normalized color family, plus color-streak roasts (#1002 Phase 2). Non-racist, strictly about thermoplastic aesthetics.",
+ "_phase": 2,
+ "_license": "CC0-1.0",
+ "entries": {
+  "black": [
+   {
+    "id": "color-black-matte-black-tactical-plastic-perfectly",
+    "family": "color-black",
+    "text": "Matte black tactical plastic, perfectly designed to conceal horrifying layer shifts."
+   },
+   {
+    "id": "color-black-title-in-tactical-black-looks",
+    "family": "color-black",
+    "text": "{title} in tactical black looks like a prototype stealth bomber with flaws."
+   },
+   {
+    "id": "color-black-choosing-black-filament-ensures-every",
+    "family": "color-black",
+    "text": "Choosing black filament ensures every speck of dust acts as a high-contrast beacon."
+   },
+   {
+    "id": "color-black-printing-title-in-void-black",
+    "family": "color-black",
+    "text": "Printing {title} in void black because fixing slicer seams was too much work."
+   },
+   {
+    "id": "color-black-matte-black-the-universal-camouflage",
+    "family": "color-black",
+    "text": "Matte black: the universal camouflage for terrifying dimensional inaccuracies."
+   },
+   {
+    "id": "color-black-that-black-finish-gives-title",
+    "family": "color-black",
+    "text": "That black finish gives {title} the brooding energy of an unpainted batmobile part."
+   },
+   {
+    "id": "color-black-printing-in-black-filament-turns",
+    "family": "color-black",
+    "text": "Printing in black filament turns {title} into a certified static dust collector."
+   }
+  ],
+  "white": [
+   {
+    "id": "color-white-printing-title-in-pristine-white",
+    "family": "color-white",
+    "text": "Printing {title} in pristine white guarantees finger smudge patina within ten minutes."
+   },
+   {
+    "id": "color-white-that-stark-white-plastic-will",
+    "family": "color-white",
+    "text": "That stark white plastic will be an attractive nicotine yellow by next winter."
+   },
+   {
+    "id": "color-white-white-filament-showing-off-every",
+    "family": "color-white",
+    "text": "White filament: showing off every single under-extrusion flaw in vivid high definition."
+   },
+   {
+    "id": "color-white-title-in-appliance-white-has",
+    "family": "color-white",
+    "text": "{title} in appliance white has the distinct visual charm of dental equipment."
+   },
+   {
+    "id": "color-white-white-pla-for-when-you",
+    "family": "color-white",
+    "text": "White PLA: for when you want your print to look like a generic pharmacy bottle."
+   },
+   {
+    "id": "color-white-enjoy-that-bright-white-hue",
+    "family": "color-white",
+    "text": "Enjoy that bright white hue before UV light turns {title} vintage beige."
+   },
+   {
+    "id": "color-white-printing-title-in-refrigerator-white",
+    "family": "color-white",
+    "text": "Printing {title} in refrigerator white makes every shadow and seam pop painfully."
+   }
+  ],
+  "gray": [
+   {
+    "id": "color-gray-unpainted-miniature-primer-gray-the",
+    "family": "color-gray",
+    "text": "Unpainted miniature primer gray, the official color of abandoned hobby backlogs."
+   },
+   {
+    "id": "color-gray-title-in-industrial-gray-has",
+    "family": "color-gray",
+    "text": "{title} in industrial gray has all the emotional warmth of Soviet brutalism."
+   },
+   {
+    "id": "color-gray-printing-title-in-flat-gray",
+    "family": "color-gray",
+    "text": "Printing {title} in flat gray ensures it blends seamlessly into basement concrete."
+   },
+   {
+    "id": "color-gray-that-shade-of-battleship-gray",
+    "family": "color-gray",
+    "text": "That shade of battleship gray screams replacement plumbing bracket, not art."
+   },
+   {
+    "id": "color-gray-gray-filament-because-committing-to",
+    "family": "color-gray",
+    "text": "Gray filament: because committing to an actual color felt far too reckless."
+   },
+   {
+    "id": "color-gray-behold-title-in-primer-gray",
+    "family": "color-gray",
+    "text": "Behold {title} in primer gray, forever waiting for a paint coat that will never come."
+   },
+   {
+    "id": "color-gray-the-dreary-gray-aesthetic-makes",
+    "family": "color-gray",
+    "text": "The dreary gray aesthetic makes {title} look like a forgotten prototype from 1982."
+   }
+  ],
+  "beige": [
+   {
+    "id": "color-beige-1995-office-computer-tower-beige",
+    "family": "color-beige",
+    "text": "1995 office computer tower beige: the peak of beige aesthetic depression."
+   },
+   {
+    "id": "color-beige-title-printed-in-orthopedic-hearing",
+    "family": "color-beige",
+    "text": "{title} printed in orthopedic hearing-aid tan carries immense waiting-room energy."
+   },
+   {
+    "id": "color-beige-that-khaki-shade-makes-title",
+    "family": "color-beige",
+    "text": "That khaki shade makes {title} look like an estate-sale filing cabinet accessory."
+   },
+   {
+    "id": "color-beige-printing-title-in-stale-biscuit",
+    "family": "color-beige",
+    "text": "Printing {title} in stale biscuit beige to achieve maximum cubicle sadness."
+   },
+   {
+    "id": "color-beige-beige-plastic-transforming-modern-additive",
+    "family": "color-beige",
+    "text": "Beige plastic: transforming modern additive manufacturing into a 1988 floppy disk drive."
+   },
+   {
+    "id": "color-beige-that-drab-tan-hue-gives",
+    "family": "color-beige",
+    "text": "That drab tan hue gives {title} the thrilling visual presence of wet cardboard."
+   },
+   {
+    "id": "color-beige-nothing-says-cutting-edge-technology",
+    "family": "color-beige",
+    "text": "Nothing says cutting-edge technology like the depressing tone of vintage masking tape."
+   }
+  ],
+  "brown": [
+   {
+    "id": "color-brown-nocturnal-nozzle-clump-brown-always",
+    "family": "color-brown",
+    "text": "Nocturnal nozzle clump brown: always a bold decorative choice for {title}."
+   },
+   {
+    "id": "color-brown-printing-title-in-mud-brown",
+    "family": "color-brown",
+    "text": "Printing {title} in mud brown gives it the unmistakable appeal of melted cardboard."
+   },
+   {
+    "id": "color-brown-that-chocolate-spool-makes-title",
+    "family": "color-brown",
+    "text": "That chocolate spool makes {title} look suspiciously organic and deeply questionable."
+   },
+   {
+    "id": "color-brown-brown-filament-turns-every-fine",
+    "family": "color-brown",
+    "text": "Brown filament turns every fine detail into something resembling dried potting soil."
+   },
+   {
+    "id": "color-brown-title-in-sewer-pipe-brown",
+    "family": "color-brown",
+    "text": "{title} in sewer pipe brown brings vintage septic elegance into your living room."
+   },
+   {
+    "id": "color-brown-choosing-brown-plastic-ensures-your",
+    "family": "color-brown",
+    "text": "Choosing brown plastic ensures your print looks like a forgotten backyard stick."
+   },
+   {
+    "id": "color-brown-that-dark-brown-finish-guarantees",
+    "family": "color-brown",
+    "text": "That dark brown finish guarantees guests will ask whether {title} was found under the couch."
+   }
+  ],
+  "red": [
+   {
+    "id": "color-red-fire-alarm-red-ensuring-nobody",
+    "family": "color-red",
+    "text": "Fire alarm red, ensuring nobody can overlook any single printing imperfection."
+   },
+   {
+    "id": "color-red-printing-title-in-red-because",
+    "family": "color-red",
+    "text": "Printing {title} in red because subtlety was never an available slicer setting."
+   },
+   {
+    "id": "color-red-that-bright-red-plastic-screams",
+    "family": "color-red",
+    "text": "That bright red plastic screams high school hall pass from a mile away."
+   },
+   {
+    "id": "color-red-red-filament-gives-title-the",
+    "family": "color-red",
+    "text": "Red filament gives {title} the dignified presence of a plastic gas can cap."
+   },
+   {
+    "id": "color-red-printing-title-in-sports-car",
+    "family": "color-red",
+    "text": "Printing {title} in sports car red does not make the layer lines print any faster."
+   },
+   {
+    "id": "color-red-that-ketchup-red-hue-turns",
+    "family": "color-red",
+    "text": "That ketchup red hue turns fine detailing into a loud plastic emergency."
+   },
+   {
+    "id": "color-red-red-plastic-for-when-you",
+    "family": "color-red",
+    "text": "Red plastic: for when you want your functional print to look like cheap holiday clearance."
+   }
+  ],
+  "blue": [
+   {
+    "id": "color-blue-painter-tape-blue-the-official",
+    "family": "color-blue",
+    "text": "Painter tape blue: the official color of hasty workshop repairs and temporary fixes."
+   },
+   {
+    "id": "color-blue-printing-title-in-municipal-recycling",
+    "family": "color-blue",
+    "text": "Printing {title} in municipal recycling bin blue guarantees zero aesthetic compliments."
+   },
+   {
+    "id": "color-blue-that-royal-blue-shade-gives",
+    "family": "color-blue",
+    "text": "That royal blue shade gives {title} the stately grace of a plastic kiddie pool."
+   },
+   {
+    "id": "color-blue-blue-plastic-transforming-title-into",
+    "family": "color-blue",
+    "text": "Blue plastic: transforming {title} into an obvious hardware store plumbing accessory."
+   },
+   {
+    "id": "color-blue-printing-in-bright-blue-makes",
+    "family": "color-blue",
+    "text": "Printing in bright blue makes {title} look like a discarded plastic bottle cap."
+   },
+   {
+    "id": "color-blue-that-cold-blue-hue-ensures",
+    "family": "color-blue",
+    "text": "That cold blue hue ensures {title} matches nothing else in your entire home."
+   },
+   {
+    "id": "color-blue-behold-title-in-tarp-blue",
+    "family": "color-blue",
+    "text": "Behold {title} in tarp blue, an enduring monument to budget utility filament."
+   }
+  ],
+  "green": [
+   {
+    "id": "color-green-lawn-sprinkler-green-for-when",
+    "family": "color-green",
+    "text": "Lawn sprinkler green: for when {title} needs to hide inside the weeds forever."
+   },
+   {
+    "id": "color-green-printing-title-in-military-surplus",
+    "family": "color-green",
+    "text": "Printing {title} in military surplus green because you ran out of sensible spools."
+   },
+   {
+    "id": "color-green-that-murky-green-plastic-makes",
+    "family": "color-green",
+    "text": "That murky green plastic makes {title} look like a forgotten garden hose nozzle."
+   },
+   {
+    "id": "color-green-green-filament-gives-title-the",
+    "family": "color-green",
+    "text": "Green filament gives {title} the irresistible charm of a plastic army soldier toy."
+   },
+   {
+    "id": "color-green-printing-in-pickle-green-turns",
+    "family": "color-green",
+    "text": "Printing in pickle green turns your high-tech model into an agricultural spare part."
+   },
+   {
+    "id": "color-green-that-forest-green-hue-makes",
+    "family": "color-green",
+    "text": "That forest green hue makes {title} look like synthetic pine needles from an artificial tree."
+   },
+   {
+    "id": "color-green-green-plastic-ensures-title-will",
+    "family": "color-green",
+    "text": "Green plastic ensures {title} will disappear the moment you drop it in the lawn."
+   }
+  ],
+  "yellow": [
+   {
+    "id": "color-yellow-industrial-caution-yellow-warning-everyone",
+    "family": "color-yellow",
+    "text": "Industrial caution yellow, warning everyone that {title} may be structurally unsound."
+   },
+   {
+    "id": "color-yellow-printing-title-in-school-bus",
+    "family": "color-yellow",
+    "text": "Printing {title} in school bus yellow guarantees visibility from low earth orbit."
+   },
+   {
+    "id": "color-yellow-that-garish-yellow-plastic-gives",
+    "family": "color-yellow",
+    "text": "That garish yellow plastic gives {title} the sleek aesthetic of a construction cone."
+   },
+   {
+    "id": "color-yellow-yellow-filament-because-you-wanted",
+    "family": "color-yellow",
+    "text": "Yellow filament: because you wanted your print to look like a vintage taxi cab fender."
+   },
+   {
+    "id": "color-yellow-printing-title-in-mustard-yellow",
+    "family": "color-yellow",
+    "text": "Printing {title} in mustard yellow makes even successful layers look faintly nauseous."
+   },
+   {
+    "id": "color-yellow-that-blinding-yellow-tone-ensures",
+    "family": "color-yellow",
+    "text": "That blinding yellow tone ensures {title} cannot be hidden away in any dark closet."
+   },
+   {
+    "id": "color-yellow-caution-tape-yellow-gives-title",
+    "family": "color-yellow",
+    "text": "Caution tape yellow gives {title} the look of a temporary safety violation."
+   }
+  ],
+  "orange": [
+   {
+    "id": "color-orange-hunting-vest-neon-orange-keeping",
+    "family": "color-orange",
+    "text": "Hunting vest neon orange: keeping {title} safe from confused deer in the living room."
+   },
+   {
+    "id": "color-orange-printing-title-in-highway-traffic",
+    "family": "color-orange",
+    "text": "Printing {title} in highway traffic barrel orange was certainly a decorative choice."
+   },
+   {
+    "id": "color-orange-that-aggressive-orange-plastic-gives",
+    "family": "color-orange",
+    "text": "That aggressive orange plastic gives {title} the timeless dignity of an extension cord."
+   },
+   {
+    "id": "color-orange-orange-filament-ensures-title-looks",
+    "family": "color-orange",
+    "text": "Orange filament ensures {title} looks like a free giveaway item from a hardware expo."
+   },
+   {
+    "id": "color-orange-printing-in-pumpkin-orange-makes",
+    "family": "color-orange",
+    "text": "Printing in pumpkin orange makes {title} look like cheap Halloween bucket leftovers."
+   },
+   {
+    "id": "color-orange-that-loud-orange-hue-guarantees",
+    "family": "color-orange",
+    "text": "That loud orange hue guarantees {title} will aggressively clash with every surrounding wall."
+   },
+   {
+    "id": "color-orange-behold-title-in-orange-resembling",
+    "family": "color-orange",
+    "text": "Behold {title} in orange, resembling a forgotten safety cone on the side of a road."
+   }
+  ],
+  "purple": [
+   {
+    "id": "color-purple-printing-title-in-wizard-robe",
+    "family": "color-purple",
+    "text": "Printing {title} in wizard robe purple because subtle restraint is completely overrated."
+   },
+   {
+    "id": "color-purple-that-grape-soda-purple-plastic",
+    "family": "color-purple",
+    "text": "That grape soda purple plastic gives {title} the sophisticated aura of a cartoon villain."
+   },
+   {
+    "id": "color-purple-purple-filament-transforming-functional-engineering",
+    "family": "color-purple",
+    "text": "Purple filament: transforming functional engineering into an eccentric candy accessory."
+   },
+   {
+    "id": "color-purple-printing-title-in-dark-purple",
+    "family": "color-purple",
+    "text": "Printing {title} in dark purple makes the layer seams look like melted fruit leather."
+   },
+   {
+    "id": "color-purple-that-vivid-purple-shade-ensures",
+    "family": "color-purple",
+    "text": "That vivid purple shade ensures {title} looks like a rejected novelty bowling ball."
+   },
+   {
+    "id": "color-purple-purple-pla-brings-the-majestic",
+    "family": "color-purple",
+    "text": "Purple PLA brings the majestic elegance of a 90s bowling alley carpet to your desk."
+   },
+   {
+    "id": "color-purple-title-in-synthetic-royal-purple",
+    "family": "color-purple",
+    "text": "{title} in synthetic royal purple looks like costume jewelry from a carnival prize booth."
+   }
+  ],
+  "pink": [
+   {
+    "id": "color-pink-bubblegum-pink-giving-title-the",
+    "family": "color-pink",
+    "text": "Bubblegum pink: giving {title} the subtle, understated presence of a flamingo lawn ornament."
+   },
+   {
+    "id": "color-pink-printing-title-in-flamingo-pink",
+    "family": "color-pink",
+    "text": "Printing {title} in flamingo pink ensures every single visitor will ask confusing questions."
+   },
+   {
+    "id": "color-pink-that-pastel-pink-hue-makes",
+    "family": "color-pink",
+    "text": "That pastel pink hue makes {title} look like a chewed wad of synthetic candy."
+   },
+   {
+    "id": "color-pink-pink-filament-turns-structural-engineering",
+    "family": "color-pink",
+    "text": "Pink filament turns structural engineering into an accidental dollhouse accessory."
+   },
+   {
+    "id": "color-pink-printing-in-neon-pink-gives",
+    "family": "color-pink",
+    "text": "Printing in neon pink gives {title} the refined aesthetic of a retro roller rink."
+   },
+   {
+    "id": "color-pink-that-cotton-candy-pink-plastic",
+    "family": "color-pink",
+    "text": "That cotton candy pink plastic guarantees {title} will never be taken seriously."
+   },
+   {
+    "id": "color-pink-title-in-bright-pink-belongs",
+    "family": "color-pink",
+    "text": "{title} in bright pink belongs in a discount toy aisle."
+   }
+  ],
+  "gold": [
+   {
+    "id": "color-gold-fake-trophy-gold-celebrating-participation",
+    "family": "color-gold",
+    "text": "Fake trophy gold: celebrating participation in the act of consuming electricity."
+   },
+   {
+    "id": "color-gold-printing-title-in-carnival-prize",
+    "family": "color-gold",
+    "text": "Printing {title} in carnival prize gold does not make it a first place achievement."
+   },
+   {
+    "id": "color-gold-that-cheap-metallic-luster-gives",
+    "family": "color-gold",
+    "text": "That cheap metallic luster gives {title} the glorious sheen of chocolate coin foil."
+   },
+   {
+    "id": "color-gold-silk-gold-filament-turning-title",
+    "family": "color-gold",
+    "text": "Silk gold filament: turning {title} into an opulent plastic paperweight."
+   },
+   {
+    "id": "color-gold-printing-in-shiny-fake-gold",
+    "family": "color-gold",
+    "text": "Printing in shiny fake gold makes {title} look like a budget casino souvenir."
+   },
+   {
+    "id": "color-gold-that-imitation-gold-finish-screams",
+    "family": "color-gold",
+    "text": "That imitation gold finish screams gift shop trinket with zero intrinsic value."
+   },
+   {
+    "id": "color-gold-title-in-dollar-store-gold",
+    "family": "color-gold",
+    "text": "{title} in dollar-store gold looks like royalty on a severe plastic budget."
+   }
+  ],
+  "silver": [
+   {
+    "id": "color-silver-fake-aluminum-sheen-fooling-nobody",
+    "family": "color-silver",
+    "text": "Fake aluminum sheen: fooling nobody into believing {title} was machined from billet."
+   },
+   {
+    "id": "color-silver-printing-title-in-budget-silver",
+    "family": "color-silver",
+    "text": "Printing {title} in budget silver gives it the futuristic glory of a cheap thermos cap."
+   },
+   {
+    "id": "color-silver-that-gray-silver-shimmer-makes",
+    "family": "color-silver",
+    "text": "That gray-silver shimmer makes {title} look like a spray-painted plastic bottle lid."
+   },
+   {
+    "id": "color-silver-silver-filament-when-you-want",
+    "family": "color-silver",
+    "text": "Silver filament: when you want metal aesthetics with the durability of a potato chip."
+   },
+   {
+    "id": "color-silver-printing-title-in-faux-pewter",
+    "family": "color-silver",
+    "text": "Printing {title} in faux pewter makes every seam look like poor solder work."
+   },
+   {
+    "id": "color-silver-that-metallic-silver-sheen-gives",
+    "family": "color-silver",
+    "text": "That metallic silver sheen gives {title} the refined look of a plastic spoon."
+   },
+   {
+    "id": "color-silver-title-in-silvery-plastic-resembles",
+    "family": "color-silver",
+    "text": "{title} in silvery plastic resembles an engine part designed solely for a toy car."
+   }
+  ],
+  "copper": [
+   {
+    "id": "color-copper-imitation-plumbing-copper-when-you",
+    "family": "color-copper",
+    "text": "Imitation plumbing copper: when you want {title} to look like oxidized water pipes."
+   },
+   {
+    "id": "color-copper-printing-title-in-fake-copper",
+    "family": "color-copper",
+    "text": "Printing {title} in fake copper gives it the sparkling prestige of a shiny penny."
+   },
+   {
+    "id": "color-copper-that-faux-bronze-hue-turns",
+    "family": "color-copper",
+    "text": "That faux bronze hue turns {title} into a souvenir from an abandoned mining museum."
+   },
+   {
+    "id": "color-copper-copper-silk-plastic-looking-moderately",
+    "family": "color-copper",
+    "text": "Copper silk plastic: looking moderately expensive until you actually pick it up."
+   },
+   {
+    "id": "color-copper-printing-title-in-metallic-copper",
+    "family": "color-copper",
+    "text": "Printing {title} in metallic copper makes every layer line look like wire wrapping."
+   },
+   {
+    "id": "color-copper-that-brownish-metallic-shimmer-gives",
+    "family": "color-copper",
+    "text": "That brownish metallic shimmer gives {title} the rustic charm of cheap plumbing hardware."
+   },
+   {
+    "id": "color-copper-title-in-fake-copper-looks",
+    "family": "color-copper",
+    "text": "{title} in fake copper looks like an antique artifact bought from a clearance bin."
+   }
+  ],
+  "rainbow": [
+   {
+    "id": "color-rainbow-buying-rainbow-filament-for-a",
+    "family": "color-rainbow",
+    "text": "Buying rainbow filament for a tiny print so {title} stays one muddy transition shade."
+   },
+   {
+    "id": "color-rainbow-title-was-supposed-to-be",
+    "family": "color-rainbow",
+    "text": "{title} was supposed to be a majestic rainbow, but it ended up entirely greenish brown."
+   },
+   {
+    "id": "color-rainbow-rainbow-spool-roulette-title-received",
+    "family": "color-rainbow",
+    "text": "Rainbow spool roulette: {title} received ninety percent vomit yellow and one blue layer."
+   },
+   {
+    "id": "color-rainbow-that-rainbow-gradient-looks-less",
+    "family": "color-rainbow",
+    "text": "That rainbow gradient looks less like a prism and more like an oil spill accident."
+   },
+   {
+    "id": "color-rainbow-printing-title-in-rainbow-filament",
+    "family": "color-rainbow",
+    "text": "Printing {title} in rainbow filament ensures chaotic color bands at all the wrong heights."
+   },
+   {
+    "id": "color-rainbow-the-spool-promised-a-kaleidoscope",
+    "family": "color-rainbow",
+    "text": "The spool promised a kaleidoscope, but {title} settled for murky swamp gradients."
+   },
+   {
+    "id": "color-rainbow-rainbow-filament-when-you-cannot",
+    "family": "color-rainbow",
+    "text": "Rainbow filament: when you cannot decide on a bad color, so you choose all of them."
+   }
+  ],
+  "silk": [
+   {
+    "id": "color-silk-silk-pla-offering-the-stunning",
+    "family": "color-silk",
+    "text": "Silk PLA: offering the stunning gloss of lacquer combined with the layer strength of phyllo dough."
+   },
+   {
+    "id": "color-silk-that-shiny-silk-finish-gives",
+    "family": "color-silk",
+    "text": "That shiny silk finish gives {title} gorgeous reflections and fragile structural integrity."
+   },
+   {
+    "id": "color-silk-printing-title-in-silk-filament",
+    "family": "color-silk",
+    "text": "Printing {title} in silk filament ensures it shatters along the layer lines if anyone sneezes."
+   },
+   {
+    "id": "color-silk-silk-filament-maximum-shiny-vanity",
+    "family": "color-silk",
+    "text": "Silk filament: maximum shiny vanity on the outside, zero impact resistance on the inside."
+   },
+   {
+    "id": "color-silk-the-glorious-luster-of-silk",
+    "family": "color-silk",
+    "text": "The glorious luster of silk PLA cannot hide the fact that {title} is functionally delicate."
+   },
+   {
+    "id": "color-silk-silk-sheen-turns-title-into",
+    "family": "color-silk",
+    "text": "Silk sheen turns {title} into a glossy plastic sculpture waiting for its first minor bump."
+   },
+   {
+    "id": "color-silk-printing-in-silk-material-because",
+    "family": "color-silk",
+    "text": "Printing in silk material: because who needs mechanical strength when you have shiny plastic."
+   }
+  ],
+  "clear": [
+   {
+    "id": "color-clear-translucent-filament-that-prints-with",
+    "family": "color-clear",
+    "text": "Translucent filament that prints with the pristine optical clarity of a frosted milk jug."
+   },
+   {
+    "id": "color-clear-title-in-clear-filament-looks",
+    "family": "color-clear",
+    "text": "{title} in clear filament looks like an ice cube left out in the summer sun."
+   },
+   {
+    "id": "color-clear-clear-plastic-showing-off-internal",
+    "family": "color-clear",
+    "text": "Clear plastic: showing off internal infill patterns like a bizarre medical scan."
+   },
+   {
+    "id": "color-clear-that-translucent-finish-gives-title",
+    "family": "color-clear",
+    "text": "That translucent finish gives {title} the alluring aesthetic of a used plastic cup."
+   },
+   {
+    "id": "color-clear-printing-title-in-natural-filament",
+    "family": "color-clear",
+    "text": "Printing {title} in natural filament guarantees it looks like murky melted wax."
+   },
+   {
+    "id": "color-clear-transparent-filament-promised-glass-elegance",
+    "family": "color-clear",
+    "text": "Transparent filament promised glass elegance and delivered cloudy plastic tupperware."
+   },
+   {
+    "id": "color-clear-behold-title-in-clear-plastic",
+    "family": "color-clear",
+    "text": "Behold {title} in clear plastic, looking like a forgotten soap dish from a roadside motel."
+   }
+  ],
+  "neon": [
+   {
+    "id": "color-neon-blinding-neon-plastic-ensuring-title",
+    "family": "color-neon",
+    "text": "Blinding neon plastic: ensuring {title} can be used as an emergency landing strip flare."
+   },
+   {
+    "id": "color-neon-printing-title-in-radioactive-highlighter",
+    "family": "color-neon",
+    "text": "Printing {title} in radioactive highlighter neon was an act of visual aggression."
+   },
+   {
+    "id": "color-neon-that-neon-hue-burns-the",
+    "family": "color-neon",
+    "text": "That neon hue burns the retinas of anyone standing within a five-meter radius of {title}."
+   },
+   {
+    "id": "color-neon-neon-filament-gives-title-the",
+    "family": "color-neon",
+    "text": "Neon filament gives {title} the quiet, understated charm of a 1992 rave party flyer."
+   },
+   {
+    "id": "color-neon-printing-in-safety-neon-ensures",
+    "family": "color-neon",
+    "text": "Printing in safety neon ensures {title} will never be lost in a pitch-black coal mine."
+   },
+   {
+    "id": "color-neon-that-fluorescent-pigment-makes-title",
+    "family": "color-neon",
+    "text": "That fluorescent pigment makes {title} look like a chemical spill on your coffee table."
+   },
+   {
+    "id": "color-neon-title-in-neon-is-visible",
+    "family": "color-neon",
+    "text": "{title} in neon is visible from passing airplanes and universally rejected by interior designers."
+   }
+  ],
+  "glow": [
+   {
+    "id": "color-glow-glow-in-the-dark-filament",
+    "family": "color-glow",
+    "text": "Glow in the dark filament: destroying your nozzle while turning {title} into an eerie nightlight."
+   },
+   {
+    "id": "color-glow-that-phosphorescent-glow-turns-title",
+    "family": "color-glow",
+    "text": "That phosphorescent glow turns {title} into a spooky plastic hazard beside your bed."
+   },
+   {
+    "id": "color-glow-enjoy-the-faint-radioactive-aura",
+    "family": "color-glow",
+    "text": "Enjoy the faint radioactive aura of {title} while replacing your abrasive-worn brass nozzle."
+   },
+   {
+    "id": "color-glow-glow-filament-abrasive-enough-to",
+    "family": "color-glow",
+    "text": "Glow filament: abrasive enough to grind your hotend into metal dust for thirty seconds of green light."
+   },
+   {
+    "id": "color-glow-title-will-glow-faintly-in",
+    "family": "color-glow",
+    "text": "{title} will glow faintly in the dark, reminding you of questionable spool expenditures."
+   },
+   {
+    "id": "color-glow-that-eerie-green-glow-makes",
+    "family": "color-glow",
+    "text": "That eerie green glow makes {title} look like medical waste from a budget sci-fi film."
+   },
+   {
+    "id": "color-glow-glow-plastic-turning-title-into",
+    "family": "color-glow",
+    "text": "Glow plastic: turning {title} into a nightstand beacon that terrifies unsuspecting house pets."
+   }
+  ],
+  "streak": [
+   {
+    "id": "color-streak-print-number-color-streak-in",
+    "family": "color-streak",
+    "text": "Print number {color_streak} in {color}, because every other spool in the house fled."
+   },
+   {
+    "id": "color-streak-running-color-streak-consecutive-jobs",
+    "family": "color-streak",
+    "text": "Running {color_streak} consecutive jobs in {color} suggests a severe shortage of imagination."
+   },
+   {
+    "id": "color-streak-color-streak-prints-in-color",
+    "family": "color-streak",
+    "text": "{color_streak} prints in {color} in a row; your workshop looks like a monochrome fever dream."
+   },
+   {
+    "id": "color-streak-that-is-color-streak-prints",
+    "family": "color-streak",
+    "text": "That is {color_streak} prints in {color}; the printer is begging for another pigment."
+   },
+   {
+    "id": "color-streak-after-color-streak-prints-in",
+    "family": "color-streak",
+    "text": "After {color_streak} prints in {color}, your build plate has forgotten all other wavelengths."
+   },
+   {
+    "id": "color-streak-print-color-streak-in-color",
+    "family": "color-streak",
+    "text": "Print {color_streak} in {color}; you are either building an army or hoarding one shade."
+   },
+   {
+    "id": "color-streak-color-streak-straight-jobs-in",
+    "family": "color-streak",
+    "text": "{color_streak} straight jobs in {color}; change the spool before the printer stages an intervention."
+   }
+  ]
+ }
+}
