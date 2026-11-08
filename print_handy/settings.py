@@ -14,7 +14,10 @@ environment — and are stored under the current name; the old spelling is depre
 The model comes from environment, selected local configuration, then home configuration. [printer] model
 is the full "vendor.printer" key, as every existing config has it, or the printer part with [printer]
 vendor (printers.resolve_key); either way it is stored as the full key.
-Unknown local keys and values with mismatched types fail loudly.
+Values with mismatched types fail loudly. Unknown keys — in a config file or
+the environment — are ignored with a warning that names them instead of
+failing (#1058, see unknown_settings_warning): a configuration written for a
+newer release must never stop an older one from starting, or rollback breaks.
 """
 from __future__ import annotations
 
@@ -140,9 +143,11 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("visual_watch", "enabled"): bool,
                  ("vision", "roast_enabled"): bool,
                  ("vision", "roast_model"): str,
+                 ("vision", "roast_custom_bank"): str,
                  ("vision", "local_detector_enabled"): bool,
                  ("vision", "local_model_path"): str,
                  ("vision", "watch_source"): str,
+                 ("vision", "local_empty_enabled"): bool,
                  ("vision", "auto_light_off_minutes"): int,
                  ("vision", "light_object"): str,
                  ("spool", "prompt_brand"): bool,
@@ -270,15 +275,51 @@ def _same_type(expected, value):
     return type(expected) is type(value)
 
 
-def _unknown(source, section, key):
+def _unknown_message(source, section, key):
     hint = ""
     if (section, key) == ("printer", "family"):
         hint = ' ([printer] family was replaced by model, e.g. model = "klipper.generic"; see README "Printer models")'
-    return SettingsError(f"{source}: unknown setting [{section}] {key}{hint}")
+    return f"{source}: unknown setting [{section}] {key}{hint}"
+
+
+# The unknown settings the most recent load() ignored, as _unknown_message
+# strings, in the order the layers were read. load() resets the list; the
+# startup surfaces name its contents via unknown_settings_warning() (#1058).
+_unknown_settings = []
+
+
+_CREDENTIAL_WORDS = ("password", "secret", "token", "api_key", "apikey",
+                     "private_key", "credential")
+
+
+def _credential_shaped(key):
+    """True when an unknown key's name looks like a credential.
+
+    Credential-shaped keys in settings FILES stay refused rather than
+    warned-and-dropped: secrets are environment-only in Print Handy, and
+    silently accepting one could mask that a secret was written into a
+    settings file. Known keys are never affected — this is consulted only
+    on the unknown-key path.
+    """
+    lowered = str(key).lower()
+    return any(word in lowered for word in _CREDENTIAL_WORDS)
+
+
+def _note_unknown(entry):
+    if entry not in _unknown_settings:
+        _unknown_settings.append(entry)
 
 
 def _check_keys(home, extra, source):
-    """Reject keys home.toml does not define, and values of the wrong type."""
+    """Check one config layer against the defaults tree; return it cleaned.
+
+    Sections and keys the defaults do not define are no longer fatal
+    (#1058): they are recorded for unknown_settings_warning() and dropped
+    from the returned layer, so a config file written for a newer release
+    cannot stop this one from starting. A value of the wrong type for a
+    KNOWN key still fails loudly, exactly as before.
+    """
+    cleaned = {}
     for section, values in extra.items():
         if section == "printers":
             # The roster is a list, not a table, and never appears in the defaults tree; its
@@ -286,30 +327,64 @@ def _check_keys(home, extra, source):
             if not isinstance(values, list) or not all(isinstance(entry, dict) for entry in values):
                 raise SettingsError(f"{source}: [printers] must be a list of printer entries "
                                     "([[printers]] in TOML, a list under printers: in YAML)")
+            cleaned[section] = values
             continue
-        if section not in home or not isinstance(values, dict):
+        if section not in home:
             if (section == "notify" and isinstance(values, dict)
                     and values and all((section, key) in OPTIONAL_KEYS for key in values)):
                 for key, value in values.items():
                     expected_type = OPTIONAL_KEYS[(section, key)]
                     if not isinstance(value, expected_type):
                         raise SettingsError(f"{source}: [{section}] {key} should be {expected_type.__name__}, got {value!r}")
+                cleaned[section] = values
                 continue
+            if section == "notify":
+                # The closed [notify] table again (see _from_env): anything
+                # beyond its OPTIONAL_KEYS — above all a credential key such
+                # as mqtt_password — is refused, never silently accepted as
+                # a setting (test_notify_mqtt pins this).
+                raise SettingsError(f"{source}: unknown section [{section}]")
+            if isinstance(values, dict) and any(_credential_shaped(k) for k in values):
+                raise SettingsError(f"{source}: unknown section [{section}]")
+            _note_unknown(f"{source}: unknown section [{section}]")
+            continue
+        if not isinstance(values, dict):
             raise SettingsError(f"{source}: unknown section [{section}]")
+        kept = {}
         for key, value in values.items():
             if key not in home[section]:
                 if section in OPEN_SECTIONS:
+                    kept[key] = value
                     continue
                 if (section, key) in OPTIONAL_KEYS:
                     expected_type = OPTIONAL_KEYS[(section, key)]
                     if not isinstance(value, expected_type):
                         raise SettingsError(f"{source}: [{section}] {key} should be {expected_type.__name__}, got {value!r}")
+                    kept[key] = value
                     continue
-                raise _unknown(source, section, key)
+                if section == "notify":
+                    # The closed [notify] table (see the unknown-section
+                    # branch above): non-optional keys stay refused.
+                    raise SettingsError(_unknown_message(source, section, key))
+                if _credential_shaped(key):
+                    # Refused, not warned-and-dropped (see _credential_shaped).
+                    raise SettingsError(_unknown_message(source, section, key))
+                if (section, key) == ("printer", "family"):
+                    # The one deliberate exception: family is a RETIRED key
+                    # with a migration path, not an unknown one. Silently
+                    # ignoring it would run the printer on the wrong profile,
+                    # so it keeps failing by name (test_adapters pins this).
+                    raise SettingsError(_unknown_message(source, section, key))
+                _note_unknown(_unknown_message(source, section, key))
+                continue
             if (section, key) in MIXED_KEYS and isinstance(value, (str, list)):
+                kept[key] = value
                 continue
             if not _same_type(home[section][key], value):
                 raise SettingsError(f"{source}: [{section}] {key} should be like {home[section][key]!r}, got {value!r}")
+            kept[key] = value
+        cleaned[section] = kept
+    return cleaned
 
 
 def _coerce(expected, raw, name):
@@ -383,6 +458,11 @@ def _from_env(home, environ, declared=None):
                 raise SettingsError(f"${name} must look like PRINT_HANDY__SECTION__KEY")
             section, key = parts
             section, key = KEY_ALIASES.get((section, key), (section, key))
+            if section == "printers":
+                # The roster is reached only through the indexed
+                # PRINT_HANDY__PRINTERS__<ID>__<KEY> form above; a two-part
+                # printers name is a malformed override, not a setting.
+                raise SettingsError(_unknown_message(f"${name}", section, key))
         elif name in LEGACY_ENV:
             section, key = LEGACY_ENV[name]
         else:
@@ -400,7 +480,20 @@ def _from_env(home, environ, declared=None):
                 expected_type = OPTIONAL_KEYS[(section, key)]
                 expected = expected_type() if expected_type in (bool, int, float) else ""
             else:
-                raise _unknown(f"${name}", section, key)
+                # Unknown setting (#1058): a variable a newer release added
+                # must not stop this one from starting (rollback). Warn via
+                # unknown_settings_warning() and skip the variable entirely.
+                # [printer] family stays the exception (see _check_keys):
+                # a retired key with a migration path, refused by name.
+                if (section, key) == ("printer", "family"):
+                    raise SettingsError(_unknown_message(f"${name}", section, key))
+                if section == "notify":
+                    # [notify] is a closed table defined by OPTIONAL_KEYS
+                    # alone — credentials are environment-only, never
+                    # settings — so a non-optional key there stays refused.
+                    raise SettingsError(_unknown_message(f"${name}", section, key))
+                _note_unknown(_unknown_message(f"${name}", section, key))
+                continue
         else:
             expected = home[section][key]
         # A blank value is "not supplied", not an override (P1-64): Compose
@@ -1364,6 +1457,18 @@ def _validate_vision(data):
     enabled = vision.setdefault("roast_enabled", True)
     if not isinstance(enabled, bool):
         raise SettingsError(f"[vision] roast_enabled must be true or false, got {enabled!r}")
+    # Custom roast bank (#1002 Phase 4): empty (the default) means the
+    # shipped corpus alone. A path names a local JSON file of the
+    # operator's own roast lines; the engine validates its entries
+    # through the shipped corpus's gates and draws the survivors
+    # alongside the shipped lines. A file that cannot be read or entries
+    # that fail validation are refused by name in the log — roasts
+    # continue from the shipped corpus, never a failed start.
+    custom_bank = vision.setdefault("roast_custom_bank", "")
+    if not isinstance(custom_bank, str):
+        raise SettingsError(f"[vision] roast_custom_bank must be a path string or empty, "
+                            f"got {custom_bank!r}")
+    vision["roast_custom_bank"] = custom_bank.strip()
     # Local failure detector (#455): off by default. When on, the camera
     # watchdog's verdicts can come from the built-in ONNX detector
     # (hermes.local_vision) on installs with no vision endpoint route
@@ -1395,6 +1500,18 @@ def _validate_vision(data):
         raise SettingsError(f"[vision] watch_source must be one of "
                             f"{', '.join(WATCH_SOURCES)}, got {watch_source!r}")
     vision["watch_source"] = watch_source
+    # Local empty-plate producer (#455 item 4, Stage 1): off by default,
+    # and a separate switch from the failure detector — a different
+    # mechanism (difference against a calibrated plate reference,
+    # hermes.local_empty) with a different failure mode. When on, idle
+    # plate checks (auto light-off, the next-plate offer) can be answered
+    # locally when no vision endpoint route is configured; it respects
+    # vision.watch_source's routing rule and never feeds the in-print
+    # watch.
+    local_empty = vision.setdefault("local_empty_enabled", False)
+    if not isinstance(local_empty, bool):
+        raise SettingsError(f"[vision] local_empty_enabled must be true or false, "
+                            f"got {local_empty!r}")
     # Auto light-off (#516): off by default (0). When set above zero, the
     # printer's light turns on at print start and, after a print ends,
     # off again once the camera verdict has seen an empty plate for
@@ -1551,6 +1668,9 @@ def _validate_ai(data):
             raise SettingsError(f"[ai] {tier} must be a table, got {values!r}")
         unknown = sorted(set(values) - set(AI_TIER_KEYS))
         if unknown:
+            # Tier tables are a closed vocabulary with their own validator,
+            # not part of the open settings space #1058 relaxed: an unknown
+            # tier key stays refused (test_ai_routes pins this).
             raise SettingsError(f"[ai.{tier}] unknown setting {', '.join(unknown)} "
                                 f"(known: {', '.join(AI_TIER_KEYS)})")
         for key in AI_TIER_KEYS:
@@ -1943,6 +2063,7 @@ def load(home=None, local=None, environ=None, user=None):
     Pass environ={} to ignore the process environment.
     """
     environ = os.environ if environ is None else environ
+    _unknown_settings.clear()
     if home is None:
         home = HOME if HOME.is_file() else LEGACY_HOME
     home_data = _apply_key_aliases(_read(home))
@@ -1956,7 +2077,8 @@ def load(home=None, local=None, environ=None, user=None):
             local = LOCAL
         elif LEGACY_LOCAL.is_file():
             local = LEGACY_LOCAL
-    extra = _apply_key_aliases(_read(local)) if local else {}
+    local_layer = _apply_key_aliases(_read(local)) if local else {}
+    extra = local_layer
     if user is None:
         user = user_config_path(environ)
         if user is not None and not user.is_file():
@@ -1994,9 +2116,13 @@ def load(home=None, local=None, environ=None, user=None):
                             and not environ.get("PRINT_HANDY__PRINTER__VENDOR")
                             and not user_extra.get("printer", {}).get("model"))
     if user:
-        _check_keys(base, user_extra, user)
+        user_extra = _check_keys(base, user_extra, user)
     if local:
-        _check_keys(base, _apply_key_aliases(_read(local)), local)
+        local_layer = _check_keys(base, local_layer, local)
+    if user or local:
+        # Rebuild the merged layer from the cleaned ones (#1058): sections
+        # and keys _check_keys recorded as unknown never reach the data.
+        extra = _merge(local_layer, user_extra)
     data = _merge(data, extra)
     env_layer = _from_env(base, environ, declared)
     data = _merge(data, env_layer)
@@ -2011,6 +2137,31 @@ _override = None
 # Set by load(): the model came only from the image's own config/docker.* (no
 # environment variable, no operator file, no roster). See defaulted_model_warning.
 _model_defaulted = False
+
+
+def unknown_settings():
+    """The unknown settings the most recent load() ignored, as message strings.
+
+    Each entry names its source and the setting, e.g.
+    "$PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE: unknown setting
+    [discord] mention_starter_on_complete". Empty when the last load saw none.
+    """
+    return list(_unknown_settings)
+
+
+def unknown_settings_warning():
+    """A startup warning naming the settings the most recent load() ignored, or None.
+
+    Unknown settings are ignored, never fatal (#1058): they are usually a
+    configuration written for a newer release running on an older one (the
+    rollback case), or a typo. Either way the operator must see them named —
+    the startup gates, the listener and `bot check` (doctor) print this.
+    """
+    if not _unknown_settings:
+        return None
+    return ("unknown setting(s) ignored — this version of Print Handy does not know them, "
+            "so they were not applied (a configuration written for a newer release, or a "
+            "typo?): " + "; ".join(_unknown_settings))
 
 
 def defaulted_model_warning(data=None):

@@ -125,9 +125,11 @@ GROUP_OF = {
     "services.vision_chat_url": "images",
     "vision.model": "images",
     "vision.roast_enabled": "images",
+    "vision.roast_custom_bank": "images",
     "vision.local_detector_enabled": "images",
     "vision.local_model_path": "images",
     "vision.watch_source": "images",
+    "vision.local_empty_enabled": "images",
     "vision.auto_light_off_minutes": "images",
     "vision.light_object": "images",
     "visual_watch.enabled": "images",
@@ -412,6 +414,13 @@ CATALOG = (
            "On by default; it comes from the local roast corpus and needs no "
            "LLM or endpoint. Off turns roasts off without disabling camera checks.",
            validator="settings vision check"),
+    _field("vision", "roast_custom_bank", "Roast custom bank", "text",
+           "Path to a JSON file of your own roast lines (#1002 Phase 4), "
+           "drawn alongside the shipped local corpus on completed prints. "
+           "Empty (the default) means no custom bank. Entries pass the "
+           "same validation as the shipped corpus; a file that cannot be "
+           "read is ignored with the problem named in the log.",
+           validator="settings vision check"),
     _field("vision", "local_detector_enabled", "Local failure detector", "toggle",
            "Built-in ONNX failure detector for the camera watchdog (#455): "
            "judges camera frames on this machine when no vision endpoint "
@@ -437,6 +446,15 @@ CATALOG = (
            "Empty uses the default location (a models folder under the "
            "Hermes home) and the pinned model; name a model file you "
            "placed yourself to run fully offline.",
+           validator="settings vision check"),
+    _field("vision", "local_empty_enabled", "Local empty-plate reference", "toggle",
+           "The idle empty-plate checks (auto light-off, the next-plate "
+           "offer) can judge the plate against a reference photo of your "
+           "empty plate, captured once with /print-plate-calibrate in "
+           "chat — entirely on this machine, no vision endpoint needed. "
+           "Off by default. Idle checks only; a reference older than "
+           "30 days stops being trusted, so capture again after moving "
+           "the camera or the plate.",
            validator="settings vision check"),
     _field("vision", "auto_light_off_minutes", "Auto light-off minutes", "number",
            "Auto light-off (#516): the printer light turns on when a print "

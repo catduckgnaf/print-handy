@@ -57,7 +57,7 @@ include = ["print_handy*"]
 # Path(__file__) (Orca templates, data/*.toml, HMS data, the Bambu CA
 # bundle); ship every one of them in the wheel, not just the .py files.
 [tool.setuptools.package-data]
-"*" = ["*.json", "*.toml", "*.pem"]
+"*" = ["*.json", "*.toml", "*.pem", "*.js"]
 print_handy = ["templates/**/*.json", "data/*.toml", "data/*.json", "data/*/*.toml", "data/*/*.md", "data/roasts/*.json"]
 # Registry data inside subpackages (root cleanup PR-3): the knowledge
 # registry TOMLs and their schema README ride in knowledge/data/.

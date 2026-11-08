@@ -60,6 +60,55 @@ python3 scripts/check_us_spelling.py --base origin/main
 
 A line that must keep a British spelling (quoted upstream text, an exact identifier) carries an HTML comment naming the allowed word: `<!-- us-spelling: allow colour -->` allows that word on that line, and a bare `<!-- us-spelling: allow -->` allows every listed word on the line. <!-- us-spelling: allow -->
 
+## Adding roast lines
+
+The one-line roasts come from a local corpus, never from a model (#1002). There are two ways to add lines, and both are validated by the same gates.
+
+### Contribute lines to the shipped corpus
+
+Roast lines live in `print_handy/data/roasts/`, one JSON file per bank:
+
+- `generic.json` and `one_liners.json` — lines for any completed print (one-liners must need no facts about the print at all).
+- `overnight.json`, `long_print.json`, `heavy_filament.json`, `repeat_print.json`, `short_print.json` — context banks, drawn only when the fact they talk about is known for that print.
+- `failed.json`, `cancelled.json`, `spaghetti.json` — status banks, drawn only for prints that ended that way. Keep these gentle: a costly failure is not the moment for the sharpest material, and success language never belongs in them.
+- `title_reactions.json` — a map from a title keyword (for example `benchy`) to its lines; every keyword keeps at least three.
+- `color_roasts.json`, `reprint_failed.json`, `history_callbacks.json` — keyed banks for color families, prints that follow earlier failures, and callbacks to earlier prints.
+- `fragments.json` — openers, comparisons, verdicts and compliments the engine can frame a drawn line with. `dictionary.json` defines 3D printing terms (and the title keyword some of them route to). `blocklist.json` lists words no roast may contain.
+- `dark_humor.json` — an optional bank of edgier generic lines.
+
+A new entry is an object with three fields:
+
+```json
+{"id": "generic-a-unique-stable-name", "family": "generic-a-unique-stable-name", "text": "A line about {title}."}
+```
+
+- `id` is stable and unique across the whole corpus. It is stored, not derived from the text, so editing a line keeps its repeat history — pick a descriptive id and never reuse one.
+- `family` names the cooldown group: a line and its variants share a family so they do not cluster in consecutive draws. A line with no variants is its own family.
+- `text` is the template. It may use only these slots, filled from the print's own facts: `{title}`, `{duration}`, `{material}`, `{color}`, `{grams}`, `{printer}`, `{copies}`, `{print_number}`, `{times}`, `{hour}`, `{last_title}`, `{prev_fails}`, `{fail_streak}`, `{color_streak}`, `{top_color}`. A template that needs a fact a print does not have is simply never drawn for that print.
+
+Every line, once filled against a fully populated print, must meet the roast contract: one sentence, at most 20 words, no quotes, no hashtags, nothing from the blocklist. The target is always the print, the choice, or the printer — never the operator. Write original lines; do not copy joke lists or kits.
+
+CI runs the corpus gates in `tests/test_roast_corpus.py` on every pull request, and they cover a contributed entry automatically — the gates iterate the bank files and the loaded corpus, they are not a fixed list of lines. The gates check: valid JSON with provenance fields (`_about`, `_phase`, `_license`) in each bank file, bank minimum sizes, no exact duplicates and no near-duplicates (difflib ratio over 0.88) anywhere across the banks, known slots only, every entry filling cleanly and meeting the contract, the blocklist, and stable ids and families. Run them locally before pushing (the near-duplicate gate compares every pair of lines and takes a while):
+
+```bash
+python -m pytest -q tests/test_roast_corpus.py tests/core/test_roast_engine.py
+```
+
+Adding entries to an existing bank needs no code. A brand-new bank file is gated for format and ids by the same tests, but drawing from it is an engine change in `print_handy/core/roast.py` — discuss that in an issue first.
+
+### Add house roasts on your own install, no pull request needed
+
+An operator can keep private house roasts without forking: point the `vision.roast_custom_bank` setting (environment form `PRINT_HANDY__VISION__ROAST_CUSTOM_BANK`) at a local JSON file and its valid entries are drawn alongside the shipped corpus on completed prints:
+
+```json
+{"entries": [
+  {"id": "custom-workshop-motto", "family": "custom-house", "text": "The workshop gremlin union has certified {title} as officially finished."},
+  "House rule number nine: {title} gets a bow before it gets a shelf."
+]}
+```
+
+The file is a JSON object with an `entries` list (a bare list works too); each entry is an object as above or a bare string. At load time the engine runs the same gates as the shipped corpus — schema, known slots, the filled contract, the blocklist, and no exact or near duplicates against the shipped lines or each other. A refused entry is skipped with the problem named in the log (the entry id and the reason), the valid entries still load, and a missing or unreadable file simply means no custom roasts: roasts continue from the shipped corpus and no print post is ever blocked. `bot check` names the first custom-bank problem as well.
+
 ## Open a pull request
 
 - Open a pull request against `main` and use the repository pull request template.

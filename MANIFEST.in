@@ -1,4 +1,4 @@
 # Ship the package's runtime data files in the sdist as well as the wheel:
 # print_handy reads them via Path(__file__) (Orca templates, data files,
 # HMS data, the Bambu CA bundle).
-recursive-include print_handy *.json *.toml *.pem *.md
+recursive-include print_handy *.json *.toml *.pem *.md *.js

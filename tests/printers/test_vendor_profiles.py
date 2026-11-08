@@ -36,7 +36,7 @@ def without_added(data):
     data.get("bot", {}).pop("platform", None)  # added by #164, after the golden files were captured
     for key in ("auto_light_off_minutes", "light_object"):  # added by #516, after capture
         data.get("vision", {}).pop(key, None)
-    for key in ("local_detector_enabled", "local_model_path"):  # added by #455, after capture
+    for key in ("local_detector_enabled", "local_model_path", "local_empty_enabled"):  # added by #455, after capture
         data.get("vision", {}).pop(key, None)
     data.get("vision", {}).pop("watch_source", None)  # added by #455's verdict source, after capture
     for key in ("vertical_short", "vertical_short_mode", "vertical_short_overlay"):  # added by #317, after capture
@@ -51,6 +51,7 @@ def without_added(data):
     data.pop("agent", None)  # added by #524 stage 3 (the stray-chat agent lane), after capture
     data.pop("printers", None)  # added by #333 (the [[printers]] roster), after the golden files were captured
     data.get("vision", {}).pop("roast_enabled", None)  # added by the roast switch, after capture
+    data.get("vision", {}).pop("roast_custom_bank", None)  # added by #1002 Phase 4, after capture
     data.get("discord", {}).pop("clarify_ui", None)  # added by #524 stage 2, after capture
     data.get("discord", {}).pop("mention_starter_on_complete", None)  # added with starter mentions, after capture
     data.pop("spool", None)  # added by #512 (spool.prompt_brand), after the golden files were captured
