@@ -16,6 +16,13 @@
 #   downgrade the pre-upgrade backup restored into a new tree, previous image on it: healthy,
 #             seeds intact. This is the rollback path; no automatic database downgrade exists.
 #
+# Phases that run the previous image (prev, downgrade) run with the previous release's own
+# example env, generated from that release's tag in this repo: a shipped release refuses
+# settings keys introduced after it, so feeding it the candidate's env fails prev:healthy on a
+# configuration no real install of that release could ever have run with. The in-place
+# downgrade probe is the one deliberate exception — it keeps the candidate env, simulating a
+# user who downgrades in place with their current, candidate-era config.
+#
 # The backup (tests/docker/lifecycle_backup.py) is taken with every container stopped: each
 # SQLite file is copied with the SQLite backup API, stale -wal/-shm files are dropped, PRAGMA
 # integrity_check must answer ok, and a SHA-256 manifest is written. Every phase runs as its own Compose project on an internal
@@ -62,12 +69,43 @@ sed -e "s#^DISCORD_BOT_TOKEN=.*#DISCORD_BOT_TOKEN=#" \
     -e "s#^PRINT_HANDY__DISCORD__CHAT_ID=.*#PRINT_HANDY__DISCORD__CHAT_ID=100000000000000001#" \
     -e "s#^PRINT_HANDY__DISCORD__ALLOWED_USER_IDS=.*#PRINT_HANDY__DISCORD__ALLOWED_USER_IDS=200000000000000002#" \
     "$repo/.env.example" > "$work/.env"
+cp "$work/.env" "$work/.env.candidate"  # pristine: phase() swaps $work/.env per phase
+
+# The previous release's own example env for the phases that run it (prev, downgrade):
+# derived from the previous image's version label -> that tag's .env.example in this repo,
+# through the same substitutions as the candidate env above. Needs the tag in the checkout
+# (the workflows fetch full history). If the version does not resolve to a repo tag, fall
+# back to the candidate env and say so — never fail the gate over this.
+prev_version=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$previous" 2> /dev/null || true)
+if [[ "$prev_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && git -C "$repo" show "$prev_version:.env.example" > "$work/.env.prev.raw" 2> /dev/null; then
+    sed -e "s#^DISCORD_BOT_TOKEN=.*#DISCORD_BOT_TOKEN=#" \
+        -e "s#^PRINT_HANDY__DISCORD__CHAT_ID=.*#PRINT_HANDY__DISCORD__CHAT_ID=100000000000000001#" \
+        -e "s#^PRINT_HANDY__DISCORD__ALLOWED_USER_IDS=.*#PRINT_HANDY__DISCORD__ALLOWED_USER_IDS=200000000000000002#" \
+        "$work/.env.prev.raw" > "$work/.env.prev"
+    rm -f "$work/.env.prev.raw"
+    record identity:previous-env info "prev and downgrade phases use the $prev_version example env (git tag $prev_version:.env.example)"
+else
+    cp "$work/.env" "$work/.env.prev"
+    record identity:previous-env info "prev and downgrade phases use the candidate example env (previous version '${prev_version:-unknown}' did not resolve to a repo tag)"
+fi
 export ACCEPTANCE_FIXTURES="$work/fixture"
 
 # phase NAME IMAGE TREE: the Compose wrapper for one phase. Shell variables beat .env in Compose.
+# The env file is selected per phase: phases running the previous image (prev, downgrade) get
+# the previous release's own example env (.env.prev) — it refuses candidate-era keys — while
+# every other phase gets the candidate env (.env). The in-place downgrade probe (inplace) is
+# the deliberate exception: it keeps the candidate env, simulating a downgrade in place with a
+# current config. --env-file feeds Compose interpolation; the selected file is also copied
+# onto $work/.env because the services' env_file: [.env] resolves in the project directory —
+# the two channels must never disagree.
 phase() { local name=$1 image=$2 tree=$3; shift 3
+    local env_file="$work/.env" env_src="$work/.env.candidate"
+    case "$name" in
+        prev|downgrade) env_file="$work/.env.prev"; env_src="$work/.env.prev" ;;
+    esac
+    cp "$env_src" "$work/.env"
     (cd "$work" && PRINT_HANDY_IMAGE="$image" PRINT_HANDY_DATA="$tree" PRINT_HANDY_SPOOLMAN_DATA="$tree/spoolman" \
-        docker compose -p "ph-life-$name-$run_id" "${files[@]}" "$@"); }
+        docker compose --env-file "$env_file" -p "ph-life-$name-$run_id" "${files[@]}" "$@"); }
 new_tree() {  # new_tree DIR: an empty data tree owned by the image's uid 1000
     # Both state-volume names (#914): the previous image seeds under
     # hermes/, this one under state/ — the upgrade phase exercises the
