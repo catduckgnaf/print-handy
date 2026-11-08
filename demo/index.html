@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Print Handy — Live Demo</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="banner" role="note">Demo — simulated printer, nothing is printed, sample data only.</div>
+<div class="layout">
+  <aside class="sidebar" aria-label="Channels">
+    <div class="server-name">Print Handy Demo</div>
+    <div class="channel active"># print-handy-demo</div>
+    <div class="channel muted"># welcome</div>
+    <div class="sidebar-note">Static demo. No account, no install, no real printer.</div>
+    <button id="reset" type="button">Reset demo</button>
+  </aside>
+  <main class="chat">
+    <header class="chat-header"><span># print-handy-demo</span><span class="topic">Try the conversation before you install</span></header>
+    <section class="samples" aria-label="Sample journeys">
+      <p>Pick a pre-seeded sample:</p>
+      <div id="samples"></div>
+      <p class="hint">Or drop a file anywhere — it is theatre only. The demo shows its name and size and does not parse it; the playable set is the pre-seeded samples above.</p>
+    </section>
+    <div id="messages" class="messages" aria-live="polite"></div>
+    <div id="typing" class="typing" hidden><span class="avatar bot-avatar">PH</span> Print Handy is typing<span class="dots">…</span></div>
+    <form id="composer" class="composer">
+      <label class="visually-hidden" for="file">Attach a file (theatre only)</label>
+      <input id="file" type="file">
+      <label class="visually-hidden" for="input">Message # print-handy-demo</label>
+      <input id="input" type="text" autocomplete="off" placeholder="Message #print-handy-demo — try: spools, benchy, big plate, or anything else">
+      <button type="submit">Send</button>
+    </form>
+  </main>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
