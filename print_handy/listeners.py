@@ -53,7 +53,6 @@ import sys
 from dataclasses import dataclass
 
 from . import instance as _instance
-from .printers import base as _printer_base
 
 IMPLEMENTED = "implemented"
 PLANNED = "planned"
@@ -117,14 +116,6 @@ DOMAINS = {
         name="offline", connection="offline", availability=NONE,
         transport="none: Print Handy never contacts the printer"),
 }
-
-# The registry covers every connection a vendor may declare; a connection
-# added to CONNECTIONS without a domain is a programming error, not a new
-# supervisor state.
-_missing = [c for c in _printer_base.CONNECTIONS if c not in DOMAINS]
-if _missing:
-    raise RuntimeError(f"listener registry has no domain for connections {_missing}")
-
 
 def domain_for_connection(connection):
     """The listener domain serving `connection`, or None when unknown."""
@@ -313,6 +304,21 @@ def main(argv=None):
             print(f"listener: configuration unresolved: {exc}", file=sys.stderr)
             return 2
         raise
+
+
+# Importing the printers package runs vendor discovery, which imports the
+# Bambu listener, which imports healthcheck, which calls back into this module
+# at import time. This stays below every definition so that chain finds them
+# whichever module was imported first (`python3 -m print_handy.healthcheck`
+# included).
+from .printers import base as _printer_base  # noqa: E402
+
+# The registry covers every connection a vendor may declare; a connection
+# added to CONNECTIONS without a domain is a programming error, not a new
+# supervisor state.
+_missing = [c for c in _printer_base.CONNECTIONS if c not in DOMAINS]
+if _missing:
+    raise RuntimeError(f"listener registry has no domain for connections {_missing}")
 
 
 if __name__ == "__main__":
