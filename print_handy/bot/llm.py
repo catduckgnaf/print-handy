@@ -19,6 +19,14 @@ from ..hermes import _config
 # records store (or leaking one channel's context into another).
 _HISTORY: dict[str, list[dict[str, str]]] = {}
 _HISTORY_LOCK = threading.Lock()
+# One lock per session, serializing a whole ask (snapshot -> request ->
+# append). _HISTORY_LOCK alone only makes each read and append atomic: two
+# overlapping asks for the same session could snapshot before the other's
+# turn landed, so the later ask was answered without that context and the
+# turns were stored in completion order rather than ask order. Entries live
+# and die with the session's history (see clear_history), so the lock store
+# grows no faster than the history store it mirrors.
+_HISTORY_LOCKS: dict[str, threading.Lock] = {}
 MAX_HISTORY_MESSAGES = 8
 MAX_HISTORY_CHARS = 1200
 
@@ -96,17 +104,38 @@ def clear_history(session=None):
     with _HISTORY_LOCK:
         if session is None:
             _HISTORY.clear()
+            _HISTORY_LOCKS.clear()
         else:
             _HISTORY.pop(str(session), None)
+            _HISTORY_LOCKS.pop(str(session), None)
+
+
+def _session_lock(key):
+    """The lock serializing one session's asks, created on first use."""
+    with _HISTORY_LOCK:
+        lock = _HISTORY_LOCKS.get(key)
+        if lock is None:
+            lock = _HISTORY_LOCKS[key] = threading.Lock()
+        return lock
 
 
 def ask(text, help_text, *, session=None, cfg=None, opener=None):
     """(reply, command or None). Raises on transport errors; the caller falls back to the help text.
 
     Goes through the chat tier (ai_routes), so [ai.chat] may add a fallback model.
+    Asks for one session are serialized on that session's lock, so a follow-up
+    always sees the previous turn and turns are stored in ask order; different
+    sessions still run concurrently.
     """
     user_text = str(text)[:2000]
     key = str(session or "")
+    if key:
+        with _session_lock(key):
+            return _ask_turn(user_text, help_text, key, cfg, opener)
+    return _ask_turn(user_text, help_text, key, cfg, opener)
+
+
+def _ask_turn(user_text, help_text, key, cfg, opener):
     with _HISTORY_LOCK:
         history = [dict(message) for message in _HISTORY.get(key, ())] if key else []
     answer, _served_by = ai_routes.call(
