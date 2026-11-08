@@ -214,6 +214,19 @@ jobs:
           files: coverage.xml
           flags: offline-tests
           fail_ci_if_error: false
+      - name: Coverage floors for the guard modules (reporting only, 3.12 legs only)
+        # Deep-dive expansion (P3): scripts/coverage_floors.py checks this
+        # shard's coverage.xml against per-module line floors for the
+        # start-guard and refusal-path modules only. The floors were
+        # measured from a focused guard-test run and set below it; each
+        # shard splits the suite, so a shard's rates can sit below the
+        # full-suite rates the floors were measured against. The step is
+        # therefore reporting-only (continue-on-error) until the floors
+        # are confirmed against a merged full-suite report; a red step
+        # here is the signal to do that confirmation, not a merge block.
+        if: matrix.python-version == '3.12'
+        continue-on-error: true
+        run: python3 scripts/coverage_floors.py coverage.xml
 
   offline-tests-result:
     # Keeps the required check names "offline-tests (3.12)" and "offline-tests (3.14)": passes only when
@@ -435,6 +448,21 @@ jobs:
               --json "slicer-timing/run-$i.json" \
               || echo "::warning title=Timing (reporting only)::repeat $i had a failed or errored flow"
           done
+      - name: Time one Discord standalone-transport case (3 repeats, reporting only)
+        # Deep-dive expansion (#734 follow-up): the leg's timed cases all run the hermes
+        # transport, so the standalone Discord bot flow — the other Discord surface a user
+        # waits on — was never timed against the real slicer. single-part is timed on the
+        # standalone transport and recorded like the hermes runs, but it is NOT part of the
+        # baseline comparison below: it has no recorded baseline yet, and the comparison
+        # treats a baselineless case as a problem. Its proposed baseline is written with the
+        # hermes one so a reviewed baseline can be added once a few runs of data exist —
+        # the same staging the hermes leg went through before its baseline was recorded.
+        run: |
+          for i in 1 2 3; do
+            xvfb-run -a python -m tests.corpus.time_corpus --real-slicer --transport standalone --case single-part \
+              --json "slicer-timing/standalone-run-$i.json" \
+              || echo "::warning title=Timing (reporting only)::standalone repeat $i had a failed or errored flow"
+          done
       - name: Compare with the real-slicer baseline (warnings only)
         run: >-
           python -m tests.corpus.timing_gate slicer-timing/run-1.json slicer-timing/run-2.json slicer-timing/run-3.json
@@ -447,6 +475,13 @@ jobs:
           --baseline tests/corpus/timing_baseline_real_slicer.json --record
           --recorded-from "CI run ${{ github.run_id }} (${{ github.sha }}), artifact slicer-timing-real, median of 3"
           > slicer-timing/proposed-baseline.json || true
+      - name: Proposed standalone baseline from this runner (for review, never applied automatically)
+        if: always()
+        run: >-
+          python -m tests.corpus.timing_gate slicer-timing/standalone-run-*.json
+          --baseline tests/corpus/timing_baseline_real_slicer.json --record
+          --recorded-from "CI run ${{ github.run_id }} (${{ github.sha }}), artifact slicer-timing-real, median of 3, standalone transport"
+          > slicer-timing/proposed-baseline-standalone.json || true
       - uses: actions/upload-artifact@v7
         if: always()
         with:
