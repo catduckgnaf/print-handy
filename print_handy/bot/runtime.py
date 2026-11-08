@@ -165,6 +165,8 @@ _TASK_INTENT_SUGGESTIONS = (
     (re.compile(rf"^{_LEAD}(?:change|swap|replace)\s+(?:a\s+|the\s+)?(?:filament|spool|roll)(?:\s+(?:roll|spool))?(?:\s+in\s+slot\s+[1-4])?{_END}", re.I), "/spool"),
     (re.compile(rf"^{_LEAD}(?:add|create|new)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:filament|spool|roll){_END}", re.I), "/spool"),
     (re.compile(rf"^(?:please\s+)?(?:what|which)\s+(?:filament|spool|color|colour)s?\s+(?:is|are)\s+loaded{_END}", re.I), "/print-spools"),
+    (re.compile(rf"^(?:please\s+)?what(?:'s|\s+is)\s+in\s+the\s+(?:ams|ifs){_END}", re.I), "/print-spools"),
+    (re.compile(rf"^(?:please\s+)?(?:which\s+spools\s+are\s+loaded|show\s+loaded\s+spools|check\s+filament\s+slots|how\s+much\s+filament\s+is\s+left){_END}", re.I), "/print-spools"),
     # Print control
     (re.compile(rf"^{_LEAD}(?:stop|cancel|abort)\s+(?:the\s+)?(?:current\s+)?print{_END}", re.I), "/print-stop"),
     (re.compile(rf"^{_LEAD}pause\s+(?:the\s+)?(?:current\s+)?print{_END}", re.I), "/print-pause"),
@@ -191,8 +193,12 @@ _TASK_INTENT_SUGGESTIONS = (
     (re.compile(rf"^how\s+long\s+(?:left|to\s+go|until\s+(?:it\s+is|it's|its)\s+done){_END}", re.I), "/print-status"),
     (re.compile(rf"^when\s+will\s+(?:it|the\s+print|this)\s+(?:finish|be\s+done|be\s+finished){_END}", re.I), "/print-status"),
     (re.compile(rf"^(?:the\s+|my\s+)?print\s+(?:just\s+)?failed{_END}", re.I), "/print-status"),
+    (re.compile(rf"^(?:please\s+)?(?:what(?:'s|\s+is)\s+the\s+eta|how\s+much\s+time\s+is\s+left|time\s+remaining|percent\s+complete|what\s+layer\s+is\s+it\s+on){_END}", re.I), "/print-status"),
+    (re.compile(rf"^(?:please\s+)?(?:what\s+temp(?:erature)?\s+is\s+the\s+(?:bed|nozzle)|(?:hotend|bed)\s+temperature|how\s+hot\s+is\s+the\s+(?:nozzle|bed)|is\s+the\s+bed\s+heated|is\s+the\s+nozzle\s+hot){_END}", re.I), "/print-status"),
+    (re.compile(rf"^{_LEAD}(?:show\s+(?:me\s+)?(?:the\s+)?camera|check\s+(?:the\s+)?camera|take\s+a\s+snapshot|camera\s+view|webcam\s+snapshot){_END}", re.I), "/print-camera"),
     # Reprint and calibration
-    (re.compile(rf"^{_LEAD}(?:reprint|print\s+(?:it\s+)?again){_END}", re.I), "/print-again"),
+    (re.compile(rf"^{_LEAD}(?:reprint|print\s+(?:it\s+)?again|retry\s+(?:the|that|last)\s+print|try\s+that\s+print\s+again|run\s+that\s+print\s+again|print\s+another\s+(?:one|copy)|print\s+one\s+more){_END}", re.I), "/print-again"),
+    (re.compile(rf"^{_LEAD}(?:(?:print|start)\s+(?:the\s+)?)?next\s+plate{_END}", re.I), "/print-next"),
     (re.compile(rf"^{_LEAD}(?:run\s+)?(?:bed\s+leveling|bed\s+level|auto\s+bed\s+leveling|calibration){_END}", re.I), "/print-calibrate"),
     (re.compile(rf"^{_LEAD}(?:calibrate|level)\s+(?:the\s+)?bed{_END}", re.I), "/print-calibrate"),
     # Maintenance and firmware
@@ -207,17 +213,42 @@ _TASK_INTENT_SUGGESTIONS = (
     (re.compile(rf"^(?:the\s+|my\s+)?extruder\s+is\s+clicking{_END}", re.I), "/print-troubleshoot clog"),
     (re.compile(rf"^extruder\s+clicking{_END}", re.I), "/print-troubleshoot clog"),
     (re.compile(rf"^(?:the\s+)?(?:filament|extruder)\s+(?:won't|wont|not)\s+(?:feed|extrude){_END}", re.I), "/print-troubleshoot clog"),
+    (re.compile(rf"^(?:the\s+|my\s+)?extruder\s+(?:is\s+)?skipping{_END}", re.I), "/print-troubleshoot clog"),
+    (re.compile(rf"^(?:(?:the\s+|my\s+)?nozzle\s+is\s+jammed|jammed\s+nozzle){_END}", re.I), "/print-troubleshoot clog"),
+    (re.compile(rf"^(?:blocked\s+hotend|(?:the\s+|my\s+)?hotend\s+is\s+(?:clogged|jammed)){_END}", re.I), "/print-troubleshoot clog"),
+    (re.compile(rf"^under\s*(?:extruding|extrusion){_END}", re.I), "/print-troubleshoot clog"),
+    (re.compile(rf"^nothing\s+is\s+coming\s+out\s+of\s+(?:the\s+)?nozzle{_END}", re.I), "/print-troubleshoot clog"),
+    (re.compile(rf"^(?:the\s+)?filament\s+(?:is\s+)?not\s+coming\s+out(?:\s+of\s+(?:the\s+)?nozzle)?{_END}", re.I), "/print-troubleshoot clog"),
     (re.compile(rf"^first\s+layer\s+(?:is\s+)?(?:not\s+sticking|won't\s+stick|wont\s+stick|peeling|coming\s+(?:loose|off)){_END}", re.I), "/print-troubleshoot first-layer"),
     (re.compile(rf"^(?:the\s+)?prints?\s+(?:won't|wont|not)\s+stick(?:ing)?{_END}", re.I), "/print-troubleshoot first-layer"),
     (re.compile(rf"^bed\s+adhesion\s+(?:problem|problems|issue|issues|trouble){_END}", re.I), "/print-troubleshoot first-layer"),
     (re.compile(rf"^spaghetti\s+on\s+(?:the\s+)?bed{_END}", re.I), "/print-troubleshoot first-layer"),
     (re.compile(rf"^(?:the\s+|my\s+)?print\s+(?:is\s+|turned\s+into\s+|became\s+)?spaghetti{_END}", re.I), "/print-troubleshoot first-layer"),
+    (re.compile(rf"^(?:(?:it'?s|it\s+is|(?:the\s+|my\s+)?print\s+is)\s+)?making\s+(?:spaghetti|pasta){_END}", re.I), "/print-troubleshoot first-layer"),
+    (re.compile(rf"^(?:(?:the\s+|my\s+)?print\s+)?turned\s+into\s+(?:pasta|noodles){_END}", re.I), "/print-troubleshoot first-layer"),
+    (re.compile(rf"^(?:extruding\s+into\s+thin\s+air|printing\s+(?:in\s+mid\s*air|air)){_END}", re.I), "/print-troubleshoot first-layer"),
+    (re.compile(rf"^(?:(?:bird'?s?|birds)\s+nest|filament\s+pile)\s+on\s+(?:the\s+)?bed{_END}", re.I), "/print-troubleshoot first-layer"),
+    (re.compile(rf"^(?:bed\s+)?adhesion\s+failed{_END}", re.I), "/print-troubleshoot first-layer"),
+    (re.compile(rf"^(?:(?:the\s+|my\s+)?(?:print|part)\s+)?(?:popped\s+off\s+(?:the\s+)?bed|came\s+(?:loose|off\s+(?:the\s+)?bed)){_END}", re.I), "/print-troubleshoot first-layer"),
+    (re.compile(rf"^(?:the\s+|my\s+)?print\s+unstuck{_END}", re.I), "/print-troubleshoot first-layer"),
+    (re.compile(rf"^first\s+layer\s+peeled{_END}", re.I), "/print-troubleshoot first-layer"),
+    (re.compile(rf"^corners\s+are\s+(?:lifting|warping){_END}", re.I), "/print-troubleshoot first-layer"),
+    (re.compile(rf"^(?:the\s+|my\s+)?print\s+is\s+warping{_END}", re.I), "/print-troubleshoot first-layer"),
+    (re.compile(rf"^warping\s+off\s+(?:the\s+)?bed{_END}", re.I), "/print-troubleshoot first-layer"),
+    (re.compile(rf"^elephant'?s?\s+foot{_END}", re.I), "/print-troubleshoot first-layer"),
     (re.compile(rf"^(?:i\s+have\s+|there\s+is\s+)?heat\s+creep{_END}", re.I), "/print-troubleshoot heat-creep"),
     (re.compile(rf"^(?:the\s+|my\s+)?bed\s+is\s+(?:not\s+level|unlevel|uneven){_END}", re.I), "/print-troubleshoot bed-level"),
     (re.compile(rf"^uneven\s+first\s+layer{_END}", re.I), "/print-troubleshoot bed-level"),
     (re.compile(rf"^first\s+layer\s+is\s+uneven{_END}", re.I), "/print-troubleshoot bed-level"),
-    (re.compile(rf"^(?:i\s+have\s+)?ringing\s+(?:in|on)\s+(?:my\s+|the\s+)?prints?{_END}", re.I), "/print-troubleshoot ringing"),
+    (re.compile(rf"^(?:i\s+have\s+)?(?:ringing|ghosting)\s+(?:in|on)\s+(?:my\s+|the\s+)?prints?{_END}", re.I), "/print-troubleshoot ringing"),
     (re.compile(rf"^(?:ringing|ghosting){_END}", re.I), "/print-troubleshoot ringing"),
+    (re.compile(rf"^echoing\s+on\s+(?:the\s+)?walls{_END}", re.I), "/print-troubleshoot ringing"),
+    (re.compile(rf"^(?:ripples|vibrations)\s+on\s+(?:the\s+|my\s+)?prints?{_END}", re.I), "/print-troubleshoot ringing"),
+    # Dedicated defect lookups
+    (re.compile(rf"^(?:stringing\s+on\s+(?:my\s+|the\s+)?print|too\s+much\s+stringing|getting\s+fine\s+hairs|filament\s+whiskers|cobwebs\s+on\s+(?:the\s+)?print|oozing\s+between\s+parts){_END}", re.I), "/print-lookup stringing"),
+    (re.compile(rf"^(?:layers?\s+shifted|layers\s+are\s+misaligned|(?:the\s+|my\s+)?print\s+shifted|staircase\s+effect|skipped\s+steps){_END}", re.I), "/print-lookup layer shift"),
+    (re.compile(rf"^(?:layers\s+are\s+splitting|layer\s+separation|delamination|cracking\s+between\s+layers){_END}", re.I), "/print-lookup layer separation"),
+    (re.compile(rf"^(?:wet\s+filament|popping\s+sounds?\s+from\s+(?:the\s+)?nozzle|steam\s+from\s+(?:the\s+)?nozzle|bubbly\s+extrusion){_END}", re.I), "/print-lookup wet filament"),
     # Shopping: buying filament goes through the spool flows; running low
     # starts with seeing what is loaded and how much is left.
     (re.compile(rf"^{_LEAD}(?:buy|order|purchase)\s+(?:more\s+)?(?:filament|spools?|pla|petg|abs|asa|tpu|nylon){_END}", re.I), "/spool"),
@@ -261,15 +292,20 @@ def _task_suggestion(text):
     found = _match_task_intent(clean)
     if found:
         return found
-    # Phase-2 typo tolerance: fix misspelled intent words ("do some
-    # maintance", "seperate the bed and nozzle") and try again. The result is
-    # still only a suggestion the user confirms; nothing runs from it.
-    corrected = fuzzy.correct_typos(clean, _INTENT_VOCABULARY)
-    if corrected.casefold() != clean.casefold():
+    # Upfront typo-folding resolves curated phrases and single-word typos
+    # (e.g. "spegatti" -> "spaghetti", "cancle" -> "cancel", "seperate" -> "separate").
+    folded = fuzzy.typo_fold(clean)
+    if folded.casefold() != clean.casefold():
+        found = _match_task_intent(folded)
+        if found:
+            return found
+    # Second pass: correct near-miss typos against the intent vocabulary.
+    corrected = fuzzy.correct_typos(folded, _INTENT_VOCABULARY)
+    if corrected.casefold() != folded.casefold():
         found = _match_task_intent(corrected)
         if found:
             return found
-    return _bed_down_fuzzy(clean)
+    return _bed_down_fuzzy(clean) or _bed_down_fuzzy(folded)
 
 
 def _match_task_intent(clean):
@@ -281,7 +317,9 @@ def _match_task_intent(clean):
             query = " ".join((match.groupdict().get("q") or "").split()).strip(" ?.!")
             if not query:
                 continue
-            return cmd.replace("{q}", query)
+            query_folded = fuzzy.typo_fold(query)
+            query_corrected = fuzzy.correct_typos(query_folded, _INTENT_VOCABULARY)
+            return cmd.replace("{q}", query_corrected)
         return cmd
     return None
 

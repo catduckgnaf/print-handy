@@ -107,6 +107,9 @@ def main() -> int:
     except settings.SettingsError as exc:
         print(f"live gate: configuration unresolved: {exc}", file=sys.stderr)
         return 2
+    warning = settings.unknown_settings_warning()
+    if warning:
+        print(f"live gate: WARNING {warning}", file=sys.stderr)
     if config.ready:
         print(f"live gate: enabled and configured; Activity server on "
               f"127.0.0.1:{config.port} for {config.activity_origin}")

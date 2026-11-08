@@ -270,3 +270,132 @@ def test_heavy_worker_registration():
     ):
         assert entry in heavy_worker.ALLOWED
         assert entry in prepared_intake._OFFLOAD
+
+
+# ------------------------------------------- real OpenSCAD binary (expansion)
+#
+# The seam test above proves _run_openscad can export one cube. The tests
+# below run the whole cad_split execution path against the real binary:
+# -D defines choosing geometry, and prepare_cad_split end to end (both
+# halves, the combined plate, the dowels, and the boolean verification),
+# asserting on the geometry of the files that come back — never merely
+# that openscad was invoked. Gated exactly like the seam test: they skip
+# where openscad is absent and execute in the offline CI legs, which
+# install it.
+
+needs_openscad = pytest.mark.skipif(not shutil.which('openscad'),
+                                    reason='openscad not installed')
+
+
+@needs_openscad
+def test_run_openscad_defines_choose_the_part_and_scale_the_geometry(tmp_path: Path):
+    scad = tmp_path / 'parts.scad'
+    scad.write_text(
+        'part = "small";\n'
+        'w = 4;\n'
+        'if (part == "small") cube([w, w, w]);\n'
+        'if (part == "big") cube([3 * w, 2 * w, w]);\n',
+        encoding='utf-8')
+
+    def dims(name, defines=None):
+        out = tmp_path / name
+        cad_split._run_openscad(scad, out, defines=defines)
+        return describe_triangles(read_stl_triangles(out))['dimensions_mm']
+
+    assert dims('default.stl') == [4.0, 4.0, 4.0]
+    assert dims('big.stl', {'part': 'big'}) == [12.0, 8.0, 4.0]
+    assert dims('wide.stl', {'w': 7}) == [7.0, 7.0, 7.0]
+    assert dims('bigwide.stl', {'part': 'big', 'w': 7}) == [21.0, 14.0, 7.0]
+
+
+@needs_openscad
+def test_prepare_cad_split_real_openscad_end_to_end(tmp_path: Path):
+    # A 60 x 20 x 10 bar cut at x=0 with one 4 mm bore through the joint:
+    # small enough for a fast real boolean, exact enough to assert on.
+    stl_path = tmp_path / 'bar.stl'
+    write_binary_stl(_box_triangles(-30.0, -10.0, 0.0, 30.0, 10.0, 10.0), stl_path)
+    plan = {
+        'plan_id': 'openscad_e2e_bar',
+        'cut_axis': 'x',
+        'cut_coord_mm': 0.0,
+        'bed_mm': [220, 220, 250],
+        'bores': [{'y_mm': 0.0, 'z_mm': 5.0, 'bore_diameter_mm': 4.0,
+                   'depth_each_side_mm': 8.0, 'pin_chamfer_mm': 0.3,
+                   'pin_tip_diameter_mm': 2.8}],
+    }
+    outdir = tmp_path / 'out_e2e'
+    report = cad_split.prepare_cad_split(stl_path, outdir, plan, execute_openscad=True)
+
+    assert report['openscad_executed'] is True
+    assert set(report['generated_split_files']) == {'left', 'right', 'both_halves'}
+    for name in report['generated_split_files'].values():
+        assert (outdir / name).is_file()
+
+    left = describe_triangles(read_stl_triangles(
+        outdir / report['generated_split_files']['left']))
+    right = describe_triangles(read_stl_triangles(
+        outdir / report['generated_split_files']['right']))
+    for half in (left, right):
+        assert half['watertight'] is True and half['winding_consistent'] is True
+        assert half['shell_count'] == 1
+        assert half['dimensions_mm'] == pytest.approx([30.0, 20.0, 10.0], abs=0.05)
+    # The cut interface sits exactly on the plan's cut plane.
+    assert left['bounds_max_mm'][0] == pytest.approx(0.0, abs=0.02)
+    assert right['bounds_min_mm'][0] == pytest.approx(0.0, abs=0.02)
+
+    verification = report['boolean_verification']
+    assert verification is not None
+    assert verification['whole_volume_mm3'] == pytest.approx(12000.0, abs=1.0)
+    # Each half is the 6000 mm3 block minus its half of the bore cylinder.
+    expected_removed = math.pi * 2.0 ** 2 * 16.0
+    assert verification['expected_bore_volume_mm3'] == pytest.approx(expected_removed, abs=0.01)
+    removed = verification['whole_volume_mm3'] - (
+        verification['left_volume_mm3'] + verification['right_volume_mm3'])
+    assert removed == pytest.approx(expected_removed, abs=35.0)
+
+    # The combined one-plate render holds both halves at once.
+    both = describe_triangles(read_stl_triangles(
+        outdir / report['generated_split_files']['both_halves']))
+    assert both['shell_count'] == 2
+    assert both['dimensions_mm'][0] > 60.0  # the halves sit apart on the plate
+
+    # The dowel STL matches the pin the validated plan derived (3.6 x 13.5).
+    dowels = describe_triangles(read_stl_triangles(outdir / report['printable_dowels_stl']))
+    assert dowels['dimensions_mm'][0] == pytest.approx(3.6, abs=0.05)
+    assert dowels['dimensions_mm'][2] == pytest.approx(13.5, abs=0.05)
+
+    on_disk = json.loads((outdir / 'split_validation.json').read_text(encoding='utf-8'))
+    assert on_disk['openscad_executed'] is True
+    assert on_disk['boolean_verification']['whole_volume_mm3'] == \
+        verification['whole_volume_mm3']
+
+
+@needs_openscad
+def test_prepare_cad_split_real_openscad_rack_preset_end_to_end(tmp_path: Path):
+    # The shipped rack preset (4 bores, 245 mm bar) through the real binary.
+    # The source is centered on Y, unlike the fake-run test's offset box:
+    # the preset's half boxes span y=-25..25, so an offset source would be
+    # clipped by the real boolean (the fake run cannot see that).
+    stl_path = tmp_path / '10to19_adapter_with_ears.stl'
+    write_binary_stl(_box_triangles(-122.5, -22.25, 0.0, 122.5, 22.25, 20.0), stl_path)
+    outdir = tmp_path / 'out_rack_real'
+    report = cad_split.prepare_cad_split(
+        stl_path, outdir, 'rack_adapter_10to19', execute_openscad=True)
+
+    assert report['openscad_executed'] is True
+    verification = report['boolean_verification']
+    assert verification is not None
+    assert verification['whole_volume_mm3'] == pytest.approx(245 * 44.5 * 20, abs=1.0)
+
+    left = describe_triangles(read_stl_triangles(
+        outdir / report['generated_split_files']['left']))
+    right = describe_triangles(read_stl_triangles(
+        outdir / report['generated_split_files']['right']))
+    for half in (left, right):
+        assert half['watertight'] is True and half['shell_count'] == 1
+        assert half['dimensions_mm'][0] == pytest.approx(122.5, abs=0.05)
+        assert half['dimensions_mm'][1] == pytest.approx(44.5, abs=0.05)
+        assert half['dimensions_mm'][2] == pytest.approx(20.0, abs=0.05)
+    total = (left['abs_volume_mm3'] + right['abs_volume_mm3']
+             + report['expected_bore_removal_volume_mm3'])
+    assert total == pytest.approx(245 * 44.5 * 20, abs=40.0)

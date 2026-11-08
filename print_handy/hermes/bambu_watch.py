@@ -616,6 +616,8 @@ class BambuPrintMonitor:
                     self._record_watchdog_event(verdict, action="suppressed")
                 else:
                     self._alert(self.filename, image,
+                                _vw.stall_alert_text(layer, verdict, detail)
+                                if reason == "stalled_layers" else
                                 f"{reason} at layer {layer or 'unknown'}: {verdict}; "
                                 f"{detail or 'visual check needs operator review'}",
                                 identity=self._identity)

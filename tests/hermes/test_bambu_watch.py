@@ -207,7 +207,12 @@ def test_stall_alerts_at_level_5_even_with_a_healthy_verdict():
     monitor.poll_active(st("printing", layer=2))
     monitor.poll_active(st("printing", layer=5))
     monitor.poll_active(st("printing", layer=8))
-    assert len(alerts) == 1 and "stalled_layers" in alerts[0][2]
+    assert len(alerts) == 1 and "Print may have stalled" in alerts[0][2]
+    # Stage 2 (#455 item 4): the Bambu surface renders the same
+    # differential wording as the Moonraker listener.
+    for possibility in ("printing in air", "blocked", "parked", "dark"):
+        assert possibility in alerts[0][2], possibility
+    assert "stalled_layers" not in alerts[0][2]
 
 
 def test_stall_is_vetoed_by_a_healthy_verdict_at_level_1():

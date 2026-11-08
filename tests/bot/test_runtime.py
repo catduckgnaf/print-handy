@@ -47,7 +47,7 @@ def test_router_runs_the_plugin_handlers_in_plugin_order_without_the_agent_recei
                           "coldpull_dispatch", "lookup_dispatch", "source_dispatch", "troubleshoot_dispatch",
                           "macros_dispatch", "firmware_dispatch", "calibration_dispatch",
                           "typed_quantity_dispatch"]
-    assert "receive_ack" not in names and "stray_chat_dispatch" not in names and len(names) == 29  # +loaded_spools_dispatch (#744), +purchase_dispatch (#801), +edit_dispatch (#903), +bed_down_dispatch, +roast_dispatch (#1002)
+    assert "receive_ack" not in names and "stray_chat_dispatch" not in names and len(names) == 30  # +loaded_spools_dispatch (#744), +purchase_dispatch (#801), +edit_dispatch (#903), +bed_down_dispatch, +roast_dispatch (#1002), +plate_calibrate_dispatch (#455)
     assert router.platform_handlers["discord"], "listener button handlers were not registered"
 
 
@@ -285,7 +285,7 @@ def test_dropped_scad_is_saved_for_design_but_intake_ignores_it(cfg, tmp_path):
 def test_status_reports_no_hermes_modules(cfg):
     discord, core = make(cfg)
     status = core.status(True)
-    assert status["mode"] == "standalone" and status["handlers"] == 29  # +loaded_spools_dispatch (#744), +purchase_dispatch (#801), +edit_dispatch (#903), +bed_down_dispatch, +roast_dispatch (#1002)
+    assert status["mode"] == "standalone" and status["handlers"] == 30  # +loaded_spools_dispatch (#744), +purchase_dispatch (#801), +edit_dispatch (#903), +bed_down_dispatch, +roast_dispatch (#1002), +plate_calibrate_dispatch (#455)
     assert status["chat_id"] == cfg["discord"]["chat_id"] and status["allowed_users"] == 1
 
 
@@ -305,7 +305,7 @@ def test_listener_alert_buttons_are_wired_and_checked(cfg):
     assert clicked.replies[-1]["content"] == "Resumed."
 
 
-def test_discord_client_registers_commands_and_reports_connection(cfg):
+def test_discord_client_registers_commands_and_reports_connection_proc(cfg):
     """The real discord.py Bot subclass, set up offline: slash commands, handlers, heartbeat, disconnects."""
     from print_handy.bot import client, health
 
@@ -328,7 +328,8 @@ def test_discord_client_registers_commands_and_reports_connection(cfg):
             for task in bot._background:
                 task.cancel()
 
-    run(flow())
+    with mock.patch("print_handy.healthcheck.process_identity", return_value="12345"):
+        run(flow())
 
 
 @pytest.mark.parametrize("name", ["Print Bitch", "Print Handy"])
@@ -669,3 +670,57 @@ def test_did_you_mean_pick_list_none_of_these_dispatches_nothing(cfg):
     assert seen == []
     assert out == {"action": "skip", "reason": "command list"}
     assert discord.sent[-1] == runtime.unmatched_text(cfg["discord"]["bot_name"])
+
+
+# ----------------------------------------------- #1002 Phase 3: Conversational routing pins
+
+@pytest.mark.parametrize("text,expected", [
+    # Pasta/spaghetti & adhesion complaints -> /print-troubleshoot first-layer
+    ("it's making spaghetti", "/print-troubleshoot first-layer"),
+    ("my print is making spegatti", "/print-troubleshoot first-layer"),
+    ("print turned into pasta", "/print-troubleshoot first-layer"),
+    ("bed adhesion failed", "/print-troubleshoot first-layer"),
+    ("bed adheasion failed", "/print-troubleshoot first-layer"),
+    ("print popped off the bed", "/print-troubleshoot first-layer"),
+    ("corners are warping", "/print-troubleshoot first-layer"),
+    ("elephants foot", "/print-troubleshoot first-layer"),
+    # Clog/jam complaints -> /print-troubleshoot clog
+    ("extruder is skipping", "/print-troubleshoot clog"),
+    ("nozzle is jammed", "/print-troubleshoot clog"),
+    ("hotend is clogged", "/print-troubleshoot clog"),
+    ("hotnd is clogged", "/print-troubleshoot clog"),
+    ("nothing is coming out of the nozzle", "/print-troubleshoot clog"),
+    # Ringing/ghosting -> /print-troubleshoot ringing
+    ("ghosting on my print", "/print-troubleshoot ringing"),
+    ("ripples on the print", "/print-troubleshoot ringing"),
+    # Defect lookups -> /print-lookup ...
+    ("too much stringing", "/print-lookup stringing"),
+    ("too much stringin", "/print-lookup stringing"),
+    ("layers shifted", "/print-lookup layer shift"),
+    ("layer separation", "/print-lookup layer separation"),
+    ("wet filament", "/print-lookup wet filament"),
+    # Reprint / next plate
+    ("retry that print", "/print-again"),
+    ("print another copy", "/print-again"),
+    ("start the next plate", "/print-next"),
+    # Status, ETA, temp & camera
+    ("what's the eta", "/print-status"),
+    ("how much time is left", "/print-status"),
+    ("what temp is the bed", "/print-status"),
+    ("hotnd temperature", "/print-status"),
+    ("how hot is the nozzle", "/print-status"),
+    ("show me the camera", "/print-camera"),
+    ("take a snapshot", "/print-camera"),
+    # Spools
+    ("what's in the ams", "/print-spools"),
+    ("what is in the ifs", "/print-spools"),
+    ("how much filament is left", "/print-spools"),
+    # Misspelled commands
+    ("cancle the print", "/print-stop"),
+    ("pauze the print", "/print-pause"),
+    # Negative guards
+    ("print statue", None),
+    ("statue", None),
+])
+def test_phase3_command_suggestion_pins(text, expected):
+    assert runtime.command_suggestion(text) == expected

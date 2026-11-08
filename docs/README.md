@@ -10,6 +10,7 @@ Find the task you came to do. Print Handy runs locally, with no Print Handy clou
 - [Standalone bot](STANDALONE.md): run without Docker. Choose [Discord](DISCORD-BOT-SETUP.md), [Telegram](TELEGRAM-BOT-SETUP.md) or [Matrix](MATRIX-BOT-SETUP.md).
 - [Hermes installation](INSTALL.md): add Print Handy to an existing Hermes installation.
 - [Web UI](WEBUI.md): optional local status, setup and settings interface. Set access before exposing it on a network.
+- [Live demo](LIVE-DEMO.md): static, simulated Discord-style chat demo in the browser. No install, no account, nothing prints.
 - [Bambu A1 Docker walkthrough](BAMBU-A1-DOCKER.md): hardware-specific steps and verification limits.
 
 ## Everyday printing
@@ -36,6 +37,7 @@ Start with [Printer support](PRINTER-SUPPORT.md) for what support means, connect
 
 ## Troubleshooting
 
+- Stuck and want a person? Ask in the [Print Handy Discord server](https://discord.gg/mT2Ht3nqZu), in the #support channel — or file an [issue](https://github.com/catduckgnaf/print-handy/issues) when it is a bug that needs tracking.
 - [Home Assistant panic recovery](home-assistant-panic.md) · [Troubleshooting by symptom](TROUBLESHOOTING.md) · [Guided setup and debugging](GUIDED-SETUP-DEBUGGING.md) · [Diagnostics](DIAGNOSTICS.md)
 - [Intake limits](INTAKE-LIMITS.md) · [Mesh audit](MESH-AUDIT.md)
 - The `doctor` checks configuration and configured services. It may contact Moonraker or Spoolman; run it only where authorized. A clean check does not prove physical readiness.

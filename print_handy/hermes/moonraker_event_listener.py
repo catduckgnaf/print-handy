@@ -306,7 +306,8 @@ def post_spool_question(record, nag=False):
             log("spool question nag skipped: no Discord message id to refresh")
             return False
         message_id = pab.post_spool_question(_bot_token(), announcer.DISCORD_CHAT_ID,
-                                             spool_question_text(record, nag=nag), record, previous or None)
+                                             spool_question_text(record, nag=nag, buttons=True),
+                                             record, previous or None)
         if message_id:
             record["discord_message_id"] = message_id
             atomic_write_json(RUNOUT_PAUSE_STATE, record)
@@ -419,6 +420,18 @@ def roast_enabled(cfg=None):
     return bool(vision.get("roast_enabled", True))
 
 
+def roast_custom_bank(cfg=None):
+    """The operator's custom roast bank path: [vision] roast_custom_bank.
+
+    Empty (the default) means the shipped corpus alone. A path names a
+    local JSON file of house roast lines (#1002 Phase 4); the engine
+    validates and merges it per draw, and a file that cannot be used
+    degrades to no custom roasts with the problem named in the log.
+    """
+    vision = (cfg or _config.cfg()).get("vision") or {}
+    return str(vision.get("roast_custom_bank") or "").strip()
+
+
 ROAST_STATE = _config.state_file("PRINT_HANDY_ROAST_STATE", "roast_state.json", per_instance=True)
 _ROAST_FACTS = ("duration_s", "material", "color", "grams", "printer", "copies",
                 "print_number", "times", "finish_hour", "last_title",
@@ -445,7 +458,8 @@ def generate_roast(title, summary="", facts=None, key=None, status="completed"):
         from ..core import roast as roast_engine
         known = {k: v for k, v in dict(facts or {}).items() if k in _ROAST_FACTS}
         ctx = roast_engine.build_context(title, **known)
-        return roast_engine.roast(ctx, status=status, key=key, state_path=ROAST_STATE)
+        return roast_engine.roast(ctx, status=status, key=key, state_path=ROAST_STATE,
+                                  custom_path=roast_custom_bank() or None)
     except Exception as exc:
         log(f"roast skipped: {exc!r}")
         return ""
@@ -957,21 +971,68 @@ def open_spool_question(filename, slot, prior_spool_id, cause, suspended_spool, 
     return record
 
 
-def spool_question_text(record, nag=False):
+def spool_question_text(record, nag=False, *, buttons=False):
+    """The paused spool question's text.
+
+    Two shapes (#1063). With ``buttons`` (the Discord component post) the
+    text only names the buttons: no slash-command instructions and no
+    typed format recipe in the routine guided flow — the shelf is the
+    Existing spool picker and a new spool is the New spool walkthrough.
+    Without buttons (buttonless platforms, and the plain-text fallback
+    when a component post fails) typed replies are the only route, so
+    the text names the reply words instead; it still never points at a
+    slash command.
+    """
     slot = record.get("slot")
     where = f"IFS slot {slot}" if slot in (1, 2, 3, 4) else "the active IFS slot"
     prior = record.get("prior_spool_id")
-    why = ("ran out" if record.get("cause") == "runout"
-           else "was unloaded and reloaded mid-print")
+    runout = record.get("cause") == "runout"
+    why = "ran out" if runout else "was unloaded and reloaded mid-print"
     head = (f"**Still waiting (reminder {record.get('nags', 0)})**: which spool is in {where}?" if nag
             else f"**Spool check:** the filament in {where} {why}.")
+    paused = ("\nFilament usage is **paused for every spool** until you answer, "
+              "so neither the old nor the new spool is charged.")
+    if buttons:
+        if runout and prior:
+            options = (
+                f"\n• **New roll, same filament** — a fresh roll of the same filament: a new "
+                f"spool is created and #{prior} is marked depleted\n"
+                f"• **Same spool — fix feed or jam** — the same physical spool #{prior} stays "
+                f"in the slot and you clear its stuck feed or jam at the printer: nothing new "
+                f"is created, #{prior} is not marked depleted, and its remaining weight is "
+                f"unchanged\n"
+                "• **Existing spool** — pick a different spool from the shelf\n"
+                "• **New spool** — add a different new spool\n"
+                "• **Cancel print** — end the print and close this question")
+        elif record.get("cause") == "swap" and prior:
+            options = (
+                f"\n• **Same spool** — spool #{prior} went back in\n"
+                "• **Existing spool** — pick a different spool from the shelf\n"
+                "• **New spool** — add a different new spool\n"
+                "• **Cancel print** — end the print and close this question")
+        else:
+            options = (
+                "\n• **Existing spool** — pick a spool from the shelf\n"
+                "• **New spool** — add a new spool\n"
+                "• **Cancel print** — end the print and close this question")
+        return (f"{head}{paused}\nTap one:{options}\n"
+                "Answering only settles the spool records: it never resumes the print and "
+                "does not mean the feed path is clear. A runout signal alone does not prove "
+                "the roll is empty — if the filament is stuck rather than gone, use the "
+                "same-spool fix above. Print Handy cannot load or unload filament while the "
+                "print is paused, so a stuck feed is fixed at the printer; cancelling is "
+                "the one choice that acts on the printer.")
     same = ("\n• `same` if you put spool #%s back" % prior) if record.get("cause") == "swap" and prior else ""
-    return (f"{head}\nFilament usage is **paused for every spool** until you answer, "
-            f"so neither the old nor the new spool is charged.\nReply with:\n"
-            f"• a spool number from Spoolman, e.g. `12`{same}\n"
+    refeed = (f"\n• `refeed` or `fix feed` if the same physical spool #{prior} stays in the "
+              f"slot and you clear its stuck feed or jam at the printer — no new spool is "
+              f"created, #{prior} is not marked depleted, and its remaining weight is unchanged"
+              f"\n• `same filament` if you loaded a fresh roll of the same filament — "
+              f"a new spool is created and #{prior} is marked depleted") if runout and prior else ""
+    return (f"{head}{paused}\nReply with:\n"
+            f"• a spool number from Spoolman, e.g. `12`{same}{refeed}\n"
             f"• or a new spool: `brand, material, color, grams` e.g. `Sunlu, PLA+, White, 1000`\n"
             f"• or `cancel the print` (or the **Cancel print** button) to end the print and close this question\n"
-            "`/spool list` shows what is on the shelf. Answering never touches the printer; "
+            "Answering never touches the printer and never resumes the print; "
             "cancelling is the one reply that does.")
 
 
@@ -1043,6 +1104,11 @@ def parse_runout_reply(text):
     folded = raw.casefold()
     if not raw:
         return {"status": "need_choice"}
+    if folded in {"refeed", "refed", "retry feed", "retry the feed",
+                  "fix feed", "fix the feed", "fix jam", "fix feed or jam", "jam", "jammed"}:
+        return {"status": "refeed"}
+    if folded in {"same", "same spool", "same filament"}:
+        return {"status": "same"}
     if folded in {"a", "existing", EXISTING_CHOICE}:
         return {"status": "need_spool_number"}
     if folded in {"b", "new", NEW_CHOICE}:
@@ -1077,6 +1143,15 @@ def apply_runout_choice(state, context, choice, *, client, filaments=None):
     if slot not in (1, 2, 3, 4):
         raise ValueError("runout pause has no IFS slot")
     prior_id = context.get("prior_spool_id")
+    if choice.get("status") == "refeed":
+        # The same physical spool is back in the slot (#1063): it is
+        # already bound there, so there is nothing to write — no new
+        # record, no bind, and the spool is NOT marked depleted. The
+        # caller resumes usage on it and closes the question.
+        if prior_id is None:
+            raise ValueError("refeed needs the spool that was in the slot")
+        return {"action": "refeed", "slot": slot, "spool_id": int(prior_id),
+                "prior_spool_id": prior_id, "printer_commands": []}
     if choice.get("status") == "existing":
         spool_id = int(choice["spool_id"])
         if prior_id is not None and spool_id == int(prior_id):
@@ -2169,9 +2244,14 @@ def feed_screen_runout_load(slot, spool_id, context, *, client=None, mr=None, st
     runout disposition so the depleted spool is marked depleted by the bind
     itself, resume filament usage on the new spool, and clear the open
     question so its reminders stop. The physical load at the screen is the
-    operator's answer; nothing here moves the printer. Returns False when
-    the screen spool is the one that just ran out — that spool cannot
-    answer its own runout question, exactly as a chat reply cannot.
+    operator's answer; nothing here moves the printer.
+
+    One exception (#1063): when the screen shows the very spool that ran
+    out back in the slot, that is a refeed, not a replacement — the same
+    physical spool, re-fed after a feed failure. Usage resumes on it and
+    the question closes; nothing is bound, created or depleted. (Before
+    #1063 this returned False and the question could never be answered
+    from the screen for that spool.)
     """
     from . import spool_sync
     client = client or spool_sync.spoolman
@@ -2179,7 +2259,9 @@ def feed_screen_runout_load(slot, spool_id, context, *, client=None, mr=None, st
     cause = (context or {}).get("cause")
     prior = (context or {}).get("prior_spool_id")
     if cause == "runout" and prior is not None and int(prior) == int(spool_id):
-        return False
+        spool_sync.resume_usage(int(spool_id), mr=mr)
+        clear_runout_pause()
+        return True
     spool_sync.bind_slot(int(slot), int(spool_id), client=client, mr=mr, state_path=state_path,
                          prior_disposition="depleted" if cause == "runout" else "shelf",
                          note="Bound from HelixScreen during a paused runout")
@@ -2664,7 +2746,7 @@ _VISION_CONTEXT = "Printer: Flashforge AD5X, enclosed, smooth PEI plate. Reply J
 VISUAL_TIMER_S = 15
 
 
-def _visual_verdict(image, prompt, streak=None, local_fallback=False):
+def _visual_verdict(image, prompt, streak=None, local_fallback=False, idle=False):
     """The shared verdict call (visual_watch.visual_verdict) with this listener's values.
 
     ``streak`` is the print watch's per-print local-detector escalation
@@ -2672,11 +2754,15 @@ def _visual_verdict(image, prompt, streak=None, local_fallback=False):
     checks judge single frames, so they leave it None. ``local_fallback``
     is true inside a risky print's early-layer window (#913): a failed
     endpoint then falls back to the local detector when its model exists.
+    ``idle`` marks the idle plate checks (auto light-off, next-plate
+    offer): only they may be answered by the Stage 1 plate-reference
+    producer — the in-print watch never passes it, so the in-print empty
+    recheck stays endpoint-only.
     """
     return _visual_watch.visual_verdict(
         image, prompt, chat_url=_vision_chat_url, model=_VISION_MODEL,
         api_key=lambda: _profile_env_value("CLIPROXY_API_KEY"), context=_VISION_CONTEXT,
-        local_streak=streak, local_fallback=local_fallback)
+        local_streak=streak, local_fallback=local_fallback, idle=idle)
 
 
 def _record_watchdog_event(filename, verdict, *, streak=None, action="none",
@@ -3738,7 +3824,9 @@ class Listener:
                         # observe auto_paused == False while an alert is in
                         # flight and each send their own PAUSE.
                         self.visual_watch.auto_paused = True
-                    text = f"{reason} at layer {layer or 'unknown'}: {verdict}; {detail or 'visual check needs operator review'}"
+                    text = (_visual_watch.stall_alert_text(layer, verdict, detail)
+                            if reason == "stalled_layers" else
+                            f"{reason} at layer {layer or 'unknown'}: {verdict}; {detail or 'visual check needs operator review'}")
                     if pause_now:
                         text += (f"\nAuto-pause (visual_watch.auto_pause_early): {streak} suspicious checks in a row "
                                  "in the early layers, so I am pausing the print. It is not cancelled.")
@@ -4173,7 +4261,8 @@ class Listener:
             if await asyncio.to_thread(_visual_watch.frame_dark, image):
                 verdict, detail = "uncertain", "camera frame completely dark"
             else:
-                verdict, detail = await asyncio.to_thread(_visual_verdict, image, _AUTO_LIGHT_PROMPT)
+                verdict, detail = await asyncio.to_thread(
+                    _visual_verdict, image, _AUTO_LIGHT_PROMPT, idle=True)
             action = policy.note_verdict(verdict, time.time())
             log(f"auto light idle check verdict={verdict} detail={detail!r}")
             if action == "turn_off":
@@ -4233,7 +4322,15 @@ class Listener:
         if not image or await asyncio.to_thread(_visual_watch.frame_dark, image):
             next_plate_offer.observe(None)
             return
-        verdict, detail = await asyncio.to_thread(_visual_verdict, image, _AUTO_LIGHT_PROMPT)
+        verdict, detail = await asyncio.to_thread(
+            _visual_verdict, image, _AUTO_LIGHT_PROMPT, idle=True)
+        if verdict == "uncertain":
+            # Stage 1 (#455): the calibrated plate reference may certify
+            # the empty bed the offer waits for (see light_idle_tick).
+            from . import local_empty as _local_empty
+            local = await asyncio.to_thread(_local_empty.idle_verdict, image)
+            if local is not None:
+                verdict, detail = local
         log(f"next plate bed check verdict={verdict} detail={detail!r}")
         choice = next_plate_offer.observe(verdict)
         if not isinstance(choice, dict):

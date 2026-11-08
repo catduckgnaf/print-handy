@@ -183,10 +183,13 @@ def test_print_now_refuses_an_unaccepted_partial_job(tmp_path, monkeypatch):
         model_job.print_now(str(jp))
     job['partial_job_accepted'] = model_job.refused_plates_digest(job)
     jp.write_text(json.dumps(job))
-    with pytest.raises(Exception) as excinfo:
+    with pytest.raises(SystemExit) as excinfo:
         model_job.print_now(str(jp))  # proceeds past the partial gate; no live printer here
     assert 'incomplete' not in str(excinfo.value)
     assert 'were refused during slicing' not in str(excinfo.value)
+    # Past the gate it reaches the start guard, whose unreachable-Moonraker refusal
+    # is the named SystemExit since #1049 (previously the raw URLError escaped).
+    assert 'offline/unreachable' in str(excinfo.value)
 
 
 def test_intake_discloses_refused_plates_and_records_acceptance(env, monkeypatch):
