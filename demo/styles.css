@@ -1,0 +1,15 @@
+:root{color-scheme:dark;--bg:#313338;--sidebar:#2b2d31;--panel:#383a40;--text:#dbdee1;--muted:#949ba4;--accent:#5865f2;--green:#23a55a}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--text)}
+.banner{background:#f0b232;color:#111;padding:.6rem 1rem;font-weight:700;text-align:center}
+.layout{display:flex;min-height:calc(100vh - 42px)}
+.sidebar{width:230px;background:var(--sidebar);padding:1rem;flex:none}
+.server-name{font-weight:700;margin-bottom:1rem}.channel{padding:.4rem .5rem;border-radius:6px}.channel.active{background:var(--panel)}.channel.muted,.sidebar-note,.hint,.topic{color:var(--muted)}
+#reset{margin-top:1rem;background:var(--accent);color:#fff;border:0;border-radius:6px;padding:.55rem .9rem;cursor:pointer}
+.chat{flex:1;display:flex;flex-direction:column;min-width:0}.chat-header{padding:.8rem 1rem;border-bottom:1px solid #222;display:flex;gap:1rem;font-weight:700}
+.samples{padding:.6rem 1rem;border-bottom:1px solid #222}.samples button,.chip{background:var(--panel);color:var(--text);border:1px solid #555;border-radius:999px;padding:.45rem .8rem;margin:.2rem;cursor:pointer}
+.messages{flex:1;overflow:auto;padding:1rem}.msg{display:flex;gap:.7rem;margin:0 0 1rem}.avatar{width:40px;height:40px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:700;flex:none}.user-avatar{background:#4e5058}.author{font-weight:700}.tag{background:var(--accent);border-radius:4px;font-size:.7rem;padding:.05rem .3rem;margin-left:.4rem}
+.embed{border-left:4px solid var(--accent);background:var(--panel);border-radius:6px;padding:.7rem;margin-top:.3rem}.embed.confirm{border-left-color:var(--green)}
+.progressbar{height:10px;background:#222;border-radius:999px;overflow:hidden}.progressbar>i{display:block;height:100%;background:var(--green)}
+.typing{padding:.4rem 1rem;color:var(--muted)}.composer{display:flex;gap:.5rem;padding:1rem}.composer input[type=text]{flex:1;background:var(--panel);border:0;border-radius:8px;color:var(--text);padding:.7rem}.composer button{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:.7rem 1rem;cursor:pointer}
+.visually-hidden{position:absolute;left:-9999px}
+@media(max-width:700px){.sidebar{display:none}}
