@@ -146,15 +146,46 @@ def status_with_camera(adapter) -> dict:
     return st
 
 
+def _fact_value(adapter, name):
+    """One sourced fact about the serving printer (printers/bambulab/facts.py).
+
+    Returns the fact's value, or None when the model's facts do not record
+    it — an unrecorded fact is never claimed in the verdict context.
+    """
+    facts = getattr(adapter, "facts", None)
+    if isinstance(facts, dict):
+        fact = facts.get(name)
+        if fact is not None:
+            return getattr(fact, "value", fact)
+    return None
+
+
 def vision_context(adapter) -> str:
-    """The verdict context for a Bambu frame: the listener's wording, this printer's name.
+    """The verdict context for a Bambu frame: the listener's wording, this printer's facts.
 
     The Moonraker context is built from its serving printer the same way;
     a Bambu frame judged against another printer's description would be a
-    wrong prompt, so the context is built from the configured printer's label.
+    wrong prompt, so the enclosure and plate traits come from the serving
+    model's sourced facts: "enclosed" only when the facts record an
+    enclosure, "open frame" only when they record none, and the recorded
+    default plate. A trait the facts do not record is not claimed.
     """
     label = getattr(adapter, "label", None) or "Bambu Lab printer"
-    return (f"Printer: {label}, enclosed, smooth PEI plate. "
+    traits = []
+    enclosed = _fact_value(adapter, "enclosed")
+    if enclosed is True:
+        traits.append("enclosed")
+    elif enclosed is False:
+        traits.append("open frame")
+    plate = _fact_value(adapter, "default_plate")
+    if isinstance(plate, str) and plate.strip():
+        # Sentence-case the recorded plate name, keeping acronyms (PEI) as recorded.
+        traits.append(" ".join(word if word.isupper() else word.lower()
+                               for word in plate.split()))
+    description = f"Printer: {label}"
+    if traits:
+        description += ", " + ", ".join(traits)
+    return (f"{description}. "
             "Reply with JSON only, no markdown: {\"verdict\":\"ok|air|spaghetti|detached|empty_idle|uncertain\",\"reason\":\"short\"}. "
             "ok means plastic is on the bed and printing normally. "
             "air means the bed is empty while a print should be there. "
