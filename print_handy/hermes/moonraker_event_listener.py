@@ -200,8 +200,14 @@ def post_alert(message, kind, filename):
         return post(message)
     try:
         from . import print_alert_buttons as pab
+        # A terminal alert with buttons (the firmware-shutdown post carries
+        # the error event text) pings its starter the way the plain REST
+        # post does (#1029); the kwarg is passed only when a starter line
+        # is present, so the call keeps its shape otherwise.
+        mention = print_summary.mention_user_id(message)
+        kwargs = {"mention_user_id": mention} if mention else {}
         if pab.post_with_buttons(_bot_token(), announcer.DISCORD_CHAT_ID,
-                                 message, kind, filename):
+                                 message, kind, filename, **kwargs):
             log(f"post buttons kind={kind} {message.splitlines()[0][:120]!r}")
             return True
         log("button post failed; falling back to plain text")
@@ -719,7 +725,9 @@ def classify_pause(message, where=""):
     a jam is never folded into the runout flow.
     """
     text = f"{message or ''} {where or ''}".casefold()
-    if "jam" in text:
+    # A whole word ("jam", "jammed", "jams"), never part of another word
+    # or of a file name in the text ("pajama", "jam_jar.gcode").
+    if re.search(r"(?<![a-z0-9_])jam(?:med|s)?(?![a-z0-9_])", text):
         return "jam"
     return "runout" if "runout" in text or "filament sensor" in text else "other"
 
