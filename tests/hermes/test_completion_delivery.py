@@ -207,10 +207,8 @@ def test_pending_pass_processes_a_new_completions_markers(monkeypatch, tmp_path)
     assert posts == []
 
 
-def test_completion_post_carries_exactly_one_roast_before_the_video(monkeypatch, tmp_path):
-    """The roast rides the completion post that carries the timelapse, sits under the
-    completion text, keeps MEDIA: lines on their own lines, and is cleared with the
-    pending notice so a retry or replay cannot roast twice."""
+def _roast_setup(monkeypatch, tmp_path):
+    """A pending completion with a recorded roast subject, and a stub generator."""
     announcer = listener.announcer
     monkeypatch.setattr(announcer, "STATE_PATH", tmp_path / "announcement.json")
     monkeypatch.setattr(listener, "log", lambda text: None)
@@ -219,15 +217,74 @@ def test_completion_post_carries_exactly_one_roast_before_the_video(monkeypatch,
     announcer.set_pending_roast_subject(state, "Stand", "a stand")
     announcer.save_state(state)
     calls = []
-    monkeypatch.setattr(listener, "generate_roast", lambda title, summary="", **kw: calls.append((title, summary)) or "Roast for Stand")
+    monkeypatch.setattr(listener, "generate_roast",
+                        lambda title, summary="", **kw: calls.append((title, summary)) or "Roast for Stand")
+    return announcer, calls
+
+
+def test_completion_post_posts_the_roast_under_the_timelapse(monkeypatch, tmp_path):
+    """The roast lands UNDER the timelapse: the completion post that carries the
+    video goes out first with no roast in it, and the roast follows as its own
+    post. Message text always renders above an attachment on Discord (and the
+    Telegram/Matrix senders post text before files), so no in-message ordering
+    can put a line under a video — the follow-up post is what places it there.
+    The pending notice is cleared with the delivery, so a retry or replay
+    cannot roast twice."""
+    announcer, calls = _roast_setup(monkeypatch, tmp_path)
     posted = []
     monkeypatch.setattr(listener, "post", lambda text: posted.append(text) or True)
     assert listener._post_completion("Print complete: Stand\nMEDIA:/cache/stand.mp4", "Print complete: Stand")
-    assert posted == ["Print complete: Stand\n\nRoast for Stand\nMEDIA:/cache/stand.mp4"]
+    assert posted == ["Print complete: Stand\nMEDIA:/cache/stand.mp4", "Roast for Stand"]
     assert calls == [("Stand", "a stand")]
     assert announcer.pending_roast_subject(announcer.load_state()) == ("", "")
     assert listener._post_completion("Print complete: Stand", "Print complete: Stand")
-    assert len(calls) == 1 and posted[1] == "Print complete: Stand"
+    assert len(calls) == 1 and posted[2] == "Print complete: Stand"
+
+
+def test_failed_timelapse_post_holds_the_roast_for_the_fallback(monkeypatch, tmp_path):
+    """A refused timelapse post posts no roast: the roast stays pending, and the
+    caller's text-only fallback post carries it inline instead — exactly one
+    roast across the whole sequence, never one above a video that never landed
+    and never two."""
+    announcer, calls = _roast_setup(monkeypatch, tmp_path)
+    posted = []
+    results = iter([False, True])
+    monkeypatch.setattr(listener, "post", lambda text: posted.append(text) or next(results))
+    assert not listener._post_completion("Print complete: Stand\nMEDIA:/cache/stand.mp4",
+                                         "Print complete: Stand")
+    assert posted == ["Print complete: Stand\nMEDIA:/cache/stand.mp4"]
+    assert announcer.pending_completion_message(announcer.load_state()) == "Print complete: Stand"
+    assert listener._post_completion(
+        "Print complete: Stand\nTimelapse archived but too big for Discord: stand.mp4",
+        "Print complete: Stand")
+    assert posted[1] == ("Print complete: Stand\n\nRoast for Stand\n"
+                         "Timelapse archived but too big for Discord: stand.mp4")
+    assert len(posted) == 2
+
+
+def test_failed_roast_followup_does_not_undeliver_the_timelapse(monkeypatch, tmp_path):
+    """The roast follow-up is best-effort: its failure neither un-delivers the
+    timelapse post nor replays it — the completion stays acknowledged."""
+    announcer, calls = _roast_setup(monkeypatch, tmp_path)
+    posted = []
+    results = iter([True, False])
+    monkeypatch.setattr(listener, "post", lambda text: posted.append(text) or next(results))
+    assert listener._post_completion("Print complete: Stand\nMEDIA:/cache/stand.mp4", "Print complete: Stand")
+    assert posted == ["Print complete: Stand\nMEDIA:/cache/stand.mp4", "Roast for Stand"]
+    assert not announcer.load_state().get("pending_completion_message")
+    assert announcer.load_state()["announced_completion"] is True
+
+
+def test_bare_completion_post_keeps_the_roast_inline(monkeypatch, tmp_path):
+    """With no timelapse attached there is nothing for the roast to go under:
+    it stays in the one completion post, under the completion text, exactly
+    as before."""
+    announcer, calls = _roast_setup(monkeypatch, tmp_path)
+    posted = []
+    monkeypatch.setattr(listener, "post", lambda text: posted.append(text) or True)
+    assert listener._post_completion("Print complete: Stand", "Print complete: Stand")
+    assert posted == ["Print complete: Stand\n\nRoast for Stand"]
+    assert calls == [("Stand", "a stand")]
 
 
 def test_completion_roast_failure_leaves_the_post_untouched(monkeypatch, tmp_path):
