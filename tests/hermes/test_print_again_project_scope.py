@@ -207,3 +207,23 @@ def test_copies_queue_shape_unchanged(tmp_path):
     print_control.queue_copies(target, path=queue)
     data = json.loads(queue.read_text())
     assert "kind" not in data and data["total"] == 3 and data["started"] == 1
+
+
+def test_project_queue_refuses_mutated_plate_and_uses_stable_start_claim(tmp_path):
+    archive, _, gcodes, plans, _ = _info(tmp_path)
+    base = print_control.resolve_plate_ref("82A", archive, tmp_path / "print_numbers.json", plans)
+    targets = print_control.project_scope_targets(
+        base, "entire", archive, tmp_path / "print_numbers.json", plans)
+    queue = tmp_path / "queue.json"
+    print_control.queue_project_sequence(targets, path=queue)
+    original = gcodes[1].read_bytes()
+    queued_hash = json.loads(queue.read_text())["entries"][1]["gcode_sha256"]
+    first = print_control.next_copy_target(queue, archive)
+    assert first["gcode_sha256"] == queued_hash
+    assert print_control.next_copy_target(queue, archive)["copy"] == first["copy"]
+    gcodes[1].write_bytes(original + b"; altered while waiting\n")
+    with pytest.raises(NextPlateError, match="changed since it was queued"):
+        print_control.next_copy_target(queue, archive)
+    assert json.loads(queue.read_text())["entries"][1]["gcode_sha256"] == queued_hash
+    gcodes[1].write_bytes(original)
+    assert print_control.next_copy_target(queue, archive)["gcode_sha256"] == queued_hash

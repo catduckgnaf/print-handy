@@ -14,9 +14,11 @@ print-feedback plugin. Rules learned the hard way (2026-10-10 desk stand):
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
+import secrets
 import threading
 import time
 import urllib.parse
@@ -1318,7 +1320,7 @@ def queue_copies(target: dict[str, Any], path: Path | None = None,
         return
     _write_queue({"job_json": target["job_json"], "gcode": target["gcode"], "title": target["title"],
                   "gcode_sha256": target["gcode_sha256"], "total": copies, "started": 1,
-                  "queued_at": time.time()}, path, printer_id)
+                  "queued_at": time.time(), "claim_nonce": secrets.randbits(60) + 1}, path, printer_id)
 
 
 def queue_project_sequence(targets: list[dict[str, Any]], path: Path | None = None,
@@ -1345,7 +1347,7 @@ def queue_project_sequence(targets: list[dict[str, Any]], path: Path | None = No
                                "plate_suffix": t.get("project_plate_suffix")}
                               for t in targets],
                   "total": len(targets), "started": 1,
-                  "queued_at": time.time()}, path, printer_id)
+                  "queued_at": time.time(), "claim_nonce": secrets.randbits(60) + 1}, path, printer_id)
 
 
 def pending_copy(path: Path | None = None, printer_id: str | None = None) -> dict[str, Any] | None:
@@ -1353,10 +1355,31 @@ def pending_copy(path: Path | None = None, printer_id: str | None = None) -> dic
     return q if q and int(q.get("started", 0)) < int(q.get("total", 0)) else None
 
 
+def _queued_claim_copy(queue: dict[str, Any], index: int) -> int:
+    """Stable per-queued-entry claim identity, including older saved queues."""
+    nonce = queue.get("claim_nonce")
+    if type(nonce) is not int or nonce <= 0:
+        packed = json.dumps(queue, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        nonce = int.from_bytes(hashlib.sha256(packed).digest()[:8], "big") >> 4
+    return nonce + index
+
+
+def _queued_gcode_hash(gcode: Path, expected: Any) -> str:
+    """Refuse altered or unidentifiable artifacts before asking to start."""
+    from .print_next import NextPlateError, _sha256
+
+    if not isinstance(expected, str) or re.fullmatch(r"[0-9a-f]{64}", expected) is None:
+        raise NextPlateError("the queued print has no valid G-code fingerprint; nothing started")
+    if _sha256(gcode) != expected:
+        raise NextPlateError("the queued G-code changed since it was queued; nothing started. "
+                             "Cancel the queue and select the original print again")
+    return expected
+
+
 def next_copy_target(path: Path | None = None, archive: Path | None = None,
                      printer_id: str | None = None) -> dict[str, Any]:
     """Exact target for the next queued copy, re-verified against the archive. Read only."""
-    from .print_next import NextPlateError, _sha256
+    from .print_next import NextPlateError
 
     q = pending_copy(path, printer_id)
     if q is None:
@@ -1372,12 +1395,13 @@ def next_copy_target(path: Path | None = None, archive: Path | None = None,
         job_path = Path(entry["job_json"]).resolve()
         if not gcode.is_file() or not job_path.is_file() or not job_path.is_relative_to(archive):
             raise NextPlateError("the queued plate's files are gone; queue cleared")
+        expected = _queued_gcode_hash(gcode, entry.get("gcode_sha256"))
         return {"plan_id": "print-again", "part_id": job_path.parent.name[:60],
                 "label": entry["title"], "where": "",
-                "title": entry["title"], "copy": int(time.time()), "copy_number": idx + 1,
+                "title": entry["title"], "copy": _queued_claim_copy(q, idx + 1), "copy_number": idx + 1,
                 "quantity": int(q["total"]), "copies": int(q["total"]),
                 "reprint": True, "resliced": False, "job_json": str(job_path),
-                "gcode": str(gcode), "gcode_sha256": _sha256(gcode),
+                "gcode": str(gcode), "gcode_sha256": expected,
                 "project_sequence": True, "project_id": q.get("project_id"),
                 "project_number": q.get("project_number"),
                 "project_title": q.get("title"),
@@ -1388,12 +1412,13 @@ def next_copy_target(path: Path | None = None, archive: Path | None = None,
     if not gcode.is_file() or not job_path.is_file() or not job_path.is_relative_to(archive):
         raise NextPlateError("the queued copy's files are gone; queue cleared")
     n = int(q["started"]) + 1
-    # `copy` keys print_next's one-start claim, so it must be unique per start like other reprints.
+    expected = _queued_gcode_hash(gcode, q.get("gcode_sha256"))
+    # Repeated taps on the same entry must hit the same one-start claim.
     return {"plan_id": "print-again", "part_id": job_path.parent.name[:60], "label": q["title"], "where": "",
-            "title": q["title"], "copy": int(time.time()), "copy_number": n, "quantity": int(q["total"]),
+            "title": q["title"], "copy": _queued_claim_copy(q, n), "copy_number": n, "quantity": int(q["total"]),
             "copies": int(q["total"]),
             "reprint": True, "resliced": False, "job_json": str(job_path), "gcode": str(gcode),
-            "gcode_sha256": _sha256(gcode)}
+            "gcode_sha256": expected}
 
 
 def mark_copy_started(path: Path | None = None, printer_id: str | None = None) -> None:

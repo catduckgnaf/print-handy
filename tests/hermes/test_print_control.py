@@ -612,3 +612,53 @@ def test_active_head_sensors_follow_the_active_extruder():
     assert print_control.active_head_sensors(names, "extruder1") == ["filament_switch_sensor head_extruder1"]
     assert print_control.active_head_sensors(names, "extruder") == ["filament_switch_sensor head_extruder"]
     assert print_control.active_head_sensors(names, None) == []
+
+
+def test_copies_queue_pins_hash_and_claim_for_repeated_confirmations(tmp_path):
+    import hashlib
+    from print_handy.hermes.print_next import NextPlateError
+
+    run = tmp_path / "archive" / "job"
+    run.mkdir(parents=True)
+    job = run / "JOB.json"
+    job.write_text('{"title":"Test"}')
+    gcode = run / "plate.gcode"
+    gcode.write_bytes(b"G1 X1\n")
+    expected = hashlib.sha256(gcode.read_bytes()).hexdigest()
+    queue = tmp_path / "q.json"
+    print_control.queue_copies({"job_json": str(job), "gcode": str(gcode),
+                                "title": "Test", "gcode_sha256": expected, "copies": 2},
+                               path=queue)
+    first = print_control.next_copy_target(queue, run.parent)
+    assert first["gcode_sha256"] == expected
+    assert print_control.next_copy_target(queue, run.parent)["copy"] == first["copy"]
+    gcode.write_bytes(b"G1 X999\n")
+    with pytest.raises(NextPlateError, match="changed since it was queued"):
+        print_control.next_copy_target(queue, run.parent)
+    assert json.loads(queue.read_text())["gcode_sha256"] == expected
+
+
+def test_legacy_queue_without_nonce_has_stable_claim_and_missing_hash_refuses(tmp_path):
+    import hashlib
+    from print_handy.hermes.print_next import NextPlateError
+
+    run = tmp_path / "archive" / "job"
+    run.mkdir(parents=True)
+    job = run / "JOB.json"
+    job.write_text("{}")
+    gcode = run / "plate.gcode"
+    gcode.write_bytes(b"G1 X1\n")
+    queue = tmp_path / "old-queue.json"
+    legacy = {"job_json": str(job), "gcode": str(gcode),
+              "title": "Old queue", "gcode_sha256": hashlib.sha256(gcode.read_bytes()).hexdigest(),
+              "total": 3, "started": 1, "queued_at": 12345.0}
+    queue.write_text(json.dumps(legacy))
+    first = print_control.next_copy_target(queue, run.parent)
+    with patch("print_handy.hermes.print_control.time.time", return_value=123456789):
+        second = print_control.next_copy_target(queue, run.parent)
+    assert first["copy"] == second["copy"]
+    assert first["gcode_sha256"] == legacy["gcode_sha256"]
+    legacy.pop("gcode_sha256")
+    queue.write_text(json.dumps(legacy))
+    with pytest.raises(NextPlateError, match="no valid G-code fingerprint"):
+        print_control.next_copy_target(queue, run.parent)
