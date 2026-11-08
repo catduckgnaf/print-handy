@@ -27,6 +27,14 @@ class FakeLLM:
         return io.BytesIO(json.dumps({"choices": [{"message": {"content": self.content}}]}).encode())
 
 
+@pytest.fixture(autouse=True)
+def isolated_llm_history():
+    """Keep process-local conversation state from coupling independent tests."""
+    llm.clear_history()
+    yield
+    llm.clear_history()
+
+
 @pytest.fixture
 def llm_cfg(cfg):
     cfg["llm"].update(chat_url=LLM_URL, model="small-model")
@@ -250,7 +258,7 @@ def test_ai_invocation_asks_the_llm_the_bare_question(llm_cfg):
     out = asyncio.run(core.handle_message(discord.message("ask ai: why is my print stringing")))
     assert out == {"action": "skip", "reason": "llm reply"}
     assert discord.sent == ["Stringing usually means wet filament or too much retraction."]
-    assert opener.requests[0]["messages"][1]["content"] == "why is my print stringing"
+    assert opener.requests[0]["messages"][-1]["content"] == "why is my print stringing"
 
 
 def test_ai_invocation_the_llm_declines_gets_the_ai_wording(llm_cfg):
