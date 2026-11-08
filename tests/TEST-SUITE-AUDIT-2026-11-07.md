@@ -707,17 +707,26 @@ collected nodes (4,193 + 20 + 8,426 and 4,188 + 1 + 24 + 8,426).
 
 ### The one failure in the pasted legs
 
-The completed sibling run on main at the same era (push run 42433786000,
-head `f740978`) shows the same failure signature in an offline leg: one
-failure, `ListenerHealthTests.test_listener_cancels_heartbeat_on_shutdown`
-in `tests/test_listener_health.py`, failing in teardown with
+Identified from the job logs: in push run 42438208554 (main head
+`451bcc3`, the PR #1038 merge), the only failed offline leg is
+offline-tests (3.12, shard 1) — 1 failed, 4,189 passed, 24 skipped, 695
+subtests — and the failure is
+`ListenerHealthTests.test_listener_cancels_heartbeat_on_shutdown` in
+`tests/test_listener_health.py`, failing in teardown with
 `OSError: [Errno 39] Directory not empty` inside
-`TemporaryDirectory.cleanup` — the healthcheck writer thread can land a
-beat in the test's scratch directory while cleanup removes it. Every
-assertion had passed; the same test is green in the sibling legs and
-passes repeatedly locally. Verdict: test-side teardown race (flake), not
-a product defect. This PR hardens both heartbeat test classes in that
-file with `TemporaryDirectory(ignore_cleanup_errors=True)`.
+`TemporaryDirectory.cleanup`: the healthcheck writer thread can land a
+beat in the test's scratch directory while cleanup removes it. The
+pasted leg's skip count (24) and subtest count (695) match that job
+exactly; its passed/deselected totals differ by one or two tests
+because three merges landed on main within the hour and shifted the
+counts slightly between sibling runs. The identical failure (same test,
+same Errno 39 teardown) also appears in push run 42433786000 (head
+`f740978`, offline-tests 3.12 shard 2). In both runs every other offline
+leg passes, including all three 3.14 shards of 42438208554, and the test
+passes repeatedly locally. Verdict: test-side teardown race (flake),
+present on main, not a product defect and not branch-specific. This PR
+hardens both heartbeat test classes in that file with
+`TemporaryDirectory(ignore_cleanup_errors=True)`.
 
 ### Warnings seen in the same logs
 
