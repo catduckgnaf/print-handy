@@ -52,6 +52,8 @@ One Docker image for amd64 + arm64: ghcr.io/catduckgnaf/print-handy:2.2.7, also 
 
 - Motion bounds got a native Rust/PyO3 parser with the Python fallback kept, then a hardening phase: G20 refused, the GIL released during parses, a pinned rustup, and a `.so`-only runtime. (#1010) (#1015)
 - Slicing-speed work: the timing gate now splits slicer time from Python time, Bambu zip output is at parity, the bounds cache is validated and capped, and a cpuset budget applies; the real-Orca timing leg gained a large-plate case (reporting only). Slicing baselines were re-recorded for this release. (#993) (#997) (#1073)
+- The release lifecycle gate now starts the previous release with that release's own example settings, so the upgrade check tests the configuration real installs actually run. (#1075)
+- The 2.2.7 version bump itself: package version, the README current-release line and these notes. (#1074)
 - GPU inference flavors (`ORT_FLAVOR`) for the local failure detector, for hosts that want the accelerated build. (#1036)
 - Testing: a hardening pass (version parity, upstream step-size policy, invariant suites), a required tests-added and regression-scoping answer on every PR, dead-test cleanup with shipped-binary and native tests in offline CI, and deep-dive expansions across Spoolman (5 to 38 real-server tests), the Web UI (real-HTTP coverage), OpenSCAD (real-binary coverage), fuzzy search and a Stage 0 vision-verdict evaluation harness with reproducible CAD assets. (#999) (#1004) (#1026) (#1030) (#1043) (#1044) (#1045) (#1047) (#1048) (#1052) (#1062) (#1000) (#1040)
 - Docs: the 2.2.6 image digest is pinned in the Docker docs and the in-repo Unraid template. (#1012)
