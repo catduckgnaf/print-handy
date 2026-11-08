@@ -10,6 +10,7 @@ Find the task you came to do. Print Handy runs locally, with no Print Handy clou
 - [Standalone bot](STANDALONE.md): run without Docker. Choose [Discord](DISCORD-BOT-SETUP.md), [Telegram](TELEGRAM-BOT-SETUP.md) or [Matrix](MATRIX-BOT-SETUP.md).
 - [Hermes installation](INSTALL.md): add Print Handy to an existing Hermes installation.
 - [Web UI](WEBUI.md): optional local status, setup and settings interface. Set access before exposing it on a network.
+- [Live demo](LIVE-DEMO.md): static, simulated Discord-style chat demo in the browser. No install, no account, nothing prints.
 - [Bambu A1 Docker walkthrough](BAMBU-A1-DOCKER.md): hardware-specific steps and verification limits.
 
 ## Everyday printing
