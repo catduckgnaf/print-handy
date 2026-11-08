@@ -361,6 +361,31 @@ def test_render_scad_error_keeps_the_first_error_line(tmp_path):
     assert "ERROR: the real problem is here" in error
 
 
+def test_render_scad_error_keeps_the_first_warning_line(tmp_path):
+    # #1046: under --hardwarnings the WARNING line is the actual cause, but
+    # the statistics tail pushes it out of the last-6 window. The output
+    # below is the real OpenSCAD 2021.01 output for
+    # cube([missing_var, 10, 10]); captured verbatim (exit code 1, no STL).
+    output = (
+        "WARNING: Ignoring unknown variable 'missing_var' in file a.scad, line 1\n"
+        "TRACE: called by 'cube' in file a.scad, line 1\n"
+        "Geometries in cache: 1\n"
+        "Geometry cache size in bytes: 0\n"
+        "CGAL Polyhedrons in cache: 0\n"
+        "CGAL cache size in bytes: 0\n"
+        "Total rendering time: 0:00:00.000\n"
+        "Current top level object is empty.\n")
+
+    def warn_runner(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 1, "", output)
+
+    ok, error = design.render_scad(tmp_path / "a.scad", tmp_path / "a.stl",
+                                   runner=warn_runner)
+    assert ok is False
+    assert "WARNING: Ignoring unknown variable 'missing_var'" in error
+    assert "Current top level object is empty." in error
+
+
 # --------------------------------------------------------------------- review fixes
 
 def test_first_model_turn_reports_no_parameter_changes(tmp_path, monkeypatch):
