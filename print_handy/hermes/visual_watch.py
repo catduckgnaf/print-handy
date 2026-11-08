@@ -253,7 +253,8 @@ def vision_ready(api_key, log=None):
     its key, or the built-in local failure detector (#455).
 
     ``vision.watch_source`` narrows what counts (#455): "local" counts
-    only the detector, "endpoint" counts only the endpoint routes, and
+    the detector (plus a calibrated plate reference for the idle checks,
+    as below), "endpoint" counts only the endpoint routes, and
     "auto" (the default) counts any of them.
 
     Without one, every verdict degrades to "uncertain", and "uncertain"
@@ -264,6 +265,12 @@ def vision_ready(api_key, log=None):
     source = local_vision.watch_source()
     if source == "local":
         if local_vision.detector_ready():
+            return True
+        if local_empty.reference_ready():
+            # Stage 1 (#455): a calibrated plate reference can answer the
+            # idle checks the idle consumers gate on here, even when the
+            # detector is not ready; the in-print watch under "local"
+            # still judges with the detector only.
             return True
         if log is not None and not _vision_missing_logged:
             _vision_missing_logged = True
