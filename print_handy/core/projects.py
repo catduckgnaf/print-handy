@@ -4,14 +4,67 @@ A project describes source components separately from printable *plates*: severa
 parts may share one G-code, and one source part may require several plates.
 Do not use the human-readable 82A code as an internal primary key. Keep the
 existing integer print_number registry intact for older records and commands.
+
+A component may also *declare* assembly data (#1017 item 3): its ``role``
+in the assembled project and its ``assembly_transform`` placement. The
+manifest is the only declaration surface — ``assembly_check`` consumes
+these declarations instead of inferring roles from file names or skipping
+transform and collision checks for want of placement data.
 """
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
 
 SCHEMA = "project_v1"
 _SAFE_ID = re.compile(r"[^a-zA-Z0-9_-]+")
+
+# Roles a source may declare for a component (#1017 item 3). The first three
+# are the coarse roles assembly_check used to infer from file names alone;
+# "rack_ear" declares the part a rack ear (it counts as structural, and the
+# declaration — not a height guess — is what earns it the panel-clearance
+# check). Anything else is rejected, never silently dropped.
+COMPONENT_ROLES = ("structural", "coupon", "reference", "rack_ear")
+
+
+def validate_component_role(value) -> str:
+    """A declared component role, or ValueError naming the bad value."""
+    if not isinstance(value, str) or value not in COMPONENT_ROLES:
+        raise ValueError(f"a component role must be one of {', '.join(COMPONENT_ROLES)}; "
+                         f"got {value!r}")
+    return value
+
+
+def _vec3(value, field):
+    if (not isinstance(value, (list, tuple)) or len(value) != 3
+            or any(isinstance(v, bool) or not isinstance(v, (int, float))
+                   or not math.isfinite(v) for v in value)):
+        raise ValueError(f"assembly_transform {field} must be three finite numbers; "
+                         f"got {value!r}")
+    return [float(v) for v in value]
+
+
+def validate_assembly_transform(value) -> dict:
+    """A declared assembly placement, normalized, or ValueError.
+
+    The placement is the part's local frame in the assembled project:
+    ``rotate_deg`` (degrees about X, then Y, then Z) and ``translate_mm``.
+    Only those two keys exist — a scale or a raw matrix is a different
+    claim and is rejected rather than half-applied. A missing axis set
+    normalizes to zeros, so a stored transform is always complete.
+    """
+    if not isinstance(value, dict):
+        raise ValueError(f"an assembly_transform must be an object with translate_mm "
+                         f"and/or rotate_deg; got {value!r}")
+    unknown = sorted(set(value) - {"translate_mm", "rotate_deg"})
+    if unknown:
+        raise ValueError(f"assembly_transform keys must be translate_mm and/or rotate_deg; "
+                         f"got {', '.join(unknown)}")
+    return {
+        "translate_mm": _vec3(value.get("translate_mm", (0, 0, 0)), "translate_mm"),
+        "rotate_deg": _vec3(value.get("rotate_deg", (0, 0, 0)), "rotate_deg"),
+    }
 
 
 def plate_suffix(index: int) -> str:
@@ -61,13 +114,23 @@ def from_files(intake_id: str, source_kind: str, sources: list[dict],
         name = str(row.get("name") or Path(str(row.get("downloaded_file") or "")).name)
         if not name:
             raise ValueError("every project source needs a name")
-        components.append({
+        component = {
             "component_id": f"source{idx}",
             "name": name,
             "required": True,
             "quantity_required": 1,
             "source_file": str(row.get("downloaded_file") or row.get("path") or ""),
-        })
+        }
+        # Declared assembly data (#1017 item 3): a source that knows a
+        # part's role or its placement in the assembly declares it here,
+        # validated — an invalid declaration fails the manifest build
+        # instead of being silently dropped. Undeclared stays absent.
+        if row.get("role") is not None:
+            component["role"] = validate_component_role(row["role"])
+        if row.get("assembly_transform") is not None:
+            component["assembly_transform"] = validate_assembly_transform(
+                row["assembly_transform"])
+        components.append(component)
     return {
         "schema": SCHEMA,
         "project_id": pid,

@@ -345,6 +345,18 @@ common text by majority and by odd-one-out, not only the 093/094 tie-breaks.
   deleted behind the cache's back. The older file's tests assume a
   fresh server (their first create must not reuse a filament); the
   expansion tests are written to pass on a reused server too.
+- Round-2 homes (2026-11-07 cleanup follow-up): the Cloudflare Worker
+  example tests (`tests/test_cloudflare_examples.py`) run in the offline
+  legs, which now install Node.js the same way they install OpenSCAD and
+  tesseract; the real bind-mount state-volume test
+  (`tests/test_state_volume.py::TestEntrypointMigration::test_legacy_data_and_a_real_bind_mounted_state_volume_is_copied`)
+  runs in the dedicated `State volume (real bind mount)` CI job on the
+  runner VM, because `unshare -rm` is refused inside the offline job's
+  container — that job probes namespaces first and fails loudly rather
+  than skipping; and the complex-corpus fetched-files contract
+  (`tests/corpus/test_complex_corpus.py::test_fetched_files_match_the_manifest`)
+  runs in the weekly `model-corpus.yml` workflow (shard 0) against the
+  corpus it fetches, under `PRINT_HANDY_PRIVATE_CORPUS`.
 - One acceptance-layout cell stays gated by name:
   `test_mounted_state_volume_copies_instead_of_symlinking` in
   `tests/test_entrypoint_layout_matrix.py` (`container`-marked) runs only
