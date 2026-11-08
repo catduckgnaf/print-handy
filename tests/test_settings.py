@@ -812,11 +812,13 @@ class UnknownSettingsTests(unittest.TestCase):
         self.assertNotIn("ticks", data["listener"])
         self.assertIn("[listener] ticks", settings.unknown_settings_warning())
 
-    def test_ai_tier_unknown_key_warns_and_is_dropped(self):
+    def test_ai_tier_unknown_key_stays_refused(self):
+        # Closed tables keep their own validators: [ai.*] tier keys are not
+        # part of the open settings space above (test_ai_routes pins this
+        # too), so an unknown tier key still fails instead of warning.
         path = self.local("ai:\n  chat:\n    bogus_key: 1\n")
-        data = settings.load(local=path, environ={})
-        self.assertNotIn("bogus_key", data["ai"]["chat"])
-        self.assertIn("[ai.chat] unknown setting bogus_key", settings.unknown_settings_warning())
+        with self.assertRaisesRegex(settings.SettingsError, "unknown setting bogus_key"):
+            settings.load(local=path, environ={})
 
     def test_known_settings_with_bad_values_still_fail(self):
         for env, message in [({"PRINT_HANDY__DISCORD__UPLOAD_MAX_BYTES": "abc"}, "should be a number"),

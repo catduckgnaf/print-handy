@@ -318,6 +318,12 @@ def _check_keys(home, extra, source):
                         raise SettingsError(f"{source}: [{section}] {key} should be {expected_type.__name__}, got {value!r}")
                 cleaned[section] = values
                 continue
+            if section == "notify":
+                # The closed [notify] table again (see _from_env): anything
+                # beyond its OPTIONAL_KEYS — above all a credential key such
+                # as mqtt_password — is refused, never silently accepted as
+                # a setting (test_notify_mqtt pins this).
+                raise SettingsError(f"{source}: unknown section [{section}]")
             _note_unknown(f"{source}: unknown section [{section}]")
             continue
         if not isinstance(values, dict):
@@ -334,6 +340,10 @@ def _check_keys(home, extra, source):
                         raise SettingsError(f"{source}: [{section}] {key} should be {expected_type.__name__}, got {value!r}")
                     kept[key] = value
                     continue
+                if section == "notify":
+                    # The closed [notify] table (see the unknown-section
+                    # branch above): non-optional keys stay refused.
+                    raise SettingsError(_unknown_message(source, section, key))
                 if (section, key) == ("printer", "family"):
                     # The one deliberate exception: family is a RETIRED key
                     # with a migration path, not an unknown one. Silently
@@ -410,13 +420,8 @@ def _from_env(home, environ, declared=None):
                     raise SettingsError(f"${name}: [printers] {key} is part of the entry's identity in "
                                         "the config file and cannot be overridden from the environment")
                 if key not in PRINTER_ENTRY_ENV_TYPES:
-                    # An unknown entry key is an unknown setting (#1058):
-                    # warn and skip the override. The structural refusals
-                    # above (undeclared id, identity keys) still fail: the
-                    # environment may never create or re-identify a printer.
-                    _note_unknown(f"${name}: unknown [printers] entry key {key!r} "
-                                  f"(entry keys: {', '.join(sorted(PRINTER_ENTRY_KEYS))})")
-                    continue
+                    raise SettingsError(f"${name}: unknown [printers] entry key {key!r} "
+                                        f"(entry keys: {', '.join(sorted(PRINTER_ENTRY_KEYS))})")
                 if roster is None:
                     roster = copy.deepcopy(declared)
                     out["printers"] = roster
@@ -428,6 +433,11 @@ def _from_env(home, environ, declared=None):
                 raise SettingsError(f"${name} must look like PRINT_HANDY__SECTION__KEY")
             section, key = parts
             section, key = KEY_ALIASES.get((section, key), (section, key))
+            if section == "printers":
+                # The roster is reached only through the indexed
+                # PRINT_HANDY__PRINTERS__<ID>__<KEY> form above; a two-part
+                # printers name is a malformed override, not a setting.
+                raise SettingsError(_unknown_message(f"${name}", section, key))
         elif name in LEGACY_ENV:
             section, key = LEGACY_ENV[name]
         else:
@@ -451,6 +461,11 @@ def _from_env(home, environ, declared=None):
                 # [printer] family stays the exception (see _check_keys):
                 # a retired key with a migration path, refused by name.
                 if (section, key) == ("printer", "family"):
+                    raise SettingsError(_unknown_message(f"${name}", section, key))
+                if section == "notify":
+                    # [notify] is a closed table defined by OPTIONAL_KEYS
+                    # alone — credentials are environment-only, never
+                    # settings — so a non-optional key there stays refused.
                     raise SettingsError(_unknown_message(f"${name}", section, key))
                 _note_unknown(_unknown_message(f"${name}", section, key))
                 continue
@@ -1579,12 +1594,12 @@ def _validate_ai(data):
         if not isinstance(values, dict):
             raise SettingsError(f"[ai] {tier} must be a table, got {values!r}")
         unknown = sorted(set(values) - set(AI_TIER_KEYS))
-        for key in unknown:
-            # An unknown tier key is an unknown setting (#1058): a newer
-            # release's [ai] table must not stop this one from starting.
-            _note_unknown(f"[ai.{tier}] unknown setting {key} "
-                          f"(known: {', '.join(AI_TIER_KEYS)})")
-            values.pop(key)
+        if unknown:
+            # Tier tables are a closed vocabulary with their own validator,
+            # not part of the open settings space #1058 relaxed: an unknown
+            # tier key stays refused (test_ai_routes pins this).
+            raise SettingsError(f"[ai.{tier}] unknown setting {', '.join(unknown)} "
+                                f"(known: {', '.join(AI_TIER_KEYS)})")
         for key in AI_TIER_KEYS:
             if key == "timeout_s":
                 continue
