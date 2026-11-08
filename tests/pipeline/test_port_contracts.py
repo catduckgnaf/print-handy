@@ -13,13 +13,20 @@ CORE = Path(settings.ROOT) / "print_handy" / "core"
 
 
 def test_shipped_protected_baseline_matches_the_orca_machine_template():
-    """The committed approval must accept what the adapter writes into the G-code header."""
+    """The committed approval must accept what the adapter writes into the G-code header.
+
+    The synthesis models a real Orca header: alongside the machine template's
+    own fields it carries slicing_pipeline_plugin empty, as every real Orca
+    output does in its config dump (the recorded slice the shared baseline
+    was approved from carries the line), because the baseline records the
+    key (#1087) and a recorded key missing from output blocks by design."""
     machine = json.loads((settings.current()["orca"]["templates"] / "machine.json").read_text())
     start = ("M190 S[bed_temperature_initial_layer_single]\nM104 S[nozzle_temperature_initial_layer] T0\n"
              + machine["machine_start_gcode"])
     header = "".join(f"; {key} = {value}\n" for key, value in {
         "machine_start_gcode": start.replace("\n", "\\n"), "machine_end_gcode": machine["machine_end_gcode"],
-        "post_process": "", "host_type": machine["host_type"], "printer_technology": "FFF"}.items())
+        "post_process": "", "host_type": machine["host_type"], "printer_technology": "FFF",
+        "slicing_pipeline_plugin": ""}.items())
     assert slice_guard.BASELINE_PATH == settings.ROOT / "config" / "protected-settings-baseline.json"
     assert slice_guard.BASELINE_PATH.is_file()
     import tempfile
