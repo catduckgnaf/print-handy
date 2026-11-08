@@ -664,6 +664,10 @@ def detect_timezone():
         return "UTC"
 
 
+def show(cmd):
+    return " ".join(shlex.quote(c) for c in cmd)
+
+
 def summary(plan):
     c = plan["config"]
     lines = ["Summary"]
