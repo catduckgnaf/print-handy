@@ -42,6 +42,10 @@ Hardening (the drift classes from #791):
   the caller-supplied ``runout_feed`` hook (the listener wires it to
   ``bind_slot`` with the runout disposition, ``resume_usage`` and
   clearing the question — the same steps a chat answer takes).
+- A lane whose spool already claims the slot through ``ph_slot`` is the
+  echo of Print Handy's own bind (which writes the claim and the lane
+  record together), not a screen-side change: it is adopted silently,
+  with no announcement and no mid-print note (#1063).
 
 Announcements follow the #483 watcher pattern: an event waits in a
 persisted "pending" map until the caller reports it delivered, is
@@ -471,6 +475,22 @@ class LaneDataWatcher:
             return "missing", None
         return ("archived", row) if row.get("archived") else ("live", row)
 
+    def _already_converged(self, slot: int, spool_id: int, spool: dict[str, Any]) -> bool:
+        """True when Spoolman already claims this spool for this slot (#1063).
+
+        ``ph_slot`` is Print Handy's own assignment field: a lane whose
+        spool already claims (this printer, this slot) through it names a
+        state Print Handy's bookkeeping already holds, so the lane record
+        can only be the echo of a Print Handy write (bind_slot writes the
+        claim and the lane record together). No derivable printer id
+        means no claim can be checked, and the lane is treated as a
+        screen change exactly as before.
+        """
+        printer = self.printer_id or spool_sync._default_printer_id()
+        if not printer:
+            return False
+        return spool_sync.spool_ph_slot(spool) == (printer, int(slot))
+
     def _apply(self, slot: int, spool_id: int | None) -> None:
         if self.apply_fn is not None:
             self.apply_fn(slot, spool_id)
@@ -669,6 +689,19 @@ class LaneDataWatcher:
                         f"spool is really in the slot, then relink it with "
                         f"`/spool change {slot} <spool#>`.",
                         action, spool_id=spool_id)
+            adopt()
+            return True
+
+        # -- Print Handy's own bind, already converged (#1063) ---------------
+        if self._already_converged(slot, spool_id, spool):
+            # The lane record is the echo of a bind Print Handy itself made
+            # (a Discord answer, /spool change): bind_slot wrote both the
+            # lane record and this spool's ph_slot claim, so Print Handy's
+            # records already say exactly what the screen says. Adopt
+            # silently — no announcement, no mid-print note deferring
+            # bookkeeping that already happened, and never attribute the
+            # change to a separate screen action.
+            self._drop_noted(pending, noted, slot)
             adopt()
             return True
 
