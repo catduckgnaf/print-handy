@@ -387,6 +387,17 @@ def fix_changes_made(proposal, report) -> bool:
     return bool(((report or {}).get('geometry') or {}).get('changed'))
 
 
+def repair_warnings(report) -> list[str]:
+    """Honest warnings about a built fix, shown before the operator confirms."""
+    warnings = []
+    mesh = (report or {}).get('mesh') or {}
+    if mesh.get('holes_filled'):
+        warnings.append(f"warning: the mesh repair seals {mesh['holes_filled']} opening(s) in "
+                        'the mesh. If this part is meant to have openings (a tube, a vent, '
+                        'holes), check the preview and do not apply.')
+    return warnings
+
+
 # ---------------------------------------------------------------- mesh repair
 
 # The mesh work lives in mesh_repair (#978 follow-ups); these names stay here
@@ -777,6 +788,7 @@ def fix_lines(proposal, report) -> list[str]:
         if mesh.get('branched_loops_skipped'):
             lines.append(f"- {mesh['branched_loops_skipped']} hole rim(s) could not be filled "
                          'safely and were left open')
+    lines += [f'- {warning}' for warning in repair_warnings(report)]
     walls = (report or {}).get('walls')
     note = mesh_repair.wall_note(walls)
     if note:

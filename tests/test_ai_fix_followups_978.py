@@ -151,6 +151,48 @@ def test_mesh_report_carries_the_wall_measurement(tmp_path):
     assert report["sound"] is True and report["walls"]["measured"] is True
 
 
+# ---------------------------------------------------------------- sealing caution
+
+def test_repair_warnings_name_the_sealed_openings():
+    warnings = ai_fix.repair_warnings({"mesh": {"holes_filled": 2}})
+    assert len(warnings) == 1
+    assert "seals 2 opening(s)" in warnings[0]
+    assert "meant to have openings" in warnings[0]
+    assert "do not apply" in warnings[0]
+
+
+@pytest.mark.parametrize("report", [
+    {"mesh": {"holes_filled": 0}},
+    {"mesh": {}},
+    {},
+    None,
+])
+def test_repair_warnings_quiet_when_nothing_was_sealed(report):
+    assert ai_fix.repair_warnings(report) == []
+
+
+def _fix_report(holes_filled):
+    return {"mesh": {"after": {"triangles": 640, "sound": True, "watertight": True},
+                     "holes_filled": holes_filled, "openings": [],
+                     "dropped_degenerate": 0, "dropped_duplicates": 0,
+                     "faces_reoriented": 0}}
+
+
+def test_fix_lines_carry_the_sealing_caution_when_holes_were_filled():
+    proposal = ai_fix.FixProposal(mesh_repair=True)
+    text = "\n".join(ai_fix.fix_lines(proposal, _fix_report(1)))
+    assert "mesh after repair" in text  # the repair facts still lead
+    assert "warning: the mesh repair seals 1 opening(s)" in text
+    assert "meant to have openings" in text
+
+
+def test_fix_lines_have_no_sealing_caution_when_no_hole_was_filled():
+    proposal = ai_fix.FixProposal(mesh_repair=True)
+    text = "\n".join(ai_fix.fix_lines(proposal, _fix_report(0)))
+    assert "mesh after repair" in text
+    assert "warning: the mesh repair seals" not in text
+
+
 # ---------------------------------------------------------------- staging
 
 def test_fix_copies_are_staged_uniquely_and_cleaned_up(tmp_path):
@@ -233,6 +275,30 @@ def test_chat_fix_and_edit_applies_both(fix_env):
     job = json.loads(fix_env.job_path.read_text())
     assert job["scale"] == pytest.approx(1.2)
     assert job["ai_fix_attempts"][0]["surface"] == "chat"
+
+
+def test_chat_fix_that_seals_a_damage_hole_warns_before_confirming(fix_env):
+    # Swap the open-cube model for a sphere missing one triangle: a damage
+    # hole the repair fills, not a designed opening, so the confirmation
+    # must carry the sealing caution before anyone applies the fix.
+    tris, _volume = _sphere()
+    _write(fix_env.folder / "model.stl", tris[1:])
+    asyncio.run(plugin.edit_dispatch(_event("fix this"), fix_env.gateway))
+    assert len(fix_env.confirms) == 1
+    question, choices, _approval = fix_env.confirms[0]
+    assert "warning: the mesh repair seals 1 opening(s)" in question
+    assert "meant to have openings" in question
+    assert ai_fix.APPLY_KEEP_OPENINGS_LABEL not in choices  # no designed openings here
+
+
+def test_chat_fix_that_seals_nothing_has_no_sealing_caution(fix_env):
+    # The stock fixture's missing top is a designed opening: it is listed
+    # and offered kept-open, no damage hole is filled, and no sealing
+    # caution appears in the confirmation.
+    asyncio.run(plugin.edit_dispatch(_event("fix this"), fix_env.gateway))
+    question, _choices, _approval = fix_env.confirms[0]
+    assert "opening 1" in question
+    assert "warning: the mesh repair seals" not in question
 
 
 def test_chat_decline_leaves_no_copy_or_preview_behind(fix_env):
