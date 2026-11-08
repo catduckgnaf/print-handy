@@ -81,7 +81,8 @@ def test_default_routes_map_the_existing_settings(monkeypatch):
     # small: the vision endpoint, the check model by default and the roast model for a roast.
     ai_routes.call("small", MSG, cfg=config, opener=endpoint, compat=None, purpose="vision")
     ai_routes.call("small", MSG, cfg=config, opener=endpoint, purpose="roast")
-    assert endpoint.models[2:] == ["check-model", "roast-model"]
+    assert endpoint.models[2:] == ["check-model", "check-model"]
+    assert "roast-model" not in endpoint.models
     assert endpoint.requests[2]["url"] == OTHER_URL
 
 

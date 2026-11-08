@@ -1,6 +1,6 @@
 {
  "_about": "Completed prints of 6 hours or more.",
- "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022)",
  "_license": "Original to Print Handy; MIT with the project.",
  "entries": [
   {
@@ -167,6 +167,186 @@
    "id": "long_print-at-duration-title-counts-as",
    "family": "long_print-at-duration-title-counts-as",
    "text": "At {duration}, {title} counts as a long-term relationship with a nozzle."
+  },
+  {
+   "id": "long_print-title-took-duration-printer-nearly",
+   "family": "long_print-title-took-duration-printer-nearly",
+   "text": "{title} took {duration}; {printer} nearly aged out of warranty during this."
+  },
+  {
+   "id": "long_print-after-duration-title-emerged-like",
+   "family": "long_print-after-duration-title-emerged-like",
+   "text": "After {duration}, {title} emerged like an ancient artifact unearthed from {printer}."
+  },
+  {
+   "id": "long_print-duration-for-title-that-was",
+   "family": "long_print-duration-for-title-that-was",
+   "text": "{duration} for {title}; that was less a print and more a hostage negotiation."
+  },
+  {
+   "id": "long_print-title-occupied-printer-for-duration",
+   "family": "long_print-title-occupied-printer-for-duration",
+   "text": "{title} occupied {printer} for {duration}; other jobs started holding vigils."
+  },
+  {
+   "id": "long_print-printing-title-took-duration-you",
+   "family": "long_print-printing-title-took-duration-you",
+   "text": "Printing {title} took {duration}; you could have earned an online degree instead."
+  },
+  {
+   "id": "long_print-title-ran-for-duration-the",
+   "family": "long_print-title-ran-for-duration-the",
+   "text": "{title} ran for {duration}; the cooling fan has developed a noticeable rasp."
+  },
+  {
+   "id": "long_print-after-duration-title-finished-even",
+   "family": "long_print-after-duration-title-finished-even",
+   "text": "After {duration}, {title} finished; even the stepper motors wanted to clock out."
+  },
+  {
+   "id": "long_print-title-took-duration-that-is-2",
+   "family": "long_print-title-took-duration-that-is-2",
+   "text": "{title} took {duration}; that is an astonishing amount of time for plastic."
+  },
+  {
+   "id": "long_print-duration-later-title-arrives-civilization",
+   "family": "long_print-duration-later-title-arrives-civilization",
+   "text": "{duration} later, {title} arrives; civilization moved forward while the nozzle crept along."
+  },
+  {
+   "id": "long_print-title-spent-duration-on-the",
+   "family": "long_print-title-spent-duration-on-the",
+   "text": "{title} spent {duration} on the bed, slowly turning electricity into stubborn polymer."
+  },
+  {
+   "id": "long_print-printing-title-for-duration-is-2",
+   "family": "long_print-printing-title-for-duration-is-2",
+   "text": "Printing {title} for {duration} is proof that you have unmatched schedule flexibility."
+  },
+  {
+   "id": "long_print-title-ran-for-duration-the-2",
+   "family": "long_print-title-ran-for-duration-the-2",
+   "text": "{title} ran for {duration}; the hotend deserves a week of paid vacation."
+  },
+  {
+   "id": "long_print-after-duration-title-is-done",
+   "family": "long_print-after-duration-title-is-done",
+   "text": "After {duration}, {title} is done; the slicer time estimate was purely fictional."
+  },
+  {
+   "id": "long_print-title-took-duration-you-watched",
+   "family": "long_print-title-took-duration-you-watched",
+   "text": "{title} took {duration}; you watched seasons change through that progress bar window."
+  },
+  {
+   "id": "long_print-a-duration-run-for-title",
+   "family": "long_print-a-duration-run-for-title",
+   "text": "A {duration} run for {title} means the bed heater worked a full shift."
+  },
+  {
+   "id": "long_print-title-took-duration-that-was",
+   "family": "long_print-title-took-duration-that-was",
+   "text": "{title} took {duration}; that was a marathon for five cents of plastic."
+  },
+  {
+   "id": "long_print-after-duration-title-emerged-looking",
+   "family": "long_print-after-duration-title-emerged-looking",
+   "text": "After {duration}, {title} emerged looking like it survived a mild historical era."
+  },
+  {
+   "id": "long_print-title-spent-duration-on-the-2",
+   "family": "long_print-title-spent-duration-on-the-2",
+   "text": "{title} spent {duration} on the plate; the nozzle developed attachment anxiety issues."
+  },
+  {
+   "id": "long_print-printing-title-took-duration-the",
+   "family": "long_print-printing-title-took-duration-the",
+   "text": "Printing {title} took {duration}; the spool slowly drained like an hourglass sand."
+  },
+  {
+   "id": "long_print-title-was-on-printer-for",
+   "family": "long_print-title-was-on-printer-for",
+   "text": "{title} was on {printer} for {duration}; tenants have established residency faster."
+  },
+  {
+   "id": "long_print-after-duration-title-finished-please",
+   "family": "long_print-after-duration-title-finished-please",
+   "text": "After {duration}, {title} finished; please check if your calendar year has advanced."
+  },
+  {
+   "id": "long_print-title-took-duration-that-hotend",
+   "family": "long_print-title-took-duration-that-hotend",
+   "text": "{title} took {duration}; that hotend has seen entire relationships begin and end."
+  },
+  {
+   "id": "long_print-running-title-for-duration-required",
+   "family": "long_print-running-title-for-duration-required",
+   "text": "Running {title} for {duration} required more faith than most religious movements demand."
+  },
+  {
+   "id": "long_print-title-finished-after-duration-the",
+   "family": "long_print-title-finished-after-duration-the",
+   "text": "{title} finished after {duration}; the power bill will arrive with commemorative stamps."
+  },
+  {
+   "id": "long_print-after-duration-title-is-complete",
+   "family": "long_print-after-duration-title-is-complete",
+   "text": "After {duration}, {title} is complete; layer one has faded into legendary mythology."
+  },
+  {
+   "id": "long_print-title-took-duration-printer-has",
+   "family": "long_print-title-took-duration-printer-has",
+   "text": "{title} took {duration}; {printer} has earned a thorough dust-off and retirement."
+  },
+  {
+   "id": "long_print-that-was-duration-for-title",
+   "family": "long_print-that-was-duration-for-title",
+   "text": "That was {duration} for {title}; the progress bar moved at continental drift speed."
+  },
+  {
+   "id": "long_print-title-spent-duration-baking-the",
+   "family": "long_print-title-spent-duration-baking-the",
+   "text": "{title} spent {duration} baking; the nozzle is ready for an extended nap."
+  },
+  {
+   "id": "long_print-after-duration-title-is-off",
+   "family": "long_print-after-duration-title-is-off",
+   "text": "After {duration}, {title} is off the bed; patience was stretched paper thin."
+  },
+  {
+   "id": "long_print-title-took-duration-even-glaciers",
+   "family": "long_print-title-took-duration-even-glaciers",
+   "text": "{title} took {duration}; even glaciers are asking for tips on slow pacing."
+  },
+  {
+   "id": "long_print-printing-title-for-duration-qualifies",
+   "family": "long_print-printing-title-for-duration-qualifies",
+   "text": "Printing {title} for {duration} qualifies as an endurance trial for household sanity."
+  },
+  {
+   "id": "long_print-title-spent-duration-on-the-3",
+   "family": "long_print-title-spent-duration-on-the-3",
+   "text": "{title} spent {duration} on the build plate; the belts deserve an apology."
+  },
+  {
+   "id": "long_print-after-duration-title-arrived-the",
+   "family": "long_print-after-duration-title-arrived-the",
+   "text": "After {duration}, {title} arrived; the anticipation expired around hour number eight."
+  },
+  {
+   "id": "long_print-title-ran-for-duration-printer",
+   "family": "long_print-title-ran-for-duration-printer",
+   "text": "{title} ran for {duration}; {printer} earned a medal for sheer endurance."
+  },
+  {
+   "id": "long_print-duration-for-title-you-could",
+   "family": "long_print-duration-for-title-you-could",
+   "text": "{duration} for {title}; you could have driven across three states in that time."
+  },
+  {
+   "id": "long_print-title-took-duration-the-filament",
+   "family": "long_print-title-took-duration-the-filament",
+   "text": "{title} took {duration}; the filament spool now resembles an empty hollow shell."
   }
  ]
 }

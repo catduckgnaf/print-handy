@@ -1,6 +1,6 @@
 {
  "_about": "Completed prints under 30 minutes.",
- "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022)",
  "_license": "Original to Print Handy; MIT with the project.",
  "entries": [
   {
@@ -142,6 +142,151 @@
    "id": "short_print-printer-completed-title-in-duration",
    "family": "short_print-printer-completed-title-in-duration",
    "text": "{printer} completed {title} in {duration}, then wondered whether that counted as exercise."
+  },
+  {
+   "id": "short_print-title-took-duration-the-hotend",
+   "family": "short_print-title-took-duration-the-hotend",
+   "text": "{title} took {duration}; the hotend barely had time to clear its throat."
+  },
+  {
+   "id": "short_print-slicing-title-took-longer-than",
+   "family": "short_print-slicing-title-took-longer-than",
+   "text": "Slicing {title} took longer than the {duration} it spent on the bed."
+  },
+  {
+   "id": "short_print-title-finished-in-duration-blink-2",
+   "family": "short_print-title-finished-in-duration-blink-2",
+   "text": "{title} finished in {duration}; blink and you missed the entire manufacturing cycle."
+  },
+  {
+   "id": "short_print-a-quick-duration-for-title",
+   "family": "short_print-a-quick-duration-for-title",
+   "text": "A quick {duration} for {title}; the cooling fan hardly reached cruising speed."
+  },
+  {
+   "id": "short_print-title-was-done-in-duration",
+   "family": "short_print-title-was-done-in-duration",
+   "text": "{title} was done in {duration}; that was practically an drive-thru plastic order."
+  },
+  {
+   "id": "short_print-duration-for-title-the-bed",
+   "family": "short_print-duration-for-title-the-bed",
+   "text": "{duration} for {title}; the bed spent longer preheating than melting actual filament."
+  },
+  {
+   "id": "short_print-title-printed-in-duration-patience",
+   "family": "short_print-title-printed-in-duration-patience",
+   "text": "{title} printed in {duration}; patience was never even invited to the workshop."
+  },
+  {
+   "id": "short_print-after-a-brief-duration-title",
+   "family": "short_print-after-a-brief-duration-title",
+   "text": "After a brief {duration}, {title} popped off like an impatient toaster pastry."
+  },
+  {
+   "id": "short_print-title-took-duration-printer-barely",
+   "family": "short_print-title-took-duration-printer-barely",
+   "text": "{title} took {duration}; {printer} barely stretched its mechanical legs for this."
+  },
+  {
+   "id": "short_print-that-was-duration-of-printing",
+   "family": "short_print-that-was-duration-of-printing",
+   "text": "That was {duration} of printing for {title}; hardly worth getting off the couch."
+  },
+  {
+   "id": "short_print-title-concluded-in-duration-the",
+   "family": "short_print-title-concluded-in-duration-the",
+   "text": "{title} concluded in {duration}; the completion notification arrived faster than expected."
+  },
+  {
+   "id": "short_print-a-swift-duration-for-title",
+   "family": "short_print-a-swift-duration-for-title",
+   "text": "A swift {duration} for {title}; quality control was mostly just a quick glance."
+  },
+  {
+   "id": "short_print-title-finished-in-duration-was",
+   "family": "short_print-title-finished-in-duration-was",
+   "text": "{title} finished in {duration}; was that a print or an aggressive sneeze?"
+  },
+  {
+   "id": "short_print-the-nozzle-touched-down-printed",
+   "family": "short_print-the-nozzle-touched-down-printed",
+   "text": "The nozzle touched down, printed {title} in {duration}, and immediately clocked out."
+  },
+  {
+   "id": "short_print-title-took-duration-the-print",
+   "family": "short_print-title-took-duration-the-print",
+   "text": "{title} took {duration}; the print bed barely even broke a light sweat."
+  },
+  {
+   "id": "short_print-in-just-duration-title-emerged",
+   "family": "short_print-in-just-duration-title-emerged",
+   "text": "In just {duration}, {title} emerged; micro-management was not even physically possible."
+  },
+  {
+   "id": "short_print-title-wrapped-up-in-duration",
+   "family": "short_print-title-wrapped-up-in-duration",
+   "text": "{title} wrapped up in {duration}; downloading the STL took more emotional energy."
+  },
+  {
+   "id": "short_print-that-duration-sprint-for-title",
+   "family": "short_print-that-duration-sprint-for-title",
+   "text": "That {duration} sprint for {title} proved speed can definitely outrun common sense."
+  },
+  {
+   "id": "short_print-title-took-duration-the-spool",
+   "family": "short_print-title-took-duration-the-spool",
+   "text": "{title} took {duration}; the spool hardly noticed a single revolution turned."
+  },
+  {
+   "id": "short_print-a-speedy-duration-for-title",
+   "family": "short_print-a-speedy-duration-for-title",
+   "text": "A speedy {duration} for {title}; you could not even finish making tea."
+  },
+  {
+   "id": "short_print-title-was-on-the-plate",
+   "family": "short_print-title-was-on-the-plate",
+   "text": "{title} was on the plate for {duration}, looking very proud and tiny."
+  },
+  {
+   "id": "short_print-in-duration-title-became-reality",
+   "family": "short_print-in-duration-title-became-reality",
+   "text": "In {duration}, {title} became reality; the build chamber is still lukewarm."
+  },
+  {
+   "id": "short_print-title-took-duration-printer-barely-2",
+   "family": "short_print-title-took-duration-printer-barely-2",
+   "text": "{title} took {duration}; {printer} barely registered that a file had started."
+  },
+  {
+   "id": "short_print-a-mere-duration-for-title",
+   "family": "short_print-a-mere-duration-for-title",
+   "text": "A mere {duration} for {title}; that was an impulse print in overdrive."
+  },
+  {
+   "id": "short_print-title-finished-in-duration-the",
+   "family": "short_print-title-finished-in-duration-the",
+   "text": "{title} finished in {duration}; the progress bar raced like a frightened rabbit."
+  },
+  {
+   "id": "short_print-all-done-with-title-in",
+   "family": "short_print-all-done-with-title-in",
+   "text": "All done with {title} in {duration}; that was practically an instant download."
+  },
+  {
+   "id": "short_print-title-took-duration-the-bed",
+   "family": "short_print-title-took-duration-the-bed",
+   "text": "{title} took {duration}; the bed scraper did not even have time to rest."
+  },
+  {
+   "id": "short_print-sprinted-through-title-in-duration",
+   "family": "short_print-sprinted-through-title-in-duration",
+   "text": "Sprinted through {title} in {duration}; congratulations on your brand new micro-trinket."
+  },
+  {
+   "id": "short_print-title-wrapped-in-duration-the",
+   "family": "short_print-title-wrapped-in-duration-the",
+   "text": "{title} wrapped in {duration}; the nozzle moved like it had dinner reservations."
   }
  ]
 }

@@ -1,6 +1,6 @@
 {
  "_about": "Completed-print lines that need no facts at all: the last resort that always fits.",
- "_phase": "seed-v0 (#1002 attachment 1, 2026-11-07)",
+ "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022)",
  "_license": "Original to Print Handy; MIT with the project.",
  "entries": [
   {
@@ -302,6 +302,336 @@
    "id": "one_liners-success-again-which-can-only",
    "family": "one_liners-success-again-which-can-only",
    "text": "Success again, which can only mean the next project just got more ambitious."
+  },
+  {
+   "id": "one_liners-another-spool-bravely-sacrificed-in",
+   "family": "one_liners-another-spool-bravely-sacrificed-in",
+   "text": "Another spool bravely sacrificed in the noble pursuit of more plastic desk clutter."
+  },
+  {
+   "id": "one_liners-the-bed-was-leveled-with",
+   "family": "one_liners-the-bed-was-leveled-with",
+   "text": "The bed was leveled with optimism, prayer, and an alarming disregard for physics."
+  },
+  {
+   "id": "one_liners-every-layer-line-tells-a",
+   "family": "one_liners-every-layer-line-tells-a",
+   "text": "Every layer line tells a story, mostly about loose belts and regret."
+  },
+  {
+   "id": "one_liners-turning-expensive-engineering-spools-into",
+   "family": "one_liners-turning-expensive-engineering-spools-into",
+   "text": "Turning expensive engineering spools into decorative dust collectors remains an undefeated hobby."
+  },
+  {
+   "id": "one_liners-the-slicer-promised-perfection-but",
+   "family": "one_liners-the-slicer-promised-perfection-but",
+   "text": "The slicer promised perfection, but the hotend delivered an abstract confession."
+  },
+  {
+   "id": "one_liners-a-printer-is-just-an",
+   "family": "one_liners-a-printer-is-just-an",
+   "text": "A printer is just an expensive hot glue gun with unresolved emotional issues."
+  },
+  {
+   "id": "one_liners-nothing-says-peak-engineering-quite",
+   "family": "one_liners-nothing-says-peak-engineering-quite",
+   "text": "Nothing says peak engineering quite like spending twelve hours melting colorful string."
+  },
+  {
+   "id": "one_liners-that-finished-print-has-all",
+   "family": "one_liners-that-finished-print-has-all",
+   "text": "That finished print has all the structural integrity of a damp napkin."
+  },
+  {
+   "id": "one_liners-congratulations-on-adding-another-plastic",
+   "family": "one_liners-congratulations-on-adding-another-plastic",
+   "text": "Congratulations on adding another plastic paperweight to an already crowded desk."
+  },
+  {
+   "id": "one_liners-the-only-thing-tighter-than",
+   "family": "one_liners-the-only-thing-tighter-than",
+   "text": "The only thing tighter than those layer lines is the operator budget."
+  },
+  {
+   "id": "one_liners-proof-that-having-thirty-spools",
+   "family": "one_liners-proof-that-having-thirty-spools",
+   "text": "Proof that having thirty spools of filament does not guarantee good judgment."
+  },
+  {
+   "id": "one_liners-the-nozzle-did-its-absolute",
+   "family": "one_liners-the-nozzle-did-its-absolute",
+   "text": "The nozzle did its absolute best with what was clearly an unhinged download."
+  },
+  {
+   "id": "one_liners-that-bottom-surface-reveals-someone",
+   "family": "one_liners-that-bottom-surface-reveals-someone",
+   "text": "That bottom surface reveals someone who treats bed adhesion as an abstract rumor."
+  },
+  {
+   "id": "one_liners-another-finished-print-that-will",
+   "family": "one_liners-another-finished-print-that-will",
+   "text": "Another finished print that will spend eternity sitting silently behind the monitor."
+  },
+  {
+   "id": "one_liners-the-slicer-estimate-was-purely",
+   "family": "one_liners-the-slicer-estimate-was-purely",
+   "text": "The slicer estimate was purely inspirational fiction written by a cheerful algorithm."
+  },
+  {
+   "id": "one_liners-printing-functional-parts-is-boring",
+   "family": "one_liners-printing-functional-parts-is-boring",
+   "text": "Printing functional parts is boring when you can melt pointless little trinkets instead."
+  },
+  {
+   "id": "one_liners-the-hotend-whined-for-hours",
+   "family": "one_liners-the-hotend-whined-for-hours",
+   "text": "The hotend whined for hours just to deliver an ornament nobody requested."
+  },
+  {
+   "id": "one_liners-a-little-stringing-a-little",
+   "family": "one_liners-a-little-stringing-a-little",
+   "text": "A little stringing, a little warping, and a whole lot of unearned pride."
+  },
+  {
+   "id": "one_liners-that-model-looks-like-cad",
+   "family": "one_liners-that-model-looks-like-cad",
+   "text": "That model looks like CAD software surrendered during a power surge."
+  },
+  {
+   "id": "one_liners-layer-thirty-seven-was-an",
+   "family": "one_liners-layer-thirty-seven-was-an",
+   "text": "Layer thirty-seven was an adventure; layer ninety was a cry for help."
+  },
+  {
+   "id": "one_liners-the-spool-gave-its-life",
+   "family": "one_liners-the-spool-gave-its-life",
+   "text": "The spool gave its life so that shelf could have more useless clutter."
+  },
+  {
+   "id": "one_liners-an-expensive-machine-hummed-all",
+   "family": "one_liners-an-expensive-machine-hummed-all",
+   "text": "An expensive machine hummed all afternoon to produce five cents of plastic regret."
+  },
+  {
+   "id": "one_liners-the-stepper-motors-screamed-in",
+   "family": "one_liners-the-stepper-motors-screamed-in",
+   "text": "The stepper motors screamed in harmony to produce another decorative dust magnet."
+  },
+  {
+   "id": "one_liners-bed-leveling-is-ninety-percent",
+   "family": "one_liners-bed-leveling-is-ninety-percent",
+   "text": "Bed leveling is ninety percent witchcraft and ten percent aggressive denial."
+  },
+  {
+   "id": "one_liners-nobody-needed-that-print-but",
+   "family": "one_liners-nobody-needed-that-print-but",
+   "text": "Nobody needed that print, but the download button was right there."
+  },
+  {
+   "id": "one_liners-visible-layer-lines-build-character",
+   "family": "one_liners-visible-layer-lines-build-character",
+   "text": "Visible layer lines build character, or at least that is what we tell visitors."
+  },
+  {
+   "id": "one_liners-the-cooling-fan-worked-overtime",
+   "family": "one_liners-the-cooling-fan-worked-overtime",
+   "text": "The cooling fan worked overtime trying to blow away the questionable geometry."
+  },
+  {
+   "id": "one_liners-that-part-will-hold-together",
+   "family": "one_liners-that-part-will-hold-together",
+   "text": "That part will hold together until someone looks at it with mild skepticism."
+  },
+  {
+   "id": "one_liners-you-can-always-tell-an",
+   "family": "one_liners-you-can-always-tell-an",
+   "text": "You can always tell an uncalibrated printer by its sheer swagger and stringing."
+  },
+  {
+   "id": "one_liners-the-extruder-clicked-its-teeth",
+   "family": "one_liners-the-extruder-clicked-its-teeth",
+   "text": "The extruder clicked its teeth in protest, but the print persisted regardless."
+  },
+  {
+   "id": "one_liners-behold-another-colorful-plastic-trinket",
+   "family": "one_liners-behold-another-colorful-plastic-trinket",
+   "text": "Behold another colorful plastic trinket destined to outlive our civilization in a landfill."
+  },
+  {
+   "id": "one_liners-the-infill-pattern-is-doing",
+   "family": "one_liners-the-infill-pattern-is-doing",
+   "text": "The infill pattern is doing heavy emotional lifting for that exterior shell."
+  },
+  {
+   "id": "one_liners-a-completed-print-always-looks",
+   "family": "one_liners-a-completed-print-always-looks",
+   "text": "A completed print always looks best from across the room with lights dimmed."
+  },
+  {
+   "id": "one_liners-spending-three-hours-tuning-retraction",
+   "family": "one_liners-spending-three-hours-tuning-retraction",
+   "text": "Spending three hours tuning retraction just to print another bench toy is classic."
+  },
+  {
+   "id": "one_liners-the-hotend-has-seen-things",
+   "family": "one_liners-the-hotend-has-seen-things",
+   "text": "The hotend has seen things today that no warranty will ever cover."
+  },
+  {
+   "id": "one_liners-that-z-seam-is-so",
+   "family": "one_liners-that-z-seam-is-so",
+   "text": "That Z-seam is so prominent it deserves its own zip code."
+  },
+  {
+   "id": "one_liners-another-successful-conversion-of-good",
+   "family": "one_liners-another-successful-conversion-of-good",
+   "text": "Another successful conversion of good electricity into slightly warped polymer."
+  },
+  {
+   "id": "one_liners-the-print-finished-without-peeling",
+   "family": "one_liners-the-print-finished-without-peeling",
+   "text": "The print finished without peeling, which is basically a miracle in this house."
+  },
+  {
+   "id": "one_liners-that-model-looked-much-more",
+   "family": "one_liners-that-model-looked-much-more",
+   "text": "That model looked much more functional on a glowing two-dimensional screen."
+  },
+  {
+   "id": "one_liners-watching-molten-plastic-deposit-layer",
+   "family": "one_liners-watching-molten-plastic-deposit-layer",
+   "text": "Watching molten plastic deposit layer by layer is cheaper than therapy, barely."
+  },
+  {
+   "id": "one_liners-that-surface-finish-could-double",
+   "family": "one_liners-that-surface-finish-could-double",
+   "text": "That surface finish could double as an educational diagram on nozzle hesitation."
+  },
+  {
+   "id": "one_liners-the-spool-was-pristine-until",
+   "family": "one_liners-the-spool-was-pristine-until",
+   "text": "The spool was pristine until someone decided to print another plastic novelty."
+  },
+  {
+   "id": "one_liners-you-printed-an-organizer-that",
+   "family": "one_liners-you-printed-an-organizer-that",
+   "text": "You printed an organizer that now requires its own dedicated organizer."
+  },
+  {
+   "id": "one_liners-the-slicer-warned-about-unsupported",
+   "family": "one_liners-the-slicer-warned-about-unsupported",
+   "text": "The slicer warned about unsupported overhangs, and those warnings were treated as opinions."
+  },
+  {
+   "id": "one_liners-that-print-is-held-together",
+   "family": "one_liners-that-print-is-held-together",
+   "text": "That print is held together by pure surface tension and reckless ambition."
+  },
+  {
+   "id": "one_liners-another-layer-of-plastic-another",
+   "family": "one_liners-another-layer-of-plastic-another",
+   "text": "Another layer of plastic, another layer of questions regarding workshop priorities."
+  },
+  {
+   "id": "one_liners-the-printer-fan-sounds-like",
+   "family": "one_liners-the-printer-fan-sounds-like",
+   "text": "The printer fan sounds like a miniature jet engine powered by questionable judgment."
+  },
+  {
+   "id": "one_liners-a-fresh-print-on-the",
+   "family": "one_liners-a-fresh-print-on-the",
+   "text": "A fresh print on the build plate always smells like melted ambition."
+  },
+  {
+   "id": "one_liners-the-nozzle-laid-down-plastic",
+   "family": "one_liners-the-nozzle-laid-down-plastic",
+   "text": "The nozzle laid down plastic like a baker who lost their glasses."
+  },
+  {
+   "id": "one_liners-ten-percent-infill-was-enough",
+   "family": "one_liners-ten-percent-infill-was-enough",
+   "text": "Ten percent infill was enough to support the structure, but not the premise."
+  },
+  {
+   "id": "one_liners-that-brim-was-wider-than",
+   "family": "one_liners-that-brim-was-wider-than",
+   "text": "That brim was wider than the model itself, a true testament to fear."
+  },
+  {
+   "id": "one_liners-the-build-plate-released-the",
+   "family": "one_liners-the-build-plate-released-the",
+   "text": "The build plate released the print with the reluctance of an unwilling hostage."
+  },
+  {
+   "id": "one_liners-every-spool-eventually-realizes-it",
+   "family": "one_liners-every-spool-eventually-realizes-it",
+   "text": "Every spool eventually realizes it was bought for novelty prints and dust."
+  },
+  {
+   "id": "one_liners-that-corner-curled-upward-as",
+   "family": "one_liners-that-corner-curled-upward-as",
+   "text": "That corner curled upward as if trying to crawl off the plate."
+  },
+  {
+   "id": "one_liners-an-uninspected-stl-is-a",
+   "family": "one_liners-an-uninspected-stl-is-a",
+   "text": "An uninspected STL is a gamble where the prize is always plastic clutter."
+  },
+  {
+   "id": "one_liners-the-bed-temperature-was-high",
+   "family": "one_liners-the-bed-temperature-was-high",
+   "text": "The bed temperature was high, but the design standard was decidedly room temp."
+  },
+  {
+   "id": "one_liners-a-printer-running-at-full",
+   "family": "one_liners-a-printer-running-at-full",
+   "text": "A printer running at full speed sounds like an angry dial-up modem."
+  },
+  {
+   "id": "one_liners-that-top-layer-looks-like",
+   "family": "one_liners-that-top-layer-looks-like",
+   "text": "That top layer looks like it was smoothed with an aggressive butter knife."
+  },
+  {
+   "id": "one_liners-another-finished-print-to-shuffle",
+   "family": "one_liners-another-finished-print-to-shuffle",
+   "text": "Another finished print to shuffle from the desk to the junk drawer."
+  },
+  {
+   "id": "one_liners-the-extruder-pushed-plastic-with",
+   "family": "one_liners-the-extruder-pushed-plastic-with",
+   "text": "The extruder pushed plastic with the quiet sorrow of a forced laborer."
+  },
+  {
+   "id": "one_liners-that-support-material-used-more",
+   "family": "one_liners-that-support-material-used-more",
+   "text": "That support material used more filament than the actual intended part."
+  },
+  {
+   "id": "one_liners-you-bought-a-high-speed",
+   "family": "one_liners-you-bought-a-high-speed",
+   "text": "You bought a high-speed printer just to accumulate plastic trinkets even faster."
+  },
+  {
+   "id": "one_liners-the-nozzle-dragged-through-that",
+   "family": "one_liners-the-nozzle-dragged-through-that",
+   "text": "The nozzle dragged through that top layer like a rake across gravel."
+  },
+  {
+   "id": "one_liners-every-completed-print-brings-us",
+   "family": "one_liners-every-completed-print-brings-us",
+   "text": "Every completed print brings us closer to being buried under melted polymer."
+  },
+  {
+   "id": "one_liners-that-model-has-the-geometry",
+   "family": "one_liners-that-model-has-the-geometry",
+   "text": "That model has the geometry of an apology delivered way too late."
+  },
+  {
+   "id": "one_liners-the-cooling-duct-blew-bravely",
+   "family": "one_liners-the-cooling-duct-blew-bravely",
+   "text": "The cooling duct blew bravely against the tide of sheer aesthetic failure."
   }
  ]
 }

@@ -1,0 +1,532 @@
+{
+ "_about": "Existential dread, landfill longevity, and model futility roasts for completed prints (#1002 Phase 2).",
+ "_phase": 2,
+ "_license": "CC0-1.0",
+ "entries": [
+  {
+   "id": "dark-millions-of-years-of-prehistoric",
+   "family": "dark-millions-of-years-of-prehistoric",
+   "text": "Millions of years of prehistoric life decayed under tremendous pressure only to become {title}."
+  },
+  {
+   "id": "dark-in-five-centuries-archaeologists-will",
+   "family": "dark-in-five-centuries-archaeologists-will",
+   "text": "In five centuries, archaeologists will unearth {title} from a landfill and question our civilization."
+  },
+  {
+   "id": "dark-title-will-outlive-your-grandchildren",
+   "family": "dark-title-will-outlive-your-grandchildren",
+   "text": "{title} will outlive your grandchildren, your house, and all human memory in a municipal dump."
+  },
+  {
+   "id": "dark-you-traded-duration-of-your",
+   "family": "dark-you-traded-duration-of-your",
+   "text": "You traded {duration} of your fleeting mortal existence on Earth for {grams} grams of {material}."
+  },
+  {
+   "id": "dark-somewhere-in-the-deep-geological",
+   "family": "dark-somewhere-in-the-deep-geological",
+   "text": "Somewhere in the deep geological strata of the future, {title} will mark the Anthropocene."
+  },
+  {
+   "id": "dark-ancient-sea-creatures-compressed-over",
+   "family": "dark-ancient-sea-creatures-compressed-over",
+   "text": "Ancient sea creatures compressed over eons into crude oil have been resurrected as {title}."
+  },
+  {
+   "id": "dark-grams-grams-of-non-biodegradable",
+   "family": "dark-grams-grams-of-non-biodegradable",
+   "text": "{grams} grams of non-biodegradable polymers crafted to gather dust on a shelf forever."
+  },
+  {
+   "id": "dark-the-sun-will-eventually-expand",
+   "family": "dark-the-sun-will-eventually-expand",
+   "text": "The sun will eventually expand into a red giant and incinerate the Earth, including {title}."
+  },
+  {
+   "id": "dark-centuries-from-now-sea-turtles",
+   "family": "dark-centuries-from-now-sea-turtles",
+   "text": "Centuries from now, sea turtles will swim past the indestructible plastic fragments of {title}."
+  },
+  {
+   "id": "dark-you-consumed-kilowatt-hours-of",
+   "family": "dark-you-consumed-kilowatt-hours-of",
+   "text": "You consumed kilowatt hours of electrical power to bring {title} into an indifferent universe."
+  },
+  {
+   "id": "dark-title-is-an-eternal-monument",
+   "family": "dark-title-is-an-eternal-monument",
+   "text": "{title} is an eternal monument to humanity's obsession with turning dead fossils into trinkets."
+  },
+  {
+   "id": "dark-microplastics-from-title-will-eventually",
+   "family": "dark-microplastics-from-title-will-eventually",
+   "text": "Microplastics from {title} will eventually drift through the atmospheric currents of the apocalypse."
+  },
+  {
+   "id": "dark-a-plastic-fossil-born-in",
+   "family": "dark-a-plastic-fossil-born-in",
+   "text": "A plastic fossil born in {duration}, ready to endure undisturbed for five hundred years."
+  },
+  {
+   "id": "dark-title-will-remain-chemically-stable",
+   "family": "dark-title-will-remain-chemically-stable",
+   "text": "{title} will remain chemically stable long after every language spoken today has vanished."
+  },
+  {
+   "id": "dark-entropy-ruled-the-cosmos-until",
+   "family": "dark-entropy-ruled-the-cosmos-until",
+   "text": "Entropy ruled the cosmos until your hotend forced {material} into {title}."
+  },
+  {
+   "id": "dark-civilizations-rise-and-fall-but",
+   "family": "dark-civilizations-rise-and-fall-but",
+   "text": "Civilizations rise and fall, but {title} will sit stubbornly in a trash heap for millennia."
+  },
+  {
+   "id": "dark-you-spent-mortal-time-and",
+   "family": "dark-you-spent-mortal-time-and",
+   "text": "You spent mortal time and grid electricity manufacturing {title}, a future ocean sediment."
+  },
+  {
+   "id": "dark-behold-title-fossil-fuel-refined",
+   "family": "dark-behold-title-fossil-fuel-refined",
+   "text": "Behold {title}: fossil fuel refined, melted, and frozen into a permanent plastic sigh."
+  },
+  {
+   "id": "dark-a-future-ai-excavating-the",
+   "family": "dark-a-future-ai-excavating-the",
+   "text": "A future AI excavating the ruins of Earth will find {title} and compute zero purpose."
+  },
+  {
+   "id": "dark-the-carbon-footprint-of-title",
+   "family": "dark-the-carbon-footprint-of-title",
+   "text": "The carbon footprint of {title} will outshine its practical usefulness within three days."
+  },
+  {
+   "id": "dark-five-hundred-years-from-now",
+   "family": "dark-five-hundred-years-from-now",
+   "text": "Five hundred years from now, {title} will still resist bacterial decomposition in a landfill."
+  },
+  {
+   "id": "dark-you-turned-ancient-organic-petroleum",
+   "family": "dark-you-turned-ancient-organic-petroleum",
+   "text": "You turned ancient organic petroleum into {title}, proving that evolution has strange detours."
+  },
+  {
+   "id": "dark-title-will-survive-the-collapse",
+   "family": "dark-title-will-survive-the-collapse",
+   "text": "{title} will survive the collapse of the power grid that originally gave it shape."
+  },
+  {
+   "id": "dark-nothing-says-existential-futility-quite",
+   "family": "dark-nothing-says-existential-futility-quite",
+   "text": "Nothing says existential futility quite like spending {duration} producing {grams} grams of clutter."
+  },
+  {
+   "id": "dark-the-atoms-forming-title-were",
+   "family": "dark-the-atoms-forming-title-were",
+   "text": "The atoms forming {title} were forged in dying stars, only to become a desk knickknack."
+  },
+  {
+   "id": "dark-geologists-of-the-deep-future",
+   "family": "dark-geologists-of-the-deep-future",
+   "text": "Geologists of the deep future will name this rock stratum after discarded plastic like {title}."
+  },
+  {
+   "id": "dark-you-exchanged-finite-human-heartbeats",
+   "family": "dark-you-exchanged-finite-human-heartbeats",
+   "text": "You exchanged finite human heartbeats to monitor {title} slowly extruding layer by layer."
+  },
+  {
+   "id": "dark-title-will-linger-in-the",
+   "family": "dark-title-will-linger-in-the",
+   "text": "{title} will linger in the environment until the tectonic plates grind it into magma."
+  },
+  {
+   "id": "dark-the-dinosaur-whose-molecular-remnants",
+   "family": "dark-the-dinosaur-whose-molecular-remnants",
+   "text": "The dinosaur whose molecular remnants built {title} is weeping somewhere in the fossil record."
+  },
+  {
+   "id": "dark-when-humanity-becomes-myth-title",
+   "family": "dark-when-humanity-becomes-myth-title",
+   "text": "When humanity becomes myth, {title} will sit intact beneath four feet of landfill clay."
+  },
+  {
+   "id": "dark-a-petroleum-product-designed-to",
+   "family": "dark-a-petroleum-product-designed-to",
+   "text": "A petroleum product designed to outlast modern empires while serving no measurable purpose."
+  },
+  {
+   "id": "dark-you-converted-coal-fired-electricity",
+   "family": "dark-you-converted-coal-fired-electricity",
+   "text": "You converted coal-fired electricity and petrochemicals into {title}; nature is weeping quietly."
+  },
+  {
+   "id": "dark-grams-grams-of-petroleum-byproducts",
+   "family": "dark-grams-grams-of-petroleum-byproducts",
+   "text": "{grams} grams of petroleum byproducts shaped into a temporary amusement and an eternal waste."
+  },
+  {
+   "id": "dark-the-plastic-bonds-in-title",
+   "family": "dark-the-plastic-bonds-in-title",
+   "text": "The plastic bonds in {title} are stronger than all your personal relationships combined."
+  },
+  {
+   "id": "dark-future-historians-will-study-title",
+   "family": "dark-future-historians-will-study-title",
+   "text": "Future historians will study {title} as prime evidence of our civilization's impending decline."
+  },
+  {
+   "id": "dark-you-burned-fossil-fuels-to",
+   "family": "dark-you-burned-fossil-fuels-to",
+   "text": "You burned fossil fuels to shape {title}, which soon visits a trash bin."
+  },
+  {
+   "id": "dark-deep-sea-microbes-will-eventually",
+   "family": "dark-deep-sea-microbes-will-eventually",
+   "text": "Deep-sea microbes will eventually sample {title} and find it completely indigestible."
+  },
+  {
+   "id": "dark-the-thermal-energy-spent-making",
+   "family": "dark-the-thermal-energy-spent-making",
+   "text": "The thermal energy spent making {title} contributed a tiny grain toward global entropy."
+  },
+  {
+   "id": "dark-in-the-grand-cosmic-timeline",
+   "family": "dark-in-the-grand-cosmic-timeline",
+   "text": "In the grand cosmic timeline, {title} is an indestructible speck of synthetic regret."
+  },
+  {
+   "id": "dark-every-gram-of-title-will",
+   "family": "dark-every-gram-of-title-will",
+   "text": "Every gram of {title} will witness the rise and fall of civilizations."
+  },
+  {
+   "id": "dark-you-spent-duration-of-irreplaceable",
+   "family": "dark-you-spent-duration-of-irreplaceable",
+   "text": "You spent {duration} of irreplaceable life waiting for {title} to solidify its uselessness."
+  },
+  {
+   "id": "dark-a-synthetic-artifact-that-will",
+   "family": "dark-a-synthetic-artifact-that-will",
+   "text": "A synthetic artifact that will survive global warming, ice ages, and human extinction."
+  },
+  {
+   "id": "dark-title-embodies-humanity-s-pledge",
+   "family": "dark-title-embodies-humanity-s-pledge",
+   "text": "{title} embodies humanity's pledge to fill every square meter of the biosphere with polymers."
+  },
+  {
+   "id": "dark-the-oil-reserves-took-two",
+   "family": "dark-the-oil-reserves-took-two",
+   "text": "The oil reserves took two hundred million years to form; {printer} wasted them in {duration}."
+  },
+  {
+   "id": "dark-long-after-your-descendants-forget",
+   "family": "dark-long-after-your-descendants-forget",
+   "text": "Long after your descendants forget your name, {title} will still sit in a ditch."
+  },
+  {
+   "id": "dark-you-took-finite-planetary-resources",
+   "family": "dark-you-took-finite-planetary-resources",
+   "text": "You took finite planetary resources and converted them into {grams} grams of shelf clutter."
+  },
+  {
+   "id": "dark-title-will-float-serenely-in",
+   "family": "dark-title-will-float-serenely-in",
+   "text": "{title} will float serenely in the Pacific garbage patch long after cities drown."
+  },
+  {
+   "id": "dark-the-universe-will-slowly-experience",
+   "family": "dark-the-universe-will-slowly-experience",
+   "text": "The universe will slowly experience thermal heat death, but {title} will linger indefinitely."
+  },
+  {
+   "id": "dark-behold-the-manufacturing-of-an",
+   "family": "dark-behold-the-manufacturing-of-an",
+   "text": "Behold the manufacturing of an indestructible polymer ghost that will haunt future ecosystems."
+  },
+  {
+   "id": "dark-mankind-unlocked-the-secrets-of",
+   "family": "dark-mankind-unlocked-the-secrets-of",
+   "text": "Mankind unlocked the secrets of polymer chemistry simply to extrude {title} onto a glass plate."
+  },
+  {
+   "id": "dark-title-is-your-personal-contribution",
+   "family": "dark-title-is-your-personal-contribution",
+   "text": "{title} is your personal contribution to the permanent geological plastic layer of Earth."
+  },
+  {
+   "id": "dark-you-spent-electrical-current-generated",
+   "family": "dark-you-spent-electrical-current-generated",
+   "text": "You spent electrical current generated by roaring turbines to fabricate this plastic relic."
+  },
+  {
+   "id": "dark-centuries-after-the-warranty-expires",
+   "family": "dark-centuries-after-the-warranty-expires",
+   "text": "Centuries after the warranty expires, {title} will refuse to degrade in any known soil."
+  },
+  {
+   "id": "dark-the-sun-provides-life-to",
+   "family": "dark-the-sun-provides-life-to",
+   "text": "The sun provides life to Earth, and you used solar-derived grid power to produce {title}."
+  },
+  {
+   "id": "dark-an-eternal-tribute-to-consumer",
+   "family": "dark-an-eternal-tribute-to-consumer",
+   "text": "An eternal tribute to consumer convenience: {grams} grams of immortal plastic destined for oblivion."
+  },
+  {
+   "id": "dark-title-will-remain-fully-intact",
+   "family": "dark-title-will-remain-fully-intact",
+   "text": "{title} will remain fully intact while every building in your hometown slowly crumbles."
+  },
+  {
+   "id": "dark-you-converted-refined-dinosaur-soup",
+   "family": "dark-you-converted-refined-dinosaur-soup",
+   "text": "You converted refined dinosaur soup into {title}, an artifact of questionable utility."
+  },
+  {
+   "id": "dark-the-eternal-plastic-soul-of",
+   "family": "dark-the-eternal-plastic-soul-of",
+   "text": "The eternal plastic soul of {title} will outlive the memory of who sliced the model."
+  },
+  {
+   "id": "dark-microscopic-fragments-of-title-will",
+   "family": "dark-microscopic-fragments-of-title-will",
+   "text": "Microscopic fragments of {title} will one day ride trade winds across forgotten continents."
+  },
+  {
+   "id": "dark-you-traded-your-electric-bill",
+   "family": "dark-you-traded-your-electric-bill",
+   "text": "You traded your electric bill and {duration} of your life for a plastic dust magnet."
+  },
+  {
+   "id": "dark-a-permanent-petrochemical-monument-that",
+   "family": "dark-a-permanent-petrochemical-monument-that",
+   "text": "A permanent petrochemical monument that will easily survive the fall of modern society."
+  },
+  {
+   "id": "dark-title-will-sit-on-your",
+   "family": "dark-title-will-sit-on-your",
+   "text": "{title} will sit on your desk until you die, then transition smoothly to a landfill."
+  },
+  {
+   "id": "dark-the-earth-took-eons-to",
+   "family": "dark-the-earth-took-eons-to",
+   "text": "The earth took eons to trap atmospheric carbon; you released it to print {title}."
+  },
+  {
+   "id": "dark-in-a-million-years-only",
+   "family": "dark-in-a-million-years-only",
+   "text": "In a million years, only cockroaches, tardigrades, and {title} will roam the planet."
+  },
+  {
+   "id": "dark-you-gave-birth-to-an",
+   "family": "dark-you-gave-birth-to-an",
+   "text": "You gave birth to an unkillable polymer creature that will never feel love or decompose."
+  },
+  {
+   "id": "dark-the-plastic-chains-in-title",
+   "family": "dark-the-plastic-chains-in-title",
+   "text": "The plastic chains in {title} will still hold together when mountains weather into sand."
+  },
+  {
+   "id": "dark-you-spent-valuable-mortal-hours",
+   "family": "dark-you-spent-valuable-mortal-hours",
+   "text": "You spent valuable mortal hours coaxing {printer} into creating future synthetic ocean debris."
+  },
+  {
+   "id": "dark-a-landfill-somewhere-has-already",
+   "family": "dark-a-landfill-somewhere-has-already",
+   "text": "A landfill somewhere has already reserved a prime eternal plot for {title}."
+  },
+  {
+   "id": "dark-the-universe-does-not-care",
+   "family": "dark-the-universe-does-not-care",
+   "text": "The universe does not care about {title}, but local waste management definitely will."
+  },
+  {
+   "id": "dark-generations-of-humans-will-perish",
+   "family": "dark-generations-of-humans-will-perish",
+   "text": "Generations of humans will perish while {title} retains its exact dimensional geometry."
+  },
+  {
+   "id": "dark-you-turned-ancient-carbon-into",
+   "family": "dark-you-turned-ancient-carbon-into",
+   "text": "You turned ancient carbon into {grams} grams of modern existential sadness."
+  },
+  {
+   "id": "dark-title-will-witness-the-end",
+   "family": "dark-title-will-witness-the-end",
+   "text": "{title} will witness the end of capitalism from the comfort of a municipal dump."
+  },
+  {
+   "id": "dark-heat-radiated-while-cooling-title",
+   "family": "dark-heat-radiated-while-cooling-title",
+   "text": "Heat radiated while cooling {title} is lost forever to the cosmic void."
+  },
+  {
+   "id": "dark-a-petrochemical-spectacle-spending-duration",
+   "family": "dark-a-petrochemical-spectacle-spending-duration",
+   "text": "A petrochemical spectacle: spending {duration} to create something you will discard next month."
+  },
+  {
+   "id": "dark-tectonic-subduction-zones-are-the",
+   "family": "dark-tectonic-subduction-zones-are-the",
+   "text": "Tectonic subduction zones are the only force capable of destroying {title}."
+  },
+  {
+   "id": "dark-you-gave-this-chunk-of",
+   "family": "dark-you-gave-this-chunk-of",
+   "text": "You gave this chunk of {material} an immortal physical body with zero purpose."
+  },
+  {
+   "id": "dark-the-carbon-atoms-in-title",
+   "family": "dark-the-carbon-atoms-in-title",
+   "text": "The carbon atoms in {title} survived supernovae, only to settle into a plastic trinket."
+  },
+  {
+   "id": "dark-in-five-centuries-title-will",
+   "family": "dark-in-five-centuries-title-will",
+   "text": "In five centuries, {title} will be the sole remaining proof that your household existed."
+  },
+  {
+   "id": "dark-you-used-industrial-automation-to",
+   "family": "dark-you-used-industrial-automation-to",
+   "text": "You used industrial automation to generate an everlasting monument to boredom."
+  },
+  {
+   "id": "dark-title-will-never-rot-never",
+   "family": "dark-title-will-never-rot-never",
+   "text": "{title} will never rot, never rust, and never fulfill any meaningful cosmic destiny."
+  },
+  {
+   "id": "dark-a-bleak-reminder-that-plastic",
+   "family": "dark-a-bleak-reminder-that-plastic",
+   "text": "A bleak reminder that plastic lasts forever while human enthusiasm dies in minutes."
+  },
+  {
+   "id": "dark-you-melted-prehistoric-organic-matter",
+   "family": "dark-you-melted-prehistoric-organic-matter",
+   "text": "You melted prehistoric organic matter into {title}; the universe sighs in deep exhaustion."
+  },
+  {
+   "id": "dark-the-eternal-polymer-lattice-of",
+   "family": "dark-the-eternal-polymer-lattice-of",
+   "text": "The eternal polymer lattice of {title} laughs at the fleeting concept of human mortality."
+  },
+  {
+   "id": "dark-when-alien-probes-excavate-earth",
+   "family": "dark-when-alien-probes-excavate-earth",
+   "text": "When alien probes excavate Earth, {title} will be cataloged as ritual plastic debris."
+  },
+  {
+   "id": "dark-you-sacrificed-duration-of-finite",
+   "family": "dark-you-sacrificed-duration-of-finite",
+   "text": "You sacrificed {duration} of finite life for a model that solves zero worldly problems."
+  },
+  {
+   "id": "dark-every-layer-of-title-is",
+   "family": "dark-every-layer-of-title-is",
+   "text": "Every layer of {title} is a permanent deposit into the planetary waste account."
+  },
+  {
+   "id": "dark-nature-spent-millions-of-years",
+   "family": "dark-nature-spent-millions-of-years",
+   "text": "Nature spent millions of years refining biology; you spent {duration} refining {material}."
+  },
+  {
+   "id": "dark-title-will-remain-entirely-unchanged",
+   "family": "dark-title-will-remain-entirely-unchanged",
+   "text": "{title} will remain entirely unchanged while civil laws, languages, and borders dissolve."
+  },
+  {
+   "id": "dark-you-turned-petroleum-products-into",
+   "family": "dark-you-turned-petroleum-products-into",
+   "text": "You turned petroleum products into a dust collector that will survive nuclear fallout."
+  },
+  {
+   "id": "dark-an-eternal-synthetic-presence-on",
+   "family": "dark-an-eternal-synthetic-presence-on",
+   "text": "An eternal synthetic presence on Earth, holding {grams} grams of questionable intent."
+  },
+  {
+   "id": "dark-the-plastic-in-title-will",
+   "family": "dark-the-plastic-in-title-will",
+   "text": "The plastic in {title} will outlast the granite headstones of the cemetery down the street."
+  },
+  {
+   "id": "dark-you-watched-a-motorized-nozzle",
+   "family": "dark-you-watched-a-motorized-nozzle",
+   "text": "You watched a motorized nozzle melt hydrocarbons into {title}; what a time to be mortal."
+  },
+  {
+   "id": "dark-a-timeless-piece-of-synthetic",
+   "family": "dark-a-timeless-piece-of-synthetic",
+   "text": "A timeless piece of synthetic matter destined to outlive every organism currently breathing."
+  },
+  {
+   "id": "dark-your-printer-turned-electrical-current",
+   "family": "dark-your-printer-turned-electrical-current",
+   "text": "Your printer turned electrical current into an indestructible monument to existential dread."
+  },
+  {
+   "id": "dark-title-is-five-hundred-years",
+   "family": "dark-title-is-five-hundred-years",
+   "text": "{title} is five hundred years of landfill persistence wrapped in a temporary whim."
+  },
+  {
+   "id": "dark-the-stars-will-burn-through",
+   "family": "dark-the-stars-will-burn-through",
+   "text": "The stars will burn through their nuclear fuel before {title} naturally biodegrades."
+  },
+  {
+   "id": "dark-you-converted-grid-wattage-into",
+   "family": "dark-you-converted-grid-wattage-into",
+   "text": "You converted grid wattage into an eternal plastic entity with zero pulse."
+  },
+  {
+   "id": "dark-future-paleontologists-will-identify-our",
+   "family": "dark-future-paleontologists-will-identify-our",
+   "text": "Future paleontologists will identify our geological era by the sudden appearance of {title}."
+  },
+  {
+   "id": "dark-a-tragic-transformation-of-fossil",
+   "family": "dark-a-tragic-transformation-of-fossil",
+   "text": "A tragic transformation of fossil fuel into {grams} grams of inert desk clutter."
+  },
+  {
+   "id": "dark-the-molecules-in-title-have",
+   "family": "dark-the-molecules-in-title-have",
+   "text": "The molecules in {title} have achieved immortality; too bad about the human lifespan."
+  },
+  {
+   "id": "dark-you-spent-duration-bringing-an",
+   "family": "dark-you-spent-duration-bringing-an",
+   "text": "You spent {duration} bringing an immortal synthetic phantom into a finite world."
+  },
+  {
+   "id": "dark-a-permanent-plastic-scar-upon",
+   "family": "dark-a-permanent-plastic-scar-upon",
+   "text": "A permanent plastic scar upon the planet, representing {grams} grams of fleeting curiosity."
+  },
+  {
+   "id": "dark-title-will-survive-all-human",
+   "family": "dark-title-will-survive-all-human",
+   "text": "{title} will survive all human drama, resting serenely in a mountain of garbage."
+  },
+  {
+   "id": "dark-you-traded-irreplaceable-seconds-of",
+   "family": "dark-you-traded-irreplaceable-seconds-of",
+   "text": "You traded irreplaceable seconds of existence for {grams} grams of cold, dead plastic."
+  },
+  {
+   "id": "dark-amid-infinite-cosmic-possibilities-you",
+   "family": "dark-amid-infinite-cosmic-possibilities-you",
+   "text": "Amid infinite cosmic possibilities, you chose to manifest {title} in {material}."
+  }
+ ]
+}

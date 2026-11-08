@@ -49,10 +49,29 @@ def _called_names(node):
 def _functions(path):
     source = path.read_text()
     tree = ast.parse(source, filename=str(path))
+    # ast.get_source_segment() re-splits the whole source on every call, so
+    # calling it per statement makes scanning a large module (model_job.py,
+    # moonraker_event_listener.py) quadratic in file size and the two
+    # whole-tree contract tests below blew the 120 s pytest timeout in CI.
+    # Compute each statement's segment from precomputed line-start byte
+    # offsets instead: one pass over the source, then O(segment) per slice.
+    # ast col_offsets are UTF-8 byte offsets, so slice the encoded source.
+    encoded = source.encode("utf-8")
+    line_starts = [0]
+    for index, byte in enumerate(encoded):
+        if byte == 0x0A:  # "\n"
+            line_starts.append(index + 1)
+
+    def segment_of(stmt):
+        if stmt.end_lineno is None or stmt.end_col_offset is None:
+            return ""
+        start = line_starts[stmt.lineno - 1] + stmt.col_offset
+        end = line_starts[stmt.end_lineno - 1] + stmt.end_col_offset
+        return encoded[start:end].decode("utf-8", errors="ignore")
+
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            segment = "\n".join(
-                ast.get_source_segment(source, stmt) or "" for stmt in node.body)
+            segment = "\n".join(segment_of(stmt) for stmt in node.body)
             yield node.name, segment, node
 
 

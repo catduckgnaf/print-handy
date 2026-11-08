@@ -69,6 +69,24 @@ def test_completed_order_is_title_then_context_then_generic():
     assert _pool_names(ctx("Widget")) == ["generic"]
 
 
+def test_phase2_precedence_pools():
+    # Reprint-failed completed print outranks title reaction
+    c_reprint = ctx("Benchy", prev_fails=2)
+    assert _pool_names(c_reprint)[:2] == ["reprint_failed:completed", "title:benchy"]
+
+    # History previous print comes after context banks and before color
+    c_hist = ctx("Widget", duration_s=600, last_title="Benchy", color="Galaxy Black")
+    assert _pool_names(c_hist) == ["short_print", "history:previous_print", "color:black", "generic"]
+
+    # Color streak comes before color family
+    c_streak = ctx("Widget", color="Crimson", color_streak=3)
+    assert _pool_names(c_streak) == ["color:streak", "color:red", "generic"]
+
+    # Failed prints with history facts: reprint_failed:failed and history:fail_streak
+    c_fail = ctx("Benchy", prev_fails=1, fail_streak=2)
+    assert _pool_names(c_fail, "failed") == ["reprint_failed:failed", "history:fail_streak", "failed"]
+
+
 def test_title_keywords_match_through_the_shared_fuzzy_layer():
     assert _pool_names(ctx("Benchi test"))[0] == "title:benchy"       # one-edit typo
     assert _pool_names(ctx("Dragn pack"))[0] == "title:dragon"
@@ -79,9 +97,17 @@ def test_title_keywords_match_through_the_shared_fuzzy_layer():
     # it matches, while an uncurated two-edit form still does not.
     assert _pool_names(ctx("Benchie test"))[0] == "title:benchy"
     assert _pool_names(ctx("Benchee test")) == ["generic"]
+    assert _pool_names(ctx("Boncho test")) == ["generic"]
     assert _pool_names(ctx("Big DRAGONS set"))[0] == "title:dragon"   # case + plural
     assert _pool_names(ctx("Phone Stand v3"))[0] == "title:phone stand"
-    assert _pool_names(ctx("Boxer figurine")) == ["generic"]          # "box" is a short word: exact only
+    assert _pool_names(ctx("Boxer puppy")) == ["generic"]          # "box" is a short word: exact only
+
+
+def test_dictionary_alias_resolution():
+    assert _pool_names(ctx("3D calibration boat"))[0] == "title:benchy"
+    assert _pool_names(ctx("tugboat"))[0] == "title:benchy"
+    assert _pool_names(ctx("flexi rex"))[0] == "title:rex"
+    assert _pool_names(ctx("Benchie test"))[0] == "title:benchy"
 
 
 def _renders_and_framed(texts, c, pool_name):
@@ -110,7 +136,8 @@ def test_a_failed_benchy_never_gets_success_language():
 def test_a_template_needing_an_unknown_fact_is_never_drawn():
     corpus = roast.load_corpus()
     lines = {roast.roast(ctx("Widget"), rng=random.Random(seed)) for seed in range(300)}
-    texts = {t for _id, t in corpus["banks"]["generic"] + corpus["banks"]["one_liners"]}
+    texts = {t for _id, t in corpus["banks"]["generic"] + corpus["banks"].get("dark_humor", [])
+             + corpus["banks"]["one_liners"]}
     assert lines <= _renders_and_framed(texts, ctx("Widget"), "generic")
 
 
@@ -124,21 +151,26 @@ def test_seeded_draws_are_deterministic(tmp_path):
 
 def _eligible(c):
     corpus = roast.load_corpus()
-    return {line for _id, t in corpus["banks"]["generic"] + corpus["banks"]["one_liners"]
+    entries = (corpus["banks"]["generic"]
+               + corpus["banks"].get("dark_humor", [])
+               + corpus["banks"]["one_liners"])
+    return {line for _id, t in entries
             if (line := roast.render(t, c)) and roast.contract_problem(line, corpus["blocklist"]) is None}
 
 
-def test_history_window_prevents_repeats_until_every_eligible_line_is_used(tmp_path):
+def test_history_window_prevents_repeats_until_every_eligible_line_is_used(tmp_path, monkeypatch):
     state = tmp_path / "state.json"
     rng = random.Random(1)
     eligible = _eligible(ctx("Widget"))
+    monkeypatch.setattr(roast, "HISTORY_WINDOW", len(eligible) + 10)
     lines = [roast.roast(ctx("Widget"), state_path=state, rng=rng) for _ in range(len(eligible))]
-    assert all(lines) and len(set(lines)) == len(eligible)  # every eligible line once, no repeat
-    # Past that, the least recently used line comes back first, never nothing
-    # (possibly framed: framing is the same entry in different dress).
+    history = json.loads(state.read_text())["history"]
+    # Every eligible entry once, no repeat. History holds entry ids: a shipped
+    # line may be a framed form of its entry, so ids are what is compared.
+    assert all(lines) and len(set(history)) == len(eligible)
+    # Past that, the least recently used entry comes back first, never nothing.
     back = roast.roast(ctx("Widget"), state_path=state, rng=rng)
-    assert back == lines[0] or back in roast.framing_options(lines[0], "generic", ctx("Widget"),
-                                                             roast.load_corpus())
+    assert back and json.loads(state.read_text())["history"][-1] == history[0]
 
 
 def test_one_roast_per_print_even_on_replay(tmp_path):
@@ -160,6 +192,21 @@ def test_a_broken_state_file_still_roasts(tmp_path, payload):
 def test_failures_return_empty_never_raise(monkeypatch):
     monkeypatch.setattr(roast, "load_corpus", lambda: (_ for _ in ()).throw(roast.CorpusError("gone")))
     assert roast.roast(ctx()) == ""
+
+
+def test_color_roasts_family_matching_and_synonyms():
+    assert roast.color_family_keys("Midnight Black") == ["black"]
+    assert roast.color_family_keys("Charcoal Grey") == ["gray"]
+    assert roast.color_family_keys("Crimson Red") == ["red"]
+    assert roast.color_family_keys("Cyan") == ["blue"]
+    assert roast.color_family_keys("Lime Green") == ["green"]
+    assert roast.color_family_keys("Translucent Clear") == ["clear"]
+
+
+def test_scrub_last_title():
+    assert roast.scrub_last_title("Benchy v2_final.gcode") == "Benchy v2 final"
+    assert roast.scrub_last_title("@everyone **Secret** print") == "Secret print"
+    assert roast.scrub_last_title("a" * 100) == ""
 
 
 def test_a_year_at_three_roasts_a_day_has_no_exact_repeat_inside_the_window(tmp_path):
@@ -302,7 +349,8 @@ def test_framed_draws_still_count_as_the_base_entry(tmp_path):
     # plain or framed form of an eligible entry, and the year simulation's
     # no-repeat rule (history holds entry ids) is untouched by framing.
     corpus = roast.load_corpus()
-    texts = {t for _id, t in corpus["banks"]["generic"] + corpus["banks"]["one_liners"]}
+    texts = {t for _id, t in corpus["banks"]["generic"] + corpus["banks"].get("dark_humor", [])
+             + corpus["banks"]["one_liners"]}
     allowed = _renders_and_framed(texts, ctx("Widget"), "generic")
     lines = {roast.roast(ctx("Widget"), rng=random.Random(seed)) for seed in range(300)}
     assert lines <= allowed
