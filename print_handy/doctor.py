@@ -429,6 +429,12 @@ def run(out=sys.stdout):
     if model_warning:
         print(f"WARN  default model: {model_warning}", file=out)
     try:
+        unknown_warning = settings.unknown_settings_warning()
+    except Exception as exc:  # a state problem is a warning here, never a failed check
+        unknown_warning = f"could not check: {exc}"
+    if unknown_warning:
+        print(f"WARN  unknown settings: {unknown_warning}", file=out)
+    try:
         pids = check_pids(data)
     except Exception as exc:  # an unreadable cgroup is a warning here, never a failed check
         pids = (f"could not check: {exc}", True)

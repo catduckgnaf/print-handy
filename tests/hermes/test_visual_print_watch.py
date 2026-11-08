@@ -240,7 +240,7 @@ def test_visual_check_promotes_unchanged_layers_and_ignores_motion(monkeypatch):
         return listener
 
     listener = asyncio.run(unchanged())
-    assert alerts and "stalled_layers" in alerts[0]
+    assert alerts and "Print may have stalled" in alerts[0]
     assert listener.visual_watch.alerted_stall_layer == 9
 
     alerts.clear()
@@ -347,7 +347,7 @@ def test_low_sensitivity_still_alerts_on_a_bad_stall(monkeypatch):
     for level in (1, 2):
         for verdict in (("air", "empty"), ("spaghetti", "mess"), ("uncertain", "dark")):
             alerts = _stall_alerts(monkeypatch, level, verdict)
-            assert alerts and "stalled_layers" in alerts[0] and verdict[0] in alerts[0], (level, verdict)
+            assert alerts and "Print may have stalled" in alerts[0] and verdict[0] in alerts[0], (level, verdict)
         alerts = _stall_alerts(monkeypatch, level, OSError("vision down"))
         assert alerts and "the vision check could not be completed" in alerts[0], level
 
@@ -356,7 +356,40 @@ def test_default_and_higher_sensitivity_alert_on_a_bad_stall(monkeypatch):
     for level in (3, 4, 5):
         for verdict in (("air", "empty"), ("empty_idle", "")):
             alerts = _stall_alerts(monkeypatch, level, verdict)
-            assert alerts and "stalled_layers" in alerts[0], (level, verdict)
+            assert alerts and "Print may have stalled" in alerts[0], (level, verdict)
+
+
+def test_stall_alert_names_its_differential(monkeypatch):
+    # Stage 2 (#455 item 4): the stall alert states what was observed and
+    # lists the possibilities instead of leading with the machine reason
+    # and letting the vision verdict read as the diagnosis.
+    alerts = _stall_alerts(monkeypatch, 3, ("spaghetti", "mess"))
+    text = alerts[0]
+    assert text.startswith("Print may have stalled at layer")
+    assert "camera frame stopped changing" in text
+    for possibility in ("printing in air", "blocked", "parked", "dark"):
+        assert possibility in text, possibility
+    assert "stalled_layers" not in text
+    # The verdict still rides along as evidence, after the observation.
+    assert "Vision verdict: spaghetti; mess" in text
+
+
+def test_stall_alert_text_rules_out_what_the_evidence_settles():
+    # A dark verdict settles the differential: the view is dark, and a
+    # dark frame's stillness rules the print-side possibilities out.
+    # (Pinned at the renderer: through the listener, a dark verdict takes
+    # the dark-camera notice path and never reaches the stall alert.)
+    from print_handy.hermes import visual_watch as vw
+    text = vw.stall_alert_text(48, "dark", "camera image completely dark")
+    assert "camera view dark" in text and "ruled out" in text
+    for ruled in ("printing in air", "blocked nozzle", "toolhead parked"):
+        assert ruled in text, ruled
+    # An air verdict supports one possibility and rules nothing out.
+    text = vw.stall_alert_text(48, "air", "no plastic under the nozzle")
+    assert "supports: printing in air" in text and "ruled out" not in text
+    # An unsettled verdict keeps the full flat differential.
+    text = vw.stall_alert_text(48, "spaghetti", "mess")
+    assert "blocked" in text and "supports:" not in text
 
 
 def test_vision_dark_verdict_detection():

@@ -102,10 +102,15 @@ class OverrideTests(unittest.TestCase):
         self.assertEqual(data["layout"]["multi_copy_edge_mm"], 4)
         self.assertEqual(data["layout"]["single_copy_edge_mm"], 1)
 
-    def test_yaml_rejects_unknown_keys(self):
+    def test_yaml_unknown_keys_warn_and_are_ignored(self):
+        # #1058: a key this version does not know (a typo, or a setting a
+        # newer release added) no longer stops startup; it is dropped and
+        # named in the unknown-settings warning (UnknownSettingsTests).
         path = self.toml("services:\n  moonraker_urll: http://printer.test\n", "local.yaml")
-        with self.assertRaisesRegex(settings.SettingsError, "unknown setting"):
-            settings.load(local=path, environ={})
+        data = settings.load(local=path, environ={})
+        self.assertEqual(data["services"]["moonraker_url"], "")
+        self.assertNotIn("moonraker_urll", data["services"])
+        self.assertIn("[services] moonraker_urll", settings.unknown_settings_warning())
 
     def test_yaml_parse_error_names_file(self):
         path = self.toml("printer: [\n", "broken.yaml")
@@ -275,8 +280,9 @@ class OverrideTests(unittest.TestCase):
             "agent": {"chat_url", "model", "api_key_env", "timeout_s"},
             "design": {"enabled", "chat_url", "model", "api_key_env", "timeout_s", "repair_attempts"},
             "listener": {"tick_s", "ifs_presence_poll_s", "spool_nag_s", "start_claim_ttl_s"},
-            "vision": {"model", "roast_enabled", "local_detector_enabled",
-                       "local_model_path", "auto_light_off_minutes", "light_object"},
+            "vision": {"model", "roast_enabled", "roast_custom_bank", "local_detector_enabled",
+                       "local_model_path", "local_empty_enabled",
+                       "auto_light_off_minutes", "light_object"},
             "spool": {"prompt_brand"},
             "visual_watch": {"enabled", "sensitivity", "early_layers", "early_interval_s", "auto_pause_early"},
             # mode_explicit is resolved state, not a file key: it records
@@ -497,8 +503,6 @@ class OverrideTests(unittest.TestCase):
                               ("[printer]\nnozzle_diameter_mm = true\n", "should be like 0.4"),
                               ("[layout]\nmulti_copy_edge_mm = 0\n", "positive number"),
                               ('[orca]\ncommand = "flatpak run orca"\n', "should be like"),
-                              ("[printer]\nbed_size = 220\n", "unknown setting \\[printer\\] bed_size"),
-                              ("[pritner]\nfilament_slots = 1\n", "unknown section"),
                               ('[services]\nspoolman_url = "spoolman.lan"\n', "must be a URL"),
                               ("[nozzle_temp_offsets]\nbrass = 16\n", "between -10 and \\+15"),
                               ("[nozzle_temp_offsets]\nmystery = 2\n", "unknown nozzle type"),
@@ -659,9 +663,11 @@ class RuntimeSettingsTests(unittest.TestCase):
                     with self.assertRaisesRegex(settings.SettingsError, "1 to 5"):
                         settings.load(local=local, environ={})
 
-    def test_env_typos_and_bad_numbers_fail(self):
-        for env, message in [({"PRINT_HANDY__LISTENER__TICKS": "5"}, "unknown setting"),
-                             ({"SPOOL_NAG_SECONDS": "ten"}, "should be a number"),
+    def test_env_bad_numbers_fail(self):
+        # An unknown env key (PRINT_HANDY__LISTENER__TICKS) warns and is
+        # ignored since #1058 — see UnknownSettingsTests. Bad values for
+        # KNOWN settings still fail, as here.
+        for env, message in [({"SPOOL_NAG_SECONDS": "ten"}, "should be a number"),
                              ({"PRINT_HANDY__COLD_PULL__PETG": "1"}, "list")]:
             with self.subTest(env=env), self.assertRaisesRegex(settings.SettingsError, message):
                 settings.load(local=False, environ=env)
@@ -728,6 +734,118 @@ class RuntimeSettingsTests(unittest.TestCase):
         data = settings.load(local=False, environ={})
         self.assertTrue(all(not v for k, v in data["services"].items() if k.endswith("_url")))
         self.assertEqual((data["discord"]["chat_id"], data["discord"]["approval_user_id"]), ("", ""))
+
+
+class UnknownSettingsTests(unittest.TestCase):
+    """#1058: unknown settings warn and are ignored; known settings stay strict.
+
+    The 2.2.6 rollback failure: the docker-image-validation lifecycle stage
+    ran the released 2.2.6 image with a current config, and the config gate
+    hard-exited on PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE — a
+    setting added after 2.2.6 shipped — so the previous image never became
+    healthy and rolling back stopped the container. A setting the running
+    version does not know is now dropped, with a warning that names it;
+    a malformed value for a KNOWN setting still fails at load.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def local(self, text, name="local.yaml"):
+        path = self.dir / name
+        path.write_text(text)
+        return path
+
+    def test_env_unknown_setting_warns_and_is_ignored(self):
+        data = settings.load(local=False, environ={"PRINT_HANDY__LISTENER__TICKS": "5"})
+        self.assertIn("tick_s", data["listener"])
+        entries = settings.unknown_settings()
+        self.assertEqual(len(entries), 1)
+        self.assertIn("$PRINT_HANDY__LISTENER__TICKS", entries[0])
+        self.assertIn("[listener] ticks", entries[0])
+
+    def test_env_unknown_section_warns_and_is_ignored(self):
+        settings.load(local=False, environ={"PRINT_HANDY__BRAND_NEW__KEY": "1"})
+        self.assertIn("[brand_new] key", settings.unknown_settings_warning())
+
+    def test_multiple_unknown_env_settings_are_all_named(self):
+        settings.load(local=False, environ={"PRINT_HANDY__LISTENER__TICKS": "5",
+                                            "PRINT_HANDY__DISCORD__FUTURE_KEY": "1",
+                                            "PRINT_HANDY__BRAND_NEW__KEY": "1"})
+        self.assertEqual(len(settings.unknown_settings()), 3)
+        warning = settings.unknown_settings_warning()
+        for named in ("[listener] ticks", "[discord] future_key", "[brand_new] key"):
+            self.assertIn(named, warning)
+
+    def test_the_1058_incident_shape_warns_instead_of_exiting(self):
+        # The validation environment carried the mention key onto the 2.2.6
+        # image, whose settings did not know it at all. Simulate that older
+        # build here: today the key is known only through OPTIONAL_KEYS.
+        known = {pair: kind for pair, kind in settings.OPTIONAL_KEYS.items()
+                 if pair != ("discord", "mention_starter_on_complete")}
+        with mock.patch.object(settings, "OPTIONAL_KEYS", known):
+            data = settings.load(
+                local=False,
+                environ={"PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE": "false"})
+        # The value was not applied (the [discord] default stands) and the
+        # variable is named in the warning instead of stopping the load.
+        self.assertIs(data["discord"]["mention_starter_on_complete"], True)
+        self.assertIn("MENTION_STARTER_ON_COMPLETE", settings.unknown_settings_warning())
+
+    def test_file_unknown_key_and_section_warn_and_are_dropped(self):
+        path = self.local("pritner:\n  filament_slots: 9\n"
+                          "services:\n  moonraker_urll: http://printer.test\n")
+        data = settings.load(local=path, environ={})
+        self.assertNotIn("pritner", data)
+        self.assertNotIn("moonraker_urll", data["services"])
+        self.assertNotEqual(data["printer"]["filament_slots"], 9)
+        warning = settings.unknown_settings_warning()
+        self.assertIn("unknown section [pritner]", warning)
+        self.assertIn("[services] moonraker_urll", warning)
+
+    def test_user_file_unknown_key_warns_and_is_dropped(self):
+        user = self.local("listener:\n  ticks: 5\n", "user.yaml")
+        data = settings.load(local=False, user=user, environ={})
+        self.assertNotIn("ticks", data["listener"])
+        self.assertIn("[listener] ticks", settings.unknown_settings_warning())
+
+    def test_credential_shaped_keys_in_files_stay_refused(self):
+        # Secrets are environment-only: a credential-shaped key in a
+        # settings file is refused, never warned-and-dropped — silently
+        # accepting it could mask a secret written into the file. (The
+        # [notify] mqtt_password case is pinned in test_notify_mqtt.py.)
+        path = self.local("discord:\n  api_token: hunter2\n")
+        with self.assertRaisesRegex(settings.SettingsError, "unknown setting"):
+            settings.load(local=path, environ={})
+        path = self.local("vault:\n  password: hunter2\n", "other.yaml")
+        with self.assertRaisesRegex(settings.SettingsError, "unknown section"):
+            settings.load(local=path, environ={})
+
+    def test_ai_tier_unknown_key_stays_refused(self):
+        # Closed tables keep their own validators: [ai.*] tier keys are not
+        # part of the open settings space above (test_ai_routes pins this
+        # too), so an unknown tier key still fails instead of warning.
+        path = self.local("ai:\n  chat:\n    bogus_key: 1\n")
+        with self.assertRaisesRegex(settings.SettingsError, "unknown setting bogus_key"):
+            settings.load(local=path, environ={})
+
+    def test_known_settings_with_bad_values_still_fail(self):
+        for env, message in [({"PRINT_HANDY__DISCORD__UPLOAD_MAX_BYTES": "abc"}, "should be a number"),
+                             ({"PRINT_HANDY__VISUAL_WATCH__ENABLED": "sometimes"}, "must be true or false")]:
+            with self.subTest(env=env), self.assertRaisesRegex(settings.SettingsError, message):
+                settings.load(local=False, environ=env)
+        path = self.local("printer:\n  filament_slots: two\n")
+        with self.assertRaisesRegex(settings.SettingsError, "should be like"):
+            settings.load(local=path, environ={})
+
+    def test_no_unknown_settings_no_warning(self):
+        settings.load(local=False, environ={})
+        self.assertEqual(settings.unknown_settings(), [])
+        self.assertIsNone(settings.unknown_settings_warning())
 
 
 class SettingsCliTests(unittest.TestCase):
@@ -967,8 +1085,12 @@ def test_user_settings_file_layers_over_shipped_config_and_survives_image_config
     with pytest.raises(settings.SettingsError, match="PRINT_HANDY_USER_CONFIG.*gone.yaml"):
         settings.load(environ={**env, "PRINT_HANDY_USER_CONFIG": str(gone)})
     user.write_text("webui:\n  prot: 1\n")
-    with pytest.raises(settings.SettingsError, match="prot"):
-        settings.load(environ=env)
+    # #1058: an unknown key in the operator's own file warns and is dropped,
+    # like in every other layer — it no longer stops the load, and the
+    # shipped config's value stands.
+    data = settings.load(environ=env)
+    assert data["webui"]["port"] == 8088
+    assert "[webui] prot" in settings.unknown_settings_warning()
 
 
 def test_user_file_roster_replaces_the_shipped_docker_printer(tmp_path):

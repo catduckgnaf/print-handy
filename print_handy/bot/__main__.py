@@ -197,12 +197,23 @@ def checks(cfg):
     else:
         try:
             from ..core import roast as roast_engine
-            size = roast_engine.corpus_size()
+            # The operator's custom bank (#1002 Phase 4) counts toward the
+            # corpus when one is configured; its problems are named here
+            # as well as in the log, so a bad bank is visible, not silent.
+            custom_bank = str(vision.get("roast_custom_bank") or "").strip()
+            size = roast_engine.corpus_size(custom_bank or None)
+            problems = roast_engine.load_corpus(custom_bank or None)["custom_problems"] \
+                if custom_bank else []
         except Exception as exc:
             add("roast", False, f"on, but the local roast corpus could not be read ({exc})")
         else:
-            add("roast", True, f"on (local corpus, {size} lines, no LLM; "
-                               "set vision.roast_enabled=false to turn roasts off)")
+            if problems:
+                add("roast", False, f"on (local corpus, {size} lines, no LLM), but the "
+                                    f"custom roast bank named by vision.roast_custom_bank "
+                                    f"has problems: {problems[0]}")
+            else:
+                add("roast", True, f"on (local corpus, {size} lines, no LLM; "
+                                   "set vision.roast_enabled=false to turn roasts off)")
     # Local failure detector (#455): the built-in ONNX route for the camera
     # watchdog on installs with no vision endpoint. Off by default; when on
     # it judges frames only while no endpoint route is configured (endpoint
@@ -216,6 +227,12 @@ def checks(cfg):
                                     "only when no vision endpoint is configured)")
     else:
         add("local detector", False, f"on, but unavailable: {_detector_detail}")
+    # Local empty-plate reference (#455): the idle checks can certify an
+    # empty plate locally only when a fresh reference exists.
+    from ..hermes import local_empty as _local_empty
+    _ref_state, _ref_detail = _local_empty.reference_status(cfg)
+    add("plate reference", _ref_state in ("off", "missing", "pending", "ready"),
+        f"{_ref_state}: {_ref_detail}")
     # Auto light-off (#516): the listener turns the printer's light on at
     # print start and off again after the camera verdict has seen an empty
     # plate for vision.auto_light_off_minutes. Off by default (0). Like
@@ -253,6 +270,12 @@ def checks(cfg):
                                 f"{light_connection!r} has no light control (auto "
                                 f"light-off covers Moonraker, Bambu Lab and Elegoo "
                                 f"SDCP printers); the setting has no effect here")
+    elif _ref_state == "ready" and not vision_url \
+            and not os.environ.get("PRINT_VISION_URL"):
+        add("auto light", True, f"on (the local plate reference certifies the empty "
+                                f"plate for the idle check; light off after the plate "
+                                f"has been seen empty for {light_minutes} minutes; set "
+                                f"vision.auto_light_off_minutes=0 to turn auto light off)")
     elif vision.get("local_detector_enabled") and not vision_url \
             and not os.environ.get("PRINT_VISION_URL"):
         add("auto light", True, "on, but the local failure detector cannot certify an "

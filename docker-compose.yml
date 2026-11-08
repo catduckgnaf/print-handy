@@ -37,11 +37,16 @@ services:
       PRINT_HANDY__SERVICES__CAMERA_SNAPSHOT_URL: ${PRINT_HANDY__SERVICES__CAMERA_SNAPSHOT_URL:-}
       PRINT_HANDY__VISION__MODEL: ${PRINT_HANDY__VISION__MODEL:-gemini-latest}
       PRINT_HANDY__VISION__ROAST_ENABLED: ${PRINT_HANDY__VISION__ROAST_ENABLED:-true}
+      PRINT_HANDY__VISION__ROAST_CUSTOM_BANK: ${PRINT_HANDY__VISION__ROAST_CUSTOM_BANK:-}
       # Local failure detector (#455): built-in ONNX detector for the camera
       # watchdog when no vision endpoint is configured. Off by default; the
       # pinned model (~202 MB) downloads once into /data/state/models.
       PRINT_HANDY__VISION__LOCAL_DETECTOR_ENABLED: ${PRINT_HANDY__VISION__LOCAL_DETECTOR_ENABLED:-false}
       PRINT_HANDY__VISION__LOCAL_MODEL_PATH: ${PRINT_HANDY__VISION__LOCAL_MODEL_PATH:-}
+      # Local empty-plate reference (#455): idle empty-plate checks can
+      # compare the camera frame against a reference photo captured once
+      # with /print-plate-calibrate. Off by default.
+      PRINT_HANDY__VISION__LOCAL_EMPTY_ENABLED: ${PRINT_HANDY__VISION__LOCAL_EMPTY_ENABLED:-false}
       # Auto light-off (#516): light on at print start, off after the plate
       # has been seen empty for this many minutes. 0 = off (the default).
       PRINT_HANDY__VISION__AUTO_LIGHT_OFF_MINUTES: ${PRINT_HANDY__VISION__AUTO_LIGHT_OFF_MINUTES:-0}

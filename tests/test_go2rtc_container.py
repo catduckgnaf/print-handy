@@ -5,6 +5,8 @@ refusal paths are executed), the supervisor/healthcheck gates run against
 fake children, and the deployment files are checked as rendered artefacts.
 No Docker build, camera, GPU or network access is needed.
 """
+import contextlib
+import io
 import json
 import os
 import re
@@ -137,6 +139,18 @@ def make_data(**timelapse):
 
 
 class Go2rtcGateAndConfigTests(unittest.TestCase):
+    def test_gate_warns_and_continues_on_an_unknown_setting(self):
+        # #1058, the incident shape: the load itself carried a setting this
+        # version does not know. The gate must warn, naming the key, and
+        # still decide — never exit 2 as "configuration unresolved".
+        settings.load(environ={"PRINT_HANDY__LISTENER__TICKS": "5"})
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = go2rtc.gate(make_data(capture_enabled=False))
+        self.assertEqual(code, 3)
+        self.assertIn("go2rtc gate: WARNING", err.getvalue())
+        self.assertIn("PRINT_HANDY__LISTENER__TICKS", err.getvalue())
+
     def test_gate_exit_codes(self):
         self.assertEqual(go2rtc.gate(make_data(capture_enabled=False)), 3)
         self.assertEqual(go2rtc.gate(make_data()), 0)

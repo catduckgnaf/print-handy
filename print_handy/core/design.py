@@ -684,12 +684,21 @@ def render_scad(scad_path: Path, stl_path: Path, *, timeout_s=RENDER_TIMEOUT_S, 
             or stl_path.stat().st_size < 84:
         lines = [line for line in combined.splitlines() if line.strip()]
         tail = lines[-6:]
-        # The first ERROR: line names the actual defect; a long warning tail
-        # can push it out of the last-6 window, and neither the model's
-        # repair prompt nor the user would ever see it (#841 extra).
-        first_error = next((line for line in lines if "ERROR:" in line), None)
-        if first_error and first_error not in tail:
-            tail = [first_error, *tail[-5:]]
+        # The first WARNING:/ERROR: lines name the actual defect; the
+        # statistics tail can push them out of the last-6 window, and
+        # neither the model's repair prompt nor the user would ever see
+        # them (#841 extra). Under --hardwarnings the WARNING: line is
+        # often the whole cause (e.g. an unknown variable), with no ERROR:
+        # line at all (#1046).
+        def _first_index(marker):
+            return next((i for i, line in enumerate(lines) if marker in line), None)
+
+        named = (_first_index("WARNING:"), _first_index("ERROR:"))
+        head = [lines[i] for i in sorted(i for i in named if i is not None)
+                if lines[i] not in tail]
+        if head:
+            keep = 6 - len(head)
+            tail = [*head, *tail[-keep:]] if keep > 0 else head
         return False, "\n".join(tail) or f"OpenSCAD exited with code {proc.returncode}"
     return True, ""
 

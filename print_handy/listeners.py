@@ -287,10 +287,14 @@ def main(argv=None):
     try:
         from . import settings
         warning = settings.defaulted_model_warning()
+        unknown_warning = settings.unknown_settings_warning()
     except Exception:  # an advisory check never stops the listener
         warning = None
+        unknown_warning = None
     if warning:
         print(f"listener: WARNING {warning}", file=sys.stderr)
+    if unknown_warning:
+        print(f"listener: WARNING {unknown_warning}", file=sys.stderr)
     try:
         # Every listener domain gets the watchdog stack dump (#1020 A4):
         # the supervisor's SIGUSR1 must name the hang in whichever

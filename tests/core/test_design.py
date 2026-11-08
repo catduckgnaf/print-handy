@@ -534,3 +534,197 @@ def test_render_timeout_explicit_override_wins_over_config(tmp_path):
     cfg = {"design": {"timeout_s": 42, "repair_attempts": 3}}
     eng = design.DesignEngine(tmp_path / "cache", scripted([]), cfg=cfg, render_timeout_s=7)
     assert eng.render_timeout_s == 7
+
+
+# ------------------------------------------- real OpenSCAD binary (expansion)
+#
+# Above, the real-binary coverage was eight gated tests. Below, the render
+# seam and the engine are exercised against the real binary much more
+# broadly: geometry and volume assertions on what comes back, the
+# --hardwarnings contract, failure shapes (syntax, empty, timeout),
+# parameter-driven designs, preview pixels, and the session store after
+# real renders. Same needs_scad gate: skip where the binary is absent,
+# execute in the offline CI legs, which install openscad + xvfb-run.
+
+WARN_BAD = "cube([missing_var, 10, 10]);\n"
+
+
+def _render(tmp_path, source, name="model", **kw):
+    scad = tmp_path / f"{name}.scad"
+    scad.write_text(source, encoding="utf-8")
+    stl = tmp_path / f"{name}.stl"
+    ok, error = design.render_scad(scad, stl, **kw)
+    return ok, error, stl
+
+
+@needs_scad
+def test_real_render_cube_dimensions_and_volume(tmp_path):
+    ok, error, stl = _render(tmp_path, "cube([12, 8, 4]);\n")
+    assert ok, error
+    info = design.validate_stl(stl)
+    assert info["dimensions_mm"] == [12.0, 8.0, 4.0]
+    assert info["abs_volume_mm3"] == pytest.approx(384.0)
+    assert info["watertight"] is True and info["shell_count"] == 1
+
+
+@needs_scad
+def test_real_render_hole_removes_the_cylinder_volume(tmp_path):
+    ok, error, stl = _render(
+        tmp_path,
+        "$fn = 64;\ndifference() {\n  cube([20, 20, 10]);\n"
+        "  translate([10, 10, -1]) cylinder(h = 12, d = 10);\n}\n")
+    assert ok, error
+    info = design.validate_stl(stl)
+    assert info["dimensions_mm"] == [20.0, 20.0, 10.0]
+    assert info["watertight"] is True
+    # 4000 mm3 of block minus the ~785 mm3 bore (polygon-faceted, so a band).
+    assert 3150 < info["abs_volume_mm3"] < 3280
+
+
+@needs_scad
+def test_real_render_fn_controls_tessellation_and_volume(tmp_path):
+    from print_handy.core.orca_adapter import read_stl_triangles
+    volumes, counts = {}, {}
+    for fn in (8, 128):
+        ok, error, stl = _render(tmp_path, f"sphere(r = 10, $fn = {fn});\n",
+                                 name=f"sphere{fn}")
+        assert ok, error
+        tris = read_stl_triangles(stl)
+        counts[fn] = len(tris)
+        volumes[fn] = design.validate_stl(stl)["abs_volume_mm3"]
+    assert counts[128] > 4 * counts[8]
+    assert volumes[8] < volumes[128] < (4 / 3) * 3.14159 * 1000 * 1.01
+    assert volumes[128] > 4000  # closing on the true 4188.8 mm3 sphere
+
+
+@needs_scad
+@pytest.mark.parametrize("size", [0.5, 2.0, 250.0])
+def test_real_render_at_tiny_and_large_scales(tmp_path, size):
+    ok, error, stl = _render(tmp_path, f"cube([{size}, {size}, {size}]);\n",
+                             name=f"scale{size}")
+    assert ok, error
+    info = design.validate_stl(stl)
+    assert info["dimensions_mm"] == pytest.approx([size, size, size])
+    assert info["abs_volume_mm3"] == pytest.approx(size ** 3, rel=0.02)
+
+
+@needs_scad
+def test_real_render_hardwarnings_rejects_an_unknown_variable(tmp_path):
+    # Without --hardwarnings this source exits 0 and writes an STL (verified
+    # against OpenSCAD 2021.01); the design engine's contract is that the
+    # warning is fatal, the render fails, and nothing is handed on.
+    ok, error, stl = _render(tmp_path, WARN_BAD)
+    assert not ok
+    assert not stl.is_file()
+    # Known gap, filed as #1046: the returned error text is the output tail
+    # ("Current top level object is empty") — the WARNING line naming the
+    # unknown variable is dropped by render_scad's tail selection, so the
+    # repair prompt never sees the cause. Pin the text that IS returned.
+    assert "Current top level object is empty" in error
+
+
+@needs_scad
+def test_real_render_syntax_error_reports_the_parser_failure(tmp_path):
+    ok, error, stl = _render(tmp_path, SYNTAX_BAD)
+    assert not ok
+    assert "ERROR" in error or "Parser" in error
+    assert not stl.is_file()
+
+
+@needs_scad
+def test_real_render_empty_geometry_is_a_failure(tmp_path):
+    ok, error, stl = _render(tmp_path, EMPTY)
+    assert not ok  # an empty difference leaves nothing printable behind
+
+
+@needs_scad
+def test_real_render_timeout_is_reported_as_a_timeout(tmp_path):
+    # A union of 300 faceted spheres is far beyond a 2-second render on any
+    # CI machine; the seam must cut it off and say "timeout", not hang.
+    heavy = ("for (i = [0:299]) translate([(i % 20) * 12, floor(i / 20) * 12, 0]) "
+             "sphere(r = 5, $fn = 48);\n")
+    ok, error, _stl = _render(tmp_path, heavy, timeout_s=2)
+    assert not ok
+    assert "timeout" in error
+
+
+@needs_scad
+def test_real_render_from_a_unicode_and_space_path(tmp_path):
+    folder = tmp_path / "ü designs here"
+    folder.mkdir()
+    ok, error, stl = _render(folder, "cube([6, 6, 6]);\n")
+    assert ok, error
+    assert design.validate_stl(stl)["dimensions_mm"] == [6.0, 6.0, 6.0]
+
+
+@needs_scad
+def test_engine_parameter_driven_design_changes_geometry(tmp_path):
+    eng = engine(tmp_path, scripted([
+        "size = 10;\ncube([size, size, size]);\n",
+        "size = 14;\ncube([size, size, size]);\n",
+    ]))
+    session = eng.start_session("o", "c", "a cube")
+    first = run(eng.run_turn(session, "a 10 mm cube"))
+    assert first["geometry"]["dimensions_mm"] == [10.0, 10.0, 10.0]
+    second = run(eng.run_turn(first["session"], "make it 14 mm"))
+    assert second["geometry"]["dimensions_mm"] == [14.0, 14.0, 14.0]
+    assert design.scad_params(Path(second["scad_path"]).read_text())["size"] == 14
+
+
+@needs_scad
+def test_engine_repairs_a_warning_class_design_with_the_real_error(tmp_path):
+    fake = scripted([WARN_BAD, GOOD])
+    eng = engine(tmp_path, fake)
+    session = eng.start_session("o", "c", "a plate")
+    result = run(eng.run_turn(session, "a plate"))
+    assert result["geometry"]["dimensions_mm"] == [40.0, 20.0, 3.0]
+    assert len(fake.calls) == 2
+    repair_prompt = fake.calls[1][1]["content"]
+    # The loop feeds the real render error back. Today that text is the
+    # output tail without the WARNING line itself — see issue #1046.
+    assert "The previous file failed to render" in repair_prompt
+    assert "Current top level object is empty" in repair_prompt
+
+
+@needs_scad
+def test_engine_preview_is_a_real_four_view_sheet(tmp_path):
+    from PIL import Image
+    eng = engine(tmp_path, scripted([GOOD]))
+    session = eng.start_session("o", "c", "a plate")
+    result = run(eng.run_turn(session, "a plate"))
+    preview = Path(result["preview_path"])
+    assert preview.is_file()
+    image = Image.open(preview).convert("RGB")
+    assert image.size == (900, 700)  # the 2x2 sheet of 450x350 tiles
+    colors = image.getcolors(maxcolors=1_000_000)
+    assert colors is not None and len(colors) > 30  # a rendered model, not a blank
+
+
+@needs_scad
+def test_engine_prune_after_real_renders_keeps_the_fresh_session(tmp_path):
+    import time
+    eng = engine(tmp_path, scripted([GOOD]))
+    old = eng.start_session("o1", "c", "old plate")
+    run(eng.run_turn(old, "old plate"))
+    fresh = eng.start_session("o2", "c", "fresh plate")
+    run(eng.run_turn(fresh, "fresh plate"))
+    old_folder = eng.root / old["id"]
+    fresh_folder = eng.root / fresh["id"]
+    data = json.loads((old_folder / "session.json").read_text())
+    data["updated_at"] = time.time() - 30 * 86400
+    (old_folder / "session.json").write_text(json.dumps(data))
+    assert design.prune_old_sessions(eng.root, now=time.time()) == 1
+    assert not old_folder.exists()
+    assert (fresh_folder / "turn-1.stl").is_file()
+    assert design.find_session_for_owner(eng.root, "o2")["id"] == fresh["id"]
+
+
+@needs_scad
+def test_engine_runs_with_a_unicode_and_space_cache_path(tmp_path):
+    eng = design.DesignEngine(tmp_path / "my designs ü" / "cache",
+                              scripted([GOOD]), cfg=CFG)
+    session = eng.start_session("o", "c", "a plate")
+    result = run(eng.run_turn(session, "a plate"))
+    assert result["geometry"]["dimensions_mm"] == [40.0, 20.0, 3.0]
+    assert Path(result["stl_path"]).is_file()
+    assert Path(result["preview_path"]).is_file()

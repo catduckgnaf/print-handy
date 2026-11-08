@@ -213,7 +213,9 @@ def test_photo_confirm_text_shows_every_extracted_field():
              "from_photo": True, "nozzle_temp": 220, "bed_temp": 60, "disposition": None}
     text = pab.intake_step_text(state)
     assert "Sunlu" in text and "Silk PLA" in text and "Rose Red Blue Green" in text
-    assert "500 g" in text and "Spool #18" in text
+    # No spool number before creation (#1063), even from the photo path:
+    # the confirm text names the extracted fields, never a predicted id.
+    assert "500 g" in text and "a new spool" in text and "Spool #18" not in text
     assert "nozzle 220°C" in text and "bed 60°C" in text and "saved on the filament" in text
     labels = [b["label"] for b in pab.intake_step_components("aid", state)[0]["components"]]
     assert "Edit details" in labels and "Create & load" in labels
@@ -400,7 +402,7 @@ def test_photo_walkthrough_prefills_and_creates_only_on_confirm(tmp_path, monkey
         insertion_aid = pab.record("insertion", "", slot=2)
         await on_interaction(_interaction(sink, f"pbinsert:new:{insertion_aid}", channel))
         kind, content, view = sink[-1]
-        assert "Spool #18" in content
+        assert "Spool #18" not in content and "actual number" in content  # #1063: never predicted
         photo = next(cid for cid in _custom_ids(view) if ":photo:" in cid)
 
         sink.clear()

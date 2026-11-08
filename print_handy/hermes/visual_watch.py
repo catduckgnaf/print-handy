@@ -19,7 +19,7 @@ import os
 import urllib.request
 
 from .. import ai_routes
-from . import _config, local_vision
+from . import _config, local_empty, local_vision
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,59 @@ VISUAL_VERDICTS = {"ok", "air", "spaghetti", "detached", "empty_idle", "uncertai
 VISUAL_ALERT_VERDICTS = {"air", "spaghetti", "detached", "uncertain"}
 VISUAL_HEALTHY_VERDICTS = {"ok", "safe"}
 VISUAL_SUSPICIOUS_VERDICTS = {"air", "spaghetti", "detached", "uncertain", "no", "unsafe"}
+
+# Stage 2 stall wording (#455 item 4): a stall alert names its differential
+# instead of implying one cause. The stall signal itself — layers advanced
+# over an unchanged frame — is only ever evidence that *something* stopped
+# changing; what stopped it is one of these possibilities, and the alert
+# lists them rather than letting the vision verdict read as the diagnosis.
+STALL_DIFFERENTIAL = ("the nozzle may be printing in air, the nozzle may be "
+                      "blocked, the toolhead may be parked, or the camera "
+                      "view may be dark")
+
+
+def stall_alert_text(layer, verdict, detail):
+    """The operator text for a stall alert, shared by every watch surface.
+
+    Wording only: the caller decides whether an alert fires, exactly as
+    before; this renders the stall case. The layer, the vision verdict
+    and its detail ride along as evidence, after the named observation
+    and its differential — the verdict is not presented as the cause.
+    Where the check's own facts settle part of the differential (a dark
+    frame, an air verdict), the text says which possibility they
+    support and which they rule out, instead of listing all four flat.
+    """
+    confirmed, ruled_out = stall_candidates(verdict, detail)
+    if confirmed and ruled_out:
+        differential = (f"of the usual possibilities, the evidence supports: "
+                        f"{confirmed}; ruled out by this check: "
+                        f"{', '.join(ruled_out)}")
+    elif confirmed:
+        differential = (f"of the usual possibilities ({STALL_DIFFERENTIAL}), "
+                        f"the vision verdict supports: {confirmed}")
+    else:
+        differential = STALL_DIFFERENTIAL
+    return (f"Print may have stalled at layer {layer or 'unknown'}: the camera frame "
+            f"stopped changing while the layer count advanced — {differential}. "
+            f"Vision verdict: {verdict}; {detail or 'visual check needs operator review'}")
+
+
+def stall_candidates(verdict, detail):
+    """Refine the stall differential with facts the check already has.
+
+    Returns ``(confirmed, ruled_out)``: possibility labels the evidence
+    settles. A dark verdict confirms the dark view and rules out the
+    rest (a dark frame's stillness says nothing about the print); an
+    ``air`` verdict confirms printing in air; ``empty_idle`` while
+    printing confirms the same fact in the local route's words. Any
+    other verdict settles nothing — the full differential stands.
+    """
+    text = f"{verdict} {detail or ''}".lower()
+    if verdict == "dark" or "dark" in text or "too dark" in text:
+        return ("camera view dark", ("printing in air", "blocked nozzle", "toolhead parked"))
+    if verdict in {"air", "empty_idle", "no"}:
+        return ("printing in air", ())
+    return ("", ())
 
 # Camera stall alert presets for [visual_watch] sensitivity, 1 (quietest) to 5 (loudest).
 # Level 3 is the original hard-coded behavior. diff is the mean 64x48 grayscale difference a
@@ -210,6 +263,10 @@ def vision_ready(api_key, log=None):
         return True
     if local_vision.detector_ready():
         return True
+    if local_empty.reference_ready():
+        # Stage 1 (#455): a calibrated plate reference can answer idle
+        # plate checks, which is what the idle consumers gate on here.
+        return True
     if log is not None and not _vision_missing_logged:
         _vision_missing_logged = True
         log("camera watch skipped: no vision endpoint (set services.vision_chat_url with "
@@ -327,8 +384,15 @@ def _local_fallback_verdict(image, streak=None):
     return verdict, f"local detector fallback: {detail}"[:300]
 
 
+# The idle plate-check prompt (auto light-off #516, next-plate offer
+# #621). The Moonraker listener and the family driver both judge idle
+# frames with this exact text (light_control.IDLE_CHECK_PROMPT); it is
+# kept here so the idle-check call sites share one literal.
+IDLE_CHECK_PROMPT_TEXT = "Is there plastic on the bed under the nozzle, or is there spaghetti/detachment?"
+
+
 def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_streak=None,
-                   local_fallback=False):
+                   local_fallback=False, idle=False):
     """Judge one frame. Returns (verdict, detail).
 
     Route order: PRINT_VISION_URL, then the chat endpoint
@@ -344,6 +408,14 @@ def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_st
     escalation state for the local route; the endpoint routes ignore it.
     ``local_fallback`` (early-layer mode, #913) lets a failed configured
     endpoint fall back to the local detector when its model is present.
+
+    ``idle`` marks an idle plate check (the auto light-off and
+    next-plate consumers). Only an idle call may be answered by the
+    Stage 1 plate-reference producer (``local_empty``), and only at the
+    point the local detector would be consulted — no endpoint route
+    configured — so an endpoint's answer always wins and the in-print
+    watch (which never passes ``idle``) can never receive a local
+    ``empty_idle``.
     """
     endpoint = os.environ.get("PRINT_VISION_URL")
     try:
@@ -352,6 +424,10 @@ def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_st
         if not isinstance(parsed, dict):
             raise TypeError(f"vision answer is not a JSON object ({type(parsed).__name__})")
     except _VisionKeyMissing:
+        if idle:
+            empty = local_empty.idle_verdict(image)
+            if empty is not None:
+                return empty
         local = _local_verdict(image, local_streak)
         if local is not None:
             return local
@@ -362,6 +438,10 @@ def visual_verdict(image, prompt, *, chat_url, model, api_key, context, local_st
         # is "no endpoint route configured", so the local detector stands
         # in. A configured endpoint that fails does NOT fall through.
         if not endpoint and not _chat_route_configured(api_key):
+            if idle:
+                empty = local_empty.idle_verdict(image)
+                if empty is not None:
+                    return empty
             local = _local_verdict(image, local_streak)
             if local is not None:
                 return local
