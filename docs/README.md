@@ -36,6 +36,7 @@ Start with [Printer support](PRINTER-SUPPORT.md) for what support means, connect
 
 ## Troubleshooting
 
+- Stuck and want a person? Ask in the [Print Handy Discord server](https://discord.gg/mT2Ht3nqZu), in the #support channel — or file an [issue](https://github.com/catduckgnaf/print-handy/issues) when it is a bug that needs tracking.
 - [Home Assistant panic recovery](home-assistant-panic.md) · [Troubleshooting by symptom](TROUBLESHOOTING.md) · [Guided setup and debugging](GUIDED-SETUP-DEBUGGING.md) · [Diagnostics](DIAGNOSTICS.md)
 - [Intake limits](INTAKE-LIMITS.md) · [Mesh audit](MESH-AUDIT.md)
 - The `doctor` checks configuration and configured services. It may contact Moonraker or Spoolman; run it only where authorized. A clean check does not prove physical readiness.
