@@ -88,6 +88,7 @@ GROUP_OF = {
     "discord.timezone": "platform",
     "discord.chat_llm_enabled": "platform",
     "discord.clarify_ui": "platform",
+    "discord.mention_starter_on_complete": "platform",
     "telegram.chat_id": "platform",
     "telegram.allowed_user_ids": "platform",
     "telegram.approval_user_id": "platform",
@@ -246,6 +247,14 @@ CATALOG = (
            "typed answers in its own prompt registry — one renderer in both modes, "
            "matching the standalone rendering. The standalone bot always uses its "
            "own renderer either way. Takes effect on restart.",
+           validator="settings discord check"),
+    _field("discord", "mention_starter_on_complete", "Mention who started the print", "toggle",
+           "On by default: the post that ends a print on Discord (complete, cancelled or "
+           "stopped with an error) @mentions only the user who started that print, so only "
+           "they get pinged — everyone else in the channel can use mention-only "
+           "notifications and stay unpinged by other people's prints. Off: terminal posts "
+           "mention nobody, as before. A print started outside the bot (at the printer, "
+           "from another app) has no recorded starter and never mentions anyone.",
            validator="settings discord check"),
     _field("telegram", "chat_id", "Telegram chat", "text",
            "Telegram chat (group) ID; group and channel IDs are negative.",

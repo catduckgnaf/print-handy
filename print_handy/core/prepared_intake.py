@@ -85,6 +85,24 @@ class Stopped(BaseException):
         self.uncertain = uncertain
 
 
+def stamp_started_by(job, source):
+    """Stamp who asked for this print on the job dict, in place.
+
+    The terminal post @mentions only that user on Discord
+    (discord_print_summary's starter mention), so the requester has to be
+    recorded where the completion path can find it: JOB.json, from where
+    record_start carries it into the start context and the print record.
+    A re-intake (reprint/reuse) re-stamps: the new requester is the starter
+    of the new print. No user id, no stamp — a starter is never invented
+    for a job nobody here requested.
+    """
+    starter_id = str(getattr(source, 'user_id', '') or '')
+    if starter_id:
+        job['started_by'] = {
+            'platform': getattr(getattr(source, 'platform', None), 'value', None) or 'discord',
+            'user_id': starter_id}
+
+
 def _new_stages(timing_path, offset):
     """Stage names appended to a job's TIMING.jsonl after byte ``offset``; never raises."""
     try:
@@ -2636,6 +2654,7 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         folder = mj.intake_folder(mj.ARCHIVE, job['slug'], iid)
         folder.mkdir(parents=True, exist_ok=False)
         job.update(url=url, intake_id=iid, hardware=state, selected_source=chosen)
+        stamp_started_by(job, source)
         fetch = copy_upload if (reuse or job['site'] == 'upload') else (
             lambda j, chosen, dest: mj.download_for_site(j, chosen, dest))
         from .intake_resources import check_source
