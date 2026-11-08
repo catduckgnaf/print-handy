@@ -1,0 +1,156 @@
+{
+ "recorded": {
+  "provenance": "synthetic-in-recorder-format",
+  "note": "Generated for tests/replay/test_completion_replay.py from the family_event_listener / Moonraker print_stats event shapes the hermes suites use. NOT a scrubbed real recording: no real printer traffic for pause/cancel/complete/error exists in this repository.",
+  "outcome": "error",
+  "method": "objects/query print_stats sequence",
+  "display_off": 1
+ },
+ "frames": [
+  {
+   "t_s": 0,
+   "result": {
+    "eventtime": 1000.0,
+    "status": {
+     "print_stats": {
+      "state": "standby",
+      "filename": "",
+      "print_duration": 0.0,
+      "total_duration": 60.0
+     },
+     "virtual_sdcard": {
+      "progress": 0.0,
+      "file_path": ""
+     },
+     "idle_timeout": {
+      "state": "Ready"
+     },
+     "extruder": {
+      "temperature": 219.5,
+      "target": 0.0
+     },
+     "heater_bed": {
+      "temperature": 59.8,
+      "target": 0.0
+     }
+    }
+   }
+  },
+  {
+   "t_s": 5,
+   "result": {
+    "eventtime": 1005.0,
+    "status": {
+     "print_stats": {
+      "state": "printing",
+      "filename": "Replay-Part-1_plate_1.gcode",
+      "print_duration": 30,
+      "total_duration": 90.0
+     },
+     "virtual_sdcard": {
+      "progress": 0.02,
+      "file_path": "/usr/data/gcodes/Replay-Part-1_plate_1.gcode"
+     },
+     "idle_timeout": {
+      "state": "Printing"
+     },
+     "extruder": {
+      "temperature": 219.5,
+      "target": 220.0
+     },
+     "heater_bed": {
+      "temperature": 59.8,
+      "target": 60.0
+     }
+    }
+   }
+  },
+  {
+   "t_s": 240,
+   "result": {
+    "eventtime": 1240.0,
+    "status": {
+     "print_stats": {
+      "state": "printing",
+      "filename": "Replay-Part-1_plate_1.gcode",
+      "print_duration": 1200,
+      "total_duration": 1260.0
+     },
+     "virtual_sdcard": {
+      "progress": 0.35,
+      "file_path": "/usr/data/gcodes/Replay-Part-1_plate_1.gcode"
+     },
+     "idle_timeout": {
+      "state": "Printing"
+     },
+     "extruder": {
+      "temperature": 219.5,
+      "target": 220.0
+     },
+     "heater_bed": {
+      "temperature": 59.8,
+      "target": 60.0
+     }
+    }
+   }
+  },
+  {
+   "t_s": 245,
+   "result": {
+    "eventtime": 1245.0,
+    "status": {
+     "print_stats": {
+      "state": "error",
+      "filename": "Replay-Part-1_plate_1.gcode",
+      "print_duration": 1200,
+      "total_duration": 1260.0
+     },
+     "virtual_sdcard": {
+      "progress": 0.35,
+      "file_path": "/usr/data/gcodes/Replay-Part-1_plate_1.gcode"
+     },
+     "idle_timeout": {
+      "state": "Ready"
+     },
+     "extruder": {
+      "temperature": 219.5,
+      "target": 0.0
+     },
+     "heater_bed": {
+      "temperature": 59.8,
+      "target": 0.0
+     }
+    }
+   }
+  },
+  {
+   "t_s": 250,
+   "result": {
+    "eventtime": 1250.0,
+    "status": {
+     "print_stats": {
+      "state": "standby",
+      "filename": "",
+      "print_duration": 0.0,
+      "total_duration": 60.0
+     },
+     "virtual_sdcard": {
+      "progress": 0.0,
+      "file_path": ""
+     },
+     "idle_timeout": {
+      "state": "Ready"
+     },
+     "extruder": {
+      "temperature": 219.5,
+      "target": 0.0
+     },
+     "heater_bed": {
+      "temperature": 59.8,
+      "target": 0.0
+     }
+    }
+   }
+  }
+ ]
+}
