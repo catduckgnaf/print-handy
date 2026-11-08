@@ -88,6 +88,7 @@ GROUP_OF = {
     "discord.timezone": "platform",
     "discord.chat_llm_enabled": "platform",
     "discord.clarify_ui": "platform",
+    "discord.mention_starter_on_complete": "platform",
     "telegram.chat_id": "platform",
     "telegram.allowed_user_ids": "platform",
     "telegram.approval_user_id": "platform",
@@ -123,7 +124,6 @@ GROUP_OF = {
     "timelapse.capture_source_url": "images",
     "services.vision_chat_url": "images",
     "vision.model": "images",
-    "vision.roast_model": "images",
     "vision.roast_enabled": "images",
     "vision.local_detector_enabled": "images",
     "vision.local_model_path": "images",
@@ -248,6 +248,14 @@ CATALOG = (
            "typed answers in its own prompt registry — one renderer in both modes, "
            "matching the standalone rendering. The standalone bot always uses its "
            "own renderer either way. Takes effect on restart.",
+           validator="settings discord check"),
+    _field("discord", "mention_starter_on_complete", "Mention who started the print", "toggle",
+           "On by default: the post that ends a print on Discord (complete, cancelled or "
+           "stopped with an error) @mentions only the user who started that print, so only "
+           "they get pinged — everyone else in the channel can use mention-only "
+           "notifications and stay unpinged by other people's prints. Off: terminal posts "
+           "mention nobody, as before. A print started outside the bot (at the printer, "
+           "from another app) has no recorded starter and never mentions anyone.",
            validator="settings discord check"),
     _field("telegram", "chat_id", "Telegram chat", "text",
            "Telegram chat (group) ID; group and channel IDs are negative.",
@@ -398,9 +406,6 @@ CATALOG = (
            validator="settings services check"),
     _field("vision", "model", "Vision model", "text",
            "Model the vision endpoint uses for camera checks."),
-    _field("vision", "roast_model", "Roast model", "text",
-           "Legacy: roasts come from the local roast corpus and no longer use a "
-           "model (#1002). Kept so older configs load unchanged."),
     _field("vision", "roast_enabled", "Roast", "toggle",
            "The one-line roast: one per print on the completion post, and on "
            "request in chat (\"roast my last print\"), on every platform. "
@@ -414,7 +419,7 @@ CATALOG = (
            "bad-print detection. Off by default. The pinned model "
            "(Obico failure detector, AGPL-3.0 weights, about 202 MB) "
            "downloads once and is SHA-256 verified. It detects failures "
-           "only — roasts, spool-label reads and the empty-plate check "
+           "only — spool-label reads and the empty-plate check "
            "still need a vision endpoint.",
            validator="settings vision check"),
     _field("vision", "watch_source", "Watchdog verdict source", "picker",

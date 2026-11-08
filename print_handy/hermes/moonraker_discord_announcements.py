@@ -619,6 +619,16 @@ def roast_facts(job, plate, stats=None, now=None):
                 facts["times"] = times
         now = now or datetime.now(_config.tz())
         facts["finish_hour"] = int(now.hour)
+        try:
+            from .roast_chat import history_facts
+            title = (job or {}).get("title") or (plate or {}).get("title") or ""
+            gcode = (job or {}).get("gcode_file") or (job or {}).get("filename") or ""
+            color = facts.get("color") or (plate or {}).get("color") or ""
+            hf = history_facts(str(title or ""), current_gcode=str(gcode or ""),
+                               current_color=str(color or ""))
+            facts.update(hf)
+        except Exception:
+            pass
     except Exception as exc:
         print(f"Roast facts incomplete: {exc}", file=sys.stderr)
     return facts

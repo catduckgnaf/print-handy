@@ -211,7 +211,6 @@ spool:
   prompt_brand: false
 vision:
   model: gemini-latest
-  roast_model: luna-latest
   # The one-line roast on the print-started post only. On by
   # default: it runs whenever an LLM/vision endpoint is available
   # (services.vision_chat_url plus CLIPROXY_API_KEY), on every platform,

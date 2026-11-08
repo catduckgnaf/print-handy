@@ -133,8 +133,8 @@
         220.0
       ],
       "end_macro": "END_PRINT",
-      "firmware": "ZMod Klipper",
       "filament_slots": 4,
+      "firmware": "ZMod Klipper",
       "max_print_height_mm": 220.0,
       "model": "flashforge.ad5x",
       "name": "Flashforge AD5X",
@@ -160,8 +160,7 @@
       "ssh_key": ""
     },
     "vision": {
-      "model": "gemini-latest",
-      "roast_model": "luna-latest"
+      "model": "gemini-latest"
     },
     "visual_watch": {
       "enabled": true,
@@ -302,8 +301,8 @@
         220.0
       ],
       "end_macro": "PRINT_END",
-      "firmware": "Klipper",
       "filament_slots": 1,
+      "firmware": "Klipper",
       "max_print_height_mm": 250.0,
       "model": "klipper.generic",
       "name": "Generic Klipper",
@@ -329,8 +328,7 @@
       "ssh_key": ""
     },
     "vision": {
-      "model": "gemini-latest",
-      "roast_model": "luna-latest"
+      "model": "gemini-latest"
     },
     "visual_watch": {
       "enabled": true,
@@ -471,8 +469,8 @@
         220.0
       ],
       "end_macro": "PRINT_END",
-      "firmware": "Marlin",
       "filament_slots": 1,
+      "firmware": "Marlin",
       "max_print_height_mm": 220.0,
       "model": "octoprint.marlin",
       "name": "Marlin via OctoPrint",
@@ -498,8 +496,7 @@
       "ssh_key": ""
     },
     "vision": {
-      "model": "gemini-latest",
-      "roast_model": "luna-latest"
+      "model": "gemini-latest"
     },
     "visual_watch": {
       "enabled": true,
@@ -640,8 +637,8 @@
         220.0
       ],
       "end_macro": "PRINT_END",
-      "firmware": "Klipper",
       "filament_slots": 1,
+      "firmware": "Klipper",
       "max_print_height_mm": 250.0,
       "model": "sovol.sv06",
       "name": "Sovol SV06",
@@ -667,8 +664,7 @@
       "ssh_key": ""
     },
     "vision": {
-      "model": "gemini-latest",
-      "roast_model": "luna-latest"
+      "model": "gemini-latest"
     },
     "visual_watch": {
       "enabled": true,

@@ -389,6 +389,7 @@ def build_record_data(
         "required_parts": context.get("required_parts"),
         "discord_session_id": context.get("discord_session_id"),
         "discord_chat_id": str(context.get("discord_chat_id") or DEFAULT_CHAT_ID),
+        "started_by": context.get("started_by"),
         "moonraker_state": native,
         "job_key": context.get("job_key"),
         # #913: the camera watch schedule chosen at start (normal or
@@ -489,7 +490,7 @@ _RECORD_FIELDS = (
     "project_plate_id", "project_plate_suffix", "project_plate_ref",
     "project_source_kind", "project_component_ids", "project_part_keys",
     "print_attempt_id", "moonraker_state",
-    "discord_chat_id", "watch_mode", "watch_risk", "stop_reason", "stop_capture",
+    "discord_chat_id", "started_by", "watch_mode", "watch_risk", "stop_reason", "stop_capture",
     "print_number_was",
 )
 
