@@ -172,6 +172,14 @@ class DoctorTests(unittest.TestCase):
         self.assertIn("WARN  default model: set PRINT_HANDY__PRINTER__MODEL", text)
         self.assertNotIn("default model", self.run_doctor()[1])
 
+    def test_doctor_shows_the_unknown_settings_warning_row(self):
+        """#1058: unknown settings are a warning row, never a failed check; doctor only shows it."""
+        with mock.patch.object(settings, "unknown_settings_warning",
+                               return_value="unknown setting(s) ignored: [listener] ticks"):
+            code, text = self.run_doctor()
+        self.assertIn("WARN  unknown settings: unknown setting(s) ignored: [listener] ticks", text)
+        self.assertNotIn("unknown settings", self.run_doctor()[1])
+
     def test_missing_orca_binary_fails(self):
         code, text = self.run_doctor('[orca]\ncommand = ["definitely-not-orca-xyz"]\n')
         self.assertEqual(code, 1)
