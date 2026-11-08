@@ -94,6 +94,70 @@ def test_vision_context_falls_back_when_the_printer_is_unknown(monkeypatch):
     assert "empty_idle" in context  # the verdict vocabulary survives
 
 
+def _family_adapter(label, facts_dict):
+    import types
+    return types.SimpleNamespace(label=label, facts=facts_dict)
+
+
+def test_family_idle_context_names_an_open_frame_when_the_facts_say_so():
+    """A family printer whose facts record no enclosure is judged as open frame.
+
+    Regression: family_control._idle_context claimed "enclosed" for every
+    family printer, so an open-frame Prusa's idle frames were judged
+    against an enclosed printer's description.
+    """
+    from print_handy.hermes import family_control
+    from print_handy.printers.prusa import facts
+
+    context = family_control._idle_context(_family_adapter("Prusa MK4S", facts.MK4S))
+    assert context.startswith("Printer: Prusa MK4S, open frame, build plate.")
+    assert "empty_idle" in context  # the verdict vocabulary survives
+
+
+def test_family_idle_context_claims_no_enclosure_when_the_facts_record_none():
+    """A model whose facts record no enclosure gets no enclosure claim.
+
+    The Bambu A1's sourced facts (printers/bambulab/facts.py) record no
+    "enclosed" fact at all; unknown stays unknown, so its idle context
+    claims neither "enclosed" nor "open frame".
+    """
+    from print_handy.hermes import family_control
+    from print_handy.printers.bambulab import facts
+
+    context = family_control._idle_context(_family_adapter("Bambu Lab A1", facts.A1))
+    assert context.startswith("Printer: Bambu Lab A1, build plate.")
+    assert "enclosed" not in context
+    assert "open frame" not in context
+    assert "empty_idle" in context  # the verdict vocabulary survives
+
+
+def test_family_idle_context_keeps_enclosed_when_the_facts_record_it():
+    """A model whose facts record an enclosure keeps the enclosed wording."""
+    from print_handy.hermes import family_control
+    from print_handy.printers.elegoo_sdcp import facts
+
+    context = family_control._idle_context(
+        _family_adapter("Elegoo Centauri Carbon", facts.CENTAURI_CARBON))
+    assert context.startswith("Printer: Elegoo Centauri Carbon, enclosed, build plate.")
+    assert "empty_idle" in context  # the verdict vocabulary survives
+
+
+def test_family_idle_context_claims_nothing_without_facts():
+    """An adapter carrying no sourced facts at all gets no enclosure claim.
+
+    The OctoPrint and stock Flashforge adapters record no per-model facts
+    (OctoPrint can front any printer), so their idle context is the bare
+    label and build plate — the same care the Moonraker context takes.
+    """
+    import types
+
+    from print_handy.hermes import family_control
+
+    context = family_control._idle_context(
+        types.SimpleNamespace(label="OctoPrint printer"))
+    assert context.startswith("Printer: OctoPrint printer, build plate.")
+    assert "enclosed" not in context
+    assert "empty_idle" in context  # the verdict vocabulary survives
 # -- Bambu vision context ------------------------------------------------------
 
 
