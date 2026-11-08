@@ -343,7 +343,7 @@ def _add_step_defs():
                          "binds its channel. Reply with a short slug (lowercase letters, digits, "
                          "- or _), for example `garage-a1`.", _validate_first_id),
         "id": Step("id", "Printer id",
-                   "Give the new printer an id (a short slug, for example `workshop-ad5x`). "
+                   "Give the new printer an id (a short slug, for example `workshop-printer`). "
                    "It names its state folder and binds its channel.", _validate_new_id),
         "model": Step("model", "Printer model",
                       f"Which printer? Reply with its model key, one of: {model_list}.",

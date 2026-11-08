@@ -54,7 +54,7 @@ body:
     id: printer
     attributes:
       label: Printer and firmware
-      description: Printer model and firmware or mod (for example "Flashforge AD5X with ZMod"). Write "Not applicable" for purely offline problems.
+      description: Printer model and firmware or mod (for example "Sovol SV06 on stock Klipper" or "Flashforge AD5X with ZMod"). Write "Not applicable" for purely offline problems.
     validations:
       required: false
   - type: input

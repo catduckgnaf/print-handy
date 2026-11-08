@@ -149,9 +149,9 @@ def status_with_camera(adapter) -> dict:
 def vision_context(adapter) -> str:
     """The verdict context for a Bambu frame: the listener's wording, this printer's name.
 
-    The Moonraker context names its printer ("Flashforge AD5X"); a Bambu
-    frame judged against another printer's description would be a wrong
-    prompt, so the context is built from the configured printer's label.
+    The Moonraker context is built from its serving printer the same way;
+    a Bambu frame judged against another printer's description would be a
+    wrong prompt, so the context is built from the configured printer's label.
     """
     label = getattr(adapter, "label", None) or "Bambu Lab printer"
     return (f"Printer: {label}, enclosed, smooth PEI plate. "

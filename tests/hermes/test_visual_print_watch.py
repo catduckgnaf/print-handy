@@ -38,6 +38,62 @@ def test_strip_json_fence_and_profile_adapter(monkeypatch):
     assert mel.VISUAL_ALERT_VERDICTS == {"air", "spaghetti", "detached", "uncertain"}
 
 
+def test_visual_verdict_context_names_the_configured_printer(monkeypatch):
+    """The Moonraker vision context names the serving printer, never a hardcoded one.
+
+    Regression: the context was the literal string "Printer: Flashforge
+    AD5X, enclosed, smooth PEI plate." whatever printer the listener
+    served, so a non-AD5X Moonraker printer's frames were judged against
+    the AD5X's description.
+    """
+    import json
+    from unittest import mock
+
+    class Response:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def read(self):
+            return json.dumps({"choices": [{"message": {"content":
+                '{"verdict":"ok","reason":"printing"}'}}]}).encode()
+
+    seen = {}
+
+    def fake_open(req, timeout=0):
+        seen["body"] = json.loads(req.data)
+        return Response()
+
+    monkeypatch.setattr(mel.printers, "current",
+                        lambda *a, **k: mock.Mock(display_name="Sovol SV06"))
+    monkeypatch.setattr(mel, "_profile_env_value", lambda name: "test-key")
+    monkeypatch.setattr(mel.urllib.request, "urlopen", fake_open)
+    verdict, reason = mel._visual_verdict(b"frame", "watch this print")
+    assert verdict == "ok" and reason == "printing"
+    text = seen["body"]["messages"][0]["content"][0]["text"]
+    assert "Sovol SV06" in text
+    assert "AD5X" not in text
+    assert "Flashforge" not in text
+
+
+def test_vision_context_names_an_ad5x_when_it_is_one(monkeypatch):
+    from unittest import mock
+
+    monkeypatch.setattr(mel.printers, "current",
+                        lambda *a, **k: mock.Mock(display_name="Flashforge AD5X (ZMod)"))
+    assert mel._vision_context().startswith("Printer: Flashforge AD5X (ZMod)")
+
+
+def test_vision_context_falls_back_when_the_printer_is_unknown(monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("no config")
+
+    monkeypatch.setattr(mel.printers, "current", boom)
+    context = mel._vision_context()
+    assert context.startswith("Printer: 3D printer")
+    assert "empty_idle" in context  # the verdict vocabulary survives
+
+
 def test_visual_alert_posts_image_and_components_together(monkeypatch, tmp_path):
     frame_dir = tmp_path / "frames"
     seen = {}
