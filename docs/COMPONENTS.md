@@ -17,6 +17,7 @@ Print Handy ships third-party software in its container image and Compose file. 
 | Native bounds toolchain (build only) | Rust `1.99.1`, `maturin==1.16.0`, crate dependencies in `native/bounds/Cargo.lock` | `Dockerfile` bounds-build stage; `ci.yml` native-bounds job and offline legs | Parity test in `tests/test_upstream_version_parity.py` (all surfaces carry the same toolchain and maturin pins, and every wheel build uses `--locked`) |
 | Python packages | `pyproject.toml` | repository root | `pip-audit` in `ci.yml` |
 | cloudflared sidecar | `2026.10.7` plus manifest digest | `docker-compose.yml` (`CLOUDFLARED_IMAGE` overrides) | Digest is the multi-architecture index; never `latest` |
+| Discord Embedded App SDK | `2.5.0` | `print_handy/discord_embedded_app_sdk.js` (vendored single-file bundle of the MIT npm package `@discord/embedded-app-sdk`, served by `print_handy/live_activity.py` from its own origin) | Vendored, never fetched at runtime (the Activity CSP allows no external hosts); a bump replaces the file whole at a new pin and is not auto-bumped — see `NON_BUMPED_COMPONENTS` in `scripts/bump_upstream.py` |
 
 `latest` and `develop` of the Print Handy image itself remain a documented convenience for people who want the newest release. Pin a version tag or digest for a reproducible install.
 
