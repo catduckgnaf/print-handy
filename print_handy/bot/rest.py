@@ -84,19 +84,28 @@ def _request(token, method, path, payload=None, files=(), timeout=30, opener=Non
     return json.loads(body) if body else {}
 
 
-def send(token, channel_id, text, *, opener=None, timeout=30):
-    """Post text (and any MEDIA files) to a channel. Returns (ok, first message id or error text)."""
+def send(token, channel_id, text, *, opener=None, timeout=30, mention_user_id=None):
+    """Post text (and any MEDIA files) to a channel. Returns (ok, first message id or error text).
+
+    Mentions never ping by default (``allowed_mentions`` parses nothing).
+    ``mention_user_id`` is the one exception: that single user — the person
+    who started a finished print, named by the listener from the post's own
+    starter-mention line — is allowed to be pinged, and nobody else is.
+    """
     if not token:
         return False, "no Discord bot token"
     if not channel_id:
         return False, "discord.chat_id is not configured"
+    allowed = {"parse": []}
+    if mention_user_id is not None and str(mention_user_id).isdigit():
+        allowed = {"parse": [], "users": [str(mention_user_id)]}
     body, files = split_media(text)
     pieces = chunks(body)
     first = None
     try:
         for index, piece in enumerate(pieces):
             last = index == len(pieces) - 1
-            payload = {"content": piece, "allowed_mentions": {"parse": []}}
+            payload = {"content": piece, "allowed_mentions": allowed}
             sent = _request(token, "POST", f"/channels/{channel_id}/messages", payload,
                             files if last else (), timeout=timeout, opener=opener)
             first = first or str(sent.get("id") or "")
