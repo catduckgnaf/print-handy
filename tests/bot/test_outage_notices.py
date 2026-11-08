@@ -114,3 +114,59 @@ def test_outage_notices_fall_back_to_the_home_channel_without_a_roster(cfg, tmp_
     seed_state(core, old_outage())
     run(core.check_listener_outages())
     assert [chat for chat, _text in core.adapter.calls] == [HOME]
+
+
+class PinningAdapter(StubAdapter):
+    """A StubAdapter that also supports pinning (Discord does)."""
+
+    def __init__(self, result):
+        super().__init__(result)
+        self.pinned = []
+
+    async def pin_message(self, chat_id, message_id):
+        self.pinned.append((str(chat_id), message_id))
+        return True
+
+
+def test_exhausted_budget_escalates_to_a_pinned_critical_with_the_bundle(cfg, tmp_path):
+    # #1020 B3 + C4: supervisor record says the restart budget is spent,
+    # so the outage notice is the critical one, carries the bundle as a
+    # MEDIA attachment, and gets pinned through the adapter.
+    from print_handy import supervisor_state
+
+    core = make_core(cfg, tmp_path, SendResult(True, message_id="77"),
+                     [{"id": "p1", "chat_id": "424242"}])
+    core.adapter = PinningAdapter(SendResult(True, message_id="77"))
+    supervisor_state.write("p1", restarts=6, budget=5, window_s=600,
+                           exhausted=True, data=core.cfg)
+    core._listener_statuses = lambda: DOWN
+    seed_state(core, old_outage())
+    messages = run(core.check_listener_outages())
+    assert [kind for _p, kind, _t in messages] == ["critical"]
+    assert len(core.adapter.calls) == 1
+    chat, content = core.adapter.calls[0]
+    assert chat == "424242"
+    assert "CRITICAL" in content and "exhausted its restart budget" in content
+    assert "MEDIA:" in content and "diagnostics-bundle.md" in content
+    assert core.adapter.pinned == [("424242", "77")]
+    state = outage_alert.load(settings.state_dir(core.cfg))
+    assert "critical_at" in state["p1"]
+
+
+def test_degraded_notice_from_a_direct_poll_posts_once(cfg, tmp_path, monkeypatch):
+    # #1020 B4: the listener is down (inside its grace period, so no
+    # outage notice), and the printer itself reports a pause — the bot
+    # posts the degraded notice from its own poll, once.
+    core = make_core(cfg, tmp_path, SendResult(True, message_id="5"),
+                     [{"id": "p1", "chat_id": "424242"}])
+    core._listener_statuses = lambda: {"p1": {"required": True, "ok": False,
+                                              "reason": "listener heartbeat stale or invalid"}}
+    monkeypatch.setattr(runtime, "_poll_moonraker_state",
+                        lambda entry: ("paused", "benchy.gcode"))
+    run(core.check_listener_outages())
+    degraded = [c for _chat, c in core.adapter.calls if "Degraded alert" in c]
+    assert len(degraded) == 1
+    assert "**paused**" in degraded[0] and "benchy.gcode" in degraded[0]
+    run(core.check_listener_outages())
+    degraded = [c for _chat, c in core.adapter.calls if "Degraded alert" in c]
+    assert len(degraded) == 1, "the same reported state was noticed twice"

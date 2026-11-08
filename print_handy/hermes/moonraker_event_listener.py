@@ -577,8 +577,8 @@ def paused_message(filename, runout=False, slot=None, spool_id=None):
     except Exception as exc:
         log(f"paused status read failed: {exc!r}")
     if runout:
-        which = f"IFS slot {slot}" if slot in (1, 2, 3, 4) else "The active slot"
-        into = f"IFS slot {slot}" if slot in (1, 2, 3, 4) else "the active slot"
+        which = filament_color.slot_display(slot) if slot in (1, 2, 3, 4) else "The active slot"
+        into = filament_color.slot_display(slot) if slot in (1, 2, 3, 4) else "the active slot"
         spool = f" (spool #{spool_id})" if spool_id else ""
         # The spool question is only opened when a slot is known (open_question), so
         # promise it only then; otherwise this alert and the follow-up notice contradict.
@@ -687,9 +687,69 @@ def classify_pause(message, where=""):
     """A pause is a filament runout only when the alert text says so.
 
     Moonraker's print_stats payload has no pause cause. Ordinary pauses stay ordinary.
+    A jam (#1020 E1) is its own class: the printer's own pause text
+    ("Filament jam detected (IFS)") names it, and it is checked first so
+    a jam is never folded into the runout flow.
     """
     text = f"{message or ''} {where or ''}".casefold()
+    if "jam" in text:
+        return "jam"
     return "runout" if "runout" in text or "filament sensor" in text else "other"
+
+
+def pause_is_jam(message, where=""):
+    """True when the printer's own pause text reports an IFS jam (#1020 E1)."""
+    return classify_pause(message, where) == "jam"
+
+
+def _span_hms(seconds):
+    try:
+        total = int(seconds)
+    except (TypeError, ValueError):
+        return None
+    hours, rem = divmod(total, 3600)
+    minutes, secs = divmod(rem, 60)
+    return f"{hours}h {minutes:02d}m" if hours else f"{minutes}m {secs:02d}s"
+
+
+def jam_message(filename, facts):
+    """The IFS jam pause post (#1020 E1/E2): measured facts, safe actions only.
+
+    ``facts`` carries duration_s, layer, slot, next_cmd_delay,
+    detection_length and head_sensor (True/False/None). Unknown values
+    are stated as not reported rather than invented. The actions are
+    inspect, then resume or cancel — the listener never resumes a jam
+    on its own, and this post carries the ordinary paused alert's
+    Resume/Cancel buttons.
+    """
+    slot = facts.get("slot")
+    slot_text = (filament_color.slot_display(slot) if slot in (1, 2, 3, 4)
+                 else "the active slot (no slot could be identified)")
+    duration = _span_hms(facts.get("duration_s"))
+    layer = facts.get("layer")
+    delay = facts.get("next_cmd_delay")
+    detection = facts.get("detection_length")
+    head_sensor = facts.get("head_sensor")
+    lines = [
+        f"**Filament jam detected (IFS)** on {slot_text} while printing "
+        f"{clean(filename or 'this print')}. The printer paused itself; nothing has resumed it.",
+        "",
+        "What the printer reports:",
+        f"- Print duration at pause: {duration or 'not reported'}",
+        f"- Layer: {layer if isinstance(layer, int) else 'not reported'}",
+        f"- Slot: {slot_text}",
+        f"- zmod_ifs next_cmd_delay: {delay if delay is not None else 'not reported'}",
+        f"- zmod_ifs detection_length: {detection if detection is not None else 'not reported'}",
+        f"- Head switch sensor: {'present' if head_sensor is True else 'not present' if head_sensor is False else 'not reported'}",
+        "",
+        "What to do:",
+        "1. Inspect the filament path at the printer — check for a real drag or tangle "
+        "on that slot before assuming a false trigger (see the jam procedure in "
+        "docs/DIAGNOSTICS.md).",
+        "2. Once the path is clear, tap Resume print below (or type /print-resume); "
+        "to give up on this print, tap Cancel (or type /print-stop).",
+    ]
+    return "\n".join(lines)
 
 
 def persist_runout_pause(filename, slot, prior_spool_id, path=None):
@@ -3001,6 +3061,12 @@ class Listener:
     def __init__(self):
         self.state = None
         self.filename = ""
+        # #1020 A3: the heartbeat is written by a dedicated thread, not by
+        # the event loop, and carries loop_lag_ms measured from the loop's
+        # own tick — a blocked loop then shows as a growing lag in a fresh
+        # heartbeat instead of silently stopping the beats.
+        self._loop_tick = time.time()
+        self._heartbeat_thread = None
         self.pause_message = ""
         self.ifs_monitor = FilamentInsertionMonitor()
         self.spoolman_watcher = SpoolmanNewSpoolWatcher()
@@ -3384,6 +3450,74 @@ class Listener:
         is_runout = pause_is_runout(self.pause_message, slot, present, head_has_filament) or bool(empty)
         return is_runout, slot
 
+    def _jam_facts(self):
+        """Measured facts for the jam post (#1020 E2). Read-only, best-effort:
+        any source that fails to read contributes 'not reported'."""
+        facts = {"duration_s": self.last_stats.get("print_duration"),
+                 "layer": _visual_layer(self.last_stats),
+                 "slot": self.ifs_channel or recovery_slot(self.filename)[0],
+                 "next_cmd_delay": None, "detection_length": None,
+                 "head_sensor": None}
+        try:
+            reply = print_control._call("/printer/objects/query?zmod_ifs")
+            ifs = ((reply.get("result") or {}).get("status") or {}).get("zmod_ifs") or {}
+            if isinstance(ifs, dict):
+                facts["next_cmd_delay"] = ifs.get("next_cmd_delay")
+                facts["detection_length"] = ifs.get("detection_length")
+        except Exception as exc:
+            log(f"jam facts zmod_ifs read failed: {exc!r}")
+        try:
+            listing = print_control._call("/printer/objects/list")
+            objects = ((listing.get("result") or {}).get("objects")
+                       if isinstance(listing, dict) else None)
+            names = filament_sensor_names(objects)
+            facts["head_sensor"] = any(
+                name.startswith("filament_switch_sensor ") for name in names)
+        except Exception as exc:
+            log(f"jam facts sensor read failed: {exc!r}")
+        return facts
+
+    def _slot_agreement(self):
+        """The four slot sources at print start (#1020 D3). Read-only."""
+        from . import lane_data_sync, spool_sync
+
+        job_slot, spool_id = recovery_slot(self.filename)
+        if job_slot is None:
+            mapped = sorted(launch_mapped_slots(self.filename))
+            job_slot = mapped[0] if len(mapped) == 1 else None
+        ffm_channel = ifs_chan = None
+        try:
+            reply = print_control._call("/printer/objects/query?FFMInfo&zmod_ifs")
+            status = (reply.get("result") or {}).get("status") or {}
+            ffm = (status.get("FFMInfo") or {}).get("channel")
+            ifs = (status.get("zmod_ifs") or {}).get("Chan")
+            ffm_channel = ffm if type(ffm) is int and 1 <= ffm <= 4 else None
+            ifs_chan = ifs if type(ifs) is int and 1 <= ifs <= 4 else None
+        except Exception as exc:
+            log(f"slot self-check object read failed: {exc!r}")
+        helix_slot = None
+        try:
+            lanes = lane_data_sync.parse_lane_data(spool_sync.read_lane_data())
+            helix_slot = lane_data_sync.helix_seated_slot(lanes, spool_id)
+        except Exception as exc:
+            log(f"slot self-check lane read failed: {exc!r}")
+        return lane_data_sync.slot_agreement_warning(
+            job_slot=job_slot, ffm_channel=ffm_channel, ifs_chan=ifs_chan,
+            helix_slot=helix_slot, filename=clean(self.filename or "this print"))
+
+    async def _slot_self_check(self):
+        """Post the slot mismatch warning once at print start (#1020 D3).
+
+        Best-effort and read-only: a failed read posts nothing, and the
+        warning fires only when the sources actually disagree.
+        """
+        try:
+            warning = await asyncio.to_thread(self._slot_agreement)
+            if warning:
+                await asyncio.to_thread(post, warning)
+        except Exception as exc:
+            log(f"slot self-check failed: {exc!r}")
+
     async def upgrade_paused_runout(self, slot):
         """A paused print's slot emptied after the pause was posted as generic (#442).
 
@@ -3677,6 +3811,9 @@ class Listener:
             # #516: auto light-on at a fresh print start (a resume is not
             # a start; the light never went off during a pause).
             await self.light_print_started()
+            # #1020 D3: the print-start slot self-check — one warning
+            # post, only when the slot sources disagree after conversion.
+            await self._slot_self_check()
         if new_state == "printing" and _config.cfg()["visual_watch"]["enabled"]:
             layer = _visual_layer(self.last_stats)
             reason_due = self.visual_watch.due(layer, time.time(), snapshot_changed=None)
@@ -3707,16 +3844,26 @@ class Listener:
                 # fail-soft, and a no-op unless auto_start_on_print is on.
                 await asyncio.to_thread(_live_auto_on_print_start)
         elif old == "printing" and new_state == "paused":
-            self.last_pause_was_runout, slot = await self.classify_runout()
-            if self.last_pause_was_runout:
-                spool_id = _mapped_spool(slot) if slot else None
-                await asyncio.to_thread(post_alert, paused_message(self.filename, runout=True,
-                                                                   slot=slot, spool_id=spool_id),
-                                        "paused", self.filename)
-                self.pause_context = await self.open_question(slot, "runout")
-            else:
+            if pause_is_jam(self.pause_message):
+                # #1020 E1: an IFS jam gets its own post with the measured
+                # facts and only safe actions; it is never auto-resumed
+                # and never folded into the runout question flow.
+                self.last_pause_was_runout = False
                 self.pause_context = None
-                await asyncio.to_thread(post_alert, paused_message(self.filename), "paused", self.filename)
+                facts = await asyncio.to_thread(self._jam_facts)
+                await asyncio.to_thread(post_alert, jam_message(self.filename, facts),
+                                        "paused", self.filename)
+            else:
+                self.last_pause_was_runout, slot = await self.classify_runout()
+                if self.last_pause_was_runout:
+                    spool_id = _mapped_spool(slot) if slot else None
+                    await asyncio.to_thread(post_alert, paused_message(self.filename, runout=True,
+                                                                       slot=slot, spool_id=spool_id),
+                                            "paused", self.filename)
+                    self.pause_context = await self.open_question(slot, "runout")
+                else:
+                    self.pause_context = None
+                    await asyncio.to_thread(post_alert, paused_message(self.filename), "paused", self.filename)
         elif old in ("printing", "paused") and (new_state in TERMINAL or gone):
             self.last_pause_was_runout = False
             # Ended into standby gets the cancelled notice: the print stopped
@@ -4376,15 +4523,37 @@ class Listener:
                     last_tick = time.monotonic()
                     await asyncio.to_thread(run_announcer, "tick")
 
-    async def heartbeat(self):
-        """Adapted from contributor Docker commit 3bb0984; no printer probe."""
+    def _beat_once(self):
+        """One heartbeat write, from the writer thread (#1020 A3)."""
+        tick = getattr(self, "_loop_tick", None)
+        lag_ms = int(max(0.0, time.time() - tick) * 1000) if tick else 0
+        healthcheck.beat(moonraker_connected=self.moonraker_connected,
+                         state=self.state, loop_lag_ms=lag_ms)
+
+    def _heartbeat_writer(self):
+        """The dedicated heartbeat thread: beats even while the loop is blocked."""
         while True:
             try:
-                await asyncio.to_thread(healthcheck.beat,
-                                        moonraker_connected=self.moonraker_connected,
-                                        state=self.state)
+                self._beat_once()
             except Exception as exc:
                 log(f"heartbeat write failed: {exc!r}")
+            time.sleep(healthcheck.HEARTBEAT_S)
+
+    def _start_heartbeat_writer(self):
+        if getattr(self, "_heartbeat_thread", None) is None:
+            self._heartbeat_thread = threading.Thread(
+                target=self._heartbeat_writer, name="listener-heartbeat", daemon=True)
+            self._heartbeat_thread.start()
+
+    async def heartbeat(self):
+        """Adapted from contributor Docker commit 3bb0984; no printer probe.
+
+        The loop-side companion of the writer thread: it only stamps the
+        loop tick (the writer turns the gap into loop_lag_ms) and polls
+        the shared debug-mode state on the same cadence.
+        """
+        while True:
+            self._loop_tick = time.time()
             try:
                 # Debug log mode (#478) is shared state this listener
                 # observes on its heartbeat tick, like every process.
@@ -4487,6 +4656,7 @@ class Listener:
     async def forever(self):
         delay = 5
         self.moonraker_connected = False
+        self._start_heartbeat_writer()
         beating = asyncio.create_task(self.heartbeat())
         try:
             while True:
@@ -4510,17 +4680,16 @@ CAPTURE_BEGIN_TIMEOUT_S = 20
 
 
 def _install_stack_dump_handler():
-    """Dump every thread's stack to stderr on SIGUSR1 (#1020).
+    """Dump every thread's stack on SIGUSR1 (#1020 A4).
 
     The container supervisor sends SIGUSR1 to a listener whose heartbeat went
     stale, just before it restarts it, so the log names the line that hung.
+    The shared installer (healthcheck) dumps to stderr and to the state
+    file beside the heartbeat; it is also installed by the listeners
+    entry point for the other domains, and this call keeps a direct
+    ``python -m print_handy.hermes.moonraker_event_listener`` run covered.
     """
-    try:
-        import faulthandler
-        import signal
-        faulthandler.register(signal.SIGUSR1, all_threads=True, chain=False)
-    except (ImportError, AttributeError, ValueError, OSError):
-        pass
+    healthcheck.install_stack_dump_handler()
 
 
 def main():

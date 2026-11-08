@@ -93,3 +93,25 @@ def test_debug_bad_minutes_is_a_plain_refusal(core):
     _, sent = send(discord, bot, "/print-handy debug on soon")
     assert "not a number of minutes" in sent[-1]
     assert debug_mode.status(cfg) is None
+
+
+def test_bundle_command_uploads_the_bundle_in_chat(core):
+    # #1020 C1: /print-handy bundle delivers the file in chat (the
+    # delivery layer turns the reply's MEDIA: marker into an attachment),
+    # not only a path in the state folder.
+    discord, bot, cfg = core
+    out, sent = send(discord, bot, "/print-handy bundle")
+    assert out == {"action": "skip", "reason": "guided setup/debugging handled"}
+    reply = sent[-1]
+    assert "Diagnostics bundle" in reply
+    assert "MEDIA:" not in reply  # consumed by the delivery layer
+    attached = [f for message in discord.messages for f in message.files]
+    assert len(attached) == 1, attached
+    name = attached[0] if isinstance(attached[0], str) else attached[0].filename
+    assert name == "diagnostics-bundle.md"
+    from print_handy import settings as _settings
+    target = _settings.state_dir(cfg) / "diagnostics-bundle.md"
+    assert target.is_file()
+    text = target.read_text()
+    assert "## Runtime status" in text
+    assert "## Listener stack dumps" in text

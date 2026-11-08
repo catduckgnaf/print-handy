@@ -513,10 +513,14 @@ async def guided_dispatch(event, gateway, **kwargs):
         from print_handy import diagnostics_bundle
         target = diagnostics_bundle.write_bundle(_state_dir() / diagnostics_bundle.BUNDLE_NAME,
                                                  data=_config.cfg())
-        return (f"**Diagnostics bundle written**: `{target}`\n"
-                "It contains versions, a redacted configuration summary (no secret values), "
-                "the printer roster, the doctor output and a bounded recent-log tail. "
-                "Review it, then attach it to your bug report — nothing was uploaded anywhere.")
+        # #1020 C1: the bundle is uploaded in the chat (the MEDIA: marker
+        # the delivery layer turns into a file attachment), not only
+        # written to the state folder.
+        return (f"**Diagnostics bundle**: `{target}`\n"
+                "It contains versions, the runtime status, a redacted configuration "
+                "summary (no secret values), the printer roster, the doctor output "
+                "and a bounded recent-log tail. Review it, then attach it to your "
+                f"bug report.\nMEDIA:{target}")
 
     def debug(action):
         """#478 debug log mode: on/off/status over the shared state file.

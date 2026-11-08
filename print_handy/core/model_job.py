@@ -4661,6 +4661,20 @@ def record_support_decision(folder, supports, by='operator'):
     return job
 
 
+def record_supports_question(folder, audit):
+    """Record why the supports question was (or was not) shown (#1020 F3).
+
+    ``audit`` carries the decision's reason and inputs plus the
+    clearance report and the slicer finding the decision was made from,
+    so a shown or hidden menu can be audited from JOB.json alone.
+    """
+    path = Path(folder) / 'JOB.json'
+    job = json.loads(path.read_text())
+    job['supports_question'] = {**audit, 'at': time.strftime('%Y-%m-%dT%H:%M:%S%z')}
+    write_job(folder, job)
+    return job
+
+
 def _support_kw(job, supports=None):
     """slice_model kwargs carrying a supports choice: the path's own, else the operator's.
 

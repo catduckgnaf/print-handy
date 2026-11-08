@@ -394,3 +394,9 @@ maintenance:
   full_days: 30
   # /print-bed-down (prepare to clean): mm the bed and nozzle move apart, 1 to 50.
   bed_separate_mm: 20
+public_text:
+  # Operator machine names the log sanitizer must strip from exports
+  # (#1020): your own hosts' names, as they appear in log lines. They are
+  # names only — the export sanitizer replaces each with a pseudonym.
+  # Example: denylist = ["myserver", "nas-box"]
+  denylist: []

@@ -19,6 +19,14 @@ from . import listeners, printers, settings
 
 HEARTBEAT_S = 30
 
+#: A heartbeat whose writer thread is alive but whose event loop has not
+#: ticked for this long is a blocked loop, not a live listener (#1020 A3):
+#: the beat stays fresh, so only the recorded loop lag can condemn it.
+LOOP_LAG_STALE_MS = 90_000
+
+#: Where a watchdog stack dump lands, per printer, beside the heartbeat.
+STACK_DUMP_NAME = "listener_stack_dump.log"
+
 # The listener registry (print_handy.listeners, #299) is the one place that
 # maps a vendor connection to its listener domain. Implemented domains
 # (moonraker, bambulab_lan) run a listener: the container supervisor must
@@ -134,6 +142,52 @@ def beat(runtime=RUNTIME, data=None, printer_id=None, **details):
     return record
 
 
+def stack_dump_path(data=None, printer_id=None):
+    """One printer's watchdog stack dump: beside its heartbeat (#1020 A4)."""
+    resolved = resolve_printer_id(data, printer_id)
+    if resolved is None:
+        return settings.state_dir(data) / STACK_DUMP_NAME
+    return settings.printer_state_dir(resolved, data) / STACK_DUMP_NAME
+
+
+def install_stack_dump_handler(data=None, printer_id=None):
+    """Dump every thread's stack on SIGUSR1, to stderr and a state file (#1020 A4).
+
+    The container supervisor sends SIGUSR1 to a listener whose heartbeat
+    went stale, just before it restarts it, so the hang names its own
+    stack. The dump goes to stderr (the container log the bundle tails)
+    and to ``listener_stack_dump.log`` in the printer's state folder, so
+    it survives even when the log tail does not reach it. The handler
+    never raises and never exits: the supervisor's TERM/KILL still does
+    the restarting. Returns the state-file path, or None when signals
+    are unavailable (non-main thread, platform without SIGUSR1).
+    """
+    try:
+        import faulthandler
+        import signal
+        if not hasattr(signal, "SIGUSR1"):
+            return None
+        target = stack_dump_path(data, printer_id)
+
+        def _dump(signum, frame):
+            try:
+                faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
+            except Exception:
+                pass
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with open(target, "a", encoding="utf-8") as handle:
+                    handle.write(f"\n--- SIGUSR1 stack dump at {time.time():.0f} ---\n")
+                    faulthandler.dump_traceback(file=handle, all_threads=True)
+            except Exception:
+                pass
+
+        signal.signal(signal.SIGUSR1, _dump)
+        return target
+    except (ImportError, AttributeError, ValueError, OSError):
+        return None
+
+
 def check(data=None, now=None, printer_id=None):
     resolved = resolve_printer_id(data, printer_id)
     try:
@@ -147,6 +201,10 @@ def check(data=None, now=None, printer_id=None):
             return False, "heartbeat belongs to another printer"
         if int(record["pid"]) <= 0 or process_identity(record["pid"]) != record["process_start"]:
             return False, "listener process is gone or replaced"
+        lag = record.get("loop_lag_ms")
+        if isinstance(lag, (int, float)) and lag > LOOP_LAG_STALE_MS:
+            return False, (f"listener event loop blocked or stalled "
+                           f"(loop lag {lag / 1000:.0f}s while the heartbeat writer is alive)")
         connected = record.get("printer_connected", record.get("moonraker_connected", False))
         return True, "listener event loop alive; printer_connected=" + str(connected)
     except (OSError, ValueError, TypeError, KeyError, IndexError, OverflowError, settings.SettingsError):

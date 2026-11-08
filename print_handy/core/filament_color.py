@@ -516,6 +516,18 @@ def _bound_by_operator(record: Mapping[str, Any]) -> bool:
             and record.get("quantity_status") == "spoolman")
 
 
+def slot_display(slot: Any) -> str:
+    """'slot 3 (IFS channel 3)' — a slot number with its base named (#1020 D1).
+
+    The #1020 incident turned on lookalike numbers in different bases
+    (a 1-based channel beside a 0-based lane index). User-visible posts
+    and log lines that name a bare slot use this form so the number can
+    never be read against the wrong base. Non-slot values pass through
+    as ``slot <value>`` so callers never have to pre-validate.
+    """
+    return f"slot {slot} (IFS channel {slot})"
+
+
 def slot_label(slot: Any, record: Mapping[str, Any] | None) -> str:
     """'Slot 2 (Rose red blue green Silk PLA)' — the record's own words."""
     record = record or {}

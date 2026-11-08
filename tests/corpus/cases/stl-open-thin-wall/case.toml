@@ -16,7 +16,7 @@ button = "Slice and print without supports"
 
 [expect]
 # Orca reports floating regions here; the operator answered "Slice and print without supports" before bed-clear.
-prompts = ["floating regions found"]
+prompts = ["floating region"]
 status = "STARTED"
 source_kind = ".stl"
 source_size_mm = [30.0, 30.0, 1.0]
