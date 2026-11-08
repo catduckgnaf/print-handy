@@ -13,13 +13,13 @@ No live printer, firmware, GPU account or Docker registry is contacted by these 
 
 List the cases:
 
-\`\`\`sh
+```sh
 python scripts/phase2_evidence.py cases
-\`\`\`
+```
 
 Capture a **sanitized** result you have actually obtained on the relevant host:
 
-\`\`\`sh
+```sh
 python scripts/phase2_evidence.py record \
   --issue 1070 --case runout-diagnostics --status observed \
   --context "AD5X HelixScreen paused runout test" \
@@ -27,17 +27,17 @@ python scripts/phase2_evidence.py record \
   --artifact sanitized-diagnostics.txt --out evidence-1070.json
 python scripts/phase2_evidence.py verify \
   --record evidence-1070.json --artifact-dir .
-\`\`\`
+```
 
 Attach both the JSON record and the sanitized artifact to the matching GitHub issue.
 The helper records a SHA-256 and size, checks file integrity and rejects unsupported
 case names. It does **not** inspect logs for secrets, validate sensor truth, run a test,
 or upload anything. Review and redact hostnames, tokens, network addresses, filenames,
-slicer models and personal data manually before posting. A record with \`observed\`
+slicer models and personal data manually before posting. A record with `observed`
 means only that an operator supplied an attachment, not that the finding is correct.
 
-If a check cannot be run, use \`--status blocked\` and a concrete \`--note\` instead.
-Use \`--status deferred\` only after the authorized owner explicitly decides to defer
+If a check cannot be run, use `--status blocked` and a concrete `--note` instead.
+Use `--status deferred` only after the authorized owner explicitly decides to defer
 it. A blocked/deferred record is never a successful hardware proof.
 
 ## #1067: camera and GPU proof
@@ -55,8 +55,8 @@ account usage record. Missing proof must remain *unverified*, not green.
 ## #1068: live renumber, rollback and assembly checks
 
 For the owner-only duplicate renumber, first review the plan printed by
-\`renumber-duplicates\`, save a sanitized record, back up the live state, and
-use \`--apply\` only after explicit owner approval. The helper does not call it.
+`renumber-duplicates`, save a sanitized record, back up the live state, and
+use `--apply` only after explicit owner approval. The helper does not call it.
 Record before/after print numbers and any rollback evidence without exposing user data.
 
 For rollback, use the existing **Docker image validation (manual)** workflow on
@@ -65,7 +65,7 @@ tag's own example environment, not the candidate's new keys. PR #1075 already
 corrected that harness and its validation runs passed; record those exact run
 URLs in #1068 rather than rerunning a fixed issue as new work. The assembly
 production caller remains dependent on the arrival of real multi-part sessions;
-test-only calls of \`assembly_check.review()\` do not satisfy it.
+test-only calls of `assembly_check.review()` do not satisfy it.
 
 ## #1069: a reproducible OpenSCAD comparison
 
@@ -73,31 +73,31 @@ Run on the same host with the pinned 2021.01 binary and a candidate binary
 containing both CGAL and Manifold backends. Supply actual project .scad fixtures,
 including a pathological high-$fn or Minkowski model and a cad_split case.
 
-\`\`\`sh
+```sh
 python scripts/benchmark_openscad_backends.py \
   --baseline /path/to/openscad-2021 \
   --candidate /path/to/openscad-manifold \
   --scad sanitized-design.scad --scad sanitized-stress.scad \
   --repeats 3 --out openscad-phase2-results.json
-\`\`\`
+```
 
-Requires Linux and GNU \`/usr/bin/time\`. Each repeat performs an STL export
+Requires Linux and GNU `/usr/bin/time`. Each repeat performs an STL export
 from the same .scad source and reports elapsed wall time, peak child RSS,
 output size and SHA-256. It runs the pinned default backend, candidate CGAL,
 and candidate Manifold. A run is a **failure** unless the slicer process exits
 successfully and emits a nonempty STL. No silent benchmark success.
 
 **Those numbers alone do not prove correctness:** independently compare mesh
-volume, bounds, topology, intended openings, warnings, \`--hardwarnings\`,
+volume, bounds, topology, intended openings, warnings, `--hardwarnings`,
 and non-manifold diagnostics; document deltas. Preview PNGs with and without
-\`/dev/dri\`, and headless Orca 2.5.0-rc GPU usage, remain separate operator
+`/dev/dri`, and headless Orca 2.5.0-rc GPU usage, remain separate operator
 measurements. Record CPU/GPU utilization with host tools and cite the raw logs.
 Do not claim that the benchmark proves rendering or slicing uses GPU compute.
 No packaging switch to an unpinned candidate is made by this PR.
 
 ## #1070: paused runout on AD5X + HelixScreen
 
-Collect the sanitized \`/print-handy bundle\` from an actual paused runout,
+Collect the sanitized `/print-handy bundle` from an actual paused runout,
 along with firmware version, IFS state, head sensor, command attempts and
 HelixScreen UI observations. Establish whether the prohibition comes from
 HelixScreen UI, firmware command support, active filament operation or Print
