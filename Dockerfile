@@ -162,6 +162,7 @@ RUN mkdir -p /out && cd native/bounds && \
 
 FROM debian:13-slim AS runtime
 ARG WITH_GO2RTC=true
+ARG ORT_FLAVOR=cpu
 ARG TARGETARCH
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PATH=/opt/venv/bin:$PATH \
     PRINT_HANDY_IN_CONTAINER=1
@@ -220,6 +221,36 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY print_handy/__init__.py ./print_handy/__init__.py
 RUN pip install --no-cache-dir .
+# GPU inference flavors for the local failure detector (#455): the
+# install above brings the CPU build of ONNX Runtime (pyproject.toml),
+# which is what the published image ships. ORT_FLAVOR swaps that
+# distribution for an accelerated one, and the detector's provider
+# selection then picks the GPU provider automatically when the host
+# offers one (#576); "cpu" (the default) changes nothing at all. Flavor
+# pins name the newest build published for each flavor — the OpenVINO
+# flavor's newest (1.24.1) trails the CPU/GPU line (1.31.1), and
+# onnxruntime-openvino publishes x86_64 wheels only, so that flavor
+# refuses other architectures here instead of failing obscurely in pip.
+# The cuda flavor carries its CUDA/cuDNN user-space libraries via the
+# package extras; the host driver still comes from the NVIDIA runtime.
+# Each flavor proves itself at build time by the provider bridge library
+# it must ship. GPU inference itself is not verified on real hardware
+# (see docs/DOCKER.md, "GPU and the local failure detector").
+RUN case "$ORT_FLAVOR" in \
+      cpu) ;; \
+      openvino) \
+        if [ "$TARGETARCH" != "amd64" ]; then \
+          echo 'ORT_FLAVOR=openvino is amd64-only: onnxruntime-openvino publishes no arm64 wheel' >&2; exit 2; \
+        fi && \
+        pip uninstall -y onnxruntime && \
+        pip install --no-cache-dir "onnxruntime-openvino==1.24.1" && \
+        python -c "import onnxruntime, pathlib; capi = pathlib.Path(onnxruntime.__file__).parent / 'capi'; assert (capi / 'libonnxruntime_providers_openvino.so').is_file(), 'OpenVINO provider bridge missing'" ;; \
+      cuda) \
+        pip uninstall -y onnxruntime && \
+        pip install --no-cache-dir "onnxruntime-gpu[cuda,cudnn]==1.31.1" && \
+        python -c "import onnxruntime, pathlib; capi = pathlib.Path(onnxruntime.__file__).parent / 'capi'; assert (capi / 'libonnxruntime_providers_cuda.so').is_file(), 'CUDA provider bridge missing'" ;; \
+      *) echo 'ORT_FLAVOR must be cpu, openvino or cuda' >&2; exit 2 ;; \
+    esac
 # The native bounds wheel (#952) installs the compiled extension into
 # the venv's site-packages; only the .so ships, no build toolchain.
 COPY --from=bounds-build /out/*.whl /tmp/bounds-wheel/
