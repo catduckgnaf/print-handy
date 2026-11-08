@@ -300,10 +300,18 @@ common text by majority and by odd-one-out, not only the 093/094 tie-breaks.
   built from records produced by the real record writers
   (`tests/test_wrapped_records_from_writers.py`).
 - Live-tier suites keep their gates: the real-Spoolman service tests
-  (`tests/services/test_spoolman_real.py`) run only with
+  (`tests/services/test_spoolman_real.py` and
+  `tests/services/test_spoolman_real_expansion.py`) run only with
   `PRINT_HANDY_SPOOLMAN_TEST_URL` set (the CI spoolman job and
   `scripts/run_spoolman_native.sh` provide the server); the real-ffmpeg
-  Wrapped pacing test skips without ffmpeg/ffprobe on PATH.
+  Wrapped pacing test skips without ffmpeg/ffprobe on PATH. The
+  expansion file carries the wider real-server surface: the core
+  client's round trips, usage accounting and 404-vs-outage split,
+  create/vendor/temperature recording, bind dispositions, unbind and
+  swap, cross-printer claims, and reconcile against spools archived or
+  deleted behind the cache's back. The older file's tests assume a
+  fresh server (their first create must not reuse a filament); the
+  expansion tests are written to pass on a reused server too.
 - One acceptance-layout cell stays gated by name:
   `test_mounted_state_volume_copies_instead_of_symlinking` in
   `tests/test_entrypoint_layout_matrix.py` (`container`-marked) runs only
