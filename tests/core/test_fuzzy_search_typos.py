@@ -163,6 +163,11 @@ def test_corpus_typos_of_command_words_suggest_the_command(text, expected):
     ("/print-spols", "/print-spools"),      # typo inside the longer name
     ("/print-bed-dwn", "/print-bed-down"),  # dropped vowel in the tail word
     ("/nozzel", "/nozzle"),                 # corpus typo as the whole command
+    # "pause" typo: no /print-pause command exists, and since
+    # /print-plate-calibrate landed (#455) its windowed stem score wins
+    # this outright, so the case pins the single suggestion instead of
+    # the pick-list it used to get.
+    ("/print-pauze", "/print-plate-calibrate"),
 ])
 def test_more_command_shaped_near_misses(text, expected):
     assert cs(text) == expected
@@ -176,7 +181,6 @@ def test_more_command_shaped_near_misses(text, expected):
 @pytest.mark.parametrize("text", [
     "/prnt",            # print-* stem, several whole commands contend
     "/print-staus",     # "status" typo; stop/source/resume contend
-    "/print-pauze",     # "pause" typo; pause does not clearly win its own name
     "/print-restar",    # "restart" typo; resume/reboot contend
     "/print-calibrte",  # "calibrate" typo; calibration/live contend
 ])
