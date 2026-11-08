@@ -19,7 +19,7 @@ Offline tests: compatible backup, different color, different material, incompati
 AD5X-specific docs govern over generic Klipper recommendations. Preserve existing start/end, purge, checksum, mesh/Z and IFS authority. Review object-exclusion crash warning before adoption. Keep existing Orca Flatpak. Bambufy is optional and officially incompatible with the native screen; no installation in MVP.
 
 ## Status
-Contract delivered; runtime fallback integration and physical acceptance remain OPEN in issue #2. Existing hardening remains paused until coordinator release. Notify/Apprise audit is deferred, existing Discord behavior unchanged.
+Contract delivered; runtime fallback integration and physical acceptance remain OPEN in. Existing hardening remains paused until coordinator release. Notify/Apprise audit is deferred, existing Discord behavior unchanged.
 
 ## Motion boundaries, margin contract, and multi-plate intake (1.9.1)
 - **Physical sheet and motion limits**: The AD5X uses a 235x235 mm spring steel build plate. Klipper stepper travel reaches X [-20.0, 225.0] (245 mm total) and Y [-20.0, 232.0] (252 mm total).
@@ -33,5 +33,5 @@ Contract delivered; runtime fallback integration and physical acceptance remain 
 - **Slicer order**: OrcaSlicer first; Bambu Studio CLI only after an Orca slicing failure. Both outputs pass the same post-slice and protected-settings gates. Bambu receives absolute line widths derived from nozzle diameter.
 - **Acceleration**: Process acceleration is capped at 4,500 mm/s² (outer wall 3,200), below the measured X input shaper recommendation of 4,747 mm/s².
 
-## Delivery format addendum (#564)
+## Delivery format addendum
 - Prints may be delivered as a `.gcode.3mf` package when the printer reports ZMod 1.7.5+ (`[printer] zmod_delivery_format`, default `auto`; see docs/ZMOD.md "Print file format"). The checksum authority above refers to the inner `.gcode`, which the package carries byte-identical; the Moonraker upload checksum covers the package bytes. Native infinite-spool behaviour is printer-side and unaffected by the container the file travels in.

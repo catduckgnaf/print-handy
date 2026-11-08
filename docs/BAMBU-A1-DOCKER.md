@@ -144,7 +144,7 @@ Make the file owned by 1000:1000. What each part does, and what you see when it 
 | `spool.material`, `temps_c` | Material family and the temperatures the G-code guard checks; 240/85 °C are the documented PETG defaults | An unrecognised material fails closed |
 | `nozzle` | The A1 accepts only 0.4 mm, stainless or hardened steel | A readiness problem naming the supported sizes |
 
-`spoolman_id: 1` is a label here, not a lookup: with no Spoolman the check logs `Spoolman check skipped` as a warning and continues on the recorded state (#235 behaviour). Two things to know:
+`spoolman_id: 1` is a label here, not a lookup: with no Spoolman the check logs `Spoolman check skipped` as a warning and continues on the recorded state. Two things to know:
 
 - **Settings and state are read once per process.** Restart the bot after editing the file: `docker compose restart combined`.
 - **Editing the record invalidates jobs prepared before the edit.** A prepared job is bound to a recipe hash of the state it was prepared with (`slice_recipe.binding_sha256`), so a link you posted before the edit will refuse to slice. Post the link again.

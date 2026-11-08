@@ -37,8 +37,7 @@ is the product, and it is the same for every driven calibration:
    failed) and every report or guide writes a calibration record;
    `/print-calibration records` lists the recent ones.
 
-The primitives and save semantics come from the Stage 0 evidence on
-issue #565 (ZMod wiki, Klipper documentation and source, Moonraker),
+The primitives and save semantics come from the Stage 0 evidence on (ZMod wiki, Klipper documentation and source, Moonraker),
 recorded as a comment on the issue before the code was written. This
 page matches `print_handy/calibration.py`; if the two ever disagree,
 one of them is a bug. The chat commands on this page are not live-hardware
@@ -66,7 +65,7 @@ script path, not through `/print-calibration`; see
 
 ## Who is eligible, and what is offered
 
-Eligibility mirrors firmware updates (#561): the printer must connect
+Eligibility mirrors firmware updates: the printer must connect
 over Moonraker and its firmware family must be `zmod` or vanilla
 `klipper`. Vendor Klipper forks (Elegoo, Creality, QIDI, Anycubic) are
 refused with a plain explanation — their calibration macros and save

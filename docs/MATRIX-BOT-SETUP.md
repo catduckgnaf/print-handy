@@ -1,7 +1,7 @@
 # Matrix bot setup
 
 Print Handy can run its standalone bot in a Matrix room instead of Discord
-or Telegram (#164). The same handlers, prompts and safety gates serve every
+or Telegram. The same handlers, prompts and safety gates serve every
 platform; only the transport changes. The Matrix bot is a **pure bot: it
 has no LLM**. Unmatched text gets the short “didn't understand” reply, and no `[llm]` setting
 is ever consulted for Matrix — deliberate, the same no-LLM posture Telegram
@@ -61,7 +61,7 @@ room then drives only its own printer, end to end. The `[matrix] room_id`
 below remains the fallback room for the one entry that sets no `chat_id`
 (the first, default printer). A room no printer claims gets silence. Two
 entries may also claim the *same* room on purpose: that room becomes a
-shared channel (#536) where the bot asks which printer before anything
+shared channel where the bot asks which printer before anything
 printer-bound happens — see "Shared channels" in SETTINGS.md.
 
 ## 3. Configure Print Handy

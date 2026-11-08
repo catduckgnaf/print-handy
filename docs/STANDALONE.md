@@ -4,7 +4,7 @@ Print Handy can talk to Discord itself. Links, dropped 3MF and STL files, color 
 bed-clear start button, slash commands and printer alerts all run from Python with a Discord bot token. No
 Hermes and no LLM are needed. An OpenAI-compatible LLM is an optional extra for replying to free text.
 
-It can also run on Telegram instead (#164): set `bot.platform` to `telegram` and follow
+It can also run on Telegram instead: set `bot.platform` to `telegram` and follow
 [Telegram bot setup](TELEGRAM-BOT-SETUP.md). The Telegram bot is a pure bot with no LLM at all — unmatched
 text gets the short “didn't understand” reply even when `[llm]` is configured for another platform.
 
@@ -34,8 +34,8 @@ message. `python3 -m print_handy.doctor` warns when a Hermes profile holds the s
 
 | Key | Default | What it does |
 |---|---|---|
-| `bot.mode` | `standalone` | `standalone` runs `python3 -m print_handy.bot` with no Hermes; it is the default when a config does not state a mode (#524). `hermes` keeps the gateway plugin on installs that state it explicitly |
-| `bot.platform` | `discord` | The chat platform the standalone bot talks to (#164): `discord`, `telegram` or `matrix`. A config without this key keeps `discord` |
+| `bot.mode` | `standalone` | `standalone` runs `python3 -m print_handy.bot` with no Hermes; it is the default when a config does not state a mode. `hermes` keeps the gateway plugin on installs that state it explicitly |
+| `bot.platform` | `discord` | The chat platform the standalone bot talks to: `discord`, `telegram` or `matrix`. A config without this key keeps `discord` |
 | `telegram.token_env` | `TELEGRAM_BOT_TOKEN` | Name of the environment variable that holds the Telegram bot token |
 | `telegram.chat_id` | empty | The print chat. Group and channel IDs are negative. The bot ignores every other chat (forum topics inside it work like threads) |
 | `telegram.allowed_user_ids` | empty | Telegram user IDs allowed to use the bot, separated by commas or spaces |
@@ -60,16 +60,16 @@ message. `python3 -m print_handy.doctor` warns when a Hermes profile holds the s
 | `discord.denied_user_ids` | empty | Optional deny list of Discord user IDs; a denied user is refused even when whitelisted or the approval user |
 | `discord.approval_user_id` | empty | Always allowed as well; setting one does not restrict anyone else |
 | `discord.token_env` | `DISCORD_BOT_TOKEN` | Name of the environment variable that holds the bot token |
-| `discord.chat_llm_enabled` | `true` | Discord's chat-LLM switch (#466). `false` runs Discord as a pure bot — unmatched text gets the short “didn't understand” reply — while `[llm]` stays configured for `/print-design`. Roasts and camera checks keep their own vision switches |
+| `discord.chat_llm_enabled` | `true` | Discord's chat-LLM switch. `false` runs Discord as a pure bot — unmatched text gets the short “didn't understand” reply — while `[llm]` stays configured for `/print-design`. Roasts and camera checks keep their own vision switches |
 | `llm.chat_url` | empty | Optional OpenAI-compatible chat completions URL. Empty: unmatched text gets the short “didn't understand” reply |
 | `llm.model` | empty | Model name, required when `chat_url` is set |
 | `llm.api_key_env` | `LLM_API_KEY` | Name of the environment variable that holds the LLM API key, if it needs one |
 | `llm.timeout_s` | `20` | LLM request timeout |
-| `agent.chat_url` | empty | Stray-chat agent lane (#524 stage 3): an agent endpoint — any OpenAI-compatible chat completions URL, e.g. a Hermes agent behind its API — answers Discord free text ahead of the `[llm]` call. Empty: no agent lane |
+| `agent.chat_url` | empty | Stray-chat agent lane: an agent endpoint — any OpenAI-compatible chat completions URL, e.g. a Hermes agent behind its API — answers Discord free text ahead of the `[llm]` call. Empty: no agent lane |
 | `agent.model` | empty | Agent model name; optional — empty omits `model` from the request |
 | `agent.api_key_env` | `AGENT_API_KEY` | Name of the environment variable that holds the agent endpoint's API key, if it needs one |
 | `agent.timeout_s` | `120` | Agent request timeout (one attempt, no retries) |
-| `vision.roast_enabled` | `true` | The one-line roast: one per print on the completion post, the failure and cancel posts and a confirmed-spaghetti camera alert, plus on request in chat ("roast my last print"), on every platform. From the local roast corpus, no LLM or endpoint (#1002). `false` turns roasts off; camera checks are unaffected |
+| `vision.roast_enabled` | `true` | The one-line roast: one per print on the completion post, the failure and cancel posts and a confirmed-spaghetti camera alert, plus on request in chat ("roast my last print"), on every platform. From the local roast corpus, no LLM or endpoint. `false` turns roasts off; camera checks are unaffected |
 | `vision.roast_model` | `luna-latest` | Legacy, unused since #1002 (roasts are local); kept so older configs load |
 
 Every key can come from the environment as `PRINT_HANDY__SECTION__KEY`, for example
@@ -165,7 +165,7 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
   `/spool sync`) still work in one shot. Plain requests work too, with no LLM configured: "add new
   filament", "add a new spool", "we need to add new filament" and "change / swap / replace the
   filament" start the same guided flow; ordinary discussion about filament does not.
-* `/print-spools` answers what is loaded, where, and how much is left (#744): a loaded-only,
+* `/print-spools` answers what is loaded, where, and how much is left: a loaded-only,
   read-only list — each loaded location with its spool number, brand, material, color, grams
   left and percent left where the spool's starting weight is recorded. `/spool loaded`, a bare
   `/print-colors` (no JOB.json; the archived-job form is unchanged), and plain asks ("what
@@ -224,7 +224,7 @@ Required environment: `PRINT_HANDY__BOT__MODE=standalone`, `DISCORD_BOT_TOKEN`, 
   never answers another allowed user's question, even in the same channel or thread. Buttons are shared: any
   allowed user may press an open question's button, and the message then shows who chose.
 * Anything else is tried with a model lane first — the `[agent]` lane when an agent endpoint is
-  configured (#524 stage 3), else the LLM when `[llm]` is set — and only falls back to the short
+  configured, else the LLM when `[llm]` is set — and only falls back to the short
   “didn't understand” reply when
   the model cannot solve it. The agent lane is different in kind from the LLM call below: the bot
   sends your text once, with no bot system prompt, and posts the endpoint's reply as-is — the
@@ -251,7 +251,7 @@ deterministic (commands, links, files, typed answers, buttons, `print 57`) works
 The switch gates every stray-chat model call: the `[llm]` call and the `[agent]` lane alike.
 `bot check` says so on its llm and agent rows, naming the switch, and the bot's status reports `"llm": false`.
 
-The same is true under Hermes (#524 stage 3): the plugin's final dispatch hook claims
+The same is true under Hermes: the plugin's final dispatch hook claims
 otherwise-unmatched Discord text for these same lanes — with the switch off the profile agent
 never sees the text, a configured `[agent]` endpoint (or `[llm]`) answers through the bot
 instead, and only when the switch is on and no lane is configured does the profile agent keep
@@ -272,13 +272,13 @@ switch if you want no model calls at all.
 |---|---|
 | `pre_gateway_dispatch` hook with the plugin's handlers | `print_handy.bot.router.Router` calls the plugin's `register()` and runs the same handlers in the same order. `receive_ack` (a receipt promising an agent reply) is skipped, since no agent follows |
 | Gateway authorization (`_is_user_authorized_for_source`), delivery adapter, session key | `print_handy.bot.runtime.Gateway`: allowed user IDs plus the print channel; replies go to the same channel or thread; one session per person per channel |
-| Adapter `send` / `send_clarify` | The platform interface in `print_handy.bot.platform` (#164): `send`, `send_clarify`, `answer_typed`, `close_prompt`, `is_allowed_id`, plus per-platform limits (`message_limit`, `upload_max_bytes`, `supports_buttons`, `max_buttons`). Discord's implementation is `print_handy.bot.adapter.StandaloneAdapter` over discord.py. `MEDIA:/path` becomes an attachment; long text is split at 2000 characters |
-| Clarify gateway (register, wait, resolve, cancelled) | `print_handy.core.prompts`, the same API; standalone always draws its own questions with it. Under Hermes, Hermes' adapter draws questions by default; with `discord.clarify_ui = true` the plugin's own renderer draws them there too (#524): questions are posted by Discord REST from the bot's own registry, clicks and typed answers are resolved by the bot, and an answered question edits in place ("you chose X", buttons removed), exactly as standalone renders. On that path the locale hint patch and the Stop-view substitution stand down — they only compensate for host-drawn questions |
+| Adapter `send` / `send_clarify` | The platform interface in `print_handy.bot.platform`: `send`, `send_clarify`, `answer_typed`, `close_prompt`, `is_allowed_id`, plus per-platform limits (`message_limit`, `upload_max_bytes`, `supports_buttons`, `max_buttons`). Discord's implementation is `print_handy.bot.adapter.StandaloneAdapter` over discord.py. `MEDIA:/path` becomes an attachment; long text is split at 2000 characters |
+| Clarify gateway (register, wait, resolve, cancelled) | `print_handy.core.prompts`, the same API; standalone always draws its own questions with it. Under Hermes, Hermes' adapter draws questions by default; with `discord.clarify_ui = true` the plugin's own renderer draws them there too: questions are posted by Discord REST from the bot's own registry, clicks and typed answers are resolved by the bot, and an answered question edits in place ("you chose X", buttons removed), exactly as standalone renders. On that path the locale hint patch and the Stop-view substitution stand down — they only compensate for host-drawn questions |
 | Platform handler registration and the adapter's `_is_allowed_user` | The router hands the plugin's `alert_button_handlers` our discord.py client; the adapter implements `_is_allowed_user` |
 | `hermes send` subprocess in the listener | `print_handy.bot.rest.send`: Discord REST with the bot token, `MEDIA:` files as attachments. Since #524 this is the listener's Discord post path in Hermes mode too — no `hermes send` subprocess remains anywhere |
-| Hermes `state.db` messages for "print it" | `print_handy.bot.recent_links`: the last model link per channel in `<state>/recent_model_links.json`. This file is the single source in both modes (#524); `state.db` is no longer read for link recall |
-| Agent session resets and cleanups after a print (`state.db`, `SessionDB`) | Retired in every mode (#524): the bot no longer resets or archives agent sessions and never opens `state.db`. Session lifetime belongs to the agent host — the shipped Hermes profile template resets its sessions daily at 4 AM |
-| Profile `auxiliary.print_design` pin answering /print-design | The `[design]`/`[llm]` HTTP transport in both modes (#524): the configured endpoint answers; the profile pin is only the fallback when no endpoint is configured |
+| Hermes `state.db` messages for "print it" | `print_handy.bot.recent_links`: the last model link per channel in `<state>/recent_model_links.json`. This file is the single source in both modes; `state.db` is no longer read for link recall |
+| Agent session resets and cleanups after a print (`state.db`, `SessionDB`) | Retired in every mode: the bot no longer resets or archives agent sessions and never opens `state.db`. Session lifetime belongs to the agent host — the shipped Hermes profile template resets its sessions daily at 4 AM |
+| Profile `auxiliary.print_design` pin answering /print-design | The `[design]`/`[llm]` HTTP transport in both modes: the configured endpoint answers; the profile pin is only the fallback when no endpoint is configured |
 | Tool-call hooks (`pre_tool_call`, `post_tool_call`) | Not needed: they only guard an agent's tool calls. Kept registered for Hermes |
 | Hermes home, install script, systemd units, restart drop-in | `paths.hermes_home` is just the data folder; `scripts/install-standalone.sh` and `systemd/*.service.template` with no gateway coupling |
 
@@ -312,7 +312,7 @@ Going back is the reverse: `bot.mode: hermes`, stop the standalone units, start 
 
 ## Adding a chat platform
 
-For contributors (#164): the bot core and the plugin handlers talk to a chat service only through
+For contributors: the bot core and the plugin handlers talk to a chat service only through
 `print_handy.bot.platform` — `BotCore` is built with one platform adapter and never imports a platform
 library. A new platform is a new module under `print_handy/bot/` holding a `StandaloneAdapter`-shaped
 implementation of `send` / `send_clarify` / `answer_typed` / `close_prompt` / `is_allowed_id` (prompt
@@ -327,4 +327,4 @@ limits live on the adapter, not in callers. No handler or core change should be 
 * Agent-only work has no scripted equivalent: filament photo inventory, incident write-ups, mesh routines from chat
   and free-form troubleshooting. With an LLM configured you get a short reply, not an agent.
 * Button questions asked by a running intake live in memory. After a bot restart an old question's buttons answer
-  "That question already closed"; send the link again. Listener alert buttons do survive restarts (#61, #62).
+  "That question already closed"; send the link again. Listener alert buttons do survive restarts.

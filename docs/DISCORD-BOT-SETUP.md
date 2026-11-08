@@ -115,7 +115,7 @@ with no LLM — or, when `[llm]` is set up for `/print-design`, set `discord.cha
 (or `PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED=false`) to run Discord with no chat LLM while design keeps
 its endpoint; `bot check` names the switch on its llm row. See
 [Running Discord with no chat LLM](STANDALONE.md#running-discord-with-no-chat-llm). Separate from that chat LLM, the print-started post carries the
-one-line **roast** from the local roast corpus, no LLM needed (#1002): `vision.roast_enabled` is
+one-line **roast** from the local roast corpus, no LLM needed: `vision.roast_enabled` is
 on by default, and setting it `false` (or
 `PRINT_HANDY__VISION__ROAST_ENABLED=false`) turns roasts off. See
 [The roast](TELEGRAM-BOT-SETUP.md#the-roast).
@@ -183,7 +183,7 @@ readiness. Stop a foreground bot with Ctrl+C. Do not run a second copy alongside
 For user services, `scripts/install-standalone.sh` renders units but enables nothing; review its
 printed instructions in [standalone systemd setup](STANDALONE.md#systemd) before enabling services.
 
-## 7. Live camera Activity (optional, #311)
+## 7. Live camera Activity (optional)
 
 Print Handy can show the printer camera live inside a Discord voice channel. The bot itself
 cannot send video — Discord's bot API is audio-only — so the live view is an **Activity**: a
@@ -196,7 +196,7 @@ loopback and is never exposed raw).
 > everything below is built and covered by offline contract tests, but none of it has been
 > exercised live against Discord, a real tunnel or a real camera. Portal screens and labels
 > may differ from the current Developer Portal. Treat the feature as **unverified** until
-> the live sitting happens and its result is recorded on issue #311. The bot-token-only rule
+> the live sitting happens and its result is recorded on. The bot-token-only rule
 > is absolute: if any step ever seems to need a user token or a selfbot library, stop — that
 > path is a no-go by design, not a workaround.
 
@@ -311,7 +311,7 @@ household, exactly as you would for print approvals.
 | Snapshot-only cameras | Valid live source of kind `snapshot` (still-image sequence, labelled as such); **not live-verified** |
 | Bambu / Prusa / SDCP / stock-Flashforge cameras | Not in v1 — they join through the same camera-source seam once their stills/stream sources are verified (see #294/#295) |
 | Encoder plan (VAAPI / QSV / NVENC / CPU) | Command construction pinned by offline tests per vendor; **no GPU path verified on real hardware** |
-| The Activity in Discord (desktop / mobile) | **Unverified** — the Stage 0 live spike has not run; the first live result belongs on issue #311, not in this table's wording |
+| The Activity in Discord (desktop / mobile) | **Unverified** — the Stage 0 live spike has not run; the first live result belongs on, not in this table's wording |
 
 ## What a print looks like in Discord
 

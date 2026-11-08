@@ -54,7 +54,7 @@ enable Pages and adds no deployment workflow. Once Pages is
 enabled, the README and docs link to the live demo as a follow-up.
 
 Version 2, only if version 1 proves demand, is the real-logic demo
-tracked separately in issue #1037: the existing image in a
+tracked separately in: the existing image in a
 dedicated demo mode, talking to a fake printer through the
 existing platform layer, with per-visitor ephemeral sessions,
 model fetching off, and a mock slicer only.

@@ -120,7 +120,7 @@ Do:
   not "Add loaded-filament query surface").
 - Name the pain before the fix in Fixes entries.
 - Keep the jokes in the framing, never in safety or upgrade facts.
-- Credit PRs at the end of each entry, e.g. `(#958)`.
+- Credit PRs at the end of each entry, e.g. ``.
 - Say what was **not** verified (no live printer pass) as plainly as
   what was.
 
@@ -163,22 +163,22 @@ Template: `docs/RELEASE-NOTES-TEMPLATE.md`.
 ## 7. Audit table — past catches and misses
 
 Researched 2026-11-07 from git history, GitHub Releases 2.1.7–2.2.5,
-release checklist issues (#939, #680, #945) and the release workflows.
+release checklist issues and the release workflows.
 
 | # | Release | What happened | Now covered by |
 |---|---------|---------------|----------------|
 | A1 | 2.1.8 | Publish stopped by the surfaces gate on Pages drift (13 pages); docs-repo Actions could not open its own sync PR, so the remedy was hand-run. | Surfaces gate kept; §3 makes docs sync a pre-tag step. |
-| A2 | 2.1.7/2.1.8 | PR #511 attributed to the wrong release; notes assembled by date instead of tag ancestry. | `check_release.py` ancestry coverage (§2). |
-| A3 | 2.2.0 | Docs-sync defects shipped and were chased after publish (#618). | Surfaces gate + pre-release checklist + §1 sweep. |
+| A2 | 2.1.7/2.1.8 | attributed to the wrong release; notes assembled by date instead of tag ancestry. | `check_release.py` ancestry coverage (§2). |
+| A3 | 2.2.0 | Docs-sync defects shipped and were chased after publish. | Surfaces gate + pre-release checklist + §1 sweep. |
 | A4 | 2.2.1 | Post-release workflow fetched issue numbers as PRs and 404'd before its checklist issue existed; fixed in #642 by skipping non-PRs. | Guard in workflow; §6 requires verifying the issue exists. |
 | A5 | 2.2.5 | CA template parity gaps (e.g. SPOOLMAN_CORS_ORIGIN, VISUAL_WATCH__*) found only by a manual release-night sweep. | Variables/Docker parity tests in CI; §6 CA verify-only step. |
 | A6 | 2.2.5 | First 2.2.5 tag failed the lifecycle gate: entrypoint `rm -rf` on the /data/state mount point (EBUSY) broke upgraded installs; no image was published from that tag; the tag was re-created on the fixed commit at catduck's direction and the release later re-cut. Entrypoint unit tests missed it (plain directories, not mount points). | Candidate-before-publish (§4); lifecycle gate is the mount-realistic check; tags never moved without catduck's call. |
 | A7 | 2.2.5 | `gh` token lacks packages scope; GHCR checks 403/404 and mimic a missing image. | §6 anonymous GHCR verification. |
 | A8 | 2.2.x | Codecov tokenless uploads rejected server-side until the repo is activated on codecov.io. | Report-only Codecov; §6 records activation as catduck's step. |
-| A9 | multiple | PR bodies failing the contribution template (#578, #625, #760, #848) blocked green PRs; a body edit after the final push leaves branch protection reading a skipped edited-event suite. | Draft bodies to the template first; finish body edits before the final push, or follow with a synchronize push and re-read checks. |
+| A9 | multiple | PR bodies failing the contribution template blocked green PRs; a body edit after the final push leaves branch protection reading a skipped edited-event suite. | Draft bodies to the template first; finish body edits before the final push, or follow with a synchronize push and re-read checks. |
 | A10 | 2.2.2 | Spelling check scans only added PR-diff lines, so release notes were never scanned. | `check_release.py` full-notes spelling scan. |
 | A11 | #952 | Timing expectations mixed #925's proposed savings with #929's shipped ones; an Orca beta-to-rc change made the comparison uninterpretable. | §1 baselines re-recorded from the release commit's own run, reasons on raised entries. |
-| A12 | 2.2.2 | Internal notes missed merged PRs (#680) and #655's changes for existing installs had no Upgrade line. | `check_release.py` coverage; §2 Upgrade rule. |
+| A12 | 2.2.2 | Internal notes missed merged PRs and #655's changes for existing installs had no Upgrade line. | `check_release.py` coverage; §2 Upgrade rule. |
 | A13 | 2.2.6 | At the 2.2.6 freeze the internal `Unreleased` section covered only 8 of 25 merged PRs — A12 live again. Found by the 2.2.6 pre-flight sweep; fixed in the bump PR. | `check_release.py` fails closed on exactly this. |
-| A14 | 2.2.6 | Timing baselines were last re-recorded for 2.2.5 (#943). | §1 baselines step, done for 2.2.6 from main CI run 42346828094. |
-| A15 | 2.2.5 | The digest pin lands only after publish and needed its own follow-up PR (#954); forgetting it strands the template on the old digest. | §6 digest-pin step. |
+| A14 | 2.2.6 | Timing baselines were last re-recorded for 2.2.5. | §1 baselines step, done for 2.2.6 from main CI run 42346828094. |
+| A15 | 2.2.5 | The digest pin lands only after publish and needed its own follow-up PR; forgetting it strands the template on the old digest. | §6 digest-pin step. |

@@ -9,7 +9,7 @@ configured printer's connection / firmware type. The domain selects the
 listener *type*; each configured printer gets its own listener *instance*,
 supervised and healthchecked independently, so one printer's listener
 failing can never take down the bot, Spoolman, or another printer's
-listener (#256, #299).
+listener.
 
 ## The registry
 
@@ -30,8 +30,7 @@ supervisor or healthcheck edits.
 | `flashforge_stock` | implemented: `print_handy.hermes.family_event_listener` | Stock Flashforge LAN HTTP status polling |
 | `offline` | none, by definition | Print Handy never contacts the printer |
 
-Every connection except `offline` now has a delivered listener (#460
-completed the polling families). A domain with no listener yet is a normal
+Every connection except `offline` now has a delivered listener. A domain with no listener yet is a normal
 state, not an error: the supervisor starts nothing for it and a
 configuration with no children at all idles instead of exiting. A
 configuration that cannot be resolved at all is different — the supervisor
@@ -41,7 +40,7 @@ stops with the settings error rather than guessing which children to run.
 
 Every domain listener reports through the one shape the printer adapters'
 `normalize_status` already returns. Consumers — Discord status and
-completion posts, the camera watchdog, timelapse (#246) — subscribe to this
+completion posts, the camera watchdog, timelapse — subscribe to this
 shape and never need to know which domain produced it.
 
 **Status fields**
@@ -78,7 +77,7 @@ that heartbeat exactly when the registry says the printer's domain is
 implemented, and reports "not required for this printer connection"
 otherwise.
 
-## The Bambu domain listener (#299 Stage B)
+## The Bambu domain listener
 
 `print_handy/printers/bambulab/listener.py` holds one Bambu LAN MQTT
 session open and merges the printer's delta pushes into a persistent
@@ -112,7 +111,7 @@ started / paused / cancelled / completion / error — now post for prints
 started outside Print Handy. Claimed prints (below) stay silent here;
 they belong to their launched-print monitor.
 
-## Start/pause parity: the polling families (#460)
+## Start/pause parity: the polling families
 
 Moonraker's listener has always posted the full lifecycle — starts
 (launched and external), pauses with Resume/Cancel buttons, completions.

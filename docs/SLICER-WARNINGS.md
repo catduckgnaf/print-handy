@@ -17,7 +17,7 @@ Print Handy performs speculative background slicing and geometry clearance analy
 
 Both slice variants run speculatively in the background when flagged. Because the operator makes the choice before confirming the bed is clear, the print starts immediately with the chosen slice and no second question interrupts the start. The post-slice dialog remains only as a fallback for un-prechecked cache misses and never asks twice for the same recipe.
 
-## Phase 2 hardening (#922)
+## Phase 2 hardening
 
 - A sloped wall that roots into the shelf below it is not a floating underside: a sloped face (downward normal within 55 degrees of vertical, not near-horizontal) whose sub-1.0 mm clearance strip is narrower than 2.0 mm and touches a zero-clearance anchor edge is recorded as a `sloped_wedge_root` region and does not make the model risky.
 - Choosing "with supports" does **not** waive a low-clearance finding (a gap under 1.0 mm). Supports cannot fit into such a gap, so that choice is satisfied only by a verified geometry repair (extend, sink, reorient) or by choosing **Print anyway** explicitly, and it must additionally pass post-slice toolpath coverage verification for every flagged region before the print starts. Choosing "without supports" is the operator's explicit as-authored decision after seeing the findings and is recorded as such (`via = without_supports`).

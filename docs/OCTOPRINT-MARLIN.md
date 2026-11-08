@@ -21,7 +21,7 @@ Dimensions are the pinned OrcaSlicer profiles' printable area/height (OrcaSlicer
 
 ## Anycubic presets
 
-Eight Anycubic Marlin models ship as presets of the same support (#552), with dimensions from the same pinned tree (OrcaSlicer v2.5.0-alpha, Anycubic vendor profiles `02.04.00.09`):
+Eight Anycubic Marlin models ship as presets of the same support, with dimensions from the same pinned tree (OrcaSlicer v2.5.0-alpha, Anycubic vendor profiles `02.04.00.09`):
 
 | Key | Model | Bed (mm) | Height (mm) |
 |---|---|---:|---:|

@@ -1,7 +1,6 @@
 # Telegram bot setup
 
-Print Handy can run its standalone bot on Telegram instead of Discord
-(#164). The same handlers, prompts and safety gates serve both platforms;
+Print Handy can run its standalone bot on Telegram instead of Discord. The same handlers, prompts and safety gates serve both platforms;
 only the transport changes. The Telegram bot is a **pure bot: it has no
 LLM**. Unmatched text gets the short “didn't understand” reply, and no `[llm]` setting is
 ever consulted for Telegram — that is deliberate, and it is how the
@@ -54,7 +53,7 @@ only its own printer, end to end. The `[telegram] chat_id` above remains
 the fallback channel for the one entry that sets no `chat_id` (the first,
 default printer). A chat no printer claims gets silence. Two entries may
 also claim the *same* group on purpose: that group becomes a shared
-channel (#536) where the bot asks which printer before anything
+channel where the bot asks which printer before anything
 printer-bound happens — see "Shared channels" in SETTINGS.md.
 
 ## 3. Configure Print Handy
@@ -100,12 +99,12 @@ the model — exactly one per print, one short sentence from the bot persona.
 Prints that do not finish get one too, from the bank that matches how they
 ended: the failure post draws from the failed bank, the cancel post from the
 cancelled bank, and a camera alert that confirms spaghetti carries a line
-from the spaghetti bank (#1017 batch 2).
+from the spaghetti bank.
 You can also ask for one in plain words: "roast my last print", "roast print
 84", "roast the dragon" (typos are fine; the print is found the same way
 `print 84` and `/print-again <name>` find it).
 
-Roasts need **no LLM and no endpoint** (#1002). Each line comes from the
+Roasts need **no LLM and no endpoint**. Each line comes from the
 local roast corpus shipped with Print Handy (`print_handy/data/roasts/`) and
 is filled from facts about that print — title, duration, material, color,
 grams, printer, finish hour, how many times it has been printed. A line that

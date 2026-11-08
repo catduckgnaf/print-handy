@@ -45,13 +45,13 @@ reports it too, on its own `zmod version` row, so the diagnostics bundle
 carries it into bug reports. Print Handy never guesses a version and
 never gates printing on it.
 
-## ZMod parameters evaluated: `ORCA_FF` and `orca_lanes` (#851)
+## ZMod parameters evaluated: `ORCA_FF` and `orca_lanes`
 
 Two parameters ZMod documented on 2026-11-03, after the 1.7.5 release
 above — so neither is in any ZMod version Print Handy has audited, and
 neither has a version floor Print Handy can read yet. Both need the
 native screen off (`DISPLAY_OFF`). The evaluation below is the answer
-to [issue #851](https://github.com/catduckgnaf/print-handy/issues/851):
+to [](https://github.com/catduckgnaf/print-handy/issues/851):
 reasons why and reasons why not for each, then a verdict, every claim
 tied to the code or the wiki as its source. Print Handy never gates
 printing on a ZMod version, and this evaluation does not change that.
@@ -80,8 +80,7 @@ ships in release payloads, not in that repo.
 
 - **A second author was about to land in a namespace Print Handy
   already reads, and the old parser misread it.** Print Handy's
-  HelixScreen inbound spool sync (#791,
-  `print_handy/hermes/lane_data_sync.py`) watches the Moonraker
+  HelixScreen inbound spool sync watches the Moonraker
   `lane_data` namespace and converges slot assignment through
   `spool_sync.reconcile`. ZMod writes that namespace in the AFC /
   Happy Hare shape: slot 1 is key `lane0`, …, slot 4 is `lane3`, with
@@ -137,7 +136,7 @@ ships in release payloads, not in that repo.
   deletes key `lane2`). A vanished spool-bearing record is what the
   watcher converges as an unload, so that collision can unload a
   spool that is still loaded. The watcher guards that
-  ([issue #852](https://github.com/catduckgnaf/print-handy/issues/852)):
+  ([](https://github.com/catduckgnaf/print-handy/issues/852)):
   once it has seen a key-colliding writer, a vanished spool-bearing
   record only converges to an unload when the printer's own slot
   presence (`zmod_color` screenless, native `/detail` otherwise) reads
@@ -269,7 +268,7 @@ The filament system is where they part:
   Creator 5; the print geometry and tool model are identical, and its template
   records the chamber and filtration support.
 
-## Print file format: `.gcode` or `.gcode.3mf` (#564)
+## Print file format: `.gcode` or `.gcode.3mf`
 
 What reaches the printer is Print Handy's own sliced output either way — a
 downloaded print file is never sent as-is; everything is resliced locally first.
@@ -312,10 +311,10 @@ Two boundaries to know:
   is pinned by offline tests and ZMod's published documentation; the
   on-printer checks (starting a packaged print on 1.7.5, Fluidd/Mainsail
   listing metadata, the native screen's display of a packaged print, and
-  timelapse markers inside one) are listed on issue #564 for the first
+  timelapse markers inside one) are listed on for the first
   operator who runs them.
 
-## Printer clock after a reboot (#807)
+## Printer clock after a reboot
 
 A ZMod printer does not keep time across a power cycle. Observed on the
 AD5X on 2026-11-02: about a minute after a reboot the clock read
@@ -382,10 +381,10 @@ that does not answer is unknown, not wrong. Running
 `SET_TIMEZONE ZONE=<your zone>` once in the printer console keeps the
 printer's own local times (screen, logs) in your zone.
 
-## Recording a live start (#842, #843)
+## Recording a live start
 
 The replay tests' start transitions (heating, IFS load, a start that drops back
-to standby) are code someone wrote, not recordings (#843). To record the real
+to standby) are code someone wrote, not recordings. To record the real
 ones, turn on the start recorder for the #842 checklist run:
 `PRINT_HANDY_RECORD_STARTS=1` in the environment of the process that runs
 `print-now` (Docker: a line in `.env`, or a container variable on Unraid, then
@@ -427,7 +426,7 @@ the export refuses a recording whose outcome does not match the fixture name or
 that still holds anything the scrub test forbids. It prints the README table row
 to add. Only export real recordings: #843 forbids hand-written ones.
 
-## Bundled Spoolman from printer Moonraker (#443)
+## Bundled Spoolman from printer Moonraker
 
 Print Handy's bundled Spoolman normally lives on loopback inside the
 Print Handy container, which is enough for Print Handy itself. When
