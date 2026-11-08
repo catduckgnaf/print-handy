@@ -481,9 +481,16 @@ def test_feed_screen_runout_load_binds_resumes_and_clears_the_question(tmp_path,
     assert client.spools[18]["archived"] is True  # depleted by the bind itself
     assert mr.active[0] == 19  # usage resumed on the new spool
     assert not question.exists()  # the open question is closed
-    # The depleted spool itself can never answer its own runout question.
+    # The ran-out spool itself CAN answer its own question since #1063:
+    # showing it back in the slot is a refeed — usage resumes on it and
+    # nothing is bound, created or (further) depleted. Before #1063 this
+    # returned False and the spool could never answer from the screen.
+    question.write_text(json.dumps({"cause": "runout", "slot": 2, "prior_spool_id": 18,
+                                    "recorded_at": 2.0, "usage_suspended": True}))
     assert mel.feed_screen_runout_load(2, 18, context, client=client, mr=mr,
-                                       state_path=state) is False
+                                       state_path=state) is True
+    assert mr.active[0] == 18  # usage resumed on the re-fed spool
+    assert not question.exists()  # and the question is closed
 
 
 # --------------------------------------------------------------------- converge through reconcile

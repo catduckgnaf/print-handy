@@ -44,6 +44,7 @@ this file when a suite is added, moved, or starts/stops pinning an area.
 | Web UI (status, config, login, roster) | `tests/test_webui_*.py` |
 | Web UI webserver (real HTTP: every-route auth sweep, page/API shapes, camera proxy route, Data/Wrapped route gates, control/spools body plumbing, malformed-input robustness, concurrency, startup/bind rules incl. #1042) | `tests/test_webui_webserver.py` |
 | Wrapped / Data tab (#956, #981 v1.1 + v2 + sharing + video/TTS: watchdog events, receipt/JOB joins, per-color grams, timelapse name join, slide presentation, music bed, narration) | `tests/test_print_stats_wrapped.py`, `tests/test_wrapped_v2.py`, `tests/test_wrapped_sharing.py`, `tests/test_wrapped_video_real_ffmpeg.py`, `tests/test_wrapped_video_tts.py` |
+| Vision verdict evaluation harness (#455 item 4, Stage 0): session-fixture manifest contract, watchdog-cadence replay, per-print outcome accounting, box-geometry detached experiment | `tests/hermes/test_vision_eval_harness.py`, fixtures in `tests/hermes/fixtures/vision_eval/`, harness in `tests/hermes/vision_eval/` |
 | Doctor / bot check surfaces | `tests/test_doctor.py`, `tests/bot/test_health_and_transport.py` |
 | Settings / config loading | `tests/test_settings.py`, `tests/test_print_handy_cfg.py`, `tests/test_webui_config*.py` |
 | Docs / contribution policy / post-release surfaces / pre-release checklist | `tests/test_docs_index_contract.py`, `tests/test_contribution_policy.py`, `tests/test_post_release_surfaces_workflow.py`, `tests/test_pre_release_checklist.py` |

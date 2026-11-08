@@ -1,0 +1,109 @@
+{
+ "session": "synthetic-healthy-01",
+ "label": "ok",
+ "source": "synthetic",
+ "license": "generated in-repo for this fixture set; no external data",
+ "synthetic": true,
+ "cadence_s": 60,
+ "layers": [
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11,
+  12
+ ],
+ "notes": "Synthetic format fixture: a part growing on the plate, no failure. Proves the manifest contract and the per-print accounting, not detector accuracy.",
+ "frames": [
+  {
+   "file": "frame-001.jpg",
+   "label": "ok",
+   "source": "synthetic",
+   "license": "generated in-repo for this fixture set; no external data",
+   "synthetic": true
+  },
+  {
+   "file": "frame-002.jpg",
+   "label": "ok",
+   "source": "synthetic",
+   "license": "generated in-repo for this fixture set; no external data",
+   "synthetic": true
+  },
+  {
+   "file": "frame-003.jpg",
+   "label": "ok",
+   "source": "synthetic",
+   "license": "generated in-repo for this fixture set; no external data",
+   "synthetic": true
+  },
+  {
+   "file": "frame-004.jpg",
+   "label": "ok",
+   "source": "synthetic",
+   "license": "generated in-repo for this fixture set; no external data",
+   "synthetic": true
+  },
+  {
+   "file": "frame-005.jpg",
+   "label": "ok",
+   "source": "synthetic",
+   "license": "generated in-repo for this fixture set; no external data",
+   "synthetic": true
+  },
+  {
+   "file": "frame-006.jpg",
+   "label": "ok",
+   "source": "synthetic",
+   "license": "generated in-repo for this fixture set; no external data",
+   "synthetic": true
+  },
+  {
+   "file": "frame-007.jpg",
+   "label": "ok",
+   "source": "synthetic",
+   "license": "generated in-repo for this fixture set; no external data",
+   "synthetic": true
+  },
+  {
+   "file": "frame-008.jpg",
+   "label": "ok",
+   "source": "synthetic",
+   "license": "generated in-repo for this fixture set; no external data",
+   "synthetic": true
+  },
+  {
+   "file": "frame-009.jpg",
+   "label": "ok",
+   "source": "synthetic",
+   "license": "generated in-repo for this fixture set; no external data",
+   "synthetic": true
+  },
+  {
+   "file": "frame-010.jpg",
+   "label": "ok",
+   "source": "synthetic",
+   "license": "generated in-repo for this fixture set; no external data",
+   "synthetic": true
+  },
+  {
+   "file": "frame-011.jpg",
+   "label": "ok",
+   "source": "synthetic",
+   "license": "generated in-repo for this fixture set; no external data",
+   "synthetic": true
+  },
+  {
+   "file": "frame-012.jpg",
+   "label": "ok",
+   "source": "synthetic",
+   "license": "generated in-repo for this fixture set; no external data",
+   "synthetic": true
+  }
+ ]
+}

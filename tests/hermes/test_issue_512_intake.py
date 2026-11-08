@@ -51,11 +51,15 @@ def test_intake_material_is_a_primary_type_dropdown_then_subtypes():
     assert pab.intake_material_for_action("mat_1") == "Silk PLA"
 
 
-def test_intake_preview_names_the_spool_number_immediately():
-    text = pab.intake_preview_text(18, 2)
-    assert "Spool #18" in text and "Slot 2" in text
+def test_intake_preview_names_no_spool_number_before_creation():
+    # #1063 supersedes the #512 §2 predicted number: the preview must
+    # never name a number, since creation may assign a different one.
+    text = pab.intake_preview_text(2)
+    assert "#" not in text and "Slot 2" in text
+    assert "Nothing is created until you confirm" in text
     state = {"step": "material", "slot": 2, "predicted_id": 18}
-    assert pab.intake_step_text(state).startswith("Preparing new **Spool #18**")
+    assert pab.intake_step_text(state).startswith("Preparing a new spool for Slot 2")
+    assert "#18" not in pab.intake_step_text(state)
 
 
 def test_intake_step_order_brand_off_by_default():
@@ -118,7 +122,10 @@ def test_intake_confirm_text_names_fate_and_delete_is_loud():
              "material": "Silk PLA", "color": "Rose Red", "grams": 500,
              "old_spool_id": 13, "disposition": "delete"}
     text = pab.intake_step_text(state)
-    assert "Spool #18" in text and "DELETED" in text and "Slot 1" in text
+    # The new spool gets no number before creation (#1063), even with a
+    # stale predicted id in state; the OLD spool's fate still names #13.
+    assert "Spool #18" not in text and "a new spool" in text
+    assert "DELETED" in text and "Slot 1" in text and "#13" in text
 
 
 def test_create_and_bind_insertion_passes_disposition_and_names_it():
@@ -312,7 +319,9 @@ def test_walkthrough_clicks_create_and_bind_with_disposition(tmp_path, monkeypat
     insertion_aid = pab.record("insertion", "", slot=2)
     asyncio.run(on_interaction(_interaction(sink, f"pbinsert:new:{insertion_aid}")))
     kind, content, view = sink[-1]
-    assert "Spool #18" in content and "write #18 on the spool" in content
+    # No number is promised at the first step (#1063); the actual #18 is
+    # announced by the completion message once creation assigns it.
+    assert "Spool #18" not in content and "actual number" in content
     # Material is a dropdown: the primary type first, then PLA's subtype.
     primary = _custom_ids(view)[0]
     assert primary.startswith("pbintakeselect:")

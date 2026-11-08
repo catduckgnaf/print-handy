@@ -231,7 +231,7 @@ def test_bare_spool_menu_lists():
 
 
 def test_bare_spool_menu_enters_new_flow():
-    answers = ["Add a new spool", "Matte White · PLA+ · Sunlu", "1000", "Create spool #20", "Leave it on the shelf"]
+    answers = ["Add a new spool", "Matte White · PLA+ · Sunlu", "1000", "Create spool", "Leave it on the shelf"]
     out, adapter, fake = _run("/spool", answers)
     assert any(m == "POST" and p == "/api/v1/spool" for m, p, _b in fake.writes)
     assert "Created spool #20" in adapter.sent[-1]
@@ -239,7 +239,7 @@ def test_bare_spool_menu_enters_new_flow():
 
 def test_guided_new_known_type_asks_no_colour_or_hex():
     # Types list sorted by brand: 1 = eSun Black PLA, 2 = Sunlu Matte White PLA+.
-    answers = ["2", "1000", "Create spool #20", "Leave it on the shelf"]
+    answers = ["2", "1000", "Create spool", "Leave it on the shelf"]
     out, adapter, fake = _run("/spool new", answers)
     questions = _questions(adapter)
     assert len(questions) == 4  # type, grams, confirm, load offer
@@ -249,14 +249,16 @@ def test_guided_new_known_type_asks_no_colour_or_hex():
     assert not any(m == "POST" and p == "/api/v1/filament" for m, p, _b in fake.writes)
     spool_posts = [b for m, p, b in fake.writes if m == "POST" and p == "/api/v1/spool"]
     assert spool_posts and spool_posts[0]["filament_id"] == 3
-    # Predicted number in the confirm question; actual number in the result.
-    assert "This will be spool #20" in questions[2]
-    assert adapter.clarifies[2]["choices"][0] == "Create spool #20"
+    # No number in the confirm question (#1063: never predicted); the
+    # actual number is announced in the result, once creation assigned it.
+    assert "This creates a new spool" in questions[2]
+    assert "#20" not in questions[2]
+    assert adapter.clarifies[2]["choices"][0] == "Create spool"
     assert "Created spool #20 on the shelf" in adapter.sent[-1]
 
 
 def test_guided_new_typed_number_and_grams():
-    answers = ["1", "750", "Create spool #20", "Leave it on the shelf"]
+    answers = ["1", "750", "Create spool", "Leave it on the shelf"]
     out, adapter, fake = _run("/spool new", answers)
     spool_posts = [b for m, p, b in fake.writes if m == "POST" and p == "/api/v1/spool"]
     assert spool_posts[0]["filament_id"] == 4 and spool_posts[0]["initial_weight"] == 750.0
@@ -266,7 +268,7 @@ def test_guided_new_typed_number_and_grams():
 def test_guided_new_new_type_never_asks_hex():
     # Brand is not asked by default (#512: spool.prompt_brand is off), so the
     # answers go straight to material.
-    answers = ["New filament type", "PETG", "Sky Blue", "500", "Create spool #20",
+    answers = ["New filament type", "PETG", "Sky Blue", "500", "Create spool",
                "Leave it on the shelf"]
     out, adapter, fake = _run("/spool add", answers)
     questions = _questions(adapter)
@@ -280,7 +282,7 @@ def test_guided_new_new_type_never_asks_hex():
 
 
 def test_guided_new_prompt_brand_on_asks_brand_first():
-    answers = ["New filament type", "sunlu", "PETG", "Sky Blue", "500", "Create spool #20",
+    answers = ["New filament type", "sunlu", "PETG", "Sky Blue", "500", "Create spool",
                "Leave it on the shelf"]
     with mock.patch.object(plugin, "_prompt_brand", return_value=True):
         out, adapter, fake = _run("/spool add", answers)
@@ -295,7 +297,7 @@ def test_guided_new_prompt_brand_on_asks_brand_first():
 
 def test_guided_new_with_no_saved_types_skips_type_question():
     adapter = FakeAdapter()
-    queue = ["PLA", "Green", "1000", "Create spool #1", "Leave it on the shelf"]
+    queue = ["PLA", "Green", "1000", "Create spool", "Leave it on the shelf"]
     from tools import clarify_gateway as cm
 
     def wait(cid, timeout=None):
@@ -309,9 +311,11 @@ def test_guided_new_with_no_saved_types_skips_type_question():
             mock.patch.object(spool_sync, "create_spool",
                               side_effect=lambda spec: real_create(spec, client=fake)):
         asyncio.run(plugin.spool_dispatch(_event("/spool new"), _gateway(adapter)))
-    # The first question carries the early spool-number preview (#512 §2)
-    # and, with brand off by default, asks the material directly.
-    assert _questions(adapter)[0].startswith("Preparing new spool #1")
+    # The first question promises no spool number (#1063: a predicted id
+    # can be wrong by creation time) and, with brand off by default,
+    # asks the material directly.
+    assert _questions(adapter)[0].startswith("Preparing a new spool")
+    assert "#" not in _questions(adapter)[0]
     assert "What material" in _questions(adapter)[0]
     assert "Created spool #20" in adapter.sent[-1]
 
@@ -327,7 +331,7 @@ def test_guided_new_typed_multi_color_gets_confirm_or_correct():
     # A typed color that parses to several colors is confirmed as labeled
     # before anything is created (#792 part 2), naming what was understood.
     answers = ["New filament type", "PLA", "Rose Red Blue Green", "That is exactly as labeled",
-               "1000", "Create spool #20", "Leave it on the shelf"]
+               "1000", "Create spool", "Leave it on the shelf"]
     out, adapter, fake = _run("/spool new", answers)
     questions = _questions(adapter)
     assert any("more than one color" in q and "Rose Red Blue Green" in q for q in questions)
@@ -338,7 +342,7 @@ def test_guided_new_typed_multi_color_gets_confirm_or_correct():
 
 def test_guided_new_typed_fragment_color_can_be_corrected():
     answers = ["New filament type", "PLA+", "term No...", "Type it again", "Black",
-               "1000", "Create spool #20", "Leave it on the shelf"]
+               "1000", "Create spool", "Leave it on the shelf"]
     out, adapter, fake = _run("/spool new", answers)
     questions = _questions(adapter)
     assert any("term No" in q for q in questions)
@@ -364,7 +368,7 @@ def test_guided_new_expire_at_first_question_writes_nothing():
 
 
 def test_guided_new_then_load_into_empty_slot():
-    answers = ["1", "1000", "Create spool #20", "Load it into a slot", "Slot 1", "Load spool #20"]
+    answers = ["1", "1000", "Create spool", "Load it into a slot", "Slot 1", "Load spool #20"]
     bind = mock.Mock(side_effect=_fake_bind)
     out, adapter, fake = _run("/spool new", answers, bind=bind)
     bind.assert_called_once()
@@ -375,7 +379,7 @@ def test_guided_new_then_load_into_empty_slot():
 
 
 def test_guided_new_then_load_with_depleted_old_spool():
-    answers = ["1", "1000", "Create spool #20", "Load it into a slot", "Slot 2", "Mark it as depleted", "Load spool #20"]
+    answers = ["1", "1000", "Create spool", "Load it into a slot", "Slot 2", "Mark it as depleted", "Load spool #20"]
     bind = mock.Mock(side_effect=_fake_bind)
     out, adapter, fake = _run("/spool new", answers, bind=bind)
     args, kw = bind.call_args
@@ -420,7 +424,7 @@ def test_guided_change_cancel_at_confirm_binds_nothing():
 
 
 def test_guided_change_add_new_first():
-    answers = ["Slot 2", "Add a new spool", "1", "1000", "Create spool #20",
+    answers = ["Slot 2", "Add a new spool", "1", "1000", "Create spool",
                "Back on the shelf", "Change slot 2"]
     bind = mock.Mock(side_effect=_fake_bind)
     out, adapter, fake = _run("/spool change", answers, bind=bind)
@@ -443,7 +447,7 @@ def test_guided_change_add_new_first():
     "please add a new filament",
 ])
 def test_nl_new_phrases_enter_guided_new(text):
-    answers = ["1", "1000", "Create spool #20", "Leave it on the shelf"]
+    answers = ["1", "1000", "Create spool", "Leave it on the shelf"]
     out, adapter, fake = _run(text, answers)
     assert out["reason"] == "spool NL intent handled"
     assert "Created spool #20" in adapter.sent[-1]
@@ -565,7 +569,7 @@ def test_guided_new_choices_match_the_numbered_type_list(monkeypatch):
     calls, source, gateway = _guided_harness(monkeypatch, [
         lambda q, choices: choices[3],  # Matrix: typed '4' -> the 4th registered choice
         lambda q, choices: "1000",
-        lambda q, choices: choices[0],  # Create spool #20
+        lambda q, choices: choices[0],  # Create spool
         lambda q, choices: "Leave it on the shelf",
     ])
     made_id, _message = asyncio.run(plugin._spool_guided_new(
