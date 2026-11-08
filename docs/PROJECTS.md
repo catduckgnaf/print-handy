@@ -66,15 +66,32 @@ Nothing starts automatically. Without camera data, the normal
 post-completion picker still works, while the optional camera empty-bed
 offer requires an actual empty-bed observation.
 
-**Not implemented by this increment:** first-class project reprint
-scope selection (only one plate vs entire project), new independent project
-reprint runs, collecting across multiple chat messages, ZIP importing,
-project management in Web UI, and full AI-produced multi-part assemblies.
-Those are acceptance criteria of [issue #1008](https://github.com/catduckgnaf/print-handy/issues/1008);
+## Reprinting a project
+
+`/print-again` understands the plate labels. `/print-again 82B` reprints
+exactly that plate. Picking a project plate by its print number or its
+title first asks its scope — **This plate only**, **Entire project**,
+**Choose a plate**, or **Remaining unprinted plates** when some plates are
+not finished yet — because one plate of a project is not the project.
+An exact label already names its scope, so it skips the question.
+
+The entire-project and remaining-plates scopes queue the other plates as
+one new reprint run: the first plate goes through the normal bed-clear
+confirmation, each following plate is offered by the completion message
+and started with `/print-again next` behind its own fresh bed-clear
+confirmation, and `/print-again stop` drops the rest. No approval is
+inherited between plates, and a reprint run never changes the original
+project's completion counts. Only plates that were actually printed can
+be reprinted; a plate that never printed stays on the next-plate flow
+above. Legacy print numbers keep their exact old meaning: `/print-again 82`
+still resolves print #82 first, and the scope question is what turns it
+into a project reprint.
+
+**Not implemented yet:** a dedicated project run id recorded on reprint
+records, collecting across multiple chat messages, ZIP importing, project
+management in Web UI, and full AI-produced multi-part assemblies. Those
+remain acceptance criteria of [issue #1008](https://github.com/catduckgnaf/print-handy/issues/1008);
 the CAD generator itself is [#998](https://github.com/catduckgnaf/print-handy/issues/998).
-The current `/print-again` command continues its existing single-G-code
-behavior until the scope-aware work is completed. It must not claim to have
-reprinted a whole multi-part project when it only started one plate.
 
 ## Safety and verification
 
