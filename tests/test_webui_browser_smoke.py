@@ -80,7 +80,7 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
         from playwright.sync_api import sync_playwright
 
         from print_handy import settings
-        from print_handy.webui import server
+        from print_handy.webui import server, walkthrough
 
         import tempfile
 
@@ -92,6 +92,10 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
                          f"  token: {TOKEN}\n")
         self.environ = {"PRINT_HANDY_CONFIG": str(local)}
         data = settings.load(local=local, environ=self.environ)
+        # The status/login cases must not be redirected by the first-run
+        # walkthrough. The walkthrough test explicitly re-enables it.
+        walkthrough.save_state(data, {"step": 0, "done": True})
+        self.settings_data = data
         self.httpd = server.make_server(
             data, environ=self.environ, port=0,
             snapshot_func=lambda: FAKE_SNAPSHOT,
@@ -139,35 +143,36 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
                       "the status page shows the fake snapshot's job")
 
     def test_walkthrough_renders_and_advances(self):
-        self.login()
-        self.page.goto(self.base + "/walkthrough")
-        content = self.page.content()
-        if "/walkthrough" not in self.page.url or "step" not in content.lower():
-            self.skipTest("this install has no walkthrough pending; "
-                          "the render/advance path needs a first-run state")
-        # Advance: the walkthrough's own Next/Skip control, whatever the
-        # current step labels it -- pressing it must change the step.
-        before = content
-        button = (self.page.query_selector('button[name="action"][value="next"]')
-                  or self.page.query_selector('button[name="action"][value="skip"]')
-                  or self.page.query_selector(".step-actions button"))
-        self.assertIsNotNone(button, "the walkthrough offers an advance control")
-        button.click()
-        self.page.wait_for_load_state("load")
-        self.assertNotEqual(self.page.content(), before,
-                            "advancing changed the rendered step")
+        from print_handy.webui import walkthrough
 
-    def test_controls_page_loads_with_its_controls(self):
         self.login()
-        self.page.goto(self.base + "/")
-        # Follow the served navigation to the controls surface rather
-        # than guessing a path: the nav is the user-visible contract.
-        link = self.page.query_selector('a[href*="control"]')
-        if link is None:
-            self.skipTest("no controls link in the served navigation for this install")
-        link.click()
-        self.page.wait_for_load_state("load")
-        self.assertIn("control", self.page.content().lower())
+        walkthrough.restart(self.settings_data)
+        self.page.goto(self.base + "/walkthrough")
+        self.assertTrue(self.page.url.endswith("/walkthrough"), self.page.url)
+        self.assertEqual(self.page.locator('input[name="step"]').input_value(), "printer")
+        self.assertIn("Printer", self.page.content())
+        self.page.locator('button[name="action"][value="skip"]').click()
+        self.assertEqual(self.page.locator('input[name="step"]').input_value(), "chat")
+
+    def test_configuration_search_runs_javascript_and_restores_rows(self):
+        self.login()
+        self.page.goto(self.base + "/config")
+        rows = self.page.locator(".field")
+        self.assertGreater(rows.count(), 5, "configuration must render real fields")
+        search = self.page.locator("#field-search")
+        self.assertEqual(search.count(), 1)
+        search.fill("zz-this-setting-does-not-exist-zz")
+        self.assertEqual(self.page.locator(".field:visible").count(), 0)
+        search.fill("")
+        self.assertEqual(self.page.locator(".field:visible").count(), rows.count())
+
+    def test_control_post_refuses_browser_cookie_without_api_header(self):
+        self.login()
+        response = self.page.request.post(
+            self.base + "/api/printers/default/emergency_stop",
+            data={"confirm": True})
+        self.assertEqual(response.status, 401,
+                         "browser login cookies may never authorize printer commands")
 
     def test_camera_snapshot_serves_the_fake_frame(self):
         self.login()
