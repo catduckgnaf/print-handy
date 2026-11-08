@@ -28,6 +28,59 @@ VISUAL_ALERT_VERDICTS = {"air", "spaghetti", "detached", "uncertain"}
 VISUAL_HEALTHY_VERDICTS = {"ok", "safe"}
 VISUAL_SUSPICIOUS_VERDICTS = {"air", "spaghetti", "detached", "uncertain", "no", "unsafe"}
 
+# Stage 2 stall wording (#455 item 4): a stall alert names its differential
+# instead of implying one cause. The stall signal itself — layers advanced
+# over an unchanged frame — is only ever evidence that *something* stopped
+# changing; what stopped it is one of these possibilities, and the alert
+# lists them rather than letting the vision verdict read as the diagnosis.
+STALL_DIFFERENTIAL = ("the nozzle may be printing in air, the nozzle may be "
+                      "blocked, the toolhead may be parked, or the camera "
+                      "view may be dark")
+
+
+def stall_alert_text(layer, verdict, detail):
+    """The operator text for a stall alert, shared by every watch surface.
+
+    Wording only: the caller decides whether an alert fires, exactly as
+    before; this renders the stall case. The layer, the vision verdict
+    and its detail ride along as evidence, after the named observation
+    and its differential — the verdict is not presented as the cause.
+    Where the check's own facts settle part of the differential (a dark
+    frame, an air verdict), the text says which possibility they
+    support and which they rule out, instead of listing all four flat.
+    """
+    confirmed, ruled_out = stall_candidates(verdict, detail)
+    if confirmed and ruled_out:
+        differential = (f"of the usual possibilities, the evidence supports: "
+                        f"{confirmed}; ruled out by this check: "
+                        f"{', '.join(ruled_out)}")
+    elif confirmed:
+        differential = (f"of the usual possibilities ({STALL_DIFFERENTIAL}), "
+                        f"the vision verdict supports: {confirmed}")
+    else:
+        differential = STALL_DIFFERENTIAL
+    return (f"Print may have stalled at layer {layer or 'unknown'}: the camera frame "
+            f"stopped changing while the layer count advanced — {differential}. "
+            f"Vision verdict: {verdict}; {detail or 'visual check needs operator review'}")
+
+
+def stall_candidates(verdict, detail):
+    """Refine the stall differential with facts the check already has.
+
+    Returns ``(confirmed, ruled_out)``: possibility labels the evidence
+    settles. A dark verdict confirms the dark view and rules out the
+    rest (a dark frame's stillness says nothing about the print); an
+    ``air`` verdict confirms printing in air; ``empty_idle`` while
+    printing confirms the same fact in the local route's words. Any
+    other verdict settles nothing — the full differential stands.
+    """
+    text = f"{verdict} {detail or ''}".lower()
+    if verdict == "dark" or "dark" in text or "too dark" in text:
+        return ("camera view dark", ("printing in air", "blocked nozzle", "toolhead parked"))
+    if verdict in {"air", "empty_idle", "no"}:
+        return ("printing in air", ())
+    return ("", ())
+
 # Camera stall alert presets for [visual_watch] sensitivity, 1 (quietest) to 5 (loudest).
 # Level 3 is the original hard-coded behavior. diff is the mean 64x48 grayscale difference a
 # frame needs to count as changed; stall_layers is how many layers an unchanged frame may span;

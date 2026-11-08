@@ -3820,7 +3820,9 @@ class Listener:
                         # observe auto_paused == False while an alert is in
                         # flight and each send their own PAUSE.
                         self.visual_watch.auto_paused = True
-                    text = f"{reason} at layer {layer or 'unknown'}: {verdict}; {detail or 'visual check needs operator review'}"
+                    text = (_visual_watch.stall_alert_text(layer, verdict, detail)
+                            if reason == "stalled_layers" else
+                            f"{reason} at layer {layer or 'unknown'}: {verdict}; {detail or 'visual check needs operator review'}")
                     if pause_now:
                         text += (f"\nAuto-pause (visual_watch.auto_pause_early): {streak} suspicious checks in a row "
                                  "in the early layers, so I am pausing the print. It is not cancelled.")
