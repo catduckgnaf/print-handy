@@ -320,7 +320,9 @@ class MultiPrinterSupervisorTests(unittest.TestCase):
             fake = Path(directory, 'python3')
             text = fake.read_text().replace(
                 "case \"$*\" in ",
-                f"case \"$*\" in *print_handy.healthcheck*) [ \"$(wc -l < {calls})\" -ge 2 ]; exit $?;; ", 1)
+                "case \"$*\" in *print_handy.healthcheck*) "
+                f"if [ \"$(wc -l < {calls})\" -ge 2 ]; then echo 'ok  alive'; exit 0; fi; "
+                "echo 'FAIL  listener heartbeat stale or invalid'; exit 1;; ", 1)
             fake.write_text(text)
             env['PRINT_HANDY_LISTENER_RESTART_BACKOFF_S'] = '1'
             env['PRINT_HANDY_LISTENER_WATCHDOG_INTERVAL_S'] = '1'
@@ -330,6 +332,30 @@ class MultiPrinterSupervisorTests(unittest.TestCase):
                 self.assertTrue(wait_for(lambda: calls.exists() and calls.read_text().count('run ') >= 2, 30),
                                 'the hung listener was restarted: ' + (calls.read_text() if calls.exists() else 'no calls'))
                 self.assertIn('usr1', calls.read_text(), 'the stack dump signal was sent before the kill')
+                self.assertIsNone(process.poll())
+            finally:
+                self.stop_cleanly(process)
+
+    def test_crashing_health_probe_never_kills_the_listener(self):
+        """A probe with no verdict (an import crash, a timeout) is not a stale heartbeat."""
+        with tempfile.TemporaryDirectory() as directory:
+            calls = Path(directory, 'calls')
+            probes = Path(directory, 'probes')
+            listener = f'echo "run $$" >> {calls}\nexec sleep 60\n'
+            env = self.environment(directory, 'exec sleep 60\n', listener)
+            fake = Path(directory, 'python3')
+            fake.write_text(fake.read_text().replace(
+                "case \"$*\" in ",
+                f"case \"$*\" in *print_handy.healthcheck*) echo probe >> {probes}; "
+                "echo 'Traceback (most recent call last):' >&2; exit 1;; ", 1))
+            env['PRINT_HANDY_LISTENER_RESTART_BACKOFF_S'] = '1'
+            env['PRINT_HANDY_LISTENER_WATCHDOG_INTERVAL_S'] = '1'
+            env['PRINT_HANDY_LISTENER_WATCHDOG_GRACE_S'] = '1'
+            process = self.start(env)
+            try:
+                self.assertTrue(wait_for(lambda: probes.exists() and len(probes.read_text().split()) >= 3, 30),
+                                'the watchdog kept probing')
+                self.assertEqual(calls.read_text().count('run '), 1, calls.read_text())
                 self.assertIsNone(process.poll())
             finally:
                 self.stop_cleanly(process)
