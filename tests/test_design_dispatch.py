@@ -843,3 +843,39 @@ def test_dropped_file_with_no_instruction_uses_the_baseline_turn(design_env, tmp
             adapter, scripted([EDIT_BODY]), design.CANCEL_LABEL)
     assert out["reason"] == "design cancelled"
     assert calls == ["baseline"]
+
+
+# ------------------------------------------- real OpenSCAD binary (expansion)
+
+WARN_BAD = "cube([missing_var, 10, 10]);\n"
+
+
+@needs_scad
+def test_dispatch_repairs_a_warning_class_design_before_posting(design_env):
+    # The first model reply fails --hardwarnings (unknown variable); the
+    # engine's repair loop must feed the real OpenSCAD error back and post
+    # the repaired turn, all through the real dispatch path.
+    adapter = FakeAdapter()
+    fake = scripted([WARN_BAD, GOOD])
+    out = _dispatch("/print-design a 40x20x3 plate with two 4 mm holes", adapter,
+                    fake, design.CANCEL_LABEL)
+    assert out["reason"] == "design cancelled"
+    assert len(fake.calls) == 2
+    repair_prompt = fake.calls[1][1]["content"]
+    # The real render error is fed back (its text currently lacks the
+    # WARNING line itself — issue #1046).
+    assert "The previous file failed to render" in repair_prompt
+    assert "Current top level object is empty" in repair_prompt
+    post = next(content for content in adapter.sent if "Design turn 1" in content)
+    assert "40 × 20 × 3" in post
+
+
+@needs_scad
+def test_dispatch_posts_the_parametrized_dimensions_it_rendered(design_env):
+    adapter = FakeAdapter()
+    out = _dispatch("/print-design a small block", adapter,
+                    scripted(["w = 26;\nd = 12;\nh = 4;\ncube([w, d, h]);\n"]),
+                    design.CANCEL_LABEL)
+    assert out["reason"] == "design cancelled"
+    post = next(content for content in adapter.sent if "Design turn 1" in content)
+    assert "26 × 12 × 4" in post

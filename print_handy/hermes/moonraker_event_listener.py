@@ -419,6 +419,18 @@ def roast_enabled(cfg=None):
     return bool(vision.get("roast_enabled", True))
 
 
+def roast_custom_bank(cfg=None):
+    """The operator's custom roast bank path: [vision] roast_custom_bank.
+
+    Empty (the default) means the shipped corpus alone. A path names a
+    local JSON file of house roast lines (#1002 Phase 4); the engine
+    validates and merges it per draw, and a file that cannot be used
+    degrades to no custom roasts with the problem named in the log.
+    """
+    vision = (cfg or _config.cfg()).get("vision") or {}
+    return str(vision.get("roast_custom_bank") or "").strip()
+
+
 ROAST_STATE = _config.state_file("PRINT_HANDY_ROAST_STATE", "roast_state.json", per_instance=True)
 _ROAST_FACTS = ("duration_s", "material", "color", "grams", "printer", "copies",
                 "print_number", "times", "finish_hour", "last_title",
@@ -445,7 +457,8 @@ def generate_roast(title, summary="", facts=None, key=None, status="completed"):
         from ..core import roast as roast_engine
         known = {k: v for k, v in dict(facts or {}).items() if k in _ROAST_FACTS}
         ctx = roast_engine.build_context(title, **known)
-        return roast_engine.roast(ctx, status=status, key=key, state_path=ROAST_STATE)
+        return roast_engine.roast(ctx, status=status, key=key, state_path=ROAST_STATE,
+                                  custom_path=roast_custom_bank() or None)
     except Exception as exc:
         log(f"roast skipped: {exc!r}")
         return ""

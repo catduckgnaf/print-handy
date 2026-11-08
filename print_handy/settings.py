@@ -140,6 +140,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("visual_watch", "enabled"): bool,
                  ("vision", "roast_enabled"): bool,
                  ("vision", "roast_model"): str,
+                 ("vision", "roast_custom_bank"): str,
                  ("vision", "local_detector_enabled"): bool,
                  ("vision", "local_model_path"): str,
                  ("vision", "auto_light_off_minutes"): int,
@@ -1355,6 +1356,18 @@ def _validate_vision(data):
     enabled = vision.setdefault("roast_enabled", True)
     if not isinstance(enabled, bool):
         raise SettingsError(f"[vision] roast_enabled must be true or false, got {enabled!r}")
+    # Custom roast bank (#1002 Phase 4): empty (the default) means the
+    # shipped corpus alone. A path names a local JSON file of the
+    # operator's own roast lines; the engine validates its entries
+    # through the shipped corpus's gates and draws the survivors
+    # alongside the shipped lines. A file that cannot be read or entries
+    # that fail validation are refused by name in the log — roasts
+    # continue from the shipped corpus, never a failed start.
+    custom_bank = vision.setdefault("roast_custom_bank", "")
+    if not isinstance(custom_bank, str):
+        raise SettingsError(f"[vision] roast_custom_bank must be a path string or empty, "
+                            f"got {custom_bank!r}")
+    vision["roast_custom_bank"] = custom_bank.strip()
     # Local failure detector (#455): off by default. When on, the camera
     # watchdog's verdicts can come from the built-in ONNX detector
     # (hermes.local_vision) on installs with no vision endpoint route

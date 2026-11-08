@@ -1,0 +1,1 @@
+{"choices":[{"finish_reason":"stop","index":0,"message":{"content":"{\"reply\": \"Press stop to halt the print.\", \"command\": \"/print-stop\"}","role":"assistant"}}],"id":"chatcmpl-recorded-001","model":"recorded-chat-model","object":"chat.completion","usage":{"completion_tokens":17,"prompt_tokens":42,"total_tokens":59}}

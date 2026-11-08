@@ -39,15 +39,24 @@ Selection, in order:
    assembled: no template carries a grammatical frame for them, and an
    insert that does not parse is worse than none.
 
+An operator can add house roasts without forking (#1002 Phase 4): the
+JSON file ``vision.roast_custom_bank`` names is validated through the
+same gates as the shipped banks (schema, known slots, filled contract,
+blocklist, no duplicates or near-duplicates) and its surviving entries
+join the generic pool. A file or entry that fails is refused by name in
+the log and skipped — never a crash, never a blocked post.
+
 Any failure (missing corpus, broken state file, nothing eligible) returns
 "" and the post goes out unchanged, exactly the best-effort contract the
 LLM roast had. Stdlib only; ``rng`` is injectable so tests pin draws.
 """
 from __future__ import annotations
 
+import difflib
 import functools
 import hashlib
 import json
+import logging
 import os
 import random
 import re
@@ -57,6 +66,8 @@ from importlib import resources
 from pathlib import Path
 from typing import Any, Mapping
 
+logger = logging.getLogger(__name__)
+
 CORPUS_PACKAGE = "print_handy"
 CORPUS_DIR = ("data", "roasts")
 SLOTS = ("title", "duration", "material", "color", "grams", "printer",
@@ -64,6 +75,11 @@ SLOTS = ("title", "duration", "material", "color", "grams", "printer",
          "prev_fails", "fail_streak", "color_streak", "top_color")
 STATUSES = ("completed", "failed", "cancelled", "spaghetti")
 STATUS_BANKS = {"failed": "failed", "cancelled": "cancelled", "spaghetti": "spaghetti"}
+# The operator's own bank (#1002 Phase 4): not a shipped file — the
+# entries come from the local JSON file vision.roast_custom_bank names,
+# are validated by load_custom_bank, and join the generic pool.
+CUSTOM_BANK = "custom"
+NEAR_DUPLICATE_RATIO = 0.88
 # Context banks in precedence order, each with the fact it is about.
 CONTEXT_BANKS = ("overnight", "long_print", "heavy_filament", "repeat_print", "short_print")
 TEMPLATE_BANKS = ("generic", "dark_humor") + CONTEXT_BANKS + tuple(STATUS_BANKS.values())
@@ -181,8 +197,124 @@ def _read_bank_optional(name: str) -> Any:
     return None
 
 
-@functools.lru_cache(maxsize=1)
-def load_corpus() -> dict[str, Any]:
+def _norm_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text.strip().casefold())
+
+
+def _near_duplicate(text: str, others: list[str]) -> bool:
+    """The corpus gate's near-duplicate rule (difflib ratio over 0.88),
+    with the same quick-ratio prefilter the gate test uses."""
+    folded = text.casefold()
+    for other in others:
+        matcher = difflib.SequenceMatcher(None, folded, other.casefold())
+        if matcher.real_quick_ratio() <= NEAR_DUPLICATE_RATIO \
+                or matcher.quick_ratio() <= NEAR_DUPLICATE_RATIO:
+            continue
+        if matcher.ratio() > NEAR_DUPLICATE_RATIO:
+            return True
+    return False
+
+
+def load_custom_bank(path: str | Path, shipped_ids=(), shipped_texts=(),
+                     blocklist=()) -> tuple[list[tuple[str, str, str]], list[str]]:
+    """An operator's custom bank file as ([(id, family, text)], [problems]).
+
+    The file is a JSON object with an ``entries`` list (a bare list is
+    accepted too), each entry in the shipped banks' shape — a
+    ``{"id", "family", "text"}`` object or a bare string. Every entry
+    passes the same gates the shipped corpus passes in CI: the entry
+    schema, known slots only, the filled contract against a fully
+    populated sample print (word cap included), the blocklist, and no
+    exact or near duplicates against the shipped corpus or the entries
+    accepted before it. A refused entry is named in the problems and
+    skipped; the valid entries still load. A missing, unreadable or
+    malformed file returns no entries and one named problem — the
+    caller degrades to the shipped corpus alone, never a crash.
+    """
+    source = str(path)
+    try:
+        raw_text = Path(path).read_text(encoding="utf-8")
+    except OSError as exc:
+        return [], [f"custom roast bank {source}: could not be read "
+                    f"({exc.strerror or exc}); no custom roasts loaded"]
+    try:
+        payload = json.loads(raw_text)
+    except ValueError as exc:
+        return [], [f"custom roast bank {source}: not valid JSON ({exc}); "
+                    f"no custom roasts loaded"]
+    if isinstance(payload, dict):
+        rows = payload.get("entries")
+        if not isinstance(rows, list):
+            return [], [f"custom roast bank {source}: no 'entries' list; "
+                        f"no custom roasts loaded"]
+    elif isinstance(payload, list):
+        rows = payload
+    else:
+        return [], [f"custom roast bank {source}: expected a JSON object "
+                    f"with an 'entries' list; no custom roasts loaded"]
+    shipped_norm = {_norm_text(text) for text in shipped_texts}
+    sample = _sample_context()
+    entries: list[tuple[str, str, str]] = []
+    problems: list[str] = []
+    seen_ids: set[str] = set()
+    seen_texts: dict[str, str] = {}
+    for raw in rows:
+        try:
+            eid, family, text = parse_entry(CUSTOM_BANK, raw)
+        except CorpusError as exc:
+            problems.append(f"custom roast bank {source}: {exc}; entry skipped")
+            continue
+        if eid in seen_ids:
+            problems.append(f"custom roast entry {eid}: id is used twice in "
+                            f"the custom bank; entry skipped")
+            continue
+        if eid in shipped_ids:
+            problems.append(f"custom roast entry {eid}: id is already used by "
+                            f"the shipped corpus; entry skipped")
+            continue
+        slots = set(_SLOT_RE.findall(text))
+        if not slots <= set(SLOTS):
+            problems.append(f"custom roast entry {eid}: unknown slot(s) "
+                            f"{sorted(slots - set(SLOTS))}; entry skipped")
+            continue
+        norm = _norm_text(text)
+        if norm in seen_texts:
+            problems.append(f"custom roast entry {eid}: duplicate of custom "
+                            f"entry {seen_texts[norm]}; entry skipped")
+            continue
+        if norm in shipped_norm:
+            problems.append(f"custom roast entry {eid}: duplicate of a "
+                            f"shipped roast line; entry skipped")
+            continue
+        others = list(shipped_texts) + [t for _i, _f, t in entries]
+        if _near_duplicate(text, others):
+            problems.append(f"custom roast entry {eid}: near-duplicate of an "
+                            f"existing roast line; entry skipped")
+            continue
+        low = text.casefold()
+        blocked = [word for word in blocklist
+                   if re.search(rf"(?<![a-z]){re.escape(word)}(?![a-z])", low)]
+        if blocked:
+            problems.append(f"custom roast entry {eid}: blocklisted word "
+                            f"{blocked[0]!r}; entry skipped")
+            continue
+        line = render(text, sample)
+        if line is None:
+            problems.append(f"custom roast entry {eid}: does not fill from a "
+                            f"fully populated print; entry skipped")
+            continue
+        problem = contract_problem(line, blocklist)
+        if problem:
+            problems.append(f"custom roast entry {eid}: {problem}; entry skipped")
+            continue
+        seen_ids.add(eid)
+        seen_texts[norm] = eid
+        entries.append((eid, family, text))
+    return entries, problems
+
+
+@functools.lru_cache(maxsize=None)
+def load_corpus(custom_path: str | None = None) -> dict[str, Any]:
     """The whole corpus: {"banks": {name: [(id, text)]}, "title_reactions":
     {keyword: [(id, text)]}, "fragments": {...}, "blocklist": [...],
     "color_roasts": {...}, "reprint_failed": {...}, "history_callbacks": {...},
@@ -230,6 +362,27 @@ def load_corpus() -> dict[str, Any]:
     reprint_failed = keyed("reprint_failed", "reprint_failed")
     history_callbacks = keyed("history_callbacks", "history")
 
+    # The operator's custom bank (#1002 Phase 4): validated through the
+    # same gates as the shipped banks (see load_custom_bank) and merged
+    # additively. Its problems are named in the log and in the returned
+    # corpus; they never stop the shipped corpus from loading.
+    custom_problems: list[str] = []
+    banks[CUSTOM_BANK] = []
+    if custom_path:
+        shipped_texts = [text for rows in banks.values() for _i, text in rows]
+        shipped_texts += [text for rows in reactions.values() for _i, text in rows]
+        for keyed_rows in (color_roasts, reprint_failed, history_callbacks):
+            shipped_texts += [text for rows in keyed_rows.values() for _i, text in rows]
+        custom_entries, custom_problems = load_custom_bank(
+            custom_path, shipped_ids=set(families), shipped_texts=shipped_texts,
+            blocklist=blocklist)
+        for eid, family, text in custom_entries:
+            families[eid] = family
+            aliases[entry_id(CUSTOM_BANK, text)] = eid
+            banks[CUSTOM_BANK].append((eid, text))
+        for problem in custom_problems:
+            logger.warning("%s", problem)
+
     dictionary_raw = _read_bank_optional("dictionary")
     dictionary: dict[str, Any] = dictionary_raw if isinstance(dictionary_raw, dict) else {}
 
@@ -263,12 +416,13 @@ def load_corpus() -> dict[str, Any]:
         "reprint_failed": reprint_failed, "history_callbacks": history_callbacks,
         "dictionary": dictionary, "dictionary_lookup": dict_lookup,
         "families": families, "aliases": aliases, "version": digest,
+        "custom_problems": custom_problems,
     }
 
 
-def corpus_size() -> int:
+def corpus_size(custom_path: str | None = None) -> int:
     """Entries a roast can actually be drawn from (templates, one-liners, reactions, color, reprint, history)."""
-    corpus = load_corpus()
+    corpus = load_corpus(custom_path)
     return (sum(len(v) for v in corpus["banks"].values())
             + sum(len(v) for v in corpus["title_reactions"].values())
             + sum(len(v) for v in corpus.get("color_roasts", {}).values())
@@ -436,6 +590,21 @@ def build_context(title: Any, *, duration_s: Any = None, material: Any = None, c
     return ctx
 
 
+def _sample_context() -> dict[str, Any]:
+    """A fully populated print, for filling templates at validation time.
+
+    The corpus gates fill every shipped entry against a context like
+    this so a template is only ever refused for its own contract, never
+    for a fact the sample lacked; custom-bank validation uses the same
+    sample for the same reason.
+    """
+    return build_context("Benchy", duration_s=14 * 3600 + 22 * 60, material="PLA",
+                         color="Galaxy Black", grams=212, printer="AD5X", copies=4,
+                         print_number=57, times=5, finish_hour=3,
+                         last_title="Calibration Cube", prev_fails=2,
+                         fail_streak=3, color_streak=4, top_color="Black")
+
+
 def _context_banks(ctx: Mapping[str, Any]) -> list[str]:
     facts = ctx.get("_facts") or {}
     duration = facts.get("duration_s")
@@ -529,6 +698,7 @@ def candidate_pools(ctx: Mapping[str, Any], status: str = "completed",
 
     generic_pool = (corpus["banks"]["generic"]
                     + corpus["banks"].get("dark_humor", [])
+                    + corpus["banks"].get(CUSTOM_BANK, [])
                     + corpus["banks"]["one_liners"])
     pools.append(("generic", generic_pool))
     return pools
@@ -748,17 +918,24 @@ def framing_options(line: str, pool_name: str, ctx: Mapping[str, Any],
 
 
 def roast(ctx: Mapping[str, Any], *, status: str = "completed", key: str | None = None,
-          state_path: Path | str | None = None, rng: random.Random | None = None) -> str:
-    """One roast line for this print, or "" (best-effort, never raises)."""
+          state_path: Path | str | None = None, rng: random.Random | None = None,
+          custom_path: str | None = None) -> str:
+    """One roast line for this print, or "" (best-effort, never raises).
+
+    ``custom_path`` names the operator's custom bank file (#1002
+    Phase 4); its validated entries join the generic pool for completed
+    prints. A bank that cannot be used changes nothing else.
+    """
     try:
         return _roast(ctx, status=status, key=key,
-                      state_path=Path(state_path) if state_path else None, rng=rng)
+                      state_path=Path(state_path) if state_path else None, rng=rng,
+                      custom_path=custom_path)
     except Exception:
         return ""
 
 
-def _roast(ctx, *, status, key, state_path, rng):
-    corpus = load_corpus()
+def _roast(ctx, *, status, key, state_path, rng, custom_path=None):
+    corpus = load_corpus(custom_path)
     state = _normalized(_load_state(state_path), corpus)
     if key:
         previous = state["chosen"].get(key)
@@ -802,7 +979,7 @@ def _roast(ctx, *, status, key, state_path, rng):
     return line
 
 
-__all__ = ["SLOTS", "STATUSES", "CorpusError", "build_context", "candidate_pools",
+__all__ = ["CUSTOM_BANK", "SLOTS", "STATUSES", "CorpusError", "build_context", "candidate_pools",
            "color_family_keys", "contract_problem", "corpus_size", "dictionary_size",
-           "entry_id", "framed_problem", "framing_options", "load_corpus", "parse_entry",
-           "render", "roast", "scrub_last_title", "scrub_title"]
+           "entry_id", "framed_problem", "framing_options", "load_corpus", "load_custom_bank",
+           "parse_entry", "render", "roast", "scrub_last_title", "scrub_title"]
