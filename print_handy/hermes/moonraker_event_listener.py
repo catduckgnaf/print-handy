@@ -306,7 +306,8 @@ def post_spool_question(record, nag=False):
             log("spool question nag skipped: no Discord message id to refresh")
             return False
         message_id = pab.post_spool_question(_bot_token(), announcer.DISCORD_CHAT_ID,
-                                             spool_question_text(record, nag=nag), record, previous or None)
+                                             spool_question_text(record, nag=nag, buttons=True),
+                                             record, previous or None)
         if message_id:
             record["discord_message_id"] = message_id
             atomic_write_json(RUNOUT_PAUSE_STATE, record)
@@ -970,21 +971,68 @@ def open_spool_question(filename, slot, prior_spool_id, cause, suspended_spool, 
     return record
 
 
-def spool_question_text(record, nag=False):
+def spool_question_text(record, nag=False, *, buttons=False):
+    """The paused spool question's text.
+
+    Two shapes (#1063). With ``buttons`` (the Discord component post) the
+    text only names the buttons: no slash-command instructions and no
+    typed format recipe in the routine guided flow — the shelf is the
+    Existing spool picker and a new spool is the New spool walkthrough.
+    Without buttons (buttonless platforms, and the plain-text fallback
+    when a component post fails) typed replies are the only route, so
+    the text names the reply words instead; it still never points at a
+    slash command.
+    """
     slot = record.get("slot")
     where = f"IFS slot {slot}" if slot in (1, 2, 3, 4) else "the active IFS slot"
     prior = record.get("prior_spool_id")
-    why = ("ran out" if record.get("cause") == "runout"
-           else "was unloaded and reloaded mid-print")
+    runout = record.get("cause") == "runout"
+    why = "ran out" if runout else "was unloaded and reloaded mid-print"
     head = (f"**Still waiting (reminder {record.get('nags', 0)})**: which spool is in {where}?" if nag
             else f"**Spool check:** the filament in {where} {why}.")
+    paused = ("\nFilament usage is **paused for every spool** until you answer, "
+              "so neither the old nor the new spool is charged.")
+    if buttons:
+        if runout and prior:
+            options = (
+                f"\n• **New roll, same filament** — a fresh roll of the same filament: a new "
+                f"spool is created and #{prior} is marked depleted\n"
+                f"• **Same spool — fix feed or jam** — the same physical spool #{prior} stays "
+                f"in the slot and you clear its stuck feed or jam at the printer: nothing new "
+                f"is created, #{prior} is not marked depleted, and its remaining weight is "
+                f"unchanged\n"
+                "• **Existing spool** — pick a different spool from the shelf\n"
+                "• **New spool** — add a different new spool\n"
+                "• **Cancel print** — end the print and close this question")
+        elif record.get("cause") == "swap" and prior:
+            options = (
+                f"\n• **Same spool** — spool #{prior} went back in\n"
+                "• **Existing spool** — pick a different spool from the shelf\n"
+                "• **New spool** — add a different new spool\n"
+                "• **Cancel print** — end the print and close this question")
+        else:
+            options = (
+                "\n• **Existing spool** — pick a spool from the shelf\n"
+                "• **New spool** — add a new spool\n"
+                "• **Cancel print** — end the print and close this question")
+        return (f"{head}{paused}\nTap one:{options}\n"
+                "Answering only settles the spool records: it never resumes the print and "
+                "does not mean the feed path is clear. A runout signal alone does not prove "
+                "the roll is empty — if the filament is stuck rather than gone, use the "
+                "same-spool fix above. Print Handy cannot load or unload filament while the "
+                "print is paused, so a stuck feed is fixed at the printer; cancelling is "
+                "the one choice that acts on the printer.")
     same = ("\n• `same` if you put spool #%s back" % prior) if record.get("cause") == "swap" and prior else ""
-    return (f"{head}\nFilament usage is **paused for every spool** until you answer, "
-            f"so neither the old nor the new spool is charged.\nReply with:\n"
-            f"• a spool number from Spoolman, e.g. `12`{same}\n"
+    refeed = (f"\n• `refeed` or `fix feed` if the same physical spool #{prior} stays in the "
+              f"slot and you clear its stuck feed or jam at the printer — no new spool is "
+              f"created, #{prior} is not marked depleted, and its remaining weight is unchanged"
+              f"\n• `same filament` if you loaded a fresh roll of the same filament — "
+              f"a new spool is created and #{prior} is marked depleted") if runout and prior else ""
+    return (f"{head}{paused}\nReply with:\n"
+            f"• a spool number from Spoolman, e.g. `12`{same}{refeed}\n"
             f"• or a new spool: `brand, material, color, grams` e.g. `Sunlu, PLA+, White, 1000`\n"
             f"• or `cancel the print` (or the **Cancel print** button) to end the print and close this question\n"
-            "`/spool list` shows what is on the shelf. Answering never touches the printer; "
+            "Answering never touches the printer and never resumes the print; "
             "cancelling is the one reply that does.")
 
 
@@ -1056,6 +1104,11 @@ def parse_runout_reply(text):
     folded = raw.casefold()
     if not raw:
         return {"status": "need_choice"}
+    if folded in {"refeed", "refed", "retry feed", "retry the feed",
+                  "fix feed", "fix the feed", "fix jam", "fix feed or jam", "jam", "jammed"}:
+        return {"status": "refeed"}
+    if folded in {"same", "same spool", "same filament"}:
+        return {"status": "same"}
     if folded in {"a", "existing", EXISTING_CHOICE}:
         return {"status": "need_spool_number"}
     if folded in {"b", "new", NEW_CHOICE}:
@@ -1090,6 +1143,15 @@ def apply_runout_choice(state, context, choice, *, client, filaments=None):
     if slot not in (1, 2, 3, 4):
         raise ValueError("runout pause has no IFS slot")
     prior_id = context.get("prior_spool_id")
+    if choice.get("status") == "refeed":
+        # The same physical spool is back in the slot (#1063): it is
+        # already bound there, so there is nothing to write — no new
+        # record, no bind, and the spool is NOT marked depleted. The
+        # caller resumes usage on it and closes the question.
+        if prior_id is None:
+            raise ValueError("refeed needs the spool that was in the slot")
+        return {"action": "refeed", "slot": slot, "spool_id": int(prior_id),
+                "prior_spool_id": prior_id, "printer_commands": []}
     if choice.get("status") == "existing":
         spool_id = int(choice["spool_id"])
         if prior_id is not None and spool_id == int(prior_id):
@@ -2182,9 +2244,14 @@ def feed_screen_runout_load(slot, spool_id, context, *, client=None, mr=None, st
     runout disposition so the depleted spool is marked depleted by the bind
     itself, resume filament usage on the new spool, and clear the open
     question so its reminders stop. The physical load at the screen is the
-    operator's answer; nothing here moves the printer. Returns False when
-    the screen spool is the one that just ran out — that spool cannot
-    answer its own runout question, exactly as a chat reply cannot.
+    operator's answer; nothing here moves the printer.
+
+    One exception (#1063): when the screen shows the very spool that ran
+    out back in the slot, that is a refeed, not a replacement — the same
+    physical spool, re-fed after a feed failure. Usage resumes on it and
+    the question closes; nothing is bound, created or depleted. (Before
+    #1063 this returned False and the question could never be answered
+    from the screen for that spool.)
     """
     from . import spool_sync
     client = client or spool_sync.spoolman
@@ -2192,7 +2259,9 @@ def feed_screen_runout_load(slot, spool_id, context, *, client=None, mr=None, st
     cause = (context or {}).get("cause")
     prior = (context or {}).get("prior_spool_id")
     if cause == "runout" and prior is not None and int(prior) == int(spool_id):
-        return False
+        spool_sync.resume_usage(int(spool_id), mr=mr)
+        clear_runout_pause()
+        return True
     spool_sync.bind_slot(int(slot), int(spool_id), client=client, mr=mr, state_path=state_path,
                          prior_disposition="depleted" if cause == "runout" else "shelf",
                          note="Bound from HelixScreen during a paused runout")

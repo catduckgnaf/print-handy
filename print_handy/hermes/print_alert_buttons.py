@@ -264,6 +264,15 @@ def spool_question_components(aid: str, prior_spool_id: int | None = None,
         buttons.append({"type": 2, "style": 2,
                         "label": "New roll, same filament" if cause == "runout" else "Same spool",
                         "custom_id": f"{SPOOL_QUESTION_PREFIX}:same:{aid}"})
+        if cause == "runout":
+            # The distinct same-spool recovery (#1063, incl. the jam
+            # follow-up): the same physical spool stays in the slot while
+            # the operator clears a stuck feed or jam — no new roll, no
+            # depletion, weight record untouched. It must never blur with
+            # the new-roll button above.
+            buttons.append({"type": 2, "style": 2,
+                            "label": "Same spool — fix feed or jam",
+                            "custom_id": f"{SPOOL_QUESTION_PREFIX}:refeed:{aid}"})
     buttons.extend([
         {"type": 2, "style": 1, "label": "Existing spool",
          "custom_id": f"{SPOOL_QUESTION_PREFIX}:existing:{aid}"},
@@ -632,13 +641,19 @@ def intake_disposition_for_action(action: str) -> str | None:
     return _DISPOSITION_ACTIONS.get(action)
 
 
-def intake_preview_text(predicted_id: Any, slot: Any) -> str:
-    """The early spool-number preview (#512 §2): said at the very first step,
-    so the operator can write the number on the physical spool right away."""
-    if predicted_id is None:
-        return f"Preparing a new spool for Slot {slot}. Nothing is created until you confirm at the end."
-    return (f"Preparing new **Spool #{predicted_id}** for Slot {slot} — you can write "
-            f"#{predicted_id} on the spool now. Nothing is created until you confirm at the end.")
+def intake_preview_text(slot: Any) -> str:
+    """The walkthrough's first-step text: never a spool number (#1063).
+
+    The number used to be predicted (max id + 1) and shown from the first
+    step so the operator could label the roll early (#512 §2) — but a
+    prediction is not the spool's number: if another spool was created in
+    between, the roll got labeled with the wrong number. The actual
+    number exists only once Spoolman assigns it at creation, and the
+    completion message announces it immediately, before any load step.
+    """
+    return (f"Preparing a new spool for Slot {slot}. Nothing is created until you confirm "
+            "at the end — its number is assigned on creation, and I will announce the "
+            "actual number right away so you can label the roll.")
 
 
 def intake_color(state: dict[str, Any]) -> tuple[str | None, str | None]:
@@ -741,7 +756,7 @@ def intake_step_text(state: dict[str, Any]) -> str:
     step = state.get("step")
     slot = state.get("slot")
     if step == "material":
-        return (intake_preview_text(state.get("predicted_id"), slot)
+        return (intake_preview_text(slot)
                 + "\n\n**Material** — pick the type (PLA, PETG, ...). PLA asks which kind next.")
     if step == "subtype":
         return f"**Which {state.get('primary')}?** — plain, plus, silk or matte. Changeovers treat PLA and PLA+ alike."
@@ -773,14 +788,16 @@ def intake_step_text(state: dict[str, Any]) -> str:
         return (f"Slot {slot} still holds Spool #{old}{left}. What should happen to it "
                 f"when the new spool goes in?{recommend}")
     if step == "confirm":
-        predicted = state.get("predicted_id")
-        number = f"Spool #{predicted}" if predicted is not None else "A new spool"
+        # Never a number here (#1063): the spool does not exist yet, so
+        # its number cannot be named — a stale predicted id in an old
+        # prompt's state is ignored on purpose. The completion message
+        # announces the actual number the moment creation assigns it.
         fate = {"shelf": f" Spool #{state.get('old_spool_id')} goes back on the shelf.",
                 "archive": f" Spool #{state.get('old_spool_id')} will be archived.",
                 "depleted": f" Spool #{state.get('old_spool_id')} will be archived as depleted (0 g left).",
                 "delete": f" Spool #{state.get('old_spool_id')} will be DELETED from Spoolman."}.get(
                     state.get("disposition") or "", "")
-        text = (f"Create {number} — {_intake_spec_line(state)}, {state.get('grams'):g} g — "
+        text = (f"Create a new spool — {_intake_spec_line(state)}, {state.get('grams'):g} g — "
                 f"and load it into Slot {slot}?{fate}")
         if state.get("from_photo"):
             source = {"code": "the label's barcode/QR code",
@@ -1312,7 +1329,7 @@ def parse_insertion_custom_id(custom_id: str) -> tuple[str, str] | None:
 def parse_spool_question_custom_id(custom_id: str) -> tuple[str, str] | None:
     """Return a paused-spool choice and alert id, or None for unrelated controls."""
     parts = str(custom_id or "").split(":")
-    if len(parts) == 3 and parts[0] == SPOOL_QUESTION_PREFIX and parts[1] in ("same", "existing", "new", "cancel") and parts[2]:
+    if len(parts) == 3 and parts[0] == SPOOL_QUESTION_PREFIX and parts[1] in ("same", "refeed", "existing", "new", "cancel") and parts[2]:
         return parts[1], parts[2]
     return None
 

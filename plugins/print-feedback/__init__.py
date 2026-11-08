@@ -2309,7 +2309,10 @@ async def runout_intake_dispatch(event, gateway, **kwargs):
     if choice['status'] in ('need_choice', 'need_spool_number', 'need_new_fields', 'unparsed'):
         await adapter.send(chat_id=source.chat_id, metadata=metadata, content=(
             'Spool question is still open and usage is still paused. Reply with a spool number, '
-            '`same`, brand, material, color, grams — or `cancel the print`. Nothing was changed.'))
+            '`same filament` for a fresh roll of the run-out filament, `refeed` or `fix feed` '
+            'if the same physical spool stays in and you cleared its stuck feed or jam, or '
+            '`cancel the print` — or tap a button on the question in Discord. '
+            'Nothing was changed.'))
         return {'action': 'skip', 'reason': 'spool reply needs a choice'}
     from print_handy.hermes import spool_sync
     try:
@@ -2337,6 +2340,36 @@ def _answer_spool_question(listener, spool_sync, context, choice):
     slot = context.get('slot')
     prior = context.get('prior_spool_id')
     created = ''
+    if choice['status'] == 'refeed':
+        # The same physical spool stays in the slot (#1063, incl. the jam
+        # follow-up): the pause signal said runout, but the roll is not
+        # exhausted — its feed is stuck, jammed, or falsely tripped, and
+        # the operator clears it at the printer. Nothing is created,
+        # bound or depleted and the weight record is untouched — usage
+        # accounting simply resumes on that spool and the question
+        # closes. This is the answer the second pause after a replacement
+        # needs; every other route would mint another record, mark a
+        # good roll depleted, or refuse the spool outright.
+        keep = prior or context.get('suspended_spool_id')
+        if not keep:
+            raise spool_sync.SpoolError('I do not know which spool was in the slot; answer with its number instead')
+        spool_sync.resume_usage(int(keep))
+        listener.clear_runout_pause()
+        # The three concerns stay separate (#1063 jam follow-up): this
+        # settles the inventory record only. It does not say the feed
+        # path is clear, it does not resume the print, and Print Handy
+        # names plainly that it cannot drive a paused-print load/unload
+        # itself instead of funneling the operator into a replacement.
+        return (f'Got it — the same physical spool #{keep} stays in the slot; this is a feed '
+                f'fix, not a replacement. No new spool was created, spool #{keep} was not '
+                f'marked depleted, and its remaining weight record is unchanged. Usage '
+                f'tracking is back on #{keep}.\n'
+                f'That settles the spool records only: it does not mean the feed path is '
+                f'clear, and it does not resume the print. Clear the stuck filament at the '
+                f'printer and resume from the print controls when the path is actually '
+                f'clear. Print Handy cannot load or unload filament for you while the print '
+                f'is paused — no supported paused-print load/unload command is available to '
+                f'it — so the physical fix happens at the printer.')
     if choice['status'] == 'same':
         keep = prior or context.get('suspended_spool_id')
         if not keep:
@@ -2790,15 +2823,13 @@ async def _spool_guided_new(adapter, source, metadata, gateway, spool_sync, pid,
 
     Database first: a known filament type supplies brand/material/colour/hex,
     so no colour or hex question follows. Nothing is created before the
-    confirmation button that names the number the new spool will be.
+    confirmation button, and no spool number is named before creation
+    (#1063: a predicted id can be wrong by creation time — the actual
+    number is announced in the result message the moment it exists).
     """
     types = await asyncio.to_thread(spool_sync.filament_types)
-    predicted = await asyncio.to_thread(spool_sync.next_spool_id)
-    # The number is previewed in the very first question (#512 §2), not only
-    # at confirmation, so the operator can write it on the physical spool
-    # before loading or shelving it.
-    preview = (f"Preparing new spool #{predicted} — you can write #{predicted} on the spool now. "
-               f"Nothing is created until you confirm.")
+    preview = ("Preparing a new spool — nothing is created until you confirm, and I will "
+               "announce its actual number the moment it is created.")
     spec = None
     if types:
         listed = types[:8]
@@ -2838,9 +2869,9 @@ async def _spool_guided_new(adapter, source, metadata, gateway, spool_sync, pid,
     if isinstance(grams, str):
         return None, grams
     spec = {**spec, 'grams': grams}
-    create_label = f'Create spool #{predicted}'
+    create_label = 'Create spool'
     answer = await _spool_ask(adapter, source, metadata, gateway,
-                              f"This will be spool #{predicted} — {_spool_spec_text(spec)}, "
+                              f"This creates a new spool — {_spool_spec_text(spec)}, "
                               f"{grams:g} g, on the shelf. Create it?",
                               [create_label, 'Cancel'])
     if answer != create_label:
@@ -5637,8 +5668,11 @@ def alert_button_handlers(bot, adapter):
     async def intake_start(interaction, origin, slot, context=None):
         """Open the conversational new-spool walkthrough (#512), replacing the modal.
 
-        The first step already names the spool number that will be assigned,
-        so the operator can write it on the physical spool before loading.
+        No spool number is named at any step before creation (#1063):
+        the earlier predicted id (max existing id + 1) could be wrong by
+        the time the spool was created, and a roll labeled with it was
+        labeled wrong. The actual number is announced the moment the
+        creation assigns it, before the load question.
         """
         from print_handy.hermes import spool_sync
         if slot not in (1, 2, 3, 4):
@@ -5647,7 +5681,6 @@ def alert_button_handlers(bot, adapter):
         # Acknowledge before the Spoolman reads (3 s window).
         await interaction.response.defer()
         try:
-            predicted = await asyncio.to_thread(spool_sync.next_spool_id)
             types = await asyncio.to_thread(spool_sync.filament_types)
         except Exception:
             logger.exception('new spool walkthrough could not read Spoolman')
@@ -5663,7 +5696,7 @@ def alert_button_handlers(bot, adapter):
             except Exception:
                 logger.debug('intake could not read slot state', exc_info=True)
         state = {'origin': origin, 'slot': slot, 'context': context or {}, 'step': 'start',
-                 'predicted_id': predicted, 'prompt_brand': _prompt_brand(),
+                 'predicted_id': None, 'prompt_brand': _prompt_brand(),
                  'types': types[:100], 'brand': None, 'material': None, 'color': None,
                  'grams': None, 'old_spool_id': old_spool_id, 'old_remaining': old_remaining,
                  'disposition': None, 'photo_offered': _photo_intake_ready(),
@@ -6060,15 +6093,26 @@ def alert_button_handlers(bot, adapter):
             await spool_question_modal(interaction, alert)
             return
         # Same ack-first shape as cancel: the Spoolman answer can outlast
-        # the 3 s window too (the #594 phase 2 gap recorded for both).
+        # the 3 s window too (the #594 phase 2 gap recorded for both). The
+        # ack names the button that was actually tapped (#1063): after a
+        # runout, "same" mints a NEW roll of the same filament, and the
+        # old hard-coded "Same spool" ack said the opposite of the action
+        # it acknowledged. "Refeed" is the true same-physical-spool answer.
+        context = alert.get('context') or {}
+        if action == 'refeed':
+            tapped, status = 'Same spool — fix feed or jam', 'refeed'
+        elif context.get('cause') == 'runout':
+            tapped, status = 'New roll, same filament', 'same'
+        else:
+            tapped, status = 'Same spool', 'same'
         await interaction.response.send_message(
-            f"{getattr(interaction.user, 'display_name', 'Someone')} tapped Same spool. "
+            f"{getattr(interaction.user, 'display_name', 'Someone')} tapped {tapped}. "
             'Checking the printer first.')
         try:
             from print_handy.hermes import moonraker_event_listener as listener
             from print_handy.hermes import spool_sync
             result = await asyncio.to_thread(_answer_spool_question, listener, spool_sync,
-                                             alert.get('context') or {}, {'status': 'same'})
+                                             context, {'status': status})
         except Exception as exc:
             logger.exception('same spool-question answer failed')
             # A Same answer creates the fresh roll before binding it: when the
