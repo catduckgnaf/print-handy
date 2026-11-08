@@ -37,9 +37,13 @@ What is checked (each finding carries the measured evidence):
   ``assembly_transform`` placement (again on the manifest), placed parts
   are checked against each other: disjoint placed bounds prove no
   collision; overlapping bounds get an exact interpenetration test (a
-  vertex strictly inside the other solid, or an edge piercing a face
-  with its interior inside the other solid — flush contact is *not* a
-  collision). Parts without a declared placement are named as unchecked;
+  vertex strictly inside the other solid, an edge piercing a face with
+  its interior inside the other solid, a face patch lying in the other
+  solid's volume, or coplanar faces overlapping in area with both
+  solids on the same side of the shared plane — flush contact is *not*
+  a collision). An overlap no deeper than the contact epsilon cannot be
+  told from contact and is reported as unchecked, never as clearance.
+  Parts without a declared placement are named as unchecked;
   a review where nothing is placed still states transforms and
   collisions as not checked.
 
@@ -375,12 +379,12 @@ class _Solid:
             best = min(best, _point_triangle_distance(point, self.triangles[idx]))
         return best
 
-    def strictly_inside(self, point) -> bool:
-        """Inside the solid, and not merely touching its surface.
+    def _parity_inside(self, point) -> bool:
+        """Inside by ray parity alone, surface contact included.
 
         A +X ray's crossings decide inside/outside (crossings closer than
         1e-7 mm are one crossing — a ray through a shared edge counts
-        once); a point within CONTACT_EPS_MM of the surface is contact.
+        once). Points on the bounds are outside.
         """
         lo, hi = self.bounds
         if any(point[i] <= lo[i] or point[i] >= hi[i] for i in range(3)):
@@ -397,9 +401,20 @@ class _Solid:
             if last is None or t - last > 1e-7:
                 crossings += 1
             last = t
-        if crossings % 2 == 0:
-            return False
-        return self.distance_to_surface(point) > CONTACT_EPS_MM
+        return crossings % 2 == 1
+
+    def _inside_state(self, point) -> int:
+        """0 outside, 1 inside but within CONTACT_EPS_MM of the surface
+        (the contact band), 2 strictly inside."""
+        if not self._parity_inside(point):
+            return 0
+        return 2 if self.distance_to_surface(point) > CONTACT_EPS_MM else 1
+
+    def strictly_inside(self, point) -> bool:
+        """Inside the solid, and not merely touching its surface: the
+        parity test passes and the point is more than CONTACT_EPS_MM
+        from the surface."""
+        return self._inside_state(point) == 2
 
     def segment_crossing_samples(self, a, b):
         """Points just either side of where segment a→b pierces this
@@ -518,7 +533,14 @@ def _interpenetration(a: _Solid, b: _Solid):
     Two closed solids overlap in volume exactly when a vertex of one is
     strictly inside the other, or an edge of one pierces a face of the
     other with the edge's interior inside it (the crossing-slabs case,
-    where no vertex is inside). Flush contact satisfies neither.
+    where no vertex is inside). Aligned solids defeat both tests —
+    every candidate lies on a shared face plane — so two more witnesses
+    are tried: a face patch of one solid lying in the other solid's
+    volume (its centroid strictly inside), and coplanar faces
+    overlapping in area with both solids on the same side of the shared
+    plane (a point just off the shared patch, strictly inside both).
+    Flush contact satisfies none of these: its shared plane has the
+    solids on opposite sides.
     """
     for solid, other in ((a, b), (b, a)):
         for vertex in solid.vertices:
@@ -528,6 +550,155 @@ def _interpenetration(a: _Solid, b: _Solid):
             for sample in other.segment_crossing_samples(start, end):
                 if other.strictly_inside(sample):
                     return sample
+        for tri in solid.triangles:
+            centroid = tuple(sum(p[i] for p in tri) / 3.0 for i in range(3))
+            if other.strictly_inside(centroid):
+                return centroid
+    for point, normal in _coplanar_patches(a, b):
+        for side in (0.05, -0.05):
+            sample = tuple(point[i] + normal[i] * side for i in range(3))
+            if a._inside_state(sample) == 2 and b._inside_state(sample) == 2:
+                return sample
+    return None
+
+
+def _unit_normal(tri):
+    """The triangle's unit normal, or None for a degenerate triangle."""
+    normal = _cross(_sub(tri[1], tri[0]), _sub(tri[2], tri[0]))
+    length = math.sqrt(_dot(normal, normal))
+    if length <= 0:
+        return None
+    return tuple(v / length for v in normal)
+
+
+def _clip_polygon(subject, clip):
+    """The subject polygon clipped by the (convex) clip triangle's half
+    planes, Sutherland–Hodgman; boundary points are kept."""
+    def signed_area(poly):
+        return 0.5 * sum(poly[i][0] * poly[(i + 1) % len(poly)][1]
+                         - poly[(i + 1) % len(poly)][0] * poly[i][1]
+                         for i in range(len(poly)))
+
+    orient = 1.0 if signed_area(clip) >= 0 else -1.0
+
+    def inside(p, e0, e1):
+        cross = ((e1[0] - e0[0]) * (p[1] - e0[1])
+                 - (e1[1] - e0[1]) * (p[0] - e0[0]))
+        return cross * orient >= -1e-12
+
+    def intersect(p, q, e0, e1):
+        d = (q[0] - p[0], q[1] - p[1])
+        e = (e1[0] - e0[0], e1[1] - e0[1])
+        denom = d[0] * e[1] - d[1] * e[0]
+        if abs(denom) < 1e-18:
+            return q
+        t = ((e0[0] - p[0]) * e[1] - (e0[1] - p[1]) * e[0]) / denom
+        return (p[0] + d[0] * t, p[1] + d[1] * t)
+
+    polygon = list(subject)
+    for i in range(len(clip)):
+        e0, e1 = clip[i], clip[(i + 1) % len(clip)]
+        if not polygon:
+            break
+        out = []
+        prev = polygon[-1]
+        prev_in = inside(prev, e0, e1)
+        for cur in polygon:
+            cur_in = inside(cur, e0, e1)
+            if cur_in:
+                if not prev_in:
+                    out.append(intersect(prev, cur, e0, e1))
+                out.append(cur)
+            elif prev_in:
+                out.append(intersect(prev, cur, e0, e1))
+            prev, prev_in = cur, cur_in
+        polygon = out
+    return polygon
+
+
+def _polygon_centroid(polygon):
+    """The centroid of a simple polygon, or None when its area is not
+    positive (a shared edge or point is not a patch)."""
+    if len(polygon) < 3:
+        return None
+    twice_area = 0.0
+    cx = cy = 0.0
+    for i in range(len(polygon)):
+        x0, y0 = polygon[i]
+        x1, y1 = polygon[(i + 1) % len(polygon)]
+        cross = x0 * y1 - x1 * y0
+        twice_area += cross
+        cx += (x0 + x1) * cross
+        cy += (y0 + y1) * cross
+    if abs(twice_area) < 2e-9:  # area under 1e-9 mm^2 is not a patch
+        return None
+    return (cx / (3.0 * twice_area), cy / (3.0 * twice_area))
+
+
+def _coplanar_patches(a: _Solid, b: _Solid):
+    """(point, unit normal) for each positive-area overlap between a
+    face of ``a`` and a face of ``b`` lying in the same plane.
+
+    The point is the overlap region's centroid, on the shared plane.
+    Triangle pairs are narrowed by ``b``'s grid over each ``a`` face's
+    bounds; coplanarity is exacting (normals parallel, plane offset
+    within 1e-6 mm) and the 2D overlap is clipped exactly, so a shared
+    edge or corner — zero area — yields nothing.
+    """
+    for tri_a in a.triangles:
+        normal_a = _unit_normal(tri_a)
+        if normal_a is None:
+            continue
+        lo = tuple(min(p[i] for p in tri_a) for i in range(3))
+        hi = tuple(max(p[i] for p in tri_a) for i in range(3))
+        candidates = set()
+        for i in range(int(lo[0] // b.cell), int(hi[0] // b.cell) + 1):
+            for j in range(int(lo[1] // b.cell), int(hi[1] // b.cell) + 1):
+                for k in range(int(lo[2] // b.cell), int(hi[2] // b.cell) + 1):
+                    candidates.update(b.grid.get((i, j, k), ()))
+        drop = max(range(3), key=lambda i: abs(normal_a[i]))
+        axes = tuple(i for i in range(3) if i != drop)
+        proj_a = [(p[axes[0]], p[axes[1]]) for p in tri_a]
+        plane_d = _dot(normal_a, tri_a[0])
+        for idx in candidates:
+            tri_b = b.triangles[idx]
+            normal_b = _unit_normal(tri_b)
+            if normal_b is None or abs(abs(_dot(normal_a, normal_b)) - 1.0) > 1e-9:
+                continue
+            if abs(_dot(normal_a, tri_b[0]) - plane_d) > 1e-6:
+                continue
+            polygon = _clip_polygon(proj_a, [(p[axes[0]], p[axes[1]]) for p in tri_b])
+            centroid = _polygon_centroid(polygon)
+            if centroid is None:
+                continue
+            point = [0.0, 0.0, 0.0]
+            point[axes[0]], point[axes[1]] = centroid
+            rest = plane_d - sum(normal_a[i] * point[i] for i in axes)
+            point[drop] = rest / normal_a[drop]
+            yield tuple(point), normal_a
+
+
+def _overlap_band(a: _Solid, b: _Solid):
+    """A point where the solids' overlap sits inside the contact band,
+    or None.
+
+    Reached only when no interpenetration witness exists: a vertex of
+    one solid inside the other but within CONTACT_EPS_MM of its surface,
+    or a coplanar patch whose just-off-plane samples are inside both
+    solids but within the band of one. Such an overlap is real but no
+    deeper than the distance the check itself calls contact, so it
+    cannot honestly be reported as either a collision or as clearance.
+    """
+    for solid, other in ((a, b), (b, a)):
+        for vertex in solid.vertices:
+            if other._inside_state(vertex) == 1:
+                return vertex
+    for point, normal in _coplanar_patches(a, b):
+        for side in (0.05, -0.05):
+            sample = tuple(point[i] + normal[i] * side for i in range(3))
+            states = (a._inside_state(sample), b._inside_state(sample))
+            if states[0] >= 1 and states[1] >= 1 and states != (2, 2):
+                return sample
     return None
 
 
@@ -543,8 +714,17 @@ def check_assembly_collision(a: PartReport, b: PartReport) -> list[Finding]:
         return [Finding("info", "assembly_no_collision",
                         "placed bounding boxes do not overlap; the placed parts cannot collide",
                         pair, evidence)]
-    point = _interpenetration(_placed_solid(a), _placed_solid(b))
+    solid_a, solid_b = _placed_solid(a), _placed_solid(b)
+    point = _interpenetration(solid_a, solid_b)
     if point is None:
+        band = _overlap_band(solid_a, solid_b)
+        if band is not None:
+            evidence["contact_band_at_mm"] = [round(float(v), 4) for v in band]
+            return [Finding("warn", "assembly_collision_unchecked",
+                            "placed bounding boxes overlap and the solids meet within the "
+                            f"{CONTACT_EPS_MM:g} mm contact band, so the overlap cannot be "
+                            "told from contact at this resolution; it is reported as "
+                            "unchecked, not as clearance", pair, evidence)]
         return [Finding("info", "assembly_no_collision",
                         "placed bounding boxes overlap but the placed solids do not "
                         "interpenetrate (contact or clearance only)", pair, evidence)]
@@ -654,7 +834,7 @@ def summary_text(findings: list[Finding]) -> str:
         tail = ("Assembly transforms and collisions were checked only for the placed "
                 "parts; the rest have no declared placement. Not checked: fastener fit, "
                 "load, heat, slicer toolpaths.")
-    elif codes & {"assembly_collision", "assembly_no_collision"}:
+    elif codes & {"assembly_collision", "assembly_no_collision", "assembly_collision_unchecked"}:
         tail = "Not checked: fastener fit, load, heat, slicer toolpaths."
     else:
         tail = ("Not checked: assembly transforms and collisions (no part declares an "

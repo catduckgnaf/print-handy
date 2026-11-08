@@ -209,3 +209,62 @@ def test_no_placement_keeps_the_not_checked_statement(tmp_path):
     findings = ac.review([a, b], bed_mm=AD5X_BED)
     assert not _codes(findings, "assembly_no_collision")
     assert "Not checked: assembly transforms and collisions" in ac.summary_text(findings)
+
+
+# ------------------------------------------------------- #1059: aligned solids
+
+def test_identical_placements_collide(tmp_path):
+    # Two copies of one part at the same placement share every face
+    # plane: no vertex is strictly inside the other and no edge pierces
+    # a face, but the overlap is total, so it must read as a collision.
+    a = _box(tmp_path / "a.stl", 10, 10, 10)
+    b = _box(tmp_path / "b.stl", 10, 10, 10)
+    findings = ac.review([a, b], bed_mm=AD5X_BED, declarations={
+        "a.stl": {"assembly_transform": {"translate_mm": [0, 0, 0]}},
+        "b.stl": {"assembly_transform": {"translate_mm": [0, 0, 0]}}})
+    hit = _codes(findings, "assembly_collision")
+    assert hit and hit[0].level == "fail"
+    assert not _codes(findings, "assembly_no_collision")
+
+
+def test_aligned_overlap_sharing_face_planes_collides(tmp_path):
+    # B overlaps A by 5 mm in x (500 mm^3) and shares A's y and z face
+    # planes exactly, so every candidate witness lies on a boundary.
+    # Before the #1059 fix this reported assembly_no_collision.
+    a = _box(tmp_path / "a.stl", 10, 10, 10)
+    b = _box(tmp_path / "b.stl", 10, 10, 10)
+    findings = ac.review([a, b], bed_mm=AD5X_BED, declarations={
+        "a.stl": {"assembly_transform": {"translate_mm": [0, 0, 0]}},
+        "b.stl": {"assembly_transform": {"translate_mm": [5, 0, 0]}}})
+    hit = _codes(findings, "assembly_collision")
+    assert hit and hit[0].level == "fail"
+    assert hit[0].evidence["overlap_mm"] == pytest.approx([5.0, 10.0, 10.0])
+    assert not _codes(findings, "assembly_no_collision")
+
+
+def test_partial_face_overlap_sharing_planes_collides(tmp_path):
+    # B is offset in y as well, so the faces it shares with A overlap
+    # only in part; the coplanar patches still have positive area and
+    # both solids sit on the same side of them.
+    a = _box(tmp_path / "a.stl", 10, 10, 10)
+    b = _box(tmp_path / "b.stl", 10, 10, 10)
+    findings = ac.review([a, b], bed_mm=AD5X_BED, declarations={
+        "a.stl": {"assembly_transform": {"translate_mm": [0, 0, 0]}},
+        "b.stl": {"assembly_transform": {"translate_mm": [0, 5, 0]}}})
+    assert _codes(findings, "assembly_collision")
+    assert not _codes(findings, "assembly_no_collision")
+
+
+def test_overlap_inside_the_contact_band_is_unchecked_not_clearance(tmp_path):
+    # A 0.005 mm deep overlap is real but no deeper than the 0.01 mm
+    # contact epsilon the check itself uses, so it cannot be told from
+    # contact at this resolution: a warning, never a clearance.
+    a = _box(tmp_path / "a.stl", 10, 10, 10)
+    b = _box(tmp_path / "b.stl", 10, 10, 10)
+    findings = ac.review([a, b], bed_mm=AD5X_BED, declarations={
+        "a.stl": {"assembly_transform": {"translate_mm": [0, 0, 0]}},
+        "b.stl": {"assembly_transform": {"translate_mm": [9.995, 0, 0]}}})
+    warn = _codes(findings, "assembly_collision_unchecked")
+    assert warn and warn[0].level == "warn"
+    assert not _codes(findings, "assembly_collision")
+    assert not _codes(findings, "assembly_no_collision")
