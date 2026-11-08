@@ -45,15 +45,18 @@ Then open the local address the command prints, in a browser.
 
 ## Hosting and the v2 path
 
-Version 1 is designed for any static host at no cost, including
-GitHub Pages. Enabling a host is a follow-up after catduck chooses
-it; this change does not enable Pages and adds no deployment
-workflow.
+Version 1's host is GitHub Pages (decided by catduck): the demo is
+fully static, with no server code, so it stays within GitHub Pages
+constraints at no cost. Enabling Pages is a follow-up for catduck —
+it is a repository-settings step, not a workflow in this repo (no
+Pages deploy workflow exists here) — and this change does not
+enable Pages and adds no deployment workflow. Once Pages is
+enabled, the README and docs link to the live demo as a follow-up.
 
 Version 2, only if version 1 proves demand, is the real-logic demo
-described on issue #1031: the existing image in a dedicated demo
-mode on a small paid container, talking to a fake printer through
-the existing platform layer, with per-visitor ephemeral sessions,
+tracked separately in issue #1037: the existing image in a
+dedicated demo mode, talking to a fake printer through the
+existing platform layer, with per-visitor ephemeral sessions,
 model fetching off, and a mock slicer only.
 
 A follow-up can generate or check the scenario data from corpus
