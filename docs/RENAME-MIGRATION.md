@@ -1,6 +1,6 @@
 # Rename migration: Print Buddy to Print Handy
 
-The project is now called **Print Handy**. Everything named after the old name has been renamed with it — the Python package (`print_handy`), the environment variables (`PRINT_HANDY__...` / `PRINT_HANDY_...`), the state files (`print_handy_*`), the container image (`ghcr.io/catduckgnaf/print-handy`), the systemd units, the Unraid template, and the ZMod plugin and macros (`print-handy`, `PRINT_HANDY`). This is a clean break: there are **no aliases or fallbacks** for the Print Buddy names, and Print Handy does not read them at all, so an existing install has to be migrated once. (The only old names still recognised are the much older `print_bitch_*` state files from the first rename: `scripts/install-hermes.sh` copies them across and `python -m print_handy.state_files` reports them.) The known installs are few and coordinated directly; this guide plus `scripts/migrate-names.sh` is the whole procedure.
+The project is now called **Print Handy**. Everything named after the old name has been renamed with it — the Python package (`print_handy`), the environment variables (`PRINT_HANDY__...` / `PRINT_HANDY_...`), the state files (`print_handy_*`), the container image (`ghcr.io/catduckgnaf/print-handy`), the systemd units, the Unraid template, and the ZMod plugin and macros (`print-handy`, `PRINT_HANDY`). This is a clean break: there are **no aliases or fallbacks** for the Print Buddy names, and Print Handy does not read them at all, so an existing install has to be migrated once. (The only old names still recognised are the much older `print_bitch_*` state files from the first rename: `python -m print_handy.state_files` reports them.) The known installs are few and coordinated directly; this guide plus `scripts/migrate-names.sh` is the whole procedure.
 
 ## This machine (Hermes or standalone install)
 
@@ -13,7 +13,7 @@ It renames `print_buddy*` files in the profile `state/` dir and the archive dir 
 
 Two steps the script cannot do for you:
 
-- **Hermes installs:** the Hermes venv holds `print_buddy.pth`. Delete it and re-run `scripts/install-hermes.sh`, which writes `print_handy.pth` (same content — the repo path — under the new name).
+- **Hermes installs:** historical — the Hermes install method has since been removed; move the install to the standalone bot per [docs/INSTALL.md](INSTALL.md).
 - **Standalone installs:** the systemd units are now `print-handy-bot.service` and `print-handy-listener.service`. Stop and disable the old `print-buddy-bot.service` / `print-buddy-listener.service`, remove the old unit files, re-run `scripts/install-standalone.sh`, then `systemctl --user daemon-reload` and enable the new units.
 
 Then restart the listener:
