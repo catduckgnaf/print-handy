@@ -45,7 +45,20 @@ def _all_entries():
 def test_every_bank_file_is_valid_json_with_provenance():
     folder = resources.files("print_handy").joinpath("data", "roasts")
     names = sorted(p.name for p in folder.iterdir() if p.name.endswith(".json"))
-    assert len(names) == 18
+    # Directory-driven (#1002 Phase 4): every bank file in the folder is
+    # iterated and gated below (and by the stable-id gate), so a new bank
+    # file is covered automatically — the shipped set is the floor, not a
+    # fixed count a contribution would have to edit. Loading a brand-new
+    # bank into a draw pool is still an engine change (roast.TEMPLATE_BANKS
+    # and the keyed loaders in core/roast.py); adding entries to an
+    # existing bank needs no code at all and every gate here applies.
+    shipped = {"blocklist.json", "cancelled.json", "color_roasts.json",
+               "dark_humor.json", "dictionary.json", "failed.json",
+               "fragments.json", "generic.json", "heavy_filament.json",
+               "history_callbacks.json", "long_print.json", "one_liners.json",
+               "overnight.json", "repeat_print.json", "reprint_failed.json",
+               "short_print.json", "spaghetti.json", "title_reactions.json"}
+    assert shipped <= set(names), shipped - set(names)
     for name in names:
         payload = json.loads(folder.joinpath(name).read_text(encoding="utf-8"))
         assert payload["_about"] and payload["_phase"] and payload["_license"], name
@@ -88,11 +101,22 @@ def test_no_exact_duplicates_anywhere():
 
 def test_no_near_duplicates_across_all_banks():
     entries = _all_entries()
-    folded = [(bank, text, text.casefold()) for bank, text in entries]
+    # Sorted by length so the pairwise loop can stop early: a pair whose
+    # lengths fail the ratio bound (2*min <= 0.88*(a+b)) can never be a
+    # near-duplicate, and once a sorted length passes that bound for the
+    # shorter entry, every later one does too.
+    folded = sorted(((bank, text, text.casefold()) for bank, text in entries),
+                    key=lambda row: len(row[2]))
     for i, (bank_a, text_a, a) in enumerate(folded):
         matcher = difflib.SequenceMatcher(None, a)
         for bank_b, text_b, b in folded[i + 1:]:
-            matcher.set_seq1(b)
+            if 2 * len(a) <= 0.88 * (len(a) + len(b)):
+                break
+            # set_seq2, not set_seq1: the matcher was built with ``a`` as
+            # its first sequence, and replacing that sequence left the
+            # second one empty, so ratio() was always 0 and this gate
+            # could never fire (#1002 Phase 4 bonus find).
+            matcher.set_seq2(b)
             if matcher.real_quick_ratio() <= 0.88 or matcher.quick_ratio() <= 0.88:
                 continue
             assert matcher.ratio() <= 0.88, f"{text_a!r} ({bank_a}) ~ {text_b!r} ({bank_b})"
