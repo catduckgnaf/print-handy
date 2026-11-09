@@ -34,6 +34,11 @@ from . import settings
 
 COMPLETION_FILE = "setup_completion.json"
 WALKTHROUGH_FILE = "webui_walkthrough.json"
+# The path constructions below spell these names out as literals on
+# purpose: tests/test_state_files.py registers state files in
+# state_files.KNOWN by scanning the source for literal names, and a name
+# reached only through a constant is invisible to it (and to the doctor's
+# stray detection). Keep the literals at the construction sites.
 
 SURFACES = ("webui", "chat", "wizard")
 
@@ -58,7 +63,7 @@ def _state_dir(data):
 
 
 def completion_path(data):
-    return _state_dir(data) / COMPLETION_FILE
+    return _state_dir(data) / "setup_completion.json"
 
 
 def _read_json(path):
@@ -77,7 +82,7 @@ def load_completion_in_state_dir(state_dir):
     ``webui`` completion with no timestamp.
     """
     state_dir = Path(state_dir)
-    record = _read_json(state_dir / COMPLETION_FILE)
+    record = _read_json(state_dir / "setup_completion.json")
     if record.get("done"):
         loaded = {"done": True,
                   "surface": str(record.get("surface") or "webui"),
@@ -85,7 +90,7 @@ def load_completion_in_state_dir(state_dir):
         if record.get("skipped"):
             loaded["skipped"] = True
         return loaded
-    legacy = _read_json(state_dir / WALKTHROUGH_FILE)
+    legacy = _read_json(state_dir / "webui_walkthrough.json")
     if legacy.get("done"):
         migrated = {"done": True, "surface": "webui", "when": None,
                     "migrated": True}
@@ -123,7 +128,7 @@ def record_completion_in_state_dir(state_dir, surface, when=None, skipped=False)
     state_dir = Path(state_dir)
     state_dir.mkdir(parents=True, exist_ok=True)
     from .setup_wizard import _atomic_write
-    _atomic_write(state_dir / COMPLETION_FILE,
+    _atomic_write(state_dir / "setup_completion.json",
                   json.dumps(record, indent=1) + "\n", 0o600)
     return record
 
