@@ -244,6 +244,14 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(field_by_id("ai.edit_requests_per_hour").minimum, 0)
         for tier in ("ai.small", "ai.chat", "ai.heavy"):
             self.assertIsNone(field_by_id(tier))
+        # The gate serves every chat platform, so its help names the ID
+        # form each platform uses — numeric on Discord and Telegram, a
+        # full @user:server ID on Matrix — and shows no issue reference.
+        help_text = field_by_id("ai.allowed_users").help
+        self.assertIn("@user:server", help_text)
+        self.assertIn("Discord and Telegram", help_text)
+        self.assertNotIn("(#902)", help_text)
+        self.assertNotIn("numeric user IDs", help_text)
 
         spacing = field_by_id("layout.spacing")
         self.assertEqual(choices_for(spacing), tuple(settings.SPACING_PRESETS))
@@ -428,6 +436,20 @@ class WriteAPITests(unittest.TestCase):
         self.assertEqual((data["webui"]["enabled"], data["webui"]["port"]), (True, 8080))
         values = values_by_id(local=self.local, environ={})
         self.assertEqual(values["visual_watch.sensitivity"].provenance, SETTINGS_FILE)
+
+    def test_ai_allowed_users_round_trips_a_matrix_id(self):
+        # A Matrix ID is not numeric: @user:server must pass the same
+        # load/validate path the ai.allowed_users catalog field uses and
+        # come back unchanged.
+        changed = write_changes({"ai.allowed_users": ["@name:matrix.org"]},
+                                config_path=self.local, environ={},
+                                timestamp="20261026-120000")
+        self.assertEqual(changed, [("ai", "allowed_users")])
+        data = settings.load(local=self.local, environ={})
+        self.assertEqual(data["ai"]["allowed_users"], ["@name:matrix.org"])
+        values = values_by_id(local=self.local, environ={})
+        self.assertEqual(values["ai.allowed_users"].value, ["@name:matrix.org"])
+        self.assertEqual(values["ai.allowed_users"].provenance, SETTINGS_FILE)
 
     def test_write_creates_the_file_and_preserves_uncatalogued_data(self):
         changed = write_changes({"bot.platform": "telegram"}, config_path=self.local, environ={})

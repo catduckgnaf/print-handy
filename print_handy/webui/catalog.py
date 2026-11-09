@@ -413,9 +413,11 @@ CATALOG = (
     _field("agent", "model", "Agent model", "text",
            "Model the agent endpoint uses."),
     _field("ai", "allowed_users", "AI edit users", "id_list",
-           "Who may use the AI edit lane (#902): numeric user IDs, separated "
-           "by commas or spaces. Empty (the default) leaves the lane open "
-           "to every user the gateway already authorizes.",
+           "Who may use the AI edit lane: user IDs in the form your platform "
+           "uses — numeric IDs on Discord and Telegram, full Matrix IDs like "
+           "@user:server on Matrix — separated by commas or spaces. Empty "
+           "(the default) leaves the lane open to every user the gateway "
+           "already authorizes.",
            validator="settings ai check"),
     _field("ai", "edit_requests_per_hour", "AI edit requests per hour", "number",
            "How many AI edit requests each authorized user may make per "
