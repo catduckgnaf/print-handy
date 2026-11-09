@@ -139,6 +139,7 @@ from .. import settings
 from ..bot import health as bot_health
 from . import access as access_module
 from . import camera as camera_module
+from . import chat as chat_module
 from . import config as config_api
 from . import controls as controls_module
 from . import data as data_module
@@ -807,6 +808,8 @@ class _Handler(BaseHTTPRequestHandler):
             elif path == "/config":
                 self._send(200, self._config_html(self._field_values(), theme=self._theme()),
                            "text/html; charset=utf-8")
+            elif path == "/chat":
+                self._chat_page()
             elif path == "/upload":
                 self._send(200, upload_module.render_upload_page(
                     self.server.settings_data, form_token=self.server.form_token,
@@ -1586,6 +1589,10 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             if path == "/login":
                 self._login_submit()
+            elif path == "/chat":
+                self._chat_post()
+            elif path == "/chat/choice":
+                self._chat_choice_post()
             elif path == "/upload":
                 self._upload_post()
             elif path == "/logout":
@@ -1617,6 +1624,62 @@ class _Handler(BaseHTTPRequestHandler):
                 self._read_only()
         except Exception as exc:  # a broken write is a 500, never a dropped connection
             self._json(500, {"ok": False, "reason": f"{type(exc).__name__}: {exc}"})
+
+    # -- web chat -------------------------------------------------------------
+
+    def _chat_service(self):
+        service = getattr(self.server, "chat_service", None)
+        if service is None:
+            from ..bot.web import WebChatService
+            service = WebChatService(self.server.settings_data)
+            self.server.chat_service = service
+        return service
+
+    def _chat_page(self, notice=None, error=None):
+        ft = self.server.form_token
+        self._send(200, chat_module.render_chat_page(
+            self._chat_service(), form_token=ft, notice=notice, error=error,
+            theme=self._theme(),
+            nav=data_module.nav_for(self.server.settings_data)),
+            "text/html; charset=utf-8")
+
+    def _chat_form(self):
+        """The parsed, authorized chat form, or None (refusal sent)."""
+        form, error = self._read_form()
+        if error:
+            self._html_refusal(error[0], error[1], "/chat")
+            return None
+        if not self._post_authorized(form):
+            self._html_refusal(403, STALE_FORM_MESSAGE, "/chat")
+            return None
+        return form
+
+    def _chat_post(self):
+        form = self._chat_form()
+        if form is None:
+            return
+        text = (form.get("text") or [""])[0].strip()
+        if not text:
+            self._redirect("/chat")
+            return
+        if not self._chat_service().submit(text):
+            self._chat_page(error="Too many messages in the last minute; "
+                                  "give the bot a moment to catch up.")
+            return
+        self._redirect("/chat")
+
+    def _chat_choice_post(self):
+        form = self._chat_form()
+        if form is None:
+            return
+        clarify_id = (form.get("clarify_id") or [""])[0]
+        try:
+            index = int((form.get("index") or ["-1"])[0])
+        except ValueError:
+            index = -1
+        if clarify_id and index >= 0:
+            self._chat_service().answer(clarify_id, index)
+        self._redirect("/chat")
 
     # -- uploads ------------------------------------------------------------
 

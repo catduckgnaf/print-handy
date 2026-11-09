@@ -158,6 +158,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("slicer", "flash_studio_path"): str,
                  ("webui", "enabled"): bool, ("webui", "host"): str,
                  ("webui", "port"): int, ("webui", "access_token_env"): str,
+                 ("webui", "chat_llm_enabled"): bool,
                  ("design", "enabled"): bool, ("design", "chat_url"): str,
                  ("design", "model"): str, ("design", "api_key_env"): str,
                  ("design", "timeout_s"): int, ("design", "repair_attempts"): int,
@@ -1252,6 +1253,13 @@ def _validate_webui(data):
     cookie_secure = webui.setdefault("cookie_secure", False)
     if not isinstance(cookie_secure, bool):
         raise SettingsError(f"[webui] cookie_secure must be true or false, got {cookie_secure!r}")
+    # chat_llm_enabled: the web chat page's stray-chat model switch, the
+    # [discord] switch's twin. Off runs web chat as a pure bot — commands
+    # and handlers still run, no [llm]/[agent] lane is called for web
+    # chat text. On by default; a missing key means true.
+    chat_llm = webui.setdefault("chat_llm_enabled", True)
+    if not isinstance(chat_llm, bool):
+        raise SettingsError(f"[webui] chat_llm_enabled must be true or false, got {chat_llm!r}")
 
 
 VERTICAL_SHORT_MODES = ("pad", "crop")

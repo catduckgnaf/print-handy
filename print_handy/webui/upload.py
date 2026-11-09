@@ -196,7 +196,8 @@ def render_upload_page(data, *, form_token, notice=None, error=None,
         parts.append(f'<p class="error">{esc(error)}</p>')
     parts.append(
         "<p>Upload a model file here and it lands in the inbox. An "
-        "uploaded file is not a print: pick it up in chat and it goes "
+        "uploaded file is not a print: pick it up in <a href=\"/chat\">"
+        "chat</a> and it goes "
         "through the normal confirm-before-print flow, like a file "
         "dropped in chat.</p>"
         '<form method="post" action="/upload" enctype="multipart/form-data">'
