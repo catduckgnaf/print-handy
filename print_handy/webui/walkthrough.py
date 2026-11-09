@@ -434,8 +434,17 @@ def render_page(data, field_values, *, form_token, theme=shell.DEFAULT_THEME,
             # key beside a declared roster is the refused mixture.
             values = [value for value in values if value.field.id != "printer.name"]
         for field_value in values:
+            # The chat step is the setup surface for the conditional
+            # chat platforms (stage 4): their fields always draw here,
+            # because this is where a first-time Telegram or Matrix
+            # setup happens. The review step below applies the plain
+            # rule and lists only configured platforms.
+            field_id = field_value.field.id
+            reveal = ("telegram" if field_id.startswith("telegram.")
+                      else "matrix" if field_id.startswith("matrix.")
+                      else None)
             parts.append(pages._field_row(field_value, data=data, errors=errors,
-                                          submitted=submitted))
+                                          submitted=submitted, reveal=reveal))
     elif step_id == "login":
         parts.append(_login_html(data, environ, (submitted or {}).get("username", "")))
     elif step_id == "providers":

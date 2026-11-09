@@ -292,7 +292,7 @@ class OverrideTests(unittest.TestCase):
                         "daily_reset_hour", "timezone", "bot_name", "question_timeout_s",
                         "safety_confirm_timeout_s", "upload_wait_s", "cold_pull_outcome_s",
                         "token_env", "allowed_user_ids", "denied_user_ids", "chat_llm_enabled",
-                        "approval_all_users", "mention_starter_on_complete"},
+                        "approval_all_users", "mention_starter"},
             "telegram": {"token_env", "chat_id", "allowed_user_ids", "approval_user_id", "upload_max_bytes"},
             "matrix": {"homeserver_url", "access_token_env", "room_id", "allowed_user_ids",
                        "approval_user_id", "bot_user_id", "upload_max_bytes"},
@@ -308,7 +308,9 @@ class OverrideTests(unittest.TestCase):
             "visual_watch": {"enabled", "sensitivity", "early_layers", "early_interval_s", "auto_pause_early"},
             # mode_explicit is resolved state, not a file key: it records
             # whether [timelapse] mode was named or derived, so per-printer
-            # views can re-derive a derived mode (P2-261).
+            # views can re-derive a derived mode (P2-261). The same holds
+            # for data_enabled_explicit: whether [timelapse] data_enabled
+            # was set or only follows wrapped_enabled (stage 5).
             "timelapse": {"mode", "mode_explicit", "encoder", "archive_host", "archive_dir", "ssh_key", "render_wait_s", "render_poll_s",
                           "max_bytes", "local_retention_days", "plan_clip_retention_days",
                           "vertical_short", "vertical_short_mode", "vertical_short_overlay",
@@ -316,11 +318,12 @@ class OverrideTests(unittest.TestCase):
                           "capture_interval_s", "capture_max_frames", "capture_max_bytes",
                           "capture_encoder", "target_length_s", "min_fps", "max_fps",
                           "min_length_s", "hold_last_frame_s",
-                          "wrapped_enabled", "wrapped_ai_video",
+                          "wrapped_enabled", "data_enabled", "data_enabled_explicit", "wrapped_ai_video",
                           "wrapped_tts_engine", "wrapped_music_file"},
             "logging": {"level", "format", "file", "levels", "retention_days"},
             "webui": {"enabled", "host", "port", "access_token_env", "require_auth",
-                      "controls_enabled", "cookie_secure"},
+                      "controls_enabled", "cookie_secure", "chat_llm_enabled",
+                      "chat_enabled"},
             "live_stream": {"enabled", "voice_channel_id", "auto_start_on_print", "max_height", "fps",
                             "max_bitrate_kbps", "encoder", "empty_timeout_s", "activity_origin", "port"},
             "notify": {"mqtt_enabled", "mqtt_host", "mqtt_port", "mqtt_topic", "mqtt_username",
@@ -804,18 +807,20 @@ class UnknownSettingsTests(unittest.TestCase):
 
     def test_the_1058_incident_shape_warns_instead_of_exiting(self):
         # The validation environment carried the mention key onto the 2.2.6
-        # image, whose settings did not know it at all. Simulate that older
-        # build here: today the key is known only through OPTIONAL_KEYS.
+        # image, whose settings did not know it at all (the variable was
+        # PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE then; #1095
+        # renamed the key to mention_starter). Simulate that older build
+        # here: today the key is known only through OPTIONAL_KEYS.
         known = {pair: kind for pair, kind in settings.OPTIONAL_KEYS.items()
-                 if pair != ("discord", "mention_starter_on_complete")}
+                 if pair != ("discord", "mention_starter")}
         with mock.patch.object(settings, "OPTIONAL_KEYS", known):
             data = settings.load(
                 local=False,
-                environ={"PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE": "false"})
+                environ={"PRINT_HANDY__DISCORD__MENTION_STARTER": "false"})
         # The value was not applied (the [discord] default stands) and the
         # variable is named in the warning instead of stopping the load.
-        self.assertIs(data["discord"]["mention_starter_on_complete"], True)
-        self.assertIn("MENTION_STARTER_ON_COMPLETE", settings.unknown_settings_warning())
+        self.assertIs(data["discord"]["mention_starter"], True)
+        self.assertIn("MENTION_STARTER", settings.unknown_settings_warning())
 
     def test_file_unknown_key_and_section_warn_and_are_dropped(self):
         path = self.local("pritner:\n  filament_slots: 9\n"

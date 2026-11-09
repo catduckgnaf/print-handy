@@ -182,3 +182,7 @@ The **Print Handy Discord server** is the community home: [discord.gg/mT2Ht3nqZu
 | Write or review release notes | [Release-note guide](docs/RELEASE-NOTES.md) · [Internal history](docs/INTERNAL_RELEASE_NOTES.md) |
 
 Draft pull requests describe pending work, not installed or released capabilities.
+
+## License
+
+Print Handy is licensed under the [GNU Affero General Public License v3.0 only](LICENSE) (AGPL-3.0-only). Version 2.2.7 and earlier were released under the MIT License; [NOTICE](NOTICE) keeps those terms for the code carried forward.
