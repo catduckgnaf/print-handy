@@ -94,14 +94,9 @@ def bot_verdict(data, heartbeat):
     """(ok, reason) of the bot heartbeat check, shared by the status snapshot
     and /healthz (2.2.5 review of P2-100).
 
-    The heartbeat is written by the standalone bot only; in Hermes mode the
-    gateway writes none, so the check is not applicable (ok None, like a
-    not-required listener) rather than a failure a Hermes install could
-    never clear.
+    The heartbeat is written by the bot; the check evaluates whatever
+    record is there (no record is a failure: the bot is not running).
     """
-    mode = data["bot"]["mode"]
-    if mode != "standalone":
-        return None, f"standalone heartbeat not applicable in {mode} mode"
     return bot_health.evaluate(heartbeat, stale_s=data["bot"]["health_stale_s"])
 
 
