@@ -375,11 +375,11 @@ retention_days = 14
 levels = {}
 
 [webui]
-# Optional Web UI (#286): off by default; nothing listens while disabled.
-# Port 0 means no port has been chosen yet. The access token itself never
+# Web UI (#286): on by default. Port 0 means no port has been chosen
+# yet, and nothing listens until one is. The access token itself never
 # goes in a file here; access_token_env names the environment variable
 # holding it.
-enabled = false
+enabled = true
 host = "127.0.0.1"
 port = 0
 access_token_env = "WEBUI_ACCESS_TOKEN"

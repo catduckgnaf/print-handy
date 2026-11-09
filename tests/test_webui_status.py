@@ -245,15 +245,17 @@ class ServerStartTests(unittest.TestCase):
             server.check_start(portless, {})
         self.assertEqual(server.serve(disabled, environ={}), 2)
 
-    def test_non_loopback_without_token_starts_in_setup(self):
-        # Refused before #708; now it starts and serves only the first-run
-        # setup page (tests/test_webui_setup.py covers the flow).
+    def test_non_loopback_without_token_starts_open_and_unclaimed(self):
+        # Refused before #708 and setup-gated by it; since the gate
+        # reversal it starts serving openly, unclaimed
+        # (tests/test_webui_setup.py covers the flow).
         with tempfile.TemporaryDirectory() as tmp:
             data = load_settings(tmp, "webui:\n  enabled: true\n  host: 0.0.0.0\n  port: 8765\n")
             self.assertEqual(server.check_start(data, {}), ("0.0.0.0", 8765, ""))
             httpd = server.make_server(data, environ={}, port=0)
             try:
-                self.assertTrue(httpd.access.setup_pending)
+                self.assertFalse(httpd.access.setup_pending)
+                self.assertTrue(httpd.access.unclaimed)
             finally:
                 httpd.server_close()
         host, port, token = server.check_start(data, {"WEBUI_ACCESS_TOKEN": TOKEN})

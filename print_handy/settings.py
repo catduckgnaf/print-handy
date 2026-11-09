@@ -1213,14 +1213,17 @@ def _validate_matrix(data):
 def _validate_webui(data):
     """The [webui] section (#286). Absent in an older config means the defaults.
 
-    The Web UI is optional and off by default. ``port`` 0 means no port has
-    been chosen yet (the same convention as [bot] health_port); a later
-    stage's server only listens when enabled is true. The access token
-    itself is never a setting: access_token_env names the environment
-    variable holding it, the same indirection as [discord] token_env.
+    The Web UI is on by default: ``enabled`` defaults to true on every
+    install, bare-metal included. ``port`` 0 still means no port has
+    been chosen yet (the same convention as [bot] health_port), and
+    nothing listens until a port is chosen; ``host`` defaults to
+    127.0.0.1, so a default bare-metal install serves only its own
+    machine until the operator binds wider. The access token itself is
+    never a setting: access_token_env names the environment variable
+    holding it, the same indirection as [discord] token_env.
     """
     webui = data.setdefault("webui", {})
-    enabled = webui.setdefault("enabled", False)
+    enabled = webui.setdefault("enabled", True)
     if not isinstance(enabled, bool):
         raise SettingsError(f"[webui] enabled must be true or false, got {enabled!r}")
     host = str(webui.setdefault("host", "127.0.0.1") or "").strip()

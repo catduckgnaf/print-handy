@@ -54,8 +54,9 @@ CONFIRM_FIELD = "confirm"
 LOGIN_TOKEN_FIELD = "token"
 LOGIN_USER_FIELD = "username"
 LOGIN_REMEMBER_FIELD = "remember"
-# First-run setup form fields (POST /setup, #708). Passwords are hashed by
-# webui.access and never rendered back.
+# The walkthrough Login step's form fields. Passwords are hashed by
+# webui.access and never rendered back. (Named SETUP_* from the retired
+# /setup page, whose choices live on in that step.)
 SETUP_CHOICE_FIELD = "choice"
 SETUP_PASSWORD_FIELD = "password"
 SETUP_CONFIRM_FIELD = "password_again"
@@ -220,7 +221,7 @@ def _field_row(field_value, *, data, errors, submitted):
 
 def _page(title, body, *, theme=shell.DEFAULT_THEME, path="", chrome=True):
     """Every page renders through the one shell (#813): shared stylesheet,
-    header chrome and theme. Login and setup pass ``chrome=False`` — there
+    header chrome and theme. Login passes ``chrome=False`` — there
     is no navigation to offer before access exists."""
     return shell.page(title, body, path=path, theme=theme, chrome=chrome)
 
@@ -233,7 +234,7 @@ def render_login_page(error=None, password=False, *, username=False,
     how a person signs in: a correct POST /login earns a session cookie
     (see server.py). ``error`` is a fixed message chosen by the server;
     the submitted token is never reflected here. ``password`` is true
-    when the credential is the password chosen on the setup page (#708);
+    when the credential is the password chosen in the walkthrough;
     ``username`` adds the username field (#875), named and autocompleted
     so a browser or password manager can save and fill the pair.
     """
@@ -274,15 +275,14 @@ def render_login_page(error=None, password=False, *, username=False,
 def login_rows(submitted_username="", *, required=True):
     """Username, password and confirmation inputs for choosing a login.
 
-    Shared by /setup and the walkthrough's Login step. Standard names and
+    Used by the walkthrough's Login step. Standard names and
     autocomplete hints let a browser or password manager offer to save
     the pair. Passwords are never echoed back; only the username is.
 
-    ``required`` is the standalone setup page's strictness: a first-run
-    choice must be complete. The walkthrough passes False — its Login
-    step documents leaving the fields empty to keep the current login,
-    and removing the login via its checkbox, both of which browser
-    validation on required fields would refuse before the form is sent."""
+    The walkthrough passes ``required=False`` — its Login step documents
+    leaving the fields empty to keep the current login, and removing the
+    login via its checkbox, both of which browser validation on required
+    fields would refuse before the form is sent."""
     minimum = access_module.MIN_PASSWORD_LENGTH
     req = " required" if required else ""
     return (
@@ -298,44 +298,6 @@ def login_rows(submitted_username="", *, required=True):
         f'<input type="password" id="f-{SETUP_CONFIRM_FIELD}" name="{SETUP_CONFIRM_FIELD}" '
         f'autocomplete="new-password"{req}></p>'
         f'<p class="hint">{_esc(access_module.PASSWORD_HINT)}</p>')
-
-
-def render_setup_page(form_token, error=None, *, theme=shell.DEFAULT_THEME):
-    """The GET /setup page (#708): set a password, or affirmatively leave it open.
-
-    Shown only while no access rule exists for a LAN bind. Submitted
-    passwords are hashed by the server and never rendered back.
-    """
-    parts = [
-        '<p>Welcome. Before this Web UI shows anything, choose how it is protected. '
-        'Anyone who can reach this page on your network can complete this step, '
-        'so do it now.</p>',
-    ]
-    if error:
-        parts.append(f'<p class="error">{_esc(error)}</p>')
-    csrf = f'<input type="hidden" name="{CSRF_FIELD}" value="{_esc(form_token)}">'
-    parts.append(
-        '<h2>Set a username and password (recommended)</h2>'
-        '<form method="post" action="/setup">' + csrf +
-        f'<input type="hidden" name="{SETUP_CHOICE_FIELD}" value="password">'
-        + login_rows() +
-        '<p>Home Assistant and other tools send this same password as the '
-        f'<code>X-WebUI-Token</code> header.</p>'
-        '<p><button type="submit">Save login</button></p></form>')
-    parts.append(
-        '<h2>Or leave it open</h2>'
-        '<form method="post" action="/setup">' + csrf +
-        f'<input type="hidden" name="{SETUP_CHOICE_FIELD}" value="open">'
-        f'<p><input type="checkbox" id="f-{SETUP_OPEN_FIELD}" name="{SETUP_OPEN_FIELD}" '
-        f'value="yes" required> <label for="f-{SETUP_OPEN_FIELD}">I trust everyone on my '
-        'network: anyone who can reach this port can use the Web UI.</label></p>'
-        '<p><button type="submit">Leave it open</button></p></form>')
-    parts.append(
-        '<p>To change this later, use <strong>Login</strong> in the setup walkthrough, '
-        'turn off <code>[webui] require_auth</code> to drop the login entirely (for a '
-        'trusted home network), or delete <code>webui_access.json</code> from the Print '
-        'Handy state folder and restart.</p>')
-    return _page("setup", "".join(parts), theme=theme, path="/setup", chrome=False)
 
 
 _FIELD_SEARCH = (

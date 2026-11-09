@@ -37,7 +37,7 @@ class WebUISettingsTests(unittest.TestCase):
             local = Path(tmp) / "local.yaml"
             local.write_text("visual_watch:\n  sensitivity: 3\n")
             data = settings.load(local=local, environ={})
-        self.assertEqual(data["webui"], {"enabled": False, "host": "127.0.0.1", "port": 0,
+        self.assertEqual(data["webui"], {"enabled": True, "host": "127.0.0.1", "port": 0,
                                          "access_token_env": "WEBUI_ACCESS_TOKEN",
                                          "require_auth": True,
                                          "controls_enabled": False,
