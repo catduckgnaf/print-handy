@@ -676,6 +676,38 @@ class SendGcodeTests(unittest.TestCase):
                 self.assertIn("Nothing sent", body["reason"])
         self.assertEqual(send.sent, [])
 
+    def test_plus_signed_heater_targets_refuse_by_name_and_send_nothing(self):
+        # A leading + is a valid signed target to Klipper/Marlin, so a
+        # plus-signed target above the ceiling must refuse exactly like
+        # the unsigned form: 400 naming the word, heater, target and
+        # limit, with nothing sent.
+        adapter = FakeFamilyAdapter(facts={"max_hotend_c": 300, "max_bed_c": 110})
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = enabled(tmp)
+            view = settings.view_for(PRINTER, data)
+            nozzle_limit = controls.temperature_limit(adapter, view, "nozzle", PRINTER)
+            bed_limit = controls.temperature_limit(adapter, view, "bed", PRINTER)
+            cases = (
+                ("M104 S+500", "M104", "nozzle", "500", nozzle_limit),
+                ("M109 R+500", "M109", "nozzle", "500", nozzle_limit),
+                ("M140 S+200", "M140", "bed", "200", bed_limit),
+                ("SET_HEATER_TEMPERATURE HEATER=extruder TARGET=+500",
+                 "SET_HEATER_TEMPERATURE", "nozzle", "500", nozzle_limit),
+            )
+            for script, word, heater, target, limit in cases:
+                code, body = controls.send_gcode(data, PRINTER, {"script": script},
+                                                 adapter=adapter, read=reads("idle"),
+                                                 send=send)
+                self.assertEqual(code, 400, script)
+                self.assertIn(word, body["reason"])
+                self.assertIn(heater, body["reason"])
+                self.assertIn(target, body["reason"])
+                self.assertIn(f"{limit:g}", body["reason"])
+                self.assertIn("outside", body["reason"])
+                self.assertIn("Nothing sent", body["reason"])
+        self.assertEqual(send.sent, [])
+
     def test_at_limit_under_limit_and_off_heater_commands_pass(self):
         adapter = FakeFamilyAdapter(facts={"max_hotend_c": 300, "max_bed_c": 110})
         send = Recorder()

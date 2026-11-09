@@ -489,10 +489,10 @@ def power_action(data, printer_id, action, body=None, *, adapter=None, read=None
 # SET_HEATER_TEMPERATURE, the form the chat nozzle-change path uses.
 _HEATER_WORDS = {"M104": "nozzle", "M109": "nozzle", "M140": "bed", "M190": "bed"}
 _HEATER_WORD_RE = re.compile(r"^(M104|M109|M140|M190)(?![0-9])", re.IGNORECASE)
-_HEATER_PARAM_RE = re.compile(r"([SR])(-?[0-9]+(?:\.[0-9]+)?)", re.IGNORECASE)
+_HEATER_PARAM_RE = re.compile(r"([SR])([-+]?[0-9]+(?:\.[0-9]+)?)", re.IGNORECASE)
 _SET_HEATER_RE = re.compile(r"^SET_HEATER_TEMPERATURE(?![A-Za-z0-9_])", re.IGNORECASE)
 _SET_HEATER_NAME_RE = re.compile(r"HEATER=([A-Za-z0-9_]+)", re.IGNORECASE)
-_SET_HEATER_TARGET_RE = re.compile(r"TARGET=(-?[0-9]+(?:\.[0-9]+)?)", re.IGNORECASE)
+_SET_HEATER_TARGET_RE = re.compile(r"TARGET=([-+]?[0-9]+(?:\.[0-9]+)?)", re.IGNORECASE)
 # States in which a printer cannot accept commands at all, so a raw
 # script is refused 409 like the state-gated control actions instead of
 # being sent blind. Any positively known state (idle, printing, paused,
