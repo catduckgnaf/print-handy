@@ -30,7 +30,14 @@ The ha-print-handy #1 routes add, under the same guard:
   (the endpoint its client already uses for temperature commands);
   every other family refuses with a named 501. The script is refused
   (400) when it is missing, not a string, empty, or longer than
-  ``GCODE_MAX_CHARS`` characters.
+  ``GCODE_MAX_CHARS`` characters. A script's own temperature commands
+  (``M104``/``M109``/``M140``/``M190``, Marlin's ``M303`` autotune and
+  Klipper's ``SET_HEATER_TEMPERATURE`` / ``PID_CALIBRATE``)
+  are held to the same fitted-nozzle/model ceiling as the temperature
+  routes and refused by name above it, and the script is state-gated
+  like the module's other mutating routes: a printer reporting a state
+  that cannot accept commands (unknown, error, shutdown, disconnected,
+  offline, unavailable) refuses 409 and receives nothing.
 - ``POST /api/printers/<id>/exclude`` — exclude one named object from
   the running print, Moonraker only (exclude-object is a Klipper
   feature; other families refuse 501). The body is
@@ -48,7 +55,8 @@ control route answers 403 with the reason and sends nothing. ``cancel``
 additionally needs the JSON body ``{"confirm": true}``. A target
 temperature is checked against the printer's own limits (its
 ``max_hotend_c`` / ``max_bed_c`` facts, the fitted nozzle type's safe
-maximum) and refused above them, never clamped. A family with no
+maximum) and refused above them, never clamped — on the temperature
+routes and inside raw G-code scripts alike. A family with no
 existing temperature command path refuses cleanly (501). Every route
 re-reads the printer first: an unreachable printer is an explicit 502
 failure and a printer in the wrong state is a 409; both send nothing.
@@ -60,6 +68,8 @@ use fake adapters only.
 from __future__ import annotations
 
 import json
+import re
+import shlex
 import urllib.error
 import urllib.request
 
@@ -474,12 +484,142 @@ def power_action(data, printer_id, action, body=None, *, adapter=None, read=None
                  "detail": f"{action} sent; check the printer's status for the result."}
 
 
+# The temperature-setting words a raw script can carry, and the heater
+# each sets: the words this module itself sends for /temperature
+# (M104/M140, in default_send above), their wait variants (M109/M190 —
+# the same four the family G-code guards scan for), Marlin's M303
+# autotune, and Klipper's SET_HEATER_TEMPERATURE, the form the chat
+# nozzle-change path uses, plus its PID_CALIBRATE, which heats the
+# named heater to its target in the same KEY=VALUE shape.
+_HEATER_WORDS = {"M104": "nozzle", "M109": "nozzle", "M140": "bed", "M190": "bed"}
+_HEATER_WORD_RE = re.compile(r"^(M104|M109|M140|M190|M303)(?![0-9])", re.IGNORECASE)
+# A heater number as the loosest real parser could read it: an
+# optional sign, digits with an optional fraction (or a leading-dot
+# fraction), and an optional exponent. The scan must read the whole
+# token — stopping early, at an exponent or a leading dot, would check
+# a different number than the one a parser accepting those forms acts
+# on: ``S5e2`` is 500 °C to such a parser, not 5 °C.
+_HEATER_NUMBER = r"[-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?"
+_HEATER_PARAM_RE = re.compile(r"([SR])(" + _HEATER_NUMBER + r")", re.IGNORECASE)
+_M303_EXT_RE = re.compile(r"E(" + _HEATER_NUMBER + r")", re.IGNORECASE)
+_EXTENDED_HEATER_RE = re.compile(
+    r"^(SET_HEATER_TEMPERATURE|PID_CALIBRATE)(?![A-Za-z0-9_])", re.IGNORECASE)
+# States in which a printer cannot accept commands at all, so a raw
+# script is refused 409 like the state-gated control actions instead of
+# being sent blind. Any positively known state (idle, printing, paused,
+# operational, complete, ...) passes: mid-print scripts are this
+# route's legitimate use, so the gate refuses only the states that
+# name a printer in no position to act.
+_GCODE_REFUSED_STATES = frozenset(
+    {"unknown", "error", "shutdown", "disconnected", "offline", "unavailable"})
+
+
+def _extended_heater_target(word, rest):
+    """(word, heater, target_c) or None for one Klipper extended line.
+
+    Klipper tokenizes extended commands with ``shlex`` and builds a
+    parameter dict, so this does the same: quoted values parse as
+    Klipper parses them, and a repeated key's last value is the one
+    that wins. A line that cannot be parsed that way — unbalanced
+    quotes, a token without ``=``, a missing HEATER or TARGET, or a
+    non-numeric TARGET — is refused with a 400 (fail closed) instead
+    of being sent unchecked. A named heater this module has no limit
+    for returns None, exactly like a command this scan does not know.
+    """
+    try:
+        tokens = shlex.split(rest)
+    except ValueError:
+        tokens = None
+    params = {}
+    if tokens is not None:
+        for token in tokens:
+            key, sep, value = token.partition("=")
+            if not sep or not key.strip() or not value.strip():
+                tokens = None
+                break
+            params[key.strip().upper()] = value.strip()
+    if tokens is None or "HEATER" not in params or "TARGET" not in params:
+        raise ControlError(400, f"{word} line could not be parsed for its heater "
+                                "and target. Nothing sent.")
+    try:
+        target = float(params["TARGET"])
+    except ValueError:
+        target = None
+    if target is None or target != target or target in (float("inf"), float("-inf")):
+        raise ControlError(400, f"{word} target {params['TARGET']!r} is not a number "
+                                "of °C. Nothing sent.")
+    name = params["HEATER"].lower()
+    heater = ("nozzle" if name.startswith("extruder")
+              else "bed" if name == "heater_bed" else None)
+    if heater is None:
+        return None
+    return word, heater, target
+
+
+def _script_heater_targets(script):
+    """[(word, heater, target_c)] — every temperature a raw script sets.
+
+    Line by line, the way the script will run: a ``;`` comment is
+    stripped first (a heater word inside a comment sets nothing), an
+    optional line number and checksum are dropped, and the command word
+    must start the line. ``M104``/``M109`` set the nozzle (the ``S``
+    parameter, or ``R`` on the wait variant), ``M140``/``M190`` the
+    bed. ``M303`` (Marlin PID autotune) heats to its ``S`` target:
+    the nozzle by default, the bed when its ``E`` parameter is -1.
+    ``SET_HEATER_TEMPERATURE`` and ``PID_CALIBRATE`` name their
+    heater: ``extruder*`` is the nozzle and ``heater_bed`` the bed;
+    any other named heater has no limit in this module and is left
+    alone, exactly like a command this scan does not know. A malformed
+    extended line raises ``ControlError`` (400) rather than passing
+    unchecked. Targets are read whole — sign, fraction and exponent —
+    so the number checked is the number the loosest parser that could
+    run the script would act on.
+    """
+    found = []
+    for raw_line in str(script).splitlines():
+        line = raw_line.split(";", 1)[0].strip()
+        if not line:
+            continue
+        line = re.sub(r"^[Nn][0-9]+\s*", "", line).split("*", 1)[0].strip()
+        word_match = _HEATER_WORD_RE.match(line)
+        if word_match:
+            word = word_match.group(1).upper()
+            rest = line[word_match.end():]
+            if word == "M303":
+                exts = _M303_EXT_RE.findall(rest)
+                heater = "bed" if exts and float(exts[-1]) == -1 else "nozzle"
+                for param, value in _HEATER_PARAM_RE.findall(rest):
+                    if param.upper() == "S":
+                        found.append((word, heater, float(value)))
+            else:
+                for _param, value in _HEATER_PARAM_RE.findall(rest):
+                    found.append((word, _HEATER_WORDS[word], float(value)))
+            continue
+        extended_match = _EXTENDED_HEATER_RE.match(line)
+        if extended_match:
+            parsed = _extended_heater_target(extended_match.group(1).upper(),
+                                             line[extended_match.end():])
+            if parsed is not None:
+                found.append(parsed)
+    return found
+
+
 def send_gcode(data, printer_id, body=None, *, adapter=None, read=None, send=None):
     """(code, body) for POST /api/printers/<id>/gcode.
 
     Body: ``{"script": "<G-code text>"}``. A missing, non-string, empty
     or oversized script (over ``GCODE_MAX_CHARS`` characters) refuses
-    400 and sends nothing. Moonraker receives the script verbatim
+    400 and sends nothing. Temperature commands inside the script are
+    held to the same ceiling as the temperature routes (see
+    ``_script_heater_targets``): a target outside ``0..<limit>`` for
+    this printer refuses 400 naming the word, the heater and the
+    limit, and nothing is sent — the whole script, never a trimmed
+    version of it. The printer's state gates the send like the other
+    mutating routes: a state in ``_GCODE_REFUSED_STATES`` refuses 409.
+    There is deliberately no ``{"confirm": true}`` requirement: the
+    temperature routes perform the same physical action without one,
+    so a script-only confirm would add friction without protection —
+    the ceiling is the guard. Moonraker receives the script verbatim
     through ``/printer/gcode/script``; OctoPrint receives one command
     per non-empty line through ``/api/printer/command``; every other
     family refuses 501 from ``default_send``.
@@ -497,11 +637,24 @@ def send_gcode(data, printer_id, body=None, *, adapter=None, read=None, send=Non
             raise ControlError(400, f"script is {len(script)} characters; the limit is "
                                     f"{GCODE_MAX_CHARS}. Nothing sent.")
         adapter = adapter or printers.get(entry["model"], view)
-        _live_status(adapter, view, read)
+        limits = {}
+        for word, heater, target in _script_heater_targets(script):
+            if heater not in limits:
+                limits[heater] = temperature_limit(adapter, view, heater, printer_id)
+            limit = limits[heater]
+            if not 0 <= target <= limit:
+                raise ControlError(400, f"{word} sets the {heater} to {target:g}°C, "
+                                        f"outside 0..{limit:g}°C for this printer. "
+                                        "Nothing sent.")
+        live = _live_status(adapter, view, read)
+        state = str(live.get("state") or "unknown")
+        if state.strip().lower() in _GCODE_REFUSED_STATES:
+            raise ControlError(409, f"cannot send G-code: printer is {state}. "
+                                    "Nothing sent.")
         _dispatch(send, adapter, view, ("gcode", script), "send-G-code")
     except ControlError as refusal:
         return refusal.code, {"ok": False, "reason": refusal.reason}
-    return 200, {"ok": True, "id": entry["id"], "action": "gcode",
+    return 200, {"ok": True, "id": entry["id"], "action": "gcode", "from_state": state,
                  "detail": "G-code sent; check the printer's status for the result."}
 
 
