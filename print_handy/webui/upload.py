@@ -137,6 +137,30 @@ def list_links(data):
         key=lambda row: row[1])
 
 
+def _upload_refusal(filename, content: bytes):
+    """Why this upload would be refused, or None if it may be saved.
+
+    Pure checks only — the bare name, the file type, the sizes — so
+    a caller can run them before committing anything:
+    save_upload_for_link counts the link use before the write, and a
+    file refused for one of these reasons must not be counted.
+    """
+    name = Path(str(filename or "").replace("\\", "/")).name.strip()
+    suffix = Path(name).suffix.lower()
+    if suffix not in model_sources.DIRECT_FILE_EXTS:
+        return "only .stl and .3mf files can be uploaded"
+    if not Path(name).stem:
+        return "the file needs a name"
+    if suffix == ".stl" and len(content) > intake_resources.MAX_STL_BYTES:
+        return (f"that STL is over the {intake_resources.MAX_STL_BYTES // (1024 * 1024)} "
+                "MiB intake limit; nothing was saved")
+    if len(content) > MAX_UPLOAD_BYTES:
+        return "that file is over the upload size limit; nothing was saved"
+    if not content:
+        return "the file is empty; nothing was saved"
+    return None
+
+
 def save_upload(data, filename, content: bytes):
     """Save one uploaded file into the inbox.
 
@@ -145,19 +169,11 @@ def save_upload(data, filename, content: bytes):
     reaches the disk — and a name clash gets a numeric suffix instead
     of overwriting the file already there.
     """
+    refusal = _upload_refusal(filename, content)
+    if refusal is not None:
+        return None, refusal
     name = Path(str(filename or "").replace("\\", "/")).name.strip()
     suffix = Path(name).suffix.lower()
-    if suffix not in model_sources.DIRECT_FILE_EXTS:
-        return None, "only .stl and .3mf files can be uploaded"
-    if not Path(name).stem:
-        return None, "the file needs a name"
-    if suffix == ".stl" and len(content) > intake_resources.MAX_STL_BYTES:
-        return None, (f"that STL is over the {intake_resources.MAX_STL_BYTES // (1024 * 1024)} "
-                      "MiB intake limit; nothing was saved")
-    if len(content) > MAX_UPLOAD_BYTES:
-        return None, "that file is over the upload size limit; nothing was saved"
-    if not content:
-        return None, "the file is empty; nothing was saved"
     folder = inbox_dir(data)
     with _SAVE_UPLOAD_LOCK:
         folder.mkdir(parents=True, exist_ok=True)
@@ -178,29 +194,39 @@ def save_upload(data, filename, content: bytes):
 def save_upload_for_link(data, token, filename, content: bytes):
     """Save one upload that arrived through a /u/<token> link.
 
-    The validity decision and the write are one atomic step: both
-    happen under _LINKS_LOCK, the lock revoke_link takes, so a
-    revocation either lands before the decision (and nothing is
-    saved) or after the write (and the file was delivered while the
-    link was still live). A handler-side link_valid check cannot
-    promise that on its own — reading the body takes time, and a
-    revocation landing between even a post-read re-check and the
-    write would still deliver the file. The use count is recorded in
-    the same critical section, so a delivered file is always counted
-    and an undelivered one never is.
+    The validity decision and the delivery are one atomic step
+    against revocation: everything happens under _LINKS_LOCK, the
+    lock revoke_link takes, so a revocation either lands before the
+    decision (and nothing is saved) or after the write (and the file
+    was delivered while the link was still live). A handler-side
+    link_valid check cannot promise that on its own — reading the
+    body takes time, and a revocation landing between even a
+    post-read re-check and the write would still deliver the file.
+
+    Inside that section the use is counted and persisted BEFORE the
+    file is written, which makes the delivery failure-atomic too:
+    if the count cannot be persisted, the upload is refused and
+    nothing is saved; a write that fails after the count leaves a
+    counted use with no file — never a file in the inbox behind a
+    failed, uncounted request, which a retry could silently
+    duplicate.
 
     Returns ``(path, None)`` on success, ``(None, reason)`` when the
-    file itself is refused, and ``(None, None)`` when the link is not
-    (or no longer) valid.
+    upload is refused, and ``(None, None)`` when the link is not (or
+    no longer) valid.
     """
     with _LINKS_LOCK:
         if _digest(token) not in _load_links(data):
             return None, None
-        saved, reason = save_upload(data, filename, content)
-        if saved is None:
-            return None, reason
-        _note_link_use_locked(data, token)
-        return saved, None
+        refusal = _upload_refusal(filename, content)
+        if refusal is not None:
+            return None, refusal
+        try:
+            _note_link_use_locked(data, token)
+        except OSError:
+            return None, ("the upload could not be recorded; "
+                          "nothing was saved")
+        return save_upload(data, filename, content)
 
 
 def list_inbox(data):
@@ -254,8 +280,7 @@ def render_upload_page(data, *, form_token, notice=None, error=None,
         parts.append(f'<p class="error">{esc(error)}</p>')
     parts.append(
         "<p>Upload a model file here and it lands in the inbox. An "
-        "uploaded file is not a print: pick it up in <a href=\"/chat\">"
-        "chat</a> and it goes "
+        "uploaded file is not a print: pick it up in chat and it goes "
         "through the normal confirm-before-print flow, like a file "
         "dropped in chat.</p>"
         '<form method="post" action="/upload" enctype="multipart/form-data">'

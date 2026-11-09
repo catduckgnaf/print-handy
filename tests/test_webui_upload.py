@@ -185,6 +185,37 @@ class LinkTests(unittest.TestCase):
         self.assertEqual([row[0] for row in upload.list_inbox(self.data)],
                          ["linked.stl"])
 
+    def test_link_use_count_failure_saves_nothing(self):
+        token = upload.create_link(self.data)
+
+        def failing_save_links(data, links):
+            raise OSError("simulated link-store failure")
+
+        with mock.patch.object(upload, "_save_links", failing_save_links):
+            try:
+                outcome = upload.save_upload_for_link(
+                    self.data, token, "atomic.stl", b"solid a\n")
+            except OSError:
+                outcome = None
+        # The use count could not be persisted, so the delivery must
+        # not have happened either: the end state is never a file in
+        # the inbox behind a failed, uncounted request.
+        self.assertIsNotNone(outcome)
+        saved, reason = outcome
+        self.assertIsNone(saved)
+        self.assertTrue(reason)
+        self.assertEqual(upload.list_inbox(self.data), [])
+        self.assertEqual(upload.list_links(self.data)[0][2], 0)
+        # A retry with a healthy store delivers exactly one file and
+        # counts exactly one use.
+        saved, reason = upload.save_upload_for_link(
+            self.data, token, "atomic.stl", b"solid a\n")
+        self.assertIsNone(reason)
+        self.assertIsNotNone(saved)
+        self.assertEqual([row[0] for row in upload.list_inbox(self.data)],
+                         ["atomic.stl"])
+        self.assertEqual(upload.list_links(self.data)[0][2], 1)
+
     def test_pages_render(self):
         html = upload.render_upload_page(self.data, form_token="tok")
         self.assertIn("Upload to inbox", html)
@@ -474,6 +505,33 @@ class UploadRouteTests(unittest.TestCase):
                     {"Content-Type": content_type})
             self.assertEqual(code, 404)
             self.assertEqual(upload.list_inbox(data), [])
+
+    def test_link_store_failure_during_submit_saves_nothing(self):
+        import tempfile
+
+        def failing_save_links(data, links):
+            raise OSError("simulated link-store failure")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd, port = self.start(tmp)
+            data = httpd.settings_data
+            token = upload.create_link(data)
+            body, content_type = multipart_body({}, "atomic.stl", b"solid a\n")
+            with mock.patch.object(upload, "_save_links", failing_save_links):
+                code, _, _ = self.request(
+                    port, "POST", f"/u/{token}", body,
+                    {"Content-Type": content_type})
+            self.assertEqual(code, 400)
+            self.assertEqual(upload.list_inbox(data), [])
+            self.assertEqual(upload.list_links(data)[0][2], 0)
+            # A retry with a healthy store delivers one file, once.
+            code, _, _ = self.request(
+                port, "POST", f"/u/{token}", body,
+                {"Content-Type": content_type})
+            self.assertEqual(code, 200)
+            self.assertEqual([row[0] for row in upload.list_inbox(data)],
+                             ["atomic.stl"])
+            self.assertEqual(upload.list_links(data)[0][2], 1)
 
     def test_oversized_upload_is_a_413(self):
         import tempfile
