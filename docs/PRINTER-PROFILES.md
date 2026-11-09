@@ -453,6 +453,12 @@ A model's project settings can name the printer they were authored for (`printer
 
 The values a warning names are not used for slicing. Print Handy slices from the target printer's own template and carries over only the author-intent settings listed under [Projects from another printer or slicer](#projects-from-another-printer-or-slicer); speeds come from the template unless the designer set one lower, and accelerations and fan values always do. The warning says so ("Print Handy does not slice with this value; the <printer> profile's own setting is used."). Warnings change nothing themselves. The precedence is: template/vendor profile first, then the carried author-intent settings, the filament-family overlay, material-variant adjustments, and operator/spool values last (they win).
 
+### Compatibility rules with direct regression evidence
+
+- **Orca percentage line widths to Bambu Studio:** Orca expresses `*_line_width` values ending in `%` relative to nozzle diameter; the Bambu fallback receives absolute millimeters. The fallback converts each percentage using the destination machine's nozzle diameter and fails closed if that diameter cannot be read. `tests/pipeline/test_orca_adapter.py::test_bambu_fallback_converts_percent_line_widths` asserts concrete values and that no percentage width reaches Bambu.
+- **Unsupported author enumerations:** `author_settings.carry` validates author enum values against values accepted by the selected Orca process profile; unsupported values use that target profile's setting or slicer default with an explicit conversion note. `tests/pipeline/test_author_settings.py::test_unknown_author_enum_falls_back_to_the_template` covers unsupported values; `test_bad_enum_never_reaches_the_slice_profile` verifies the emitted profile.
+- **Source hardware keys and commands:** source machine settings and startup/end commands are not imported into the destination machine profile; the target template supplies machine setup. `tests/pipeline/test_orca_adapter.py` contains the producer/fallback path checks; the repository's `slice_guard` protects machine G-code (`tests` guard regressions). These are behavior rules, not a version-paired compatibility registry: exact source/destination slicer/profile versions and regression evidence per version pair remain a gap.
+
 ## Bambu Lab
 
 | Capability | Status |
