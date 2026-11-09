@@ -8,15 +8,18 @@ that predates the #1110 completion program (#713, #723, the #714 corpus and
 the existing support regression corpus), as #1110's validation plan
 requires.
 
-**Status: interim verification, 2026-11-09.** This pass verifies the
-assembled stack at `feat/1110-b-per-plate-usage` (PR #1111, then Phase D
-PR #1127, Phase A PR #1128, Phase B PR #1129). Criterion 4 is **pending
-Phase C** (exhaustive atomic remapping, in build) and is recorded below
-with its pre-Phase C baseline, not verified. This matrix is therefore not
-the final verification: #1110 closes only on a clean final pass after
-Phase C lands and the stack is merged. Verdicts here were established by
-reading the code and tests at the stack tip and running the named evidence
-tests, not by copying the phase pull requests' claims.
+**Status: final verification, 2026-11-09.** This pass verifies the full
+assembled stack (PR #1111, then Phase D PR #1127, Phase A PR #1128,
+Phase B PR #1129, Phase C PR #1133). It supersedes the interim pass
+recorded at the Phase B tip. Verdicts were established by reading the code
+and tests at the stack tip and running the named evidence tests, not by
+copying the phase pull requests' claims. Criteria 1, 2, 3, 5 and 6 are
+met. Criterion 4 is **partial**, precisely bounded below: every reference
+type is now provably updated or refused/preserved by name with no partial
+output and no silent drop, but three reference rows are handled by named
+refusal rather than by update in the generic remapper. Whether those
+named refusals satisfy the criterion is the close decision; the close
+itself happens only after the stack is merged.
 
 ## Verdict summary
 
@@ -25,7 +28,7 @@ tests, not by copying the phase pull requests' claims.
 | 1 | Setting intent | Met |
 | 2 | Per-job provenance | Met |
 | 3 | Per-plate filament usage | Met |
-| 4 | Atomic complete remapping | **Pending Phase C — not yet verified** |
+| 4 | Atomic complete remapping | **Partial — all references updated or refused/preserved by name; three named-refusal residues (see criterion 4)** |
 | 5 | Versioned compatibility | Met |
 | 6 | Safety gates preserved | Met |
 
@@ -87,14 +90,14 @@ blocks readiness if mapping cannot be validated.
 | Requirement element | Implementation evidence | Test evidence |
 |---|---|---|
 | Per-class per-plate derivation | `print_handy/core/source_colors.py::inventory` records `plate_usage` built by `source_colors._plate_usage` over the classes in `source_colors._USAGE_CLASSES` (`objects`, `painting`, `layer_changes`, `height_ranges`, `wall`, `infill`, `support`, `interface`, `tower`), each row carrying its status, source filaments and evidence | `tests/core/test_plate_usage.py::test_object_assignments_are_per_plate_with_original_ids`, `::test_triangle_painting_adds_painted_filaments_to_their_plate`, `::test_layer_changes_are_attributed_to_their_own_plate`, `::test_height_range_extruder_assignment_is_per_plate`, `::test_support_and_interface_designations_are_role_usage` |
-| Painting detail | `source_colors._painting_usage` decodes `paint_color` states per part (unpainted and base-state triangles count the part's base extruder); PrusaSlicer `mmu_segmentation`, which is not decoded per state, counts every palette filament, exactly as the geometry exporters treat it | `tests/core/test_plate_usage.py::test_triangle_painting_adds_painted_filaments_to_their_plate`, `::test_unpainted_source_painting_class_is_known_empty` |
+| Painting detail | `source_colors._painting_usage` decodes `paint_color` states per part (unpainted and base-state triangles count the part's base extruder). Since Phase C, PrusaSlicer `mmu_segmentation` is decoded per state by `painted_geometry` with the same TriangleSelector decoding, so its states count exactly (Phase B's conservative count of every palette filament is superseded) | `tests/core/test_plate_usage.py::test_triangle_painting_adds_painted_filaments_to_their_plate`, `::test_unpainted_source_painting_class_is_known_empty`; `tests/pipeline/test_remap_exhaustive.py::test_mmu_segmentation_states_are_decoded_per_part` |
 | Wall/infill/tower accounting per format | `source_colors._prusa_role_extruders` reads PrusaSlicer per-feature extruders (`perimeter_extruder`, `infill_extruder`, `solid_infill_extruder`) as the wall and infill assignments. The Bambu/Orca and PrusaSlicer formats name no distinct wall, infill or prime-tower filament, so those classes are recorded `not_carried_by_format` — a stated limitation, not a hidden filament: walls and infill print with the object filament already counted under `objects`, and the tower prints with the filaments in play | `tests/core/test_plate_usage.py::test_wall_infill_tower_are_not_carried_by_an_orca_project`, `::test_prusa_role_extruders_are_read_from_the_prusa_config` |
 | Unknown stays unknown, never guessed or silently zero | `_plate_usage` marks a class `unknown` when the source should carry it but it cannot be determined (a part with no extruder assignment, a tool change naming no extruder, unparsable height ranges, undecodable paint); a disagreement between the analysis and the slicer-reported totals in `slice_info.config`, or a damaged slicer usage record, makes the plate's usage unknown with the disagreement recorded | `tests/core/test_plate_usage.py::test_layer_change_without_an_extruder_is_unknown_not_zero`, `::test_malformed_height_ranges_are_unknown_not_absent`, `::test_part_without_extruder_assignment_is_unknown`, `::test_slicer_disagreement_makes_the_plate_usage_unknown`, `::test_invalid_slicer_record_makes_the_plate_usage_unknown`, `::test_slicer_reported_totals_merge_when_they_agree` |
 | Selected-plate-only prompts | `source_colors.prompts` and `source_colors.canonical_prompts` accept `selected_plate_ids` and scope through `source_colors._selected_scope`; the chat intake, the Discord color flow and the color-plan packet all generate questions from this same prompt layer (call sites in `print_handy/core/model_job.py`, `print_handy/core/discord_color_intake.py`, `print_handy/core/prepared_intake.py`). A filament used only through a class with no question of its own still gets a question naming the class | `tests/core/test_plate_usage.py::test_canonical_prompts_cover_only_the_selected_plate`, `::test_grouped_and_legacy_prompts_scope_the_same_way`, `::test_painted_prompts_scope_to_the_selected_plates_filaments`, `::test_layer_change_rows_scope_to_their_plate`, `::test_height_range_filament_gets_a_question`, `::test_scoped_decisions_validate_against_the_scoped_questions` |
 | Readiness blocking | `source_colors.plate_readiness_problems` / `require_plate_readiness` block, with the reason named, when a selected plate has an unknown usage class, a slicer/analysis disagreement, or a used filament with no validated slot mapping; called from `model_job.intake_color_choices` and `model_job.slice_job` with the destination's slot capacity. Unselected plates never prompt or block; the spool projection counts only the selected plates' validated slicer-reported grams (`model_job._selected_plate_stats`, `model_job.filament_usage_by_selection`) | `tests/core/test_plate_usage.py::test_ready_when_every_selected_plate_filament_is_mapped`, `::test_unmapped_selected_filament_blocks_with_a_named_reason`, `::test_unselected_plates_never_block`, `::test_unknown_usage_blocks_only_the_selected_plate`, `::test_disagreement_blocks_the_selected_plate`, `::test_missing_decisions_block`, `::test_single_color_selection_maps_every_used_filament`, `::test_spool_projection_counts_only_the_selected_plate` |
 | Original IDs; color, slot and nozzle kept distinct | Usage records carry logical source filament IDs end to end (a plate using only filament 3 is recorded as filament 3, never renumbered); decisions map source IDs to loaded slots; readiness validates slots against real loaded-slot capacity (`model_job.position_limit`). The AD5X's four IFS spools share one nozzle, and that shared nozzle adds no slots: a mapping naming a fifth slot is not validated | `tests/core/test_plate_usage.py::test_object_assignments_are_per_plate_with_original_ids`, `::test_shared_nozzle_destination_still_validates_real_slot_capacity` |
 
-## Criterion 4 — Atomic complete remapping (pending Phase C)
+## Criterion 4 — Atomic complete remapping
 
 Requirement (#1110 item 4): update every reference, including paint,
 parts, feature/support assignments, height ranges, layer changes, purge
@@ -103,42 +106,63 @@ original immutable; fail without partial output; cleanup/merging is
 conservative and allowed only when usage is proven; never silently drop
 colors.
 
-**Verdict: not yet verified — pending Phase C.** Phase C (exhaustive
-remapping) is in build on top of Phase B and has not landed at this stack
-tip, so no verdict is claimed here. The final Phase E pass will verify
-this criterion against the landed Phase C implementation.
+**Verdict: partial — precisely bounded.** Phase C (PR #1133) rebuilt this
+surface around a generic package remapper
+(`print_handy/core/package_remap.py::remap_package`) and a staged atomic
+write shell (`package_remap.write_package_atomically`) now used by the
+generic remapper and every exporter. Every one of the 28 audited
+reference types (R01–R28) is now either provably updated, or refused or
+preserved *by name* — nothing is carried stale or dropped silently
+anywhere, the original is immutable, and every refusal fails without
+partial output. The criterion's first demand, "update every reference,"
+is nevertheless not literally met for three rows in the generic
+remapper, which are handled by named refusal instead of update (rows
+marked *refusal* below). The pre-Phase C baseline was 4 of 28 reference
+types atomically remapped, 8 read but not remapped, 7 rewritten
+non-atomically, 2 not read and 7 not applicable; the per-element
+verdicts below are the post-Phase C state, each verified against the
+code and tests at the Phase C tip.
 
-Baseline at this stack tip, from `docs/3MF-REMAP-INVENTORY.md` and the
-Phase C reference audit (28 reference types inventoried, R01–R28):
-
-| Audit verdict | Count | Meaning |
+| Requirement element | Verdict | Implementation and test evidence |
 |---|---|---|
-| (a) Remapped atomically | 4 of 28 | Object extruder (R08), part extruder (R09), `paint_color` triangle paint (R15), per-layer tool changes (R21) |
-| (b) Read but not remapped | 8 of 28 | Used for inventory, questions, validation or display only |
-| (c) Rewritten non-atomically | 7 of 28 | Rewritten, truncated, folded or regenerated outside the validate-then-write discipline |
-| (d) Not read | 2 of 28 | Values never decoded (PrusaSlicer `mmu_segmentation` states; embedded sliced G-code) |
-| (e) Not applicable | 7 of 28 | Carries no filament/color/extruder identity to remap |
+| Atomic shell: staged write, no partial output | Met | `package_remap.write_package_atomically` stages beside the target, checks zip integrity, re-validates the staged payload (for the generic remapper, a cross-reference consistency re-read: every filament reference in the staged package resolves under the new numbering), and only then replaces the target; it is used by `remap_package` and by `color_geometry.export_color_geometry`, `export_single_color_plate`, `export_volume_plate` and `export_production_plate`. Refusals preserve source and pre-existing destination bytes: `tests/pipeline/test_remap_exhaustive.py::test_generic_remap_refuses_an_unmapped_range_extruder_atomically`, `::test_generic_remap_refuses_the_unestablished_flush_vector`; pre-existing coverage `tests/pipeline/test_color_geometry.py::test_failed_remap_preserves_source_and_existing_destination_bytes`, `::test_archive_layer_remap_preserves_members_and_is_atomic` |
+| Paint: `paint_color` states | Met (updated) | Permuted through the paint table in the generic remapper (`package_remap._remap_model_member` over `painted_geometry.rewrite_paint_bytes`) and the rebuilt export; geometry bytes otherwise untouched; support, seam and fuzzy-skin paint carry no filament identity and are preserved verbatim. `tests/pipeline/test_remap_exhaustive.py::test_generic_remap_permutates_every_reference_and_preserves_the_rest` |
+| Paint: PrusaSlicer `mmu_segmentation` | Met (updated) | Decoded per state by `painted_geometry` (`MMU_RE`, the same TriangleSelector decoding as `paint_color`), translated to `paint_color` on remap with the Prusa attribute dropped; a state with no mapping refuses before any byte is written (registry rule `mmu-segmentation-paint-translation`). `tests/pipeline/test_remap_exhaustive.py::test_mmu_segmentation_states_are_decoded_per_part`, `::test_mmu_segmentation_export_translates_paint_to_the_chosen_tools`, `::test_mmu_segmentation_export_refuses_a_paint_state_with_no_choice` |
+| Parts: object/part extruders | Met (updated) | `package_remap.remap_extruder_metadata` rewrites every extruder metadata value in `model_settings.config` and `Slic3r_PE_model.config` (value 0, "inherit the object's extruder," is structural and passes through); an unmapped value refuses, naming the member. Same swap test as above |
+| Feature/support assignments | Met (updated, with named drops) | Support designations are remapped in-package (`package_remap.permute_project_settings`; Prusa pair in `remap_prusa_member`); a designation whose filament a remap removes falls back to 0, the object's own filament, with the fallback named in the remap report — never a value past the new palette (registry rule `support-designation-remap`). Per-part author settings outside the intent allowlist are still not carried by the rebuilt export, but the drop is now named per part and key in the export report's `dropped_part_settings` (`color_geometry._dropped_part_settings`): `tests/pipeline/test_remap_exhaustive.py::test_rebuilt_export_names_dropped_per_part_settings` |
+| Height ranges | Met (updated; one path refuses by name) | The generic remapper translates range extruder values through the mapping and object ids through the caller's object map, refusing values or objects it does not know (`package_remap.remap_ranges`). The single-color copy rewrites values to its one filament; slice-time adoption clamps a value past the job's filament count to the job's last filament and records the clamp in its `changed` record (`orca_adapter.adopt_job_settings`, registry rule `height-range-extruder-remap`). The rebuilt geometry export, which renumbers object ids, refuses a source whose ranges name extruders, by name, rather than mistranslate them: `tests/pipeline/test_remap_exhaustive.py::test_rebuilt_export_refuses_height_range_extruders_by_name` |
+| Layer changes | Met (updated) | Tool changes are remapped in the generic remapper and the rebuilt export; an unmapped tool change now refuses in-export instead of dropping silently (`color_geometry.export_color_geometry`). A kept entry's `color` attribute is carried verbatim: it is display metadata (tool selection comes from `extruder`), and Orca's 3MF loader requires it — stripping it made real Orca reject every height-color slice (return code -6) in Phase C's own CI, so the behavior was reversed on real-slicer evidence (`print_handy/core/layer_gcode.py::remap`). `tests/pipeline/test_remap_exhaustive.py::test_rebuilt_layer_change_keeps_the_color_attribute` |
+| Purge matrix | Met (updated) | `permute_project_settings` permutes `flush_volumes_matrix` on both axes (a size mismatch refuses). Swap-tested: in a 1↔2 swap the from-1-to-2 and from-2-to-1 entries (100 and 200) trade places (`test_generic_remap_permutates_every_reference_and_preserves_the_rest`); registry rule `flush-matrix-permutation` |
+| Purge vector | **Partial (named refusal)** | `flush_volumes_vector` is not permuted under a non-identity mapping: its layout semantics are not established from this repository (only "two entries per filament" in one synthetic fixture), so `permute_project_settings` refuses and names the key rather than guess a layout (registry rule `flush-vector-unestablished-refusal`). The identity mapping passes it through untouched, and a one-filament collapse keeps the used filament's own pair — the one slice of the layout the fixture establishes. `tests/pipeline/test_remap_exhaustive.py::test_generic_remap_refuses_the_unestablished_flush_vector`, `::test_declare_one_filament_keeps_the_used_filaments_entries` |
+| Palette and per-filament arrays | Met (updated) | Generic permutation in destination order for the palette and every per-filament array (an array of unexpected length refuses). The one-filament collapse keeps the *used* source filament's entries — temperatures, density, flow, profile id — resolving the audit's open question (entry 1 was previously kept regardless): `color_geometry._declare_one_filament` with `keep_index`; `tests/pipeline/test_remap_exhaustive.py::test_declare_one_filament_keeps_the_used_filaments_entries`, `::test_single_color_plate_carries_no_stale_filament_reference` |
+| Sliced usage records (`slice_info.config`) | Met (updated or named) | Filament ids are remapped in the generic remapper (`package_remap.remap_slice_info`, unmapped id refuses). The single-color copy drops the member and names the drop in `dropped_entries` (usage is re-derived by slicing) |
+| Embedded plate G-code (`Metadata/plate_N.gcode`) | **Refusal (named)** | The generic remapper refuses by name: bare G-code is never rewritten in this converter and its tool commands would contradict the new numbering. The single-color copy drops the member and names the drop. Not updated on any path: `tests/pipeline/test_remap_exhaustive.py::test_generic_remap_refuses_unclassified_and_embedded_gcode_members` |
+| Filament sequence (`Metadata/filament_sequence.json`) | **Refusal (named)** | The generic remapper refuses a non-identity remap by name: what real packages store there beyond the embedded preset record is not established, and that record is provenance evidence about the *source* (criterion 2 compares against it), so rewriting it would falsify provenance. Copy paths preserve it byte-for-byte and name it in `preserved_unremapped_entries`. Identity remaps pass it through |
+| Member classification | Met | Before any byte is written, `package_remap.member_handling` classifies every member (remap, preserve, refuse-G-code, refuse-sequence); an unclassified member refuses by name rather than being carried or dropped silently (registry rule `remap-member-classification`). Classified opaque members (thumbnails, relationship parts, vendor records, `Auxiliaries/`) are preserved byte-for-byte, and the production copy no longer drops `Auxiliaries/`: `tests/pipeline/test_remap_exhaustive.py::test_production_plate_preserves_auxiliaries_members`. The rebuilt export names every source member it does not carry in `dropped_members`, and strips dangling per-triangle `pid`/`p1`/`p2`/`p3` material references rather than emitting them (the face colors stay disclosed through the inventory's `face_colors_ignored` note) |
+| Object-id policy | Met | Package remaps never renumber object ids; ids change only through the caller's explicit `object_map`, which translates every object-keyed reference (height ranges, model settings, plate instances) with the same map. The rebuilt export is the one renumbering path, which is why it refuses extruder-carrying height ranges (above). `tests/pipeline/test_remap_exhaustive.py::test_generic_remap_identity_preserves_object_ids_and_members` |
+| Conservative cleanup; never silently drop colors | Met | The generic remapper accepts only a bijection onto a contiguous destination numbering — a collision (a merge) or a gap refuses, so merging stays a collapse-exporter decision, never a permutation (`package_remap.validate_mapping`; `tests/pipeline/test_remap_exhaustive.py::test_generic_remap_rejects_a_noncontiguous_or_colliding_mapping`). Every drop on every path is named in its report (`dropped_entries`, `dropped_members`, `dropped_part_settings`, `preserved_unremapped_entries`, designation-fallback notes). Job-level decisions remain remapped atomically on a copy (`print_handy/core/ai_fix.py::remapped_decisions`; `tests/test_ai_fix_985.py::test_remapped_decisions_rejects_partial_or_unknown_mapping_atomically`) |
 
-What already holds at this baseline: the layer archive path
-(`print_handy/core/layer_gcode.py::remap_archive`) stages, validates and
-renames atomically; the exporters in `print_handy/core/color_geometry.py`
-validate completely before writing, so a validation failure creates no
-output and preserves a pre-existing destination, and the source is never
-modified (`tests/pipeline/test_color_geometry.py::test_failed_remap_preserves_source_and_existing_destination_bytes`,
-`tests/pipeline/test_color_geometry.py::test_archive_layer_remap_preserves_members_and_is_atomic`,
-`tests/pipeline/test_color_geometry.py::test_production_plate_recolor_preserves_unrelated_zip_members`).
-Job-level filament decisions are remapped atomically on a copy
-(`print_handy/core/ai_fix.py::remapped_decisions`;
-`tests/test_ai_fix_985.py::test_remapped_decisions_rejects_partial_or_unknown_mapping_atomically`).
+Residue, stated exactly: three reference rows are refused by name rather
+than updated in the generic remapper — `flush_volumes_vector` under a
+non-identity mapping, `Metadata/filament_sequence.json` under a
+non-identity mapping, and embedded plate G-code. Each refusal is named,
+fail-closed and without partial output, which satisfies the criterion's
+failure mode ("fail without partial output") and its "never silently
+drop" rule; none of the three can be updated honestly from evidence in
+this repository today (unestablished layout or sequence semantics, and
+G-code this converter never rewrites). The verdict is therefore
+partial rather than met: the update demand is unmet for those three
+rows, and accepting the named refusals in their place is the close
+decision.
 
-One documentation correction is owed by the final pass, recorded here so
-it is not lost: the "Regression coverage status" paragraph of
-`docs/3MF-REMAP-INVENTORY.md` says pre-existing destination preservation
-is not yet verified, but
-`test_failed_remap_preserves_source_and_existing_destination_bytes` does
-verify it for the rebuilt export's failure path. The inventory file itself
-is Phase C's working surface, so this page records the discrepancy rather
-than editing that file mid-phase.
+Documentation correction resolved: Phase C rewrote
+`docs/3MF-REMAP-INVENTORY.md` to the post-Phase C behavior, and the stale
+statement flagged in the interim pass (pre-existing destination
+preservation described as "not yet verified," although
+`test_failed_remap_preserves_source_and_existing_destination_bytes`
+verifies it) no longer appears there; the inventory's regression
+coverage section now records the staged-write and preservation state
+above.
 
 ## Criterion 5 — Versioned compatibility
 
@@ -150,7 +174,7 @@ profile provenance; no unexplained broad substitutions.
 
 | Requirement element | Implementation evidence | Test evidence |
 |---|---|---|
-| Versioned rule registry | `print_handy/core/compat_registry.py`: `REGISTRY_VERSION` 1, 25 rules (`compat_registry.RULES`), each a `Rule` with a unique id, decision kind, source family and version applicability spec, destination family and spec, reason, exact parameters, and named regression evidence (tests and/or a documentation section) | `tests/pipeline/test_compat_registry.py::test_registry_has_a_version_and_unique_ids`, `::test_every_rule_carries_the_required_fields`, `::test_version_applicability_specs_parse`, `::test_every_evidence_reference_resolves` |
+| Versioned rule registry | `print_handy/core/compat_registry.py`: `REGISTRY_VERSION` 1, 32 rules (`compat_registry.RULES` — the 25 Phase D rules plus Phase C's 7 remap rules; the registry version stays 1), each a `Rule` with a unique id, decision kind, source family and version applicability spec, destination family and spec, reason, exact parameters, and named regression evidence (tests and/or a documentation section) | `tests/pipeline/test_compat_registry.py::test_registry_has_a_version_and_unique_ids`, `::test_every_rule_carries_the_required_fields`, `::test_version_applicability_specs_parse`, `::test_every_evidence_reference_resolves` |
 | Version applicability is honest about unknowns | `compat_registry.parse_version_spec` / `applies` / `rule_applies`: an unknown version (None) matches only an unrestricted (`any`) spec, so a version-scoped rule never silently governs an unversioned source or destination | `tests/pipeline/test_compat_registry.py::test_version_applicability_specs_parse` |
 | The converter consults the registry (no parallel tables) | `author_settings` builds `PRUSA_KEYS` and `ORCA_ENUMS` from rule parameters and resolves translation, threshold, ironing, style and sequence rules by id at the call sites; `orca_adapter` builds `PROCESS_KEYS` from the `author-intent-allowlist` rule and resolves the remaining rules (sentinel normalization, template override, tower clamp, percent line widths, range clamp) by id | `tests/pipeline/test_compat_registry.py::test_converter_tables_are_the_registry_tables`, `::test_percent_line_width_parity_with_registry`, `::test_enum_fallback_parity_with_registry`, `::test_hardware_only_key_protection_parity_with_registry` |
 | Percent versus millimeter line widths | Rule `orca-percent-line-width-to-bambu-mm`: Orca percentage `*_line_width` values are converted with the destination machine's nozzle diameter for a Bambu Studio destination; the conversion fails closed when the diameter cannot be read | `tests/pipeline/test_orca_adapter.py::test_bambu_fallback_converts_percent_line_widths` |
@@ -226,11 +250,21 @@ quoted from the finished logs only:
   124 passed in one batch
 - `tests/test_docs_index_contract.py` — 1 passed (65 subtests, including
   this page's new index entry)
+- Final pass, at the Phase C tip: `tests/pipeline/test_remap_exhaustive.py`
+  — 16 passed; one batch of `tests/pipeline/test_color_geometry.py`,
+  `tests/pipeline/test_compat_registry.py`, `tests/core/test_plate_usage.py`,
+  `tests/pipeline/test_foreign_project_adoption.py`,
+  `tests/pipeline/test_forgebridge_edge_cases.py` and
+  `tests/pipeline/test_author_settings.py` — 139 passed
 
 ## What remains
 
-- Phase C lands (exhaustive atomic remapping) and this matrix's
-  criterion 4 row is verified in a final pass.
-- The `docs/3MF-REMAP-INVENTORY.md` correction noted under criterion 4.
-- The stack merges (the merges are catduck's); only a clean final pass
-  after those merges closes #1110.
+- The stack merges (the merges are catduck's). On merge, #1110's close
+  decision rests on this final verification: criteria 1, 2, 3, 5 and 6
+  met, and criterion 4 partial with the three named-refusal residues
+  recorded above — accepting those refusals (each named, fail-closed and
+  without partial output) in place of updates is the decision to make.
+- If any residue is later resolved (a `flush_volumes_vector` layout or a
+  `filament_sequence.json` sequence semantics established from real
+  packages), the corresponding refusal can become an update and this
+  matrix's criterion 4 row should be re-verified.
