@@ -22,7 +22,6 @@ CHOICES = ["One copy", "Two copies"]
 
 @pytest.fixture(autouse=True)
 def _core_registry(monkeypatch):
-    monkeypatch.setattr(prompts, "_active", True)
     monkeypatch.setattr(link_intake, "_typed_prompts", {})
 
 

@@ -1,19 +1,18 @@
-"""Standalone bot tests: a fake discord.py client, no token, no network, no Hermes.
+"""Bot tests: a fake discord.py client, no token, no network.
 
-The bot switches process globals on (the core prompt registry, the plugin's Stop sender). Each test gets
-them back off, so Hermes-path suites that run later keep their clarify stand-in.
+The bot switches a process global on (the plugin's Stop sender). Each test gets
+it back off.
 """
 import copy
 
 import pytest
 
-from print_handy.core import prepared_intake, prompts
+from print_handy.core import prepared_intake
 from print_handy.hermes import _config
 
 
 @pytest.fixture(autouse=True)
 def _restore_bot_globals(monkeypatch):
-    monkeypatch.setattr(prompts, "_active", False)
     monkeypatch.setattr(prepared_intake, "STOP_SENDER", None)
     yield
 

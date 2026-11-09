@@ -1,8 +1,9 @@
-"""Profile-scoped truthful receipt feedback and print controls via supported gateway hooks.
+"""Truthful receipt feedback and print controls: the standalone bot's handler module.
 
-The gateway loads this folder through a symlink into the Hermes profile. Everything it needs lives in
-the Print Handy package: print_handy.hermes (listener helpers, print control) and print_handy.core
-(the slicing and print pipeline). Hosts, paths and temperatures come from the home configuration.
+The bot's Router (print_handy.bot.router) loads this module and calls register() with
+itself as the context. Everything it needs lives in the Print Handy package:
+print_handy.hermes (listener helpers, print control) and print_handy.core (the slicing
+and print pipeline). Hosts, paths and temperatures come from the home configuration.
 """
 import asyncio
 import contextlib
@@ -47,75 +48,19 @@ def _state_dir():
 # ---------------------------------------------------------------------------
 # Hosting profile identity (#574)
 #
-# Hermes mode requires a dedicated profile (#566): unmatched and
-# natural-language messages reach the hosting profile's agent by design,
-# and the profile is what bounds that agent. But the profile's NAME is
-# the operator's choice, so the gates below never compare against a
-# literal name: the expected identity is derived from the install itself
-# by _config.hosting_profile. An existing '3dprinting' install derives
-# the identical identity; standalone runtimes derive nothing and fall
-# back to the standalone bot's own stamped label, so their sources pass
-# exactly as before.
-_identity_warnings = set()
-
-
-def _warn_identity_once(key, message, *args):
-    """Log an identity problem once per process: named, never silent (#566)."""
-    if key in _identity_warnings:
-        return
-    _identity_warnings.add(key)
-    logger.warning(message, *args)
-
-
+# The bot stamps every source it builds with the fixed hosting profile
+# (print_handy.bot.runtime.PROFILE, _config.DEFAULT_PROFILE); the gates
+# below answer only sources carrying that stamp. The name used to be
+# derived from the Hermes install layout; with that install gone the
+# identity is the constant.
 def _hosting_profile():
-    """The profile identity this plugin answers for, derived per #574."""
-    name, derived = _config.hosting_profile(Path(__file__))
-    if not derived:
-        try:
-            mode = str(_config.cfg().get('bot', {}).get('mode', ''))
-        except Exception:
-            mode = ''
-        if mode == 'hermes':
-            _warn_identity_once(
-                'hosting-profile-fallback',
-                'print-feedback: could not derive the hosting Hermes profile from '
-                'paths.hermes_home (%s) or the plugin install location; answering '
-                'only %r events. Point paths.hermes_home at the dedicated profile '
-                'directory (~/.hermes/profiles/<name>) so the plugin answers this '
-                "install's profile.",
-                _config.hermes_home(), name)
-    return name
+    """The profile identity this module answers for: the fixed hosting profile."""
+    return _config.hosting_profile(Path(__file__))[0]
 
 
 def _is_hosting_profile(value):
     """True when an event's profile value is the hosting profile's."""
     return bool(value) and value == _hosting_profile()
-
-
-def _profile_matches(profile, hook):
-    """True when a tool session's profile is the hosting profile (#574).
-
-    The pre_tool_call guards supervise only their own profile's agent.
-    Standing down for another profile is by design, but never silent
-    (#566): the first stand-down per hook names both profiles in the
-    log, so a mis-derived identity is visible instead of the guards
-    quietly doing nothing.
-    """
-    expected = _hosting_profile()
-    if profile and profile == expected:
-        return True
-    if profile:
-        _warn_identity_once(
-            ('other-profile', hook, profile),
-            'print-feedback: %s standing down: session profile %r is not the '
-            "hosting profile %r; the print guards supervise only their own "
-            "profile's agent.", hook, profile, expected)
-    else:
-        _warn_identity_once(
-            ('no-profile', hook),
-            'print-feedback: %s standing down: the session names no profile, so '
-            'it cannot be matched to the hosting profile %r.', hook, expected)
-    return False
 
 
 _seen = OrderedDict()
@@ -157,9 +102,8 @@ def _failure_post(label, exc, note, *, subsystem):
 
 # Platforms whose standalone sources these handlers serve (#164): Discord,
 # Telegram (stage 2) and Matrix (stage 3). The gate was never really "is
-# this Discord" but "is this our bot's print source"; Hermes gateway
-# behaviour for the Discord profile is unchanged, and Telegram/Matrix
-# sources only exist when an operator runs that standalone bot.
+# this Discord" but "is this our bot's print source"; Telegram/Matrix
+# sources exist when the operator runs the bot on that platform.
 BOT_PLATFORMS = frozenset({'discord', 'telegram', 'matrix'})
 
 
@@ -283,7 +227,7 @@ def _shared_printer_ids(source, gateway=None):
     """The roster ids sharing this event's channel (#536), or None when decided.
 
     Standalone, the gateway's shared map (or the stamp BotCore put on the
-    source) answers. A host with no channel map at all (Hermes) serves one
+    source) answers. A host with no channel map at all serves one
     channel per profile, so a roster with more than one printer makes every
     unrouted event undecided among the whole roster. A gateway that HAS a
     channel map decides authoritatively: no shared entry there means the
@@ -592,71 +536,8 @@ async def guided_dispatch(event, gateway, **kwargs):
     return {'action': 'skip', 'reason': 'guided setup/debugging handled'}
 
 
-# The Hermes plugin LLM lane (ctx.llm), stashed by register() when the host
-# offers it (#388 Stage 1). The standalone Router offers neither attribute,
-# so this stays None there. Design uses it only as the fallback when no
-# [design]/[llm] HTTP endpoint resolves (#524 Stage 3).
-_HERMES_LLM = None
-
-
-# Plugin-owned clarify rendering (#524 stage 2): the HermesClarifyAdapter
-# (print_handy.hermes.clarify_ui) the S5 switch installs here — under Hermes
-# only, and only when the operator turns on [discord] clarify_ui. None
-# otherwise: the pbq: branch in on_interaction and typed_answer_dispatch
-# both stay inert, no handler substitutes the adapter, and Hermes' adapter
-# keeps rendering questions exactly as before.
-_CLARIFY_UI = None
-
-# Set by register(): True when the host offered a Hermes-only plugin API
-# (register_auxiliary_task or the llm lane). The standalone Router offers
-# neither, and its own adapter already renders Print Handy's questions —
-# the S5 switch must never substitute there.
-_HOST_HERMES = False
-
-
-def _clarify_ui_on():
-    """The S5 switch, evaluated at register/attach time: Hermes host + [discord] clarify_ui on."""
-    return _HOST_HERMES and _config.clarify_ui_enabled()
-
-
-class _ClarifyAdapter:
-    """The delivery substitution (Stage 2 design §3.2): questions go to the
-    plugin-owned clarify adapter, plain posts keep travelling through the
-    host adapter, and every other attribute reads as the host adapter's.
-    Handlers keep calling the surface they already call; the blast radius
-    is send_clarify alone.
-    """
-
-    def __init__(self, ui, host):
-        self._ui = ui
-        self._host = host
-
-    async def send_clarify(self, *args, **kwargs):
-        return await self._ui.send_clarify(*args, **kwargs)
-
-    async def retire_prompt(self, clarify_id):
-        return await self._ui.retire_prompt(clarify_id)
-
-    async def send(self, *args, **kwargs):
-        return await self._host.send(*args, **kwargs)
-
-    def __getattr__(self, name):
-        return getattr(self._host, name)
-
-
 def _adapter_for(gateway, source):
-    """The adapter a dispatch handler renders through (Stage 2 design §3.2).
-
-    The host adapter, unless the S5 switch installed the plugin-owned
-    clarify adapter and this source is Discord — then a wrapper that
-    substitutes send_clarify only. Any gap (the platform handler never ran,
-    no token resolved, the setting is off, a non-Discord source) falls back
-    to the host adapter: today's behaviour, no new failure mode.
-    """
-    ui = _CLARIFY_UI
-    if ui is not None and _platform_value(source) == 'discord' and _config.clarify_ui_enabled():
-        host = gateway._delivery_adapter_for(source)
-        return _ClarifyAdapter(ui, host) if host is not None else None
+    """The adapter a dispatch handler renders through: the host adapter."""
     return gateway._delivery_adapter_for(source)
 
 
@@ -669,29 +550,15 @@ def _design_root(cfg):
 def _design_transport(cfg):
     """(complete, kind) for a design turn, or (None, '') when no model is reachable.
 
-    The HTTP transport is the normal path in EVERY mode (#524 Stage 3):
-    its endpoint resolves from [design] inheriting [llm], Hermes mode
-    included. The host's plugin LLM lane (ctx.llm, with the registered
-    print_design auxiliary task — Stage 0 on #388) is the legacy fallback,
-    used only when no HTTP endpoint resolves: an install with no
-    [design]/[llm] endpoint configured sees no change at all, and the
-    profile's auxiliary.print_design block stays its design model.
+    The HTTP transport is the only path (#524 Stage 3): its endpoint
+    resolves from [design] inheriting [llm].
     """
     from print_handy.core import design
-    design_cfg = cfg.get('design') or {}
-    timeout_s = int(design_cfg.get('timeout_s') or 180)
     if design.resolve_http_config(cfg) is not None:
         def http(messages):
             return asyncio.to_thread(design.http_complete, cfg, messages)
 
         return http, 'http'
-    if (cfg.get('bot') or {}).get('mode') == 'hermes' and _HERMES_LLM is not None:
-        llm = _HERMES_LLM
-
-        async def hermes(messages):
-            return await design.hermes_complete(llm, messages, timeout_s=timeout_s)
-
-        return hermes, 'hermes'
     return None, ''
 
 
@@ -974,8 +841,7 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
     if complete is None:
         if design_raw is True:
             await say('Design is enabled but no design model is configured: set '
-                      '[design] chat_url/model (or the [llm] values they inherit); in Hermes mode '
-                      'without an endpoint, the profile needs the print_design auxiliary task. '
+                      '[design] chat_url/model (or the [llm] values they inherit). '
                       'Nothing was designed.')
             return {'action': 'skip', 'reason': 'design model not configured'}
         # Auto posture with nothing configured anywhere: the same "not set
@@ -1086,388 +952,6 @@ async def _design_dispatch_turns(event, gateway, **kwargs):
     await say('Design cancelled. The files stay in the session folder for a while; nothing '
               'was sliced or started.')
     return {'action': 'skip', 'reason': 'design cancelled'}
-
-
-def receipt_text(text):
-    text = str(text or '').strip()
-    lower = text.casefold()
-    has_link = bool(re.search(r'https?://\S+', text))
-    bed_clear = 'bed is clear' in lower or 'bed clear' in lower
-    if has_link:
-        return None  # the model preview and color picker follow; a receipt is noise
-    if lower in {'run the routine', 'run routine'}:
-        return 'Received. Preparing the requested routine and checking safety conditions. It is not running yet.'
-    if bed_clear:
-        return 'Received your bed-clear confirmation. Checking the requested action before execution. Nothing has started yet.'
-    if re.search(r'\b(level|leveling|calibrate|calibration)\b', lower):
-        return 'Received your calibration request. Checking the routine and safety conditions. No motion or heating has started.'
-    return None
-
-
-async def receive_ack(event, gateway, **kwargs):
-    """Await delivery before model dispatch, never alter or execute the request."""
-    source = getattr(event, 'source', None)
-    if source is None:
-        return None
-    platform = getattr(getattr(source, 'platform', None), 'value', None)
-    if (platform not in BOT_PLATFORMS or not _is_hosting_profile(getattr(source, 'profile', None))
-            or getattr(event, 'internal', False) or getattr(source, 'is_bot', False)
-            or getattr(source, 'profile_route_rejected', False)):
-        return None
-    if getattr(event, 'metadata', {}).get('fresh_model_intake_handled'):
-        return None
-    text = receipt_text(getattr(event, 'text', ''))
-    message_id = getattr(event, 'message_id', None)
-    if not text or not message_id:
-        return None
-    # This hook is before core auth. Recheck the SAME core authorization first.
-    try:
-        if not getattr(source, 'user_id', None) or not gateway._is_user_authorized_for_source(source):
-            return None
-        adapter = _adapter_for(gateway, source)
-        if adapter is None:
-            return None
-    except Exception:
-        logger.exception('Print receipt authorization/delivery lookup failed')
-        return None
-    await _deliver_receipt(source, adapter, message_id, text)
-    return None
-
-
-async def _deliver_receipt(source, adapter, message_id, text):
-    """Send one receipt per Discord message; failures never block the request."""
-    now = time.monotonic()
-    while _seen and (now - next(iter(_seen.values())) > SEEN_TTL or len(_seen) >= SEEN_LIMIT):
-        _seen.popitem(last=False)
-    key = (source.profile, source.chat_id, source.thread_id, str(message_id))
-    if key in _seen:
-        return
-    # Reserve before awaiting so duplicate events cannot race and double-send.
-    _seen[key] = now
-    try:
-        result = await asyncio.wait_for(adapter.send(
-            chat_id=source.chat_id, content=text, reply_to=message_id,
-            metadata={'thread_id': source.thread_id} if source.thread_id else None,
-        ), timeout=ACK_TIMEOUT)
-        if not getattr(result, 'success', False):
-            logger.warning('Print receipt delivery failed; continuing original request')
-    except asyncio.TimeoutError:
-        logger.warning('Print receipt delivery exceeded %.1fs; continuing original request', ACK_TIMEOUT)
-    except Exception:
-        logger.exception('Print receipt delivery failed; continuing original request')
-
-
-async def _stray_chat_post(adapter, source, message_id, content, *, reply=True):
-    """Post one stray-chat answer through the delivery adapter; failures are logged, never raised.
-
-    The claim hook owns the message once it posts (or tries to): falling
-    through to the profile agent after a possibly-delivered send could
-    double-answer, so a failed send is a logged loss, not a hand-off.
-    """
-    try:
-        await adapter.send(
-            chat_id=source.chat_id, content=content,
-            reply_to=message_id if reply else None,
-            metadata={'thread_id': source.thread_id} if source.thread_id else None,
-        )
-    except Exception:
-        logger.exception('Stray-chat reply delivery failed')
-
-
-async def stray_chat_dispatch(event, gateway, **kwargs):
-    """Claim otherwise-unmatched Discord text for the bot's own stray-chat lanes (#524 stage 3).
-
-    Registered LAST among the pre_gateway_dispatch hooks, so every handler —
-    commands, deterministic phrases, links/files, typed answers — has already
-    had its claim, exactly where the standalone bot's fallback sits in
-    BotCore.process. It exists so `discord.chat_llm_enabled` (#466) means the
-    same thing in Hermes mode as standalone (design §2e): until this hook, the
-    switch had no effect here and unmatched text always fell through to the
-    in-process profile agent. The lanes, texts and order are the standalone
-    ones, imported from print_handy.bot so there is one definition:
-
-    * help words post the command list (BotCore answers those before any
-      lane, in both switch states);
-    * switch off: the short not-understood reply — no stray-chat model call
-      of any kind, and the profile agent never sees the text;
-    * a configured [agent] endpoint answers first; a failed call posts the
-      honest agent-unavailable line instead of the not-understood reply;
-    * else a configured [llm] answers: its reply posts, and a command it
-      names is re-run through the dispatch handlers below, as a typed
-      command would be — the agent lane's replies never gain that channel;
-    * neither lane configured (switch on): return None and leave the text
-      to the profile agent, as today — the hook only claims what the bot's
-      own lanes would have answered, so it ships dark on installs that
-      configured nothing.
-
-    Transitional by design: it is deleted with in-process hosting itself,
-    and the standalone Router never runs it (AGENT_ONLY_DISPATCH) — BotCore's
-    fallback is the same behaviour in the bot's own process.
-    """
-    if not _is_print_discord_event(event) or _platform_value(event.source) != 'discord':
-        return None
-    source = event.source
-    text = str(getattr(event, 'text', '') or '').strip()
-    if not text:
-        return None
-    # This hook is before core auth, like receive_ack: recheck the SAME core
-    # authorization before posting or claiming anything.
-    try:
-        if not getattr(source, 'user_id', None) or not gateway._is_user_authorized_for_source(source):
-            return None
-        adapter = gateway._delivery_adapter_for(source)
-        if adapter is None:
-            return None
-    except Exception:
-        logger.exception('Stray-chat authorization/delivery lookup failed')
-        return None
-    from print_handy.bot import agent as agent_lane
-    from print_handy.bot import commands as bot_commands
-    from print_handy.bot import llm as llm_lane
-    from print_handy.bot.runtime import (HELP_WORDS, agent_unavailable_text,
-                                         discord_chat_llm_enabled, session_key,
-                                         unmatched_text)
-    cfg = _config.cfg()
-    bot_name = str((cfg.get('discord') or {}).get('bot_name') or '').strip() or 'Print Handy'
-    message_id = getattr(event, 'message_id', None)
-    if text.casefold() in HELP_WORDS:
-        await _stray_chat_post(adapter, source, message_id,
-                               bot_commands.help_text(bot_name), reply=False)
-        return {'action': 'skip', 'reason': 'help'}
-    if not discord_chat_llm_enabled(cfg):
-        await _stray_chat_post(adapter, source, message_id, unmatched_text(bot_name))
-        return {'action': 'skip', 'reason': 'chat llm disabled'}
-    if agent_lane.configured(cfg):
-        try:
-            live_key = gateway._session_key_for_source(source)
-        except Exception:
-            live_key = session_key(source)
-        try:
-            reply = await asyncio.to_thread(agent_lane.ask, text, live_key, cfg=cfg)
-        except Exception as exc:
-            logger.warning('agent reply failed, sending the agent-unavailable reply: %r', exc)
-            await _stray_chat_post(adapter, source, message_id, agent_unavailable_text())
-            return {'action': 'skip', 'reason': 'agent unavailable'}
-        await _stray_chat_post(adapter, source, message_id, reply)
-        return {'action': 'skip', 'reason': 'agent reply'}
-    if llm_lane.configured(cfg):
-        help_text = bot_commands.help_text(bot_name)
-        try:
-            reply, command = await asyncio.to_thread(llm_lane.ask, text, help_text, cfg=cfg)
-        except Exception as exc:
-            logger.warning('LLM reply failed, sending the unmatched reply: %r', exc)
-            reply, command = '', None
-        if command:
-            if command.casefold() in HELP_WORDS:
-                # The command's own output IS the help text (BotCore routes
-                # it through process, which answers help words first), so
-                # the model's reply is not posted ahead of it.
-                await _stray_chat_post(adapter, source, message_id, help_text, reply=False)
-                return {'action': 'skip', 'reason': 'help'}
-            replied = bool(reply)
-            if replied:
-                await _stray_chat_post(adapter, source, message_id, reply)
-            routed = copy.copy(event)
-            routed.text = command
-            routed.metadata = {**dict(getattr(event, 'metadata', {}) or {}),
-                               'llm_command': True}
-            result = await _redispatch(routed, gateway)
-            if result is not None:
-                return result
-            if replied:
-                return {'action': 'skip', 'reason': 'llm reply'}
-            await _stray_chat_post(adapter, source, message_id, unmatched_text(bot_name))
-            return {'action': 'skip', 'reason': 'command list'}
-        if reply:
-            await _stray_chat_post(adapter, source, message_id, reply)
-            return {'action': 'skip', 'reason': 'llm reply'}
-        await _stray_chat_post(adapter, source, message_id, unmatched_text(bot_name))
-        return {'action': 'skip', 'reason': 'command list'}
-    return None
-
-
-async def _redispatch(event, gateway):
-    """Run a model-named command through the dispatch handlers, as if typed.
-
-    Mirrors print_handy.bot.router.Router.dispatch — the first hook that
-    answers wins, a failing hook ends the dispatch with its own skip — over
-    the effective ordered list register() installs (_ACTIVE_DISPATCH_HOOKS,
-    which carries the typed-answer swap when the own renderer is on; the
-    static _DISPATCH_HOOKS before register() ever ran), minus receive_ack
-    (the Router excludes it the same way: it promises an agent follow-up)
-    and minus this claim hook, so a named command can never re-enter the
-    stray-chat lanes.
-    """
-    import inspect
-    for hook in _ACTIVE_DISPATCH_HOOKS or _DISPATCH_HOOKS:
-        if hook is receive_ack:
-            continue
-        try:
-            result = hook(event, gateway)
-            if inspect.isawaitable(result):
-                result = await result
-        except Exception:
-            logger.exception('handler %s failed', getattr(hook, '__name__', hook))
-            return {'action': 'skip',
-                    'reason': f"{getattr(hook, '__name__', 'handler')} failed"}
-        if result is not None:
-            return result
-    return None
-
-
-def clarify_receipt(result):
-    """Deterministic echo of a clarify button choice. None unless an answer was submitted."""
-    try:
-        data = json.loads(result) if isinstance(result, str) else result
-    except (TypeError, ValueError):
-        return None
-    if not isinstance(data, dict) or data.get('outcome') != 'submitted':
-        return None
-    answers = [r.get('user_response') for r in data.get('responses') or []
-               if isinstance(r, dict) and r.get('status') == 'answered' and r.get('user_response')]
-    if not answers:
-        return None
-    lines = []
-    for raw in answers:
-        choice = ', '.join(map(str, raw)) if isinstance(raw, list) else str(raw)
-        low = choice.casefold()
-        if 'bed' in low and 'clear' in low and not re.search(r"\b(not|isn't|no)\b", low):
-            lines.append('You confirmed the bed is clear. Starting the checks before slicing and printing; nothing has started yet.')
-        else:
-            lines.append(f'You chose: {choice}. Nothing has started.')
-    return ' '.join(lines)
-
-
-def _session(name):
-    try:
-        from gateway.session_context import get_session_env
-        return get_session_env(name)
-    except Exception:
-        return os.getenv(name, '')
-
-
-def workflow_receipt(result):
-    """Report completed stages only from successful structured terminal evidence."""
-    try:
-        data = json.loads(result) if isinstance(result, str) else result
-    except (TypeError, ValueError):
-        return None
-    if not isinstance(data, dict) or data.get('exit_code') != 0 or data.get('error'):
-        return None
-    output = data.get('output')
-    if not isinstance(output, str):
-        return None
-    if re.search(r'^SLICED \(not uploaded\): /[^\n]+$', output, re.M):
-        return 'Slicing completed. The workflow is checking the next step.'
-    if re.search(r'^AUDIT: \{', output, re.M):
-        return 'The model files were retrieved and inspected. No completed slice is reported yet.'
-    return None
-
-
-def cap_discord_clarifications(tool_name=None, args=None, **kwargs):
-    """Keep the hosting profile's Discord clarify cards actionable without truncating silently."""
-    if (tool_name != 'clarify' or _session('HERMES_SESSION_PLATFORM') != 'discord'
-            or not isinstance(args, dict)):
-        return None
-    if not _profile_matches(_session('HERMES_SESSION_PROFILE'), 'cap_discord_clarifications'):
-        return None
-    questions = args.get('questions')
-    if not isinstance(questions, list):
-        return None
-    capped = []
-    changed = False
-    for item in questions:
-        if not isinstance(item, dict) or not isinstance(item.get('choices'), list) or len(item['choices']) <= 4:
-            capped.append(item)
-            continue
-        question = str(item.get('question') or '').strip()
-        notice = 'Additional options exist. Choose Other to name one or request the remainder.'
-        if notice not in question:
-            question = f'{question} {notice}'.strip()
-        capped.append({**item, 'question': question, 'choices': item['choices'][:4]})
-        changed = True
-    return {'action': 'modify', 'args': {**args, 'questions': capped}} if changed else None
-
-
-def clarify_ack(tool_name=None, result=None, tool_call_id=None, **kwargs):
-    """post_tool_call: deterministic choices and factual completed milestones."""
-    if tool_name not in {'clarify', 'terminal'}:
-        return None
-    if _session('HERMES_SESSION_PLATFORM') != 'discord':
-        return None
-    if not _profile_matches(_session('HERMES_SESSION_PROFILE'), 'clarify_ack'):
-        return None
-    if tool_name == 'terminal':
-        command = (kwargs.get('args') or {}).get('command', '')
-        if 'model_job' not in command:
-            return None
-    text = clarify_receipt(result) if tool_name == 'clarify' else workflow_receipt(result)
-    chat = _session('HERMES_SESSION_CHAT_ID')
-    if not text or not chat:
-        return None
-    key = ('clarify', chat, str(tool_call_id or text))
-    if key in _seen:
-        return None
-    _seen[key] = time.monotonic()
-    thread = _session('HERMES_SESSION_THREAD_ID')
-    target = f'discord:{chat}:{thread}' if thread else f'discord:{chat}'
-    try:
-        from tools.send_message_tool import send_message_tool
-        reply = send_message_tool({'action': 'send', 'target': target, 'message': text})
-        if '"error"' in str(reply):
-            logger.warning('Clarify receipt delivery failed; continuing')
-    except Exception:
-        logger.exception('Clarify receipt delivery failed; continuing')
-    return None
-
-
-# A deterministic execution bound, not a larger model iteration allowance.
-TERMINAL_LIMIT = 12
-_tool_turns = OrderedDict()
-_tool_lock = threading.Lock()
-
-
-def guard_terminal_loop(tool_name=None, args=None, session_id=None, turn_id=None, **kwargs):
-    """Reject repeats and terminal thrashing within one identified user turn."""
-    search_tools = {'search_files', 'web_search', 'session_search', 'tool_search'}
-    read_tools = {'read_file', 'web_extract', 'browser_exec'}
-    exploration = tool_name in search_tools | read_tools
-    if tool_name not in {'terminal', 'write_file', 'patch'} and not exploration:
-        return None
-    profile = _session('HERMES_SESSION_PROFILE')
-    if not profile:
-        profile = Path(os.getenv('HERMES_HOME', '')).name
-    if not _profile_matches(profile, 'guard_terminal_loop'):
-        return None
-    values = args or {}
-    # Printer ownership includes diagnosis and implementation maintenance.
-    # Tool-count limits and source bans are not physical safety protections.
-    if tool_name in {'write_file', 'patch'}:
-        path = str(values.get('path', ''))
-        archive = _config.archive_dir()
-        if Path(path).suffix.lower() == '.gcode' and not Path(path).expanduser().resolve().is_relative_to(archive):
-            return {'action': 'block', 'message': f'REFUSED: G-code edits belong under {archive}. Preserve the slicer original, record the diff, and verify before use.'}
-    if tool_name != 'terminal':
-        return None
-    command = values.get('command', '')
-    if not isinstance(command, str):
-        return None
-    # SET_EXTRUDER_SLOT is installed in mod/generic.cfg and only forwards
-    # SLOT to _SET_EXTRUDER_SLOT. ZMod documents it as bookkeeping for which
-    # spool is loaded. It is not a physical load. Do not name-ban it.
-    if not session_id or not turn_id:
-        return None
-    key = (str(session_id), str(turn_id))
-    now = time.monotonic()
-    with _tool_lock:
-        while _tool_turns and (now - next(iter(_tool_turns.values()))['at'] > SEEN_TTL or len(_tool_turns) >= SEEN_LIMIT):
-            _tool_turns.popitem(last=False)
-        state = _tool_turns.setdefault(key, {'at': now, 'commands': {}})
-        repeats = state['commands'].get(command, 0)
-        if repeats >= 2:
-            return {'action': 'block', 'message': 'REFUSED: repeat terminal command already attempted twice this turn. Report the result or blocker; do not poll or rephrase the command to bypass this guard.'}
-        state['commands'][command] = repeats + 1
-    return None
 
 
 async def color_selection_dispatch(event, gateway, **kwargs):
@@ -5139,8 +4623,8 @@ async def bed_down_dispatch(event, gateway, **kwargs):
 async def _delete_secret_message(event, source, adapter):
     """Best effort: delete the operator's message that carried a pasted login token.
 
-    Prefers the adapter's own delete_message (the standalone adapters); on the
-    Hermes Discord adapter falls back to its discord.py client. Any failure is
+    Prefers the adapter's own delete_message; otherwise falls back to its
+    discord.py client. Any failure is
     ignored and answered with a plain note, so the operator knows to delete it.
     """
     message_id = getattr(event, 'message_id', None)
@@ -5189,71 +4673,8 @@ async def typed_quantity_dispatch(event, gateway, **kwargs):
     return {'action': 'skip', 'reason': 'typed print quantity handled'}
 
 
-async def typed_answer_dispatch(event, gateway, **kwargs):
-    """A typed reply answers this session's open question (#524 stage 2).
-
-    Generalizes typed_quantity_dispatch: parser prompts (quantities and the
-    other typed values) keep first claim through link_intake.typed_reply,
-    exactly as today. What no parser prompt claims falls to the session's
-    newest prompt in Print Handy's own registry, registered under the live
-    session key — the route Hermes' gateway session routing provides today,
-    which the plugin-owned renderer provides itself once it owns the
-    questions (HermesClarifyAdapter.answer_typed).
-
-    register() swaps this hook in for typed_quantity_dispatch exactly when
-    the S5 switch is on (Hermes host + [discord] clarify_ui); with no
-    _CLARIFY_UI installed it behaves exactly like typed_quantity_dispatch.
-    """
-    if not _is_print_discord_event(event):
-        return None
-    source = event.source
-    if not getattr(source, 'user_id', None) or not gateway._is_user_authorized_for_source(source):
-        return None
-    from print_handy.core.link_intake import typed_reply
-    error = typed_reply(source, getattr(event, 'text', ''))
-    if error is None:
-        ui = _CLARIFY_UI
-        if ui is None:
-            return None
-        live_key = gateway._session_key_for_source(source)
-        if ui.typed_approval_blocked(live_key, source.user_id):
-            adapter = _adapter_for(gateway, source)
-            if adapter is not None:
-                await adapter.send(chat_id=source.chat_id,
-                                   content='Only the approval user can approve a print. Nothing was changed.',
-                                   metadata={'thread_id': source.thread_id} if source.thread_id else None)
-            return {'action': 'skip', 'reason': 'typed approval refused'}
-        if not await ui.answer_typed(live_key, getattr(event, 'text', ''), user_id=source.user_id):
-            return None
-        return {'action': 'skip', 'reason': 'typed clarify answer handled'}
-    from print_handy.core.link_intake import take_secret_reply
-    if error == '' and take_secret_reply():  # a pasted login token: remove that message
-        await _delete_secret_message(event, source, _adapter_for(gateway, source))
-    if error == '':
-        # A parser prompt resolved in the registry: retire its rendered
-        # question too (P2-209) — otherwise the message keeps offering
-        # buttons for a prompt that no longer exists. The own-registry
-        # branch above (answer_typed) already closes its prompt.
-        from print_handy.core.link_intake import take_resolved_prompt_id
-        resolved_id = take_resolved_prompt_id()
-        ui = _CLARIFY_UI
-        if resolved_id is not None and ui is not None:
-            from print_handy.bot.platform import answered_note
-            await ui.close_prompt(resolved_id, answered_note(getattr(event, 'text', '')))
-    if error:
-        adapter = _adapter_for(gateway, source)
-        if adapter is not None:
-            await adapter.send(chat_id=source.chat_id, content=error,
-                               metadata={'thread_id': source.thread_id} if source.thread_id else None)
-    return {'action': 'skip', 'reason': 'typed print quantity handled'}
-
-
 def _recent_model_link(source):
-    """The last model link in this channel, from Print Handy's own recent-links state.
-
-    The single source in every mode (#524): the Hermes state.db messages scan
-    is gone, so a link the plugin's own intake never recorded is not recalled.
-    """
+    """The last model link in this channel, from Print Handy's own recent-links state (#524)."""
     from print_handy.bot import recent_links
     return recent_links.recall(getattr(source, 'chat_id', None), getattr(source, 'thread_id', None))
 
@@ -5366,12 +4787,8 @@ async def model_link_dispatch(event, gateway, **kwargs):
     adapter = _adapter_for(gateway, source)
     if adapter is None:
         return {'action': 'skip', 'reason': 'new model color UI delivery unavailable'}
-    # Receipt BEFORE the slow download/inventory: receive_ack never sees handled events.
-    mid = getattr(event, 'message_id', None)
-    if reuse is None and mid:
-        ack = None  # the preview and color picker are the acknowledgement
-        if ack:
-            await _deliver_receipt(source, adapter, mid, ack)
+    # No separate receipt before the slow download/inventory: the preview
+    # and color picker are the acknowledgement.
     from print_handy.core import printer_state
     from print_handy.core.link_intake import PromptCancelled
     root = _state_dir() / 'model-link-intakes'
@@ -5509,26 +4926,6 @@ def alert_button_handlers(bot, adapter):
     from print_handy.core import prepared_intake as _pi
     STOP_PREFIX = _pi.STOP_CUSTOM_ID
 
-    # The S5 install (#524 stage 2, design §3.2): under Hermes with
-    # [discord] clarify_ui on and a resolvable bot token, the plugin-owned
-    # clarify adapter goes live — pbq: presses stop being inert and
-    # _adapter_for starts substituting send_clarify. Any gap (standalone
-    # host, setting off, no token) leaves _CLARIFY_UI unset and handlers on
-    # the host adapter: today's behaviour, no new failure mode. An adapter
-    # already installed (or installed by hand in tests) is kept.
-    global _CLARIFY_UI
-    if _CLARIFY_UI is None and _clarify_ui_on() and _config.discord_token():
-        from print_handy.hermes.clarify_ui import HermesClarifyAdapter
-        _CLARIFY_UI = HermesClarifyAdapter()
-    # S6: on the clarify-UI path the Stop-view substitution below stands
-    # down for this install (see the _pi assignments under send_stop):
-    # prepared_intake completes the clarify path by retiring the question
-    # message in place instead, and never needs a second prompt posted
-    # through the host gateway. (A UI installed by hand with the switch
-    # off — the #529 test posture — keeps the substitution: the switch,
-    # not the global's mere presence, is the operator's choice.)
-    _clarify_ui_live = _CLARIFY_UI is not None and _clarify_ui_on()
-
     async def send_stop(source, text, clarify_id):
         """Status step: one Stop button, no 'Other (type answer)'. Returns the sent message."""
         import discord
@@ -5560,30 +4957,6 @@ def alert_button_handlers(bot, adapter):
 
     _pi.REFUSAL_EDITOR = edit_refusal
 
-    async def edit_refusal_by_id(source, channel_id, message_id, text, context, raw):
-        """edit_refusal's by-id twin for the clarify path (#524 stage 2, S6).
-
-        The standing prompt there is a plain REST message with no live
-        view, so the refusal lands by PATCH instead of a view edit: the
-        guidance text plus a single Retry button when the receipt id is
-        usable, bare text otherwise — the same outcome edit_refusal
-        produces. Returns True when the message now carries the Retry
-        button.
-        """
-        from print_handy.hermes import print_alert_buttons as pab
-        receipt = (context or {}).get('receipt') or {}
-        receipt_id = str(receipt.get('intake_id') or '')
-        if re.fullmatch(r'[a-f0-9]{32}', receipt_id):
-            components = [{"type": 1, "components": [
-                {"type": 2, "style": 1, "label": "Retry",
-                 "custom_id": pab.retry_custom_id(receipt_id)}]}]
-        else:
-            receipt_id = ''
-            components = []
-        ok = await asyncio.to_thread(pab.edit_message, _config.discord_token(),
-                                     channel_id, message_id, text, components)
-        return bool(ok and receipt_id)
-
     async def handle_stop(interaction, clarify_id):
         from print_handy.core.prompts import gateway as _prompts
         cm = _prompts()
@@ -5595,14 +4968,7 @@ def alert_button_handlers(bot, adapter):
         except Exception:
             logger.debug('could not acknowledge Stop', exc_info=True)
 
-    if _clarify_ui_live:
-        # S6 retirement, on-path only: no Stop substitution. prepared_intake
-        # completes the clarify path in place (the question message is
-        # retired or becomes the refusal), and its refusals edit by id.
-        _pi.STOP_SENDER = None
-        _pi.REFUSAL_EDITOR_BY_ID = edit_refusal_by_id
-    else:
-        _pi.STOP_SENDER = send_stop
+    _pi.STOP_SENDER = send_stop
     async def insertion_select(interaction, aid, alert):
         import discord
         from print_handy.hermes import spool_sync
@@ -6603,21 +5969,6 @@ def alert_button_handlers(bot, adapter):
     async def on_interaction(interaction):
         data = getattr(interaction, 'data', None) or {}
         custom_id = data.get('custom_id', '')
-        from print_handy.bot.platform import parse_custom_id as _parse_pbq
-        clarify_press = _parse_pbq(custom_id)
-        if clarify_press is not None:
-            # Plugin-owned question buttons (#524 stage 2). Inert while
-            # _CLARIFY_UI is unset (the S5 switch off): no pbq: buttons are
-            # posted under Hermes then, and the standalone bot's own
-            # listener owns its pbq: presses.
-            ui = _CLARIFY_UI
-            if ui is None:
-                return
-            if not allowed(interaction):
-                await reject(interaction)
-                return
-            await ui.handle_click(interaction, *clarify_press)
-            return
         if str(custom_id).startswith(_pi.RETRY_CUSTOM_ID):
             if not allowed(interaction):
                 await reject(interaction)
@@ -6741,11 +6092,8 @@ async def edit_dispatch(event, gateway, **kwargs):
     return await edit_chat.edit_dispatch(event, gateway, host=_EditHost(), **kwargs)
 
 
-# The pre_gateway_dispatch handlers in registration order — the same order
-# the standalone Router runs them. register() installs this list (with the
-# typed-answer swap when the own renderer is on) and records the effective
-# list in _ACTIVE_DISPATCH_HOOKS; stray_chat_dispatch's model-named-command
-# re-dispatch walks the effective list.
+# The pre_gateway_dispatch handlers in registration order — the order the
+# standalone Router runs them. register() installs this list.
 _DISPATCH_HOOKS = (
     guided_dispatch,
     design_dispatch,
@@ -6777,88 +6125,11 @@ _DISPATCH_HOOKS = (
     live_dispatch,
     plate_calibrate_dispatch,
     nozzle_dispatch,
-    receive_ack,
 )
 
-# The effective dispatch list register() installed (typed-answer swap
-# applied); empty until register() runs.
-_ACTIVE_DISPATCH_HOOKS = ()
-
-
 def register(ctx):
-    # The S5 host record (#524 stage 2): the standalone Router offers neither
-    # Hermes-only API below, so this stays False there and the own-renderer
-    # switch can never engage in standalone mode.
-    global _HOST_HERMES
-    _HOST_HERMES = hasattr(ctx, 'register_auxiliary_task') or getattr(ctx, 'llm', None) is not None
-    clarify_on = _clarify_ui_on()
-    if clarify_on and not _config.discord_token():
-        # The own registry is only usable when its renderer can be
-        # installed: alert_button_handlers builds the clarify adapter only
-        # with a resolvable bot token (P2-208). Activating the registry
-        # without it leaves handler questions registered in a registry
-        # nothing renders — unanswered until timeout — so the whole
-        # own-renderer path (registry activation, locale patch, the
-        # typed-answer hook swap below) stands down together and Hermes
-        # renders the questions as it does with the switch off.
-        logger.warning('clarify_ui is on but no Discord bot token resolves; '
-                       'the own prompt registry stays off and Hermes renders questions')
-        clarify_on = False
-    if clarify_on:
-        # The own-renderer switch (Stage 2 design §3.1): handler questions
-        # register into Print Handy's own prompt registry from here on. This
-        # lands in the same step as the _adapter_for delivery substitution
-        # and the typed-answer hook swap below, so no prompt can register in
-        # ours and resolve in Hermes' (or the reverse).
-        from print_handy.core import prompts as _prompts
-        _prompts.activate()
-    # Print Handy's button prompts already say what to do; drop Hermes's generic
-    # "Pick one below, or click Other..." line for this gateway (a locale overlay, not a core patch).
-    # Retired on the clarify-UI path (S6): with the switch on, Print Handy's
-    # questions render through its own adapter and never carry Hermes's hint
-    # line — the patch only ever existed for handler questions. Hermes' own
-    # agent questions keep Hermes' hint either way; they are not ours to style.
-    if not clarify_on:
-        with contextlib.suppress(Exception):
-            ctx.register_locale('en', {'platform': {'discord': {'prompt': {'clarify_hint_buttons': ''}}}})
-    # AI design (#388): when the host offers the plugin LLM lane, register the
-    # design auxiliary task (the operator pins its model in the profile's
-    # auxiliary.print_design block) and keep the lane for design_dispatch.
-    # Since #524 Stage 3 the lane is design's fallback — a configured
-    # [design]/[llm] HTTP endpoint wins in every mode — but the registration
-    # stays so endpoint-less Hermes installs keep working unchanged.
-    # The standalone Router offers neither API, so both stay unset there.
-    global _HERMES_LLM
-    if hasattr(ctx, 'register_auxiliary_task'):
-        with contextlib.suppress(Exception):
-            ctx.register_auxiliary_task(
-                'print_design', display_name='Print design',
-                description='Model for /print-design turns (AI design with OpenSCAD). '
-                            'Pin a stronger model here than the chat model.',
-                defaults={'timeout': int((_config.cfg().get('design') or {}).get('timeout_s') or 180)})
-    if getattr(ctx, 'llm', None) is not None:
-        _HERMES_LLM = ctx.llm
-    # With the own renderer on, typed answers route through
-    # typed_answer_dispatch (parser prompts first, then the session's open
-    # question in the own registry); off, today's quantity-only hook stays.
-    # _ACTIVE_DISPATCH_HOOKS records the effective list for
-    # stray_chat_dispatch's model-named-command re-dispatch.
-    global _ACTIVE_DISPATCH_HOOKS
-    _active = []
+    """Install the handler set on the bot's Router (the only host left)."""
     for hook in _DISPATCH_HOOKS:
-        if hook is typed_quantity_dispatch and clarify_on:
-            hook = typed_answer_dispatch
         ctx.register_hook('pre_gateway_dispatch', hook)
-        _active.append(hook)
-    _ACTIVE_DISPATCH_HOOKS = tuple(_active)
-    # Stray chat goes last of all (#524 stage 3): the claim hook answers
-    # otherwise-unmatched Discord text with the bot's own lanes, so the
-    # chat-LLM switch and the [agent] endpoint mean the same thing in this
-    # mode as standalone. It is not part of _DISPATCH_HOOKS — a model-named
-    # command re-dispatch must never re-enter it.
-    ctx.register_hook('pre_gateway_dispatch', stray_chat_dispatch)
-    ctx.register_hook('post_tool_call', clarify_ack)
-    ctx.register_hook('pre_tool_call', cap_discord_clarifications)
-    ctx.register_hook('pre_tool_call', guard_terminal_loop)
     if hasattr(ctx, 'register_platform_handler'):
         ctx.register_platform_handler('discord', alert_button_handlers)

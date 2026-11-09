@@ -82,15 +82,12 @@ def design_env(tmp_path):
            "discord": {"question_timeout_s": 5}}
     previous = _config.cfg()  # the session test settings from tests/conftest.py; restore, never clear
     _config.set_override(cfg)
-    plugin._HERMES_LLM = None
     yield cfg
     _config.set_override(previous)
-    plugin._HERMES_LLM = None
 
 
 def _dispatch(text, adapter, fake, choice, platform="discord", authorized=True):
-    # Pin the prompts gateway to the standalone module: under the full suite
-    # another test's Hermes/corpus stand-in can otherwise win gateway().
+    # Pin the prompts gateway to the core registry for the dispatch.
     with mock.patch.object(plugin, "_design_transport", return_value=(fake, "http")), \
             mock.patch.object(core_prompts, "gateway", return_value=core_prompts), \
             mock.patch.object(core_prompts, "wait_for_response", return_value=choice):
@@ -98,25 +95,14 @@ def _dispatch(text, adapter, fake, choice, platform="discord", authorized=True):
             _event(text, platform=platform), _gateway(adapter, authorized)))
 
 
-# ------------------------------------------------- transport order (#524 Stage 3)
+# ------------------------------------------------------- transport (#524 Stage 3)
 #
-# The HTTP transport ([design] inheriting [llm]) is the normal path in
-# every mode; ctx.llm is the fallback for a Hermes install with no HTTP
-# endpoint configured, and only there.
+# The HTTP transport ([design] inheriting [llm]) is the only design lane:
+# the ctx.llm fallback for endpoint-less Hermes installs is deleted with
+# the mode that needed it.
 
-class _FakeCtxLlm:
-    """A ctx.llm stand-in recording the kwargs of every acomplete call."""
-
-    def __init__(self):
-        self.calls = []
-
-    async def acomplete(self, **kwargs):
-        self.calls.append(kwargs)
-        return S(text="cube([1, 1, 1]);")
-
-
-def _transport_cfg(mode, *, http_endpoint=False):
-    return {"bot": {"mode": mode},
+def _transport_cfg(*, http_endpoint=False):
+    return {"bot": {"mode": "standalone"},
             "design": {"chat_url": "http://design.invalid/v1" if http_endpoint else "",
                        "model": "sol" if http_endpoint else "", "api_key_env": "",
                        "timeout_s": 180},
@@ -124,53 +110,27 @@ def _transport_cfg(mode, *, http_endpoint=False):
                     "timeout_s": 20}}
 
 
-def test_design_transport_prefers_http_in_hermes_mode(monkeypatch):
-    fake = _FakeCtxLlm()
-    monkeypatch.setattr(plugin, "_HERMES_LLM", fake)
+def test_design_transport_uses_the_http_endpoint(monkeypatch):
     seen = {}
     monkeypatch.setattr(design, "http_complete",
                         lambda cfg, messages: seen.update(messages=messages) or "http reply")
-    complete, kind = plugin._design_transport(_transport_cfg("hermes", http_endpoint=True))
+    complete, kind = plugin._design_transport(_transport_cfg(http_endpoint=True))
     assert kind == "http" and complete is not None
     out = asyncio.run(complete([{"role": "user", "content": "a cube"}]))
     assert out == "http reply"
     assert seen["messages"] == [{"role": "user", "content": "a cube"}]
-    assert fake.calls == []  # the Hermes lane was not even consulted
 
 
-def test_design_transport_falls_back_to_ctx_llm_in_hermes_mode(monkeypatch):
-    fake = _FakeCtxLlm()
-    monkeypatch.setattr(plugin, "_HERMES_LLM", fake)
-    complete, kind = plugin._design_transport(_transport_cfg("hermes"))
-    assert kind == "hermes" and complete is not None
-    out = asyncio.run(complete([{"role": "user", "content": "a cube"}]))
-    assert out == "cube([1, 1, 1]);"
-    assert fake.calls[0]["task"] == "print_design"
-
-
-def test_design_transport_llm_endpoint_counts_in_hermes_mode(monkeypatch):
-    # [design] empty but [llm] configured: the inherited endpoint resolves,
-    # so HTTP still wins over the profile pin.
-    fake = _FakeCtxLlm()
-    monkeypatch.setattr(plugin, "_HERMES_LLM", fake)
-    cfg = _transport_cfg("hermes")
+def test_design_transport_llm_endpoint_counts(monkeypatch):
+    # [design] empty but [llm] configured: the inherited endpoint resolves.
+    cfg = _transport_cfg()
     cfg["llm"].update(chat_url="http://llm.invalid/v1", model="luna")
     complete, kind = plugin._design_transport(cfg)
     assert kind == "http" and complete is not None
-    assert fake.calls == []
 
 
-def test_design_transport_hermes_mode_without_lane_or_endpoint_is_none(monkeypatch):
-    monkeypatch.setattr(plugin, "_HERMES_LLM", None)
-    complete, kind = plugin._design_transport(_transport_cfg("hermes"))
-    assert complete is None and kind == ""
-
-
-def test_design_transport_standalone_unchanged(monkeypatch):
-    monkeypatch.setattr(plugin, "_HERMES_LLM", None)
-    complete, kind = plugin._design_transport(_transport_cfg("standalone", http_endpoint=True))
-    assert kind == "http" and complete is not None
-    complete, kind = plugin._design_transport(_transport_cfg("standalone"))
+def test_design_transport_without_an_endpoint_is_none():
+    complete, kind = plugin._design_transport(_transport_cfg())
     assert complete is None and kind == ""
 
 

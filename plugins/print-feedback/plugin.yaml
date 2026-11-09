@@ -1,9 +1,0 @@
-name: print-feedback
-version: 1.2.0
-description: Truthful profile-scoped Discord receipts, deterministic print controls (/print-stop, /print-resume, /print-again, /print-next, /print-reboot, /print-colors, /print-coldpull, /print-maintenance, /spool), model link intake, and interaction guards for the print channel
-provides_hooks:
-  - pre_gateway_dispatch
-  - post_tool_call
-  - pre_tool_call
-# register() also installs the Discord button handler (alert, IFS insertion and spool question buttons)
-# through ctx.register_platform_handler('discord', ...) when the gateway offers it.

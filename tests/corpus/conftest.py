@@ -27,12 +27,6 @@ def _home_slicer_commands(monkeypatch):
     monkeypatch.setattr(orca_adapter, "BAMBU_COMMAND", list(home["bambu"]["command"]))
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _clarify_gateway_stand_in():
-    harness.install_clarify_stand_in()
-    yield
-
-
 CORPUS_DIR = Path(__file__).resolve().parent
 
 
