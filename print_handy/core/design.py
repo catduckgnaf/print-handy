@@ -307,8 +307,11 @@ def fetch_link_source(url, target_dir) -> Path:
     target_dir = Path(target_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
     host = urlsplit(str(url)).hostname or ""
+    # Which site this is comes from the one registry (via model_job's
+    # SITE_HOSTS, which model_sources builds); no host lists here.
+    site = mj.SITE_HOSTS.get(host.lower())
     try:
-        if "cults3d.com" in host:
+        if site == "cults3d":
             # Metadata-only (#462 Stage 3): Cults' API exposes no files at all,
             # so there is nothing design could fetch — name the gap instead of
             # falling through to the Printables lookup.
@@ -317,7 +320,7 @@ def fetch_link_source(url, target_dir) -> Path:
                 "listing's details only, never its 3D files, which are downloaded "
                 "through the signed-in website. Download the file from the model "
                 "page in a browser and drop the file here instead.")
-        if "makerworld.com" in host:
+        if site == "makerworld":
             job = mj.maker_inventory(str(url))
             from .makerworld_profiles import choose as choose_profile
             hint = re.fullmatch(r"profileId-(\d+)", urlsplit(str(url)).fragment or "")
@@ -327,7 +330,7 @@ def fetch_link_source(url, target_dir) -> Path:
                     f"that MakerWorld link has {len(job['sources'])} profiles and no clear "
                     "default, so design cannot pick one; drop the file you want edited")
             return Path(mj.maker_download(job, chosen, target_dir))
-        if "thingiverse.com" in host:
+        if site == "thingiverse":
             job = mj.thingiverse_inventory(str(url))
             rows = [row for row in job["sources"]
                     if Path(str(row.get("name") or "")).suffix.lower() in (".3mf", ".stl")]
@@ -338,7 +341,7 @@ def fetch_link_source(url, target_dir) -> Path:
                     f"that Thingiverse link has {len(rows)} model files, so design cannot pick "
                     "one; drop the file you want edited")
             return Path(mj.thingiverse_download(job, rows[0], target_dir))
-        if "crealitycloud.com" in host:
+        if site == "crealitycloud":
             job = mj.crealitycloud_inventory(str(url))
             rows = [row for row in job["sources"]
                     if Path(str(row.get("name") or "")).suffix.lower() in (".3mf", ".stl")]
