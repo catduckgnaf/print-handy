@@ -60,9 +60,9 @@ def test_first_interlocutor_binds_at_conversation_start(tmp_path):
                                now=now + 2, setup_only=True)
     assert "already in progress with another user" in plain
     # The owner continues normally.
-    answer = guided.handle_text("chan::alice", "flashforge.ad5x", store=store,
+    answer = guided.handle_text("chan::alice", "discord", store=store,
                                 now=now + 3, setup_only=True)
-    assert "Saved: Printer model" in answer
+    assert "Saved: Chat platform" in answer
 
 
 def test_timeout_releases_the_bind(tmp_path):
@@ -94,7 +94,8 @@ def test_setup_only_apply_writes_completion_and_names_the_restart(tmp_path):
     key = "chan::alice"
     _start(store, key, now)
     for index, answer in enumerate(
-            ("flashforge.ad5x", "100000000000000001", "everyone", "skip", "skip", "skip")):
+            ("discord", "flashforge.ad5x", "100000000000000001", "everyone", "skip", "skip",
+             "skip", "skip", "skip", "skip")):
         guided.handle_text(key, answer, store=store, now=now + 1 + index, setup_only=True)
     reply = guided.handle_text(key, "apply", store=store, now=now + 10,
                                setup_only=True, apply_config=lambda answers: "written.")
