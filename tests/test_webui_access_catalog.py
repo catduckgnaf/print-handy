@@ -53,6 +53,26 @@ class AccessCatalogFieldTests(unittest.TestCase):
             self.assertIs(data["webui"]["controls_enabled"], True)
             self.assertIs(data["webui"]["cookie_secure"], True)
 
+    def test_an_environment_override_wins_over_the_written_file_value(self):
+        # The write-back path stores the file value; the environment layer
+        # still outranks it on load. Pin both halves so a future write
+        # path cannot quietly start flattening the override (and so the
+        # disabled-in-the-form rendering keeps its factual basis).
+        with tempfile.TemporaryDirectory() as tmp:
+            local = Path(tmp) / "local.yaml"
+            local.write_text("webui:\n  enabled: true\n  host: 0.0.0.0\n  port: 8088\n")
+            environ = {"PRINT_HANDY_CONFIG": str(local)}
+            write_changes({"webui.require_auth": False}, environ=environ)
+            written = settings.load(local=local, environ={})
+            self.assertIs(written["webui"]["require_auth"], False)
+            overridden = settings.load(
+                local=local,
+                environ={"PRINT_HANDY__WEBUI__REQUIRE_AUTH": "true"})
+            self.assertIs(overridden["webui"]["require_auth"], True)
+            item = {entry.id: entry for entry in
+                    read_fields(environ={"PRINT_HANDY__WEBUI__REQUIRE_AUTH": "true"})}
+            self.assertTrue(item["webui.require_auth"].env_overridden)
+
 
 if __name__ == "__main__":
     unittest.main()
