@@ -1909,8 +1909,34 @@ class _Handler(BaseHTTPRequestHandler):
         effective = {fv.field: fv.value for fv in field_values}
         entries = [(field, effective[field], value) for field, value in changes.items()]
         self._send(200, pages.render_preview_page(
-            entries, submitted, form_token=self.server.form_token, theme=self._theme()),
+            entries, submitted, form_token=self.server.form_token, theme=self._theme(),
+            warnings=self._preview_warnings(changes)),
             "text/html; charset=utf-8")
+
+    def _request_is_https(self):
+        """Whether this request reached the Web UI over HTTPS. The server
+        itself speaks plain HTTP; HTTPS arrives through a reverse proxy,
+        which reports the original scheme as X-Forwarded-Proto."""
+        forwarded = self.headers.get("X-Forwarded-Proto") or ""
+        return forwarded.split(",")[0].strip().lower() == "https"
+
+    def _preview_warnings(self, changes):
+        """Plain-language warnings about a previewed change set. Turning
+        the Secure session cookie on over plain HTTP strands browser
+        sign-ins: browsers drop Secure cookies there, so the session
+        cookie never comes back and there is no UI way back in — the
+        preview is the place to say so before the save is confirmed."""
+        warnings = []
+        for field, value in changes.items():
+            if field.id == "webui.cookie_secure" and value and not self._request_is_https():
+                warnings.append(
+                    "The Secure session cookie is being turned on, but this "
+                    "request arrived over plain HTTP. Browsers drop Secure "
+                    "cookies on plain HTTP, so browser sign-ins will not "
+                    "stick once this takes effect. Turn it on only when the "
+                    "Web UI is reached over HTTPS, for example behind an "
+                    "HTTPS reverse proxy.")
+        return warnings
 
     def _config_save(self):
         got = self._config_form()
