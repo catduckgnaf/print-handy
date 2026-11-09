@@ -2,7 +2,7 @@ import json,re,zipfile,xml.etree.ElementTree as ET
 from pathlib import Path
 import pytest
 from print_handy.core import source_colors, model_job
-from print_handy.core.color_geometry import export_color_geometry, export_single_color_plate
+from print_handy.core.color_geometry import export_color_geometry, export_single_color_plate, export_production_plate
 
 # The coupon is a shipped corpus case (three parts, three source extruders),
 # not a host-only recording: the old PRINT_HANDY_COUPONS / sol_recovery gate
@@ -73,6 +73,36 @@ def test_failed_remap_preserves_source_and_existing_destination_bytes(tmp_path):
   export_color_geometry(src,destination,d)
  assert src.read_bytes()==original_source
  assert destination.read_bytes()==original_destination
+
+
+
+def test_production_plate_recolor_preserves_unrelated_zip_members(tmp_path):
+    source = tmp_path / 'production.3mf'
+    target = tmp_path / 'recolored.3mf'
+    model = '''<model xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><resources><object id="1"><mesh><vertices><vertex x="0" y="0" z="0"/><vertex x="1" y="0" z="0"/><vertex x="0" y="1" z="0"/></vertices><triangles><triangle v1="0" v2="1" v3="2"/></triangles></mesh></object></resources><build><item objectid="1"/></build></model>'''
+    project = json.dumps({'filament_colour': ['#FFFFFF'], 'filament_type': ['PLA']}, indent=2)
+    with zipfile.ZipFile(source, 'w') as archive:
+        archive.writestr('3D/3dmodel.model', model)
+        archive.writestr('Metadata/model_settings.config', '<config><object id="1"><metadata key="extruder" value="1"/></object></config>')
+        archive.writestr('Metadata/project_settings.config', project)
+        archive.writestr('Metadata/opaque_vendor_record.bin', b'preserve this payload exactly\\x00\\xff')
+        archive.writestr('Preview/thumbnail.png', b'not really png, but opaque bytes')
+    manifest = source_colors.inventory(source)
+    decisions = {'mode': 'per_part', 'source_sha256': manifest['source_sha256'],
+                 'choices': {row['key']: {'slot': 2} for row in source_colors.canonical_prompts(manifest)}}
+    source_bytes = source.read_bytes()
+    with zipfile.ZipFile(source) as original:
+        before = {name: original.read(name) for name in original.namelist()}
+    report = export_production_plate(source, target, decisions, {'2': '#123456'})
+    assert report[1]['policy'] == 'production package copy; one filament colour byte patch'
+    with zipfile.ZipFile(target) as converted:
+        after = {name: converted.read(name) for name in converted.namelist()}
+    assert set(after) == set(before)
+    for name in before.keys() - {'Metadata/project_settings.config'}:
+        assert after[name] == before[name]
+    assert after['Metadata/project_settings.config'] != before['Metadata/project_settings.config']
+    assert source.read_bytes() == source_bytes
+
 
 def _mesh(path, vertices):
     body = ''.join(f'<vertex x="{x}" y="{y}" z="{z}"/>' for x, y, z in vertices)

@@ -18,7 +18,7 @@ Other readers in `source_colors.py` recognize `Metadata/Slic3r_PE.config`, `Meta
 
 `export_color_geometry` traverses source component/build references to derive geometry and emits a new package containing only `[Content_Types].xml`, `_rels/.rels`, rebuilt `3D/3dmodel.model`, rebuilt `Metadata/model_settings.config`, and optionally remapped layer G-code. It does not preserve arbitrary source package members or relationships. Its mesh-leaf handling does not establish complete semantic rewriting of every paint representation, part/feature/support assignment, height-range reference, purge matrix/vector, or slicer-specific opaque metadata. Those classes remain unsupported for a generic all-reference remap until individually inventoried, transformed, and regression-tested.
 
-`export_single_color_plate` is also a derived-geometry/package exporter; it is not an in-place or generic ZIP reference remapper. The production-package color patch path in `color_geometry.py` does copy ZIP payload members and byte-patch one project filament color, but it is not a general reference remap.
+- `export_single_color_plate` is also a derived-geometry/package exporter; it is not an in-place or generic ZIP reference remapper. The production-package color patch path in `color_geometry.py` copies ZIP payload members and byte-patches one project filament color; `test_production_plate_recolor_preserves_unrelated_zip_members` verifies a successful nonidentity slot mapping preserves unrelated opaque and preview member payloads byte-for-byte. This is a one-field production color selection path, not a general reference remap.
 
 ## Preservation contract to establish before conversion changes
 
