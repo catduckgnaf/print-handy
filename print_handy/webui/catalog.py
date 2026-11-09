@@ -810,11 +810,53 @@ def _configured_model(data):
         return None
 
 
-def config_page_visible(field, data) -> bool:
-    """Whether /config draws this field. Hidden fields are still submitted."""
+# Chat platforms whose settings hide until the platform is configured
+# (settings restructure stage 4): the field ids per platform, and the
+# identity keys whose presence counts as configured even when
+# bot.platform names another platform (an install mid-setup).
+CONDITIONAL_CHAT_FIELDS = {
+    "telegram": ("telegram.chat_id", "telegram.allowed_user_ids",
+                 "telegram.approval_user_id"),
+    "matrix": ("matrix.homeserver_url", "matrix.room_id",
+               "matrix.allowed_user_ids", "matrix.approval_user_id"),
+}
+_CHAT_IDENTITY_KEYS = {
+    "telegram": (("telegram", "chat_id"),),
+    "matrix": (("matrix", "homeserver_url"), ("matrix", "room_id")),
+}
+
+
+def chat_platform_configured(data, platform) -> bool:
+    """Whether a conditional chat platform counts as configured: it is
+    the selected bot platform, or one of its identity keys is set."""
+    bot = (data or {}).get("bot") or {}
+    if str(bot.get("platform") or "") == platform:
+        return True
+    return any(str(((data or {}).get(section) or {}).get(key) or "").strip()
+               for section, key in _CHAT_IDENTITY_KEYS[platform])
+
+
+def unconfigured_chat_platforms(data):
+    """The conditional chat platforms whose fields the rule currently
+    hides — the config page offers each a "Set up" reveal row."""
+    return tuple(platform for platform in CONDITIONAL_CHAT_FIELDS
+                 if not chat_platform_configured(data, platform))
+
+
+def config_page_visible(field, data, reveal=None) -> bool:
+    """Whether /config draws this field. Hidden fields are still submitted.
+
+    ``reveal`` names a conditional chat platform whose fields draw
+    anyway (the "Set up Telegram" / "Set up Matrix" reveal on /config
+    and the walkthrough's chat step, which is the setup surface).
+    """
     field = field_by_id(field)
     if field is None:
         return True
+    for platform, field_ids in CONDITIONAL_CHAT_FIELDS.items():
+        if field.id in field_ids:
+            return (reveal == platform
+                    or chat_platform_configured(data, platform))
     model = _configured_model(data)
     if field.id == "printer.zmod_delivery_format":
         return bool(model and model.vendor.key == "flashforge")

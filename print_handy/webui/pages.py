@@ -45,7 +45,8 @@ from . import access as access_module
 from . import config as config_api
 from . import shell
 from .catalog import (GROUP_FILE_ONLY_NOTES, choice_label, choices_for,
-                    config_page_visible, field_by_id)
+                    config_page_visible, field_by_id,
+                    unconfigured_chat_platforms)
 
 CSRF_FIELD = "_csrf"
 CONFIRM_FIELD = "confirm"
@@ -197,10 +198,12 @@ def _hidden_inputs(field, value):
                    for item in items)
 
 
-def _field_row(field_value, *, data, errors, submitted):
+def _field_row(field_value, *, data, errors, submitted, reveal=None):
     field = field_value.field
-    if not config_page_visible(field, data):
-        return _hidden_inputs(field, _current(field, field_value, submitted))
+    if not config_page_visible(field, data, reveal=reveal):
+        # An errored field is never hidden: its message must be on screen.
+        if not (errors and field.id in errors):
+            return _hidden_inputs(field, _current(field, field_value, submitted))
     disabled = field_value.overridden
     badge = PROVENANCE_LABELS.get(field_value.provenance, field_value.provenance)
     parts = [f'<div class="field" id="row-{_esc(field.id)}">',
@@ -355,7 +358,7 @@ _FIELD_SEARCH = (
 
 def render_config_page(field_values, *, data, form_token, errors=None,
                        submitted=None, notice=None, theme=shell.DEFAULT_THEME,
-                       section=None):
+                       section=None, reveal=None):
     """The GET /config form (also the error/notice re-render target).
 
     Side sub-tabs (settings restructure stage 3): exactly one section's
@@ -426,8 +429,20 @@ def render_config_page(field_values, *, data, form_token, errors=None,
             continue
         parts.append(f'<section class="config-group" id="group-{_esc(name or "other")}">'
                      f"<h2>{_esc(heading)}</h2>")
-        parts.extend(_field_row(fv, data=data, errors=errors, submitted=submitted)
+        parts.extend(_field_row(fv, data=data, errors=errors, submitted=submitted,
+                                reveal=reveal)
                      for fv in rows)
+        if name == "platform":
+            # Stage 4 reveal rows: a chat platform the rule hides gets a
+            # named way in, so first-time setup stays reachable.
+            for platform in unconfigured_chat_platforms(data):
+                if reveal == platform:
+                    continue
+                label = "Telegram" if platform == "telegram" else "Matrix"
+                parts.append(
+                    f'<p class="setup-reveal">{label} is not set up. '
+                    f'<a href="/config?section=platform&setup={platform}">'
+                    f'Set up {label}</a></p>')
         note = GROUP_FILE_ONLY_NOTES.get(name)
         if note:
             parts.append(f'<p class="file-only-note">{_esc(note)}</p>')

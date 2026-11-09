@@ -798,11 +798,13 @@ class _Handler(BaseHTTPRequestHandler):
             elif path.startswith("/spools/"):
                 self._spools_page(unquote(path[len("/spools/"):]))
             elif path == "/config":
-                section = (parse_qs(urlparse(self.path).query).get("section")
-                           or [None])[0]
+                query = parse_qs(urlparse(self.path).query)
+                section = (query.get("section") or [None])[0]
+                reveal = (query.get("setup") or [None])[0]
                 self._send(200, self._config_html(self._field_values(),
                                                   theme=self._theme(),
-                                                  section=section),
+                                                  section=section,
+                                                  reveal=reveal),
                            "text/html; charset=utf-8")
             elif path == "/designs":
                 rows = designs_module.catalog_rows(self.server.settings_data)

@@ -185,6 +185,43 @@ class ConfigPageTests(unittest.TestCase):
         self.assertIn('name="printer.zmod_delivery_format"', bodies["printers"])
         self.assertNotIn('type="hidden" name="printer.zmod_delivery_format"', bodies["printers"])
 
+    def test_unconfigured_chat_platforms_hide_behind_a_reveal_row(self):
+        # Stage 4: on a Discord install with no Telegram or Matrix
+        # identity, the platform tab hides those fields (still submitted
+        # as hidden inputs) behind named Set up rows; following one
+        # draws the fields, and the other platform stays hidden.
+        with tempfile.TemporaryDirectory() as tmp:
+            port, _local, _environ = self.start(tmp, "discord:\n  chat_id: '12345'\n")
+            _code, body, _csrf = self.get_config(port, section="platform")
+            self.assertIn('type="hidden" name="telegram.chat_id"', body)
+            self.assertNotIn('id="row-telegram.chat_id"', body)
+            self.assertIn("Set up Telegram", body)
+            self.assertIn('href="/config?section=platform&setup=telegram"', body)
+            self.assertIn("Set up Matrix", body)
+            code, body = self.request(port, "GET",
+                                      "/config?section=platform&setup=telegram")
+            self.assertEqual(code, 200)
+            self.assertIn('id="row-telegram.chat_id"', body)
+            self.assertNotIn('id="row-matrix.room_id"', body)
+            self.assertIn("Set up Matrix", body)
+
+    def test_configured_chat_platform_fields_stay_visible_and_round_trip(self):
+        # A Matrix identity in the file counts as configured even on a
+        # Discord install: its fields draw on the platform tab, and a
+        # save from that tab keeps the value.
+        with tempfile.TemporaryDirectory() as tmp:
+            port, local, environ = self.start(
+                tmp, "matrix:\n  room_id: '!room:example.org'\n")
+            _code, body, csrf = self.get_config(port, section="platform")
+            self.assertIn('id="row-matrix.room_id"', body)
+            self.assertNotIn("Set up Matrix", body)
+            code, body = self.save_flow(port, environ, csrf,
+                                        **{"discord.chat_id": "777"})
+            self.assertEqual(code, 200, body)
+            data = settings.load(local=local, environ={})
+            self.assertEqual(data["matrix"]["room_id"], "!room:example.org")
+            self.assertEqual(data["discord"]["chat_id"], "777")
+
     def test_save_from_a_non_first_tab_preserves_unshown_sections(self):
         # Stage 3's required guard: a save submitted from the camera tab
         # (the browser posts that tab's controls plus every hidden input
