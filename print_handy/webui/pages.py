@@ -394,9 +394,13 @@ def render_config_page(field_values, *, data, form_token, errors=None,
                  if name not in known]  # a group this page does not know yet
     names = [name for name, _heading, _rows in sections]
     selected = section if section in names else None
-    if selected is None and errors:
+    if errors:
         # An error re-render lands on the section holding the first
         # errored field, so the message is on screen, not behind a tab.
+        # This outranks the submitted section too: every unshown section
+        # rides along as hidden inputs, so a hidden value can error
+        # against a field the submitted section never renders — staying
+        # on that section would show the error nowhere.
         for field_id in errors:
             field = field_by_id(field_id)
             if field is not None and field.group in names:

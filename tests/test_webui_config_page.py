@@ -356,6 +356,31 @@ class ConfigPageTests(unittest.TestCase):
                 self.assertEqual(local.read_bytes(), before)
                 self.assertFalse(list(Path(tmp).glob("*.bak-*")))
 
+    def test_cross_section_error_lands_on_the_errored_section(self):
+        # A save submitted from one tab carries every other section's
+        # fields as hidden inputs; an invalid hidden value errors against
+        # a field the submitted tab does not show. The error re-render
+        # must land on the errored field's section — the submitted tab
+        # renders that section as hidden inputs only, so staying on it
+        # would show no error anywhere.
+        with tempfile.TemporaryDirectory() as tmp:
+            port, local, environ = self.start(tmp)
+            _code, _body, csrf = self.get_config(port, section="printers")
+            before = local.read_bytes()
+            form = self.browser_form(environ, csrf,
+                                     **{"visual_watch.sensitivity": "9"})
+            form.append(("_section", "printers"))
+            code, body = self.post(port, "/config/preview", form)
+            self.assertEqual(code, 400)
+            self.assertIn("<h2>Camera, timelapse and images</h2>", body)
+            self.assertIn('class="error"', row_segment(body, "visual_watch.sensitivity"))
+            self.assertIn("at most 5", row_segment(body, "visual_watch.sensitivity"))
+            self.assertEqual(dict(hidden_inputs(body)).get("_section"), "camera")
+            # The previously shown section now rides along as hidden
+            # inputs, so a corrected save still cannot clear it.
+            self.assertIn('type="hidden" name="printer.model"', body)
+            self.assertEqual(local.read_bytes(), before)
+
     def test_unknown_form_keys_are_never_written(self):
         with tempfile.TemporaryDirectory() as tmp:
             port, local, environ = self.start(tmp)
