@@ -101,10 +101,14 @@ def _failure_post(label, exc, note, *, subsystem):
 
 
 # Platforms whose standalone sources these handlers serve (#164): Discord,
-# Telegram (stage 2) and Matrix (stage 3). The gate was never really "is
-# this Discord" but "is this our bot's print source"; Telegram/Matrix
-# sources exist when the operator runs the bot on that platform.
-BOT_PLATFORMS = frozenset({'discord', 'telegram', 'matrix'})
+# Telegram (stage 2) and Matrix (stage 3), plus the Web UI chat (#1106),
+# whose BotCore runs in the Web UI process on the same handlers. The gate
+# was never really "is this Discord" but "is this our bot's print source";
+# Telegram/Matrix sources exist when the operator runs the bot on that
+# platform, and a webui source exists whenever the Web UI chat page is
+# used. Platform-specific commands still gate themselves (the live
+# stream command is Discord-only, below).
+BOT_PLATFORMS = frozenset({'discord', 'telegram', 'matrix', 'webui'})
 
 
 def _platform_value(source):

@@ -165,7 +165,9 @@ class WebUIBrowserSmokeTests(unittest.TestCase):
 
     def test_configuration_search_runs_javascript_and_restores_rows(self):
         self.login()
-        self.page.goto(self.base + "/config")
+        # Stage 3 renders one settings section at a time; the camera
+        # section carries enough real fields for the search contract.
+        self.page.goto(self.base + "/config?section=camera")
         rows = self.page.locator(".field")
         self.assertGreater(rows.count(), 5, "configuration must render real fields")
         search = self.page.locator("#field-search")

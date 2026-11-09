@@ -76,8 +76,8 @@ def render_sources_page(*, theme=shell.DEFAULT_THEME, nav=None):
         "<table><tr><th>Source</th><th>Support</th><th>Status</th>"
         "<th>Site</th><th>Notes</th></tr>" + "".join(body) + "</table>")
     parts.append(
-        "<p>Uploading a file instead? Use the upload page when it is "
-        "offered, or drop the .stl/.3mf file in chat directly.</p>")
+        "<p>Uploading a file instead? Use the <a href=\"/upload\">upload "
+        "page</a>, or drop the .stl/.3mf file in chat directly.</p>")
     return shell.page("sources", "".join(parts), path="/sources",
                       theme=theme, heading="Model sources", nav=nav)
 

@@ -809,8 +809,6 @@ class OrcaPlanning(unittest.TestCase):
         self.assertIn("release (v2.5.0, SHA256 verified", settings)
         self.assertIn("bundled OrcaSlicer (v2.5.0):", (self.root / ".env.example").read_text())
         self.assertIn("one bundled build (v2.5.0)", (self.root / "README.md").read_text())
-        unraid = (self.root / "docker" / "unraid" / "print-handy.xml").read_text()
-        self.assertIn("bundled OrcaSlicer (v2.5.0) and stable", unraid)
         for name in ("ANYCUBIC", "CREALITY", "ELEGOO", "PRUSA", "QIDI"):
             self.assertIn("OrcaSlicer v2.5.0 installation",
                           (self.root / "docs" / f"{name}.md").read_text())
@@ -825,7 +823,7 @@ class OrcaPlanning(unittest.TestCase):
              "print_handy/printers/bambulab/facts.py",
              "tests/printers/test_bambulab_p1s.py",
              "docs/COMPONENTS.md", "docs/DOCKER.md", "docs/SETTINGS.md",
-             ".env.example", "README.md", "docker/unraid/print-handy.xml",
+             ".env.example", "README.md",
              "docs/ANYCUBIC.md", "docs/CREALITY.md", "docs/ELEGOO.md",
              "docs/PRUSA.md", "docs/QIDI.md", "docs/BAMBU-A1-DOCKER.md"},
         )

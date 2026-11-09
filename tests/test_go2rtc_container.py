@@ -362,7 +362,10 @@ class DeploymentContractTests(unittest.TestCase):
     """Loopback-only, passthrough opt-in, and healthcheck coverage."""
 
     def test_no_go2rtc_port_is_published_anywhere(self):
-        self.assertNotIn("ports", COMPOSE["services"]["combined"])
+        # The one published port is the Web UI's (published by default for
+        # first boot); neither go2rtc port (1984 API, 8554 RTSP) may appear.
+        self.assertEqual(COMPOSE["services"]["combined"].get("ports"),
+                         ["8088:${PRINT_HANDY__WEBUI__PORT:-8088}"])
         for text in (COMPOSE_TEXT, UNRAID_TEXT):
             self.assertNotIn("1984", text)
             self.assertNotIn("8554", text)
@@ -374,15 +377,25 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertIn("#   - /dev/dri:/dev/dri", COMPOSE_TEXT)
         self.assertIn("# devices:", COMPOSE_TEXT)
 
-    def test_unraid_device_is_off_by_default_and_documented(self):
+    def test_unraid_device_is_an_optional_entry_and_capture_is_config_only(self):
         import xml.etree.ElementTree as ET
         root = ET.fromstring(UNRAID_TEXT)
         self.assertNotIn("--device", root.findtext("ExtraParams") or "")
-        self.assertIn("/dev/dri", UNRAID_TEXT)  # the opt-in note in the header comment
+        self.assertIn("/dev/dri", UNRAID_TEXT)
+        # The slimmed template's GPU surface is the optional /dev/dri
+        # device entry (Advanced View); it is a template entry, never an
+        # ExtraParams flag.
+        devices = {c.get("Target"): c for c in root.findall("Config")
+                   if c.get("Type") == "Device"}
+        self.assertEqual(devices["/dev/dri"].get("Required"), "false")
+        self.assertEqual(devices["/dev/dri"].get("Display"), "advanced")
+        # Capture itself is no longer a template variable at all: the
+        # opt-in lives in the config file / Compose, off by default
+        # (test_compose_carries_capture_with_off_default below).
         variables = {c.get("Target"): c for c in root.findall("Config")
                      if c.get("Type") == "Variable"}
-        self.assertEqual(variables["PRINT_HANDY__TIMELAPSE__CAPTURE_ENABLED"].text, "false")
-        self.assertIn("PRINT_HANDY__TIMELAPSE__CAPTURE_SOURCE_URL", variables)
+        self.assertNotIn("PRINT_HANDY__TIMELAPSE__CAPTURE_ENABLED", variables)
+        self.assertNotIn("PRINT_HANDY__TIMELAPSE__CAPTURE_SOURCE_URL", variables)
 
     def test_compose_carries_capture_with_off_default(self):
         environment = COMPOSE["services"]["combined"]["environment"]
