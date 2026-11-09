@@ -2,7 +2,7 @@
 
 Print Handy runs as its own bot — there is one runtime. This page is the native install
 (Python + systemd user services). The other install is the Docker image:
-see [docs/DOCKER.md](DOCKER.md). The bot's behaviour and settings are covered by
+see [docs/DOCKER.md](DOCKER.md). The bot's behavior and settings are covered by
 [docs/STANDALONE.md](STANDALONE.md).
 
 > **The Hermes install is removed.** Print Handy used to offer a second install that
