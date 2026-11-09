@@ -58,6 +58,7 @@ KNOWN = (
     "screen_sync_pending.json",
     "spoolman_known_spools.json",
     "start-recordings",
+    "starter_pings.json",
     "stops",
     "timelapse_plans",
 )

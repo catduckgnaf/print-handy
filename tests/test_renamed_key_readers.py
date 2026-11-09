@@ -35,6 +35,9 @@ SANCTIONED = {
     "secure_cookie": {
         "print_handy/settings.py": "KEY_ALIASES table (config-layer alias only)",
     },
+    "mention_starter_on_complete": {
+        "print_handy/settings.py": "KEY_ALIASES table (config-layer alias only)",
+    },
 }
 
 
