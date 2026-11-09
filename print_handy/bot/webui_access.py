@@ -190,7 +190,8 @@ def clear_claim(data, confirmed, environ=None):
         "chat; it cannot clear a token set through the Docker variable — "
         "if one is set, that token still applies."
         + ("" if env_token_present(data, environ) else
-           " No environment token is set on this install."),
+           " No environment token is set on this install, so the Web UI is "
+           "now open to anyone who can reach it."),
         env_token_present(data, environ))
 
 

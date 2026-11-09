@@ -116,3 +116,51 @@ def test_gateway_carries_the_setup_only_flag():
     # not silently authorize anyone for ordinary commands.
     source = SimpleNamespace(chat_id="1", user_id="2")
     assert gateway._is_user_authorized_for_source(source) is False
+
+
+_BAD_CHANNEL = [("token", True, "set"), ("print channel", False, "not numeric")]
+
+
+def test_configured_install_with_one_bad_row_is_not_setup_only():
+    cfg = {"bot": {"platform": "discord"}, "discord": {"chat_id": "12x"}}
+    assert bot_main.setup_only_mode(cfg, _BAD_CHANNEL) is False
+    cfg = {"bot": {"platform": "discord"},
+           "discord": {"chat_id": "", "allowed_user_ids": ["1"]}}
+    assert bot_main.setup_only_mode(cfg, _BAD_CHANNEL) is False
+
+
+def test_finished_setup_is_not_setup_only_but_a_skipped_one_is(tmp_path):
+    from print_handy import setup_state
+    cfg = {"bot": {"platform": "discord"}, "paths": {"hermes_home": tmp_path}}
+    assert bot_main.setup_only_mode(cfg, _BAD_CHANNEL) is True
+    setup_state.record_completion(cfg, "webui", skipped=True)
+    assert bot_main.setup_only_mode(cfg, _BAD_CHANNEL) is True
+    setup_state.record_completion(cfg, "chat")
+    assert bot_main.setup_only_mode(cfg, _BAD_CHANNEL) is False
+
+
+def test_finished_setup_keeps_its_bind_until_restart(tmp_path):
+    store = _store(tmp_path)
+    now = time.time()
+    key = "chan::alice"
+    _start(store, key, now)
+    for index, answer in enumerate(
+            ("flashforge.ad5x", "100000000000000001", "everyone", "skip", "skip", "skip")):
+        guided.handle_text(key, answer, store=store, now=now + 1 + index, setup_only=True)
+    guided.handle_text(key, "apply", store=store, now=now + 10,
+                       setup_only=True, apply_config=lambda answers: "written.")
+    refused = guided.handle_text("chan::bob", "/print-handy setup restart", store=store,
+                                 now=now + 11, setup_only=True)
+    assert "already in progress with another user" in refused
+    again = guided.handle_text(key, "/print-handy setup restart", store=store,
+                               now=now + 12, setup_only=True)
+    assert "Guided setup started" in again
+
+
+def test_simultaneous_starts_bind_one_owner(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    store = _store(tmp_path)
+    now = time.time()
+    with ThreadPoolExecutor(8) as pool:
+        replies = list(pool.map(lambda i: _start(store, f"chan::user{i}", now), range(8)))
+    assert sum("Guided setup started" in reply for reply in replies) == 1

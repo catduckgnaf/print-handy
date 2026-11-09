@@ -968,22 +968,21 @@ def apply(plan, w, *, repo=REPO, python=None, dry_run=False, runner=subprocess.r
         changed = update_env(data_home, secrets)
         w.say(f"Saved {', '.join(changed) or 'nothing new'} to {data_home}/.env (values not shown).")
         _apply_webui_access(plan, w, data_home)
+    user = os.environ.get("USER") or "$USER"
+    run("Keep the bot running after you log out", ["loginctl", "enable-linger", user], key="run_linger")
+    run("Start the bot now", ["systemctl", "--user", "enable", "--now",
+                              "print-handy-bot.service", "print-handy-listener.service"], key="run_start")
     if not dry_run:
-        # Shared setup completion (setup_state): a wizard-finished install
-        # must not be offered the full walkthrough again by the Web UI or
-        # chat surfaces. Best effort — a state-folder problem must not
-        # fail an install that otherwise applied.
+        # Shared setup completion (setup_state), recorded last so an install
+        # that stopped partway is not reported as finished. Best effort: a
+        # state-folder problem must not fail an install that otherwise applied.
         try:
             from . import setup_state
             home = effective_data_home(local, plan["data_home"])
             setup_state.record_completion_in_state_dir(
                 Path(home).expanduser() / "state", "wizard")
-        except Exception:
-            pass
-    user = os.environ.get("USER") or "$USER"
-    run("Keep the bot running after you log out", ["loginctl", "enable-linger", user], key="run_linger")
-    run("Start the bot now", ["systemctl", "--user", "enable", "--now",
-                              "print-handy-bot.service", "print-handy-listener.service"], key="run_start")
+        except Exception as exc:
+            w.say(f"Could not record that setup finished ({exc}); the Web UI may offer setup again.")
     w.say(f"\nCheck it: {python} -m print_handy.bot check")
     return True
 

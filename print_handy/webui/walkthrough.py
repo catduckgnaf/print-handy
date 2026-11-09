@@ -187,7 +187,7 @@ def _mark_done(data, state, **extra):
     """Mark this walkthrough done and write the shared completion record."""
     save_state(data, {**state, "done": True, **extra})
     try:
-        setup_state.record_completion(data, "webui")
+        setup_state.record_completion(data, "webui", skipped=bool(extra.get("skipped")))
     except Exception:  # the shared record must never break the walkthrough
         pass
 
@@ -195,6 +195,8 @@ def _mark_done(data, state, **extra):
 def restart(data):
     """Restart setup from the first step (Settings > Restart setup)."""
     save_state(data, {"step": 0, "offered": True})
+    # A recorded completion would otherwise keep the walkthrough closed.
+    setup_state.clear_completion(data)
 
 
 def _step_index(state):
