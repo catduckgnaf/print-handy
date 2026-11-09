@@ -119,6 +119,7 @@ class ConfigPageTests(unittest.TestCase):
         self.assertTrue(csrf)
         self.assertIn('action="/config/preview"', body)
         for heading in ("Printers", "Platform and chat", "Spools",
+                        "AI and models",
                         "Camera, timelapse and images", "Wrapped",
                         "Slicing and delivery", "Home Assistant",
                         "Notifications", "Logging", "Web UI"):
@@ -131,6 +132,10 @@ class ConfigPageTests(unittest.TestCase):
                      "timelapse.render_wait_s", "printer.slicer",
                      "delivery.methods", "logging.level", "webui.port"):
             self.assertIn(f'name="{name}"', body, name)
+        # The AI group names its file-only tier tables in the page.
+        self.assertIn("File-only in this section: the [ai] tier tables", body)
+        self.assertIn('name="ai.allowed_users"', body)
+        self.assertIn('name="ai.edit_requests_per_hour"', body)
         # Provenance badges: the file value, the home value, a model default.
         self.assertIn("settings file", row_segment(body, "discord.chat_id"))
         self.assertIn("home config", row_segment(body, "printer.model"))

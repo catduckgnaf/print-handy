@@ -212,12 +212,12 @@ class CatalogTests(unittest.TestCase):
             "notify.ntfy_enabled": ("notifications", "toggle"),
             "notify.ntfy_url": ("notifications", "url"),
             "notify.ntfy_topic": ("notifications", "text"),
-            "llm.chat_url": ("endpoints", "url"),
-            "llm.model": ("endpoints", "text"),
-            "design.chat_url": ("endpoints", "url"),
-            "design.model": ("endpoints", "text"),
-            "agent.chat_url": ("endpoints", "url"),
-            "agent.model": ("endpoints", "text"),
+            "llm.chat_url": ("ai", "url"),
+            "llm.model": ("ai", "text"),
+            "design.chat_url": ("ai", "url"),
+            "design.model": ("ai", "text"),
+            "agent.chat_url": ("ai", "url"),
+            "agent.model": ("ai", "text"),
         }
         for field_id, (group, kind) in expected.items():
             with self.subTest(field=field_id):
@@ -225,6 +225,27 @@ class CatalogTests(unittest.TestCase):
                 self.assertIsNotNone(field)
                 self.assertEqual(field.group, group)
                 self.assertEqual(field.kind, kind)
+    def test_ai_section_fields_groups_and_gate(self):
+        # Settings restructure stage 2: every AI surface lives in the ai
+        # group — the three endpoint pairs, the vision endpoint and
+        # model, and the [ai] edit gate as ordinary fields (#902). The
+        # tier tables stay file-only: no field exists for them.
+        expected = {
+            "services.vision_chat_url": ("ai", "url"),
+            "vision.model": ("ai", "text"),
+            "ai.allowed_users": ("ai", "id_list"),
+            "ai.edit_requests_per_hour": ("ai", "number"),
+        }
+        for field_id, (group, kind) in expected.items():
+            with self.subTest(field=field_id):
+                field = field_by_id(field_id)
+                self.assertIsNotNone(field)
+                self.assertEqual(field.group, group)
+                self.assertEqual(field.kind, kind)
+        self.assertEqual(field_by_id("ai.edit_requests_per_hour").minimum, 0)
+        for tier in ("ai.small", "ai.chat", "ai.heavy"):
+            self.assertIsNone(field_by_id(tier))
+
         spacing = field_by_id("layout.spacing")
         self.assertEqual(choices_for(spacing), tuple(settings.SPACING_PRESETS))
         mqtt_port = field_by_id("notify.mqtt_port")

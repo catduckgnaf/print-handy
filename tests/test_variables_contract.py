@@ -65,8 +65,6 @@ EXEMPTIONS = {
     # are set in the settings file, not from a page click.
     # The AI edit-lane gate (#902) is file-only too: who may reach the AI is
     # an operator decision made in the settings file.
-    ("ai", "allowed_users"): (frozenset({"webui"}), "#902"),
-    ("ai", "edit_requests_per_hour"): (frozenset({"webui"}), "#902"),
     ("ai", "chat"): (frozenset({"webui"}), "#818"),
     ("ai", "heavy"): (frozenset({"webui"}), "#818"),
     ("ai", "small"): (frozenset({"webui"}), "#818"),
