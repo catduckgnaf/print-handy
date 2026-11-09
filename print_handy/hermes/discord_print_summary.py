@@ -638,6 +638,18 @@ def format_slice_summary(job, now=None):
             if unresolved:
                 details.append(f'{len(unresolved)} designer setting conflict(s) resolved by destination profile')
             lines.append('Conversion: ' + '; '.join(details))
+    if job.get('derived_plates'):
+        conversion_rows = [row.get('provenance', {}).get('conversion_provenance', {})
+                           for row in job['derived_plates'] if isinstance(row.get('provenance'), dict)]
+        unknown = any(row.get('intent_status') == 'unknown' for row in conversion_rows)
+        conflicts = sum(len(row.get('unresolved_conflicts') or []) for row in conversion_rows)
+        if unknown or conflicts:
+            details = []
+            if unknown:
+                details.append('designer intent unknown for some settings')
+            if conflicts:
+                details.append(f'{conflicts} designer setting conflict(s) resolved by destination profile')
+            lines.append('Conversion: ' + '; '.join(details))
     total = 0
     total_filament = 0.0
     filament_known = True
