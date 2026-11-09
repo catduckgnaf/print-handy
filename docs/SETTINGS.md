@@ -517,7 +517,7 @@ Secrets come from the environment only (Docker: `.env`, never committed or share
 | `MATRIX_ACCESS_TOKEN` | Matrix standalone bot access token. The variable name is `matrix.access_token_env` |
 | `MQTT_PASSWORD` | MQTT notify. Never a setting. Used when `notify.mqtt_username` is set. A diagnostics bundle does not include it |
 | `NTFY_ACCESS_TOKEN` | ntfy notify. Never a setting. Sent as a Bearer token when publishing to a protected ntfy topic; public topics need none. A diagnostics bundle does not include it |
-| `WEBUI_ACCESS_TOKEN` | Optional Web UI access token, required when it binds beyond loopback. The variable name is `webui.access_token_env` |
+| `WEBUI_ACCESS_TOKEN` | Optional Web UI access token; never required — with no token and no saved login the Web UI serves openly. When set, it is required from every client. The variable name is `webui.access_token_env` |
 | `DISCORD_CLIENT_SECRET` | Live camera in Discord: the Discord application's client secret, used server-side for the Activity OAuth exchange. Never a setting |
 | `LIVE_STREAM_SESSION_SECRET` | Live camera in Discord: signs the Activity session markers. Never a setting |
 | `TUNNEL_TOKEN` | Live camera in Discord: the named Cloudflare Tunnel's token. Read only by the optional `cloudflared` sidecar; Print Handy itself never uses it |
