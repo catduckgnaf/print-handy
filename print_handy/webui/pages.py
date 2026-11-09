@@ -40,6 +40,7 @@ import html
 import shutil
 import tempfile
 from pathlib import Path
+from urllib.parse import quote
 
 from . import access as access_module
 from . import config as config_api
@@ -356,6 +357,27 @@ _FIELD_SEARCH = (
 )
 
 
+def _section_key(name):
+    """A group's sub-tab identity: a group with an empty or missing name
+    is the "other" tab. The tab links, the section list and the error
+    fallback must all key on this, or such a group can never be shown —
+    its link points at ?section=other while the raw name never matches.
+    """
+    return name or "other"
+
+
+_TAB_GUARD = (
+    "<script>(function(){var form=document.querySelector('form[action=\"/config/preview\"]');"
+    "if(!form)return;var dirty=false;"
+    "form.addEventListener('input',function(){dirty=true;});"
+    "form.addEventListener('change',function(){dirty=true;});"
+    "document.querySelectorAll('.config-tabs a').forEach(function(link){"
+    "link.addEventListener('click',function(event){"
+    "if(dirty&&!confirm('Unsaved changes on this tab will be lost. Switch tabs anyway?'))"
+    "event.preventDefault();});});})();</script>"
+)
+
+
 def render_config_page(field_values, *, data, form_token, errors=None,
                        submitted=None, notice=None, theme=shell.DEFAULT_THEME,
                        section=None, reveal=None):
@@ -364,7 +386,9 @@ def render_config_page(field_values, *, data, form_token, errors=None,
     Side sub-tabs (settings restructure stage 3): exactly one section's
     fields render as controls, selected server-side by ``section`` (the
     ?section= query parameter; the first section when absent or
-    unknown). Every other section's fields ride along as hidden inputs
+    unknown; the first errored field's section when ``errors`` names a
+    field, so an error re-render is never hidden behind another tab).
+    Every other section's fields ride along as hidden inputs
     in the same single form — the save model is unchanged from the
     all-sections page: one form, one preview, one confirm, and a field
     the page does not show keeps its current value because it is still
@@ -372,7 +396,8 @@ def render_config_page(field_values, *, data, form_token, errors=None,
     """
     by_group = {}
     for field_value in field_values:
-        by_group.setdefault(field_value.field.group, []).append(field_value)
+        by_group.setdefault(_section_key(field_value.field.group),
+                            []).append(field_value)
     parts = [
         '<p>These settings live in the YAML settings file; this page is an '
         'editor for that file, not a second source of truth. Saving writes '
@@ -390,21 +415,29 @@ def render_config_page(field_values, *, data, form_token, errors=None,
     known = {name for name, _heading in GROUPS}
     sections = [(name, heading, by_group[name]) for name, heading in GROUPS
                 if by_group.get(name)]
-    sections += [(name, name or "Other", rows) for name, rows in by_group.items()
+    sections += [(name, "Other" if name == "other" else name, rows)
+                 for name, rows in by_group.items()
                  if name not in known]  # a group this page does not know yet
     names = [name for name, _heading, _rows in sections]
     selected = section if section in names else None
     if errors:
         # An error re-render lands on the section holding the first
         # errored field, so the message is on screen, not behind a tab.
-        # This outranks the submitted section too: every unshown section
-        # rides along as hidden inputs, so a hidden value can error
-        # against a field the submitted section never renders — staying
-        # on that section would show the error nowhere.
+        # This outranks the posted section: a browser submit always
+        # posts _section for the tab it was on, so without precedence
+        # an error blamed on another tab's field (a cross-field
+        # validator result, a hand-edited file value) renders nowhere —
+        # the errored row exists on the posting tab only as a hidden
+        # input the user cannot edit.
+        group_of = {fv.field.id: _section_key(fv.field.group)
+                    for fv in field_values}
         for field_id in errors:
-            field = field_by_id(field_id)
-            if field is not None and field.group in names:
-                selected = field.group
+            key = group_of.get(field_id)
+            if key is None:
+                field = field_by_id(field_id)
+                key = _section_key(field.group) if field is not None else None
+            if key is not None and key in names:
+                selected = key
                 break
     if selected is None:
         selected = names[0] if names else None
@@ -413,7 +446,7 @@ def render_config_page(field_values, *, data, form_token, errors=None,
     # target; the shown section also keeps its group-<name> anchor id.
     parts.insert(0, '<nav class="pills config-tabs" aria-label="Settings sections">'
                  + "".join(
-                     f'<a href="/config?section={_esc(name or "other")}"'
+                     f'<a href="/config?section={quote(name, safe="")}"'
                      + (' aria-current="page"' if name == selected else "")
                      + f'>{_esc(heading)}</a>'
                      for name, heading, _rows in sections)
@@ -431,7 +464,7 @@ def render_config_page(field_values, *, data, form_token, errors=None,
                 parts.append(_hidden_inputs(
                     fv.field, _current(fv.field, fv, submitted)))
             continue
-        parts.append(f'<section class="config-group" id="group-{_esc(name or "other")}">'
+        parts.append(f'<section class="config-group" id="group-{_esc(name)}">'
                      f"<h2>{_esc(heading)}</h2>")
         parts.extend(_field_row(fv, data=data, errors=errors, submitted=submitted,
                                 reveal=reveal)
@@ -460,11 +493,18 @@ def render_config_page(field_values, *, data, form_token, errors=None,
         'every step starts from the current settings.</p>'
         '<button type="submit">Restart setup</button></form>')
     parts.append(_FIELD_SEARCH)
+    parts.append(_TAB_GUARD)
     return _page("configuration", "".join(parts), theme=theme, path="/config")
 
 
-def render_preview_page(entries, submitted, *, form_token, theme=shell.DEFAULT_THEME):
+def render_preview_page(entries, submitted, *, form_token, theme=shell.DEFAULT_THEME,
+                        section=None):
     """The diff preview: exact (field, old, new) rows plus the confirm form.
+
+    ``section`` is the sub-tab the preview was posted from; the confirm
+    form reposts it as _section so a save re-render lands back on that
+    tab (an errored field's own tab still outranks it — see
+    render_config_page).
 
     ``entries`` is [(field, old, new)]; ``submitted`` carries the raw form
     values the confirm form reposts as hidden inputs, so what is confirmed
@@ -478,6 +518,9 @@ def render_preview_page(entries, submitted, *, form_token, theme=shell.DEFAULT_T
               f'<input type="hidden" name="{CONFIRM_FIELD}" value="yes">',
               f'<input type="hidden" name="{FIELDS_FIELD}" '
               f'value="{_esc(",".join((submitted or {}).keys()))}">']
+    if section:
+        hidden.append(f'<input type="hidden" name="{SECTION_FIELD}" '
+                      f'value="{_esc(section)}">')
     # The whole parsed form state rides along, not just the changed keys:
     # the confirm POST parses exactly the fields the preview parsed (the
     # FIELDS_FIELD list), so an absent toggle or multi-select there means
