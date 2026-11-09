@@ -421,7 +421,7 @@ def _job_block(job):
 
 def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
                        walkthrough_pending=False, job=None, error=None, nav=None,
-                       unclaimed=False):
+                       unclaimed=False, loopback=False):
     """The / page: the snapshot as escaped HTML in the shared shell (#813).
 
     The overall card on top is derived from what the snapshot already
@@ -526,9 +526,12 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
                   'the first-run walkthrough is still open.</span>'
                   '<a class="button accent" href="/walkthrough">Finish setup</a></div>')
     if unclaimed:
-        banner += ('<div class="banner"><span>No login is set for this Web UI — '
-                   'anyone who can reach it can use it. Set a login in the '
-                   'walkthrough, or leave it open on a network you trust.</span>'
+        reach = ('It listens only on this machine, so only someone using this '
+                 'machine can reach it. Set a login in the walkthrough if you '
+                 'want one.' if loopback else
+                 'anyone who can reach it can use it. Set a login in the '
+                 'walkthrough, or leave it open on a network you trust.')
+        banner += (f'<div class="banner"><span>No login is set for this Web UI — {reach}</span>'
                    '<a class="button accent" href="/walkthrough">Open the walkthrough</a></div>')
     body = ((f'<p class="error">{esc(error)}</p>' if error else "")
             + overall
@@ -777,6 +780,7 @@ class _Handler(BaseHTTPRequestHandler):
                     snap, form_token=self.server.form_token, theme=self._theme(),
                     walkthrough_pending=walkthrough_module.pending(self.server.settings_data),
                     unclaimed=self.server.access.unclaimed,
+                    loopback=is_loopback(self.server.bind_host),
                     job=_overall_job(self.server.settings_data),
                     nav=data_module.nav_for(self.server.settings_data)
                     if data_module.wrapped_enabled(self.server.settings_data) else None),
@@ -1335,11 +1339,16 @@ class _Handler(BaseHTTPRequestHandler):
     def _walkthrough_page(self):
         """GET /walkthrough: the current step, or / when this install
         has no walkthrough pending (finished or skipped). Every install
-        owes it until then, however its access was resolved."""
+        owes it until then, however its access was resolved. An unclaimed
+        install is the exception: the status page's "No login is set"
+        banner links here, so a closed walkthrough reopens at Login
+        instead of bouncing the banner's link back to the status page."""
         data = self._walkthrough_data()
         if not walkthrough_module.pending(data):
-            self._redirect("/")
-            return
+            if not self.server.access.unclaimed:
+                self._redirect("/")
+                return
+            walkthrough_module.reopen_at_login(data)
         self._send(200, walkthrough_module.render_page(
             data, self._field_values(),
             form_token=self.server.form_token, theme=self._theme(),

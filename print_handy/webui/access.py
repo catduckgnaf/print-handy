@@ -36,7 +36,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
-import ipaddress
 import json
 import os
 import secrets
@@ -52,22 +51,12 @@ ACCESS_FILE = "webui_access.json"
 MIN_PASSWORD_LENGTH = 8
 MAX_USERNAME_LENGTH = 64
 _ITERATIONS = 200_000
-_LOOPBACK_NAMES = frozenset({"localhost"})
 
 OPEN, TOKEN, PASSWORD, SETUP = "open", "token", "password", "setup"
 
 
 class AccessError(ValueError):
     """A setup choice was refused (too short, mismatched, or not confirmed)."""
-
-
-def _is_loopback(host):
-    if host in _LOOPBACK_NAMES:
-        return True
-    try:
-        return ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        return False
 
 
 def _digest(secret, salt, iterations):

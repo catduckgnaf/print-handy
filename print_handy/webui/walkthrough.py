@@ -19,8 +19,10 @@ every other route stays reachable, and the status page carries a slim
 
 State is one small JSON file beside the access file,
 ``webui_walkthrough.json`` — ``{"step": <index>, "done": bool,
-"skipped": bool}`` — written atomically at mode 0600 through the setup
-wizard's writer. It records progress only; no setting lives in it.
+"skipped": bool, "reopened": bool}`` — written atomically at mode 0600
+through the setup wizard's writer. It records progress only; no setting
+lives in it. ``reopened`` marks a run the "No login is set" banner
+brought back to the Login step (:func:`reopen_at_login`).
 
 Every step writes through the existing configuration path: the step's
 fields are catalog fields, rendered by the config page's own field-row
@@ -71,6 +73,8 @@ STEPS = (
     ("providers", "Providers"),
     ("review", "Review"),
 )
+
+_LOGIN_INDEX = next(i for i, (step_id, _label) in enumerate(STEPS) if step_id == "login")
 
 STEP_LEADS = {
     "printer": "The printer Print Handy prepares prints for, how it reaches the "
@@ -186,6 +190,25 @@ def offer_once(data):
 def restart(data):
     """Restart setup from the first step (Settings > Restart setup)."""
     save_state(data, {"step": 0, "offered": True})
+
+
+def reopen_at_login(data):
+    """Bring a closed walkthrough back to its Login step.
+
+    The status page's "No login is set" banner links to /walkthrough on
+    an unclaimed install, including one that already skipped or finished
+    it; without this the link would bounce straight back to the status
+    page. A finished run, or one this has not reopened yet, is placed on
+    the Login step. An already reopened run is left alone, so a repeat
+    GET never pulls back someone who moved past the Login step. That
+    holds even when pending() stays false for another reason, which is
+    why the decision reads the state file's own flags."""
+    state = load_state(data)
+    if state.get("done") or not state.get("reopened"):
+        try:
+            save_state(data, {"step": _LOGIN_INDEX, "offered": True, "reopened": True})
+        except OSError:  # an unwritable state folder still renders a step
+            pass
 
 
 def _step_index(state):
@@ -539,6 +562,7 @@ def apply_post(data, environ, form, field_values, *, form_token,
 
 __all__ = [
     "REVIEW_FIELDS", "STATE_FILE", "STEPS", "STEP_FIELDS", "STEP_LEADS",
+    "reopen_at_login",
     "apply_post", "load_state", "pending", "render_page", "save_state",
     "state_path",
 ]

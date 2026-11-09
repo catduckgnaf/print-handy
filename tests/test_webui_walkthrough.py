@@ -464,6 +464,82 @@ class WalkthroughServerTests(unittest.TestCase):
             code, _, _ = self.post_step(port, environ, "not-the-token", "printer")
             self.assertEqual(code, 403)
 
+    # -- the "No login is set" banner must not dead-end on / ----------------
+
+    LOGIN = walkthrough.STEPS.index(("login", "Login"))
+
+    def assert_login_step(self, port):
+        code, _, body = self.request(port, "GET", "/walkthrough")
+        self.assertEqual(code, 200)
+        self.assertIn('name="step" value="login"', body)
+
+    def test_closed_walkthrough_on_unclaimed_install_serves_login(self):
+        closed = {"skipped": {"step": 0, "done": True, "skipped": True, "offered": True},
+                  "finished": {"step": 5, "done": True, "offered": True},
+                  "finished after a reopen": {"step": 5, "done": True, "offered": True,
+                                              "reopened": True}}
+        for name, state in closed.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                httpd, port, data, _, _ = self.start(tmp)
+                self.assertTrue(httpd.access.unclaimed)
+                walkthrough.save_state(data, state)
+                self.assert_login_step(port)
+                self.assertEqual(walkthrough.load_state(data),
+                                 {"step": self.LOGIN, "offered": True, "reopened": True})
+
+    def test_repeat_get_after_moving_on_keeps_the_step(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd, port, data, _, environ = self.start(tmp)
+            walkthrough.save_state(data, {"step": 0, "done": True, "skipped": True})
+            self.assert_login_step(port)
+            code, headers, _ = self.post_step(port, environ, httpd.form_token, "login", action="skip")
+            self.assertEqual((code, headers["location"]), (303, "/walkthrough"))
+            moved_on = self.LOGIN + 1
+            self.assertEqual(walkthrough.load_state(data)["step"], moved_on)
+            code, _, body = self.request(port, "GET", "/walkthrough")
+            self.assertEqual(code, 200)
+            self.assertIn('name="step" value="providers"', body)
+            self.assertEqual(walkthrough.load_state(data)["step"], moved_on)
+            # pending() can be false with no done flag in the state file
+            # (a completion recorded elsewhere): still no reset.
+            with mock.patch.object(walkthrough, "pending", return_value=False):
+                code, _, body = self.request(port, "GET", "/walkthrough")
+            self.assertEqual(code, 200)
+            self.assertIn('name="step" value="providers"', body)
+            self.assertEqual(walkthrough.load_state(data)["step"], moved_on)
+
+    def test_pending_false_without_done_flag_still_reopens_at_login(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, port, data, _, _ = self.start(tmp)
+            walkthrough.save_state(data, {"step": 5, "offered": True})
+            with mock.patch.object(walkthrough, "pending", return_value=False):
+                self.assert_login_step(port)
+
+    def test_install_with_a_credential_still_redirects(self):
+        token = {"WEBUI_ACCESS_TOKEN": "a-long-enough-test-token"}
+        cases = {"saved open choice": ({"setup_done": True}, {}),
+                 "access token": ({"environ": token}, {server.TOKEN_HEADER: token["WEBUI_ACCESS_TOKEN"]})}
+        for name, (start, headers) in cases.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                httpd, port, data, _, _ = self.start(tmp, **start)
+                self.assertFalse(httpd.access.unclaimed)
+                state = {"step": 5, "done": True, "offered": True}
+                walkthrough.save_state(data, state)
+                code, response, _ = self.request(port, "GET", "/walkthrough", headers=headers)
+                self.assertEqual((code, response["location"]), (303, "/"))
+                self.assertEqual(walkthrough.load_state(data), state)
+
+    def test_banner_wording_follows_the_bind(self):
+        wide = "anyone who can reach it can use it"
+        for host, says_wide in (("0.0.0.0", True), ("127.0.0.1", False)):
+            with self.subTest(host), tempfile.TemporaryDirectory() as tmp:
+                _, port, _, _, _ = self.start(tmp, host=host)
+                code, _, body = self.request(port, "GET", "/")
+                self.assertEqual(code, 200)
+                self.assertIn("No login is set", body)
+                self.assertEqual(wide in body, says_wide)
+                self.assertEqual("listens only on this machine" in body, not says_wide)
+
 
 class ThemeTests(unittest.TestCase):
     def start(self, tmp, *, setup_done=False, host="0.0.0.0", environ=None, extra=""):
