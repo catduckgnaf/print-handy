@@ -170,6 +170,9 @@ GROUP_OF = {
     "webui.enabled": "webui",
     "webui.host": "webui",
     "webui.port": "webui",
+    "webui.require_auth": "webui",
+    "webui.controls_enabled": "webui",
+    "webui.cookie_secure": "webui",
     "live_stream.enabled": "camera",
     "live_stream.voice_channel_id": "camera",
     "live_stream.auto_start_on_print": "camera",
@@ -617,6 +620,22 @@ CATALOG = (
     _field("webui", "port", "Web UI port", "number",
            "Port the Web UI binds to when enabled; 0 means no port has been chosen yet.",
            validator="settings webui check", minimum=0, maximum=65535),
+    _field("webui", "require_auth", "Web UI login", "toggle",
+           "On: the Web UI access token or a saved password is required once one "
+           "is set. Off: the access token is neither required nor checked, even "
+           "on a LAN bind — anyone who can reach the port gets the Web UI. Only "
+           "for a network you trust.",
+           validator="settings webui check"),
+    _field("webui", "controls_enabled", "Web UI printer controls", "toggle",
+           "On: the Web UI printer control routes (pause, resume, cancel, target "
+           "temperature and the rest) send commands. Off: they answer 403 and "
+           "send nothing. Off by default.",
+           validator="settings webui check"),
+    _field("webui", "cookie_secure", "Secure session cookie", "toggle",
+           "On: the Web UI session cookie is marked Secure, so browsers send it "
+           "only over HTTPS. Keep off for plain-HTTP LAN access; turn on when "
+           "the Web UI is exposed through an HTTPS reverse proxy.",
+           validator="settings webui check"),
     # Live camera in Discord (#311): the [live_stream] section. No secret
     # is a field here — the Discord client secret and the Activity
     # session secret live only in the environment, and the tunnel token

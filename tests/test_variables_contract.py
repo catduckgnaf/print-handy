@@ -155,15 +155,16 @@ EXEMPTIONS = {
     # #1002 retired the LLM roast model (kept in OPTIONAL_KEYS so existing configs load).
     ("vision", "roast_model"): (frozenset({"webui", "consumer"}), "#1002"),
     ("webui", "access_token_env"): (frozenset({"webui"}), "#286"),
-    # Deliberately not editable from the Web UI it protects: turning auth
-    # off is a file/env decision, never a click on the page it unlocks.
-    ("webui", "require_auth"): (frozenset({"webui"}), "#286"),
-    # Like require_auth: arming printer controls is a file/environment decision,
-    # not a click on the page it arms. The env sample documents the safe default.
-    ("webui", "controls_enabled"): (frozenset({"webui"}), "#708"),
-    # Like require_auth and controls_enabled: cookie transport security is an
-    # infrastructure/environment posture decision, not a click in the Web UI.
-    ("webui", "cookie_secure"): (frozenset({"webui"}), "P0 exposure"),
+    # webui.require_auth, webui.controls_enabled and webui.cookie_secure
+    # carried webui-surface exemptions until the first-boot parity program's
+    # settings-completeness pass gave all three catalog fields; the
+    # exemptions were removed with the fields, per the ratchet.
+    # Follow-up note (not an exemption): the first-boot parity plan's
+    # surface list also names the in-repo Unraid template
+    # (docker/unraid/print-handy.xml) for these keys. That file is
+    # deliberately NOT touched by the parity program — PR #1108 owns the
+    # template's slim shape — so template entries for the three keys are
+    # #1108's follow-up, recorded here so the gap is named, not silent.
 }
 # --- end of EXEMPTIONS ------------------------------------------------------
 

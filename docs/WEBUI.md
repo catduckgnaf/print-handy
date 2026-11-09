@@ -231,7 +231,7 @@ The token's value is a secret held only in the environment variable named by `we
 3. **A saved setup choice:** the setup password is required, or access is open if that was chosen.
 4. **Loopback bind** (`127.0.0.1`, another loopback address, `::1`, or `localhost`): open.
 5. **Any other bind host:** [first-run setup](#first-run-setup).
-- **`webui.require_auth = false`** (`PRINT_HANDY__WEBUI__REQUIRE_AUTH=false`): the explicit opt-out for a network you trust. The token is neither required nor checked on any bind host, even if it is set, and there is no login page. Anyone who can reach the port gets the whole Web UI, including printer controls and configuration writes (the per-form `_csrf` check still applies). The Docker gate logs `authentication OFF` at every start. The setting is deliberately not a Web UI field: turning auth off is a file or environment decision.
+- **`webui.require_auth = false`** (`PRINT_HANDY__WEBUI__REQUIRE_AUTH=false`): the explicit opt-out for a network you trust. The token is neither required nor checked on any bind host, even if it is set, and there is no login page. Anyone who can reach the port gets the whole Web UI, including printer controls and configuration writes (the per-form `_csrf` check still applies). The Docker gate logs `authentication OFF` at every start. The setting is also a field on the Web UI Settings page.
 - Requests that need the access token send it as the `X-WebUI-Token` header. For example:
 
   ```bash
@@ -258,7 +258,7 @@ The Web UI has no HTTPS listener of its own. Put it where the network already li
 | HTTPS reverse proxy on that LAN or VPN | Yes, if the proxy is the only public name and it forwards to the Web UI over the private network. Terminate TLS at the proxy. Leave the Web UI on plain HTTP behind it. | Set `cookie_secure` true (`PRINT_HANDY__WEBUI__COOKIE_SECURE=true`). Browsers then send the session and theme cookies only on HTTPS requests to the proxy. |
 | Router port forward, or the Web UI published directly on the public internet | No. Do not forward the Web UI port and do not publish it as a public HTTP service. | Not a supported configuration. `cookie_secure` does not make a public bind safe. |
 
-`cookie_secure` is a file or environment decision, not a field on the configuration page. Restart after changing it. Authentication (`require_auth`, the access token, or first-run setup) is separate and stays as configured.
+`cookie_secure` is a field on the configuration page, like the other Web UI settings. Restart after changing it. Authentication (`require_auth`, the access token, or first-run setup) is separate and stays as configured.
 
 ## Use the configuration page
 
