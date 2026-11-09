@@ -1646,6 +1646,20 @@ class _Handler(BaseHTTPRequestHandler):
     def _upload_post(self):
         content_type = self.headers.get("Content-Type") or ""
         if content_type.startswith("multipart/form-data"):
+            # Gate before the body is read: an upload body can run to
+            # the shared download budget (~200 MiB), so an
+            # unauthenticated client must not be able to make the
+            # server buffer and parse one. The gate is the GET rule
+            # (access open, the header token, or a login session —
+            # session first, so a browser request does not trip the
+            # header throttle); it does not replace the POST rule
+            # below, which still requires the header token or the form
+            # token once the fields are parsed. A session alone still
+            # cannot save a file.
+            if self.server.access.required and not (
+                    self._session_authorized() or self._header_authorized()):
+                self._html_refusal(403, STALE_FORM_MESSAGE, "/upload")
+                return
             fields, files, error = self._read_upload_body()
             if error:
                 self._html_refusal(error[0], error[1], "/upload")
@@ -1715,6 +1729,14 @@ class _Handler(BaseHTTPRequestHandler):
         if error:
             self._send(error[0], upload_module.render_token_page(error=error[1]),
                        "text/html; charset=utf-8")
+            return
+        # Check the token again after the read: reading a large upload
+        # can take a while, and a link revoked in that window must not
+        # still deliver a file into the inbox.
+        if not upload_module.link_valid(self.server.settings_data, token):
+            self._send(404, upload_module.render_token_page(
+                error="This upload link is not valid. Ask for a fresh one."),
+                "text/html; charset=utf-8")
             return
         if not files:
             self._send(400, upload_module.render_token_page(
