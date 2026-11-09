@@ -77,9 +77,9 @@ services:
       # Discord chat LLM (#466): true by default; false runs Discord as a
       # pure bot while the LLM below stays configured for /print-design.
       PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED: ${PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED:-true}
-      # Mention the starter when a print ends: true by default; the terminal
-      # post @mentions only the user who started that print.
-      PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE: ${PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE:-true}
+      # Mention the starter when a print needs them: true by default; the
+      # terminal post and a person-needed alert @mention only the starter.
+      PRINT_HANDY__DISCORD__MENTION_STARTER: ${PRINT_HANDY__DISCORD__MENTION_STARTER:-true}
       PRINT_HANDY__LLM__CHAT_URL: ${PRINT_HANDY__LLM__CHAT_URL:-}
       PRINT_HANDY__LLM__MODEL: ${PRINT_HANDY__LLM__MODEL:-}
       # AI design (#388) has no ENABLED line here on purpose: unset is AUTO

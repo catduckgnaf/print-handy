@@ -17,7 +17,9 @@ the polling family listener consumes, and driven through the real
 ``FamilyListener`` state machine. Its terminal poster renders through
 the real shared ``format_event`` against an archive job carrying a
 post-#1029 ``started_by`` stamp, so the assertions cover the terminal
-post content and the starter-mention behavior, not just classification.
+post content and the starter ping decision (#1095: the rendered text
+carries no mention; the classifier pings the starter at the send path),
+not just classification.
 """
 import json
 from pathlib import Path
@@ -118,7 +120,7 @@ class Rig:
     ("completion_error.json", "error"),
 ])
 def test_replayed_terminal_sequence_posts_once_with_starter_mention(
-        tmp_path, archive, recording, kind):
+        tmp_path, archive, recording, kind, monkeypatch):
     doc = load_recording(recording)
     assert doc["recorded"]["outcome"] == kind
     rig = Rig(tmp_path, archive, statuses(doc)).run()
@@ -126,10 +128,12 @@ def test_replayed_terminal_sequence_posts_once_with_starter_mention(
     assert rig.terminals == [(kind, REMOTE)]
     (text,) = rig.rendered
     assert text.startswith(f"{VERBS[kind]}: Replay Part"), text
-    # Post-#1029 shape: the terminal post mentions only the starter, as
-    # its own last line, exactly once.
-    assert text.splitlines()[-1] == f"<@{STARTER}>"
-    assert text.count("<@") == 1
+    # Post-#1095 shape: the rendered terminal text carries no mention;
+    # the send path's classifier pings only the starter, once.
+    assert "<@" not in text
+    from print_handy.hermes import starter_pings
+    monkeypatch.setattr(starter_pings, "STATE", tmp_path / "pings.json")
+    assert starter_pings.ping_for(kind, job_key=REMOTE) == STARTER
     assert rig.retires and rig.retires[-1][0] == REMOTE
 
 

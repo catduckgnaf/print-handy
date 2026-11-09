@@ -36,6 +36,7 @@ from ..core import delivery, filament_color, launch_state, printer_clock, spool_
 from . import _config
 from . import moonraker_discord_announcements as announcer
 from . import discord_print_summary as print_summary
+from . import starter_pings
 from . import plan_timelapse
 from . import timelapse_capture
 from . import timelapse_encode
@@ -128,14 +129,24 @@ def _matrix_room_id():
     return str(_config.cfg()["matrix"].get("room_id") or "")
 
 
-def post(message):
-    """Deliver physical print lifecycle text to the print chat only, with no agent."""
+def post(message, *, mention_user_id=None, ping_kind=None, ping_job_key=None, ping_episode=None):
+    """Deliver physical print lifecycle text to the print chat only, with no agent.
+
+    A ping for the print's starter is a send-path decision (#1095): pass
+    ``ping_kind`` (and ``ping_job_key`` naming the print) and the starter
+    pings classifier decides whether this post may ping, or pass a
+    ``mention_user_id`` a caller already decided. With neither, the post
+    pings nobody — the rendered text itself never carries a mention.
+    """
+    if mention_user_id is None and ping_kind:
+        mention_user_id = starter_pings.ping_for(
+            ping_kind, job_key=ping_job_key, episode=ping_episode) or None
     if _config.standalone():
-        return _post_rest(message)
-    return _post_rest_discord(message)
+        return _post_rest(message, mention_user_id=mention_user_id)
+    return _post_rest_discord(message, mention_user_id=mention_user_id)
 
 
-def _post_rest(message):
+def _post_rest(message, mention_user_id=None):
     """Standalone mode: the configured platform's REST sender with its bot token.
 
     Works with no gateway connected. Discord is the original path; Telegram
@@ -162,10 +173,10 @@ def _post_rest(message):
         log(f"post rest target=matrix:{room} ok={ok} {message.splitlines()[0][:120] if message else ''!r}"
             f"{'' if ok else ' ' + str(detail)[:200]}")
         return ok
-    return _post_rest_discord(message)
+    return _post_rest_discord(message, mention_user_id=mention_user_id)
 
 
-def _post_rest_discord(message):
+def _post_rest_discord(message, mention_user_id=None):
     """Discord delivery through the bot's own REST sender with its bot token (#524).
 
     The one Discord post path in both modes: Hermes mode no longer shells
@@ -176,13 +187,11 @@ def _post_rest_discord(message):
     no silent fallback to another transport.
     """
     from print_handy.bot import rest
-    # A terminal post's starter-mention line (<@id> on its own line, written
-    # by format_event for the person who started the print) is the one ping
-    # Discord is allowed to deliver; every other post mentions nobody. The
-    # kwarg is passed only when a mention exists, so the plain send call
-    # keeps its long-standing three-argument shape.
-    mention = print_summary.mention_user_id(message)
-    kwargs = {"mention_user_id": mention} if mention else {}
+    # The one ping Discord is allowed to deliver is the starter ping the
+    # caller decided through starter_pings (#1095); every other post
+    # mentions nobody. The kwarg is passed only when a mention exists, so
+    # the plain send call keeps its long-standing three-argument shape.
+    kwargs = {"mention_user_id": mention_user_id} if mention_user_id else {}
     ok, detail = rest.send(_bot_token(), announcer.DISCORD_CHAT_ID, message, **kwargs)
     log(f"post rest target={DISCORD_TARGET} ok={ok} {message.splitlines()[0][:120] if message else ''!r}"
         f"{'' if ok else ' ' + str(detail)[:200]}")
@@ -196,15 +205,18 @@ def post_alert(message, kind, filename):
     posts do not apply: the alert goes out as plain text and the operator
     answers with the typed commands the text names.
     """
+    # An alert that needs a person pings the print's starter (#1095): the
+    # classifier decides from the alert kind and the job behind the
+    # filename — once per episode, so a re-posted or refreshed alert the
+    # caller sends again asks the classifier again and gets nobody. The
+    # decision is made once here and threaded to whichever transport
+    # delivers, so the button post and its plain-text fallback can never
+    # ping twice for the same alert.
+    mention = starter_pings.ping_for(kind, job_key=filename, episode=kind) or None
     if _buttonless_standalone():
-        return post(message)
+        return post(message, **({"mention_user_id": mention} if mention else {}))
     try:
         from . import print_alert_buttons as pab
-        # A terminal alert with buttons (the firmware-shutdown post carries
-        # the error event text) pings its starter the way the plain REST
-        # post does (#1029); the kwarg is passed only when a starter line
-        # is present, so the call keeps its shape otherwise.
-        mention = print_summary.mention_user_id(message)
         kwargs = {"mention_user_id": mention} if mention else {}
         if pab.post_with_buttons(_bot_token(), announcer.DISCORD_CHAT_ID,
                                  message, kind, filename, **kwargs):
@@ -213,7 +225,7 @@ def post_alert(message, kind, filename):
         log("button post failed; falling back to plain text")
     except Exception as exc:
         log(f"button post error: {exc!r}")
-    return post(message)
+    return post(message, **({"mention_user_id": mention} if mention else {}))
 
 
 def post_plate_picker(plan_id):
@@ -358,7 +370,9 @@ def post_cancel_report(filename, reason=None):
     except Exception as exc:
         log(f"klipper report failed: {exc!r}")
         text = print_summary.format_event("cancelled", filename)
-    return post(_with_status_roast(text, filename, "cancelled", f"cancelled:{filename}"))
+    mention = starter_pings.ping_for("cancelled", job_key=filename) or None
+    return post(_with_status_roast(text, filename, "cancelled", f"cancelled:{filename}"),
+                **({"mention_user_id": mention} if mention else {}))
 
 
 SCREEN_CANCEL_NATIVE = {"cancel", "cancelled"}
@@ -1268,7 +1282,7 @@ def _acknowledge_completion(completion_message):
         announcer.save_state(state)
 
 
-def _post_completion(message, completion_message):
+def _post_completion(message, completion_message, job_key=None):
     """Acknowledge only a matching pending notice after transport success.
 
     A post carrying a timelapse (a MEDIA: attachment) delivers its roast
@@ -1282,9 +1296,21 @@ def _post_completion(message, completion_message):
     timelapse post posts no roast at all, leaving it pending for the
     caller's text-only fallback post to carry inline.
     """
+    # The completion post pings the starter (#1029, kept by #1095): the
+    # classifier decides from the kind and the job — the caller's job key
+    # when it has one, else the announcer state's current job. The roast
+    # follow-up post below deliberately gets no ping decision: a roast
+    # never pings.
+    if not job_key:
+        try:
+            job_key = announcer.load_state().get("job_key")
+        except Exception:
+            job_key = None
+    mention = starter_pings.ping_for("complete", job_key=job_key) or None
+    mention_kwargs = {"mention_user_id": mention} if mention else {}
     if re.search(r"MEDIA:\S+", str(message)):
         roast = _completion_roast_line(message, completion_message)
-        delivered = post(message)
+        delivered = post(message, **mention_kwargs)
         if not delivered:
             return delivered
         _acknowledge_completion(completion_message)
@@ -1295,7 +1321,7 @@ def _post_completion(message, completion_message):
             except Exception as exc:
                 log(f"completion roast follow-up post failed: {exc!r}; the timelapse post stands")
         return delivered
-    delivered = post(_with_completion_roast(message, completion_message))
+    delivered = post(_with_completion_roast(message, completion_message), **mention_kwargs)
     if delivered:
         _acknowledge_completion(completion_message)
     return delivered
@@ -2931,19 +2957,24 @@ def _visual_alert(filename, image, reason, identity=None):
     path = target / f"{int(time.time())}-{Path(filename or 'print').stem}.jpg"
     path.write_bytes(image)
     text = _with_printer_name(f"Print camera check: {clean(filename)}\n{reason}")
+    # A watchdog alert asking for a decision pings the starter (#1095),
+    # once per episode: the decision is made once here and threaded to
+    # whichever transport delivers, button post or plain fallback.
+    mention = starter_pings.ping_for("watchdog", job_key=filename, episode="watchdog") or None
     if _buttonless_standalone():
-        post(text + f"\n{path}\nMEDIA:{path}")
+        post(text + f"\n{path}\nMEDIA:{path}", **({"mention_user_id": mention} if mention else {}))
         return path
     try:
         from . import print_alert_buttons as pab
+        kwargs = {"mention_user_id": mention} if mention else {}
         if pab.post_visual_alert(_bot_token(), announcer.DISCORD_CHAT_ID,
-                                 text, filename, path, identity=identity):
+                                 text, filename, path, identity=identity, **kwargs):
             log(f"post visual alert {clean(filename)!r}")
             return path
         log("visual button post failed; falling back to text")
     except Exception as exc:
         log(f"visual button post error: {exc!r}")
-    post(text + f"\n{path}\nMEDIA:{path}")
+    post(text + f"\n{path}\nMEDIA:{path}", **({"mention_user_id": mention} if mention else {}))
     return path
 
 
@@ -2963,19 +2994,21 @@ def _visual_alert_text(filename, reason, identity=None):
     except Exception:
         pass
     text = _with_printer_name(f"Print camera check: {clean(filename)}\n{reason}")
+    mention = starter_pings.ping_for("watchdog", job_key=filename, episode="watchdog") or None
     if _buttonless_standalone():
-        post(text)
+        post(text, **({"mention_user_id": mention} if mention else {}))
         return
     try:
         from . import print_alert_buttons as pab
+        kwargs = {"mention_user_id": mention} if mention else {}
         if pab.post_visual_text_alert(_bot_token(), announcer.DISCORD_CHAT_ID,
-                                      text, filename, identity=identity):
+                                      text, filename, identity=identity, **kwargs):
             log(f"post visual text alert {clean(filename)!r}")
             return
         log("visual text alert button post failed; falling back to text")
     except Exception as exc:
         log(f"visual text alert post error: {exc!r}")
-    post(text)
+    post(text, **({"mention_user_id": mention} if mention else {}))
 
 
 def _visual_dark_notice(filename, identity=None):
@@ -3518,7 +3551,11 @@ class Listener:
                     self.native_error_alerted = key
                     save_native_error_alerted(key)
                     log(f"native screen error {key} file={self.filename!r}")
-                    await asyncio.to_thread(post, native_error_text(self.filename, key))
+                    mention = starter_pings.ping_for(
+                        "alert", job_key=self.filename,
+                        episode=f"native-error:{key[0]}:{key[1]}") or None
+                    await asyncio.to_thread(post, native_error_text(self.filename, key),
+                                            **({"mention_user_id": mention} if mention else {}))
                 elif not key and detail is not None and self.native_error_alerted is not None:
                     self.native_error_alerted = None
                     save_native_error_alerted(None)
@@ -4093,11 +4130,13 @@ class Listener:
                     duration = self.last_stats.get("print_duration")
                     if isinstance(duration, (int, float)) and duration > 0:
                         facts["duration_s"] = float(duration)
+                    mention = starter_pings.ping_for("error", job_key=self.filename) or None
                     await asyncio.to_thread(
                         post, _with_status_roast(
                             print_summary.format_event(new_state, self.filename),
                             self.filename, "failed",
-                            f"failed:{identity or self.filename}", facts))
+                            f"failed:{identity or self.filename}", facts),
+                        **({"mention_user_id": mention} if mention else {}))
                 else:
                     await asyncio.to_thread(post, print_summary.format_event(new_state, self.filename))
         ended = new_state in ("complete", "cancelled", "error", "standby") and old in ("printing", "paused")

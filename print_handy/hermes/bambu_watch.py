@@ -208,6 +208,7 @@ def deliver_visual_alert(filename, image, reason, *, post=None, token=None, chat
     """
     path = write_frame(filename, image)
     text = f"Print camera check: {print_summary.safe_label(filename, 'print')}\n{reason}"
+    default_post = post is None
     if post is None or token is None or chat_id is None or buttonless is None:
         from . import moonraker_discord_announcements as announcer
         from . import moonraker_event_listener as mel
@@ -215,17 +216,31 @@ def deliver_visual_alert(filename, image, reason, *, post=None, token=None, chat
         token = token if token is not None else mel._bot_token()
         chat_id = chat_id if chat_id is not None else announcer.DISCORD_CHAT_ID
         buttonless = mel._buttonless_standalone() if buttonless is None else buttonless
+    # A watchdog alert asking for a decision pings the starter (#1095),
+    # once per episode; the decision is threaded to whichever transport
+    # delivers. An injected post callable keeps its one-argument shape —
+    # only the production sender (mel.post) takes the decision kwarg.
+    from . import starter_pings
+    mention = starter_pings.ping_for("watchdog", job_key=filename, episode="watchdog") or None
+    media_text = text + f"\n{path}\nMEDIA:{path}"
     if buttonless:
-        post(text + f"\n{path}\nMEDIA:{path}")
+        if default_post:
+            post(media_text, **({"mention_user_id": mention} if mention else {}))
+        else:
+            post(media_text)
         return path
     try:
         from . import print_alert_buttons as pab
-        if pab.post_visual_alert(token, chat_id, text, filename, path, identity=identity):
+        kwargs = {"mention_user_id": mention} if mention else {}
+        if pab.post_visual_alert(token, chat_id, text, filename, path, identity=identity, **kwargs):
             return path
         log("bambu visual button post failed; falling back to text")
     except Exception as exc:
         log(f"bambu visual button post error: {exc!r}")
-    post(text + f"\n{path}\nMEDIA:{path}")
+    if default_post:
+        post(media_text, **({"mention_user_id": mention} if mention else {}))
+    else:
+        post(media_text)
     return path
 
 
@@ -269,6 +284,7 @@ def deliver_visual_text_alert(filename, reason, *, post=None, token=None, chat_i
     and as the fallback when the button post fails.
     """
     text = f"Print camera check: {print_summary.safe_label(filename, 'print')}\n{reason}"
+    default_post = post is None
     if post is None or token is None or chat_id is None or buttonless is None:
         from . import moonraker_discord_announcements as announcer
         from . import moonraker_event_listener as mel
@@ -276,17 +292,26 @@ def deliver_visual_text_alert(filename, reason, *, post=None, token=None, chat_i
         token = token or mel._bot_token()
         chat_id = chat_id if chat_id is not None else announcer.DISCORD_CHAT_ID
         buttonless = mel._buttonless_standalone() if buttonless is None else buttonless
+    from . import starter_pings
+    mention = starter_pings.ping_for("watchdog", job_key=filename, episode="watchdog") or None
     if buttonless:
-        post(text)
+        if default_post:
+            post(text, **({"mention_user_id": mention} if mention else {}))
+        else:
+            post(text)
         return
     try:
         from . import print_alert_buttons as pab
-        if pab.post_visual_text_alert(token, chat_id, text, filename, identity=identity):
+        kwargs = {"mention_user_id": mention} if mention else {}
+        if pab.post_visual_text_alert(token, chat_id, text, filename, identity=identity, **kwargs):
             return
         log("bambu visual text button post failed; falling back to text")
     except Exception as exc:
         log(f"bambu visual text alert post error: {exc!r}")
-    post(text)
+    if default_post:
+        post(text, **({"mention_user_id": mention} if mention else {}))
+    else:
+        post(text)
 
 
 class BambuPrintMonitor:
@@ -397,8 +422,18 @@ class BambuPrintMonitor:
 
     # -- terminal post ---------------------------------------------------------
 
+
+    def _send(self, text):
+        """Deliver a terminal post (#1095): the production sender lets the
+        starter pings classifier decide the ping from the terminal kind
+        and this print; an injected post callable keeps its shape."""
+        if self._post is _default_post:
+            return self._post(text, ping_kind=self._terminal_kind, ping_job_key=self.filename)
+        return self._post(text)
+
     def _terminal_post(self, state, session=None):
         kind = _TERMINAL[state]
+        self._terminal_kind = kind
         text = print_summary.format_event(kind, self.filename)
         video = None
         undeliverable = False
@@ -438,7 +473,7 @@ class BambuPrintMonitor:
                 # return, not an exception (P2-173): only an explicit
                 # False means undelivered — injected senders returning
                 # None delivered fine.
-                if self._post(message) is not False:
+                if self._send(message) is not False:
                     return kind
                 log(f"bambu completion post with timelapse was refused for {self.filename!r}; "
                     "posting without the video")
@@ -449,16 +484,16 @@ class BambuPrintMonitor:
             text = f"{text}\n{_too_big_text()}"
         if path is not None:
             try:
-                if self._post(text + f"\n{path}\nMEDIA:{path}") is False:
+                if self._send(text + f"\n{path}\nMEDIA:{path}") is False:
                     log(f"bambu completion post with the snapshot was refused for "
                         f"{self.filename!r}; posting the text only")
-                    self._post(text)
+                    self._send(text)
             except Exception as exc:
                 log(f"bambu completion post with the snapshot failed for {self.filename!r}: {exc!r}; "
                     "posting the text only")
-                self._post(text)
+                self._send(text)
         else:
-            self._post(text)
+            self._send(text)
         return kind
 
     def run(self):
@@ -726,9 +761,9 @@ def _frame_changed_safe(before, after):
         return None
 
 
-def _default_post(message):
+def _default_post(message, **kwargs):
     from . import moonraker_event_listener as mel
-    return mel.post(message)
+    return mel.post(message, **kwargs)
 
 
 def _post_target_configured():

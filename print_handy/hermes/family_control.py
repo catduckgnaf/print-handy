@@ -288,20 +288,25 @@ def post_pause_alert(filename: str, connection: str, printer_id: str | None = No
     mel = _mel()
     printer_id = _roster_printer_id(printer_id)
     text = paused_text(filename, status)
+    # A pause that needs a person pings the print's starter (#1095), once
+    # per episode; the decision is threaded to the delivering transport.
+    from . import starter_pings
+    mention = starter_pings.ping_for("paused", job_key=filename, episode="paused") or None
     if mel._buttonless_standalone():
-        return mel.post(text)
+        return mel.post(text, mention_user_id=mention)
     try:
         from . import moonraker_discord_announcements as announcer
         from . import print_alert_buttons as pab
+        kwargs = {"mention_user_id": mention} if mention else {}
         if pab.post_with_buttons(mel._bot_token(), announcer.DISCORD_CHAT_ID,
                                  text, "paused", filename,
-                                 connection=connection, printer_id=printer_id):
+                                 connection=connection, printer_id=printer_id, **kwargs):
             log(f"post buttons kind=paused family={connection} {text.splitlines()[0][:120]!r}")
             return True
         log("family button post failed; falling back to plain text")
     except Exception as exc:
         log(f"family button post error: {exc!r}")
-    return mel.post(text)
+    return mel.post(text, mention_user_id=mention)
 
 
 def retire_pause_alerts(filename: str | None, headline: str = "Print ended.",
@@ -334,8 +339,14 @@ def retire_headline(state: str) -> str:
 
 
 def post_family_event(kind: str, filename: str) -> bool:
-    """A plain lifecycle post (start / terminal) in the shared format_event shape."""
-    return _mel().post(print_summary.format_event(kind, filename))
+    """A plain lifecycle post (start / terminal) in the shared format_event shape.
+
+    The send path carries the kind and the print, so the starter pings
+    classifier decides the ping (#1095): terminal kinds ping the
+    starter, a start post never does.
+    """
+    return _mel().post(print_summary.format_event(kind, filename),
+                       ping_kind=kind, ping_job_key=filename)
 
 
 class PauseAlerts:
