@@ -273,7 +273,7 @@ def render_login_page(error=None, password=False, *, username=False,
     return _page("log in", "".join(parts), theme=theme, path="/login", chrome=False)
 
 
-def login_rows(submitted_username="", *, required=True):
+def login_rows(submitted_username="", *, required):
     """Username, password and confirmation inputs for choosing a login.
 
     Used by the walkthrough's Login step. Standard names and

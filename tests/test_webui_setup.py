@@ -116,6 +116,7 @@ class ResolveOrderTests(unittest.TestCase):
         access.save_password(self.data, PASSWORD, PASSWORD, username=USERNAME)
         resolved = access.resolve(self.data, "0.0.0.0", {"WEBUI_ACCESS_TOKEN": TOKEN})
         self.assertEqual(resolved.mode, access.PASSWORD)
+        self.assertTrue(resolved.matches_login(USERNAME, PASSWORD))
         self.assertTrue(resolved.matches(PASSWORD))
         self.assertTrue(resolved.matches(TOKEN))  # Home Assistant's header
         self.assertTrue(resolved.matches_login("", TOKEN))  # forgotten password
