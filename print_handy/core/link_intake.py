@@ -24,24 +24,11 @@ def model_link(text):
     text = urls[0].rstrip('.,;!?')
     host = (urlsplit(text).hostname or '').lower()
     path = urlsplit(text).path
-    if host in {'makerworld.com', 'www.makerworld.com'} and path.startswith('/en/models/'):
-        return text
-    if host in {'printables.com', 'www.printables.com'} and re.match(r'/(?:[a-z]{2}/)?model/', path):
-        return text
-    if host in {'thingiverse.com', 'www.thingiverse.com'} and re.match(r'/thing:\d+', path):
-        return text
-    if host in {'myminifactory.com', 'www.myminifactory.com'} and re.match(r'/object/(?:[^/]*-)?\d+/?$', path):
-        return text
-    if host in {'cults3d.com', 'www.cults3d.com'} and re.match(r'/(?:[a-z]{2}/)?3d-model/(?:[^/]+/)?[^/]+/?$', path):
-        return text
-    if host in {'crealitycloud.com', 'www.crealitycloud.com'} and re.match(r'/(?:[a-z]{2}(?:-[a-z]{2})?/)?model-detail/[^/]+/?$', path, re.I):
-        return text
-    if host in {'thangs.com', 'www.thangs.com'} and (
-            re.fullmatch(r'/m/\d+/?', path) or re.search(r'/3d-model/[^/]*-\d+/?$', path)):
-        return text
-    if host in {'nexprint.com', 'www.nexprint.com'} and re.fullmatch(r'/(?:[a-z]{2}(?:-[a-z]{2})?/)?models/[A-Za-z0-9]+/?', path, re.I):
-        return text
-    if host in {'makeronline.com', 'www.makeronline.com'} and re.fullmatch(r'/(?:[a-z]{2}(?:-[a-z]{2})?/)?model/(?:[^/]+/)?\d+\.html', path, re.I):
+    # The known sites and their model-page shapes live in one registry
+    # (core/model_sources); the host alone picks the entry, so the match
+    # order here cannot drift from the other surfaces again.
+    from . import model_sources
+    if model_sources.link_source((host, path)) is not None:
         return text
     if _direct_file_link(text, host, path):
         return text
@@ -52,7 +39,7 @@ def model_link(text):
 # host. Recognition is by the URL alone — the guarded fetch in model_job
 # verifies the destination is public and the bytes are real geometry, so a
 # link that merely claims to be a file is refused there, never trusted here.
-DIRECT_FILE_EXTS = {'.stl', '.3mf'}
+DIRECT_FILE_EXTS = {'.stl', '.3mf'}  # mirrors core.model_sources.DIRECT_FILE_EXTS
 
 
 def _direct_file_link(url, host, path):
