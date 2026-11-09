@@ -230,6 +230,24 @@ class ConfigPageTests(unittest.TestCase):
             self.assertEqual(data["matrix"]["room_id"], "!room:example.org")
             self.assertEqual(data["discord"]["chat_id"], "777")
 
+    def test_any_set_value_in_the_group_counts_as_configured(self):
+        # Stage-4 review item: filling only allowed_user_ids (no identity
+        # key) stored a value the page then hid again behind the reveal
+        # row after saving. Any set field in the platform's group counts
+        # as configured, so stored values are never hidden from their owner.
+        with tempfile.TemporaryDirectory() as tmp:
+            port, _local, _environ = self.start(
+                tmp, "telegram:\n  allowed_user_ids: '4242'\n")
+            _code, body, _csrf = self.get_config(port, section="platform")
+            self.assertIn('id="row-telegram.chat_id"', body)
+            self.assertNotIn("Set up Telegram", body)
+        with tempfile.TemporaryDirectory() as tmp:
+            port, _local, _environ = self.start(
+                tmp, "matrix:\n  allowed_user_ids: '@me:example.org'\n")
+            _code, body, _csrf = self.get_config(port, section="platform")
+            self.assertIn('id="row-matrix.room_id"', body)
+            self.assertNotIn("Set up Matrix", body)
+
     def test_save_from_a_non_first_tab_preserves_unshown_sections(self):
         # Stage 3's required guard: a save submitted from the camera tab
         # (the browser posts that tab's controls plus every hidden input
