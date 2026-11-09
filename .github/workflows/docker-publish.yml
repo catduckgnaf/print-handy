@@ -43,7 +43,11 @@ jobs:
     env:
       # Inputs reach the shell only as environment variables, never interpolated into scripts.
       PUBLISH_VERSION: ${{ inputs.version }}
-      PUBLISH: ${{ inputs.publish }}
+      # 2.2.8 TEST RELEASE ONLY (release/2.2.8-test branch, never main):
+      # the surfaces gate runs in candidate mode so the known docs drift
+      # warns instead of blocking this one test publish, at catduck's
+      # direction on 2026-11-09. The gate report is still produced.
+      PUBLISH: "false"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Clone the docs site for the drift comparison
