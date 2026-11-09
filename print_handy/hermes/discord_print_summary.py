@@ -627,6 +627,17 @@ def format_slice_summary(job, now=None):
     """Post slice summary straight from JOB.json: model, parts per plate, filament, estimates."""
     rows = plates_of(job)
     lines = [f"Sliced: {_title(job)}"]
+    conversion = job.get('conversion_provenance')
+    if isinstance(conversion, dict):
+        unresolved = conversion.get('unresolved_conflicts') or []
+        unknown = conversion.get('intent_status') == 'unknown'
+        if unresolved or unknown:
+            details = []
+            if unknown:
+                details.append('designer intent unknown for some settings')
+            if unresolved:
+                details.append(f'{len(unresolved)} designer setting conflict(s) resolved by destination profile')
+            lines.append('Conversion: ' + '; '.join(details))
     total = 0
     total_filament = 0.0
     filament_known = True

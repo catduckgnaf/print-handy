@@ -746,6 +746,22 @@ def test_slice_summary_is_deterministic_and_complete(job):
     }
 
 
+def test_slice_summary_reports_only_consequential_conversion_provenance(job):
+    job.data['conversion_provenance'] = {
+        'intent_status': 'unknown',
+        'unresolved_conflicts': [{'key': 'wall_loops'}],
+        'settings': {'wall_loops': {'project_value': '4'}},
+    }
+    text = summary.format_slice_summary(job.data)
+    assert 'Conversion: designer intent unknown for some settings; 1 designer setting conflict(s) resolved by destination profile' in text
+    assert 'project_value' not in text
+
+
+def test_slice_summary_omits_nonconsequential_conversion_provenance(job):
+    job.data['conversion_provenance'] = {'intent_status': 'known', 'unresolved_conflicts': []}
+    assert 'Conversion:' not in summary.format_slice_summary(job.data)
+
+
 def test_slice_summary_includes_auto_scale(job):
     job.data['auto_scale'] = {'factor': 25.4, 'reason': 'inch units',
                               'original_mm': [2, 3, 4], 'final_mm': [50.8, 76.2, 101.6]}
