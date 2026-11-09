@@ -534,8 +534,19 @@ def render_preview_page(entries, submitted, *, form_token, theme=shell.DEFAULT_T
     ]), theme=theme, path="/config")
 
 
-def render_result_page(changed, *, theme=shell.DEFAULT_THEME):
-    """The post-save page: the keys write_changes actually changed."""
+def render_result_page(changed, *, warnings=None, theme=shell.DEFAULT_THEME):
+    """The post-save page: the keys write_changes actually changed.
+
+    ``warnings`` is the save's tolerated closed-table violations, as
+    ``"[section] key"`` names (config.last_write_warnings()); when it
+    is None the most recent write's warnings are read from there. Each
+    tolerated key gets one line naming it and saying the next restart
+    will fail until it is removed: the save left the key in the file,
+    and the settings loader refuses it, so a restart that the page
+    itself tells the operator to make would otherwise come as a
+    surprise refusal to boot. Names only, never values."""
+    if warnings is None:
+        warnings = config_api.last_write_warnings()
     if changed:
         listing = "".join(f"<li>{_esc(section)}.{_esc(key)}</li>"
                           for section, key in changed)
@@ -546,6 +557,12 @@ def render_result_page(changed, *, theme=shell.DEFAULT_THEME):
                 "live.</p>")
     else:
         body = "<p>Nothing changed: the settings file already held these values.</p>"
+    if warnings:
+        lines = "".join(
+            f"<li>{_esc(name)} is still in the settings file: the next "
+            "restart will fail until it is removed.</li>"
+            for name in warnings)
+        body += (f'<ul class="error">{lines}</ul>')
     return _page("configuration saved", body +
                  '<p><a href="/config">Back to configuration</a></p>',
                  theme=theme, path="/config")

@@ -1942,7 +1942,7 @@ class _Handler(BaseHTTPRequestHandler):
                        "text/html; charset=utf-8")
             return
         try:
-            changed = config_api.write_changes(
+            changed, warnings = config_api.write_changes_reporting(
                 {field.id: value for field, value in changes.items()},
                 environ=self.server.webui_environ)
         except config_api.WebUIConfigError as exc:
@@ -1957,8 +1957,9 @@ class _Handler(BaseHTTPRequestHandler):
                 section=(form.get(pages.SECTION_FIELD) or [None])[0]),
                        "text/html; charset=utf-8")
             return
-        self._send(200, pages.render_result_page(changed, theme=self._theme()),
-                   "text/html; charset=utf-8")
+        self._send(200, pages.render_result_page(
+            changed, warnings=warnings,
+            theme=self._theme()), "text/html; charset=utf-8")
 
     def _debug_post(self):
         """POST /debug (#478): turn debug log mode on or off.

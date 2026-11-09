@@ -1,5 +1,7 @@
 """Web UI stage 1 (#286): the [webui] settings section, the field catalog, and
 the provenance read / validated write-back API over the YAML settings file."""
+import os
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -675,6 +677,244 @@ class WriteAPITests(unittest.TestCase):
         with self.assertRaisesRegex(WebUIConfigError, "YAML"):
             write_changes({"visual_watch.sensitivity": 2}, config_path=target, environ={})
         self.assertEqual(target.read_bytes(), before)
+
+
+class ClosedTableToleranceTests(unittest.TestCase):
+    """CFG-1: a closed-table violation a settings file already carries —
+    a credential-shaped unknown key, a non-optional [notify] key, the
+    retired [printer] family key — must not block an unrelated Web UI
+    save. The save proceeds, the key stays in the file untouched, and
+    the violation is recorded by name (never by value). A violation a
+    save introduces or modifies still fails closed."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.local = Path(self.tmp.name) / "local.yaml"
+        from print_handy.webui import config as webui_config
+        self.config = webui_config
+        webui_config._last_write_warnings = []
+
+    def save_roast_off(self, environ=None):
+        return write_changes({"vision.roast_enabled": False},
+                             config_path=self.local, environ=environ or {})
+
+    def test_preexisting_credential_shaped_notify_key_does_not_block_a_save(self):
+        self.local.write_text("notify:\n  mqtt_password: hunter2\n")
+        changed = self.save_roast_off()
+        self.assertEqual(changed, [("vision", "roast_enabled")])
+        written = self.local.read_text()
+        self.assertIn("mqtt_password: hunter2", written)  # left untouched
+        self.assertIn("roast_enabled: false", written)
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+        warning = settings.unknown_settings_warning() or ""
+        self.assertIn("[notify] mqtt_password", warning)
+        self.assertNotIn("hunter2", warning)  # the secret is never echoed
+
+    def test_preexisting_retired_printer_family_does_not_block_a_save(self):
+        self.local.write_text("printer:\n  family: klipper\n")
+        changed = self.save_roast_off()
+        self.assertEqual(changed, [("vision", "roast_enabled")])
+        self.assertIn("family: klipper", self.local.read_text())
+        self.assertEqual(self.config.last_write_warnings(), ["[printer] family"])
+
+    def test_preexisting_non_optional_notify_key_does_not_block_a_save(self):
+        self.local.write_text("notify:\n  some_future_key: 1\n")
+        changed = self.save_roast_off()
+        self.assertEqual(changed, [("vision", "roast_enabled")])
+        self.assertIn("some_future_key: 1", self.local.read_text())
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] some_future_key"])
+
+    def test_preexisting_violation_in_the_user_file_does_not_block_a_save(self):
+        self.local.write_text("vision:\n  roast_enabled: true\n")
+        user = Path(self.tmp.name) / "user.yaml"
+        user.write_text("printer:\n  family: klipper\n")
+        changed = self.save_roast_off(environ={"PRINT_HANDY_USER_CONFIG": str(user)})
+        self.assertEqual(changed, [("vision", "roast_enabled")])
+        self.assertEqual(user.read_text(), "printer:\n  family: klipper\n")
+        self.assertEqual(self.config.last_write_warnings(), ["[printer] family"])
+
+    def test_introduced_credential_shaped_key_still_fails_closed(self):
+        self.local.write_text("vision:\n  roast_enabled: true\n")
+        candidate = {"vision": {"roast_enabled": False},
+                     "notify": {"mqtt_password": "hunter2"}}
+        with self.assertRaisesRegex(WebUIConfigError, r"\[notify\] mqtt_password"):
+            self.config._validate_candidate(candidate, self.local, home=None, environ={})
+        self.assertEqual(self.local.read_text(), "vision:\n  roast_enabled: true\n")
+
+    def test_modified_preexisting_violation_still_fails_closed(self):
+        self.local.write_text("notify:\n  mqtt_password: old\n")
+        candidate = {"notify": {"mqtt_password": "new"}}
+        with self.assertRaisesRegex(WebUIConfigError, r"\[notify\] mqtt_password"):
+            self.config._validate_candidate(candidate, self.local, home=None, environ={})
+        self.assertEqual(self.local.read_text(), "notify:\n  mqtt_password: old\n")
+
+    def test_ordinary_unknown_keys_still_warn_and_drop_not_tolerated(self):
+        # #1058's settled behavior is unchanged: an ordinary unknown key
+        # is not a violation at all — the save validates as before, the
+        # key is preserved in the written file, and nothing is recorded
+        # as tolerated.
+        self.local.write_text("vision:\n  future_knob: 3\n")
+        changed = self.save_roast_off()
+        self.assertEqual(changed, [("vision", "roast_enabled")])
+        self.assertIn("future_knob: 3", self.local.read_text())
+        self.assertEqual(self.config.last_write_warnings(), [])
+
+    def test_clean_save_records_no_warnings(self):
+        self.local.write_text("vision:\n  roast_enabled: true\n")
+        self.save_roast_off()
+        self.assertEqual(self.config.last_write_warnings(), [])
+
+    def test_clean_save_after_a_tolerated_save_clears_the_warnings(self):
+        # Regression (review of #1103): the warnings describe the most
+        # recent successful write, so a clean save after a tolerated one
+        # must not keep reporting the earlier save's tolerated names.
+        self.local.write_text("notify:\n  mqtt_password: hunter2\n")
+        self.save_roast_off()
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+        # The operator removes the offending key by hand, then saves again.
+        self.local.write_text("vision:\n  roast_enabled: false\n")
+        changed = write_changes({"vision.roast_enabled": True},
+                                config_path=self.local, environ={})
+        self.assertEqual(changed, [("vision", "roast_enabled")])
+        self.assertEqual(self.config.last_write_warnings(), [])
+
+    def test_noop_save_still_reports_a_violation_left_in_the_file(self):
+        # Regression (review of #1103, head b0d2d1a6): a no-op save used
+        # to return before validation and clear the warnings, so a file
+        # still carrying a tolerated violation reported nothing even
+        # though the next restart refuses it. The no-op save still
+        # writes nothing, but it must answer for the file it leaves in
+        # place.
+        self.local.write_text("notify:\n  mqtt_password: hunter2\n")
+        self.save_roast_off()
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+        before = self.local.read_bytes()
+        self.assertEqual(self.save_roast_off(), [])
+        self.assertEqual(self.local.read_bytes(), before)  # nothing was written
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+
+    def test_noop_save_after_the_violation_is_removed_clears_the_warnings(self):
+        self.local.write_text("notify:\n  mqtt_password: hunter2\n")
+        self.save_roast_off()
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+        # The operator removes the offending key by hand; a no-op save
+        # now validates a file that carries nothing left to tolerate.
+        self.local.write_text("vision:\n  roast_enabled: false\n")
+        self.assertEqual(self.save_roast_off(), [])
+        self.assertEqual(self.config.last_write_warnings(), [])
+
+    def test_reporting_save_keeps_its_own_warnings_through_an_interleaved_save(self):
+        # Regression (review of #1103, head ad129ac5): the save handler
+        # read last_write_warnings() after write_changes returned, so a
+        # concurrent clean save landing between the write and the read
+        # replaced the module-wide list, and the first save's result
+        # showed no restart-failure warning for a key it had left in
+        # the file. write_changes_reporting returns the warnings the
+        # save itself recorded, so they cannot be replaced. The
+        # interleave is driven from _note_tolerated — called as the
+        # first save records its warnings, before anything reads them
+        # back — so it is deterministic, with no sleeps.
+        self.local.write_text("notify:\n  mqtt_password: hunter2\n")
+        other = Path(self.tmp.name) / "other.yaml"
+        other.write_text("vision:\n  roast_enabled: true\n")
+        real_note_tolerated = self.config._note_tolerated
+        interleaved = []
+
+        def note_tolerated_then_interleave(target, tolerated):
+            recorded = real_note_tolerated(target, tolerated)
+            if tolerated and not interleaved:
+                interleaved.append(True)
+                # A concurrent clean save: it tolerates nothing, so it
+                # replaces the module-wide warnings with its empty set.
+                write_changes({"vision.roast_enabled": False},
+                              config_path=other, environ={})
+            return recorded
+
+        self.config._note_tolerated = note_tolerated_then_interleave
+        self.addCleanup(setattr, self.config, "_note_tolerated",
+                        real_note_tolerated)
+        try:
+            changed, warnings = self.config.write_changes_reporting(
+                {"vision.roast_enabled": False},
+                config_path=self.local, environ={})
+        finally:
+            self.config._note_tolerated = real_note_tolerated
+        self.assertEqual(changed, [("vision", "roast_enabled")])
+        self.assertTrue(interleaved)  # the interleave really landed mid-save
+        # It replaced the module-wide list, as the review describes...
+        self.assertEqual(self.config.last_write_warnings(), [])
+        # ...but the warnings this save reports are its own.
+        self.assertEqual(warnings, ["[notify] mqtt_password"])
+
+    def test_printer_name_save_after_a_tolerated_save_clears_the_warnings(self):
+        roster = ("printers:\n"
+                  "  - id: garage-ad5x\n"
+                  "    name: Garage AD5X\n"
+                  "    model: flashforge.ad5x\n"
+                  "    moonraker_url: http://192.168.1.61:7125\n")
+        self.local.write_text(roster + "notify:\n  mqtt_password: hunter2\n")
+        changed = self.config.write_printer_name(
+            "garage-ad5x", "Workshop AD5X", config_path=self.local, environ={})
+        self.assertEqual(changed, [("printers", "garage-ad5x")])
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+        # The operator removes the offending key by hand, then renames again.
+        self.local.write_text(roster.replace("Garage AD5X", "Workshop AD5X"))
+        changed = self.config.write_printer_name(
+            "garage-ad5x", "Bench AD5X", config_path=self.local, environ={})
+        self.assertEqual(changed, [("printers", "garage-ad5x")])
+        self.assertEqual(self.config.last_write_warnings(), [])
+
+    def test_printer_name_noop_still_reports_a_violation_left_in_the_file(self):
+        # The printer-name writer's no-op path has the same shape as
+        # write_changes': renaming to the name the entry already carries
+        # must still report a violation the file still carries.
+        roster = ("printers:\n"
+                  "  - id: garage-ad5x\n"
+                  "    name: Garage AD5X\n"
+                  "    model: flashforge.ad5x\n"
+                  "    moonraker_url: http://192.168.1.61:7125\n")
+        self.local.write_text(roster + "notify:\n  mqtt_password: hunter2\n")
+        self.config.write_printer_name(
+            "garage-ad5x", "Workshop AD5X", config_path=self.local, environ={})
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+        self.assertEqual(self.config.write_printer_name(
+            "garage-ad5x", "Workshop AD5X", config_path=self.local, environ={}), [])
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+
+    def test_printer_name_noop_after_the_violation_is_removed_clears(self):
+        roster = ("printers:\n"
+                  "  - id: garage-ad5x\n"
+                  "    name: Garage AD5X\n"
+                  "    model: flashforge.ad5x\n"
+                  "    moonraker_url: http://192.168.1.61:7125\n")
+        self.local.write_text(roster + "notify:\n  mqtt_password: hunter2\n")
+        self.config.write_printer_name(
+            "garage-ad5x", "Workshop AD5X", config_path=self.local, environ={})
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+        # The operator removes the offending key by hand; the no-op
+        # rename now validates a file with nothing left to tolerate.
+        self.local.write_text(roster.replace("Garage AD5X", "Workshop AD5X"))
+        self.assertEqual(self.config.write_printer_name(
+            "garage-ad5x", "Workshop AD5X", config_path=self.local, environ={}), [])
+        self.assertEqual(self.config.last_write_warnings(), [])
+
+    def test_tolerated_save_preserves_a_0600_file_mode_and_backup_mode(self):
+        # Review of #1103: a tolerated credential-shaped key must not get
+        # wider permissions on its way through a save. A hand-edited 0600
+        # settings file stays 0600 after the rewrite, and the timestamped
+        # backup of it is no wider than the source.
+        self.local.write_text("notify:\n  mqtt_password: hunter2\n")
+        os.chmod(self.local, 0o600)
+        changed = self.save_roast_off()
+        self.assertEqual(changed, [("vision", "roast_enabled")])
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+        self.assertEqual(stat.S_IMODE(self.local.stat().st_mode), 0o600)
+        backups = list(Path(self.tmp.name).glob("*.bak-*"))
+        self.assertEqual(len(backups), 1)
+        backup_mode = stat.S_IMODE(backups[0].stat().st_mode)
+        self.assertEqual(backup_mode & ~0o600, 0)  # no wider than the source
+        self.assertEqual(backup_mode, 0o600)
 
 
 if __name__ == "__main__":
