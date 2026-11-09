@@ -186,6 +186,14 @@ def _session_digest(session_id):
     return hashlib.sha256(session_id.encode("utf-8")).hexdigest()
 
 
+def _access_stamp(data):
+    """A change marker for the saved login file, or None when there is none."""
+    try:
+        return access_module.access_path(data).stat().st_mtime_ns
+    except Exception:
+        return None
+
+
 def _remember_lock(server):
     """The server's remembered-session lock, or a no-op context when the
     server object predates it (the mutation sites stay safe either way)."""
@@ -421,7 +429,7 @@ def _job_block(job):
 
 def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
                        walkthrough_pending=False, job=None, error=None, nav=None,
-                       unclaimed=False):
+                       unclaimed=False, loopback=False):
     """The / page: the snapshot as escaped HTML in the shared shell (#813).
 
     The overall card on top is derived from what the snapshot already
@@ -526,9 +534,12 @@ def render_status_html(snap, form_token="", *, theme=shell.DEFAULT_THEME,
                   'the first-run walkthrough is still open.</span>'
                   '<a class="button accent" href="/walkthrough">Finish setup</a></div>')
     if unclaimed:
-        banner += ('<div class="banner"><span>No login is set for this Web UI — '
-                   'anyone who can reach it can use it. Set a login in the '
-                   'walkthrough, or leave it open on a network you trust.</span>'
+        reach = ('It listens only on this machine, so only someone using this '
+                 'machine can reach it. Set a login in the walkthrough if you '
+                 'want one.' if loopback else
+                 'anyone who can reach it can use it. Set a login in the '
+                 'walkthrough, or leave it open on a network you trust.')
+        banner += (f'<div class="banner"><span>No login is set for this Web UI — {reach}</span>'
                    '<a class="button accent" href="/walkthrough">Open the walkthrough</a></div>')
     body = ((f'<p class="error">{esc(error)}</p>' if error else "")
             + overall
@@ -728,6 +739,7 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             path = urlparse(self.path).path
+            self._sync_access()
             if path != "/healthz" and self._host_refused():
                 return
             if path == "/healthz":
@@ -777,9 +789,12 @@ class _Handler(BaseHTTPRequestHandler):
                     snap, form_token=self.server.form_token, theme=self._theme(),
                     walkthrough_pending=walkthrough_module.pending(self.server.settings_data),
                     unclaimed=self.server.access.unclaimed,
+                    loopback=is_loopback(self.server.bind_host),
                     job=_overall_job(self.server.settings_data),
                     nav=data_module.nav_for(self.server.settings_data)
-                    if data_module.wrapped_enabled(self.server.settings_data) else None),
+                    if (data_module.data_enabled(self.server.settings_data)
+                        or data_module.wrapped_enabled(self.server.settings_data))
+                    else None),
                     "text/html; charset=utf-8")
             elif path == "/api/status":
                 self._json(200, self.server.snapshot_func())
@@ -808,11 +823,13 @@ class _Handler(BaseHTTPRequestHandler):
             elif path.startswith("/spools/"):
                 self._spools_page(unquote(path[len("/spools/"):]))
             elif path == "/config":
-                section = (parse_qs(urlparse(self.path).query).get("section")
-                           or [None])[0]
+                query = parse_qs(urlparse(self.path).query)
+                section = (query.get("section") or [None])[0]
+                reveal = (query.get("setup") or [None])[0]
                 self._send(200, self._config_html(self._field_values(),
                                                   theme=self._theme(),
-                                                  section=section),
+                                                  section=section,
+                                                  reveal=reveal),
                            "text/html; charset=utf-8")
             elif path == "/chat":
                 self._chat_page()
@@ -876,9 +893,12 @@ class _Handler(BaseHTTPRequestHandler):
     def _data_route(self, path):
         """GET /data, /wrapped, /api/data and /api/wrapped (#956).
 
-        Behind the same login as every other page. While
-        [timelapse] wrapped_enabled is off, all four answer the named
-        403 refusal from data.py, for pages and APIs alike.
+        Served under the Web UI's own access rules, like every other
+        page: open on an install with no login set, behind the login
+        when one is set. While a route's own switch is off ([timelapse]
+        data_enabled for the Data routes, wrapped_enabled for the
+        Wrapped routes), it answers the named 403 refusal from
+        data.py, for pages and APIs alike.
         """
         year, error = self._year_param()
         if error:
@@ -922,7 +942,7 @@ class _Handler(BaseHTTPRequestHandler):
         """
         data = self.server.settings_data
         if not data_module.wrapped_enabled(data):
-            self._json(403, {"ok": False, "reason": data_module.OFF_REASON})
+            self._json(403, {"ok": False, "reason": data_module.WRAPPED_OFF_REASON})
             return
         year, error = self._year_param()
         if error:
@@ -1297,6 +1317,39 @@ class _Handler(BaseHTTPRequestHandler):
             back = "/"
         self._redirect(back, headers=[("Set-Cookie", shell.theme_cookie_header(theme, secure=self._cookie_secure()))])
 
+    def _sync_access(self):
+        """Apply a login another process saved (chat setup, the CLI wizard).
+
+        The bot and the Web UI are separate processes, so a login set from
+        chat is only visible here as a change to the saved file. Old
+        sessions and form tokens must not outlive the credential they
+        were issued under."""
+        server = self.server
+        if not hasattr(server, "access_stamp"):
+            return
+        if _access_stamp(server.settings_data) == server.access_stamp:
+            return
+        with server.access_sync_lock:
+            stamp = _access_stamp(server.settings_data)
+            if stamp == server.access_stamp:
+                return
+            server.access_stamp = stamp
+            new_access = access_module.resolve(
+                server.settings_data, server.bind_host, server.webui_environ)
+            if new_access.credential_fingerprint() == \
+                    server.access.credential_fingerprint():
+                # The stamp is only the file's mtime: a rewrite carrying
+                # the credential this server already enforces (a byte-for-
+                # byte re-save, or a login this process resolved from the
+                # file itself) changed no rule, so nothing issued under it
+                # is stale — sessions and the form token stay valid.
+                server.access = new_access
+                return
+            server.access = new_access
+            server.sessions.clear()
+            self._rotate_form_token()
+            self._revoke_remembered_sessions()
+
     def _rotate_form_token(self):
         """Replace the config form token after an access-rule change.
 
@@ -1339,15 +1392,21 @@ class _Handler(BaseHTTPRequestHandler):
     def _walkthrough_page(self):
         """GET /walkthrough: the current step, or / when this install
         has no walkthrough pending (finished or skipped). Every install
-        owes it until then, however its access was resolved."""
+        owes it until then, however its access was resolved. An unclaimed
+        install is the exception: the status page's "No login is set"
+        banner links here, so a closed walkthrough reopens at Login
+        instead of bouncing the banner's link back to the status page."""
         data = self._walkthrough_data()
         if not walkthrough_module.pending(data):
-            self._redirect("/")
-            return
+            if not self.server.access.unclaimed:
+                self._redirect("/")
+                return
+            walkthrough_module.reopen_at_login(data)
         self._send(200, walkthrough_module.render_page(
             data, self._field_values(),
             form_token=self.server.form_token, theme=self._theme(),
-            environ=self.server.webui_environ), "text/html; charset=utf-8")
+            environ=self.server.webui_environ,
+            loopback=is_loopback(self.server.bind_host)), "text/html; charset=utf-8")
 
     def _walkthrough_post(self):
         """POST /walkthrough: one step's action, authorized exactly like
@@ -1362,12 +1421,13 @@ class _Handler(BaseHTTPRequestHandler):
         kind, payload = walkthrough_module.apply_post(
             self._walkthrough_data(), self.server.webui_environ, form,
             self._field_values(), form_token=self.server.form_token,
-            theme=self._theme())
+            theme=self._theme(), loopback=is_loopback(self.server.bind_host))
         if kind == "access":
             # The Login step saved a new rule: apply it now, and keep the
             # person who chose it signed in on this browser.
             self.server.access = access_module.resolve(
                 self.server.settings_data, self.server.bind_host, self.server.webui_environ)
+            self.server.access_stamp = _access_stamp(self.server.settings_data)
             self._rotate_form_token()
             self._revoke_remembered_sessions()
             self._redirect(payload, headers=[self._start_session()]
@@ -1530,13 +1590,8 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             path = urlparse(self.path).path
+            self._sync_access()
             if self._host_refused(post=True):
-                return
-            if path == "/setup":
-                self._setup_submit()
-                return
-            if self.server.access.setup_pending:
-                self._setup_pending_json()
                 return
             if path.startswith("/u/"):
                 self._token_upload_submit(unquote(path[len("/u/"):]))
@@ -1846,13 +1901,15 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(400, self._config_html(
                 field_values, errors=errors, submitted=submitted,
                 theme=self._theme(),
-                section=(form.get(pages.SECTION_FIELD) or [None])[0]),
+                section=(form.get(pages.SECTION_FIELD) or [None])[0],
+                reveal=(form.get(pages.REVEAL_FIELD) or [None])[0]),
                        "text/html; charset=utf-8")
             return
         if not changes:
             self._send(200, self._config_html(
                 field_values, submitted=submitted, theme=self._theme(),
                 section=(form.get(pages.SECTION_FIELD) or [None])[0],
+                reveal=(form.get(pages.REVEAL_FIELD) or [None])[0],
                 notice="No changes: every submitted value already matches "
                        "the effective settings."), "text/html; charset=utf-8")
             return
@@ -1860,8 +1917,35 @@ class _Handler(BaseHTTPRequestHandler):
         entries = [(field, effective[field], value) for field, value in changes.items()]
         self._send(200, pages.render_preview_page(
             entries, submitted, form_token=self.server.form_token, theme=self._theme(),
-            section=(form.get(pages.SECTION_FIELD) or [None])[0]),
+            warnings=self._preview_warnings(changes),
+            section=(form.get(pages.SECTION_FIELD) or [None])[0],
+            reveal=(form.get(pages.REVEAL_FIELD) or [None])[0]),
             "text/html; charset=utf-8")
+
+    def _request_is_https(self):
+        """Whether this request reached the Web UI over HTTPS. The server
+        itself speaks plain HTTP; HTTPS arrives through a reverse proxy,
+        which reports the original scheme as X-Forwarded-Proto."""
+        forwarded = self.headers.get("X-Forwarded-Proto") or ""
+        return forwarded.split(",")[0].strip().lower() == "https"
+
+    def _preview_warnings(self, changes):
+        """Plain-language warnings about a previewed change set. Turning
+        the Secure session cookie on over plain HTTP strands browser
+        sign-ins: browsers drop Secure cookies there, so the session
+        cookie never comes back and there is no UI way back in — the
+        preview is the place to say so before the save is confirmed."""
+        warnings = []
+        for field, value in changes.items():
+            if field.id == "webui.cookie_secure" and value and not self._request_is_https():
+                warnings.append(
+                    "The Secure session cookie is being turned on, but this "
+                    "request arrived over plain HTTP. Browsers drop Secure "
+                    "cookies on plain HTTP, so browser sign-ins will not "
+                    "stick once this takes effect. Turn it on only when the "
+                    "Web UI is reached over HTTPS, for example behind an "
+                    "HTTPS reverse proxy.")
+        return warnings
 
     def _config_save(self):
         got = self._config_form()
@@ -1881,7 +1965,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(400, self._config_html(
                 field_values, errors=errors, submitted=submitted,
                 theme=self._theme(),
-                section=(form.get(pages.SECTION_FIELD) or [None])[0]),
+                section=(form.get(pages.SECTION_FIELD) or [None])[0],
+                reveal=(form.get(pages.REVEAL_FIELD) or [None])[0]),
                        "text/html; charset=utf-8")
             return
         try:
@@ -1897,7 +1982,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(400, self._config_html(
                 field_values, errors=errors, submitted=submitted,
                 theme=self._theme(),
-                section=(form.get(pages.SECTION_FIELD) or [None])[0]),
+                section=(form.get(pages.SECTION_FIELD) or [None])[0],
+                reveal=(form.get(pages.REVEAL_FIELD) or [None])[0]),
                        "text/html; charset=utf-8")
             return
         self._send(200, pages.render_result_page(
@@ -1990,8 +2076,9 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     server.settings_data = data
     setattr(server, "cookie_secure", bool((data or {}).get("webui", {}).get("cookie_secure", False)))
     server.access = access_module.resolve(data, bind_host, environ)
+    server.access_stamp = _access_stamp(data)
+    server.access_sync_lock = threading.Lock()
     server.bind_host = bind_host
-    server.setup_lock = threading.Lock()
     # Web chat's service, built lazily under this lock on the first
     # /chat request (see _Handler._chat_service).
     server.chat_service = None

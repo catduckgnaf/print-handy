@@ -301,10 +301,14 @@ timelapse:
   vertical_short_mode: pad
   vertical_short_overlay: true
   # Data tab and Print Handy Wrapped (#956): read-only statistics over the
-  # print records plus the once-a-year Wrapped recap in the Web UI. Off by
-  # default; while off the pages are not in the navigation and their routes
-  # refuse by name.
-  wrapped_enabled: false
+  # print records plus the once-a-year Wrapped recap in the Web UI. On by
+  # default; while off, each page is not in the navigation and its routes
+  # refuse by name. An install that set wrapped_enabled: false before the
+  # split keeps it off — the new default does not override an explicit
+  # value. The Data tab has its own switch, data_enabled: while it is
+  # unset (as here) it follows wrapped_enabled; set it to pin the Data
+  # tab independently.
+  wrapped_enabled: true
   # Wrapped video (#956): the on-demand local video compile, with the
   # local commentary (no AI model; the key keeps its original name).
   # Off by default, and it needs wrapped_enabled above on.

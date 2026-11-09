@@ -765,9 +765,9 @@ class BotCore:
             # Setup-only admission reaches only the guided dispatcher
             # (the first router hook), which enforces the Q5 bind and
             # refuses every non-setup command itself; no other handler
-            # is authorized by this branch.
-            media = await self.save_attachments(message)
-            event = make_event(source, getattr(message, "content", ""), message.id, media)
+            # is authorized by this branch. Nothing is downloaded here:
+            # nobody has been admitted yet, and setup takes no attachments.
+            event = make_event(source, getattr(message, "content", ""), message.id)
             return await self.process(event)
         if not self.gateway._is_user_authorized_for_source(source):
             # In the print channel but refused by an access list: never

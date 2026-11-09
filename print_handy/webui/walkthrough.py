@@ -19,8 +19,10 @@ every other route stays reachable, and the status page carries a slim
 
 State is one small JSON file beside the access file,
 ``webui_walkthrough.json`` — ``{"step": <index>, "done": bool,
-"skipped": bool}`` — written atomically at mode 0600 through the setup
-wizard's writer. It records progress only; no setting lives in it.
+"skipped": bool, "reopened": bool}`` — written atomically at mode 0600
+through the setup wizard's writer. It records progress only; no setting
+lives in it. ``reopened`` marks a run the "No login is set" banner
+brought back to the Login step (:func:`reopen_at_login`).
 
 Every step writes through the existing configuration path: the step's
 fields are catalog fields, rendered by the config page's own field-row
@@ -71,6 +73,8 @@ STEPS = (
     ("providers", "Providers"),
     ("review", "Review"),
 )
+
+_LOGIN_INDEX = next(i for i, (step_id, _label) in enumerate(STEPS) if step_id == "login")
 
 STEP_LEADS = {
     "printer": "The printer Print Handy prepares prints for, how it reaches the "
@@ -135,7 +139,7 @@ def _esc(value):
 
 def state_path(data):
     """The walkthrough state file: beside the access file in the state folder."""
-    return Path(settings.state_dir(data)) / STATE_FILE
+    return settings.state_dir(data) / "webui_walkthrough.json"
 
 
 def load_state(data):
@@ -191,7 +195,7 @@ def _mark_done(data, state, **extra):
     """Mark this walkthrough done and write the shared completion record."""
     save_state(data, {**state, "done": True, **extra})
     try:
-        setup_state.record_completion(data, "webui")
+        setup_state.record_completion(data, "webui", skipped=bool(extra.get("skipped")))
     except Exception:  # the shared record must never break the walkthrough
         pass
 
@@ -199,6 +203,27 @@ def _mark_done(data, state, **extra):
 def restart(data):
     """Restart setup from the first step (Settings > Restart setup)."""
     save_state(data, {"step": 0, "offered": True})
+    # A recorded completion would otherwise keep the walkthrough closed.
+    setup_state.clear_completion(data)
+
+
+def reopen_at_login(data):
+    """Bring a closed walkthrough back to its Login step.
+
+    The status page's "No login is set" banner links to /walkthrough on
+    an unclaimed install, including one that already skipped or finished
+    it; without this the link would bounce straight back to the status
+    page. A finished run, or one this has not reopened yet, is placed on
+    the Login step. An already reopened run is left alone, so a repeat
+    GET never pulls back someone who moved past the Login step. That
+    holds even when pending() stays false for another reason, which is
+    why the decision reads the state file's own flags."""
+    state = load_state(data)
+    if state.get("done") or not state.get("reopened"):
+        try:
+            save_state(data, {"step": _LOGIN_INDEX, "offered": True, "reopened": True})
+        except OSError:  # an unwritable state folder still renders a step
+            pass
 
 
 def _step_index(state):
@@ -335,16 +360,22 @@ def _review_html(field_values, data, environ):
     return '<table class="rows">' + "".join(rows) + "</table>"
 
 
-def _login_html(data, environ, submitted_username=""):
+def _login_html(data, environ, submitted_username="", *, loopback=False):
     """The Login step (#875): the current rule and a form to change it."""
     try:
         current = access_module.resolve(data, "0.0.0.0", environ)
     except Exception:  # settings too broken to resolve: show the form only
         current = None
     mode = getattr(current, "mode", None)
+    # Who can reach an open Web UI depends on the bind: a loopback bind is
+    # reachable only from this machine, and the step must not claim the
+    # whole network can use it (release review on the gate reversal).
+    reach = ("it listens only on this machine, so only someone using this "
+             "machine can reach it" if loopback else
+             "anyone on your network can use it")
     if not data["webui"].get("require_auth", True):
         status = ("Login is turned off by <code>[webui] require_auth = false</code>: "
-                  "anyone on the network can use this Web UI. A login saved here "
+                  f"{reach}. A login saved here "
                   "takes effect only once that setting is back on.")
     elif mode == access_module.PASSWORD and current.username:
         status = f"Signed in with the username <strong>{_esc(current.username)}</strong>."
@@ -356,7 +387,7 @@ def _login_html(data, environ, submitted_username=""):
                   "A username and password saved here is easier to type; the token "
                   "keeps working for Home Assistant and other tools.")
     else:
-        status = "This Web UI is open: anyone on your network can use it."
+        status = f"This Web UI is open: {reach}."
     parts = [f'<p>{status}</p>', pages.login_rows(submitted_username, required=False)]
     if mode != access_module.OPEN:
         parts.append(
@@ -413,7 +444,7 @@ def _actions(index, step_id):
 
 def render_page(data, field_values, *, form_token, theme=shell.DEFAULT_THEME,
                 environ=None, errors=None, submitted=None, general_error=None,
-                step_index=None):
+                step_index=None, loopback=False):
     """The walkthrough page for the saved (or given) step."""
     index = _step_index(load_state(data)) if step_index is None else step_index
     step_id, step_label = STEPS[index]
@@ -436,10 +467,20 @@ def render_page(data, field_values, *, form_token, theme=shell.DEFAULT_THEME,
             # key beside a declared roster is the refused mixture.
             values = [value for value in values if value.field.id != "printer.name"]
         for field_value in values:
+            # The chat step is the setup surface for the conditional
+            # chat platforms (stage 4): their fields always draw here,
+            # because this is where a first-time Telegram or Matrix
+            # setup happens. The review step below applies the plain
+            # rule and lists only configured platforms.
+            field_id = field_value.field.id
+            reveal = ("telegram" if field_id.startswith("telegram.")
+                      else "matrix" if field_id.startswith("matrix.")
+                      else None)
             parts.append(pages._field_row(field_value, data=data, errors=errors,
-                                          submitted=submitted))
+                                          submitted=submitted, reveal=reveal))
     elif step_id == "login":
-        parts.append(_login_html(data, environ, (submitted or {}).get("username", "")))
+        parts.append(_login_html(data, environ, (submitted or {}).get("username", ""),
+                                 loopback=loopback))
     elif step_id == "providers":
         parts.append(_providers_html(environ))
     elif step_id == "review":
@@ -453,7 +494,7 @@ def render_page(data, field_values, *, form_token, theme=shell.DEFAULT_THEME,
 # -------------------------------------------------------------------- POST
 
 def apply_post(data, environ, form, field_values, *, form_token,
-               theme=shell.DEFAULT_THEME):
+               theme=shell.DEFAULT_THEME, loopback=False):
     """Handle one walkthrough POST.
 
     Returns ``("redirect", location)``, ``("page", html)`` (the step
@@ -491,7 +532,7 @@ def apply_post(data, environ, form, field_values, *, form_token,
             return "page", render_page(
                 data, field_values, form_token=form_token, theme=theme, environ=environ,
                 submitted={"username": username}, general_error=str(exc),
-                step_index=index)
+                step_index=index, loopback=loopback)
         save_state(data, {**state, "step": index + 1})
         return ("access" if outcome else "redirect"), "/walkthrough"
     if step_id == "providers":  # Continue: nothing to write on this step
@@ -545,13 +586,14 @@ def apply_post(data, environ, form, field_values, *, form_token,
         return "page", render_page(
             data, field_values, form_token=form_token, theme=theme, environ=environ,
             errors=errors, submitted=submitted, general_error=general,
-            step_index=index)
+            step_index=index, loopback=loopback)
     save_state(data, {**state, "step": min(index + 1, len(STEPS) - 1)})
     return "redirect", "/walkthrough"
 
 
 __all__ = [
     "REVIEW_FIELDS", "STATE_FILE", "STEPS", "STEP_FIELDS", "STEP_LEADS",
+    "reopen_at_login",
     "apply_post", "load_state", "pending", "render_page", "save_state",
     "state_path",
 ]

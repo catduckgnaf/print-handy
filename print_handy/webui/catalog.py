@@ -166,6 +166,7 @@ GROUP_OF = {
     "timelapse.archive_dir": "camera",
     "timelapse.ssh_key": "camera",
     "timelapse.wrapped_enabled": "wrapped",
+    "timelapse.data_enabled": "wrapped",
     "timelapse.wrapped_ai_video": "wrapped",
     "timelapse.wrapped_tts_engine": "wrapped",
     "timelapse.wrapped_music_file": "wrapped",
@@ -175,6 +176,9 @@ GROUP_OF = {
     "webui.enabled": "webui",
     "webui.host": "webui",
     "webui.port": "webui",
+    "webui.require_auth": "webui",
+    "webui.controls_enabled": "webui",
+    "webui.cookie_secure": "webui",
     "webui.chat_llm_enabled": "webui",
     "webui.chat_enabled": "webui",
     "live_stream.enabled": "camera",
@@ -621,17 +625,28 @@ CATALOG = (
            "Filesystem path of the SSH private key for the archive host; only the path "
            "is stored here, never the key contents.",
            validator="settings type check"),
-    _field("timelapse", "wrapped_enabled", "Data tab and Wrapped", "toggle",
-           "The Data tab and Print Handy Wrapped (#956): read-only statistics over "
-           "the print records, plus the once-a-year Wrapped recap. Off by default; "
-           "while off, the Data and Wrapped pages are not in the navigation and "
-           "their routes refuse by name.",
+    _field("timelapse", "wrapped_enabled", "Wrapped", "toggle",
+           "Print Handy Wrapped (#956): the once-a-year recap over the "
+           "print records. On by default; while off, the Wrapped page "
+           "is not in the navigation and its routes refuse by name. "
+           "The Data tab has its own switch below.",
+           validator="settings timelapse check"),
+    _field("timelapse", "data_enabled", "Data tab", "toggle",
+           "The Data tab (#956): read-only statistics over the print "
+           "records. On by default; while the key is unset it follows "
+           "the Wrapped switch above, and setting it pins the Data "
+           "tab on or off independently. Saving a change to the "
+           "Wrapped switch on this page pins the Data value shown "
+           "here, so the Data tab keeps the state you saw instead of "
+           "flipping with Wrapped on the restart. While off, the "
+           "Data page is not in the navigation and its routes refuse "
+           "by name.",
            validator="settings timelapse check"),
     _field("timelapse", "wrapped_ai_video", "Wrapped video", "toggle",
            "The on-demand Wrapped video compile (#956): a local video of the "
            "year's slides, the local commentary and the year's timelapses. No "
            "AI model is used (the setting keeps its original name). Off by "
-           "default, and it needs the Data tab and Wrapped switch above on. "
+           "default, and it needs the Wrapped switch above on. "
            "The video is generated only when the operator asks, and never sent anywhere.",
            validator="settings timelapse check"),
     _field("timelapse", "wrapped_tts_engine", "Wrapped narration", "picker",
@@ -669,6 +684,22 @@ CATALOG = (
     _field("webui", "port", "Web UI port", "number",
            "Port the Web UI binds to when enabled; 0 means no port has been chosen yet.",
            validator="settings webui check", minimum=0, maximum=65535),
+    _field("webui", "require_auth", "Web UI login", "toggle",
+           "On: the Web UI access token or a saved password is required once one "
+           "is set. Off: the access token is neither required nor checked, even "
+           "on a LAN bind — anyone who can reach the port gets the Web UI. Only "
+           "for a network you trust.",
+           validator="settings webui check"),
+    _field("webui", "controls_enabled", "Web UI printer controls", "toggle",
+           "On: the Web UI printer control routes (pause, resume, cancel, target "
+           "temperature and the rest) send commands. Off: they answer 403 and "
+           "send nothing. Off by default.",
+           validator="settings webui check"),
+    _field("webui", "cookie_secure", "Secure session cookie", "toggle",
+           "On: the Web UI session cookie is marked Secure, so browsers send it "
+           "only over HTTPS. Keep off for plain-HTTP LAN access; turn on when "
+           "the Web UI is exposed through an HTTPS reverse proxy.",
+           validator="settings webui check"),
     _field("webui", "chat_llm_enabled", "Web chat AI replies", "toggle",
            "On by default: text in the Web UI chat page that no command or handler "
            "takes may be answered by the configured [llm] or [agent] lane, like "
@@ -827,11 +858,71 @@ def _configured_model(data):
         return None
 
 
-def config_page_visible(field, data) -> bool:
-    """Whether /config draws this field. Hidden fields are still submitted."""
+# Chat platforms whose settings hide until the platform is configured
+# (settings restructure stage 4): the field ids per platform, and the
+# identity keys whose presence counts as configured even when
+# bot.platform names another platform (an install mid-setup).
+CONDITIONAL_CHAT_FIELDS = {
+    "telegram": ("telegram.chat_id", "telegram.allowed_user_ids",
+                 "telegram.approval_user_id"),
+    "matrix": ("matrix.homeserver_url", "matrix.room_id",
+               "matrix.allowed_user_ids", "matrix.approval_user_id"),
+}
+_CHAT_IDENTITY_KEYS = {
+    "telegram": (("telegram", "chat_id"),),
+    "matrix": (("matrix", "homeserver_url"), ("matrix", "room_id")),
+}
+
+
+def _value_is_set(value) -> bool:
+    """Whether a stored settings value counts as set: a non-blank string,
+    a non-empty list, or any other truthy value."""
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple)):
+        return any(_value_is_set(item) for item in value)
+    return bool(value)
+
+
+def chat_platform_configured(data, platform) -> bool:
+    """Whether a conditional chat platform counts as configured: it is
+    the selected bot platform, one of its identity keys is set, or any
+    field in its group holds a value — a value stored without an
+    identity key (say, only allowed_user_ids pasted in) must not be
+    hidden from its owner behind the reveal row."""
+    bot = (data or {}).get("bot") or {}
+    if str(bot.get("platform") or "") == platform:
+        return True
+    data = data or {}
+    keys = list(_CHAT_IDENTITY_KEYS[platform])
+    for field_id in CONDITIONAL_CHAT_FIELDS[platform]:
+        section, _, key = field_id.partition(".")
+        keys.append((section, key))
+    return any(_value_is_set((data.get(section) or {}).get(key))
+               for section, key in keys)
+
+
+def unconfigured_chat_platforms(data):
+    """The conditional chat platforms whose fields the rule currently
+    hides — the config page offers each a "Set up" reveal row."""
+    return tuple(platform for platform in CONDITIONAL_CHAT_FIELDS
+                 if not chat_platform_configured(data, platform))
+
+
+def config_page_visible(field, data, reveal=None) -> bool:
+    """Whether /config draws this field. Hidden fields are still submitted.
+
+    ``reveal`` names a conditional chat platform whose fields draw
+    anyway (the "Set up Telegram" / "Set up Matrix" reveal on /config
+    and the walkthrough's chat step, which is the setup surface).
+    """
     field = field_by_id(field)
     if field is None:
         return True
+    for platform, field_ids in CONDITIONAL_CHAT_FIELDS.items():
+        if field.id in field_ids:
+            return (reveal == platform
+                    or chat_platform_configured(data, platform))
     model = _configured_model(data)
     if field.id == "printer.zmod_delivery_format":
         return bool(model and model.vendor.key == "flashforge")

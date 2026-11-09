@@ -112,6 +112,11 @@ services:
       # set false there. Set them in .env (env_file above) to override;
       # unset, the mounted config's values — the shipped defaults are both
       # true — stand.
+      # PRINT_HANDY__WEBUI__REQUIRE_AUTH / __CONTROLS_ENABLED / __COOKIE_SECURE
+      # are deliberately NOT listed here (P2-88): a ${...:-default} entry would
+      # be applied after the mounted config and lock the matching Web UI
+      # Settings field. Set them in .env (env_file above) to override; unset,
+      # the mounted config's values — or the shipped defaults — stand.
       # Live camera in Discord (#311, docs/DOCKER.md "Live camera in Discord"):
       # off by default. ENABLED=true plus a voice channel, the tunnel's https
       # activity origin and a loopback PORT (for example 8091) starts the

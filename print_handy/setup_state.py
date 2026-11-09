@@ -34,6 +34,11 @@ from . import settings
 
 COMPLETION_FILE = "setup_completion.json"
 WALKTHROUGH_FILE = "webui_walkthrough.json"
+# The path constructions below spell these names out as literals on
+# purpose: tests/test_state_files.py registers state files in
+# state_files.KNOWN by scanning the source for literal names, and a name
+# reached only through a constant is invisible to it (and to the doctor's
+# stray detection). Keep the literals at the construction sites.
 
 SURFACES = ("webui", "chat", "wizard")
 
@@ -58,7 +63,7 @@ def _state_dir(data):
 
 
 def completion_path(data):
-    return _state_dir(data) / COMPLETION_FILE
+    return _state_dir(data) / "setup_completion.json"
 
 
 def _read_json(path):
@@ -77,15 +82,21 @@ def load_completion_in_state_dir(state_dir):
     ``webui`` completion with no timestamp.
     """
     state_dir = Path(state_dir)
-    record = _read_json(state_dir / COMPLETION_FILE)
+    record = _read_json(state_dir / "setup_completion.json")
     if record.get("done"):
-        return {"done": True,
-                "surface": str(record.get("surface") or "webui"),
-                "when": record.get("when")}
-    legacy = _read_json(state_dir / WALKTHROUGH_FILE)
+        loaded = {"done": True,
+                  "surface": str(record.get("surface") or "webui"),
+                  "when": record.get("when")}
+        if record.get("skipped"):
+            loaded["skipped"] = True
+        return loaded
+    legacy = _read_json(state_dir / "webui_walkthrough.json")
     if legacy.get("done"):
-        return {"done": True, "surface": "webui", "when": None,
-                "migrated": True}
+        migrated = {"done": True, "surface": "webui", "when": None,
+                    "migrated": True}
+        if legacy.get("skipped"):
+            migrated["skipped"] = True
+        return migrated
     return {}
 
 
@@ -105,24 +116,35 @@ def is_complete_in_state_dir(state_dir):
     return bool(load_completion_in_state_dir(state_dir).get("done"))
 
 
-def record_completion_in_state_dir(state_dir, surface, when=None):
+def record_completion_in_state_dir(state_dir, surface, when=None, skipped=False):
     """Write the shared record into ``state_dir`` and return it."""
     if surface not in SURFACES:
         raise ValueError(f"unknown setup surface {surface!r}; "
                          f"use one of {', '.join(SURFACES)}")
     record = {"done": True, "surface": surface,
               "when": when or datetime.now(timezone.utc).isoformat()}
+    if skipped:
+        record["skipped"] = True
     state_dir = Path(state_dir)
     state_dir.mkdir(parents=True, exist_ok=True)
     from .setup_wizard import _atomic_write
-    _atomic_write(state_dir / COMPLETION_FILE,
+    _atomic_write(state_dir / "setup_completion.json",
                   json.dumps(record, indent=1) + "\n", 0o600)
     return record
 
 
-def record_completion(data, surface, when=None):
+def record_completion(data, surface, when=None, skipped=False):
     """Write the shared record for a settings mapping and return it."""
-    return record_completion_in_state_dir(_state_dir(data), surface, when=when)
+    return record_completion_in_state_dir(_state_dir(data), surface, when=when,
+                                          skipped=skipped)
+
+
+def clear_completion(data):
+    """Forget a recorded completion, so setup can deliberately run again."""
+    try:
+        completion_path(data).unlink(missing_ok=True)
+    except Exception:  # settings too broken to locate the state folder
+        pass
 
 
 def describe(record):
@@ -130,6 +152,8 @@ def describe(record):
     if not record or not record.get("done"):
         return ""
     surface = str(record.get("surface") or "webui")
+    if record.get("skipped"):
+        return f"Setup was skipped via {surface}."
     when = record.get("when")
     if when:
         return f"Setup was already completed via {surface} on {when}."
@@ -137,7 +161,7 @@ def describe(record):
 
 
 __all__ = [
-    "COMPLETION_FILE", "SURFACES", "WALKTHROUGH_FILE", "completion_path",
+    "COMPLETION_FILE", "SURFACES", "WALKTHROUGH_FILE", "clear_completion", "completion_path",
     "describe", "is_complete", "is_complete_in_state_dir", "load_completion",
     "load_completion_in_state_dir", "record_completion",
     "record_completion_in_state_dir",
