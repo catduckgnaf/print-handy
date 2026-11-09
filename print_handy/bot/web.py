@@ -27,35 +27,22 @@ with it off, web chat is a pure bot — commands, design's deterministic
 parts and every handler still run, but no stray-chat model lane
 (``[llm]`` or ``[agent]``) is ever called for web chat text.
 
-Two gates are this surface's own (PR #1106 review, catduck's ruling):
-
-- ``[webui] chat_enabled`` (default true) is the page's own switch:
-  off, the chat page shows a disabled state and this service processes
-  no message and no button press. It is distinct from
-  ``chat_llm_enabled``, which only governs the model lane.
-- While the install is *unclaimed* — the Web UI access model
-  (:mod:`print_handy.webui.access`) holds no saved password, no saved
-  leave-open choice and no access token in the environment — web chat
-  refuses to start a print (a model link, ``/print-again``,
-  ``/print-next``, ``/print-design``) and refuses to answer a
-  print-approval prompt (the registry's ``prompts.is_approval`` mark:
-  a prompt whose answer starts a print), posting one explanation
-  instead. Everything else — help, status, spools, guided setup, plain
-  chat — keeps working unclaimed, and no other platform is affected:
-  both gates live in this service's ``submit``/``answer`` choke point,
-  not in BotCore and not in the shared adapter.
+``[webui] chat_enabled`` (default true) is the page's own switch
+(PR #1106 review): off, the chat page shows a disabled state and this
+service processes no message and no button press. It is distinct from
+``chat_llm_enabled``, which only governs the model lane. There is
+deliberately no claim-based lock on this surface: an install with no
+login set up prints and approves from web chat exactly like a claimed
+one (catduck's ruling, PR #1106) — access to the page itself is the
+Web UI's own auth decision, as before.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
-import os
-import re
 import threading
 import time
-import urllib.parse
 
-from ..core import model_sources, prompts as core_prompts
 from . import rest, runtime
 from .platform import BasePlatformAdapter, SendResult, _prompts_guard
 
@@ -65,92 +52,6 @@ OPERATOR_ID = "webui"
 CHAT_ID = "webui"
 RATE_LIMIT_PER_MINUTE = 20
 OUTBOX_LIMIT = 200
-
-PRINT_LOCKED_MESSAGE = (
-    "Printing from web chat is locked until this install is claimed. "
-    "To claim it, open the Web UI setup page and set a password, or "
-    "choose to leave it open — after that, web chat can start prints "
-    "and answer print confirmations. Everything else here (help, "
-    "status, spools, setup, plain chat) works as usual.")
-
-_URL_RE = re.compile(r"https?://[^\s<>\"']+")
-_CANCEL_TERMS = ("cancel", "don't print", "do not print")
-_TYPED_YES = frozenset({"yes", "y", "yeah", "ok", "okay", "sure", "go",
-                        "print", "start", "print it", "start the print"})
-
-
-def _is_cancel_label(label):
-    """A prompt choice that starts nothing (the flows' cancel wording)."""
-    text = str(label or "").strip().casefold()
-    return any(term in text for term in _CANCEL_TERMS)
-
-
-def _starts_print(text):
-    """Whether a web chat submission would enter the print pipeline.
-
-    Exactly the entry points a print starts from on this surface: a
-    model link the intake serves (a supported source's page pattern, or
-    a direct link at a print file), ``/print-again`` with a job to
-    reprint (not its list/stop/cancel/clear bookkeeping forms),
-    ``/print-next``, and the design-to-print commands. Read-only
-    commands (help, status, source, spools, lookup) never match.
-    """
-    body = str(text or "").strip()
-    if not body:
-        return False
-    for match in _URL_RE.finditer(body):
-        parts = urllib.parse.urlsplit(match.group(0).rstrip(").,]"))
-        host = (parts.hostname or "").lower()
-        path = parts.path or ""
-        if model_sources.link_source((host, path)) is not None:
-            return True
-        suffix = path.rsplit(".", 1)[-1].lower() if "." in path else ""
-        if f".{suffix}" in model_sources.DIRECT_FILE_EXTS:
-            return True
-    words = body.casefold().split()
-    if not words:
-        return False
-    command = words[0].lstrip("/")
-    if command == "print-again":
-        rest = words[1] if len(words) > 1 else ""
-        return rest not in ("list", "stop", "cancel", "clear")
-    return command in ("print-next", "print-design", "design")
-
-
-def _answers_prompt(text, choices):
-    """Whether typed text answers an open prompt (and is no cancel)."""
-    body = str(text or "").strip().casefold()
-    if not body:
-        return False
-    for label in choices or []:
-        if _is_cancel_label(label):
-            continue
-        if body == str(label).strip().casefold():
-            return True
-    return body in _TYPED_YES
-
-
-def install_claimed(cfg, environ=None):
-    """True when the install has been claimed, in access.py's terms.
-
-    The claim state is the Web UI access model's own, read through
-    :mod:`print_handy.webui.access` rather than a parallel copy: a
-    saved password or a saved leave-open choice in the state folder
-    (``access._read_saved`` over ``access.access_path``), or the access
-    token present in the environment. ``[webui] require_auth = false``
-    also counts: it is the operator's deliberate open choice in the
-    config file, the same class of decision as a saved leave-open —
-    ``access.resolve`` puts it ahead of every other rule.
-    """
-    environ = os.environ if environ is None else environ
-    webui = cfg.get("webui") or {}
-    if not webui.get("require_auth", True):
-        return True
-    token_env = webui.get("access_token_env") or "WEBUI_ACCESS_TOKEN"
-    if environ.get(token_env):
-        return True
-    from ..webui import access
-    return access._read_saved(access.access_path(cfg)) is not None
 
 
 class WebAdapter(BasePlatformAdapter):
@@ -266,30 +167,6 @@ class WebChatService:
         """The page's own switch, read live from the settings mapping."""
         return chat_enabled(self.cfg)
 
-    def _post_refusal(self):
-        """The one unclaimed-print explanation, into the transcript."""
-        self.adapter._outbox.append({"kind": "message",
-                                     "content": PRINT_LOCKED_MESSAGE})
-
-    def _refuse_print(self, text):
-        """While unclaimed, refuse a print start / approval answer once.
-
-        A submission is refused — the explanation posted, BotCore never
-        called — when it would start a print, or when it answers the
-        open print-approval prompt (typed answers are the button's
-        twin). The claim state is read at submit time, so claiming the
-        install unlocks printing without any restart of this service.
-        """
-        if _starts_print(text):
-            self._post_refusal()
-            return True
-        prompt = self.open_prompt()
-        if prompt and core_prompts.is_approval(prompt["clarify_id"]) \
-                and _answers_prompt(text, prompt["choices"]):
-            self._post_refusal()
-            return True
-        return False
-
     def submit(self, text):
         """Queue one operator message. False when rate-limited or off."""
         if not self._enabled():
@@ -305,8 +182,6 @@ class WebChatService:
             self._seq += 1
             self._entries.append({"seq": self._seq, "kind": "operator",
                                   "content": str(text or "")})
-        if not install_claimed(self.cfg) and self._refuse_print(text):
-            return True
         event = runtime.make_event(self.source, text, f"web-{count}")
         with self._lock:
             self._inflight += 1
@@ -339,32 +214,12 @@ class WebChatService:
         with self._lock:
             return self._inflight > 0
 
-    def _prompt_label(self, clarify_id, index):
-        """The label a press on this prompt would choose, or ""."""
-        for cid, row in self.adapter.prompts_snapshot():
-            if str(cid) == str(clarify_id):
-                choices = list(row.get("choices") or [])
-                if 0 <= index < len(choices):
-                    return str(choices[index])
-                return ""
-        return ""
-
     def answer(self, clarify_id, index):
         """Press a button on the open prompt, as the signed-in operator.
 
-        While the install is unclaimed, a press that would answer a
-        print-approval prompt (prompts.is_approval: its answer starts
-        a print) is refused with the same posted explanation as a
-        refused submission, and the prompt stays open; cancelling —
-        which starts nothing — stays allowed. Off entirely when the
-        page's switch is off.
+        Resolves nothing when the page's switch is off.
         """
         if not self._enabled():
-            return None
-        if not install_claimed(self.cfg) \
-                and core_prompts.is_approval(clarify_id) \
-                and not _is_cancel_label(self._prompt_label(clarify_id, index)):
-            self._post_refusal()
             return None
         future = asyncio.run_coroutine_threadsafe(
             self.adapter.answer_choice(clarify_id, index, user_id=OPERATOR_ID),
@@ -410,6 +265,5 @@ def chat_enabled(cfg):
     return bool((cfg.get("webui") or {}).get("chat_enabled", True))
 
 
-__all__ = ["CHAT_ID", "OPERATOR_ID", "PRINT_LOCKED_MESSAGE", "WebAdapter",
-           "WebChatService", "chat_enabled", "chat_llm_enabled",
-           "install_claimed"]
+__all__ = ["CHAT_ID", "OPERATOR_ID", "WebAdapter", "WebChatService",
+           "chat_enabled", "chat_llm_enabled"]

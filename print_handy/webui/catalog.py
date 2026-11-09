@@ -633,10 +633,7 @@ CATALOG = (
            "Off: the chat page shows that web chat is turned off, and no web "
            "chat message or button press is processed. This is the page's "
            "own switch; Web chat AI replies above only governs the model "
-           "lane. Note: while the install is unclaimed (no password set, no "
-           "leave-open choice saved, no WEBUI_ACCESS_TOKEN), web chat also "
-           "refuses to start prints and to answer print confirmations — "
-           "claim the install from the setup page to unlock printing here.",
+           "lane.",
            validator="settings webui check"),
     # Live camera in Discord (#311): the [live_stream] section. No secret
     # is a field here — the Discord client secret and the Activity
