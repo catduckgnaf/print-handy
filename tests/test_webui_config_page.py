@@ -5,17 +5,20 @@ preview (diff, writes nothing) -> confirm (the stage 1 validated write).
 Everything runs offline against a temp settings file named by
 PRINT_HANDY_CONFIG, with the server on an ephemeral loopback port.
 """
+import html as html_lib
 import http.client
 import re
 import tempfile
 import threading
 import unittest
+from dataclasses import replace
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from print_handy import settings
 from print_handy.webui import config as config_api
 from print_handy.webui import server
+from print_handy.webui.catalog import field_by_id
 
 TOKEN = "test-webui-token-12345"
 OTHER_SECRET = "test-discord-token-67890"
@@ -610,3 +613,49 @@ class HiddenFieldRoundTripTests(unittest.TestCase):
                 fv = config_api.FieldValue(field=field, value=value, provenance=config_api.DEFAULT)
                 changes, _submitted, errors = pages.parse_form(form, [fv])
                 self.assertEqual((changes, errors), ({}, {}))
+
+
+class SectionLinkEncodingTests(unittest.TestCase):
+    """Tab links URL-encode the section name (duckcatgnaf review of #1101).
+
+    A group name comes from config and can contain query metacharacters;
+    interpolated raw, ``Fish & Chips`` would split the query value at the
+    ampersand and ``Q #1`` would truncate it at the fragment marker, so
+    selecting that tab falls back to the first section.
+    """
+
+    @staticmethod
+    def _page(group, section=None):
+        from print_handy.webui import pages
+        field = replace(field_by_id("logging.level"), group=group)
+        fv = config_api.FieldValue(field=field, value="INFO",
+                                   provenance=config_api.DEFAULT)
+        return pages.render_config_page([fv], data={}, form_token="tok",
+                                        section=section)
+
+    @staticmethod
+    def _tab_href(body, label):
+        match = re.search(r'<a href="([^"]+)"[^>]*>' + re.escape(label) + r"</a>",
+                          body)
+        assert match is not None, f"no tab link labelled {label!r}"
+        return html_lib.unescape(match.group(1))
+
+    def test_ampersand_group_tab_link_round_trips(self):
+        body = self._page("Fish & Chips")
+        href = self._tab_href(body, "Fish &amp; Chips")
+        self.assertNotIn("section=Fish &", href)
+        section = parse_qs(urlparse(href).query)["section"][0]
+        self.assertEqual(section, "Fish & Chips")
+        selected = self._page("Fish & Chips", section=section)
+        self.assertIn('aria-current="page"', selected)
+        self.assertIn('id="row-logging.level"', selected)
+
+    def test_hash_group_tab_link_round_trips(self):
+        body = self._page("Q #1")
+        href = self._tab_href(body, "Q #1")
+        self.assertEqual(urlparse(href).fragment, "")
+        section = parse_qs(urlparse(href).query)["section"][0]
+        self.assertEqual(section, "Q #1")
+        selected = self._page("Q #1", section=section)
+        self.assertIn('aria-current="page"', selected)
+        self.assertIn('id="row-logging.level"', selected)

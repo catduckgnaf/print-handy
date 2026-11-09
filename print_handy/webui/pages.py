@@ -40,6 +40,7 @@ import html
 import shutil
 import tempfile
 from pathlib import Path
+from urllib.parse import quote
 
 from . import access as access_module
 from . import config as config_api
@@ -442,7 +443,7 @@ def render_config_page(field_values, *, data, form_token, errors=None,
     # target; the shown section also keeps its group-<name> anchor id.
     parts.insert(0, '<nav class="pills config-tabs" aria-label="Settings sections">'
                  + "".join(
-                     f'<a href="/config?section={_esc(name)}"'
+                     f'<a href="/config?section={quote(name, safe="")}"'
                      + (' aria-current="page"' if name == selected else "")
                      + f'>{_esc(heading)}</a>'
                      for name, heading, _rows in sections)
