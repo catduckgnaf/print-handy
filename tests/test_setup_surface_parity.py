@@ -392,7 +392,9 @@ class S5IdenticalConfig(unittest.TestCase):
             self.skipTest(LANE_A_WALKTHROUGH + "the Web UI walkthrough "
                           "has no Spoolman field yet")
         chat_keys = {step.key for step in guided.steps()}
-        missing = {"platform", "camera", "login"} - chat_keys
+        # The canonical topics as the landed step keys name them:
+        # platform choice, camera, and the Web UI login step.
+        missing = {"platform", "camera_snapshot_url", "webui_login"} - chat_keys
         if missing:
             self.skipTest("Lane B PR-7 (feat/chat-setup-parity) not "
                           f"landed: guided setup lacks steps {sorted(missing)}")
