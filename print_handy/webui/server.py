@@ -1634,7 +1634,8 @@ class _Handler(BaseHTTPRequestHandler):
         effective = {fv.field: fv.value for fv in field_values}
         entries = [(field, effective[field], value) for field, value in changes.items()]
         self._send(200, pages.render_preview_page(
-            entries, submitted, form_token=self.server.form_token, theme=self._theme()),
+            entries, submitted, form_token=self.server.form_token, theme=self._theme(),
+            section=(form.get(pages.SECTION_FIELD) or [None])[0]),
             "text/html; charset=utf-8")
 
     def _config_save(self):
@@ -1668,8 +1669,10 @@ class _Handler(BaseHTTPRequestHandler):
             errors = dict(field_errors)
             if general:
                 errors["_general"] = general
-            self._send(400, self._config_html(field_values, errors=errors,
-                                              submitted=submitted, theme=self._theme()),
+            self._send(400, self._config_html(
+                field_values, errors=errors, submitted=submitted,
+                theme=self._theme(),
+                section=(form.get(pages.SECTION_FIELD) or [None])[0]),
                        "text/html; charset=utf-8")
             return
         self._send(200, pages.render_result_page(changed, theme=self._theme()),
