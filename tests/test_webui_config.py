@@ -1,5 +1,7 @@
 """Web UI stage 1 (#286): the [webui] settings section, the field catalog, and
 the provenance read / validated write-back API over the YAML settings file."""
+import os
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -756,6 +758,23 @@ class ClosedTableToleranceTests(unittest.TestCase):
         self.assertEqual(self.config.write_printer_name(
             "garage-ad5x", "Workshop AD5X", config_path=self.local, environ={}), [])
         self.assertEqual(self.config.last_write_warnings(), [])
+
+    def test_tolerated_save_preserves_a_0600_file_mode_and_backup_mode(self):
+        # Review of #1103: a tolerated credential-shaped key must not get
+        # wider permissions on its way through a save. A hand-edited 0600
+        # settings file stays 0600 after the rewrite, and the timestamped
+        # backup of it is no wider than the source.
+        self.local.write_text("notify:\n  mqtt_password: hunter2\n")
+        os.chmod(self.local, 0o600)
+        changed = self.save_roast_off()
+        self.assertEqual(changed, [("vision", "roast_enabled")])
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+        self.assertEqual(stat.S_IMODE(self.local.stat().st_mode), 0o600)
+        backups = list(Path(self.tmp.name).glob("*.bak-*"))
+        self.assertEqual(len(backups), 1)
+        backup_mode = stat.S_IMODE(backups[0].stat().st_mode)
+        self.assertEqual(backup_mode & ~0o600, 0)  # no wider than the source
+        self.assertEqual(backup_mode, 0o600)
 
 
 if __name__ == "__main__":

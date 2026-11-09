@@ -1657,8 +1657,9 @@ class _Handler(BaseHTTPRequestHandler):
                                               submitted=submitted, theme=self._theme()),
                        "text/html; charset=utf-8")
             return
-        self._send(200, pages.render_result_page(changed, theme=self._theme()),
-                   "text/html; charset=utf-8")
+        self._send(200, pages.render_result_page(
+            changed, warnings=config_api.last_write_warnings(),
+            theme=self._theme()), "text/html; charset=utf-8")
 
     def _debug_post(self):
         """POST /debug (#478): turn debug log mode on or off.

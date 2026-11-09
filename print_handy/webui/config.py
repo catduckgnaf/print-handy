@@ -30,6 +30,7 @@ import copy
 import os
 import re
 import shutil
+import stat
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime
@@ -441,8 +442,31 @@ _CONTENT_CHECKS = {
 }
 
 
+def _existing_mode(target):
+    """The permission bits of the file at ``target``, or None when
+    there is no such file (a new file keeps the writer's usual mode)."""
+    try:
+        return stat.S_IMODE(target.stat().st_mode)
+    except OSError:
+        return None
+
+
+def _write_settings_file(target, text):
+    """Write ``text`` to the settings file, preserving the mode of the
+    file it replaces. A save must never widen a settings file's
+    permissions: a hand-edited file may be 0600 precisely because it
+    holds a credential-shaped key a save tolerates, and landing the
+    rewrite at the usual 0644 would leave that key world-readable."""
+    mode = _existing_mode(target)
+    _atomic_write(target, text, 0o644 if mode is None else mode)
+
+
 def _backup(target, stamp):
-    """A timestamped copy of the current file next to it; its path, or None."""
+    """A timestamped copy of the current file next to it; its path, or None.
+
+    The copy carries the source file's own mode, never a wider one:
+    the backup holds the same content as the settings file, tolerated
+    credential-shaped keys included, so it needs the same protection."""
     if not target.is_file():
         return None
     backup = target.with_name(f"{target.name}.bak-{stamp}")
@@ -451,6 +475,9 @@ def _backup(target, stamp):
         backup = target.with_name(f"{target.name}.bak-{stamp}-{counter}")
         counter += 1
     shutil.copyfile(target, backup)
+    mode = _existing_mode(target)
+    if mode is not None:
+        os.chmod(backup, mode)
     return backup
 
 
@@ -618,7 +645,7 @@ def write_printer_name(printer_id, name, *, config_path=None, home=None,
     target.parent.mkdir(parents=True, exist_ok=True)
     stamp = timestamp or datetime.now().strftime("%Y%m%d-%H%M%S")
     _backup(target, stamp)
-    _atomic_write(target, text, 0o644)
+    _write_settings_file(target, text)
     _note_tolerated(target, tolerated)
     return [("printers", printer_id)]
 
@@ -680,6 +707,6 @@ def write_changes(changes, *, config_path=None, home=None, environ=None, timesta
     text, tolerated = _validate_candidate(candidate, target, home=home, environ=environ)
     stamp = timestamp or datetime.now().strftime("%Y%m%d-%H%M%S")
     _backup(target, stamp)
-    _atomic_write(target, text, 0o644)
+    _write_settings_file(target, text)
     _note_tolerated(target, tolerated)
     return changed

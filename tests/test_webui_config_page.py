@@ -15,6 +15,7 @@ from urllib.parse import urlencode
 
 from print_handy import settings
 from print_handy.webui import config as config_api
+from print_handy.webui import pages as pages_module
 from print_handy.webui import server
 
 TOKEN = "test-webui-token-12345"
@@ -360,6 +361,34 @@ class ConfigPageTests(unittest.TestCase):
         for body in bodies:
             self.assertNotIn(TOKEN, body)
             self.assertNotIn(OTHER_SECRET, body)
+
+
+class ResultPageWarningTests(unittest.TestCase):
+    """Review of #1103: the save-result page must name every tolerated
+    closed-table key and say the next restart will fail until it is
+    removed — a tolerated save otherwise looks like a clean success
+    right up to the restart it breaks."""
+
+    def test_result_page_names_the_tolerated_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            local = Path(tmp) / "local.yaml"
+            local.write_text("notify:\n  mqtt_password: hunter2\n")
+            config_api._last_write_warnings = []
+            changed = config_api.write_changes(
+                {"vision.roast_enabled": False}, config_path=local, environ={})
+            self.assertEqual(changed, [("vision", "roast_enabled")])
+            self.assertEqual(config_api.last_write_warnings(),
+                             ["[notify] mqtt_password"])
+            body = pages_module.render_result_page(changed)
+        self.assertIn("[notify] mqtt_password", body)
+        self.assertIn("next restart will fail", body)
+        self.assertIn("until it is removed", body)
+        self.assertNotIn("hunter2", body)  # the secret is never echoed
+
+    def test_result_page_without_tolerated_keys_has_no_restart_failure_warning(self):
+        body = pages_module.render_result_page(
+            [("vision", "roast_enabled")], warnings=[])
+        self.assertNotIn("next restart will fail", body)
 
 
 if __name__ == "__main__":
