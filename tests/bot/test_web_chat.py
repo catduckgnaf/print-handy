@@ -54,7 +54,8 @@ def wait_prompt(service, question, timeout=10.0):
                          f"entries: {service.entries()}")
 
 
-def test_model_link_flows_through_intake_to_the_confirm_prompt(cfg, monkeypatch):
+def test_model_link_flows_through_intake_to_the_confirm_prompt(cfg, monkeypatch,
+                                                               tmp_path):
     """A model link in web chat reaches the handlers (PR #1106 review).
 
     The print-feedback handlers gate on BOT_PLATFORMS; 'webui' was
@@ -62,14 +63,20 @@ def test_model_link_flows_through_intake_to_the_confirm_prompt(cfg, monkeypatch)
     never ran. With prepare_link stubbed the way the other platforms'
     intake tests stub it, the link must reach the color question and
     then the confirm-before-print question, answered by button press.
+    The install is claimed (a saved leave-open choice): since the
+    unclaimed print lock, claiming is the precondition for any print
+    flow in web chat (tests/bot/test_web_chat_gate.py covers the lock).
     """
     from unittest import mock
 
     from print_handy.bot import runtime
     from print_handy.core import link_intake, prepared_intake, printer_state
     from print_handy.hermes import _config
+    from print_handy.webui import access
 
     monkeypatch.setattr(_config, "_override", cfg)
+    cfg["paths"]["hermes_home"] = tmp_path / "hermes"
+    access.save_open(cfg, True)
     seen = {}
 
     async def fake_prepare(event, adapter_arg, state, root, reuse=None, **kwargs):
@@ -114,16 +121,21 @@ def test_print_source_command_reaches_its_handler(cfg, monkeypatch):
     assert "printables" in entry["content"].casefold()
 
 
-def test_print_design_reaches_the_design_handler(cfg, monkeypatch):
+def test_print_design_reaches_the_design_handler(cfg, monkeypatch, tmp_path):
     """/print-design runs design_dispatch, which answers honestly here.
 
     The test config configures no design endpoint, so the handler's
     reply is its deterministic not-set-up refusal — the point is that
-    the handler produced it, not the stray-chat fallthrough.
+    the handler produced it, not the stray-chat fallthrough. The
+    install is claimed: design-to-print is a print start, locked
+    while unclaimed.
     """
     from print_handy.hermes import _config
+    from print_handy.webui import access
 
     monkeypatch.setattr(_config, "_override", cfg)
+    cfg["paths"]["hermes_home"] = tmp_path / "hermes"
+    access.save_open(cfg, True)
     service = web.WebChatService(cfg)
     assert service.submit("/print-design a small storage box") is True
     entry = wait_for(service, "message", "Design is not set up")
@@ -216,8 +228,10 @@ def test_chat_llm_enabled_gates_the_core_lane(cfg):
     cfg["webui"]["chat_llm_enabled"] = False
     service = web.WebChatService(cfg)
     assert service.core.use_llm is False
-    assert web.chat_enabled(cfg) is False
+    assert web.chat_llm_enabled(cfg) is False
     cfg["webui"]["chat_llm_enabled"] = True
+    assert web.chat_llm_enabled(cfg) is True
+    # The page's own switch is a separate helper with its own default.
     assert web.chat_enabled(cfg) is True
 
 

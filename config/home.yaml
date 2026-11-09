@@ -374,6 +374,10 @@ webui:
   # it over HTTPS. Keep false for plain-HTTP LAN access so browsers accept the
   # cookie; set true when exposing the Web UI through an HTTPS reverse proxy.
   cookie_secure: false
+  # The Web UI chat page switch: off shows a disabled page and web chat
+  # processes nothing. chat_llm_enabled (loader default true) is separate —
+  # it only governs web chat's stray-chat model lane.
+  chat_enabled: true
 live_stream:
   # Live camera viewing in Discord (#311): off by default. The bot cannot
   # send video itself; /print-live starts a viewing session and points at

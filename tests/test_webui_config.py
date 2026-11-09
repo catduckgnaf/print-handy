@@ -42,7 +42,8 @@ class WebUISettingsTests(unittest.TestCase):
                                          "require_auth": True,
                                          "controls_enabled": False,
                                          "cookie_secure": False,
-                                         "chat_llm_enabled": True})
+                                         "chat_llm_enabled": True,
+                                         "chat_enabled": True})
 
     def test_section_values_and_env_override_load(self):
         with tempfile.TemporaryDirectory() as tmp:

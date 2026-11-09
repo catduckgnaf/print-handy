@@ -23,6 +23,24 @@ _esc = shell._esc
 REFRESH_SECONDS = 3
 
 
+def render_chat_disabled_page(*, theme=shell.DEFAULT_THEME, nav=None):
+    """The GET /chat page while [webui] chat_enabled is false.
+
+    No service exists behind this page — the server never builds one
+    while the switch is off — so there is no transcript and no form,
+    just the state and the way back on.
+    """
+    body = ('<p>Web chat is turned off. The chat page is disabled by the '
+            '<code>webui.chat_enabled</code> setting, so the bot is not '
+            'running here and no message can be sent.</p>'
+            '<p>To turn it on, set <strong>Web chat</strong> on in Settings '
+            '(or <code>webui.chat_enabled</code> / '
+            '<code>PRINT_HANDY__WEBUI__CHAT_ENABLED</code> to '
+            '<code>true</code>) and restart Print Handy.</p>')
+    return shell.page("chat", body, path="/chat", theme=theme,
+                      heading="Chat", nav=nav)
+
+
 def render_chat_page(service, *, form_token, notice=None, error=None,
                      theme=shell.DEFAULT_THEME, nav=None):
     """The GET /chat page for a WebChatService."""
@@ -80,4 +98,4 @@ def render_chat_page(service, *, form_token, notice=None, error=None,
                       heading="Chat", nav=nav)
 
 
-__all__ = ["REFRESH_SECONDS", "render_chat_page"]
+__all__ = ["REFRESH_SECONDS", "render_chat_disabled_page", "render_chat_page"]

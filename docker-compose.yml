@@ -100,6 +100,7 @@ services:
       PRINT_HANDY__WEBUI__ENABLED: ${PRINT_HANDY__WEBUI__ENABLED:-true}
       PRINT_HANDY__WEBUI__HOST: ${PRINT_HANDY__WEBUI__HOST:-0.0.0.0}
       PRINT_HANDY__WEBUI__PORT: ${PRINT_HANDY__WEBUI__PORT:-8088}
+      PRINT_HANDY__WEBUI__CHAT_ENABLED: ${PRINT_HANDY__WEBUI__CHAT_ENABLED:-true}
       # Live camera in Discord (#311, docs/DOCKER.md "Live camera in Discord"):
       # off by default. ENABLED=true plus a voice channel, the tunnel's https
       # activity origin and a loopback PORT (for example 8091) starts the

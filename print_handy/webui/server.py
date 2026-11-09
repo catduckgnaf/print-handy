@@ -1652,7 +1652,24 @@ class _Handler(BaseHTTPRequestHandler):
                 self.server.chat_service = service
             return service
 
+    def _web_chat_enabled(self):
+        """[webui] chat_enabled, the chat page's own switch (PR #1106).
+
+        Read from the server's settings mapping on every request, so
+        the page a request gets always matches the saved configuration.
+        """
+        from ..bot.web import chat_enabled
+        return chat_enabled(self.server.settings_data)
+
     def _chat_page(self, notice=None, error=None):
+        if not self._web_chat_enabled():
+            # Off is a page, not an error: it says the state and the way
+            # back on, and the chat service is never built behind it.
+            self._send(200, chat_module.render_chat_disabled_page(
+                theme=self._theme(),
+                nav=data_module.nav_for(self.server.settings_data)),
+                "text/html; charset=utf-8")
+            return
         ft = self.server.form_token
         self._send(200, chat_module.render_chat_page(
             self._chat_service(), form_token=ft, notice=notice, error=error,
@@ -1675,6 +1692,9 @@ class _Handler(BaseHTTPRequestHandler):
         form = self._chat_form()
         if form is None:
             return
+        if not self._web_chat_enabled():
+            self._chat_page()  # the disabled page, with the explanation
+            return
         text = (form.get("text") or [""])[0].strip()
         if not text:
             self._redirect("/chat")
@@ -1688,6 +1708,9 @@ class _Handler(BaseHTTPRequestHandler):
     def _chat_choice_post(self):
         form = self._chat_form()
         if form is None:
+            return
+        if not self._web_chat_enabled():
+            self._chat_page()  # the disabled page, with the explanation
             return
         clarify_id = (form.get("clarify_id") or [""])[0]
         try:

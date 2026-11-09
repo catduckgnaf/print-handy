@@ -158,6 +158,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("webui", "enabled"): bool, ("webui", "host"): str,
                  ("webui", "port"): int, ("webui", "access_token_env"): str,
                  ("webui", "chat_llm_enabled"): bool,
+                 ("webui", "chat_enabled"): bool,
                  ("design", "enabled"): bool, ("design", "chat_url"): str,
                  ("design", "model"): str, ("design", "api_key_env"): str,
                  ("design", "timeout_s"): int, ("design", "repair_attempts"): int,
@@ -1262,6 +1263,14 @@ def _validate_webui(data):
     chat_llm = webui.setdefault("chat_llm_enabled", True)
     if not isinstance(chat_llm, bool):
         raise SettingsError(f"[webui] chat_llm_enabled must be true or false, got {chat_llm!r}")
+    # chat_enabled: the web chat page's own switch (PR #1106 review).
+    # Off, /chat shows a disabled state and the web chat service
+    # processes no message and no button press. Distinct from
+    # chat_llm_enabled above, which only governs the stray-chat model
+    # lane. On by default; a missing key means true.
+    chat_page = webui.setdefault("chat_enabled", True)
+    if not isinstance(chat_page, bool):
+        raise SettingsError(f"[webui] chat_enabled must be true or false, got {chat_page!r}")
 
 
 VERTICAL_SHORT_MODES = ("pad", "crop")

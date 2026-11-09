@@ -89,6 +89,10 @@ webui:
   # it over HTTPS. Keep false for plain-HTTP LAN access so browsers accept the
   # cookie; set true when exposing the Web UI through an HTTPS reverse proxy.
   cookie_secure: false
+  # The Web UI chat page switch: off shows a disabled page and web chat
+  # processes nothing. chat_llm_enabled (loader default true) is separate —
+  # it only governs web chat's stray-chat model lane.
+  chat_enabled: true
 agent:
   # Stray-chat agent lane (#524 stage 3): an agent endpoint — any
   # OpenAI-compatible chat completions URL, e.g. a Hermes agent behind

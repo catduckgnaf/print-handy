@@ -146,6 +146,42 @@ def test_concurrent_first_chat_requests_build_one_service(tmp_path, monkeypatch)
         srv.server_close()
 
 
+def test_chat_page_disabled_shows_a_disabled_state(tmp_path):
+    """[webui] chat_enabled=false: a clear off state, no service built."""
+    srv = webui_server.make_server(
+        load_settings(tmp_path, "  chat_enabled: false\n"), environ={}, port=0)
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+    try:
+        status, page = call(srv.server_address[1], "GET", "/chat")
+        assert status == 200
+        assert "Web chat is turned off" in page
+        assert 'name="text"' not in page  # no message form to submit into
+        assert srv.chat_service is None  # the bot was never started
+    finally:
+        srv.shutdown()
+
+
+def test_chat_posts_disabled_refuse_with_the_explanation(tmp_path):
+    """POSTs while disabled get the explanation page, never the service."""
+    srv = webui_server.make_server(
+        load_settings(tmp_path, "  chat_enabled: false\n"), environ={}, port=0)
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = srv.server_address[1]
+        body = urllib.parse.urlencode({"_csrf": srv.form_token, "text": "help"})
+        status, page = call(port, "POST", "/chat", body=body)
+        assert status == 200 and "Web chat is turned off" in page
+        body = urllib.parse.urlencode({"_csrf": srv.form_token,
+                                       "clarify_id": "x", "index": "0"})
+        status, page = call(port, "POST", "/chat/choice", body=body)
+        assert status == 200 and "Web chat is turned off" in page
+        assert srv.chat_service is None
+    finally:
+        srv.shutdown()
+
+
 def test_chat_requires_the_access_token_when_one_is_set(tmp_path):
     data = load_settings(tmp_path)
     srv = webui_server.make_server(
