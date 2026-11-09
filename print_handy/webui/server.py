@@ -1695,7 +1695,24 @@ class _Handler(BaseHTTPRequestHandler):
         except ValueError:
             index = -1
         if clarify_id and index >= 0:
-            self._chat_service().answer(clarify_id, index)
+            # A press can fail two ways, and neither may look like
+            # success: the answer wait can time out (which used to
+            # surface as a raw 500 from the outer POST guard), and the
+            # press can resolve nothing — the question already closed,
+            # or the press was refused — which used to redirect in
+            # silence. Both come back as the page with an explanation.
+            try:
+                label = self._chat_service().answer(clarify_id, index)
+            except Exception:
+                self._chat_page(error="That answer didn't reach the bot "
+                                      "in time. The question is still "
+                                      "open — try again.")
+                return
+            if label is None:
+                self._chat_page(error="That answer wasn't accepted — "
+                                      "the question may have closed, or "
+                                      "the answer belongs to another step.")
+                return
         self._redirect("/chat")
 
     # -- uploads ------------------------------------------------------------

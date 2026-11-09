@@ -73,9 +73,24 @@ def test_post_without_form_token_is_refused(running):
 def test_choice_post_without_open_prompt_redirects(running):
     srv, port = running
     body = urllib.parse.urlencode({"_csrf": srv.form_token,
-                                   "clarify_id": "nope", "index": "0"})
+                                   "clarify_id": "", "index": "0"})
     status, _page = call(port, "POST", "/chat/choice", body=body)
     assert status == 303
+
+
+def test_choice_post_on_a_closed_prompt_gives_feedback(running):
+    """A refused press used to redirect silently (PR #1106 review).
+
+    The press resolves nothing — the question is closed or unknown —
+    so the page comes back with an explanation instead of a bare
+    redirect that looks like success.
+    """
+    srv, port = running
+    body = urllib.parse.urlencode({"_csrf": srv.form_token,
+                                   "clarify_id": "nope", "index": "0"})
+    status, page = call(port, "POST", "/chat/choice", body=body)
+    assert status == 200
+    assert "wasn&#x27;t accepted" in page  # _esc renders the apostrophe
 
 
 def test_concurrent_first_chat_requests_build_one_service(tmp_path, monkeypatch):

@@ -3,9 +3,11 @@
 Renders the web chat service's transcript (operator messages, bot
 replies, button questions) and the two forms that feed it: a message
 form (``POST /chat``) and, while a question is open, one button per
-choice (``POST /chat/choice``). The page refreshes itself every few
-seconds because bot replies arrive asynchronously — a sliced print's
-confirmation question appears here the same way it would in Discord.
+choice (``POST /chat/choice``). While a bot reply is pending the page
+refreshes itself every few seconds, because replies arrive
+asynchronously — a sliced print's confirmation question appears here
+the same way it would in Discord — but an idle page never reloads, so
+a half-typed message survives.
 
 Everything the operator says goes to :class:`print_handy.bot.web.
 WebChatService`, which runs it through ``BotCore.process``: this page
@@ -24,7 +26,15 @@ REFRESH_SECONDS = 3
 def render_chat_page(service, *, form_token, notice=None, error=None,
                      theme=shell.DEFAULT_THEME, nav=None):
     """The GET /chat page for a WebChatService."""
-    parts = [f'<meta http-equiv="refresh" content="{REFRESH_SECONDS}">']
+    # The refresh exists so asynchronously arriving replies show up,
+    # but a timed reload also wipes a half-typed message. It is emitted
+    # only while a reply is actually pending — the bot is mid-turn and
+    # no question is waiting on the operator (an open question is
+    # already rendered; the page can sit still for the answer).
+    prompt = service.open_prompt()
+    parts = []
+    if service.busy() and not prompt:
+        parts.append(f'<meta http-equiv="refresh" content="{REFRESH_SECONDS}">')
     if notice:
         parts.append(f'<p class="notice">{_esc(notice)}</p>')
     if error:
@@ -47,7 +57,6 @@ def render_chat_page(service, *, form_token, notice=None, error=None,
                      "or ask for a design — the chat does everything the "
                      "Discord bot does, including printing, through the "
                      "same confirmation questions.</p>")
-    prompt = service.open_prompt()
     if prompt:
         buttons = []
         for index, choice in enumerate(prompt["choices"]):

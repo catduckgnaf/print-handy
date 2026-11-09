@@ -623,7 +623,9 @@ CATALOG = (
            "takes may be answered by the configured [llm] or [agent] lane, like "
            "Discord chat. Off: web chat is a pure bot — commands, design and the "
            "print flow still work, but no model call is made for web chat text "
-           "and unmatched text gets the short not-understood reply.",
+           "and unmatched text gets the short not-understood reply. If the Web UI "
+           "is left open on the LAN with no password or token, anyone who can "
+           "reach it can spend the model endpoint's budget through web chat.",
            validator="settings webui check"),
     # Live camera in Discord (#311): the [live_stream] section. No secret
     # is a field here — the Discord client secret and the Activity

@@ -30,11 +30,14 @@ parts and every handler still run, but no stray-chat model lane
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 import time
 
-from . import runtime
+from . import rest, runtime
 from .platform import BasePlatformAdapter, SendResult, _prompts_guard
+
+logger = logging.getLogger(__name__)
 
 OPERATOR_ID = "webui"
 CHAT_ID = "webui"
@@ -58,10 +61,18 @@ class WebAdapter(BasePlatformAdapter):
         self._outbox = outbox
 
     async def send(self, chat_id, content, reply_to=None, metadata=None):
-        text = str(content or "")
-        for start in range(0, max(len(text), 1), self.message_limit):
+        # The chat page cannot attach files, so a MEDIA: marker becomes
+        # a note naming the file — never the marker itself, whose server
+        # path is not the reader's business. split_media drops markers
+        # for files that do not exist, as on the other platforms.
+        body, files = rest.split_media(str(content or ""))
+        if body or not files:
+            for start in range(0, max(len(body), 1), self.message_limit):
+                self._outbox.append({"kind": "message",
+                                     "content": body[start:start + self.message_limit]})
+        for path in files:
             self._outbox.append({"kind": "message",
-                                 "content": text[start:start + self.message_limit]})
+                                 "content": f"📎 {path.name}"})
         return SendResult(True, message_id="web")
 
     async def send_clarify(self, chat_id, question, choices, clarify_id,
@@ -113,10 +124,32 @@ class WebChatService:
             target=self._run_loop, name="webui-chat", daemon=True)
         self._thread.start()
         self._message_count = 0
+        self._inflight = 0          # process() turns not yet finished
+        asyncio.run_coroutine_threadsafe(self._announce_startup(), self._loop)
 
     def _run_loop(self):
         asyncio.set_event_loop(self._loop)
         self._loop.run_forever()
+
+    async def _announce_startup(self):
+        """The on_ready notices, for a Web UI process start.
+
+        The Discord client announces intakes a restart stranded and a
+        launch a hard kill left pending (client.on_ready); a Web UI
+        restart strands the same state, so web chat makes the same two
+        announcements, once per service, fail-soft exactly as there.
+        """
+        try:
+            from ..core import prepared_intake
+            from ..hermes import _config
+            await prepared_intake.announce_interrupted(
+                _config.state_dir() / "model-link-intakes", self.adapter)
+        except Exception:
+            logger.exception("could not announce interrupted intakes")
+        try:
+            await self.core.announce_pending_launch()
+        except Exception:
+            logger.exception("could not announce a pending launch")
 
     # -- operator side ------------------------------------------------------
 
@@ -134,8 +167,36 @@ class WebChatService:
             self._entries.append({"seq": self._seq, "kind": "operator",
                                   "content": str(text or "")})
         event = runtime.make_event(self.source, text, f"web-{count}")
-        asyncio.run_coroutine_threadsafe(self.core.process(event), self._loop)
+        with self._lock:
+            self._inflight += 1
+        future = asyncio.run_coroutine_threadsafe(self.core.process(event), self._loop)
+        future.add_done_callback(self._process_done)
         return True
+
+    def _process_done(self, future):
+        """A finished turn: failures are logged and posted, never silent.
+
+        The future used to be discarded, so a handler exception
+        produced no reply and no log — the operator's message simply
+        vanished. The failure entry names no internals; the exception
+        itself goes to the log.
+        """
+        with self._lock:
+            self._inflight -= 1
+        if future.cancelled():
+            return
+        exc = future.exception()
+        if exc is not None:
+            logger.exception("web chat message handling failed", exc_info=exc)
+            self.adapter._outbox.append({
+                "kind": "message",
+                "content": "Something went wrong with that message, so it "
+                           "wasn't acted on. The error was logged."})
+
+    def busy(self):
+        """True while a submitted message's turn is still running."""
+        with self._lock:
+            return self._inflight > 0
 
     def answer(self, clarify_id, index):
         """Press a button on the open prompt, as the signed-in operator."""
