@@ -546,13 +546,35 @@ async def guided_dispatch(event, gateway, **kwargs):
                 "or `/print-handy debug status`.")
 
     try:
-        token_env = str(_config.cfg()['discord'].get('token_env') or 'DISCORD_BOT_TOKEN')
+        cfg_now = _config.cfg()
     except Exception:
-        token_env = 'DISCORD_BOT_TOKEN'
+        cfg_now = None
+    try:
+        existing = store.get(key)
+    except Exception:
+        existing = None
+    # The token step names the variable of the platform being set up,
+    # which is not always the one this chat is running on.
+    token_env = guided.setup_token_env(cfg_now, existing, _platform_value(source))
+    from print_handy.bot import webui_access
+    can_delete_secrets = webui_access.deletion_supported(getattr(adapter, '_host', None) or adapter)
+    # Was this message a Web UI password answer? Its session step says
+    # so; the message is deleted right after the reply is sent, exactly
+    # like a pasted login token.
+    secret_step = False
+    try:
+        if existing and existing.get('status') == 'in_progress':
+            flow = guided.steps(token_env)
+            if 0 <= existing.get('step', 0) < len(flow):
+                secret_step = flow[existing['step']].key in ('webui_password', 'webui_confirm')
+    except Exception:
+        secret_step = False
     try:
         reply = await asyncio.to_thread(guided.handle_text, key, text, store=store,
                                         token_env=token_env, report=report, bundle=bundle,
-                                        debug=debug, setup_only=setup_only)
+                                        debug=debug, setup_only=setup_only,
+                                        access_data=cfg_now,
+                                        can_delete_secrets=can_delete_secrets)
     except Exception:
         logger.exception('guided setup/debugging failed')
         reply = 'That guided step failed and nothing was changed. Try `/print-handy status`, or `/print-handy cancel` to pause setup.'
@@ -560,6 +582,8 @@ async def guided_dispatch(event, gateway, **kwargs):
         return None
     metadata = {'thread_id': source.thread_id} if source.thread_id else None
     await adapter.send(chat_id=source.chat_id, metadata=metadata, content=reply)
+    if secret_step:
+        await _delete_secret_message(event, source, adapter, label='Password')
     return {'action': 'skip', 'reason': 'guided setup/debugging handled'}
 
 
@@ -4647,8 +4671,8 @@ async def bed_down_dispatch(event, gateway, **kwargs):
     return {'action': 'skip', 'reason': 'deterministic bed down handled'}
 
 
-async def _delete_secret_message(event, source, adapter):
-    """Best effort: delete the operator's message that carried a pasted login token.
+async def _delete_secret_message(event, source, adapter, label='Token'):
+    """Best effort: delete the operator's message that carried a pasted secret.
 
     Prefers the adapter's own delete_message; otherwise falls back to its
     discord.py client. Any failure is
@@ -4668,8 +4692,8 @@ async def _delete_secret_message(event, source, adapter):
             deleted = True
     except Exception:
         deleted = False
-    note = ('Token saved. I deleted your message.' if deleted else
-            "Token saved. I couldn't delete your message, so please delete it yourself.")
+    note = (f'{label} saved. I deleted your message.' if deleted else
+            f"{label} saved. I couldn't delete your message, so please delete it yourself.")
     if adapter is not None:
         try:
             await adapter.send(chat_id=source.chat_id, content=note,

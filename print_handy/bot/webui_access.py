@@ -110,7 +110,12 @@ def deletion_supported(adapter):
 
 def pre_capture_notice(adapter):
     """Copy the flow shows *before* accepting a password value."""
-    if deletion_supported(adapter):
+    return capture_notice(deletion_supported(adapter))
+
+
+def capture_notice(can_delete):
+    """:func:`pre_capture_notice` for a caller that only knows the answer."""
+    if can_delete:
         return ("Send the password as your next message. It is deleted from "
                 "chat as soon as it is captured, it is never saved in the "
                 "setup checklist, and it is never repeated back here.")
@@ -196,7 +201,7 @@ def clear_claim(data, confirmed, environ=None):
 
 
 __all__ = [
-    "ACTIONS", "AccessResult", "clear_claim", "deletion_supported",
+    "ACTIONS", "AccessResult", "capture_notice", "clear_claim", "deletion_supported",
     "env_token_present", "leave_open", "pre_capture_notice", "saved_claim",
     "set_password",
 ]

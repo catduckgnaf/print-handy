@@ -32,7 +32,8 @@ def say(store_obj, text, key="k", **kwargs):
 def finish_steps(store_obj, key="k", **kwargs):
     """Drive a setup session to the review step with valid answers."""
     say(store_obj, "/print-handy setup", key=key, **kwargs)
-    for answer in ("flashforge.ad5x", CHAT, USER, "skip", "http://spoolman.test:7912", "stored"):
+    for answer in ("discord", "flashforge.ad5x", CHAT, USER, "skip", "http://spoolman.test:7912",
+                   "skip", "skip", "stored", "skip"):
         say(store_obj, answer, key=key, **kwargs)
 
 
@@ -77,46 +78,49 @@ def test_a_failed_setup_apply_logs_the_reason_it_names(tmp_path, caplog):
 def test_setup_walks_small_steps_and_persists_a_checklist(tmp_path):
     st = store(tmp_path)
     first = say(st, "/print-handy setup", now=1000)
-    assert "Setup step 1 of 6: Printer model" in first and "☐ Print channel" in first
-    bad = say(st, "not-a-model", now=1001)
-    assert "does not work" in bad and "Setup step 1 of 6" in bad
-    nxt = say(st, "flashforge.ad5x", now=1002)
-    assert "Saved: Printer model" in nxt and "Setup step 2 of 6: Print channel" in nxt
+    assert "Setup step 1 of 10: Chat platform" in first and "☐ Print channel" in first
+    bad = say(st, "smoke-signals", now=1001)
+    assert "does not work" in bad and "Setup step 1 of 10" in bad
+    nxt = say(st, "discord", now=1002)
+    assert "Saved: Chat platform" in nxt and "Setup step 2 of 10: Printer model" in nxt
+    nxt = say(st, "flashforge.ad5x", now=1003)
+    assert "Saved: Printer model" in nxt and "Setup step 3 of 10: Print channel" in nxt
     session = st.get("k")
-    assert session["answers"] == {"model": "flashforge.ad5x"} and session["step"] == 1
+    assert session["answers"] == {"platform": "discord", "model": "flashforge.ad5x"} and session["step"] == 2
     assert (tmp_path / "guided-setup.json").stat().st_mode & 0o777 == 0o600
 
 
 def test_setup_rejects_invalid_ids_and_urls_without_advancing(tmp_path):
     st = store(tmp_path)
     say(st, "/print-handy setup")
+    say(st, "discord")
     say(st, "flashforge.ad5x")
     out = say(st, "the-print-channel")
-    assert "does not work" in out and st.get("k")["step"] == 1
+    assert "does not work" in out and st.get("k")["step"] == 2
     say(st, CHAT)
     out = say(st, "alice, bob")
-    assert "does not work" in out and st.get("k")["step"] == 2
+    assert "does not work" in out and st.get("k")["step"] == 3
     say(st, USER)
     out = say(st, "printer.local:7125")  # no scheme
-    assert "does not work" in out and st.get("k")["step"] == 3
+    assert "does not work" in out and st.get("k")["step"] == 5
     out = say(st, "http://printer.local:7125")
-    assert "Setup step 5 of 6" in out
+    assert "Setup step 6 of 10" in out
     out = say(st, "spoolman.local:7912")  # no scheme
-    assert "does not work" in out and st.get("k")["step"] == 4
+    assert "does not work" in out and st.get("k")["step"] == 6
     out = say(st, "http://spoolman.local:7912")
-    assert "Setup step 6 of 6" in out
+    assert "Setup step 7 of 10" in out
 
 
 def test_printer_url_follows_the_model(tmp_path):
     st = store(tmp_path)
     say(st, "/print-handy setup")
     prompt = None
-    for answer in ("sovol_marlin.sv04", CHAT, USER):
+    for answer in ("discord", "sovol_marlin.sv04", CHAT, USER):
         prompt = say(st, answer)
     assert "OctoPrint" in prompt and "octopi.local" in prompt
     out = say(st, "http://octopi.local")
-    assert "Setup step 5 of 6" in out
-    for answer in ("skip", "stored"):
+    assert "Setup step 6 of 10" in out
+    for answer in ("skip", "skip", "skip", "stored", "skip"):
         say(st, answer)
     target = tmp_path / "local.yaml"
     say(st, "apply", apply_config=lambda answers: guided._apply_answers(answers, target))
@@ -127,14 +131,14 @@ def test_printer_url_follows_the_model(tmp_path):
     st = store(tmp_path)
     say(st, "/print-handy setup restart")
     prompt = None
-    for answer in ("bambulab.a1", CHAT, USER):
+    for answer in ("discord", "bambulab.a1", CHAT, USER):
         prompt = say(st, answer)
     assert "hostname" in prompt
     out = say(st, "http://192.168.1.50")
     assert "does not work" in out and "hostname" in out
     out = say(st, "192.168.1.50")
-    assert "Setup step 5 of 6" in out
-    for answer in ("skip", "stored"):
+    assert "Setup step 6 of 10" in out
+    for answer in ("skip", "skip", "skip", "stored", "skip"):
         say(st, answer)
     target = tmp_path / "bambu.yaml"
     say(st, "apply", apply_config=lambda answers: guided._apply_answers(answers, target))
@@ -146,28 +150,30 @@ def test_printer_url_follows_the_model(tmp_path):
 def test_spoolman_step_is_offered_for_models_without_moonraker(tmp_path):
     st = store(tmp_path)
     say(st, "/print-handy setup")
-    for answer in ("bambulab.a1", CHAT, USER):
+    for answer in ("discord", "bambulab.a1", CHAT, USER):
         say(st, answer)
     out = say(st, "skip")  # hostname printers can skip the Printer URL
-    assert "Setup step 5 of 6: Spoolman URL" in out
+    assert "Setup step 6 of 10: Spoolman URL" in out
     out = say(st, "http://spoolman.test:7912")
-    assert "Setup step 6 of 6" in out
+    assert "Setup step 7 of 10" in out
     assert st.get("k")["answers"]["spoolman_url"] == "http://spoolman.test:7912"
 
 
 def test_token_step_never_collects_a_token(tmp_path):
     st = store(tmp_path)
     say(st, "/print-handy setup")
-    for answer in ("flashforge.ad5x", CHAT, USER, "skip", "skip"):
+    for answer in ("discord", "flashforge.ad5x", CHAT, USER, "skip", "skip", "skip", "skip"):
         say(st, answer)
     prompt = say(st, "/print-handy status")
     assert "Bot token" in prompt
     out = say(st, FAKE_TOKEN)
     assert "Never paste the token" in out or "not collected in chat" in out
-    assert st.get("k")["step"] == 5, "a pasted token must not advance the step"
+    assert st.get("k")["step"] == 9, "a pasted token must not advance the step"
     saved = (tmp_path / "guided-setup.json").read_text()
     assert FAKE_TOKEN not in saved and TOKEN not in saved
     out = say(st, "stored")
+    assert "Web UI login" in out and st.get("k")["status"] == "in_progress"
+    out = say(st, "skip")  # the Web UI login step: leave it as it is
     assert "ready to review" in out and st.get("k")["status"] == "awaiting_consent"
     assert "ready" not in json.loads(saved) or True  # answers file was rewritten since; checked above
 
@@ -186,6 +192,7 @@ def test_status_reports_the_running_version(tmp_path):
 def test_cancel_persists_and_a_new_store_resumes_after_restart(tmp_path):
     st = store(tmp_path)
     say(st, "/print-handy setup", now=1000)
+    say(st, "discord", now=1001)
     say(st, "flashforge.ad5x", now=1001)
     out = say(st, "/print-handy cancel", now=1002)
     assert "paused" in out and "☑ Printer model" in out
@@ -193,7 +200,7 @@ def test_cancel_persists_and_a_new_store_resumes_after_restart(tmp_path):
 
     restarted = store(tmp_path)  # a fresh store object over the same file: a bot restart
     out = say(restarted, "/print-handy setup", now=1004)
-    assert "resuming your saved checklist" in out and "Setup step 2 of 6" in out
+    assert "resuming your saved checklist" in out and "Setup step 3 of 10" in out
     status = say(restarted, "/print-handy status", now=1005)
     assert "in progress" in status and "☑ Printer model" in status
 
@@ -202,12 +209,12 @@ def test_timeout_does_not_consume_an_answer_but_keeps_the_checklist(tmp_path):
     st = store(tmp_path)
     say(st, "/print-handy setup", now=1000)
     late = 1000 + guided.SESSION_TIMEOUT_S + 1
-    out = say(st, "flashforge.ad5x", now=late)
+    out = say(st, "discord", now=late)
     assert "timed out" in out and st.get("k")["answers"] == {}
     out = say(st, "/print-handy setup", now=late + 1)
-    assert "timed out" in out and "Setup step 1 of 6" in out
-    out = say(st, "flashforge.ad5x", now=late + 2)
-    assert "Setup step 2 of 6" in out
+    assert "timed out" in out and "Setup step 1 of 10" in out
+    out = say(st, "discord", now=late + 2)
+    assert "Setup step 2 of 10" in out
 
 
 def test_manual_choice_writes_nothing_and_gives_precise_steps(tmp_path):
@@ -237,9 +244,10 @@ def test_apply_writes_only_after_explicit_consent(tmp_path):
 def test_setup_restart_discards_saved_answers(tmp_path):
     st = store(tmp_path)
     say(st, "/print-handy setup")
+    say(st, "discord")
     say(st, "flashforge.ad5x")
     out = say(st, "/print-handy setup restart")
-    assert "Setup step 1 of 6" in out and st.get("k")["answers"] == {}
+    assert "Setup step 1 of 10" in out and st.get("k")["answers"] == {}
 
 
 # ---------------------------------------------------------------------- diagnostics
@@ -347,13 +355,13 @@ def test_bot_setup_flow_and_debugging_over_messages(cfg, monkeypatch, tmp_path):
 
     out, sent = send("/print-handy setup")
     assert out == {"action": "skip", "reason": "guided setup/debugging handled"}
-    assert "Setup step 1 of 6" in sent[-1]
-    _, sent = send("flashforge.ad5x")
-    assert "Setup step 2 of 6" in sent[-1]
+    assert "Setup step 1 of 10" in sent[-1]
+    _, sent = send("discord")
+    assert "Setup step 2 of 10" in sent[-1]
     _, sent = send("/print-handy cancel")
     assert "paused" in sent[-1]
     _, sent = send("/print-handy setup")
-    assert "resuming" in sent[-1] and "Setup step 2 of 6" in sent[-1]
+    assert "resuming" in sent[-1] and "Setup step 2 of 10" in sent[-1]
     _, sent = send("/print-handy debugging")
     assert "Print Handy debugging" in sent[-1] and "read-only" in sent[-1]
     assert not (tmp_path / "local.yaml").exists(), "debugging must not write configuration"
