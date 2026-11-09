@@ -169,6 +169,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("agent", "api_key_env"): str, ("agent", "timeout_s"): int,
                  ("timelapse", "mode"): str, ("timelapse", "encoder"): str,
                  ("timelapse", "wrapped_enabled"): bool,
+                 ("timelapse", "data_enabled"): bool,
                  ("timelapse", "wrapped_ai_video"): bool,
                  ("timelapse", "wrapped_tts_engine"): str,
                  ("timelapse", "wrapped_music_file"): str,
@@ -1313,10 +1314,26 @@ def _validate_timelapse(data):
         raise SettingsError(f"[timelapse] mode must be one of {', '.join(TIMELAPSE_MODES)}, got {raw!r}")
     timelapse["mode"] = mode
     for key, default in (("vertical_short", False), ("vertical_short_overlay", True),
-                         ("wrapped_enabled", False), ("wrapped_ai_video", False)):
+                         ("wrapped_enabled", True), ("wrapped_ai_video", False)):
         value = timelapse.setdefault(key, default)
         if not isinstance(value, bool):
             raise SettingsError(f"[timelapse] {key} must be true or false, got {value!r}")
+    # The Data tab's own switch (settings restructure stage 5): while
+    # data_enabled is unset it follows wrapped_enabled, so an install
+    # that only ever set the one combined switch keeps its meaning; an
+    # explicit data_enabled pins the Data tab independently. The
+    # setdefault bakes the followed value into the loaded mapping,
+    # which is what the Web UI field shows; data_enabled_explicit
+    # records whether the operator actually set the key (the
+    # mode_explicit pattern), so a followed value is never mistaken
+    # for a pinned one: the Data gate keeps following wrapped_enabled
+    # while the flag is false, and a Web UI save that changes
+    # wrapped_enabled pins the shown data_enabled value explicitly.
+    if "data_enabled" in timelapse and not isinstance(timelapse["data_enabled"], bool):
+        raise SettingsError(
+            f"[timelapse] data_enabled must be true or false, got {timelapse['data_enabled']!r}")
+    timelapse["data_enabled_explicit"] = "data_enabled" in timelapse
+    timelapse.setdefault("data_enabled", timelapse["wrapped_enabled"])
     # Wrapped narration (#981 step 4): the TTS engine choice. "none" is
     # the default and keeps the video exactly as it was before narration
     # existed; "piper" is the local Piper binary under [paths]. There is

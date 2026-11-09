@@ -77,6 +77,8 @@ def test_docker_scalar_environment_parity_for_every_schema_key():
                 continue
             if (section, key) == ("timelapse", "mode_explicit"):
                 continue  # derived marker stamped by validation (P2-261), not an operator setting
+            if (section, key) == ("timelapse", "data_enabled_explicit"):
+                continue  # derived marker stamped by validation (stage 5), not an operator setting
             keys.append((section, key))
             if value is None:
                 continue  # tri-state unset (design.enabled, #388): parity is "stays unset"

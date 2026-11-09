@@ -166,6 +166,7 @@ GROUP_OF = {
     "timelapse.archive_dir": "camera",
     "timelapse.ssh_key": "camera",
     "timelapse.wrapped_enabled": "wrapped",
+    "timelapse.data_enabled": "wrapped",
     "timelapse.wrapped_ai_video": "wrapped",
     "timelapse.wrapped_tts_engine": "wrapped",
     "timelapse.wrapped_music_file": "wrapped",
@@ -621,17 +622,28 @@ CATALOG = (
            "Filesystem path of the SSH private key for the archive host; only the path "
            "is stored here, never the key contents.",
            validator="settings type check"),
-    _field("timelapse", "wrapped_enabled", "Data tab and Wrapped", "toggle",
-           "The Data tab and Print Handy Wrapped (#956): read-only statistics over "
-           "the print records, plus the once-a-year Wrapped recap. Off by default; "
-           "while off, the Data and Wrapped pages are not in the navigation and "
-           "their routes refuse by name.",
+    _field("timelapse", "wrapped_enabled", "Wrapped", "toggle",
+           "Print Handy Wrapped (#956): the once-a-year recap over the "
+           "print records. On by default; while off, the Wrapped page "
+           "is not in the navigation and its routes refuse by name. "
+           "The Data tab has its own switch below.",
+           validator="settings timelapse check"),
+    _field("timelapse", "data_enabled", "Data tab", "toggle",
+           "The Data tab (#956): read-only statistics over the print "
+           "records. On by default; while the key is unset it follows "
+           "the Wrapped switch above, and setting it pins the Data "
+           "tab on or off independently. Saving a change to the "
+           "Wrapped switch on this page pins the Data value shown "
+           "here, so the Data tab keeps the state you saw instead of "
+           "flipping with Wrapped on the restart. While off, the "
+           "Data page is not in the navigation and its routes refuse "
+           "by name.",
            validator="settings timelapse check"),
     _field("timelapse", "wrapped_ai_video", "Wrapped video", "toggle",
            "The on-demand Wrapped video compile (#956): a local video of the "
            "year's slides, the local commentary and the year's timelapses. No "
            "AI model is used (the setting keeps its original name). Off by "
-           "default, and it needs the Data tab and Wrapped switch above on. "
+           "default, and it needs the Wrapped switch above on. "
            "The video is generated only when the operator asks, and never sent anywhere.",
            validator="settings timelapse check"),
     _field("timelapse", "wrapped_tts_engine", "Wrapped narration", "picker",
