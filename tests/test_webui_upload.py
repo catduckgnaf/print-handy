@@ -159,6 +159,32 @@ class LinkTests(unittest.TestCase):
         self.assertTrue(upload.revoke_link(self.data, rows[0][0]))
         self.assertFalse(upload.link_valid(self.data, token))
 
+    def test_save_upload_for_link_checks_and_counts_in_one_step(self):
+        token = upload.create_link(self.data)
+        saved, reason = upload.save_upload_for_link(
+            self.data, token, "linked.stl", b"solid l\n")
+        self.assertIsNone(reason)
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved.read_bytes(), b"solid l\n")
+        # The use is counted by the same call that saved the file.
+        self.assertEqual(upload.list_links(self.data)[0][2], 1)
+        # A file the save itself refuses is not counted as a use.
+        saved, reason = upload.save_upload_for_link(
+            self.data, token, "notes.txt", b"hi")
+        self.assertIsNone(saved)
+        self.assertTrue(reason)
+        self.assertEqual(upload.list_links(self.data)[0][2], 1)
+        # Once the link is revoked, the atomic save refuses with
+        # (None, None) and nothing more lands in the inbox.
+        digest = upload.list_links(self.data)[0][0]
+        self.assertTrue(upload.revoke_link(self.data, digest))
+        saved, reason = upload.save_upload_for_link(
+            self.data, token, "late.stl", b"solid l\n")
+        self.assertIsNone(saved)
+        self.assertIsNone(reason)
+        self.assertEqual([row[0] for row in upload.list_inbox(self.data)],
+                         ["linked.stl"])
+
     def test_pages_render(self):
         html = upload.render_upload_page(self.data, form_token="tok")
         self.assertIn("Upload to inbox", html)
@@ -414,6 +440,35 @@ class UploadRouteTests(unittest.TestCase):
 
             body, content_type = multipart_body({}, "slow.stl", b"solid z\n")
             with mock.patch.object(upload, "parse_multipart", revoking_parse):
+                code, _, _ = self.request(
+                    port, "POST", f"/u/{token}", body,
+                    {"Content-Type": content_type})
+            self.assertEqual(code, 404)
+            self.assertEqual(upload.list_inbox(data), [])
+
+    def test_link_revoked_after_the_final_check_saves_nothing(self):
+        import tempfile
+        real_valid = upload.link_valid
+
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd, port = self.start(tmp)
+            data = httpd.settings_data
+            token = upload.create_link(data)
+            digest = upload.list_links(data)[0][0]
+            calls = []
+
+            def revoking_valid(data_arg, token_arg):
+                result = real_valid(data_arg, token_arg)
+                calls.append(result)
+                if len(calls) == 2 and result:
+                    # The handler has just made its final (post-read)
+                    # validity decision; the revocation lands in the
+                    # window between that decision and the file write.
+                    upload.revoke_link(data, digest)
+                return result
+
+            body, content_type = multipart_body({}, "racy.stl", b"solid w\n")
+            with mock.patch.object(upload, "link_valid", revoking_valid):
                 code, _, _ = self.request(
                     port, "POST", f"/u/{token}", body,
                     {"Content-Type": content_type})
