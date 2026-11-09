@@ -42,7 +42,8 @@ class WebUISettingsTests(unittest.TestCase):
                                          "access_token_env": "WEBUI_ACCESS_TOKEN",
                                          "require_auth": True,
                                          "controls_enabled": False,
-                                         "cookie_secure": False})
+                                         "cookie_secure": False,
+                                         "chat_llm_enabled": True})
 
     def test_section_values_and_env_override_load(self):
         with tempfile.TemporaryDirectory() as tmp:
