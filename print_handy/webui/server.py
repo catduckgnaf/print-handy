@@ -139,6 +139,7 @@ from .. import settings
 from ..bot import health as bot_health
 from . import access as access_module
 from . import camera as camera_module
+from . import chat as chat_module
 from . import config as config_api
 from . import controls as controls_module
 from . import data as data_module
@@ -189,6 +190,13 @@ def _remember_lock(server):
     """The server's remembered-session lock, or a no-op context when the
     server object predates it (the mutation sites stay safe either way)."""
     lock = getattr(server, "remembered_lock", None)
+    return lock if lock is not None else contextlib.nullcontext()
+
+
+def _chat_lock(server):
+    """The server's chat-service build lock, or a no-op context when the
+    server object predates it (same rule as _remember_lock)."""
+    lock = getattr(server, "chat_service_lock", None)
     return lock if lock is not None else contextlib.nullcontext()
 
 
@@ -807,6 +815,8 @@ class _Handler(BaseHTTPRequestHandler):
             elif path == "/config":
                 self._send(200, self._config_html(self._field_values(), theme=self._theme()),
                            "text/html; charset=utf-8")
+            elif path == "/chat":
+                self._chat_page()
             elif path == "/upload":
                 self._send(200, upload_module.render_upload_page(
                     self.server.settings_data, form_token=self.server.form_token,
@@ -1586,6 +1596,10 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             if path == "/login":
                 self._login_submit()
+            elif path == "/chat":
+                self._chat_post()
+            elif path == "/chat/choice":
+                self._chat_choice_post()
             elif path == "/upload":
                 self._upload_post()
             elif path == "/logout":
@@ -1617,6 +1631,112 @@ class _Handler(BaseHTTPRequestHandler):
                 self._read_only()
         except Exception as exc:  # a broken write is a 500, never a dropped connection
             self._json(500, {"ok": False, "reason": f"{type(exc).__name__}: {exc}"})
+
+    # -- web chat -------------------------------------------------------------
+
+    def _chat_service(self):
+        # Built lazily (the service spawns a BotCore and its own
+        # event-loop thread, so a server that never serves /chat must
+        # not pay for it), but the build is serialized: this server is
+        # threaded, and two concurrent first requests must not each
+        # build one — the loser's service would be orphaned when its
+        # assignment is overwritten, its replies rendered nowhere.
+        service = getattr(self.server, "chat_service", None)
+        if service is not None:
+            return service
+        with _chat_lock(self.server):
+            service = getattr(self.server, "chat_service", None)
+            if service is None:
+                from ..bot.web import WebChatService
+                service = WebChatService(self.server.settings_data)
+                self.server.chat_service = service
+            return service
+
+    def _web_chat_enabled(self):
+        """[webui] chat_enabled, the chat page's own switch (PR #1106).
+
+        Read from the server's settings mapping on every request, so
+        the page a request gets always matches the saved configuration.
+        """
+        from ..bot.web import chat_enabled
+        return chat_enabled(self.server.settings_data)
+
+    def _chat_page(self, notice=None, error=None):
+        if not self._web_chat_enabled():
+            # Off is a page, not an error: it says the state and the way
+            # back on, and the chat service is never built behind it.
+            self._send(200, chat_module.render_chat_disabled_page(
+                theme=self._theme(),
+                nav=data_module.nav_for(self.server.settings_data)),
+                "text/html; charset=utf-8")
+            return
+        ft = self.server.form_token
+        self._send(200, chat_module.render_chat_page(
+            self._chat_service(), form_token=ft, notice=notice, error=error,
+            theme=self._theme(),
+            nav=data_module.nav_for(self.server.settings_data)),
+            "text/html; charset=utf-8")
+
+    def _chat_form(self):
+        """The parsed, authorized chat form, or None (refusal sent)."""
+        form, error = self._read_form()
+        if error:
+            self._html_refusal(error[0], error[1], "/chat")
+            return None
+        if not self._post_authorized(form):
+            self._html_refusal(403, STALE_FORM_MESSAGE, "/chat")
+            return None
+        return form
+
+    def _chat_post(self):
+        form = self._chat_form()
+        if form is None:
+            return
+        if not self._web_chat_enabled():
+            self._chat_page()  # the disabled page, with the explanation
+            return
+        text = (form.get("text") or [""])[0].strip()
+        if not text:
+            self._redirect("/chat")
+            return
+        if not self._chat_service().submit(text):
+            self._chat_page(error="Too many messages in the last minute; "
+                                  "give the bot a moment to catch up.")
+            return
+        self._redirect("/chat")
+
+    def _chat_choice_post(self):
+        form = self._chat_form()
+        if form is None:
+            return
+        if not self._web_chat_enabled():
+            self._chat_page()  # the disabled page, with the explanation
+            return
+        clarify_id = (form.get("clarify_id") or [""])[0]
+        try:
+            index = int((form.get("index") or ["-1"])[0])
+        except ValueError:
+            index = -1
+        if clarify_id and index >= 0:
+            # A press can fail two ways, and neither may look like
+            # success: the answer wait can time out (which used to
+            # surface as a raw 500 from the outer POST guard), and the
+            # press can resolve nothing — the question already closed,
+            # or the press was refused — which used to redirect in
+            # silence. Both come back as the page with an explanation.
+            try:
+                label = self._chat_service().answer(clarify_id, index)
+            except Exception:
+                self._chat_page(error="That answer didn't reach the bot "
+                                      "in time. The question is still "
+                                      "open — try again.")
+                return
+            if label is None:
+                self._chat_page(error="That answer wasn't accepted — "
+                                      "the question may have closed, or "
+                                      "the answer belongs to another step.")
+                return
+        self._redirect("/chat")
 
     # -- uploads ------------------------------------------------------------
 
@@ -1916,6 +2036,10 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     server.access = access_module.resolve(data, bind_host, environ)
     server.bind_host = bind_host
     server.setup_lock = threading.Lock()
+    # Web chat's service, built lazily under this lock on the first
+    # /chat request (see _Handler._chat_service).
+    server.chat_service = None
+    server.chat_service_lock = threading.Lock()
     # DNS-rebinding guard (see _Handler._host_refused): only an open
     # loopback bind relies on the form token alone, so only it checks Host.
     server.allowed_hosts = ({"localhost", "127.0.0.1", "::1", str(bind_host).lower()}

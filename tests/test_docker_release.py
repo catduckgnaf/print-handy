@@ -722,6 +722,27 @@ class WebuiContainerTests(unittest.TestCase):
         text = (ROOT / "docker-compose.yml").read_text()
         self.assertIn('#   - "8088:${PRINT_HANDY__WEBUI__PORT:-8088}"', text)
 
+    def test_compose_does_not_hard_default_the_web_chat_toggles(self):
+        """P2-88: no Compose environment entry for the web chat toggles.
+
+        A ${...:-true} entry would be applied after the mounted config
+        and silently undo a chat_enabled / chat_llm_enabled the operator
+        set false in their config file (the compose file's own P2-88
+        comment, on the visual-watch toggles, and the #1098
+        starter-mention omission are the same rule). Unset, the shipped
+        config defaults stand; set in .env, the env_file carries the
+        value into the container — the variables stay settable, just
+        never hard-defaulted here.
+        """
+        compose_env = COMPOSE["services"]["combined"]["environment"]
+        self.assertNotIn("PRINT_HANDY__WEBUI__CHAT_ENABLED", compose_env)
+        self.assertNotIn("PRINT_HANDY__WEBUI__CHAT_LLM_ENABLED", compose_env)
+        # The reason is written where the next editor will look for the
+        # missing entries: the Web UI block's own comment.
+        text = (ROOT / "docker-compose.yml").read_text()
+        self.assertIn("P2-88", text)
+        self.assertIn("PRINT_HANDY__WEBUI__CHAT_ENABLED", text)
+
     def test_unraid_template_carries_no_webui_settings(self):
         """The slimmed template's only Web UI surface is the 8088 port
         mapping (pinned in UnraidTemplateTests). The enablement #440 put

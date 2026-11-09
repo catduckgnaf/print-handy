@@ -175,6 +175,8 @@ GROUP_OF = {
     "webui.enabled": "webui",
     "webui.host": "webui",
     "webui.port": "webui",
+    "webui.chat_llm_enabled": "webui",
+    "webui.chat_enabled": "webui",
     "live_stream.enabled": "camera",
     "live_stream.voice_channel_id": "camera",
     "live_stream.auto_start_on_print": "camera",
@@ -667,6 +669,22 @@ CATALOG = (
     _field("webui", "port", "Web UI port", "number",
            "Port the Web UI binds to when enabled; 0 means no port has been chosen yet.",
            validator="settings webui check", minimum=0, maximum=65535),
+    _field("webui", "chat_llm_enabled", "Web chat AI replies", "toggle",
+           "On by default: text in the Web UI chat page that no command or handler "
+           "takes may be answered by the configured [llm] or [agent] lane, like "
+           "Discord chat. Off: web chat is a pure bot — commands, design and the "
+           "print flow still work, but no model call is made for web chat text "
+           "and unmatched text gets the short not-understood reply. If the Web UI "
+           "is left open on the LAN with no password or token, anyone who can "
+           "reach it can spend the model endpoint's budget through web chat.",
+           validator="settings webui check"),
+    _field("webui", "chat_enabled", "Web chat", "toggle",
+           "On by default: the Web UI chat page — the bot in the browser. "
+           "Off: the chat page shows that web chat is turned off, and no web "
+           "chat message or button press is processed. This is the page's "
+           "own switch; Web chat AI replies above only governs the model "
+           "lane.",
+           validator="settings webui check"),
     # Live camera in Discord (#311): the [live_stream] section. No secret
     # is a field here — the Discord client secret and the Activity
     # session secret live only in the environment, and the tunnel token
