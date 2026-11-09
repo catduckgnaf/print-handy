@@ -90,10 +90,8 @@ def _run(text, adapter=None, *, confirm_answer="Make this my empty plate"):
 
 def monkeypatch_cm(cm):
     # _confirm resolves its registry through prompts.gateway() at call
-    # time. Only this process (activate() never ran) reaches the module
-    # itself, and full-suite runs may have imported a tools package whose
-    # clarify_gateway shadows it — so point gateway() at the fake for the
-    # duration of the dispatch instead of relying on module identity.
+    # time, so point gateway() at the fake for the duration of the
+    # dispatch instead of relying on module identity.
     import print_handy.core.prompts as prompts_pkg
     prompts_pkg.gateway = lambda: cm
 

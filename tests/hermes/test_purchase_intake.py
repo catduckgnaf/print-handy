@@ -345,7 +345,7 @@ def _dispatch(text, answers, monkeypatch, fake=None, media_urls=None, route=True
     adapter = FakeAdapter()
     fake = fake or FakeSpoolman()
     queue = list(answers)
-    from tools import clarify_gateway as cm
+    from print_handy.core import prompts as cm
 
     def wait(cid, timeout=None):
         return queue.pop(0) if queue else None
