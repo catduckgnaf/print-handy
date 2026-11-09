@@ -385,6 +385,28 @@ class ResultPageWarningTests(unittest.TestCase):
         self.assertIn("until it is removed", body)
         self.assertNotIn("hunter2", body)  # the secret is never echoed
 
+    def test_result_page_names_a_violation_a_noop_save_leaves_in_place(self):
+        # Review of #1103 (head b0d2d1a6): a save of the values the file
+        # already holds writes nothing; its result page must still name
+        # a tolerated violation the file still carries.
+        with tempfile.TemporaryDirectory() as tmp:
+            local = Path(tmp) / "local.yaml"
+            local.write_text("notify:\n  mqtt_password: hunter2\n")
+            config_api._last_write_warnings = []
+            changed = config_api.write_changes(
+                {"vision.roast_enabled": False}, config_path=local, environ={})
+            self.assertEqual(changed, [("vision", "roast_enabled")])
+            changed = config_api.write_changes(
+                {"vision.roast_enabled": False}, config_path=local, environ={})
+            self.assertEqual(changed, [])
+            self.assertEqual(config_api.last_write_warnings(),
+                             ["[notify] mqtt_password"])
+            body = pages_module.render_result_page(changed)
+        self.assertIn("Nothing changed", body)
+        self.assertIn("[notify] mqtt_password", body)
+        self.assertIn("next restart will fail", body)
+        self.assertNotIn("hunter2", body)
+
     def test_result_page_without_tolerated_keys_has_no_restart_failure_warning(self):
         body = pages_module.render_result_page(
             [("vision", "roast_enabled")], warnings=[])

@@ -211,7 +211,8 @@ _last_write_warnings = []
 
 def last_write_warnings():
     """The pre-existing closed-table violations the most recent
-    successful write tolerated, as ``"[section] key"`` names.
+    successful save left in the settings file, as ``"[section] key"``
+    names.
 
     A tolerated violation is a key the settings loader refuses — a
     credential-shaped unknown key, a non-optional [notify] key, the
@@ -219,7 +220,10 @@ def last_write_warnings():
     file (or the operator's own file) before the save and that the save
     did not touch. The write left it in the file, byte for byte; the
     names are also noted for this process's
-    ``settings.unknown_settings_warning()``.
+    ``settings.unknown_settings_warning()``. A save that changes
+    nothing writes nothing, but still validates the file it leaves in
+    place, so after such a save the names are the violations that file
+    still carries.
     Names only, never values."""
     return list(_last_write_warnings)
 
@@ -243,13 +247,29 @@ def _note_tolerated(target, tolerated):
             "will not load until it is removed by hand")
 
 
-def _clear_write_warnings():
-    """Forget the previous write's tolerated violations: a successful
-    save that writes nothing (the file already held the submitted
-    values) tolerated nothing, so last_write_warnings() reports that
-    save's empty set instead of an earlier save's names."""
-    global _last_write_warnings
-    _last_write_warnings = []
+def _note_noop_write(target, *, home, environ):
+    """Record the warnings for a successful save that writes nothing.
+
+    The submitted values already match the file, so no write lands —
+    but the save still answers for the file it leaves in place: that
+    file goes through the same validation a real save runs, so a
+    closed-table violation it still carries is recorded by
+    last_write_warnings() exactly as a tolerated write records it,
+    instead of the warning being cleared while the next restart still
+    refuses the file. A file that no longer carries a violation
+    tolerates nothing, and the warnings clear. A file that fails
+    validation for a reason tolerance does not cover (a wrong type, an
+    environment-sourced refusal) also records no tolerated names: the
+    save changed nothing, so it succeeds as it always has, and those
+    failures are a real save's or the next startup's to surface."""
+    current = (settings._apply_key_aliases(settings._read(target))
+               if target.is_file() else {})
+    try:
+        _text, tolerated = _validate_candidate(current, target,
+                                                home=home, environ=environ)
+    except WebUIConfigError:
+        tolerated = []
+    _note_tolerated(target, tolerated)
 
 
 def _section_violation_keys(section, values):
@@ -639,7 +659,8 @@ def write_printer_name(printer_id, name, *, config_path=None, home=None,
     prepared = _prepare_printer_name(printer_id, name, config_path=config_path,
                                      home=home, environ=environ)
     if prepared is None:
-        _clear_write_warnings()
+        target = Path(config_path) if config_path is not None else settings_file_path(environ)
+        _note_noop_write(target, home=home, environ=environ)
         return []
     target, text, tolerated = prepared
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -697,7 +718,7 @@ def write_changes(changes, *, config_path=None, home=None, environ=None, timesta
             changed.append((field.section, field.key))
         section[field.key] = value
     if not changed:
-        _clear_write_warnings()
+        _note_noop_write(target, home=home, environ=environ)
         return []
     for field, value in items:
         check = _CONTENT_CHECKS.get(field.id)
