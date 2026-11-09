@@ -362,7 +362,10 @@ class DeploymentContractTests(unittest.TestCase):
     """Loopback-only, passthrough opt-in, and healthcheck coverage."""
 
     def test_no_go2rtc_port_is_published_anywhere(self):
-        self.assertNotIn("ports", COMPOSE["services"]["combined"])
+        # The one published port is the Web UI's (published by default for
+        # first boot); neither go2rtc port (1984 API, 8554 RTSP) may appear.
+        self.assertEqual(COMPOSE["services"]["combined"].get("ports"),
+                         ["8088:${PRINT_HANDY__WEBUI__PORT:-8088}"])
         for text in (COMPOSE_TEXT, UNRAID_TEXT):
             self.assertNotIn("1984", text)
             self.assertNotIn("8554", text)
