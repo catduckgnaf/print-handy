@@ -926,6 +926,47 @@ class CameraWatchVisibilityTests(unittest.TestCase):
         self.assertIs(loaded["visual_watch"]["enabled"], False)
         self.assertEqual(loaded["visual_watch"]["sensitivity"], 1)
 
+    def test_compose_does_not_hard_default_the_starter_mention(self):
+        """#1095 review: Compose must not inject the starter-mention default.
+
+        The ${...:-true} entry for the renamed setting was applied after
+        the .env env_file, so an existing install whose .env carries the
+        pre-#1095 spelling set to false got the new variable forced to
+        true in the container and the loader's alias never saw the
+        opt-out — the same failure shape as P2-88 above. Leaving the
+        setting out of environment: entirely keeps unspecified overrides
+        absent (the shipped default, true, stands), and an operator who
+        sets either spelling in .env still overrides via the env_file.
+        """
+        compose_env = COMPOSE["services"]["combined"]["environment"]
+        self.assertNotIn("PRINT_HANDY__DISCORD__MENTION_STARTER", compose_env)
+        self.assertNotIn("PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE", compose_env)
+        # The env_file state an existing install produces: only the old
+        # spelling, set false. The alias folds it onto the renamed key.
+        loaded = settings.load(local=ROOT / "config" / "docker.yaml", environ={
+            "PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE": "false"})
+        self.assertIs(loaded["discord"]["mention_starter"], False)
+        # Neither spelling set: the documented default stands.
+        loaded = settings.load(local=ROOT / "config" / "docker.yaml", environ={})
+        self.assertIs(loaded["discord"]["mention_starter"], True)
+        # Both spellings set: the current name wins, in either direction.
+        loaded = settings.load(local=ROOT / "config" / "docker.yaml", environ={
+            "PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE": "false",
+            "PRINT_HANDY__DISCORD__MENTION_STARTER": "true"})
+        self.assertIs(loaded["discord"]["mention_starter"], True)
+        loaded = settings.load(local=ROOT / "config" / "docker.yaml", environ={
+            "PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE": "true",
+            "PRINT_HANDY__DISCORD__MENTION_STARTER": "false"})
+        self.assertIs(loaded["discord"]["mention_starter"], False)
+        # The in-repo Unraid template no longer injects the variable at
+        # all: #1108 slimmed it to the CA set plus Spoolman, so neither
+        # spelling is forced there either — an install's value reaches
+        # the loader through its .env / container env, as above.
+        variables = {c.get("Target"): c for c in UNRAID.findall("Config")
+                     if c.get("Type") == "Variable"}
+        self.assertNotIn("PRINT_HANDY__DISCORD__MENTION_STARTER", variables)
+        self.assertNotIn("PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE", variables)
+
     def test_watchdog_is_advertised_where_users_look(self):
         readme = (ROOT / "README.md").read_text()
         self.assertIn("Camera watchdog", readme)

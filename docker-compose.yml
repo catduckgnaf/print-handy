@@ -77,9 +77,14 @@ services:
       # Discord chat LLM (#466): true by default; false runs Discord as a
       # pure bot while the LLM below stays configured for /print-design.
       PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED: ${PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED:-true}
-      # Mention the starter when a print ends: true by default; the terminal
-      # post @mentions only the user who started that print.
-      PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE: ${PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE:-true}
+      # Mention the starter when a print needs them (PRINT_HANDY__DISCORD__MENTION_STARTER,
+      # true by default) is deliberately NOT listed here: a ${...:-true}
+      # entry would be applied after the .env env_file and silently undo
+      # an opt-out an existing install recorded there under the earlier
+      # spelling (ending __MENTION_STARTER_ON_COMPLETE), which the loader
+      # still honors as an alias for the renamed setting. Unset, the
+      # shipped default (true) stands; set either spelling in .env to
+      # override, via the env_file above (the P2-88 watchdog rule).
       PRINT_HANDY__LLM__CHAT_URL: ${PRINT_HANDY__LLM__CHAT_URL:-}
       PRINT_HANDY__LLM__MODEL: ${PRINT_HANDY__LLM__MODEL:-}
       # AI design (#388) has no ENABLED line here on purpose: unset is AUTO
