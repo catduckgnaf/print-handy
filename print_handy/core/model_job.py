@@ -5874,22 +5874,6 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
                            'Nothing sliced', kind='recipe')
     if src.suffix.lower() == ".3mf":
         with zipfile.ZipFile(src) as archive:
-            # Thumbnail-less multi-plate archives are rejected before inventory
-            # parses object/component references, preserving the safety contract.
-            has_plate_metadata = False
-            if "Metadata/model_settings.config" in archive.namelist():
-                try:
-                    plate_settings = ET.fromstring(archive.read("Metadata/model_settings.config"))
-                    plate_ids = [metadata.get("value")
-                                 for plate in plate_settings.iter("plate")
-                                 for metadata in plate.iter("metadata")
-                                 if metadata.get("key") == "plater_id"]
-                    has_plate_metadata = len(set(plate_ids)) > 1
-                except ET.ParseError:
-                    pass
-            if has_plate_metadata and not any(re.fullmatch(r"Metadata/plate_\\d+\\.png", name)
-                                               for name in archive.namelist()):
-                raise RuntimeError("multi-plate 3MF source has no plate thumbnails; no slicing attempted")
             actual_plates = {int(match.group(1)) for name in archive.namelist()
                              if (match := re.fullmatch(r"Metadata/plate_(\d+)\.(?:png|gcode)", name))}
             has_slicer_plate_metadata = False
@@ -5909,14 +5893,26 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
                                 actual_plates.add(int(plate_id))
                 except (ET.ParseError, ValueError, TypeError) as exc:
                     raise RuntimeError(f"unable to inspect 3MF plate assignments: {exc}") from exc
-        # Explicit slicer plate metadata establishes independent source plates;
-        # a source audit count is authoritative when metadata was stripped.
-        multi_plate = ((has_slicer_plate_metadata and len(actual_plates) > 1)
-                       or int(ad.get("plates", 0) or 0) > 1)
+        multi_plate = len(actual_plates) > 1 or int(ad.get("plates", 0) or 0) > 1
+
     from .source_colors import inventory, prompts, require_single_color, validate_decisions
     try:
         manifest = inventory(src)
     except RuntimeError as exc:
+        # Preserve the legacy safety contract for malformed, thumbnail-less
+        # multi-plate archives before surfacing component-reference errors.
+        if src.suffix.lower() == ".3mf":
+            with zipfile.ZipFile(src) as archive:
+                names = archive.namelist()
+                try:
+                    settings = ET.fromstring(archive.read("Metadata/model_settings.config"))
+                    plate_ids = {m.get("value") for m in settings.iter("metadata")
+                                 if m.get("key") == "plater_id"}
+                except (KeyError, ET.ParseError):
+                    plate_ids = set()
+                has_thumbnails = any(re.fullmatch(r"Metadata/plate_\d+\.png", name) for name in names)
+            if len(plate_ids) > 1 and not has_thumbnails:
+                raise RuntimeError("multi-plate 3MF source has no plate thumbnails; no slicing attempted") from exc
         if multi_plate:
             raise RuntimeError(f'multi-plate 3MF cannot be merged or split: {exc}; no slicing attempted') from exc
         raise
