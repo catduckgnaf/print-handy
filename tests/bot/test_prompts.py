@@ -1,7 +1,5 @@
-"""The core prompt registry: the Hermes clarify gateway's API, owned by Print Handy."""
-import sys
+"""The core prompt registry: the clarify gateway API shape, owned by Print Handy."""
 import threading
-import types
 
 from print_handy.core import prompts
 
@@ -87,19 +85,22 @@ def test_open_prompt_for_finds_the_newest_open_prompt_of_the_session():
     assert prompts.open_prompt_for("mine") is None
 
 
-def test_gateway_prefers_hermes_unless_the_standalone_bot_is_active(monkeypatch):
+def test_gateway_is_always_the_core_registry():
+    """One runtime left: gateway() returns this module, even with a
+    host-shaped tools.clarify_gateway importable."""
+    import sys
+    import types
     hermes = types.ModuleType("tools.clarify_gateway")
     package = types.ModuleType("tools")
     package.clarify_gateway = hermes
-    monkeypatch.setitem(sys.modules, "tools", package)
-    monkeypatch.setitem(sys.modules, "tools.clarify_gateway", hermes)
-    assert prompts.gateway() is hermes
-    prompts.activate()
-    assert prompts.gateway() is prompts
-    prompts.activate(False)
-
-
-def test_gateway_without_hermes_is_the_core_registry(monkeypatch):
-    monkeypatch.setitem(sys.modules, "tools", None)  # import of tools raises ImportError
-    monkeypatch.delitem(sys.modules, "tools.clarify_gateway", raising=False)
-    assert prompts.gateway() is prompts
+    saved = {k: sys.modules.get(k) for k in ("tools", "tools.clarify_gateway")}
+    sys.modules["tools"] = package
+    sys.modules["tools.clarify_gateway"] = hermes
+    try:
+        assert prompts.gateway() is prompts
+    finally:
+        for key, value in saved.items():
+            if value is None:
+                sys.modules.pop(key, None)
+            else:
+                sys.modules[key] = value

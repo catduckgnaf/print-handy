@@ -14,7 +14,7 @@ The executable printer profiles did not move: they stay in
 
 ## Look something up
 
-In Discord (standalone bot or Hermes, same handlers):
+In Discord (the bot runs the same handlers on every install):
 
 ```text
 /print-lookup M600

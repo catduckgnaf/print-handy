@@ -1,13 +1,9 @@
-"""Button question registry: register, wait, resolve, cancel. No Hermes needed.
+"""Button question registry: register, wait, resolve, cancel.
 
 The intake asks a question in four steps: register an id, send the buttons, wait in a worker
 thread, then resolve the id with CANCELLED to clean up. A button click (or a typed answer) resolves
-the id from the event loop. This module is the same API as Hermes' ``tools.clarify_gateway``,
-which owns the clicks when the Hermes gateway runs the plugin.
-
-``gateway()`` picks the registry. The standalone bot calls ``activate()`` so its own buttons and
-this registry always meet. Under Hermes the gateway's module is used, so Hermes' Discord adapter
-can resolve what the plugin registered. Without Hermes installed, this module is the only choice.
+the id from the event loop. ``gateway()`` returns this module: it is the one registry the bot's
+buttons resolve in (the API shape is kept from when a host gateway could own the clicks).
 """
 from __future__ import annotations
 
@@ -19,7 +15,6 @@ CANCELLED = "__cancelled__"
 
 _lock = threading.Lock()
 _prompts: dict[str, "_Prompt"] = {}
-_active = False
 
 
 class _Prompt:
@@ -51,9 +46,9 @@ def register(clarify_id, session_key, question, choices, approval=False):
 
 
 # Approval marks live outside the registry on purpose: a flow may register
-# its prompt with the Hermes clarify gateway (whose register() takes no
-# approval flag) while the standalone adapters still need to know the prompt
-# is an approval. Marks are consulted by is_approval() whenever the prompt
+# its prompt through a path that cannot carry the approval flag while the
+# adapters still need to know the prompt is an approval. Marks are
+# consulted by is_approval() whenever the prompt
 # itself is not in this registry, and pruned a day after they are made —
 # far beyond any prompt's wait.
 _APPROVAL_MARK_TTL_S = 24 * 3600
@@ -253,22 +248,6 @@ def open_count():
         return sum(1 for p in _prompts.values() if not p.event.is_set())
 
 
-def activate(on=True):
-    """The standalone bot owns the buttons: always use this registry, even when Hermes is importable."""
-    global _active
-    _active = bool(on)
-
-
-def active():
-    return _active
-
-
 def gateway():
-    """The registry the current runtime's buttons resolve: this module, or Hermes' clarify gateway."""
-    if _active:
-        return sys.modules[__name__]
-    try:
-        from tools import clarify_gateway
-    except ImportError:
-        return sys.modules[__name__]
-    return clarify_gateway
+    """The registry the bot's buttons resolve: this module, the only one left."""
+    return sys.modules[__name__]

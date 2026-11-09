@@ -30,7 +30,7 @@ ONE_PRINTER = {
     "camera": "no",
     "have_bot": "yes", "discord_app_id": "", "discord_chat_id": "100000000000000001",
     "discord_user_ids": "200000000000000002", "bot_name": "Print Handy",
-    "discord_bot_token": "tok", "hermes": "no",
+    "discord_bot_token": "tok",
     "add_printer_2": "no",
 }
 
@@ -47,7 +47,7 @@ TWO_PRINTERS = {
 
 
 def test_one_printer_plan_keeps_the_legacy_shape():
-    plan = build_plan(_wizard(ONE_PRINTER), hermes_found=False)
+    plan = build_plan(_wizard(ONE_PRINTER))
     assert plan["printers"] == []
     config = plan["config"]
     assert "printers" not in config
@@ -56,7 +56,7 @@ def test_one_printer_plan_keeps_the_legacy_shape():
 
 
 def test_two_printer_plan_writes_a_resolvable_roster(tmp_path):
-    plan = build_plan(_wizard(TWO_PRINTERS), hermes_found=False)
+    plan = build_plan(_wizard(TWO_PRINTERS))
     config = plan["config"]
     assert "printer" not in config and "bambu" not in config
     first, second = config["printers"]
@@ -85,7 +85,7 @@ def test_two_printer_plan_writes_a_resolvable_roster(tmp_path):
 def test_duplicate_printer_id_is_rejected_by_the_answers_gate():
     bad = {**TWO_PRINTERS, "p2_id": "workshop-ad5x"}
     with pytest.raises(SystemExit):  # Wizard.ask fails the run on an invalid recorded answer
-        build_plan(_wizard(bad), hermes_found=False)
+        build_plan(_wizard(bad))
 
 
 GENERIC_SECOND = {
@@ -105,7 +105,7 @@ def test_generic_second_printer_keeps_its_custom_build_volume(tmp_path):
     # P1-83: the Other/generic questions collect a custom bed and height;
     # the roster entry must carry them, or the settings view silently
     # substitutes the generic model's 220x220x220 defaults.
-    plan = build_plan(_wizard(GENERIC_SECOND), hermes_found=False)
+    plan = build_plan(_wizard(GENERIC_SECOND))
     first, second = plan["config"]["printers"]
     assert second["bed_mm"] == [100.0, 120.0]
     assert second["max_print_height_mm"] == 130.0
@@ -125,7 +125,7 @@ def test_env_colliding_printer_ids_are_rejected_by_the_answers_gate():
     # later printer's secret would silently overwrite the earlier one's.
     bad = {**TWO_PRINTERS, "printer1_id": "garage-a1", "p2_id": "garage_a1"}
     with pytest.raises(SystemExit):
-        build_plan(_wizard(bad), hermes_found=False)
+        build_plan(_wizard(bad))
 
 
 def test_merge_refuses_to_add_a_roster_to_a_legacy_config(tmp_path):
@@ -151,7 +151,7 @@ def test_two_printers_may_not_both_ride_the_main_channel():
     # claim its own — two entries claiming one channel are refused at load.
     bad = {**TWO_PRINTERS, "p2_chat_id": ""}
     with pytest.raises(SystemExit):
-        build_plan(_wizard(bad), hermes_found=False)
+        build_plan(_wizard(bad))
 
 
 # ---------------------------------------------------------------------- the round-trip rule
@@ -164,12 +164,12 @@ def test_merge_writes_a_fresh_file(tmp_path):
 
 def test_merge_keeps_existing_values_and_adds_new_ones(tmp_path):
     target = tmp_path / "local.yaml"
-    target.write_text("bot:\n  mode: hermes\n")
+    target.write_text("discord:\n  chat_id: '9'\n")
     assert merge_config(target, {"bot": {"mode": "standalone"}, "discord": {"chat_id": "1"}},
                         _wizard({"merge_config": "yes"}))  # the merge consent defaults to no
     merged = yaml.safe_load(target.read_text())
-    assert merged["bot"]["mode"] == "hermes"  # existing keys win
-    assert merged["discord"]["chat_id"] == "1"
+    assert merged["discord"]["chat_id"] == "9"  # existing keys win
+    assert merged["bot"]["mode"] == "standalone"
 
 
 # ------------------------------------------------- secrets land in the effective data folder
@@ -181,7 +181,7 @@ class _OkResult:
 def _apply_standalone(tmp_path, monkeypatch, local):
     """Run apply() for a standalone plan with every external command stubbed out."""
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    plan = build_plan(_wizard(ONE_PRINTER), hermes_found=False)
+    plan = build_plan(_wizard(ONE_PRINTER))
     w = _wizard({"merge_config": "yes", "run_linger": "no", "run_start": "no"})
     apply(plan, w, repo=tmp_path, local=local, runner=lambda cmd: _OkResult())
     return plan
@@ -209,7 +209,7 @@ def test_secrets_go_to_a_custom_data_folder_even_when_the_merge_is_declined(tmp_
     local = tmp_path / "local.yaml"
     local.write_text(f"paths:\n  hermes_home: {custom}\n")
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    plan = build_plan(_wizard(ONE_PRINTER), hermes_found=False)
+    plan = build_plan(_wizard(ONE_PRINTER))
     w = _wizard({"merge_config": "no", "run_linger": "no", "run_start": "no"})
     apply(plan, w, repo=tmp_path, local=local, runner=lambda cmd: _OkResult())
     assert "DISCORD_BOT_TOKEN=tok" in (custom / ".env").read_text()

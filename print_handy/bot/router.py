@@ -1,9 +1,7 @@
-"""One command router for both runtimes: the print-feedback plugin's own handlers, in its own order.
+"""The command router: the print-feedback module's own handlers, in its own order.
 
-The plugin's ``register(ctx)`` is what the Hermes gateway calls. The router calls it too, with itself
-as the context, so the standalone bot and Hermes run the same handler list and the plugin stays the
-single place a handler is added. Agent-only hooks (tool-call guards, the pre-agent receipt) are kept
-but not run, since no agent follows a standalone message.
+The module's ``register(ctx)`` is called with the router itself as the context, so the
+handler module stays the single place a handler is added.
 """
 from __future__ import annotations
 
@@ -18,10 +16,6 @@ logger = logging.getLogger(__name__)
 
 PLUGIN = settings.ROOT / "plugins" / "print-feedback" / "__init__.py"
 MODULE_NAME = "print_handy_print_feedback"
-# receive_ack promises the agent will follow up ("Checking the requested action..."). Standalone has no agent.
-# stray_chat_dispatch is the transitional in-process claim hook (#524 stage 3): BotCore's own
-# fallback answers the same text in this process, with the same lanes and texts.
-AGENT_ONLY_DISPATCH = {"receive_ack", "stray_chat_dispatch"}
 
 
 def load_plugin(path=PLUGIN, name=MODULE_NAME):
@@ -56,8 +50,7 @@ class Router:
 
     @property
     def dispatch_hooks(self):
-        return [h for h in self.hooks.get("pre_gateway_dispatch", [])
-                if getattr(h, "__name__", "") not in AGENT_ONLY_DISPATCH]
+        return list(self.hooks.get("pre_gateway_dispatch", []))
 
     def handler_names(self):
         return [getattr(h, "__name__", repr(h)) for h in self.dispatch_hooks]
