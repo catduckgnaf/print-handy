@@ -95,7 +95,6 @@ GROUP_OF = {
     "discord.approval_all_users": "platform",
     "discord.timezone": "platform",
     "discord.chat_llm_enabled": "platform",
-    "discord.clarify_ui": "platform",
     "discord.mention_starter_on_complete": "platform",
     "telegram.chat_id": "platform",
     "telegram.allowed_user_ids": "platform",
@@ -239,7 +238,8 @@ CATALOG = (
            choices=("auto", "gcode", "3mf"), validator="settings zmod delivery format check"),
     # Bot and chat platform (guided setup: mode, plus bot platform from #164).
     _field("bot", "mode", "Bot mode", "picker",
-           "standalone runs Print Handy's own bot; hermes runs it as a Hermes Agent profile.",
+           "standalone: Print Handy runs as its own bot (the only mode; the Hermes "
+           "install and runtime mode were removed).",
            choices=tuple(settings.BOT_MODES), validator="guided mode / settings bot check"),
     _field("bot", "platform", "Bot platform", "picker",
            "Chat platform the standalone bot talks to.",
@@ -272,14 +272,6 @@ CATALOG = (
            "off runs Discord as a pure bot (unmatched text gets the short not-understood reply) "
            "while [llm] stays configured for /print-design. The roast and camera "
            "watchdog keep their own vision switches either way.",
-           validator="settings discord check"),
-    _field("discord", "clarify_ui", "Discord clarify UI", "toggle",
-           "Who draws Print Handy's questions on a Hermes install (#524 stage 2). "
-           "Off by default: Hermes' adapter renders them, as before. On: Print Handy "
-           "posts its questions itself by direct Discord REST and resolves clicks and "
-           "typed answers in its own prompt registry — one renderer in both modes, "
-           "matching the standalone rendering. The standalone bot always uses its "
-           "own renderer either way. Takes effect on restart.",
            validator="settings discord check"),
     _field("discord", "mention_starter_on_complete", "Mention who started the print", "toggle",
            "On by default: the post that ends a print on Discord (complete, cancelled or "
@@ -496,7 +488,7 @@ CATALOG = (
     _field("vision", "local_model_path", "Local detector model path", "text",
            "Where the local failure detector's ONNX model file lives. "
            "Empty uses the default location (a models folder under the "
-           "Hermes home) and the pinned model; name a model file you "
+           "data folder) and the pinned model; name a model file you "
            "placed yourself to run fully offline.",
            validator="settings vision check"),
     _field("vision", "local_empty_enabled", "Local empty-plate reference", "toggle",

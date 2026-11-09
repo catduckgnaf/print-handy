@@ -28,7 +28,7 @@ def say(store_obj, text, key="k", **kwargs):
 
 def finish_steps(store_obj, key="k"):
     say(store_obj, "/print-handy setup", key=key)
-    for answer in ("flashforge.ad5x", "standalone", CHAT, USER,
+    for answer in ("flashforge.ad5x", CHAT, USER,
                    "http://ad5x.local:7125", "skip", "stored"):
         say(store_obj, answer, key=key)
 

@@ -14,7 +14,7 @@ Print Handy is an automated 3D printing pipeline driven from a Discord channel, 
 
 Print Handy is almost entirely Python. Downloading, plate merging, color matching, slicing, job start, printer monitoring, spool sync, timelapses, and print records are all plain scripts with fixed rules, so they are fast and make no LLM calls.
 
-The Discord side runs one of two ways. As a **standalone bot** (`python3 -m print_handy.bot`), Print Handy talks to Discord itself with a bot token: links, files, buttons, slash commands, slicing, print start and printer alerts need no Hermes and no LLM; an OpenAI-compatible model can optionally word replies to free text. See [Standalone bot](../docs/STANDALONE.md). Or the conversation runs on [Hermes Agent](https://github.com/NousResearch/hermes-agent) using Luna at medium reasoning, with the same handlers loaded as a Hermes plugin. One optional extra calls a model: the camera watchdog asks a vision model to classify a print frame. The watchdog runs only if `services.vision_chat_url` or `PRINT_VISION_URL` is set or the built-in local failure detector is enabled (`vision.local_detector_enabled`, #455 — see [SETTINGS.md](SETTINGS.md#local-failure-detector)). The completion post's one-line roast needs no model at all: it comes from the local roast corpus, on every platform, and `vision.roast_enabled` (on by default) is its switch. Set `vision.roast_enabled` to `false` to turn roasts off while keeping camera checks.
+The Discord side is a **standalone bot** (`python3 -m print_handy.bot`): Print Handy talks to Discord itself with a bot token: links, files, buttons, slash commands, slicing, print start and printer alerts need no LLM; an OpenAI-compatible model can optionally word replies to free text. See [Standalone bot](../docs/STANDALONE.md). One optional extra calls a model: the camera watchdog asks a vision model to classify a print frame. The watchdog runs only if `services.vision_chat_url` or `PRINT_VISION_URL` is set or the built-in local failure detector is enabled (`vision.local_detector_enabled`, #455 — see [SETTINGS.md](SETTINGS.md#local-failure-detector)). The completion post's one-line roast needs no model at all: it comes from the local roast corpus, on every platform, and `vision.roast_enabled` (on by default) is its switch. Set `vision.roast_enabled` to `false` to turn roasts off while keeping camera checks.
 
 Supported printers:
 * **Sovol** on stock Klipper, where Print Handy started, plus any other Klipper printer with Moonraker. Single extruder.
@@ -375,7 +375,7 @@ The defaults below are what a fresh install resolves. The shipped configuration 
 | `bambu` | `command` | Flathub Bambu Studio, no network | Fallback slicer |
 | `paths` | `hermes_home` | `~/.hermes/profiles/3dprinting` | Hermes profile the bot runs in |
 | | `archive`, `records_vault`, `cache` | `~/3d-prints`, `~/Documents/3D Printing Records`, `~/.hermes/cache` | Job archive, print records, cache |
-| | `hermes_bin`, `hermes_agent`, `hermes_restart_helper`, `ffmpeg` | | Tool locations |
+| | `ffmpeg` | | Tool locations |
 | `services` | `moonraker_url`, `moonraker_ws_url`, `camera_snapshot_url` | empty | Printer and camera; websocket is derived when empty |
 | | `spoolman_url` | empty | Spoolman service |
 | | `vision_chat_url` | empty | OpenAI compatible endpoint for vision checks; empty disables them (roasts are local, #1002) |
@@ -392,11 +392,11 @@ The defaults below are what a fresh install resolves. The shipped configuration 
 | | `token_env` | `DISCORD_BOT_TOKEN` | Standalone bot: environment variable holding the bot token |
 | | `allowed_user_ids` | empty | Standalone bot: optional whitelist of Discord user IDs, comma or space separated; empty lets everyone in the print channel use the bot |
 | | `denied_user_ids` | empty | Standalone bot: optional deny list of Discord user IDs; a denied user is refused even when whitelisted or the approver |
-| `bot` | `mode` | `hermes` | `standalone` runs `python3 -m print_handy.bot` with no Hermes; see [Standalone bot](../docs/STANDALONE.md) |
+| `bot` | `mode` | `standalone` | The only mode: `python3 -m print_handy.bot`; see [Standalone bot](../docs/STANDALONE.md) |
 | | `health_port`, `health_stale_s` | `0`, `120` | Standalone bot: `GET /healthz` port (0 off) and heartbeat age limit |
 | | `sync_commands` | `true` | Standalone bot: register slash commands at startup |
 | `llm` | `chat_url`, `model`, `api_key_env`, `timeout_s` | empty, empty, `LLM_API_KEY`, `20` | Optional OpenAI-compatible model for standalone free-text replies; never starts anything itself |
-| `design` | `enabled`, `chat_url`, `model`, `api_key_env`, `timeout_s`, `repair_attempts` | unset (auto), empty, empty, empty, `180`, `3` | `/print-design` (alias `/design`) AI design; `enabled` unset = auto-on when an endpoint is configured, `false` forces off; empty fields inherit `llm`; the endpoint wins in Hermes mode too, and the profile's `auxiliary.print_design` block is the fallback when no endpoint is configured |
+| `design` | `enabled`, `chat_url`, `model`, `api_key_env`, `timeout_s`, `repair_attempts` | unset (auto), empty, empty, empty, `180`, `3` | `/print-design` (alias `/design`) AI design; `enabled` unset = auto-on when an endpoint is configured, `false` forces off; empty fields inherit `llm`; an endpoint must be configured for design to run |
 | `listener` | `tick_s` | `600` | Listener housekeeping interval |
 | | `ifs_presence_poll_s` | `15` | IFS spool presence poll |
 | | `spool_nag_s` | `600` | Reminder interval for an unanswered spool question |
@@ -419,7 +419,7 @@ The defaults below are what a fresh install resolves. The shipped configuration 
 
 ## Install and update
 
-See [docs/INSTALL.md](../docs/INSTALL.md) to install into a Hermes profile, or [docs/STANDALONE.md](../docs/STANDALONE.md) and `scripts/install-standalone.sh` to run the standalone bot with no Hermes.
+See [docs/INSTALL.md](../docs/INSTALL.md) for the native install, or [docs/STANDALONE.md](../docs/STANDALONE.md) and `scripts/install-standalone.sh` to run the standalone bot.
 
 Update only from a commit that is green in CI. On the machine running Print Handy:
 ```bash
@@ -434,7 +434,7 @@ Check the setup any time with `python3 -m print_handy.doctor`. It also checks Mo
 
 Prerequisites: Docker Engine with the Docker Compose plugin, and Git. From the repository root, copy `.env.example` to `.env` and set `PRINT_HANDY__SERVICES__MOONRAKER_URL` to your printer's Moonraker URL. Set other scalar settings with `PRINT_HANDY__SECTION__KEY` variables in `.env`; `config/docker.yaml` supplies Docker defaults. Lists such as `orca.command` belong in a config file, not environment variables. To replace the full config, mount YAML and set `PRINT_HANDY_CONFIG` to its container path. Existing TOML mounts remain compatible by mounting at `/app/config/docker.toml` and setting `PRINT_HANDY_CONFIG=/app/config/docker.toml` in `.env`.
 
-Compose stores persistent data in `./data/state`, `./data/archive`, `./data/records`, and `./data/cache`; the included Spoolman uses `./data/spoolman`. (Compose also maps the legacy `./data/hermes` folder to `/data/hermes` while an install still uses it, #914.) Create these directories before starting. Spoolman is included in the Compose stack and published on no host port; Print Handy has no published host port and connects to Moonraker and Spoolman over the Compose network.
+Compose stores persistent data in `./data/state`, `./data/archive`, `./data/records`, and `./data/cache`; the included Spoolman uses `./data/spoolman`. (Compose also maps the legacy `./data/hermes` folder name to `/data/hermes`, #914.) Create these directories before starting. Spoolman is included in the Compose stack and published on no host port; Print Handy has no published host port and connects to Moonraker and Spoolman over the Compose network.
 
 ```bash
 cp .env.example .env
@@ -456,7 +456,7 @@ A second CI job installs the Flathub OrcaSlicer, slices small test models with t
 
 ### Discord flow corpus
 
-`tests/corpus/cases/` holds generated, redistributable 3MF projects and STL meshes run end to end through the Discord intake with fake button clicks. Nothing contacts a printer. Each case runs twice: through the Hermes plugin hook, and through the standalone bot on a fake discord.py client (`tests/corpus/fake_discord.py`), where real buttons resolve the core prompt registry. Every PR runs the corpus with fake Orca; a separate real-slicer CI job runs the same cases with Flathub Orca.
+`tests/corpus/cases/` holds generated, redistributable 3MF projects and STL meshes run end to end through the Discord intake with fake button clicks. Nothing contacts a printer. Each case runs twice: through the handler hook directly, and through the standalone bot on a fake discord.py client (`tests/corpus/fake_discord.py`), where real buttons resolve the core prompt registry. Every PR runs the corpus with fake Orca; a separate real-slicer CI job runs the same cases with Flathub Orca.
 
 | Coverage | Cases | Behavior asserted |
 | --- | --- | --- |
@@ -558,10 +558,9 @@ bot posting progress notifications.
 * `print_handy/hermes/`: Moonraker listener, Discord posts, spool sync, print control, and records.
 * `print_handy/printers/`: one package per brand, one file per printer model; see `base.py` for what each one owns.
 * `print_handy/templates/orca/<model folder>/`: Orca machine, process, and filament JSON per printer.
-* `plugins/print-feedback/`: the Discord command handlers and interaction guards, loaded by the Hermes gateway or by the standalone bot.
+* `plugins/print-feedback/`: the Discord command handlers, loaded by the standalone bot's router.
 * `print_handy/bot/`: standalone bot. `platform.py` is the chat-platform interface; `adapter.py` is its Discord implementation over discord.py, `telegram.py`/`telegram_rest.py` its Telegram implementation over the standard-library Bot API (long polling, inline keyboards) and `matrix.py`/`matrix_rest.py` its Matrix implementation over the standard-library Client-Server API (/sync long polling with a persisted next_batch token, media repo uploads/downloads, numbered-list prompts — Matrix has no buttons — and auto-join of the print room on invite), selected by `[bot] platform` (default `discord`). The Telegram and Matrix adapters are pure bots (`uses_llm = False`): BotCore never calls the LLM fallback for them. Plus the router, health check and optional LLM; `systemd/` holds its units.
-* `hermes/`: profile templates and skills installed by `scripts/install-hermes.sh`.
-* `scripts/`: `install-hermes.sh`, `install-standalone.sh`, `home-update.sh`, and `migrate-names.sh` (one-shot, see `docs/RENAME-MIGRATION.md`).
+* `scripts/`: `install-standalone.sh`, `home-update.sh`, and `migrate-names.sh` (one-shot, see `docs/RENAME-MIGRATION.md`).
 * `print-handy.cfg`, `install.sh`, `uninstall.sh`, `update.sh`: ZMod plugin macro and lifecycle scripts. The cfg file name must match the plugin name (`print-handy`) or ZMod refuses to enable the plugin.
 * `tests/`: offline suite, real slicer checks, the Discord flow corpus (`tests/corpus/`), and the Klipper macro tests.
 * `docs/`: install guide and AD5X integration specs.

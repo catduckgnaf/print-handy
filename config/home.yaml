@@ -68,12 +68,9 @@ paths:
   archive: ~/3d-prints
   records_vault: ~/Documents/3D Printing Records
   cache: ~/.hermes/cache
-  hermes_bin: ~/.local/bin/hermes
   ffmpeg: ffmpeg
   piper: piper
   piper_model: ''
-  hermes_agent: ~/.hermes/hermes-agent
-  hermes_restart_helper: ~/.hermes/skills/autonomous-ai-agents/hermes-safe-restart/scripts/restart_hermes.py
 services:
   moonraker_url: ''
   moonraker_ws_url: ''
@@ -131,9 +128,8 @@ matrix:
   # media limit when the server reports a smaller one.
   upload_max_bytes: 50000000
 bot:
-  # standalone: python3 -m print_handy.bot talks to Discord directly (the default).
-  # hermes: the Hermes gateway runs the print-feedback plugin instead.
-  # Use one mode per bot token.
+  # standalone: python3 -m print_handy.bot talks to Discord directly (the
+  # only mode; the Hermes install and runtime mode were removed).
   mode: standalone
   platform: discord
   health_port: 0

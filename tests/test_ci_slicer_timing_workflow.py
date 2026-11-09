@@ -50,13 +50,13 @@ class SlicerTimingWorkflowContract(unittest.TestCase):
         self.assertIn("--warn-only", compare["run"])
         self.assertIn("timing_baseline_real_slicer.json", compare["run"])
 
-    def test_hermes_cases_are_warmed_up_and_timed_in_three_repeats(self):
+    def test_direct_cases_are_warmed_up_and_timed_in_three_repeats(self):
         steps = steps_by_name(timing_job())
         warm_up = steps["Warm-up slice (not timed; first flatpak start pays one-off costs)"]
-        self.assertIn("--transport hermes", warm_up["run"])
-        timed = steps["Time the real-slicer cases (3 repeats, hermes transport)"]
+        self.assertIn("--transport direct", warm_up["run"])
+        timed = steps["Time the real-slicer cases (3 repeats, direct transport)"]
         self.assertIn("for i in 1 2 3", timed["run"])
-        self.assertIn("--transport hermes", timed["run"])
+        self.assertIn("--transport direct", timed["run"])
         self.assertEqual(timing_job()["env"].get("PRINT_HANDY_REAL_SLICER"), "1")
 
     def test_standalone_discord_case_is_timed_but_not_compared(self):

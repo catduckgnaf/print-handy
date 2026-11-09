@@ -17,7 +17,6 @@ from print_handy.webui import (CATALOG, ENVIRONMENT, HOME_CONFIG, MODEL_DEFAULT,
 # never written anywhere), so it must not become a catalog field.
 GUIDED_FIELDS = {
     "model": "printer.model",
-    "mode": "bot.mode",
     "chat_id": "discord.chat_id",
     "user_ids": "discord.allowed_user_ids",
     "moonraker_url": "services.moonraker_url",

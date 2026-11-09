@@ -408,7 +408,7 @@ about one machine:
 - `selected_spools.json`, `maintenance.json` — per printer, as their
   contents are per machine.
 - Listener state and heartbeats (`listener_health.json`,
-  `listener_state.json`, the Hermes heartbeat) — §2.5.
+  `listener_state.json`, the bot heartbeat) — §2.5.
 
 Job folders stay in the shared archive at `archive/<job_id>`: ids are
 instance-unique, `printer_id` inside `JOB.json` is the key, and the
