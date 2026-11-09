@@ -1829,7 +1829,10 @@ class _Handler(BaseHTTPRequestHandler):
             return
         # Check the token again after the read: reading a large upload
         # can take a while, and a link revoked in that window must not
-        # still deliver a file into the inbox.
+        # still deliver a file into the inbox. This re-check is only
+        # the early refusal — the guarantee is in save_upload_for_link,
+        # which makes the final validity decision and the write one
+        # atomic step against revocation.
         if not upload_module.link_valid(self.server.settings_data, token):
             self._send(404, upload_module.render_token_page(
                 error="This upload link is not valid. Ask for a fresh one."),
@@ -1839,13 +1842,19 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(400, upload_module.render_token_page(
                 error="No file was attached."), "text/html; charset=utf-8")
             return
-        saved, reason = upload_module.save_upload(
-            self.server.settings_data, files[0][0], files[0][1])
+        saved, reason = upload_module.save_upload_for_link(
+            self.server.settings_data, token, files[0][0], files[0][1])
+        if saved is None and reason is None:
+            # Revoked after the re-check above but before the write;
+            # the atomic check-and-save refused the delivery.
+            self._send(404, upload_module.render_token_page(
+                error="This upload link is not valid. Ask for a fresh one."),
+                "text/html; charset=utf-8")
+            return
         if saved is None:
             self._send(400, upload_module.render_token_page(error=reason),
                        "text/html; charset=utf-8")
             return
-        upload_module.note_link_use(self.server.settings_data, token)
         self._send(200, upload_module.render_token_page(
             notice=f"{saved.name} is in the inbox. It will be picked up "
                    "and confirmed there before anything prints."),

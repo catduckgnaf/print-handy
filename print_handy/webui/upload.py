@@ -107,13 +107,17 @@ def link_valid(data, token) -> bool:
     return bool(token) and _digest(token) in _load_links(data)
 
 
+def _note_link_use_locked(data, token) -> None:
+    links = _load_links(data)
+    entry = links.get(_digest(token))
+    if entry is not None:
+        entry["uses"] = int(entry.get("uses") or 0) + 1
+        _save_links(data, links)
+
+
 def note_link_use(data, token) -> None:
     with _LINKS_LOCK:
-        links = _load_links(data)
-        entry = links.get(_digest(token))
-        if entry is not None:
-            entry["uses"] = int(entry.get("uses") or 0) + 1
-            _save_links(data, links)
+        _note_link_use_locked(data, token)
 
 
 def revoke_link(data, digest) -> bool:
@@ -169,6 +173,34 @@ def save_upload(data, filename, content: bytes):
         tmp.write_bytes(content)
         tmp.replace(target)
     return target, None
+
+
+def save_upload_for_link(data, token, filename, content: bytes):
+    """Save one upload that arrived through a /u/<token> link.
+
+    The validity decision and the write are one atomic step: both
+    happen under _LINKS_LOCK, the lock revoke_link takes, so a
+    revocation either lands before the decision (and nothing is
+    saved) or after the write (and the file was delivered while the
+    link was still live). A handler-side link_valid check cannot
+    promise that on its own — reading the body takes time, and a
+    revocation landing between even a post-read re-check and the
+    write would still deliver the file. The use count is recorded in
+    the same critical section, so a delivered file is always counted
+    and an undelivered one never is.
+
+    Returns ``(path, None)`` on success, ``(None, reason)`` when the
+    file itself is refused, and ``(None, None)`` when the link is not
+    (or no longer) valid.
+    """
+    with _LINKS_LOCK:
+        if _digest(token) not in _load_links(data):
+            return None, None
+        saved, reason = save_upload(data, filename, content)
+        if saved is None:
+            return None, reason
+        _note_link_use_locked(data, token)
+        return saved, None
 
 
 def list_inbox(data):
@@ -293,5 +325,5 @@ __all__ = [
     "LINKS_FILE_NAME", "MAX_UPLOAD_BYTES", "create_link",
     "inbox_dir", "link_valid", "list_inbox", "list_links", "note_link_use",
     "parse_multipart", "render_token_page", "render_upload_page",
-    "revoke_link", "save_upload",
+    "revoke_link", "save_upload", "save_upload_for_link",
 ]
