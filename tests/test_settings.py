@@ -295,7 +295,7 @@ class OverrideTests(unittest.TestCase):
                           "capture_interval_s", "capture_max_frames", "capture_max_bytes",
                           "capture_encoder", "target_length_s", "min_fps", "max_fps",
                           "min_length_s", "hold_last_frame_s",
-                          "wrapped_enabled", "wrapped_ai_video",
+                          "wrapped_enabled", "data_enabled", "wrapped_ai_video",
                           "wrapped_tts_engine", "wrapped_music_file"},
             "logging": {"level", "format", "file", "levels", "retention_days"},
             "webui": {"enabled", "host", "port", "access_token_env", "require_auth",

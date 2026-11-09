@@ -257,7 +257,8 @@ def _load_settings(tmp, extra=""):
 class SharePanelAndRouteTests(unittest.TestCase):
     def test_export_share_gated_by_wrapped_enabled(self):
         code, body = data_module.export_share(
-            {"timelapse": {}}, 2025, "public", records_vault="/nope")
+            {"timelapse": {"wrapped_enabled": False}}, 2025, "public",
+            records_vault="/nope")
         self.assertEqual(code, 403)
         self.assertIn("wrapped_enabled", body["reason"])
 
@@ -333,7 +334,7 @@ class SharePanelAndRouteTests(unittest.TestCase):
     def test_share_post_refused_when_wrapped_off(self):
         with tempfile.TemporaryDirectory() as tmp:
             _write_vault(tmp)
-            httpd = self.start(tmp)
+            httpd = self.start(tmp, "timelapse:\n  wrapped_enabled: false\n")
             port = httpd.server_address[1]
             body = "_csrf=" + httpd.form_token + "&year=2025&visibility=public"
             code, raw = self.request(

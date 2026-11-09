@@ -333,8 +333,10 @@ vertical_short = false
 # pad = blurred background fill (default); crop = centre crop.
 vertical_short_mode = "pad"
 vertical_short_overlay = true
-# Data tab and Wrapped video (#956, local, no AI model): off by default.
-wrapped_enabled = false
+# Data tab and Wrapped (#956, local, no AI model): on by default. The
+# Data tab's own switch is data_enabled; while unset it follows
+# wrapped_enabled.
+wrapped_enabled = true
 wrapped_ai_video = false
 # Wrapped narration (#981): none | piper (local, nothing sent). See home.yaml notes.
 wrapped_tts_engine = "none"

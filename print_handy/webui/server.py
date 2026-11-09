@@ -769,7 +769,9 @@ class _Handler(BaseHTTPRequestHandler):
                     walkthrough_pending=walkthrough_module.pending(self.server.settings_data),
                     job=_overall_job(self.server.settings_data),
                     nav=data_module.nav_for(self.server.settings_data)
-                    if data_module.wrapped_enabled(self.server.settings_data) else None),
+                    if (data_module.data_enabled(self.server.settings_data)
+                        or data_module.wrapped_enabled(self.server.settings_data))
+                    else None),
                     "text/html; charset=utf-8")
             elif path == "/api/status":
                 self._json(200, self.server.snapshot_func())
@@ -855,9 +857,10 @@ class _Handler(BaseHTTPRequestHandler):
     def _data_route(self, path):
         """GET /data, /wrapped, /api/data and /api/wrapped (#956).
 
-        Behind the same login as every other page. While
-        [timelapse] wrapped_enabled is off, all four answer the named
-        403 refusal from data.py, for pages and APIs alike.
+        Behind the same login as every other page. While a route's
+        own switch is off ([timelapse] data_enabled for the Data
+        routes, wrapped_enabled for the Wrapped routes), it answers
+        the named 403 refusal from data.py, for pages and APIs alike.
         """
         year, error = self._year_param()
         if error:
@@ -901,7 +904,7 @@ class _Handler(BaseHTTPRequestHandler):
         """
         data = self.server.settings_data
         if not data_module.wrapped_enabled(data):
-            self._json(403, {"ok": False, "reason": data_module.OFF_REASON})
+            self._json(403, {"ok": False, "reason": data_module.WRAPPED_OFF_REASON})
             return
         year, error = self._year_param()
         if error:

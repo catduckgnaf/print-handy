@@ -6,13 +6,17 @@ and ``GET /api/wrapped`` are the same payloads as JSON;
 ``POST /wrapped/share`` exports the static share bundle
 (:mod:`print_handy.webui.share_export`).
 
-The whole surface is opt-in under ``[timelapse] wrapped_enabled``
-(default false). While it is off, every route here answers 403 with
-:data:`OFF_REASON` naming the setting, and the navigation carries no
-Data/Wrapped links (the pages below thread the extended nav only when
-the feature is on). The video step additionally needs
-``[timelapse] wrapped_ai_video`` (default false); while that is off
-the Wrapped page says so by name and the video route refuses by name.
+The surface is on by default (settings restructure stage 5), under
+two switches: ``[timelapse] data_enabled`` gates the Data tab and
+``[timelapse] wrapped_enabled`` gates Wrapped. Both default true;
+while data_enabled is unset it follows wrapped_enabled (the loader
+bakes the followed value in, and :func:`data_enabled` applies the
+same fallback to a raw mapping). While a switch is off, its routes
+answer 403 with the reason naming that switch, and the navigation
+carries only the links whose switch is on. The video step
+additionally needs ``[timelapse] wrapped_ai_video`` (default false);
+while that is off the Wrapped page says so by name and the video
+route refuses by name.
 
 Aggregation is read-only over the print JSON records
 (:mod:`print_handy.core.print_stats`); the records vault comes from
@@ -36,15 +40,27 @@ from . import share_export
 from . import shell
 from . import wrapped_video as video_module
 
-OFF_REASON = ("the Data tab and Print Handy Wrapped are off: set "
-              "[timelapse] wrapped_enabled = true to allow them. Nothing shown.")
+DATA_OFF_REASON = ("the Data tab is off: set "
+                   "[timelapse] data_enabled = true to allow it. Nothing shown.")
+WRAPPED_OFF_REASON = ("Print Handy Wrapped is off: set "
+                      "[timelapse] wrapped_enabled = true to allow it. Nothing shown.")
+# The pre-split combined reason, kept for any outside caller.
+OFF_REASON = WRAPPED_OFF_REASON
 VIDEO_OFF_REASON = ("the Wrapped video is off: set [timelapse] wrapped_ai_video = true "
                     "(with wrapped_enabled on) to allow it. Nothing was compiled.")
 EXTRA_NAV = shell.NAV[:-1] + (("/data", "Data"), ("/wrapped", "Wrapped")) + shell.NAV[-1:]
 
 
 def wrapped_enabled(data) -> bool:
-    return bool(((data or {}).get("timelapse") or {}).get("wrapped_enabled", False))
+    return bool(((data or {}).get("timelapse") or {}).get("wrapped_enabled", True))
+
+
+def data_enabled(data) -> bool:
+    """The Data tab switch: data_enabled when set, else wrapped_enabled."""
+    value = ((data or {}).get("timelapse") or {}).get("data_enabled")
+    if value is None:
+        return wrapped_enabled(data)
+    return bool(value)
 
 
 def ai_video_enabled(data) -> bool:
@@ -52,8 +68,15 @@ def ai_video_enabled(data) -> bool:
 
 
 def nav_for(data):
-    """The shell nav for a settings mapping: extended only when on."""
-    return EXTRA_NAV if wrapped_enabled(data) else shell.NAV
+    """The shell nav for a settings mapping: a Data and/or Wrapped link
+    appears only while its own switch is on."""
+    entries = list(shell.NAV[:-1])
+    if data_enabled(data):
+        entries.append(("/data", "Data"))
+    if wrapped_enabled(data):
+        entries.append(("/wrapped", "Wrapped"))
+    entries.append(shell.NAV[-1])
+    return tuple(entries)
 
 
 def _vault(data, records_vault):
@@ -147,8 +170,8 @@ def _display_tz(data):
 
 def data_view(data, year=None, *, records_vault=None):
     """(code, body) for GET /api/data."""
-    if not wrapped_enabled(data):
-        return 403, {"ok": False, "reason": OFF_REASON}
+    if not data_enabled(data):
+        return 403, {"ok": False, "reason": DATA_OFF_REASON}
     records, skipped = _load(data, records_vault)
     events, skipped_events = _load_events(data, records_vault)
     tz = _display_tz(data)
@@ -168,7 +191,7 @@ def data_view(data, year=None, *, records_vault=None):
 def wrapped_view(data, year=None, *, records_vault=None):
     """(code, body) for GET /api/wrapped. The default year is the latest recorded."""
     if not wrapped_enabled(data):
-        return 403, {"ok": False, "reason": OFF_REASON}
+        return 403, {"ok": False, "reason": WRAPPED_OFF_REASON}
     records, skipped = _load(data, records_vault)
     events, skipped_events = _load_events(data, records_vault)
     tz = _display_tz(data)
@@ -243,7 +266,7 @@ def make_video(data, year, *, records_vault=None, out_dir=None, export_silent=Fa
                **video_kwargs):
     """(code, body) for POST /wrapped/video: the on-demand compile."""
     if not wrapped_enabled(data):
-        return 403, {"ok": False, "reason": OFF_REASON}
+        return 403, {"ok": False, "reason": WRAPPED_OFF_REASON}
     if not ai_video_enabled(data):
         return 403, {"ok": False, "reason": VIDEO_OFF_REASON}
     records, _skipped = _load(data, records_vault)
@@ -278,7 +301,7 @@ def export_share(data, year, visibility, *, records_vault=None, out_dir=None,
     established AES-GCM library is a dependency.
     """
     if not wrapped_enabled(data):
-        return 403, {"ok": False, "reason": OFF_REASON}
+        return 403, {"ok": False, "reason": WRAPPED_OFF_REASON}
     records, _skipped = _load(data, records_vault)
     events, _skipped_events = _load_events(data, records_vault)
     try:
@@ -843,7 +866,8 @@ def render_share_result(data, payload, *, theme=shell.DEFAULT_THEME):
     return _page(data, "wrapped share", body, path="/wrapped", theme=theme)
 
 
-__all__ = ["EXTRA_NAV", "OFF_REASON", "VIDEO_OFF_REASON", "ai_video_enabled",
-           "data_view", "export_share", "make_video", "nav_for", "render_data_page",
+__all__ = ["DATA_OFF_REASON", "EXTRA_NAV", "OFF_REASON", "VIDEO_OFF_REASON",
+           "WRAPPED_OFF_REASON", "ai_video_enabled", "data_enabled", "data_view",
+           "export_share", "make_video", "nav_for", "render_data_page",
            "render_share_result", "render_video_result", "render_wrapped_page",
            "wrapped_enabled", "wrapped_video_path", "wrapped_view"]
