@@ -708,6 +708,141 @@ class SendGcodeTests(unittest.TestCase):
                 self.assertIn("Nothing sent", body["reason"])
         self.assertEqual(send.sent, [])
 
+    def test_quoted_heater_parameters_refuse_and_send_nothing(self):
+        # Klipper parses extended commands with shlex, so quoted
+        # parameter values are valid Klipper and must be checked
+        # exactly like unquoted ones.
+        adapter = FakeFamilyAdapter(facts={"max_hotend_c": 300, "max_bed_c": 110})
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = enabled(tmp)
+            view = settings.view_for(PRINTER, data)
+            nozzle_limit = controls.temperature_limit(adapter, view, "nozzle", PRINTER)
+            bed_limit = controls.temperature_limit(adapter, view, "bed", PRINTER)
+            cases = (
+                ('SET_HEATER_TEMPERATURE HEATER="extruder" TARGET="500"',
+                 "SET_HEATER_TEMPERATURE", "nozzle", "500", nozzle_limit),
+                ("SET_HEATER_TEMPERATURE HEATER='heater_bed' TARGET='200'",
+                 "SET_HEATER_TEMPERATURE", "bed", "200", bed_limit),
+                ('PID_CALIBRATE HEATER="extruder" TARGET="500"',
+                 "PID_CALIBRATE", "nozzle", "500", nozzle_limit),
+            )
+            for script, word, heater, target, limit in cases:
+                code, body = controls.send_gcode(data, PRINTER, {"script": script},
+                                                 adapter=adapter, read=reads("idle"),
+                                                 send=send)
+                self.assertEqual(code, 400, script)
+                self.assertIn(word, body["reason"])
+                self.assertIn(heater, body["reason"])
+                self.assertIn(target, body["reason"])
+                self.assertIn(f"{limit:g}", body["reason"])
+                self.assertIn("outside", body["reason"])
+                self.assertIn("Nothing sent", body["reason"])
+        self.assertEqual(send.sent, [])
+
+    def test_duplicate_heater_keys_last_value_wins_and_refuses(self):
+        # Klipper builds a parameter dict, so the last value of a
+        # repeated key is the one that runs; the scan must check that
+        # value, not the first one a search happens to find.
+        adapter = FakeFamilyAdapter(facts={"max_hotend_c": 300, "max_bed_c": 110})
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = enabled(tmp)
+            view = settings.view_for(PRINTER, data)
+            nozzle_limit = controls.temperature_limit(adapter, view, "nozzle", PRINTER)
+            bed_limit = controls.temperature_limit(adapter, view, "bed", PRINTER)
+            cases = (
+                ("SET_HEATER_TEMPERATURE HEATER=extruder TARGET=100 TARGET=500",
+                 "SET_HEATER_TEMPERATURE", "nozzle", "500", nozzle_limit),
+                ("SET_HEATER_TEMPERATURE HEATER=extruder HEATER=heater_bed TARGET=200",
+                 "SET_HEATER_TEMPERATURE", "bed", "200", bed_limit),
+                ("PID_CALIBRATE HEATER=extruder TARGET=100 TARGET=500",
+                 "PID_CALIBRATE", "nozzle", "500", nozzle_limit),
+            )
+            for script, word, heater, target, limit in cases:
+                code, body = controls.send_gcode(data, PRINTER, {"script": script},
+                                                 adapter=adapter, read=reads("idle"),
+                                                 send=send)
+                self.assertEqual(code, 400, script)
+                self.assertIn(word, body["reason"])
+                self.assertIn(heater, body["reason"])
+                self.assertIn(target, body["reason"])
+                self.assertIn(f"{limit:g}", body["reason"])
+                self.assertIn("outside", body["reason"])
+                self.assertIn("Nothing sent", body["reason"])
+        self.assertEqual(send.sent, [])
+
+    def test_pid_calibrate_targets_refuse_and_send_nothing(self):
+        # PID_CALIBRATE heats its named heater to TARGET, so it is
+        # held to the same ceiling as SET_HEATER_TEMPERATURE.
+        adapter = FakeFamilyAdapter(facts={"max_hotend_c": 300, "max_bed_c": 110})
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = enabled(tmp)
+            view = settings.view_for(PRINTER, data)
+            nozzle_limit = controls.temperature_limit(adapter, view, "nozzle", PRINTER)
+            bed_limit = controls.temperature_limit(adapter, view, "bed", PRINTER)
+            cases = (
+                ("PID_CALIBRATE HEATER=extruder TARGET=500",
+                 "PID_CALIBRATE", "nozzle", "500", nozzle_limit),
+                ("PID_CALIBRATE HEATER=heater_bed TARGET=200",
+                 "PID_CALIBRATE", "bed", "200", bed_limit),
+            )
+            for script, word, heater, target, limit in cases:
+                code, body = controls.send_gcode(data, PRINTER, {"script": script},
+                                                 adapter=adapter, read=reads("idle"),
+                                                 send=send)
+                self.assertEqual(code, 400, script)
+                self.assertIn(word, body["reason"])
+                self.assertIn(heater, body["reason"])
+                self.assertIn(target, body["reason"])
+                self.assertIn(f"{limit:g}", body["reason"])
+                self.assertIn("outside", body["reason"])
+                self.assertIn("Nothing sent", body["reason"])
+        self.assertEqual(send.sent, [])
+
+    def test_m303_targets_refuse_and_send_nothing(self):
+        # Marlin M303 (PID autotune) heats to its S target: the
+        # default extruder is the nozzle, and E-1 selects the bed.
+        adapter = FakeFamilyAdapter(facts={"max_hotend_c": 300, "max_bed_c": 110})
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = enabled(tmp)
+            view = settings.view_for(PRINTER, data)
+            nozzle_limit = controls.temperature_limit(adapter, view, "nozzle", PRINTER)
+            bed_limit = controls.temperature_limit(adapter, view, "bed", PRINTER)
+            cases = (
+                ("M303 S500", "M303", "nozzle", "500", nozzle_limit),
+                ("M303 E-1 S200", "M303", "bed", "200", bed_limit),
+            )
+            for script, word, heater, target, limit in cases:
+                code, body = controls.send_gcode(data, PRINTER, {"script": script},
+                                                 adapter=adapter, read=reads("idle"),
+                                                 send=send)
+                self.assertEqual(code, 400, script)
+                self.assertIn(word, body["reason"])
+                self.assertIn(heater, body["reason"])
+                self.assertIn(target, body["reason"])
+                self.assertIn(f"{limit:g}", body["reason"])
+                self.assertIn("outside", body["reason"])
+                self.assertIn("Nothing sent", body["reason"])
+        self.assertEqual(send.sent, [])
+
+    def test_malformed_extended_heater_lines_refuse_and_send_nothing(self):
+        # A SET_HEATER_TEMPERATURE / PID_CALIBRATE line the scan cannot
+        # parse fails closed instead of being sent unchecked.
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = enabled(tmp)
+            for script in ('SET_HEATER_TEMPERATURE HEATER="extruder TARGET=500',
+                           "SET_HEATER_TEMPERATURE HEATER=extruder TARGET=hot",
+                           "PID_CALIBRATE HEATER=extruder TARGET=hot"):
+                code, body = controls.send_gcode(data, PRINTER, {"script": script},
+                                                 read=reads("idle"), send=send)
+                self.assertEqual(code, 400, script)
+                self.assertIn("Nothing sent", body["reason"])
+        self.assertEqual(send.sent, [])
+
     def test_at_limit_under_limit_and_off_heater_commands_pass(self):
         adapter = FakeFamilyAdapter(facts={"max_hotend_c": 300, "max_bed_c": 110})
         send = Recorder()
@@ -722,6 +857,11 @@ class SendGcodeTests(unittest.TestCase):
                 "M104 S200",
                 f"M140 S{bed_limit:g}",
                 f"SET_HEATER_TEMPERATURE HEATER=heater_bed TARGET={bed_limit:g}",
+                'SET_HEATER_TEMPERATURE HEATER="extruder" TARGET=200',
+                "SET_HEATER_TEMPERATURE HEATER=extruder TARGET=500 TARGET=100",
+                "PID_CALIBRATE HEATER=extruder TARGET=200",
+                "M303 S200",
+                "M303 E-1 S60",
             )
             for script in scripts:
                 code, body = controls.send_gcode(data, PRINTER, {"script": script},

@@ -31,7 +31,8 @@ The ha-print-handy #1 routes add, under the same guard:
   every other family refuses with a named 501. The script is refused
   (400) when it is missing, not a string, empty, or longer than
   ``GCODE_MAX_CHARS`` characters. A script's own temperature commands
-  (``M104``/``M109``/``M140``/``M190`` and ``SET_HEATER_TEMPERATURE``)
+  (``M104``/``M109``/``M140``/``M190``, Marlin's ``M303`` autotune and
+  Klipper's ``SET_HEATER_TEMPERATURE`` / ``PID_CALIBRATE``)
   are held to the same fitted-nozzle/model ceiling as the temperature
   routes and refused by name above it, and the script is state-gated
   like the module's other mutating routes: a printer reporting a state
@@ -68,6 +69,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import urllib.error
 import urllib.request
 
@@ -485,14 +487,16 @@ def power_action(data, printer_id, action, body=None, *, adapter=None, read=None
 # The temperature-setting words a raw script can carry, and the heater
 # each sets: the words this module itself sends for /temperature
 # (M104/M140, in default_send above), their wait variants (M109/M190 —
-# the same four the family G-code guards scan for), and Klipper's
-# SET_HEATER_TEMPERATURE, the form the chat nozzle-change path uses.
+# the same four the family G-code guards scan for), Marlin's M303
+# autotune, and Klipper's SET_HEATER_TEMPERATURE, the form the chat
+# nozzle-change path uses, plus its PID_CALIBRATE, which heats the
+# named heater to its target in the same KEY=VALUE shape.
 _HEATER_WORDS = {"M104": "nozzle", "M109": "nozzle", "M140": "bed", "M190": "bed"}
-_HEATER_WORD_RE = re.compile(r"^(M104|M109|M140|M190)(?![0-9])", re.IGNORECASE)
+_HEATER_WORD_RE = re.compile(r"^(M104|M109|M140|M190|M303)(?![0-9])", re.IGNORECASE)
 _HEATER_PARAM_RE = re.compile(r"([SR])([-+]?[0-9]+(?:\.[0-9]+)?)", re.IGNORECASE)
-_SET_HEATER_RE = re.compile(r"^SET_HEATER_TEMPERATURE(?![A-Za-z0-9_])", re.IGNORECASE)
-_SET_HEATER_NAME_RE = re.compile(r"HEATER=([A-Za-z0-9_]+)", re.IGNORECASE)
-_SET_HEATER_TARGET_RE = re.compile(r"TARGET=([-+]?[0-9]+(?:\.[0-9]+)?)", re.IGNORECASE)
+_M303_EXT_RE = re.compile(r"E([-+]?[0-9]+(?:\.[0-9]+)?)", re.IGNORECASE)
+_EXTENDED_HEATER_RE = re.compile(
+    r"^(SET_HEATER_TEMPERATURE|PID_CALIBRATE)(?![A-Za-z0-9_])", re.IGNORECASE)
 # States in which a printer cannot accept commands at all, so a raw
 # script is refused 409 like the state-gated control actions instead of
 # being sent blind. Any positively known state (idle, printing, paused,
@@ -503,6 +507,48 @@ _GCODE_REFUSED_STATES = frozenset(
     {"unknown", "error", "shutdown", "disconnected", "offline", "unavailable"})
 
 
+def _extended_heater_target(word, rest):
+    """(word, heater, target_c) or None for one Klipper extended line.
+
+    Klipper tokenizes extended commands with ``shlex`` and builds a
+    parameter dict, so this does the same: quoted values parse as
+    Klipper parses them, and a repeated key's last value is the one
+    that wins. A line that cannot be parsed that way — unbalanced
+    quotes, a token without ``=``, a missing HEATER or TARGET, or a
+    non-numeric TARGET — is refused with a 400 (fail closed) instead
+    of being sent unchecked. A named heater this module has no limit
+    for returns None, exactly like a command this scan does not know.
+    """
+    try:
+        tokens = shlex.split(rest)
+    except ValueError:
+        tokens = None
+    params = {}
+    if tokens is not None:
+        for token in tokens:
+            key, sep, value = token.partition("=")
+            if not sep or not key.strip() or not value.strip():
+                tokens = None
+                break
+            params[key.strip().upper()] = value.strip()
+    if tokens is None or "HEATER" not in params or "TARGET" not in params:
+        raise ControlError(400, f"{word} line could not be parsed for its heater "
+                                "and target. Nothing sent.")
+    try:
+        target = float(params["TARGET"])
+    except ValueError:
+        target = None
+    if target is None or target != target or target in (float("inf"), float("-inf")):
+        raise ControlError(400, f"{word} target {params['TARGET']!r} is not a number "
+                                "of °C. Nothing sent.")
+    name = params["HEATER"].lower()
+    heater = ("nozzle" if name.startswith("extruder")
+              else "bed" if name == "heater_bed" else None)
+    if heater is None:
+        return None
+    return word, heater, target
+
+
 def _script_heater_targets(script):
     """[(word, heater, target_c)] — every temperature a raw script sets.
 
@@ -511,10 +557,14 @@ def _script_heater_targets(script):
     optional line number and checksum are dropped, and the command word
     must start the line. ``M104``/``M109`` set the nozzle (the ``S``
     parameter, or ``R`` on the wait variant), ``M140``/``M190`` the
-    bed. ``SET_HEATER_TEMPERATURE`` names its heater: ``extruder*`` is
-    the nozzle and ``heater_bed`` the bed; any other named heater has
-    no limit in this module and is left alone, exactly like a command
-    this scan does not know.
+    bed. ``M303`` (Marlin PID autotune) heats to its ``S`` target:
+    the nozzle by default, the bed when its ``E`` parameter is -1.
+    ``SET_HEATER_TEMPERATURE`` and ``PID_CALIBRATE`` name their
+    heater: ``extruder*`` is the nozzle and ``heater_bed`` the bed;
+    any other named heater has no limit in this module and is left
+    alone, exactly like a command this scan does not know. A malformed
+    extended line raises ``ControlError`` (400) rather than passing
+    unchecked.
     """
     found = []
     for raw_line in str(script).splitlines():
@@ -525,19 +575,23 @@ def _script_heater_targets(script):
         word_match = _HEATER_WORD_RE.match(line)
         if word_match:
             word = word_match.group(1).upper()
-            for _param, value in _HEATER_PARAM_RE.findall(line[word_match.end():]):
-                found.append((word, _HEATER_WORDS[word], float(value)))
+            rest = line[word_match.end():]
+            if word == "M303":
+                exts = _M303_EXT_RE.findall(rest)
+                heater = "bed" if exts and float(exts[-1]) == -1 else "nozzle"
+                for param, value in _HEATER_PARAM_RE.findall(rest):
+                    if param.upper() == "S":
+                        found.append((word, heater, float(value)))
+            else:
+                for _param, value in _HEATER_PARAM_RE.findall(rest):
+                    found.append((word, _HEATER_WORDS[word], float(value)))
             continue
-        if _SET_HEATER_RE.match(line):
-            name_match = _SET_HEATER_NAME_RE.search(line)
-            target_match = _SET_HEATER_TARGET_RE.search(line)
-            if name_match and target_match:
-                name = name_match.group(1).lower()
-                heater = ("nozzle" if name.startswith("extruder")
-                          else "bed" if name == "heater_bed" else None)
-                if heater is not None:
-                    found.append(("SET_HEATER_TEMPERATURE", heater,
-                                  float(target_match.group(1))))
+        extended_match = _EXTENDED_HEATER_RE.match(line)
+        if extended_match:
+            parsed = _extended_heater_target(extended_match.group(1).upper(),
+                                             line[extended_match.end():])
+            if parsed is not None:
+                found.append(parsed)
     return found
 
 
