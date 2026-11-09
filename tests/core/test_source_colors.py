@@ -53,7 +53,7 @@ class FilamentStatsTests(unittest.TestCase):
         sc._append_filament_stats(path, manifest)
         self.assertFalse(manifest["filament_stats"]["plates"]["9"]["usage_known"])
         self.assertEqual(manifest["filament_stats"]["plates"]["9"]["usage_unknown_reason"],
-                         "invalid source filament usage record")
+                         "invalid or unmapped source filament usage record")
 
     def test_per_plate_filament_usage_preserves_explicit_plate_ids(self):
         path = self.dir / "indexed.3mf"

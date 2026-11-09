@@ -4,6 +4,7 @@ Source extruders are one based. Physical IFS slots are separate identifiers.
 Never infer a slot from RGB or flatten a painted project without consent.
 """
 import json
+import math
 import re
 import posixpath
 from pathlib import Path
@@ -616,11 +617,12 @@ def _append_filament_stats(path, manifest):
                             m = float(fil.get('used_m', 0))
                             try:
                                 ext_id = int(fil.get('id'))
-                                if ext_id < 1 or g < 0 or m < 0:
+                                if (ext_id < 1 or not math.isfinite(g) or not math.isfinite(m)
+                                        or g < 0 or m < 0 or (expected_filaments and ext_id not in expected_filaments)):
                                     raise ValueError
                             except (TypeError, ValueError):
                                 plate_stats['usage_known'] = False
-                                plate_stats['usage_unknown_reason'] = 'invalid source filament usage record'
+                                plate_stats['usage_unknown_reason'] = 'invalid or unmapped source filament usage record'
                                 continue
                             if g > 0 or m > 0:
                                 # One filament can feed several plates: add them, never keep only the last plate.
