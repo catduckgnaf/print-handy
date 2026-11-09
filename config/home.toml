@@ -76,14 +76,11 @@ hermes_home = "~/.hermes/profiles/3dprinting"
 archive = "~/3d-prints"
 records_vault = "~/Documents/3D Printing Records"
 cache = "~/.hermes/cache"
-hermes_bin = "~/.local/bin/hermes"
 ffmpeg = "ffmpeg"
 piper = "piper"
 piper_model = ""
 # Hermes checkout. Added to sys.path only when hermes_state / hermes_cli must be imported.
-hermes_agent = "~/.hermes/hermes-agent"
 # Safe gateway restart helper run by bin/restart_gateway_after_print.sh (HERMES_RESTART_HELPER overrides).
-hermes_restart_helper = "~/.hermes/skills/autonomous-ai-agents/hermes-safe-restart/scripts/restart_hermes.py"
 
 [services]
 # Addresses are machine specific: set them in config/local.toml. Empty means not configured.
@@ -156,9 +153,8 @@ bot_user_id = ""
 upload_max_bytes = 50000000
 
 [bot]
-# standalone: python3 -m print_handy.bot talks to Discord directly (the default). No Hermes, no LLM needed.
-# hermes: the Hermes gateway runs the print-feedback plugin instead.
-# Use one mode per bot token.
+# standalone: python3 -m print_handy.bot talks to Discord directly (the
+# only mode; the Hermes install and runtime mode were removed). No LLM needed.
 mode = "standalone"
 # Standalone bot only: the chat platform ([bot] platform, #164). discord is the default;
 # telegram (#164 stage 2) and matrix (stage 3) are implemented.

@@ -147,6 +147,7 @@ from . import layers as layers_module
 from . import pages
 from . import printers_page
 from . import shell
+from . import sources as sources_module
 from . import spools as spools_module
 from . import status as status_module
 from . import walkthrough as walkthrough_module
@@ -348,7 +349,7 @@ def healthz(data=None, heartbeat=status_module.READ_HEARTBEAT):
         except Exception:  # an unreadable heartbeat file reads as no heartbeat
             heartbeat = None
     ok, reason = status_module.bot_verdict(data, heartbeat)
-    ok = ok is not False  # not applicable (Hermes mode) is healthy, as in the snapshot
+    ok = ok is not False  # an unevaluated (None) verdict is not a failure, as in the snapshot
     body = {"ok": ok, "reason": reason}
     if isinstance(heartbeat, dict):
         body.update({key: heartbeat[key] for key in status_module.HEARTBEAT_KEYS
@@ -808,6 +809,11 @@ class _Handler(BaseHTTPRequestHandler):
                                                   section=section,
                                                   reveal=reveal),
                            "text/html; charset=utf-8")
+            elif path == "/sources":
+                self._send(200, sources_module.render_sources_page(
+                    theme=self._theme(),
+                    nav=data_module.nav_for(self.server.settings_data)),
+                    "text/html; charset=utf-8")
             elif path == "/designs":
                 rows = designs_module.catalog_rows(self.server.settings_data)
                 self._send(200, designs_module.render_designs_page(rows, theme=self._theme()),

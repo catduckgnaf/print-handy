@@ -10,12 +10,9 @@
 set -eu
 cd "$(dirname "$0")/.."
 target="${1:-origin/main}"
-# Same interpreter choice as install-hermes.sh: an explicit $PYTHON wins, then the Hermes agent
-# venv (bare python3 on a Hermes host is a stripped tools interpreter without pytest), then python3.
+# An explicit $PYTHON wins, then python3.
 if [ -n "${PYTHON:-}" ]; then
     python=$PYTHON
-elif [ -x "$HOME/.hermes/hermes-agent/venv/bin/python" ]; then
-    python="$HOME/.hermes/hermes-agent/venv/bin/python"
 else
     python=python3
 fi

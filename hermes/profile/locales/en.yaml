@@ -1,7 +1,0 @@
-gateway:
-  clarify:
-    skip_hint: ''
-platform:
-  discord:
-    prompt:
-      clarify_title: "${BOT_NAME} Needs Your Input"

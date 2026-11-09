@@ -181,10 +181,10 @@ def test_setup_wizard_surfaces_unknown_thermal_questions():
         "spoolman": "skip", "camera": "no",
         "have_bot": "yes", "discord_app_id": "", "discord_chat_id": "100000000000000001",
         "discord_user_ids": "", "bot_name": "Print Handy",
-        "discord_bot_token": "tok", "hermes": "no", "add_printer_2": "no",
+        "discord_bot_token": "tok", "add_printer_2": "no",
     }
     wizard = Wizard(answers=answers, input_stream=io.StringIO(""), output=io.StringIO())
-    plan = build_plan(wizard, hermes_found=False)
+    plan = build_plan(wizard)
     notes = "\n".join(plan["notes"])
     assert "Thermal facts still unknown for Flashforge AD5X (ZMod)" in notes
     thermal_note = next(n for n in plan["notes"] if n.startswith("Thermal facts still unknown"))

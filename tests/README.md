@@ -14,7 +14,7 @@ this file when a suite is added, moved, or starts/stops pinning an area.
 | Platform adapters (Discord / Matrix / Telegram), access control | `tests/bot/test_platform.py`, `test_matrix.py`, `test_telegram.py`, `test_access.py`, `test_routing.py` |
 | Guided setup | `tests/bot/test_guided.py`, `test_guided_multi.py`, `tests/test_setup_wizard.py` |
 | Bot health / heartbeat / listener transport | `tests/bot/test_health_and_transport.py`, `tests/test_listener_health.py`, `tests/test_listener_gate.py` |
-| Hermes profile platform switch (#384) | `tests/test_profile_platform.py`, `tests/hermes/test_profile_platform_intake.py`, doctor + bot-check rows in `tests/test_doctor.py` / `tests/bot/test_health_and_transport.py`, `tests/test_install_hermes.py` |
+| (removed) Hermes profile platform switch (#384) | the reader, its doctor/bot-check rows and its tests were deleted with the Hermes install and runtime mode |
 | Moonraker listener, announcements, completion delivery | `tests/hermes/test_lane_b.py`, `test_print_messages.py`, `test_completion_delivery.py`, `test_paused_job_gone.py`, `test_print_alert_buttons.py` |
 | Timelapse: Moonraker delivery contract (#373) | `tests/hermes/test_timelapse_delivery_contract.py` |
 | Timelapse: launched-print monitors (OctoPrint / stock / Bambu / Prusa / Elegoo SDCP) | `tests/hermes/test_octo_watch.py`, `test_stock_watch.py`, `test_bambu_watch.py`, `test_prusa_watch.py`, `tests/printers/test_prusa_camera.py`, `test_elegoo_watch.py`, `tests/printers/test_elegoo_sdcp_camera.py` |
