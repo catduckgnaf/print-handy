@@ -76,6 +76,20 @@ class FilamentStatsTests(unittest.TestCase):
         sc.require_plate_usage_known({'filament_stats': {'plates': {
             '7': {'usage_known': True, 'extruders': {3: {'g': 2.5, 'm': .8}}}}}})
 
+    def test_plate_usage_gate_validates_only_selected_plate_ids(self):
+        manifest = {'filament_stats': {'plates': {
+            '7': {'usage_known': True, 'extruders': {3: {'g': 2.5, 'm': .8}}},
+            '9': {'usage_known': False, 'usage_unknown_reason': 'unselected unknown plate'}}}}
+        sc.require_plate_usage_known(manifest, selected_plate_ids=['7'])
+        with self.assertRaisesRegex(RuntimeError, 'plate 9.*unknown'):
+            sc.require_plate_usage_known(manifest, selected_plate_ids=['9'])
+
+    def test_plate_usage_gate_rejects_invalid_amounts_and_empty_assignment(self):
+        for usage in ({'usage_known': True, 'extruders': {}},
+                      {'usage_known': True, 'extruders': {1: {'g': float('nan'), 'm': 0}}}):
+            with self.subTest(usage=usage), self.assertRaisesRegex(RuntimeError, 'usage is unknown'):
+                sc.require_plate_usage_known({'filament_stats': {'plates': {'7': usage}}}, ['7'])
+
     def test_stl_has_no_palette_and_is_bound_to_its_bytes(self):
         path = self.dir / "part.stl"
         path.write_bytes(b"solid x\nendsolid x\n")

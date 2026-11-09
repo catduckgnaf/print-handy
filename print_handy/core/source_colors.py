@@ -580,16 +580,33 @@ def inventory(path):
     return res
 
 
-def require_plate_usage_known(manifest):
-    """Refuse multi-plate readiness when any source plate lacks validated usage."""
+def require_plate_usage_known(manifest, selected_plate_ids=None):
+    """Refuse readiness when selected plates lack validated usage records.
+
+    If the caller has not resolved plate selection, validate every source
+    plate conservatively. Never turn a missing plate record into zero usage.
+    """
     plates = ((manifest.get('filament_stats') or {}).get('plates'))
     if not isinstance(plates, dict) or not plates:
         raise RuntimeError('per-plate filament usage is unknown; no slicing attempted')
-    for plate_id, usage in plates.items():
+    selected = (list(plates) if selected_plate_ids is None
+                else [str(plate_id) for plate_id in selected_plate_ids])
+    for plate_id in selected:
+        usage = plates.get(str(plate_id))
         if not isinstance(usage, dict) or usage.get('usage_known') is not True:
             reason = usage.get('usage_unknown_reason') if isinstance(usage, dict) else None
             detail = f': {reason}' if reason else ''
             raise RuntimeError(f'per-plate filament usage is unknown for plate {plate_id}{detail}; no slicing attempted')
+        if not isinstance(usage.get('extruders'), dict) or not usage['extruders']:
+            raise RuntimeError(f'per-plate filament usage is unknown for plate {plate_id}: no validated filament assignments; no slicing attempted')
+        for source_id, amounts in usage['extruders'].items():
+            try:
+                ext_id = int(source_id)
+                grams, meters = float(amounts['g']), float(amounts['m'])
+            except (TypeError, ValueError, KeyError):
+                raise RuntimeError(f'per-plate filament usage is unknown for plate {plate_id}: invalid assignment; no slicing attempted') from None
+            if ext_id < 1 or not math.isfinite(grams) or not math.isfinite(meters) or grams < 0 or meters < 0:
+                raise RuntimeError(f'per-plate filament usage is unknown for plate {plate_id}: invalid assignment; no slicing attempted')
 
 
 def _append_filament_stats(path, manifest):
