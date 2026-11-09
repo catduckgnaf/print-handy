@@ -53,7 +53,7 @@ class FilamentStatsTests(unittest.TestCase):
         sc._append_filament_stats(path, manifest)
         self.assertFalse(manifest["filament_stats"]["plates"]["9"]["usage_known"])
         self.assertEqual(manifest["filament_stats"]["plates"]["9"]["usage_unknown_reason"],
-                         "invalid or unmapped source filament usage record")
+                         sc.USAGE_INVALID)
 
     def test_per_plate_filament_usage_preserves_explicit_plate_ids(self):
         path = self.dir / "indexed.3mf"
@@ -165,7 +165,65 @@ class MalformedUsageAmountTests(unittest.TestCase):
         sc._append_filament_stats(path, manifest)
         plate = manifest["filament_stats"]["plates"]["4"]
         self.assertFalse(plate["usage_known"])
-        self.assertEqual(plate["usage_unknown_reason"],
-                         "invalid or unmapped source filament usage record")
+        self.assertEqual(plate["usage_unknown_reason"], sc.USAGE_INVALID)
         with self.assertRaisesRegex(RuntimeError, 'plate 4'):
             sc.validate_plate_usage_if_present(manifest)
+
+    def _stats(self, xml, filaments=()):
+        path = self.dir / "usage.3mf"
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("Metadata/slice_info.config", xml)
+        manifest = {"filaments": [{"source_extruder": ext} for ext in filaments]}
+        sc._append_filament_stats(path, manifest)
+        return manifest
+
+    def test_malformed_usage_file_fails_closed(self):
+        manifest = self._stats("<config><plate>")
+        plate = manifest["filament_stats"]["plates"]["unreadable"]
+        self.assertFalse(plate["usage_known"])
+        self.assertEqual(plate["usage_unknown_reason"], sc.USAGE_UNREADABLE)
+        with self.assertRaisesRegex(RuntimeError, 'could not be read'):
+            sc.validate_plate_usage_if_present(manifest)
+
+    def test_plate_without_usage_records_does_not_refuse(self):
+        manifest = self._stats("""<config>
+        <plate><metadata key="index" value="1"/><filament id="1" used_g="2" used_m="1"/></plate>
+        <plate><metadata key="index" value="2"/></plate></config>""", filaments=[1])
+        plates = manifest["filament_stats"]["plates"]
+        self.assertTrue(plates["1"]["usage_known"])
+        self.assertEqual(plates["2"]["usage_unknown_reason"], sc.USAGE_NO_RECORDS)
+        sc.validate_plate_usage_if_present(manifest)
+
+    def test_plate_with_no_rows_and_no_palette_does_not_refuse(self):
+        sc.validate_plate_usage_if_present(
+            self._stats('<config><plate><metadata key="index" value="3"/></plate></config>'))
+
+    def test_filament_outside_the_palette_does_not_refuse(self):
+        manifest = self._stats("""<config><plate><metadata key="index" value="1"/>
+        <filament id="1" used_g="2" used_m="1"/><filament id="5" used_g="1" used_m="1"/>
+        </plate></config>""", filaments=[1])
+        plate = manifest["filament_stats"]["plates"]["1"]
+        self.assertEqual(plate["usage_unknown_reason"], sc.USAGE_UNMAPPED)
+        self.assertNotIn(5, plate["extruders"])
+        sc.validate_plate_usage_if_present(manifest)
+
+    def test_invalid_record_refuses_whatever_else_is_on_the_plate(self):
+        rows = ('<filament id="bad" used_g="1" used_m="1"/>', '<filament id="5" used_g="1" used_m="1"/>')
+        for ordered in (rows, rows[::-1], rows[:1]):
+            xml = ('<config><plate><metadata key="index" value="1"/>'
+                   + "".join(ordered) + "</plate></config>")
+            with self.subTest(ordered=ordered):
+                manifest = self._stats(xml, filaments=[1])
+                self.assertEqual(manifest["filament_stats"]["plates"]["1"]["usage_unknown_reason"],
+                                 sc.USAGE_INVALID)
+                with self.assertRaisesRegex(RuntimeError, 'plate 1'):
+                    sc.validate_plate_usage_if_present(manifest)
+
+    def test_gate_checks_only_the_plates_it_is_given(self):
+        manifest = self._stats("""<config>
+        <plate><metadata key="index" value="1"/><filament id="1" used_g="2" used_m="1"/></plate>
+        <plate><metadata key="index" value="2"/><filament id="bad" used_g="2" used_m="1"/></plate>
+        </config>""", filaments=[1])
+        sc.validate_plate_usage_if_present(manifest, selected_plate_ids=[1])
+        with self.assertRaisesRegex(RuntimeError, 'plate 2'):
+            sc.validate_plate_usage_if_present(manifest, selected_plate_ids=[2])
