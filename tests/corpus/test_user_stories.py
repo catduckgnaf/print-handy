@@ -73,7 +73,7 @@ def test_catduck_stops_before_approving_slice_and_print(tmp_path):
     assert any("Nothing sliced" in sent or "Nothing" in sent for sent in run.adapter.sent)
 
 
-@pytest.mark.parametrize("transport", ["hermes", "standalone"])
+@pytest.mark.parametrize("transport", ["direct", "standalone"])
 def test_catduck_cancels_an_unanswered_color_prompt_without_start(transport, tmp_path):
     """Given Catduck drops an STL but never answers its color prompt, when either Discord-backed
     intake waits for his choice, then the scenario does not authorize a slice or printer start.

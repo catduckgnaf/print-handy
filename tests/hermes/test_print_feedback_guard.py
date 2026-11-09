@@ -1,71 +1,20 @@
-"""Offline regression tests for capable printer ownership and loop protection."""
+"""Offline regression tests for the handler module's dispatch handlers.
+
+(The agent tool-call guards that used to share this file — the terminal
+loop guard and the Discord clarify cap — were deleted with the Hermes
+host that ran them.)
+"""
 import importlib.util
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
-import pytest
-
-from print_handy.hermes import _config
+from print_handy.hermes import _config  # noqa: F401  (kept: handler tests read config helpers)
 
 SPEC = importlib.util.spec_from_file_location(
     "print_feedback_guard", Path(__file__).parents[2] / "plugins/print-feedback/__init__.py")
 assert SPEC is not None and SPEC.loader is not None
 plugin = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(plugin)
-
-
-def setup_function():
-    plugin._tool_turns.clear()
-
-
-def invoke(name='terminal', args=None, profile='3dprinting', session='s', turn='t'):
-    with mock.patch.object(plugin, '_session', side_effect=lambda key: profile if key == 'HERMES_SESSION_PROFILE' else 'discord'):
-        return plugin.guard_terminal_loop(tool_name=name, args=args or {}, session_id=session, turn_id=turn)
-
-
-def test_printer_can_read_edit_and_research_its_stack():
-    for name, args in [
-        ('read_file', {'path': str(_config.hermes_home() / 'scripts/source.py')}),
-        ('patch', {'path': 'source.py'}),
-        ('write_file', {'path': 'config.yaml'}),
-        ('write_file', {'path': 'JOB.json'}),
-        ('search_files', {'path': str(_config.hermes_home()), 'target': 'content', 'pattern': 'offset'}),
-        ('web_search', {'query': 'ZMod calibration'}),
-        ('session_search', {'query': 'ghost print'}),
-    ]:
-        for _ in range(15):
-            assert invoke(name, args) is None
-
-
-def test_distinct_terminal_commands_have_no_arbitrary_call_cap():
-    for number in range(50):
-        assert invoke(args={'command': f'test-command {number}'}) is None
-
-
-def test_third_identical_terminal_command_remains_blocked():
-    args = {'command': 'status'}
-    assert invoke(args=args) is None
-    assert invoke(args=args) is None
-    assert 'repeat' in invoke(args=args)['message']
-    assert invoke(args=args, turn='new') is None
-    assert invoke(args=args, session='new') is None
-
-
-def test_missing_identity_and_other_profiles_are_not_conflated():
-    for _ in range(20):
-        assert invoke(args={'command': 'status'}, turn='') is None
-        assert invoke(args={'command': 'status'}, profile='default') is None
-
-
-def test_verified_slot_bookkeeping_macro_is_not_name_banned():
-    assert invoke(args={'command': "moonrakerctl gcode 'SET_EXTRUDER_SLOT SLOT=4'"}) is None
-
-
-def test_gcode_path_protection_remains():
-    for name in ('patch', 'write_file'):
-        assert invoke(name, {'path': str(_config.archive_dir() / 'test/sliced/edited.gcode')}) is None
-        assert invoke(name, {'path': str(_config.archive_dir().parent / 'elsewhere.gcode')})['action'] == 'block'
 
 
 def test_reboot_dispatch_requires_safe_job_and_controller_states(monkeypatch):
@@ -222,88 +171,16 @@ def test_print_again_success_posts_its_own_start_announcement(monkeypatch):
     assert any(message.startswith('Print started') for message in adapter.sent)
 
 
-def test_parallel_duplicate_commands_are_bounded():
-    with mock.patch.object(plugin, '_session', return_value='3dprinting'):
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            results = list(executor.map(lambda _: plugin.guard_terminal_loop(
-                tool_name='terminal', args={'command': 'status'}, session_id='s', turn_id='t'), range(40)))
-    assert sum(result is None for result in results) == 2
-
-
-def test_discord_clarify_cap_preserves_four_or_fewer_choices():
-    choices = ['one', 'two', 'three', 'four']
-    with mock.patch.object(plugin, '_session', side_effect=lambda key: {
-            'HERMES_SESSION_PLATFORM': 'discord', 'HERMES_SESSION_PROFILE': '3dprinting'}.get(key, '')):
-        assert plugin.cap_discord_clarifications(tool_name='clarify', args={
-            'questions': [{'question': 'Pick', 'choices': choices}]}) is None
-
-
-def test_discord_clarify_cap_limits_overflow_and_keeps_remainder_path():
-    choices = ['one', 'two', 'three', 'four', 'five', 'six']
-    with mock.patch.object(plugin, '_session', side_effect=lambda key: {
-            'HERMES_SESSION_PLATFORM': 'discord', 'HERMES_SESSION_PROFILE': '3dprinting'}.get(key, '')):
-        result = plugin.cap_discord_clarifications(tool_name='clarify', args={
-            'questions': [{'question': 'Pick', 'choices': choices},
-                          {'question': 'Already short', 'choices': ['yes', 'no']}],
-            'unrelated': 'kept'})
-    assert result['action'] == 'modify'
-    args = result['args']
-    assert args['unrelated'] == 'kept'
-    assert args['questions'][0]['choices'] == choices[:4]
-    assert 'Additional options exist' in args['questions'][0]['question']
-    assert 'Other' in args['questions'][0]['question']
-    assert args['questions'][1] == {'question': 'Already short', 'choices': ['yes', 'no']}
-
-
-def test_discord_clarify_cap_is_scoped_to_3dprinting_discord():
-    args = {'questions': [{'question': 'Pick', 'choices': list('abcde')}]}
-    for platform, profile in [('matrix', '3dprinting'), ('discord', 'default')]:
-        with mock.patch.object(plugin, '_session', side_effect=lambda key: {
-                'HERMES_SESSION_PLATFORM': platform, 'HERMES_SESSION_PROFILE': profile}.get(key, '')):
-            assert plugin.cap_discord_clarifications(tool_name='clarify', args=args) is None
-
-
+def test_register_installs_only_the_dispatch_list_and_platform_handler():
+    """register() binds the dispatch handlers in order, the Discord
+    platform handler, and nothing else — the tool-call hooks and the
+    agent-only dispatch hooks are gone with their host."""
     ctx = mock.Mock()
     plugin.register(ctx)
     assert [item.args for item in ctx.register_hook.call_args_list] == [
-        ('pre_gateway_dispatch', plugin.guided_dispatch),
-        ('pre_gateway_dispatch', plugin.design_dispatch),
-        ('pre_gateway_dispatch', plugin.maintenance_dispatch),
-        ('pre_gateway_dispatch', plugin.coldpull_dispatch),
-        ('pre_gateway_dispatch', plugin.lookup_dispatch),
-        ('pre_gateway_dispatch', plugin.source_dispatch),
-        ('pre_gateway_dispatch', plugin.troubleshoot_dispatch),
-        ('pre_gateway_dispatch', plugin.macros_dispatch),
-        ('pre_gateway_dispatch', plugin.firmware_dispatch),
-        ('pre_gateway_dispatch', plugin.calibration_dispatch),
-        ('pre_gateway_dispatch', plugin.typed_quantity_dispatch),
-        ('pre_gateway_dispatch', plugin.upload_wait_dispatch),
-        ('pre_gateway_dispatch', plugin.model_link_dispatch),
-        ('pre_gateway_dispatch', plugin.color_selection_dispatch),
-        ('pre_gateway_dispatch', plugin.print_next_dispatch),
-        ('pre_gateway_dispatch', plugin.runout_intake_dispatch),
-        ('pre_gateway_dispatch', plugin.exclude_dispatch),
-        ('pre_gateway_dispatch', plugin.print_stop_dispatch),
-        ('pre_gateway_dispatch', plugin.print_resume_dispatch),
-        ('pre_gateway_dispatch', plugin.roast_dispatch),
-        ('pre_gateway_dispatch', plugin.print_again_dispatch),
-        ('pre_gateway_dispatch', plugin.edit_dispatch),
-        ('pre_gateway_dispatch', plugin.loaded_spools_dispatch),
-        ('pre_gateway_dispatch', plugin.purchase_dispatch),
-        ('pre_gateway_dispatch', plugin.spool_dispatch),
-        ('pre_gateway_dispatch', plugin.print_reboot_dispatch),
-        ('pre_gateway_dispatch', plugin.bed_down_dispatch),
-        ('pre_gateway_dispatch', plugin.live_dispatch),
-        ('pre_gateway_dispatch', plugin.plate_calibrate_dispatch),
-        ('pre_gateway_dispatch', plugin.nozzle_dispatch),
-        ('pre_gateway_dispatch', plugin.receive_ack),
-        ('pre_gateway_dispatch', plugin.stray_chat_dispatch),
-        ('post_tool_call', plugin.clarify_ack),
-        ('pre_tool_call', plugin.cap_discord_clarifications),
-        ('pre_tool_call', plugin.guard_terminal_loop),
-    ]
-    assert plugin.receipt_text('https://makerworld.com/model bed clear') is None  # preview + picker acknowledge links
-    assert plugin.clarify_receipt({'outcome': 'cancelled'}) is None
+        ('pre_gateway_dispatch', hook) for hook in plugin._DISPATCH_HOOKS]
+    assert [item.args for item in ctx.register_platform_handler.call_args_list] == [
+        ('discord', plugin.alert_button_handlers)]
 
 
 def test_upload_wait_suppresses_dispatch_until_explicit_resume(monkeypatch):
@@ -317,60 +194,6 @@ def test_upload_wait_suppresses_dispatch_until_explicit_resume(monkeypatch):
     assert __import__('asyncio').run(plugin.upload_wait_dispatch(wait, gateway))['reason'] == 'upload wait active'
     assert __import__('asyncio').run(plugin.upload_wait_dispatch(ordinary, gateway))['reason'].startswith('upload wait active')
     assert __import__('asyncio').run(plugin.upload_wait_dispatch(resume, gateway)) is None
-
-
-def test_clarify_receipt_never_claims_action_started():
-    text = plugin.clarify_receipt({'outcome': 'submitted', 'responses': [
-        {'status': 'answered', 'user_response': '2 copies'}]})
-    assert text == 'You chose: 2 copies. Nothing has started.'
-
-
-def test_registered_clarify_hook_applies_discord_cap():
-    """The pre_tool_call hook contract, exercised directly.
-
-    This replaces a test that dispatched through hermes_cli.plugins from the
-    external Hermes Agent checkout: nothing in this repo or CI provides that
-    package, so the old test skipped everywhere (2026-11-07 test-suite
-    cleanup; see tests/TEST-SUITE-AUDIT-2026-11-07.md). The live surface is
-    the plugin's own registered hook (register() binds
-    cap_discord_clarifications as a pre_tool_call hook), whose documented
-    return is a {'action': 'modify', 'args': ...} dict.
-    """
-    args = {'questions': [{'question': 'Pick', 'choices': ['one', 'two', 'three', 'four', 'five']}]}
-    with mock.patch.object(plugin, '_session', side_effect=lambda key: {
-            'HERMES_SESSION_PLATFORM': 'discord', 'HERMES_SESSION_PROFILE': '3dprinting'}.get(key, '')):
-        result = plugin.cap_discord_clarifications(
-            tool_name='clarify', args=args, session_id='s', turn_id='t')
-    assert result is not None and result['action'] == 'modify'
-    modified = result['args']
-    assert modified['questions'][0]['choices'] == ['one', 'two', 'three', 'four']
-    assert 'Additional options exist' in modified['questions'][0]['question']
-
-
-def test_registered_terminal_hook_enforces_duplicate_guard():
-    """Same replacement as above for guard_terminal_loop: the hook returns
-    None while a command is allowed and a block dict on the third repeat."""
-    with mock.patch.object(plugin, '_session', return_value='3dprinting'):
-        for _ in range(2):
-            assert plugin.guard_terminal_loop(
-                tool_name='terminal', args={'command': 'status'}, session_id='s', turn_id='t') is None
-        result = plugin.guard_terminal_loop(
-            tool_name='terminal', args={'command': 'status'}, session_id='s', turn_id='t')
-        assert result is not None and result['action'] == 'block' and 'repeat' in result['message']
-
-
-@pytest.mark.parametrize('command, expected', [
-    ('python3 -m print_handy.core.model_job slice JOB.json --approved', True),
-    ('python3 /x/model_job.py slice JOB.json', True),
-    ('ls -la', False),
-])
-def test_terminal_receipt_matches_module_and_script_invocations(command, expected):
-    session = {'HERMES_SESSION_PLATFORM': 'discord', 'HERMES_SESSION_PROFILE': '3dprinting',
-               'HERMES_SESSION_CHAT_ID': 'chat-ack-test'}
-    with mock.patch.object(plugin, '_session', side_effect=lambda key: session.get(key, '')), \
-            mock.patch.object(plugin, 'workflow_receipt', return_value='ok') as receipt:
-        plugin.clarify_ack(tool_name='terminal', args={'command': command}, result={}, tool_call_id=command)
-    assert receipt.called is expected
 
 
 def test_runout_new_spool_multi_color_name_keeps_its_palette():

@@ -1,7 +1,8 @@
-"""Drive a corpus model through the Discord intake the way the gateway does, with a fake Discord.
+"""Drive a corpus model through the Discord intake, with a fake Discord.
 
-A case is a folder with one supported model file (`.3mf` or `.stl`) and case.toml. The driver loads the real print-feedback plugin and calls
-its model_link_dispatch hook with a dropped-file event, the same entry point the gateway uses.
+A case is a folder with one supported model file (`.3mf` or `.stl`) and case.toml. The direct
+driver loads the real print-feedback module and calls its model_link_dispatch hook with a
+dropped-file event; the standalone driver posts the file to the real bot (print_handy.bot).
 The fake adapter answers every button question from the case's [[click]] rules. Nothing contacts
 Moonraker, Spoolman or a printer: the start step runs the real print_next gates against a stub
 print-now script.
@@ -12,8 +13,7 @@ Two tiers (see tests/corpus/README or the main README):
   real tier  - PRINT_HANDY_REAL_SLICER=1: the real Orca CLI slices and probes. Work happens under
                <repo>/.slicer-work because the Flatpak sandbox cannot see /tmp.
 
-This module does not import pytest, so tests/corpus/test_corpus.py and the gateway-environment child
-process (run_in_gateway_env) both use it.
+This module does not import pytest.
 """
 from __future__ import annotations
 
@@ -132,50 +132,6 @@ def load_case(folder):
 
 # ----------------------------------------------------------------------------- fake Discord
 
-def install_clarify_stand_in():
-    """Hermes' clarify gateway is not installed in CI. Use it when present, else an in-memory copy
-    with the four calls the intake makes (register, wait_for_response, resolve_gateway_clarify, CANCELLED)."""
-    try:
-        import tools.clarify_gateway  # noqa: F401
-        return
-    except ImportError:
-        pass
-    lock, prompts = threading.Lock(), {}
-
-    class Entry:
-        def __init__(self):
-            self.event, self.answer = threading.Event(), None
-
-    def entry(cid):
-        with lock:
-            return prompts.setdefault(cid, Entry())
-
-    def resolve_gateway_clarify(cid, answer):
-        e = entry(cid)
-        e.answer = answer
-        e.event.set()
-        return True
-
-    def wait_for_response(cid, timeout=None):
-        e = entry(cid)
-        # The stand-in simulates prompt expiry quickly: an unanswered prompt must
-        # fail closed in tests, not block for the production wait (up to an hour).
-        got = e.event.wait(10 if timeout is None else min(timeout, 10))
-        with lock:
-            prompts.pop(cid, None)
-        return e.answer if got else None
-
-    module = types.ModuleType("tools.clarify_gateway")
-    module.CANCELLED = "__cancelled__"
-    module.register = lambda cid, session_key, question, choices: entry(cid) and None
-    module.resolve_gateway_clarify = resolve_gateway_clarify
-    module.wait_for_response = wait_for_response
-    package = sys.modules.get("tools") or types.ModuleType("tools")
-    package.clarify_gateway = module
-    sys.modules["tools"] = package
-    sys.modules["tools.clarify_gateway"] = module
-
-
 class FakeAdapter:
     """The two DiscordAdapter calls the intake makes. A click is an immediate clarify resolution."""
 
@@ -198,7 +154,7 @@ class FakeAdapter:
             f"question: {question}\nbuttons: {choices}")
 
     async def send_clarify(self, **kw):
-        import tools.clarify_gateway as cm
+        from print_handy.core import prompts as cm
         index = self.pick(kw["question"], kw["choices"])
         self.questions.append({"question": kw["question"], "choices": list(kw["choices"]),
                                "picked": kw["choices"][index]})
@@ -221,7 +177,7 @@ def load_plugin(name="corpus_print_feedback"):
 
 
 def drop_event(model, case_name, message_id="corpus-message-1"):
-    """What the gateway hands the hook for one dropped model: a cached path preserving its file type."""
+    """What the bot hands the hook for one dropped model: a cached path preserving its file type."""
     cache = Path(model).parent / "discord-cache"
     cache.mkdir(exist_ok=True)
     dropped = cache / f"doc_0123456789ab_{case_name}{Path(model).suffix.lower()}"
@@ -365,31 +321,25 @@ def is_post_slice_question(text):
     return text.startswith(slice_warnings.QUESTION_PREFIX)
 
 
-def run_case(case, work, *, real_slicer=False, state_file=BUILT, in_gateway_env=False, transport="hermes", audit_started=None, auto=True):
+def run_case(case, work, *, real_slicer=False, state_file=BUILT, transport="direct", audit_started=None, auto=True):
     """Run the case end to end and return what happened. `work` is a fresh directory.
 
-    Everything the flow writes (archive, receipts, claims) goes under `work`, except state in
-    in_gateway_env mode, where settings, printer_state and the plugin's state dir come from the process
-    environment exactly as the gateway sees them.
+    Everything the flow writes (archive, receipts, claims) goes under `work`.
 
-    transport="hermes" calls the plugin hook the way the gateway does, with the FakeAdapter.
+    transport="direct" calls the handler hook directly, with the FakeAdapter.
     transport="standalone" posts the file to the standalone bot (print_handy.bot) on a fake discord.py
     client: real adapter, real buttons, clicks resolved through the core prompt registry.
     """
-    if transport not in ("hermes", "standalone"):
+    if transport not in ("direct", "standalone"):
         raise ValueError(f"unknown transport {transport!r}")
-    if transport == "standalone" and in_gateway_env:
-        raise ValueError("the gateway environment check is Hermes only")
-    if transport == "hermes":
-        install_clarify_stand_in()
     spoolman = None
     # A case's [printer] table varies the shared hardware record (nozzle, bed, slots, tower; #824).
     overrides = printer_overrides.validate((getattr(case, "data", None) or {}).get("printer"))
-    if overrides and (state_file != BUILT or in_gateway_env):
+    if overrides and state_file != BUILT:
         raise ValueError("[printer] overrides apply to the built default state only")
     if overrides.get("bed") and real_slicer:
         raise ValueError("a [printer] bed override is mock tier only: the Orca templates carry the real bed")
-    if state_file == BUILT and not in_gateway_env:
+    if state_file == BUILT:
         # The slot map the journey slices from is made by production spool code, not handwritten JSON.
         from . import spool_fixture
         Path(work).mkdir(parents=True, exist_ok=True)
@@ -459,9 +409,8 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, in_gateway_env=
         enter = stack.enter_context
         patch = lambda *a, **k: enter(mock.patch.object(*a, **k))  # noqa: E731
         enter(printer_overrides.patched(overrides))
-        if not in_gateway_env:
-            patch(printer_state, "STATE", str(state_file))
-            patch(_config, "state_dir", lambda: work / "state")
+        patch(printer_state, "STATE", str(state_file))
+        patch(_config, "state_dir", lambda: work / "state")
         archive = (WORK / f"{case.name}-{uuid.uuid4().hex[:8]}") if real_slicer else work / "archive"
         archive.mkdir(parents=True, exist_ok=True)
         patch(model_job, "ARCHIVE", archive)
@@ -511,11 +460,13 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, in_gateway_env=
         if transport == "standalone":
             adapter, outcome = _run_standalone(case, work, model_copy, plugin, events, patch, auto=auto)
         else:
+            from print_handy.core import prompts as _prompts
+            _real_wait = _prompts.wait_for_response
+            patch(_prompts, "wait_for_response",
+                  lambda cid, timeout=None: _real_wait(cid, 10 if timeout is None else min(timeout, 10)))
             gateway = S(_is_user_authorized_for_source=lambda s: True, _session_key_for_source=lambda s: "corpus-session",
                         _delivery_adapter_for=lambda s: adapter)
             event = drop_event(model_copy, case.name)
-            if in_gateway_env:
-                plugin._deliver_receipt = _noop_receipt
             outcome = asyncio.run(plugin.model_link_dispatch(event, gateway))
         state_root = plugin._state_dir()
         receipts = sorted((state_root / "model-link-intakes").glob("*.json"))
@@ -529,10 +480,6 @@ def run_case(case, work, *, real_slicer=False, state_file=BUILT, in_gateway_env=
              gcodes=[Path(g) for g in receipt.get("gcodes", [])], audit_started=audit_started,
              spoolman=spoolman, spoolman_calls_built=spoolman_calls_built, state_file=state_file,
              real_slicer=real_slicer)
-
-
-async def _noop_receipt(*args, **kwargs):
-    return None
 
 
 def _run_standalone(case, work, model, plugin, events, patch, *, auto=True):
@@ -551,12 +498,10 @@ def _run_standalone(case, work, model, plugin, events, patch, *, auto=True):
                           approval_user_id="")
     cfg["paths"]["cache"] = Path(work) / "cache"
     cfg["llm"].update(chat_url="", model="")
-    # Both are process globals the bot sets; restore them so later Hermes-path tests see the defaults.
+    # A process global the bot sets; restore it so later tests see the default.
     patch(prepared_intake, "STOP_SENDER", None)
-    patch(prompts, "_active", False)
-    # BotCore.activate() routes standalone buttons to the real core registry, not
-    # tools.clarify_gateway. Keep that registry and its cleanup semantics, but
-    # apply the same ten-second expiry as the Hermes corpus stand-in.
+    # Buttons resolve in the core prompt registry; keep its cleanup semantics,
+    # but apply a ten-second expiry so unanswered prompts fail closed fast.
     wait_for_response = prompts.wait_for_response
 
     def short_wait(cid, timeout=None):
@@ -753,48 +698,3 @@ def check_expectations(case, run):
 def _transcript(run):
     lines = [f"Q: {q['question']}\n   buttons {q['choices']}\n   clicked {q['picked']!r}" for q in run.adapter.questions]
     return "\n".join(lines + ["sent: " + repr(run.adapter.sent)])
-
-
-# ----------------------------------------------------------------------------- gateway environment
-
-def run_in_gateway_env(case, work, gateway_home, home, real_slicer=False):
-    """Run the case in a fresh interpreter whose environment is the gateway's.
-
-    The multiplexed gateway sets HERMES_HOME to the shared root for every profile (#57). Settings are
-    read when modules import, so this needs its own process. The profile state dir must already hold
-    printer_hardware.json. Returns the child's JSON report.
-    """
-    import os
-    import subprocess
-    env = {k: v for k, v in os.environ.items() if not k.startswith(("PRINT_HANDY__", "HERMES_"))}
-    env.pop("PRINT_HANDY_CONFIG", None)
-    env.pop("PRINT_HANDY_REAL_SLICER", None)  # set again below only when asked; the CI real tier exports it
-    Path(work).mkdir(parents=True, exist_ok=True)
-    empty = Path(work) / "empty.toml"
-    empty.write_text("")
-    env.update(HOME=str(home), HERMES_HOME=str(gateway_home), PRINT_HANDY_CONFIG=str(empty),
-               PYTHONPATH=str(settings.ROOT), PYTHONDONTWRITEBYTECODE="1")
-    if real_slicer:
-        env["PRINT_HANDY_REAL_SLICER"] = "1"
-    code = ("import json,sys;from tests.corpus import harness;"
-            "print('REPORT '+json.dumps(harness._env_child(sys.argv[1], sys.argv[2])))")
-    proc = subprocess.run([sys.executable, "-c", code, str(case.dir), str(work)], cwd=str(settings.ROOT), env=env,
-                          capture_output=True, text=True, timeout=900)
-    lines = [line for line in proc.stdout.splitlines() if line.startswith("REPORT ")]
-    assert lines, f"child failed ({proc.returncode}):\n{proc.stdout[-2000:]}\n{proc.stderr[-3000:]}"
-    return json.loads(lines[-1][len("REPORT "):])
-
-
-def _env_child(case_dir, work):
-    import os
-    from print_handy.core import printer_state
-    report = {"hermes_home_env": os.environ.get("HERMES_HOME"), "printer_state": str(printer_state.STATE),
-              "settings_home": str(settings.current()["paths"]["hermes_home"])}
-    try:
-        case = load_case(case_dir)
-        run = run_case(case, Path(work) / "run", real_slicer=os.environ.get("PRINT_HANDY_REAL_SLICER") == "1",
-                       in_gateway_env=True)
-    except Exception as exc:  # the parent asserts on the report, so say what broke instead of a traceback
-        return {**report, "status": "CRASHED", "error": f"{type(exc).__name__}: {exc}", "receipts": []}
-    return {**report, "state_root": str(run.state_root), "receipts": [str(p) for p in run.receipts],
-            "status": run.receipt.get("status"), "error": run.receipt.get("error"), "transcript": _transcript(run)}

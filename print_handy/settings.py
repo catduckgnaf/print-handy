@@ -98,7 +98,6 @@ LEGACY_ENV = {
     "MAINTENANCE_FULL_HOURS": ("maintenance", "full_hours"),
     "MAINTENANCE_FULL_DAYS": ("maintenance", "full_days"),
     "MAINTENANCE_BED_SEPARATE_MM": ("maintenance", "bed_separate_mm"),
-    "HERMES_BIN": ("paths", "hermes_bin"),
     "FFMPEG_BIN": ("paths", "ffmpeg"),
     "PIPER_BIN": ("paths", "piper"),
     "PIPER_MODEL": ("paths", "piper_model"),
@@ -185,7 +184,6 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("discord", "denied_user_ids"): str,
                  ("discord", "chat_llm_enabled"): bool,
                  ("discord", "approval_all_users"): bool,
-                 ("discord", "clarify_ui"): bool,
                  ("discord", "mention_starter_on_complete"): bool,
                  ("elegoo_sdcp", "host"): str,
                  ("purge", "flush_multiplier"): float}
@@ -1075,7 +1073,11 @@ def _check_mixed_shape(extra, environ):
 # and never calls an endpoint. Label reads and roasts are not verdicts and
 # never follow this setting.
 WATCH_SOURCES = ("auto", "endpoint", "local")
-BOT_MODES = ("hermes", "standalone")
+# [bot] mode: "standalone" is the only runtime left. The Hermes install
+# method and the "hermes" runtime mode were removed (nobody runs that
+# topology anymore); _validate_bot refuses "hermes" by name below, with the
+# remedy, instead of letting it fall out of this tuple as a bare bad value.
+BOT_MODES = ("standalone",)
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
 LOG_FORMATS = ("text", "json")
 # [timelapse] mode (#246/#295): "rendered" keeps the printer-rendered
@@ -1762,6 +1764,17 @@ def _validate_bot(data):
     """The standalone bot sections (#73). Absent sections in a hand-made home file get the defaults."""
     bot = data.setdefault("bot", {})
     bot.setdefault("mode", "standalone")
+    if str(bot["mode"]).strip().lower() == "hermes":
+        # A retired value with a migration path, refused by name (the
+        # [printer] family pattern): the Hermes install method and the
+        # hermes runtime mode were removed, so an old config must hear
+        # that — and what to do instead — not a bare unknown-value error
+        # and never a silent fallback to standalone.
+        raise SettingsError(
+            "[bot] mode 'hermes' was removed: the Hermes install method and the Hermes "
+            "runtime mode are gone. Print Handy now runs only as its own bot — set "
+            "[bot] mode to 'standalone' (or remove the setting) and start it with "
+            "python3 -m print_handy.bot, or use the Docker image.")
     if bot["mode"] not in BOT_MODES:
         raise SettingsError(f"[bot] mode must be one of {', '.join(BOT_MODES)}, got {bot['mode']!r}")
     # The chat platform the standalone bot talks to (#164). The known set is
@@ -1799,13 +1812,6 @@ def _validate_bot(data):
     chat_llm_enabled = discord.setdefault("chat_llm_enabled", True)
     if not isinstance(chat_llm_enabled, bool):
         raise SettingsError(f"[discord] chat_llm_enabled must be true or false, got {chat_llm_enabled!r}")
-    # Print Handy's own question renderer on a Hermes install (#524 stage 2):
-    # off by default, so Hermes' adapter keeps drawing the questions exactly
-    # as before; on makes the plugin activate its own prompt registry and
-    # render questions itself, one renderer in both modes.
-    clarify_ui = discord.setdefault("clarify_ui", False)
-    if not isinstance(clarify_ui, bool):
-        raise SettingsError(f"[discord] clarify_ui must be true or false, got {clarify_ui!r}")
     # Mention the starter when a print ends: on by default, so a terminal
     # post (complete / cancelled / error) on Discord @mentions only the user
     # who started that print — the one person who needs the notification.
