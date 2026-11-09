@@ -316,8 +316,8 @@ def page(title, body, *, path="", theme=DEFAULT_THEME, chrome=True, heading=None
     ``title`` names the page (``Print Handy — <title>`` in the tab, and
     the default heading ``Print Handy <title>``). ``heading=""`` omits
     the heading; any other value replaces the default. ``chrome=False``
-    renders the bare document (login and first-run setup: no navigation
-    to offer yet). ``banner`` is inserted at the top of the content,
+    renders the bare document (the login and token-upload pages: no
+    navigation to offer). ``banner`` is inserted at the top of the content,
     above the heading. ``nav`` overrides the header navigation for this
     page only (the Data/Wrapped pages pass the extended nav when that
     feature is on, #956); the default is :data:`NAV`, unchanged for

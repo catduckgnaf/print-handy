@@ -14,7 +14,12 @@ environment is refused, never shadow-written. The fully merged candidate
 is validated through ``settings.load()`` before anything lands, the
 previous file is kept as a timestamped backup, and the write itself is
 atomic (temp file + ``os.replace``, the setup wizard's pattern). On any
-validation failure the file on disk is left byte-identical. Lists and
+validation failure the file on disk is left byte-identical. Validation
+answers only for what the save changes: a closed-table violation the
+file already carries (#1058's credential-shaped, [notify] and retired
+[printer] family keys) is left untouched and recorded by name in
+``last_write_warnings()`` instead of blocking every save, while a
+violation a save adds or modifies still refuses the whole write. Lists and
 tables outside the catalog are preserved as parsed mappings; comments in
 a hand-edited file are not guaranteed to survive a save, the same
 honesty as the setup wizard's merge.
@@ -25,6 +30,7 @@ import copy
 import os
 import re
 import shutil
+import stat
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime
@@ -174,23 +180,250 @@ def _dump(mapping):
     return yaml.safe_dump(mapping, sort_keys=False, default_flow_style=None)
 
 
-def _validate_candidate(candidate, target, *, home, environ):
-    """Run the candidate settings-file mapping through the real settings
-    loader (written to a temp file settings.load reads), raising
-    WebUIConfigError with the loader's own message on any failure."""
-    text = _dump(candidate)
+# ------------------------------------------------------- candidate validation
+#
+# The candidate is validated through the real settings loader before
+# anything lands. The loader refuses a whole file over a closed-table
+# violation (#1058/#1061): a credential-shaped unknown key, a
+# non-optional key in the closed [notify] table, or the retired
+# [printer] family key, wherever in the file it sits. Those refusals
+# are the loader's own rules and stay exactly as they are — but a save
+# must only answer for what it changes. When the loader names such a
+# violation that the settings file (or the operator's own file layered
+# over it) ALREADY carries, unchanged by this save, validation retries
+# with that key left out of the staged validation copies, and the save
+# proceeds with the violation recorded by name (see
+# last_write_warnings). A violation the save ADDS or MODIFIES — a new
+# closed-table key, or an existing one whose value this candidate
+# changes — still fails closed with the loader's own message, and a
+# violation arriving through the environment is never tolerated: the
+# save cannot fix the environment, so it must not silently pass it.
+# Only key NAMES are ever recorded or reported here, never values: the
+# credential-shaped keys this exists for must not echo their secrets
+# into a page or a log.
+
+_VIOLATION_KEY_RE = re.compile(r"unknown setting \[([^\]]+)\] ([^\s(]+)")
+_VIOLATION_SECTION_RE = re.compile(r"unknown section \[([^\]]+)\]")
+_MAX_VALIDATION_RETRIES = 100
+
+_last_write_warnings = []
+
+
+def last_write_warnings():
+    """The pre-existing closed-table violations the most recent
+    successful save left in the settings file, as ``"[section] key"``
+    names.
+
+    A tolerated violation is a key the settings loader refuses — a
+    credential-shaped unknown key, a non-optional [notify] key, the
+    retired [printer] family key — that was already in the settings
+    file (or the operator's own file) before the save and that the save
+    did not touch. The write left it in the file, byte for byte; the
+    names are also noted for this process's
+    ``settings.unknown_settings_warning()``. A save that changes
+    nothing writes nothing, but still validates the file it leaves in
+    place, so after such a save the names are the violations that file
+    still carries. A caller reporting one save's warnings takes the
+    names that save itself returns (write_changes_reporting): this
+    list is process-wide, and a later save replaces it.
+    Names only, never values."""
+    return list(_last_write_warnings)
+
+
+def _note_tolerated(target, tolerated):
+    """Record a landed write's tolerated violations: the module-level
+    list behind last_write_warnings(), and this process's in-memory
+    settings registry (settings._note_unknown, the same channel #1058's
+    warn-and-drop keys use), so the names show in this process's
+    unknown-settings note on the save path. The note does not reach a
+    fresh startup or doctor process: the tolerated keys stay in the
+    file, and a process that reloads the file refuses to load it until
+    they are removed by hand. Returns the recorded names, so the save
+    that tolerated them can report its own warnings without re-reading
+    the process-wide list."""
+    global _last_write_warnings
+    names = [f"[{section}] {key}" for section, key in tolerated]
+    _last_write_warnings = names
+    for section, key in tolerated:
+        settings._note_unknown(
+            f"{target}: unknown setting [{section}] {key} — already in the "
+            "settings file before the Web UI save; the save left it untouched. "
+            "This key is refused when a save introduces it, and the settings "
+            "will not load until it is removed by hand")
+    return list(names)
+
+
+def _note_noop_write(target, *, home, environ):
+    """Record the warnings for a successful save that writes nothing.
+
+    The submitted values already match the file, so no write lands —
+    but the save still answers for the file it leaves in place: that
+    file goes through the same validation a real save runs, so a
+    closed-table violation it still carries is recorded by
+    last_write_warnings() exactly as a tolerated write records it,
+    instead of the warning being cleared while the next restart still
+    refuses the file. A file that no longer carries a violation
+    tolerates nothing, and the warnings clear. A file that fails
+    validation for a reason tolerance does not cover (a wrong type, an
+    environment-sourced refusal) also records no tolerated names: the
+    save changed nothing, so it succeeds as it always has, and those
+    failures are a real save's or the next startup's to surface."""
+    current = (settings._apply_key_aliases(settings._read(target))
+               if target.is_file() else {})
+    try:
+        _text, tolerated = _validate_candidate(current, target,
+                                                home=home, environ=environ)
+    except WebUIConfigError:
+        tolerated = []
+    return _note_tolerated(target, tolerated)
+
+
+def _section_violation_keys(section, values):
+    """The closed-table keys of one section of one layer: the keys the
+    loader refuses in a section it does not know — the non-optional
+    keys of the closed [notify] table, or the credential-shaped keys of
+    any other unknown section. Empty when the section cannot be the
+    source of an "unknown section" refusal."""
+    if not isinstance(values, dict):
+        return []
+    if section == "notify":
+        return [key for key in values if (section, key) not in settings.OPTIONAL_KEYS]
+    return [key for key in values if settings._credential_shaped(key)]
+
+
+def _offender(message, *, candidate_source, user_sources):
+    """The closed-table violation a loader refusal names, as
+    ``(layer, section, keys)``: layer is "candidate" (the settings file
+    being written) or "user" (the operator's own file, by its real path
+    or by a staged copy's); keys is the one named key, or None for an
+    "unknown section" refusal — the caller resolves those against the
+    layer's working copy. ``(None, None, [])`` when the refusal names
+    no tolerable violation (a wrong type, a malformed roster, an
+    environment variable's refusal): those fail as they are.
+    """
+    layer = None
+    match = re.match(r"(?P<source>.*): unknown (?:setting|section) \[", message)
+    if match:
+        source = match.group("source")
+        if source == candidate_source:
+            layer = "candidate"
+        elif source in user_sources:
+            layer = "user"
+        else:
+            return None, None, []
+    key_match = _VIOLATION_KEY_RE.search(message)
+    if key_match:
+        return layer, key_match.group(1), [key_match.group(2)]
+    section_match = _VIOLATION_SECTION_RE.search(message)
+    if section_match:
+        return layer, section_match.group(1), None
+    return None, None, []
+
+
+def _load_staged(candidate, user_copy, target, *, home, environ):
+    """One validation attempt: stage the candidate (and a staged copy
+    of the operator's own file, when user_copy is not None) and run the
+    real settings loader over them. On failure the raised
+    WebUIConfigError carries this attempt's ``candidate_source`` and
+    ``user_source`` — the source names refusals from each staged layer
+    carry, which change with every staging."""
+    directory = str(target.parent) if str(target.parent) else "."
     fd, tmp = tempfile.mkstemp(prefix=".webui-candidate.", suffix=".yaml",
-                               dir=str(target.parent) if str(target.parent) else ".")
+                               dir=directory)
+    user_tmp = None
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
-        settings.load(home=home, local=Path(tmp), environ=environ)
+            handle.write(_dump(candidate))
+        if user_copy is not None:
+            fd, user_tmp = tempfile.mkstemp(prefix=".webui-user.", suffix=".yaml",
+                                            dir=directory)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(_dump(user_copy))
+        settings.load(home=home, local=Path(tmp), environ=environ,
+                      user=Path(user_tmp) if user_tmp is not None else None)
     except settings.SettingsError as exc:
-        raise WebUIConfigError(str(exc)) from None
+        error = WebUIConfigError(str(exc))
+        error.candidate_source = tmp
+        resolved_user = settings.user_config_path(environ)
+        error.user_source = user_tmp or (str(resolved_user)
+                                         if resolved_user is not None else None)
+        raise error from None
     finally:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-    return text
+        for staged in (tmp, user_tmp):
+            if staged and os.path.exists(staged):
+                os.unlink(staged)
+
+
+def _validate_candidate(candidate, target, *, home, environ):
+    """Run the candidate settings-file mapping through the real settings
+    loader (staged copies settings.load reads), raising WebUIConfigError
+    with the loader's own message on any failure the save is answerable
+    for. Returns ``(text, tolerated)``: the text to write — the dump of
+    the candidate exactly as given, tolerated keys included — and the
+    ``(section, key)`` closed-table violations that were already in the
+    settings file or the operator's own file, unchanged, and were left
+    out of the staged copies so the rest of the save could validate."""
+    text = _dump(candidate)
+    # The baselines a violation is judged pre-existing against: the
+    # settings file as it stands (the candidate was built from it), and
+    # the operator's own file, both alias-folded the way the loader
+    # reads them. A key is pre-existing only with its value unchanged.
+    baseline = (settings._apply_key_aliases(settings._read(target))
+                if target.is_file() else {})
+    user_path = settings.user_config_path(environ)
+    user_baseline = (settings._apply_key_aliases(settings._read(user_path))
+                     if user_path is not None and user_path.is_file() else {})
+    working = copy.deepcopy(candidate)
+    user_working = copy.deepcopy(user_baseline) if user_path is not None \
+        and user_path.is_file() else None
+    user_staged = None  # the user working copy, once a violation needs it staged
+    user_sources = {str(user_path)} if user_path is not None else set()
+    tolerated = []
+    for _attempt in range(_MAX_VALIDATION_RETRIES):
+        try:
+            _load_staged(working, user_staged, target, home=home, environ=environ)
+            return text, tolerated
+        except WebUIConfigError as exc:
+            message = str(exc)
+            if getattr(exc, "user_source", None):
+                user_sources.add(exc.user_source)
+            layer, section, keys = _offender(
+                message,
+                candidate_source=getattr(exc, "candidate_source", None),
+                user_sources=user_sources)
+            if layer is None or section is None:
+                raise
+            if layer == "candidate":
+                layer_working, layer_baseline = working, baseline
+            else:
+                layer_working, layer_baseline = user_working, user_baseline
+            if layer_working is None:
+                raise
+            values = layer_working.get(section)
+            if keys is None:
+                keys = _section_violation_keys(section, values)
+            if not keys:
+                raise
+            for key in keys:
+                if not isinstance(values, dict) or key not in values:
+                    raise exc
+                if layer == "candidate" and (
+                        not isinstance(layer_baseline.get(section), dict)
+                        or layer_baseline[section].get(key, _MISSING) != values[key]):
+                    # The save adds this violation, or changes the value
+                    # of one already there: fail closed, exactly as the
+                    # loader does today.
+                    raise exc
+                # The operator's own file is never written by a save, so
+                # anything in it is pre-existing for this save by
+                # construction; the settings file must match by value.
+            for key in keys:
+                del values[key]
+                tolerated.append((section, key))
+            if layer == "user":
+                user_staged = user_working
+    raise WebUIConfigError(  # pragma: no cover - each retry strips a key
+        "settings validation did not settle; nothing was written")
 
 
 def _check_discord_chat_id(value):
@@ -235,8 +468,31 @@ _CONTENT_CHECKS = {
 }
 
 
+def _existing_mode(target):
+    """The permission bits of the file at ``target``, or None when
+    there is no such file (a new file keeps the writer's usual mode)."""
+    try:
+        return stat.S_IMODE(target.stat().st_mode)
+    except OSError:
+        return None
+
+
+def _write_settings_file(target, text):
+    """Write ``text`` to the settings file, preserving the mode of the
+    file it replaces. A save must never widen a settings file's
+    permissions: a hand-edited file may be 0600 precisely because it
+    holds a credential-shaped key a save tolerates, and landing the
+    rewrite at the usual 0644 would leave that key world-readable."""
+    mode = _existing_mode(target)
+    _atomic_write(target, text, 0o644 if mode is None else mode)
+
+
 def _backup(target, stamp):
-    """A timestamped copy of the current file next to it; its path, or None."""
+    """A timestamped copy of the current file next to it; its path, or None.
+
+    The copy carries the source file's own mode, never a wider one:
+    the backup holds the same content as the settings file, tolerated
+    credential-shaped keys included, so it needs the same protection."""
     if not target.is_file():
         return None
     backup = target.with_name(f"{target.name}.bak-{stamp}")
@@ -245,6 +501,9 @@ def _backup(target, stamp):
         backup = target.with_name(f"{target.name}.bak-{stamp}-{counter}")
         counter += 1
     shutil.copyfile(target, backup)
+    mode = _existing_mode(target)
+    if mode is not None:
+        os.chmod(backup, mode)
     return backup
 
 
@@ -380,8 +639,8 @@ def _prepare_printer_name(printer_id, name, *, config_path, home, environ):
         if "name" not in entry:
             return None
         del entry["name"]  # a blank name clears back to the model's own name
-    text = _validate_candidate(candidate, target, home=home, environ=environ)
-    return target, text
+    text, tolerated = _validate_candidate(candidate, target, home=home, environ=environ)
+    return target, text, tolerated
 
 
 def check_printer_name(printer_id, name, *, config_path=None, home=None, environ=None):
@@ -406,25 +665,24 @@ def write_printer_name(printer_id, name, *, config_path=None, home=None,
     prepared = _prepare_printer_name(printer_id, name, config_path=config_path,
                                      home=home, environ=environ)
     if prepared is None:
+        target = Path(config_path) if config_path is not None else settings_file_path(environ)
+        _note_noop_write(target, home=home, environ=environ)
         return []
-    target, text = prepared
+    target, text, tolerated = prepared
     target.parent.mkdir(parents=True, exist_ok=True)
     stamp = timestamp or datetime.now().strftime("%Y%m%d-%H%M%S")
     _backup(target, stamp)
-    _atomic_write(target, text, 0o644)
+    _write_settings_file(target, text)
+    _note_tolerated(target, tolerated)
     return [("printers", printer_id)]
 
 
-def write_changes(changes, *, config_path=None, home=None, environ=None, timestamp=None):
-    """Apply ``{field: value}`` changes to the settings file and return the
-    changed ``(section, key)`` pairs, in the order given.
-
-    ``field`` may be a catalog Field, a ``(section, key)`` pair or a
-    ``"section.key"`` string. Only catalog fields may change. Refuses —
-    writing nothing — when a field is unknown, is currently overridden by
-    the environment, the target is a legacy TOML file, or the merged
-    result fails the real settings validation.
-    """
+def _write_changes(changes, *, config_path, home, environ, timestamp):
+    """The write_changes core: the write itself, returning
+    ``(changed, warnings)`` — the ``(section, key)`` pairs written, in
+    the order given, and the tolerated closed-table violations this
+    save left in the settings file, as ``"[section] key"`` names,
+    captured from the save's own validation."""
     environ = os.environ if environ is None else environ
     items = []
     for raw_field, value in dict(changes or {}).items():
@@ -433,7 +691,7 @@ def write_changes(changes, *, config_path=None, home=None, environ=None, timesta
             raise WebUIConfigError(f"{raw_field!r} is not a Web UI catalog field; nothing was written")
         items.append((field, list(value) if isinstance(value, tuple) else value))
     if not items:
-        return []
+        return [], []
     target = Path(config_path) if config_path is not None else settings_file_path(environ)
     if target.suffix.lower() == ".toml":
         raise WebUIConfigError(f"{target}: the Web UI writes YAML settings files; "
@@ -462,14 +720,46 @@ def write_changes(changes, *, config_path=None, home=None, environ=None, timesta
             changed.append((field.section, field.key))
         section[field.key] = value
     if not changed:
-        return []
+        return [], _note_noop_write(target, home=home, environ=environ)
     for field, value in items:
         check = _CONTENT_CHECKS.get(field.id)
         if check is not None:
             check(value)
     target.parent.mkdir(parents=True, exist_ok=True)
-    text = _validate_candidate(candidate, target, home=home, environ=environ)
+    text, tolerated = _validate_candidate(candidate, target, home=home, environ=environ)
     stamp = timestamp or datetime.now().strftime("%Y%m%d-%H%M%S")
     _backup(target, stamp)
-    _atomic_write(target, text, 0o644)
+    _write_settings_file(target, text)
+    return changed, _note_tolerated(target, tolerated)
+
+
+def write_changes(changes, *, config_path=None, home=None, environ=None, timestamp=None):
+    """Apply ``{field: value}`` changes to the settings file and return the
+    changed ``(section, key)`` pairs, in the order given.
+
+    ``field`` may be a catalog Field, a ``(section, key)`` pair or a
+    ``"section.key"`` string. Only catalog fields may change. Refuses —
+    writing nothing — when a field is unknown, is currently overridden by
+    the environment, the target is a legacy TOML file, or the merged
+    result fails the real settings validation.
+    """
+    changed, _warnings = _write_changes(changes, config_path=config_path,
+                                        home=home, environ=environ,
+                                        timestamp=timestamp)
     return changed
+
+
+def write_changes_reporting(changes, *, config_path=None, home=None, environ=None, timestamp=None):
+    """write_changes, returning ``(changed, warnings)``: the changed
+    pairs and the tolerated closed-table violations this save itself
+    left in the settings file, as ``"[section] key"`` names.
+
+    A caller that reports a save's warnings — the save-result page —
+    must take them from here, not from last_write_warnings() after the
+    fact: that list is process-wide, and a concurrent save landing
+    between the write and the read replaces it, so the page could show
+    another save's warnings, or none, for a key this save left behind.
+    The names returned here are captured from this save's own
+    validation and cannot be replaced."""
+    return _write_changes(changes, config_path=config_path, home=home,
+                          environ=environ, timestamp=timestamp)

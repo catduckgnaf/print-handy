@@ -321,7 +321,8 @@ class EmbedRouteTests(unittest.TestCase):
             self.assertIsNone(data_module.wrapped_video_path(
                 self.DATA, 2025, records_vault=vault))
             self.assertIsNone(data_module.wrapped_video_path(
-                {"timelapse": {}}, 2026, records_vault=vault))
+                {"timelapse": {"wrapped_enabled": False}}, 2026,
+                records_vault=vault))
             # Traversal-shaped years never resolve to a file: the name
             # is built from the integer year, never from request text.
             for bad_year in ("../2026", "2026/../../etc/passwd", "wrapped-2026"):
