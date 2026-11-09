@@ -74,6 +74,45 @@ def sliced_process(tmp_path, source, **kwargs):
 
 # --- 6. PrusaSlicer settings translation ----------------------------------------------------------------
 
+
+def test_conversion_provenance_marks_intent_unknown_without_source_metadata(tmp_path):
+    source = tmp_path / "minimal.3mf"
+    write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
+              [("#FFFFFF", "PLA")], project_extra={"wall_loops": "3"})
+    result = author_settings.conversion_provenance(
+        source, {"wall_loops": "4"}, {"wall_loops": "3"}, {"wall_loops": "3"}, [])
+    assert result["intent_status"] == "unknown"
+    assert result["settings"]["wall_loops"]["origin"] == "unknown"
+    assert result["settings"]["wall_loops"]["source_preset_value"] is None
+
+
+def test_conversion_provenance_uses_different_settings_to_system_without_guessing(tmp_path):
+    source = tmp_path / "changed.3mf"
+    write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
+              [("#FFFFFF", "PLA")],
+              project_extra={"wall_loops": "4", "different_settings_to_system": ["wall_loops"]})
+    result = author_settings.conversion_provenance(
+        source, {"wall_loops": "2"}, {"wall_loops": "4"}, {"wall_loops": "2"}, [])
+    assert result["intent_status"] == "known"
+    assert result["settings"]["wall_loops"]["origin"] == "designer"
+    assert result["settings"]["wall_loops"]["selected_value"] == "2"
+    assert result["unresolved_conflicts"] == [{"key": "wall_loops", "source_value": "4",
+                                                "target_value": "2", "selected_value": "2"}]
+
+
+def test_conversion_provenance_marks_unchanged_keys_as_inherited(tmp_path):
+    source = tmp_path / "inherited.3mf"
+    write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
+              [("#FFFFFF", "PLA")],
+              project_extra={"wall_loops": "4", "different_settings_to_system": []})
+    result = author_settings.conversion_provenance(
+        source, {"wall_loops": "2"}, {"wall_loops": "4"}, {"wall_loops": "4"}, [])
+    assert result["settings"]["wall_loops"]["origin"] == "source_preset"
+    assert result["unresolved_conflicts"] == []
+
+
+# --- 6. PrusaSlicer settings translation ----------------------------------------------------------------
+
 def test_prusa_keys_translate_to_orca_names_and_values(tmp_path):
     author = author_settings.read(prusa_project(tmp_path / "prusa.3mf"))
     assert author["wall_loops"] == "4" and author["sparse_infill_density"] == "25%"
