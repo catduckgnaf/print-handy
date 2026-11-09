@@ -61,6 +61,19 @@ def test_invalid_geometry_mapping_refused(tmp_path,failure):
  with pytest.raises(RuntimeError):export_color_geometry(src,tmp_path/'out.3mf',d)
  assert not (tmp_path/'out.3mf').exists()
 
+
+def test_failed_remap_preserves_source_and_existing_destination_bytes(tmp_path):
+ src=COUPON; st=json.loads(STATE.read_text()); d=decisions(src,st)
+ d['source_sha256']='not-the-source'
+ destination=tmp_path/'out.3mf'
+ original_source=src.read_bytes()
+ original_destination=b'existing destination sentinel\x00'
+ destination.write_bytes(original_destination)
+ with pytest.raises(RuntimeError, match='exact-source'):
+  export_color_geometry(src,destination,d)
+ assert src.read_bytes()==original_source
+ assert destination.read_bytes()==original_destination
+
 def _mesh(path, vertices):
     body = ''.join(f'<vertex x="{x}" y="{y}" z="{z}"/>' for x, y, z in vertices)
     return f'<model unit="millimeter"><resources><object id="1"><mesh><vertices>{body}</vertices><triangles><triangle v1="0" v2="1" v3="2"/></triangles></mesh></object></resources></model>'
