@@ -17,10 +17,10 @@ the pieces that already own each fact — nothing here reimplements them:
   explicit setting is the bundled one);
 - the doctor checks from ``print_handy.doctor``, reused function by
   function and rendered as data: a failing check is a ``fail`` row, never
-  an exception. The two live Discord REST probes (``check_discord_login``
-  and ``check_shared_token``) are the only doctor rows left out: they
-  need the bot token and up to a 10 s network call, so they stay with
-  ``python3 -m print_handy.doctor`` where an operator asked for them.
+  an exception. The live Discord REST probe (``check_discord_login``)
+  is the only doctor row left out: it needs the bot token and up to a
+  10 s network call, so it stays with ``python3 -m print_handy.doctor``
+  where an operator asked for it.
 
 ``printer_status()`` is the per-printer companion (#664): one roster
 printer's live status for ``GET /api/printers/<id>/status``, read through
@@ -201,7 +201,6 @@ def doctor_checks(data):
         report(key.replace("_url", ""), doctor.check_service, data, key)
     report("zmod version", doctor.check_zmod_version, data)
     report("bot mode", doctor.check_bot, data)
-    report("hermes discord platform", doctor.check_hermes_platform, data)
     report("logging", doctor.check_logging, data)
     try:
         heartbeat_warning = doctor.check_listener_heartbeats(data)

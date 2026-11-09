@@ -45,10 +45,9 @@ def pinned_hermes_home() -> Path:
     return Path(_pinned["paths"]["hermes_home"])
 
 
-# The shipped default profile name, and the standalone bot's identity label
-# (print_handy.bot.runtime.PROFILE stamps it on the bot's own sources). It is
-# the fallback identity when no hosting profile can be derived — standalone
-# runtimes, which have no Hermes profile at all (#574).
+# The shipped default profile name, and the bot's identity label
+# (print_handy.bot.runtime.PROFILE stamps it on the bot's own sources):
+# the one hosting identity every install answers for (#574).
 DEFAULT_PROFILE = "3dprinting"
 
 

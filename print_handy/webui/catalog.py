@@ -436,7 +436,7 @@ CATALOG = (
     _field("vision", "local_model_path", "Local detector model path", "text",
            "Where the local failure detector's ONNX model file lives. "
            "Empty uses the default location (a models folder under the "
-           "Hermes home) and the pinned model; name a model file you "
+           "data folder) and the pinned model; name a model file you "
            "placed yourself to run fully offline.",
            validator="settings vision check"),
     _field("vision", "local_empty_enabled", "Local empty-plate reference", "toggle",
