@@ -644,6 +644,10 @@ def export_production_plate(source, target, decisions, slot_colors):
     if len(chosen) != 1:
         raise RuntimeError('production plate uses one filament index; mixed slots need per-object extruders')
     slot = chosen.pop()
+    # A single selected physical slot may correspond to any source logical
+    # filament index. Preserve every package member and change only the
+    # selected object's/part's logical extruder references to the source
+    # filament index whose color is being recolored below.
     # The color only recolors the plate's filament label and preview. A
     # slot without a code gets its name's color or the neutral default
     # (with a WARNING) rather than a refused slice.
