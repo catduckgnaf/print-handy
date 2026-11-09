@@ -155,12 +155,11 @@ EXEMPTIONS = {
     # carried webui-surface exemptions until the first-boot parity program's
     # settings-completeness pass gave all three catalog fields; the
     # exemptions were removed with the fields, per the ratchet.
-    # Follow-up note (not an exemption): the first-boot parity plan's
-    # surface list also names the in-repo Unraid template
-    # (docker/unraid/print-handy.xml) for these keys. That file is
-    # deliberately NOT touched by the parity program — PR #1108 owns the
-    # template's slim shape — so template entries for the three keys are
-    # #1108's follow-up, recorded here so the gap is named, not silent.
+    # Note (not an exemption): the first-boot parity plan's surface list
+    # also named the in-repo Unraid template (docker/unraid/print-handy.xml)
+    # for these keys. #1108 has since merged and slimmed that template to
+    # the CA set plus Spoolman, so it carries no Web UI settings at all and
+    # no template entry is owed for the three keys.
 }
 # --- end of EXEMPTIONS ------------------------------------------------------
 
