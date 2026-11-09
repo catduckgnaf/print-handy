@@ -15,27 +15,6 @@ Current release: **2.2.7**
 
 [Get started](#get-started) · [See it in action](#see-it-in-action) · [Documentation](https://catduckgnaf.github.io/print-handy-docs/) · [Discord server](https://discord.gg/mT2Ht3nqZu) · [Contribute](CONTRIBUTING.md) · [Releases](https://github.com/catduckgnaf/print-handy/releases)
 
-## Why this exists
-
-Bambu owners get a slick phone app: find a model, tap print, check on it from anywhere. Everyone else gets a slicer chained to a desktop, a USB stick, and a walk to the garage to see if the first layer stuck.
-
-Print Handy is that phone experience for everybody else, Bambu included. Klipper, Flashforge, Prusa, Elegoo, Creality, Sovol, Snapmaker, Qidi, Anycubic and OctoPrint printers all work. It lives in the chat app you already have open, so "print this" is one pasted link instead of a sit-down session with a slicer.
-
-**Local-first, on purpose.** Print Handy is one program running on your hardware: the slicer, the spool records, the print history and the camera checks all stay on your network, and your printers are reached at their local addresses. There is no Print Handy account and no Print Handy cloud. One honest exception: the chat app you pick carries what you send through it — a model file, a photo, a timelapse — over that provider's servers, exactly like any other message in Discord or Telegram. Print Handy adds no cloud of its own on top of that, and its local surfaces (the doctor, the Web UI, a self-hosted Matrix room) run in the house, on your network — reaching the Web UI from outside is your own network's choice (a VPN, a proxy, or a login you set first), never a Print Handy service. A model endpoint is just an optional extra you can point at a server in your own house: with none configured at all, Print Handy still slices, prints, tracks spools and reports back. The chat platform is the remote control you pick for that flow (Discord, Telegram or Matrix, all running against your local install), and the local-only surfaces — the doctor and the Web UI — need no chat platform at all.
-
-It is also a little mean. Every finished print comes with a one-line roast of your model (another articulated dragon? bold choice), the camera watchdog asks whether that's spaghetti or modern art, and nothing prints until a human says so. Usually you. Possibly someone with better taste.
-
-*Not affiliated with Bambu Lab. We just liked their app enough to want it on every other printer.*
-
-## How it works
-
-1. **Share a model.** Drop a MakerWorld, Printables, Thingiverse, MyMiniFactory, Creality Cloud, Thangs or Nexprint link in the chat, a direct link to an STL or 3MF file (a Dropbox share link works too), or upload an STL or 3MF file. MakerOnline links are checked for their file inventory only; downloads are not supported. Cults3D links are recognized the same way, but Cults' API exposes listing details only, never the files, so intake names that gap instead.
-2. **Make a few choices.** A model that comes as several files (a box, its lid, a latch) prints as one job; you only pick between versions of a part, such as a lid with or without a logo. Print Handy walks you through colors and filament, how many copies, and — if the model needs it — how it should fit on the bed. Then it slices the model for your printer.
-3. **Check and confirm.** You see the result before anything happens. Only when you approve it does Print Handy send the job to a configured printer.
-4. **Follow along.** Progress, alerts, the timelapse and a roast of your model choices come back to the same chat.
-
-That's the whole idea: the convenience of printing from chat, with a human — you — making the final call every time.
-
 ## See it in action
 
 **Drop a link, pick your colors.**
@@ -63,6 +42,27 @@ That's the whole idea: the convenience of printing from chat, with a human — y
 These are mockups built from the bot's real message text and buttons, with placeholder names; the roast line is an example of the style, since real roasts are drawn per print from the local roast corpus. Sources for every line are in [assets/screenshots](assets/screenshots/README.md).
 
 </details>
+
+## Why this exists
+
+Bambu owners get a slick phone app: find a model, tap print, check on it from anywhere. Everyone else gets a slicer chained to a desktop, a USB stick, and a walk to the garage to see if the first layer stuck.
+
+Print Handy is that phone experience for everybody else, Bambu included. Klipper, Flashforge, Prusa, Elegoo, Creality, Sovol, Snapmaker, Qidi, Anycubic and OctoPrint printers all work. It lives in the chat app you already have open, so "print this" is one pasted link instead of a sit-down session with a slicer.
+
+**Local-first, on purpose.** Print Handy is one program running on your hardware: the slicer, the spool records, the print history and the camera checks all stay on your network, and your printers are reached at their local addresses. There is no Print Handy account and no Print Handy cloud. One honest exception: the chat app you pick carries what you send through it — a model file, a photo, a timelapse — over that provider's servers, exactly like any other message in Discord or Telegram. Print Handy adds no cloud of its own on top of that, and its local surfaces (the doctor, the Web UI, a self-hosted Matrix room) run in the house, on your network — reaching the Web UI from outside is your own network's choice (a VPN, a proxy, or a login you set first), never a Print Handy service. A model endpoint is just an optional extra you can point at a server in your own house: with none configured at all, Print Handy still slices, prints, tracks spools and reports back. The chat platform is the remote control you pick for that flow (Discord, Telegram or Matrix, all running against your local install), and the local-only surfaces — the doctor and the Web UI — need no chat platform at all.
+
+It is also a little mean. Every finished print comes with a one-line roast of your model (another articulated dragon? bold choice), the camera watchdog asks whether that's spaghetti or modern art, and nothing prints until a human says so. Usually you. Possibly someone with better taste.
+
+*Not affiliated with Bambu Lab. We just liked their app enough to want it on every other printer.*
+
+## How it works
+
+1. **Share a model.** Drop a MakerWorld, Printables, Thingiverse, MyMiniFactory, Creality Cloud, Thangs or Nexprint link in the chat, a direct link to an STL or 3MF file (a Dropbox share link works too), or upload an STL or 3MF file. MakerOnline links are checked for their file inventory only; downloads are not supported. Cults3D links are recognized the same way, but Cults' API exposes listing details only, never the files, so intake names that gap instead.
+2. **Make a few choices.** A model that comes as several files (a box, its lid, a latch) prints as one job; you only pick between versions of a part, such as a lid with or without a logo. Print Handy walks you through colors and filament, how many copies, and — if the model needs it — how it should fit on the bed. Then it slices the model for your printer.
+3. **Check and confirm.** You see the result before anything happens. Only when you approve it does Print Handy send the job to a configured printer.
+4. **Follow along.** Progress, alerts, the timelapse and a roast of your model choices come back to the same chat.
+
+That's the whole idea: the convenience of printing from chat, with a human — you — making the final call every time.
 
 ## Get started
 
