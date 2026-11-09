@@ -1,23 +1,21 @@
 """The first-run walkthrough (#813): /walkthrough.
 
-The access gate (#708) decides *whether* this Web UI may be used; this
-walkthrough is what a brand-new install does next — a real five-step
+This walkthrough is what a brand-new install does first — a six-step
 walk through the settings a first print needs, in the prototype's
-order: Printer, Chat, Camera, Providers, Review. It was the missing
-half of the first run: before #813 an install that had just chosen its
-access landed on a bare status page and had to find the raw
-configuration form on its own.
+order: Printer, Chat, Camera, Login, Providers, Review. It was the
+missing half of the first run: before #813 an install landed on a bare
+status page and had to find the raw configuration form on its own.
 
-Who sees it: installs that resolved access through the setup page —
-i.e. ``webui_access.json`` exists in the state folder — and have not
-finished the walkthrough. Installs authorized any other way (an
-environment token, a loopback bind, ``require_auth = false``) never see
-it: they predate or bypass the setup page, and the walkthrough must not
-spring on existing installs. While it is pending, browser navigations
-to the status page redirect here (the same discipline as the setup
-gate), every other route stays reachable, and the status page carries
-a slim "finish setting up" banner until it is done. The access gate
-still runs first: /setup until the access choice exists.
+Who sees it: every install that has not finished it, however access
+was resolved — an environment token, a loopback bind, ``require_auth
+= false``, a saved login, or no credential at all. There is no access
+gate in front of it any more: since the setup-gate reversal an
+unclaimed install serves the Web UI openly, and this walkthrough —
+offered from the first browser landing — is where a login is set, in
+its Login step, if the operator wants one. While it is pending, the
+first browser navigation to the status page redirects here once,
+every other route stays reachable, and the status page carries a slim
+"finish setting up" banner until it is done.
 
 State is one small JSON file beside the access file,
 ``webui_walkthrough.json`` — ``{"step": <index>, "done": bool,
@@ -75,9 +73,9 @@ STEPS = (
 )
 
 STEP_LEADS = {
-    "printer": "The printer Print Handy prepares prints for, and how it reaches the "
-               "printer on the network. Everything here can be changed again later "
-               "in Configuration.",
+    "printer": "The printer Print Handy prepares prints for, how it reaches the "
+               "printer on the network, and where Spoolman tracks its filament. "
+               "Everything here can be changed again later in Configuration.",
     "chat": "Where Print Handy talks. Drop a model link in the chat and the bot "
             "answers there, asks which design, slices it, and prints only after a "
             "confirmation. Only the chosen platform's fields are shown.",
@@ -106,11 +104,17 @@ STEP_FIELDS = {
     # Bambu serial its validator pairs with the host), so a Bambu LAN,
     # PrusaLink, stock Flashforge or Elegoo SDCP install can configure
     # its connection on this step just like a Moonraker or OctoPrint one.
+    # Spoolman rides the Printer step: it is the one service the chat
+    # setup asked about that this walkthrough used to skip, and one
+    # field does not need a step of its own.
     "printer": ("printer.name", "printer.model", "services.moonraker_url",
                 "services.octoprint_url", "bambu.lan_host", "bambu.lan_serial",
                 "prusa.link_host", "flashforge_stock.host", "elegoo_sdcp.host",
-                "printer.zmod_delivery_format"),
-    "chat": ("bot.platform", "bot.mode", "discord.chat_id", "discord.allowed_user_ids",
+                "printer.zmod_delivery_format", "services.spoolman_url"),
+    # No bot.mode field: since the Hermes removal the only legal value
+    # is "standalone", which chat setup and the wizard hard-code — a
+    # one-answer question is not a question.
+    "chat": ("bot.platform", "discord.chat_id", "discord.allowed_user_ids",
              "telegram.chat_id", "telegram.allowed_user_ids", "matrix.homeserver_url",
              "matrix.room_id", "matrix.allowed_user_ids"),
     "camera": ("services.camera_source", "services.camera_snapshot_url",
