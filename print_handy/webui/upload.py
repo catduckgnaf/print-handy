@@ -30,6 +30,7 @@ import hashlib
 import json
 import re
 import secrets
+import threading
 import time
 from email import policy
 from email.parser import BytesParser
@@ -43,6 +44,21 @@ _esc = shell._esc
 
 LINKS_FILE_NAME = "webui_upload_links.json"
 MAX_UPLOAD_BYTES = intake_resources.MAX_DOWNLOAD_BYTES
+
+# The Web UI server is threaded, so two uploads can arrive together.
+# Name selection and the write that claims the name stay under one
+# lock: without it, two same-name uploads can both pass the clash
+# check, share one target and one temp path, and overwrite or lose
+# each other's file.
+_SAVE_UPLOAD_LOCK = threading.Lock()
+
+# The link store is one JSON file rewritten whole on every change, so
+# its read-modify-write operations need the same treatment: without a
+# lock, two concurrent operations load the same copy and the later
+# save silently drops the earlier one's change — a create can be
+# lost, a use count can go backwards, and a note-use save made from a
+# stale copy can resurrect a link that was just revoked.
+_LINKS_LOCK = threading.Lock()
 
 
 def inbox_dir(data) -> Path:
@@ -69,7 +85,10 @@ def _load_links(data) -> dict:
 def _save_links(data, links) -> None:
     path = _links_path(data)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
+    # A unique temp name per call: with one fixed temp path, two
+    # concurrent saves write the same file and one replace then fails
+    # (or moves the other save's contents).
+    tmp = path.parent / f"{path.name}.{secrets.token_hex(8)}.tmp"
     tmp.write_text(json.dumps(links, indent=2) + "\n", encoding="utf-8")
     tmp.replace(path)
 
@@ -77,9 +96,10 @@ def _save_links(data, links) -> None:
 def create_link(data) -> str:
     """Mint an upload-link token; only its digest is stored."""
     token = secrets.token_urlsafe(24)
-    links = _load_links(data)
-    links[_digest(token)] = {"created": int(time.time()), "uses": 0}
-    _save_links(data, links)
+    with _LINKS_LOCK:
+        links = _load_links(data)
+        links[_digest(token)] = {"created": int(time.time()), "uses": 0}
+        _save_links(data, links)
     return token
 
 
@@ -88,18 +108,20 @@ def link_valid(data, token) -> bool:
 
 
 def note_link_use(data, token) -> None:
-    links = _load_links(data)
-    entry = links.get(_digest(token))
-    if entry is not None:
-        entry["uses"] = int(entry.get("uses") or 0) + 1
-        _save_links(data, links)
+    with _LINKS_LOCK:
+        links = _load_links(data)
+        entry = links.get(_digest(token))
+        if entry is not None:
+            entry["uses"] = int(entry.get("uses") or 0) + 1
+            _save_links(data, links)
 
 
 def revoke_link(data, digest) -> bool:
-    links = _load_links(data)
-    if links.pop(str(digest or ""), None) is None:
-        return False
-    _save_links(data, links)
+    with _LINKS_LOCK:
+        links = _load_links(data)
+        if links.pop(str(digest or ""), None) is None:
+            return False
+        _save_links(data, links)
     return True
 
 
@@ -133,15 +155,19 @@ def save_upload(data, filename, content: bytes):
     if not content:
         return None, "the file is empty; nothing was saved"
     folder = inbox_dir(data)
-    folder.mkdir(parents=True, exist_ok=True)
-    target = folder / name
-    counter = 1
-    while target.exists():
-        target = folder / f"{Path(name).stem}-{counter}{suffix}"
-        counter += 1
-    tmp = target.with_suffix(target.suffix + ".tmp")
-    tmp.write_bytes(content)
-    tmp.replace(target)
+    with _SAVE_UPLOAD_LOCK:
+        folder.mkdir(parents=True, exist_ok=True)
+        target = folder / name
+        counter = 1
+        while target.exists():
+            target = folder / f"{Path(name).stem}-{counter}{suffix}"
+            counter += 1
+        # A unique temp name per call, so a temp file is never shared
+        # with another upload even outside this process's lock.
+        tmp = target.with_suffix(
+            target.suffix + f".{secrets.token_hex(8)}.tmp")
+        tmp.write_bytes(content)
+        tmp.replace(target)
     return target, None
 
 
