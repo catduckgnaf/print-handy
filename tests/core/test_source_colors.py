@@ -34,11 +34,26 @@ class FilamentStatsTests(unittest.TestCase):
         self.assertEqual(stats["total_g"], 105.5)
         self.assertEqual(stats["plates"]["1"], {
             "extruders": {1: {"g": 40.0, "m": 13.0}, 2: {"g": 5.5, "m": 1.8}},
-            "total_g": 45.5, "total_m": 14.8, "usage_known": True})
+            "total_g": 45.5, "total_m": 14.8, "usage_known": True,
+            "usage_unknown_reason": None})
         self.assertEqual(stats["plates"]["2"], {
             "extruders": {1: {"g": 60.0, "m": 20.0}},
-            "total_g": 60.0, "total_m": 20.0, "usage_known": True})
+            "total_g": 60.0, "total_m": 20.0, "usage_known": True,
+            "usage_unknown_reason": None})
         self.assertEqual(sum(e["g"] for e in stats["extruders"].values()), stats["total_g"])
+
+    def test_invalid_per_plate_filament_usage_is_explicitly_unknown(self):
+        path = self.dir / "unknown.3mf"
+        xml = """<config><plate><metadata key="index" value="9"/>
+        <filament id="bad" used_g="2" used_m="1"/></plate></config>"""
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("Metadata/slice_info.config", xml)
+        # Inventory consumers must not mistake an empty parse for proof of zero usage.
+        manifest = {}
+        sc._append_filament_stats(path, manifest)
+        self.assertFalse(manifest["filament_stats"]["plates"]["9"]["usage_known"])
+        self.assertEqual(manifest["filament_stats"]["plates"]["9"]["usage_unknown_reason"],
+                         "invalid source filament usage record")
 
     def test_per_plate_filament_usage_preserves_explicit_plate_ids(self):
         path = self.dir / "indexed.3mf"

@@ -589,6 +589,8 @@ def _append_filament_stats(path, manifest):
                 if 'Metadata/slice_info.config' in names:
                     root = ET.fromstring(z.read('Metadata/slice_info.config'))
                     stats['plates'] = {}
+                    expected_filaments = {f.get('source_extruder') for f in manifest.get('filaments') or []
+                                          if f.get('source_extruder')}
                     for plate_index, plate in enumerate(root.findall('.//plate'), 1):
                         # Bambu's slice_info.config reports real sliced usage per plate.
                         # Preserve its plate index and source filament IDs; do not
@@ -596,11 +598,18 @@ def _append_filament_stats(path, manifest):
                         meta = {m.get('key'): m.get('value') for m in plate.findall('metadata')}
                         plate_id = meta.get('index') or str(plate_index)
                         plate_stats = {'extruders': {}, 'total_g': 0.0, 'total_m': 0.0,
-                                       'usage_known': True}
+                                       'usage_known': True, 'usage_unknown_reason': None}
                         for fil in plate.findall('.//filament'):
                             g = float(fil.get('used_g', 0))
                             m = float(fil.get('used_m', 0))
-                            ext_id = int(fil.get('id', 1))
+                            try:
+                                ext_id = int(fil.get('id'))
+                                if ext_id < 1 or g < 0 or m < 0:
+                                    raise ValueError
+                            except (TypeError, ValueError):
+                                plate_stats['usage_known'] = False
+                                plate_stats['usage_unknown_reason'] = 'invalid source filament usage record'
+                                continue
                             if g > 0 or m > 0:
                                 # One filament can feed several plates: add them, never keep only the last plate.
                                 ext = stats['extruders'].setdefault(ext_id, {'g': 0.0, 'm': 0.0})
@@ -611,6 +620,10 @@ def _append_filament_stats(path, manifest):
                                 plate_stats['extruders'][ext_id] = {'g': g, 'm': m}
                                 plate_stats['total_g'] += g
                                 plate_stats['total_m'] += m
+                        observed = set(plate_stats['extruders'])
+                        if expected_filaments and not observed:
+                            plate_stats['usage_known'] = False
+                            plate_stats['usage_unknown_reason'] = 'plate has no validated filament usage records'
                         plate_stats['total_g'] = round(plate_stats['total_g'], 1)
                         plate_stats['total_m'] = round(plate_stats['total_m'], 1)
                         stats['plates'][str(plate_id)] = plate_stats
