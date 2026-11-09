@@ -63,8 +63,6 @@ EXEMPTIONS = {
     ("agent", "timeout_s"): (frozenset({"webui"}), "#657"),
     # The AI tier tables (#818) are file-only: model routes and key names
     # are set in the settings file, not from a page click.
-    # The AI edit-lane gate (#902) is file-only too: who may reach the AI is
-    # an operator decision made in the settings file.
     ("ai", "chat"): (frozenset({"webui"}), "#818"),
     ("ai", "heavy"): (frozenset({"webui"}), "#818"),
     ("ai", "small"): (frozenset({"webui"}), "#818"),

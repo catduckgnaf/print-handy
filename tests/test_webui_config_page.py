@@ -154,6 +154,10 @@ class ConfigPageTests(unittest.TestCase):
                      "timelapse.render_wait_s", "printer.slicer",
                      "delivery.methods", "logging.level", "webui.port"):
             self.assertIn(f'name="{name}"', joined, name)
+        # The AI group names its file-only tier tables in the page.
+        self.assertIn("File-only in this section: the [ai] tier tables", bodies["ai"])
+        self.assertIn('name="ai.allowed_users"', bodies["ai"])
+        self.assertIn('name="ai.edit_requests_per_hour"', bodies["ai"])
         # Provenance badges: the file value, the home value, a model default.
         self.assertIn("settings file", row_segment(bodies["platform"], "discord.chat_id"))
         self.assertIn("home config", row_segment(bodies["printers"], "printer.model"))

@@ -218,6 +218,29 @@ def test_pause_alerts_post_once_per_episode_and_retire_at_the_end():
     assert rec.retires == [(REMOTE, "Print complete.")]
 
 
+def test_pause_alerts_resume_clears_the_pause_ping_episodes(monkeypatch, tmp_path):
+    """A resume ends the pause for the starter-pings classifier too:
+    the tracker's printing-after-paused transition clears the job's
+    pause episodes, so a later pause is a new problem that can ping.
+    Other kinds' episodes (the watchdog's) are not the pause's to clear."""
+    import json
+
+    from print_handy.hermes import starter_pings
+    state = tmp_path / "starter_pings.json"
+    monkeypatch.setattr(starter_pings, "STATE", state)
+    state.write_text(json.dumps({REMOTE: {
+        "episodes": {"paused:runout": 100.0, "watchdog": 90.0},
+        "last_ping": 100.0}}))
+    rec = Recorder()
+    alerts = tracker(rec)
+    alerts.note("printing", st("printing"))
+    alerts.note("paused", st("paused"))
+    alerts.note("printing", st("printing"))       # the resume
+    data = json.loads(state.read_text())
+    assert "paused:runout" not in data[REMOTE]["episodes"]
+    assert data[REMOTE]["episodes"]["watchdog"] == 90.0
+
+
 def test_pause_alerts_first_observation_is_a_baseline():
     rec = Recorder()
     alerts = tracker(rec)

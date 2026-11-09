@@ -41,7 +41,9 @@ or core change should be needed.
 """
 from __future__ import annotations
 
+import contextlib
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
@@ -77,6 +79,14 @@ def parse_custom_id(value):
     if not cid or not index.isdigit():
         return None
     return cid, int(index)
+
+
+def _prompts_guard(adapter):
+    """The adapter's prompts lock, or a no-op context when the adapter
+    object predates it (built without __init__, as some tests do — the
+    same rule as the Web UI's _chat_lock)."""
+    lock = getattr(adapter, "_prompts_lock", None)
+    return lock if lock is not None else contextlib.nullcontext()
 
 
 def answered_note(text):
@@ -217,6 +227,12 @@ class BasePlatformAdapter:
         self.denied = {str(u) for u in denied}
         self.registry = registry
         self._prompts: dict[str, dict[str, Any]] = {}
+        # Guards _prompts: adapters record and close prompts on the bot
+        # event-loop thread while another thread may snapshot them (the
+        # Web UI renders the open prompt on a request thread). Every
+        # mutation and every snapshot takes this lock; single dict reads
+        # and writes are not enough once a reader iterates.
+        self._prompts_lock = threading.Lock()
 
     # ------------------------------------------------------------------ who may act
 
@@ -277,17 +293,31 @@ class BasePlatformAdapter:
     # ------------------------------------------------------------------ prompts
 
     def _record_prompt(self, clarify_id, row):
-        self._prompts[str(clarify_id)] = row
-        self._forget_closed()
+        with _prompts_guard(self):
+            self._prompts[str(clarify_id)] = row
+            self._forget_closed()
 
     def _forget_closed(self):
+        # The caller (_record_prompt) holds _prompts_lock.
         for cid in [c for c in self._prompts if not self.registry.is_open(c)]:
             self._prompts.pop(cid, None)
 
+    def prompts_snapshot(self):
+        """[(clarify_id, row), ...] for the recorded prompts, oldest first.
+
+        A copy taken under _prompts_lock, so a caller on any thread can
+        iterate it while the bot loop records or closes prompts: building
+        the list from the live dict instead can raise RuntimeError
+        ("dictionary changed size during iteration") mid-snapshot.
+        """
+        with _prompts_guard(self):
+            return list(self._prompts.items())
+
     def open_prompt(self, session_key):
         """The newest open button question asked under ``session_key``, else None."""
+        cids = [cid for cid, _row in self.prompts_snapshot()]
         # The registry key is the live chat session (who asked, where); send_clarify's key names the flow.
-        hits = [cid for cid in self._prompts if self.registry.session_key(cid) == str(session_key)]
+        hits = [cid for cid in cids if self.registry.session_key(cid) == str(session_key)]
         if hits:
             return hits[-1]
         # Shared channels (#536): a decided intake registers its questions
@@ -295,7 +325,7 @@ class BasePlatformAdapter:
         # only when exactly one printer has open questions there — with two
         # printers waiting, the reply is ambiguous and resolves nothing.
         prefix = f"{session_key}{prompts.PRINTER_KEY_SEP}"
-        scoped = [(cid, str(self.registry.session_key(cid))) for cid in self._prompts
+        scoped = [(cid, str(self.registry.session_key(cid))) for cid in cids
                   if str(self.registry.session_key(cid)).startswith(prefix)]
         printers = {key[len(prefix):] for _cid, key in scoped}
         if len(printers) != 1:
@@ -346,7 +376,8 @@ class BasePlatformAdapter:
             logger.info("refused approval button press from %s user %s: %s",
                         self.name, user_id, self.approval_refusal_reason(user_id))
             return None
-        row = self._prompts.get(str(clarify_id))
+        with _prompts_guard(self):
+            row = self._prompts.get(str(clarify_id))
         labels = row["choices"] if row else (self.registry.choices(clarify_id) or [])
         if not 0 <= index < len(labels):
             return None
@@ -364,4 +395,5 @@ class BasePlatformAdapter:
 
     async def close_prompt(self, clarify_id, note):  # pragma: no cover - overridden per platform
         """Edit or close the service-side prompt message. Default: nothing to edit."""
-        self._prompts.pop(str(clarify_id), None)
+        with _prompts_guard(self):
+            self._prompts.pop(str(clarify_id), None)

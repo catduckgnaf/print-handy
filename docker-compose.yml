@@ -77,9 +77,14 @@ services:
       # Discord chat LLM (#466): true by default; false runs Discord as a
       # pure bot while the LLM below stays configured for /print-design.
       PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED: ${PRINT_HANDY__DISCORD__CHAT_LLM_ENABLED:-true}
-      # Mention the starter when a print ends: true by default; the terminal
-      # post @mentions only the user who started that print.
-      PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE: ${PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE:-true}
+      # Mention the starter when a print needs them (PRINT_HANDY__DISCORD__MENTION_STARTER,
+      # true by default) is deliberately NOT listed here: a ${...:-true}
+      # entry would be applied after the .env env_file and silently undo
+      # an opt-out an existing install recorded there under the earlier
+      # spelling (ending __MENTION_STARTER_ON_COMPLETE), which the loader
+      # still honors as an alias for the renamed setting. Unset, the
+      # shipped default (true) stands; set either spelling in .env to
+      # override, via the env_file above (the P2-88 watchdog rule).
       PRINT_HANDY__LLM__CHAT_URL: ${PRINT_HANDY__LLM__CHAT_URL:-}
       PRINT_HANDY__LLM__MODEL: ${PRINT_HANDY__LLM__MODEL:-}
       # AI design (#388) has no ENABLED line here on purpose: unset is AUTO
@@ -91,15 +96,22 @@ services:
       PRINT_HANDY__DESIGN__API_KEY_ENV: ${PRINT_HANDY__DESIGN__API_KEY_ENV:-}
       PRINT_HANDY__DESIGN__TIMEOUT_S: ${PRINT_HANDY__DESIGN__TIMEOUT_S:-180}
       PRINT_HANDY__DESIGN__REPAIR_ATTEMPTS: ${PRINT_HANDY__DESIGN__REPAIR_ATTEMPTS:-3}
-      # Optional Web UI (#286, docs/DOCKER.md "Web UI"): served inside the
-      # container on 8088 by default (#708), but nothing reaches it until the
-      # port is published below. With no WEBUI_ACCESS_TOKEN in .env the first
-      # visit shows a setup page: set a password or confirm it stays open. The token is a secret: it
+      # Web UI (#286, docs/DOCKER.md "Web UI"): served inside the
+      # container on 8088, and the port is published below so the first
+      # visit from the host just works. With no WEBUI_ACCESS_TOKEN in .env
+      # the Web UI is open with no login and offers the setup walkthrough;
+      # set a password there, or set the token here, if you want one. The token is a secret: it
       # reaches the container through the .env env_file only, never an
       # environment: entry here. ENABLED=false turns it off entirely.
       PRINT_HANDY__WEBUI__ENABLED: ${PRINT_HANDY__WEBUI__ENABLED:-true}
       PRINT_HANDY__WEBUI__HOST: ${PRINT_HANDY__WEBUI__HOST:-0.0.0.0}
       PRINT_HANDY__WEBUI__PORT: ${PRINT_HANDY__WEBUI__PORT:-8088}
+      # PRINT_HANDY__WEBUI__CHAT_ENABLED / __CHAT_LLM_ENABLED are deliberately
+      # NOT listed here (P2-88): a ${...:-true} entry would be applied after
+      # the mounted config and silently undo a web chat toggle the operator
+      # set false there. Set them in .env (env_file above) to override;
+      # unset, the mounted config's values — the shipped defaults are both
+      # true — stand.
       # Live camera in Discord (#311, docs/DOCKER.md "Live camera in Discord"):
       # off by default. ENABLED=true plus a voice channel, the tunnel's https
       # activity origin and a loopback PORT (for example 8091) starts the
@@ -143,11 +155,14 @@ services:
       - ${PRINT_HANDY_DATA:-./data}/records:/data/records
       - ${PRINT_HANDY_DATA:-./data}/cache:/data/cache
       - ${PRINT_HANDY_SPOOLMAN_DATA:-./data/spoolman}:/data/spoolman
-    # No port is published by default. To reach the Web UI from the host,
-    # uncomment (host port 8088 to the Web UI port) — keep it on the LAN only,
-    # never forward it from a router:
-    # ports:
-    #   - "8088:${PRINT_HANDY__WEBUI__PORT:-8088}"
+    # The Web UI port is published by default (host port 8088 to the Web
+    # UI port), so a first boot is reachable from the host right away.
+    # Delete these two lines to keep the Web UI inside the container.
+    # The mapping reaches your local network; forwarding it from a router
+    # puts the Web UI on the public internet, where it should have a
+    # login set first (WEBUI_ACCESS_TOKEN or the walkthrough's Login step).
+    ports:
+      - "8088:${PRINT_HANDY__WEBUI__PORT:-8088}"
     # Optional bundled Spoolman API on the LAN (#443): for Moonraker on
     # printer hardware (for example a ZMod AD5X) or Home Assistant, ALSO
     # uncomment the Spoolman line and set SPOOLMAN_HOST=0.0.0.0 in .env —

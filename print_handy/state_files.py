@@ -58,8 +58,11 @@ KNOWN = (
     "screen_sync_pending.json",
     "spoolman_known_spools.json",
     "start-recordings",
+    "starter_pings.json",
     "stops",
     "timelapse_plans",
+    "webui-inbox",
+    "webui_upload_links.json",
 )
 
 # Files the cutover (#45) moved from $HOME into the profile state folder.

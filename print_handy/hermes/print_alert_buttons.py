@@ -1110,10 +1110,10 @@ def post_with_buttons(token: str, channel_id: str, content: str, kind: str, file
                       identity: Any = None, mention_user_id: str | None = None) -> bool:
     """Post the alert with buttons. False means the caller should fall back to plain text.
 
-    ``mention_user_id`` is the one user a terminal alert may ping (the
-    print's starter, read from the post's own starter-mention line, the
-    way ``bot.rest.send`` does for plain posts); every other mention in
-    the text stays inert.
+    ``mention_user_id`` is the one user this alert may ping (the print's
+    starter, decided by the starter pings classifier — starter_pings —
+    from the post kind and the job, #1095); every other mention in the
+    text stays inert.
 
     A family pause alert (#460) names its connection (and roster printer
     id) so handle_click routes the press to that family's own control;
@@ -1203,20 +1203,35 @@ def retire_alerts(token: str, filename: str | None, note: str, kinds: tuple[str,
     return retired
 
 
+def _allowed_mentions(mention_user_id: str | None) -> dict[str, Any]:
+    """The allowed_mentions for an alert post: nobody, or the one starter.
+
+    ``mention_user_id`` is the starter pings classifier's decision
+    (#1095); a non-numeric value names nobody, exactly as in
+    ``bot.rest.send``.
+    """
+    allowed: dict[str, Any] = {"parse": []}
+    if mention_user_id is not None and str(mention_user_id).isdigit():
+        allowed["users"] = [str(mention_user_id)]
+    return allowed
+
+
 def post_visual_alert(token: str, channel_id: str, content: str, filename: str, image: Path,
-                      identity: Any = None) -> bool:
+                      identity: Any = None, mention_user_id: str | None = None) -> bool:
     """Post one camera image and its safe visual-review buttons in a single Discord message.
 
     ``identity`` is the caller's per-print identity (#476): it rides on the
     alert record so a "Stop asking for this print" press mutes that print,
-    not just that filename.
+    not just that filename. ``mention_user_id`` is the one user this
+    watchdog alert may ping (the starter, when the classifier decided
+    this episode pings — #1095).
     """
     if not token or not channel_id or not image.is_file():
         return False
     aid = record("visual", filename, **({"identity": str(identity)} if identity else {}))
     boundary = f"----hermes-print-{secrets.token_hex(12)}"
     payload = json.dumps({"content": content[:1990], "components": components(aid, "visual"),
-                          "allowed_mentions": {"parse": []}}).encode()
+                          "allowed_mentions": _allowed_mentions(mention_user_id)}).encode()
     try:
         frame = image.read_bytes()
         if not frame:
@@ -1240,7 +1255,7 @@ def post_visual_alert(token: str, channel_id: str, content: str, filename: str, 
 
 
 def post_visual_text_alert(token: str, channel_id: str, content: str, filename: str,
-                           identity: Any = None) -> bool:
+                           identity: Any = None, mention_user_id: str | None = None) -> bool:
     """Post a visual alert with no image: the camera snapshot itself failed.
 
     post_visual_alert's buttons (Pause / "It's fine" / the per-print mute)
@@ -1254,7 +1269,7 @@ def post_visual_text_alert(token: str, channel_id: str, content: str, filename: 
         return False
     aid = record("visual", filename, **({"identity": str(identity)} if identity else {}))
     body = json.dumps({"content": content[:1990], "components": components(aid, "visual"),
-                       "allowed_mentions": {"parse": []}}).encode()
+                       "allowed_mentions": _allowed_mentions(mention_user_id)}).encode()
     req = urllib.request.Request(f"{rest.API}/channels/{channel_id}/messages", data=body,
                                  method="POST", headers={"Authorization": f"Bot {token}",
                                                          "Content-Type": "application/json",
