@@ -69,7 +69,7 @@ def chamber_light_payload(on):
 
 # The `project_file` sequence id every maintained client uses for a print start
 # (#308, from the #298 Stage 0 audit of maziggy/bambuddy at 98ecaf5: protocol facts
-# only, no code copied — Bambuddy is AGPL-3.0, this repo is MIT).
+# only, no code copied).
 PROJECT_FILE_SEQUENCE_ID = "20000"
 
 # Canonical AMS tray ids in a resolved mapping (ams_mapping.py produces these):

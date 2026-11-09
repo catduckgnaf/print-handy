@@ -5,17 +5,20 @@ preview (diff, writes nothing) -> confirm (the stage 1 validated write).
 Everything runs offline against a temp settings file named by
 PRINT_HANDY_CONFIG, with the server on an ephemeral loopback port.
 """
+import html as html_lib
 import http.client
 import re
 import tempfile
 import threading
 import unittest
+from dataclasses import replace
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from print_handy import settings
 from print_handy.webui import config as config_api
 from print_handy.webui import server
+from print_handy.webui.catalog import field_by_id
 
 TOKEN = "test-webui-token-12345"
 OTHER_SECRET = "test-discord-token-67890"
@@ -152,8 +155,13 @@ class ConfigPageTests(unittest.TestCase):
                      "services.camera_source", "services.camera_snapshot_url",
                      "visual_watch.sensitivity", "timelapse.mode",
                      "timelapse.render_wait_s", "printer.slicer",
-                     "delivery.methods", "logging.level", "webui.port"):
+                     "delivery.methods", "logging.level", "webui.port",
+                     "ai.allowed_users", "ai.edit_requests_per_hour"):
             self.assertIn(f'name="{name}"', joined, name)
+        # The AI section carries its file-only note (the [ai] tier tables
+        # have no fields); it renders only inside the selected section.
+        self.assertIn("File-only in this section: the [ai] tier tables",
+                      bodies["ai"])
         # Provenance badges: the file value, the home value, a model default.
         self.assertIn("settings file", row_segment(bodies["platform"], "discord.chat_id"))
         self.assertIn("home config", row_segment(bodies["printers"], "printer.model"))
@@ -320,6 +328,126 @@ class ConfigPageTests(unittest.TestCase):
             self.assertIn("No changes", body)
             self.assertEqual(local.read_bytes(), before)
 
+    def test_env_overridden_field_in_an_unshown_group_is_never_written(self):
+        # The env-override test above shows the field on its own tab,
+        # where it renders as a disabled control (never submitted). In
+        # an unshown group the same field rides as a hidden input, which
+        # IS submitted — a save from another tab must still never write
+        # it (parse_form skips overridden fields entirely).
+        environ = {"PRINT_HANDY__VISUAL_WATCH__SENSITIVITY": "4"}
+        with tempfile.TemporaryDirectory() as tmp:
+            port, local, environ = self.start(tmp, environ=environ)
+            _code, body, csrf = self.get_config(port, section="printers")
+            self.assertIn(
+                'type="hidden" name="visual_watch.sensitivity" value="4"', body)
+            from print_handy.webui.catalog import field_by_id
+            form = [(k, v) for k, v in hidden_inputs(body)]
+            visible = [(k, v) for k, v in self.browser_form(environ, csrf)
+                       if k == "_csrf" or (field_by_id(k) is not None
+                                           and field_by_id(k).group == "printers")]
+            form += [(k, v) for k, v in visible if k != "_csrf"]
+            form = [(k, v) for k, v in form if k != "printer.name"]
+            form.append(("printer.name", "Workshop"))
+            code, body = self.post(port, "/config/preview", form)
+            self.assertEqual(code, 200, body)
+            code, body = self.post(port, "/config", hidden_inputs(body))
+            self.assertEqual(code, 200, body)
+            data = settings.load(local=local, environ={})
+            self.assertEqual(data["printer"]["name"], "Workshop")
+            # The file holds no sensitivity, so the default (3) applies;
+            # the environment value (4) was never written.
+            self.assertEqual(data["visual_watch"]["sensitivity"], 3)
+            self.assertNotIn("sensitivity: 4", local.read_text())
+
+    def test_preview_error_in_another_group_lands_on_that_group(self):
+        # A browser submit always posts _section for the tab it was on.
+        # An error blamed on a field in another group must re-render on
+        # that group: on the posting tab the errored row exists only as
+        # a hidden input, so the message would render nowhere and the
+        # bad value could not be edited.
+        cases = [
+            # A parse error (camera group) posted from the printers tab.
+            ("printers", {"visual_watch.sensitivity": "9"},
+             "visual_watch.sensitivity", "Camera, timelapse and images"),
+            # A validator error (printers group) posted from the camera tab.
+            ("camera", {"services.moonraker_url": "printer.lan"},
+             "services.moonraker_url", "Printers"),
+        ]
+        for tab, overrides, field_id, heading in cases:
+            with self.subTest(field=field_id), tempfile.TemporaryDirectory() as tmp:
+                port, local, environ = self.start(tmp)
+                _code, _body, csrf = self.get_config(port, section=tab)
+                form = self.browser_form(environ, csrf, **overrides)
+                form.append(("_section", tab))
+                before = local.read_bytes()
+                code, body = self.post(port, "/config/preview", form)
+                self.assertEqual(code, 400, body)
+                self.assertIn(f"<h2>{heading}</h2>", body)
+                self.assertIn(f'id="row-{field_id}"', body)
+                self.assertIn('class="error"', row_segment(body, field_id))
+                self.assertEqual(local.read_bytes(), before)
+
+    def test_preview_confirm_form_keeps_the_posting_section(self):
+        # The confirm form reposts _section, so a save re-render (for
+        # example a general write refusal) lands back on the tab the
+        # user was working on instead of silently jumping to the first.
+        with tempfile.TemporaryDirectory() as tmp:
+            port, _local, environ = self.start(tmp)
+            _code, _body, csrf = self.get_config(port, section="camera")
+            form = self.browser_form(
+                environ, csrf, **{"visual_watch.sensitivity": "5"})
+            form.append(("_section", "camera"))
+            code, body = self.post(port, "/config/preview", form)
+            self.assertEqual(code, 200, body)
+            self.assertIn(("_section", "camera"), hidden_inputs(body))
+
+    def test_config_page_warns_before_a_tab_switch_discards_edits(self):
+        # Tab links are plain GETs: without a guard, clicking one throws
+        # away every edit made on the current tab (impossible before
+        # stage 3, when all groups shared one page).
+        with tempfile.TemporaryDirectory() as tmp:
+            port, _local, _environ = self.start(tmp)
+            _code, body, _csrf = self.get_config(port)
+        self.assertIn("Unsaved changes on this tab will be lost", body)
+        self.assertIn("config-tabs", body)
+        # The Set up links navigate away the same way, so the guard
+        # covers them too.
+        self.assertIn(".config-tabs a, .setup-reveal a", body)
+
+    def test_revealed_platform_stays_revealed_after_a_validation_error(self):
+        # ?setup= exists only on the GET: the form reposts it as _setup,
+        # so an error re-render keeps the revealed fields on screen with
+        # whatever the user typed instead of hiding them behind Set up.
+        with tempfile.TemporaryDirectory() as tmp:
+            port, local, environ = self.start(tmp, "discord:\n  chat_id: '12345'\n")
+            code, body = self.request(port, "GET",
+                                      "/config?section=platform&setup=telegram")
+            self.assertEqual(code, 200)
+            self.assertIn(("_setup", "telegram"), hidden_inputs(body))
+            csrf = dict(hidden_inputs(body))["_csrf"]
+            before = local.read_bytes()
+            form = self.browser_form(environ, csrf, **{"bot.platform": "nope"})
+            form += [("_section", "platform"), ("_setup", "telegram")]
+            code, body = self.post(port, "/config/preview", form)
+            self.assertEqual(code, 400, body)
+            self.assertIn('class="error"', row_segment(body, "bot.platform"))
+            self.assertIn('id="row-telegram.chat_id"', body)
+            self.assertNotIn("Set up Telegram", body)
+            self.assertNotIn('id="row-matrix.room_id"', body)
+            self.assertIn("Set up Matrix", body)
+            self.assertIn(("_setup", "telegram"), hidden_inputs(body))
+            self.assertEqual(local.read_bytes(), before)
+
+    def test_preview_confirm_form_keeps_the_reveal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            port, _local, environ = self.start(tmp, "discord:\n  chat_id: '12345'\n")
+            _code, _body, csrf = self.get_config(port, section="platform")
+            form = self.browser_form(environ, csrf, **{"discord.chat_id": "999"})
+            form += [("_section", "platform"), ("_setup", "telegram")]
+            code, body = self.post(port, "/config/preview", form)
+            self.assertEqual(code, 200, body)
+            self.assertIn(("_setup", "telegram"), hidden_inputs(body))
+
     # -- save flow -----------------------------------------------------------
 
     def test_preview_shows_exact_diff_and_writes_nothing(self):
@@ -397,6 +525,31 @@ class ConfigPageTests(unittest.TestCase):
                     self.assertIn(needle, row_segment(body, field_id))
                 self.assertEqual(local.read_bytes(), before)
                 self.assertFalse(list(Path(tmp).glob("*.bak-*")))
+
+    def test_cross_section_error_lands_on_the_errored_section(self):
+        # A save submitted from one tab carries every other section's
+        # fields as hidden inputs; an invalid hidden value errors against
+        # a field the submitted tab does not show. The error re-render
+        # must land on the errored field's section — the submitted tab
+        # renders that section as hidden inputs only, so staying on it
+        # would show no error anywhere.
+        with tempfile.TemporaryDirectory() as tmp:
+            port, local, environ = self.start(tmp)
+            _code, _body, csrf = self.get_config(port, section="printers")
+            before = local.read_bytes()
+            form = self.browser_form(environ, csrf,
+                                     **{"visual_watch.sensitivity": "9"})
+            form.append(("_section", "printers"))
+            code, body = self.post(port, "/config/preview", form)
+            self.assertEqual(code, 400)
+            self.assertIn("<h2>Camera, timelapse and images</h2>", body)
+            self.assertIn('class="error"', row_segment(body, "visual_watch.sensitivity"))
+            self.assertIn("at most 5", row_segment(body, "visual_watch.sensitivity"))
+            self.assertEqual(dict(hidden_inputs(body)).get("_section"), "camera")
+            # The previously shown section now rides along as hidden
+            # inputs, so a corrected save still cannot clear it.
+            self.assertIn('type="hidden" name="printer.model"', body)
+            self.assertEqual(local.read_bytes(), before)
 
     def test_unknown_form_keys_are_never_written(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -539,6 +692,48 @@ class DnsRebindingTests(unittest.TestCase):
             self.assertNotEqual(code, 403)
 
 
+class UnnamedGroupTests(unittest.TestCase):
+    """A group with an empty or missing name still gets a working tab.
+
+    The page anticipates such groups (the "Other" heading, the
+    unknown-group branch), but its tab links to ?section=other while the
+    section list holds "" or None, so the selection never matched and
+    the group's fields could only ever ride as hidden inputs.
+    """
+
+    def render(self, section=None, errors=None):
+        from print_handy.webui import pages
+        from print_handy.webui.catalog import Field
+        fields = [
+            config_api.FieldValue(
+                field=Field("logging", "level", "Log level", "text",
+                            group="logging"),
+                value="INFO", provenance=config_api.DEFAULT),
+            config_api.FieldValue(
+                field=Field("misc", "thing", "Misc thing", "text", group=""),
+                value="x", provenance=config_api.DEFAULT),
+            config_api.FieldValue(
+                field=Field("misc", "other_thing", "Other misc thing", "text",
+                            group=None),
+                value="y", provenance=config_api.DEFAULT),
+        ]
+        return pages.render_config_page(fields, data={}, form_token="tok",
+                                        section=section, errors=errors)
+
+    def test_unnamed_group_tab_shows_its_fields(self):
+        body = self.render(section="other")
+        self.assertIn("<h2>Other</h2>", body)
+        self.assertIn('id="row-misc.thing"', body)
+        self.assertIn('id="row-misc.other_thing"', body)
+        self.assertNotIn('id="row-logging.level"', body)
+
+    def test_error_in_unnamed_group_lands_on_it(self):
+        body = self.render(section="logging",
+                           errors={"misc.thing": "bad value"})
+        self.assertIn("<h2>Other</h2>", body)
+        self.assertIn('class="error"', row_segment(body, "misc.thing"))
+
+
 class HiddenFieldRoundTripTests(unittest.TestCase):
     """A hidden field posts back exactly what the page read, so it is never a change."""
 
@@ -559,3 +754,49 @@ class HiddenFieldRoundTripTests(unittest.TestCase):
                 fv = config_api.FieldValue(field=field, value=value, provenance=config_api.DEFAULT)
                 changes, _submitted, errors = pages.parse_form(form, [fv])
                 self.assertEqual((changes, errors), ({}, {}))
+
+
+class SectionLinkEncodingTests(unittest.TestCase):
+    """Tab links URL-encode the section name (duckcatgnaf review of #1101).
+
+    A group name comes from config and can contain query metacharacters;
+    interpolated raw, ``Fish & Chips`` would split the query value at the
+    ampersand and ``Q #1`` would truncate it at the fragment marker, so
+    selecting that tab falls back to the first section.
+    """
+
+    @staticmethod
+    def _page(group, section=None):
+        from print_handy.webui import pages
+        field = replace(field_by_id("logging.level"), group=group)
+        fv = config_api.FieldValue(field=field, value="INFO",
+                                   provenance=config_api.DEFAULT)
+        return pages.render_config_page([fv], data={}, form_token="tok",
+                                        section=section)
+
+    @staticmethod
+    def _tab_href(body, label):
+        match = re.search(r'<a href="([^"]+)"[^>]*>' + re.escape(label) + r"</a>",
+                          body)
+        assert match is not None, f"no tab link labelled {label!r}"
+        return html_lib.unescape(match.group(1))
+
+    def test_ampersand_group_tab_link_round_trips(self):
+        body = self._page("Fish & Chips")
+        href = self._tab_href(body, "Fish &amp; Chips")
+        self.assertNotIn("section=Fish &", href)
+        section = parse_qs(urlparse(href).query)["section"][0]
+        self.assertEqual(section, "Fish & Chips")
+        selected = self._page("Fish & Chips", section=section)
+        self.assertIn('aria-current="page"', selected)
+        self.assertIn('id="row-logging.level"', selected)
+
+    def test_hash_group_tab_link_round_trips(self):
+        body = self._page("Q #1")
+        href = self._tab_href(body, "Q #1")
+        self.assertEqual(urlparse(href).fragment, "")
+        section = parse_qs(urlparse(href).query)["section"][0]
+        self.assertEqual(section, "Q #1")
+        selected = self._page("Q #1", section=section)
+        self.assertIn('aria-current="page"', selected)
+        self.assertIn('id="row-logging.level"', selected)

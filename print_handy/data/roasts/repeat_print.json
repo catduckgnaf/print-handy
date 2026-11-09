@@ -1,7 +1,7 @@
 {
  "_about": "Completed prints of a job printed at least twice ({times} is how many).",
  "_phase": "seed-v0 (#1002 attachment 1) + supplement additions (#1002 supplement via #1017 batch 2) + Phase 2 expansion (#1002 via #1022)",
- "_license": "Original to Print Handy; MIT with the project.",
+ "_license": "Original to Print Handy; AGPL-3.0-only with the project.",
  "entries": [
   {
    "id": "repeat_print-print-number-times-of-title",

@@ -5,7 +5,7 @@ status snapshot, decide which physical tray prints each filament slot — the
 mapping `client.project_file_payload` sends as `ams_mapping` / `ams_mapping2`.
 
 Wire facts are from the #298 Stage 0 audit of maziggy/bambuddy at 98ecaf5
-(protocol facts only; Bambuddy is AGPL-3.0, this repo is MIT — no code copied):
+(protocol facts only; Bambuddy is AGPL-3.0; no code copied):
 
   - A mapping is a list of canonical global tray ids indexed by the file's
     filament slots: a regular AMS / AMS Lite tray is `ams_id * 4 + slot_id`,

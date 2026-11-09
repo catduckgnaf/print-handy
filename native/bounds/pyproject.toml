@@ -12,7 +12,7 @@ build-backend = "maturin"
 name = "print-handy-bounds-native"
 version = "0.1.0"
 description = "Native motion-bounds parser for Print Handy G-code verification"
-license = { text = "MIT" }
+license = { text = "AGPL-3.0-only" }
 requires-python = ">=3.12"
 
 [tool.maturin]

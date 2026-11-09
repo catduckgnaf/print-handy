@@ -413,7 +413,8 @@ def test_captured_video_none_when_disabled_or_absent(tmp_path):
 @pytest.fixture
 def delivery(monkeypatch, tmp_path):
     posted = []
-    monkeypatch.setattr(mel, "_post_completion", lambda msg, orig: posted.append(msg) or True)
+    monkeypatch.setattr(mel, "_post_completion",
+                        lambda msg, orig, job_key=None: posted.append(msg) or True)
     monkeypatch.setattr(mel, "_vertical_short_attachment", lambda video, key: None)
     monkeypatch.setattr(mel, "log", lambda line: None)
     return posted

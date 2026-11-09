@@ -29,11 +29,14 @@ ET = _config.tz()  # the configured display timezone (discord.timezone); the nam
 VERBS = {"started": "Print started", "slice": "Print preparing", "complete": "Print complete", "cancelled": "Print cancelled",
          "error": "Print stopped with an error", "paused": "Print paused"}
 
-# Kinds that end a print. Only these carry the starter mention: the person
-# who started the print is @mentioned once, when it is over, and nobody is
-# mentioned by the start, slice or pause posts.
+# Kinds that end a print. A terminal post pings the person who started
+# the print — but the ping is a send-path decision (#1095): the starter
+# pings classifier (starter_pings) decides from the post kind and the
+# job, and the rendered text here never carries a mention, on any
+# platform. Alert posts that need the starter ping through the same
+# classifier; start, slice and pause renders mention nobody because no
+# send path asks for a ping for them.
 TERMINAL_KINDS = ("complete", "cancelled", "error")
-_MENTION_LINE = re.compile(r"^<@(\d{17,20})>$", re.M)
 
 
 def starter_user_id(job):
@@ -53,42 +56,6 @@ def starter_user_id(job):
         return ""
     user_id = str(starter.get("user_id") or "")
     return user_id if user_id.isdigit() else ""
-
-
-def _starter_mentions_on():
-    """Whether terminal posts @mention the starter (settings + platform gate).
-
-    On unless ``discord.mention_starter_on_complete`` is set false. Discord
-    only: on a Telegram or Matrix install the same lifecycle text is posted
-    without a Discord mention string in it. Any settings failure means off —
-    a mention is a notification, never something to guess at.
-    """
-    try:
-        cfg = _config.cfg()
-        if str((cfg.get("bot") or {}).get("platform") or "discord") != "discord":
-            return False
-        return bool((cfg.get("discord") or {}).get("mention_starter_on_complete", True))
-    except Exception:
-        return False
-
-
-def starter_mention(job):
-    """The ``<@id>`` line for a terminal post, or "" when nobody is mentioned."""
-    if not _starter_mentions_on():
-        return ""
-    user_id = starter_user_id(job)
-    return f"<@{user_id}>" if user_id else ""
-
-
-def mention_user_id(text):
-    """The user ID a post text asks Discord to ping, or None.
-
-    The starter mention is the one mention written as its own line
-    (``<@id>`` alone) by format_event; the listener's Discord sender allows
-    exactly that user — and no one else — to be pinged by the post.
-    """
-    match = _MENTION_LINE.search(str(text or ""))
-    return match.group(1) if match else None
 
 
 def scrub(text):
@@ -478,14 +445,10 @@ def format_event(kind, filename, now=None, archive=None, context_path=None, extr
                 emit_queued(name, message)
         except Exception:
             pass
-    if kind in TERMINAL_KINDS:
-        # Appended after the notify emit on purpose: the MQTT/ntfy copy of
-        # the event keeps the plain text, and only the chat post carries the
-        # mention. The mention is its own line so the Discord sender can
-        # recognize — and allow — exactly this one ping (mention_user_id).
-        mention = starter_mention(job)
-        if mention:
-            message = f"{message}\n{mention}" if message else mention
+    # No mention is appended here, for any kind (#1095): the notify emit
+    # above and every chat platform get the same plain text, and whether
+    # the Discord post pings the starter is decided by starter_pings at
+    # the send path, from the post kind and this job.
     return message
 
 
