@@ -421,6 +421,11 @@ async def upload_wait_dispatch(event, gateway, **kwargs):
     return None
 
 
+# Setup-only mode answers strangers, so stray messages share one notice per chat.
+SETUP_ONLY_NOTICE_S = 600
+_SETUP_ONLY_NOTICED = {}
+
+
 async def guided_dispatch(event, gateway, **kwargs):
     """/print-handy setup|debugging|status|cancel, plus plain replies to an open setup checklist (#162).
 
@@ -453,6 +458,16 @@ async def guided_dispatch(event, gateway, **kwargs):
     adapter = _adapter_for(gateway, source)
     if adapter is None:
         return {'action': 'skip', 'reason': 'guided UI delivery unavailable'}
+    if setup_only and not text.startswith('/print-handy'):
+        # A stray message from someone outside the setup conversation gets
+        # one notice per chat, not a reply to everything said there.
+        active = store.get(key)
+        if not active or active.get('status') not in ('in_progress', 'awaiting_consent', 'adding_printer'):
+            noticed_at = _SETUP_ONLY_NOTICED.get(str(source.chat_id))
+            moment = time.monotonic()
+            if noticed_at is not None and moment - noticed_at < SETUP_ONLY_NOTICE_S:
+                return {'action': 'skip', 'reason': 'setup-only notice throttled'}
+            _SETUP_ONLY_NOTICED[str(source.chat_id)] = moment
 
     def report():
         cfg = _config.cfg()

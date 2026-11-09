@@ -184,6 +184,14 @@ def _session_digest(session_id):
     return hashlib.sha256(session_id.encode("utf-8")).hexdigest()
 
 
+def _access_stamp(data):
+    """A change marker for the saved login file, or None when there is none."""
+    try:
+        return access_module.access_path(data).stat().st_mtime_ns
+    except Exception:
+        return None
+
+
 def _remember_lock(server):
     """The server's remembered-session lock, or a no-op context when the
     server object predates it (the mutation sites stay safe either way)."""
@@ -713,6 +721,7 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             path = urlparse(self.path).path
+            self._sync_access()
             if path != "/healthz" and self._host_refused():
                 return
             if path == "/healthz":
@@ -1276,6 +1285,29 @@ class _Handler(BaseHTTPRequestHandler):
             back = "/"
         self._redirect(back, headers=[("Set-Cookie", shell.theme_cookie_header(theme, secure=self._cookie_secure()))])
 
+    def _sync_access(self):
+        """Apply a login another process saved (chat setup, the CLI wizard).
+
+        The bot and the Web UI are separate processes, so a login set from
+        chat is only visible here as a change to the saved file. Old
+        sessions and form tokens must not outlive the credential they
+        were issued under."""
+        server = self.server
+        if not hasattr(server, "access_stamp"):
+            return
+        if _access_stamp(server.settings_data) == server.access_stamp:
+            return
+        with server.access_sync_lock:
+            stamp = _access_stamp(server.settings_data)
+            if stamp == server.access_stamp:
+                return
+            server.access_stamp = stamp
+            server.access = access_module.resolve(
+                server.settings_data, server.bind_host, server.webui_environ)
+            server.sessions.clear()
+            self._rotate_form_token()
+            self._revoke_remembered_sessions()
+
     def _rotate_form_token(self):
         """Replace the config form token after an access-rule change.
 
@@ -1347,6 +1379,7 @@ class _Handler(BaseHTTPRequestHandler):
             # person who chose it signed in on this browser.
             self.server.access = access_module.resolve(
                 self.server.settings_data, self.server.bind_host, self.server.webui_environ)
+            self.server.access_stamp = _access_stamp(self.server.settings_data)
             self._rotate_form_token()
             self._revoke_remembered_sessions()
             self._redirect(payload, headers=[self._start_session()]
@@ -1498,6 +1531,7 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             self.server.access = access_module.resolve(data, self.server.bind_host,
                                                        self.server.webui_environ)
+            self.server.access_stamp = _access_stamp(data)
             self._rotate_form_token()
             self._revoke_remembered_sessions()
         # The person who just chose the password is signed in on this browser.
@@ -1561,6 +1595,7 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             path = urlparse(self.path).path
+            self._sync_access()
             if self._host_refused(post=True):
                 return
             if path == "/setup":
@@ -1752,6 +1787,8 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     server.settings_data = data
     setattr(server, "cookie_secure", bool((data or {}).get("webui", {}).get("cookie_secure", False)))
     server.access = access_module.resolve(data, bind_host, environ)
+    server.access_stamp = _access_stamp(data)
+    server.access_sync_lock = threading.Lock()
     server.bind_host = bind_host
     server.setup_lock = threading.Lock()
     # DNS-rebinding guard (see _Handler._host_refused): only an open

@@ -43,6 +43,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.request
 from dataclasses import dataclass, field
@@ -1486,6 +1487,11 @@ def active_setup_owner(store, now, exclude_key=None):
         if session.get("status") in ("in_progress", "awaiting_consent", "adding_printer") \
                 and not _expired(session, now):
             return session.get("key")
+        # A finished setup keeps its bind: setup-only mode lasts until the
+        # restart, and nobody else may rewrite what its owner just applied.
+        if session.get("status") == "complete" \
+                and now - float(session.get("updated_at") or 0) <= SESSION_TIMEOUT_S:
+            return session.get("key")
     return None
 
 
@@ -1840,7 +1846,20 @@ def _apply_login_choice(session, access_data, access_environ):
     return " " + result.message
 
 
-def handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
+# Setup-only mode admits strangers, so checking who owns setup and claiming it
+# has to be one step: without this, two people starting at once could both win.
+_SETUP_ONLY_LOCK = threading.Lock()
+
+
+def handle_text(key, text, **kwargs):
+    """One message in the guided flows; see :func:`_handle_text`."""
+    if kwargs.get("setup_only"):
+        with _SETUP_ONLY_LOCK:
+            return _handle_text(key, text, **kwargs)
+    return _handle_text(key, text, **kwargs)
+
+
+def _handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
                 apply_config=None, report=None, bundle=None, debug=None,
                 probe_runner=None, onboard_apply=None, config_loader=None,
                 setup_only=False, access_data=None, access_environ=None):
@@ -1963,7 +1982,7 @@ def handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
                         "Guided setup can start once it finishes.")
             if rest == "setup" and session is None:
                 prior = shared_completion(store)
-                if prior.get("done"):
+                if prior.get("done") and not prior.get("skipped"):
                     from .. import setup_state as _setup_state
                     return (_setup_state.describe(prior) +
                             " Run `/print-handy setup restart` to run guided setup again.")

@@ -305,6 +305,27 @@ def split_check_rows(rows):
     return credential, configuration, other
 
 
+def unconfigured_install(cfg, name):
+    """True only for an install nobody has set up yet.
+
+    Setup-only mode lets the first person who reaches the bot claim the
+    install, so a configured install with one bad setting must fail its
+    checks as before instead of reopening that door. A setup someone
+    skipped was never finished, so it does not count as configured.
+    """
+    from .. import setup_state
+    record = setup_state.load_completion(cfg)
+    if record.get("done") and not record.get("skipped"):
+        return False
+    section = cfg.get(name) if isinstance(cfg.get(name), dict) else {}
+    chat_key = "room_id" if name == "matrix" else "chat_id"
+    for key in (chat_key, "allowed_user_ids", "approval_user_id"):
+        value = section.get(key)
+        if value.strip() if isinstance(value, str) else bool(value):
+            return False
+    return True
+
+
 def setup_only_mode(cfg, rows):
     """True when only configuration-tier rows fail: start setup-only.
 
@@ -318,7 +339,7 @@ def setup_only_mode(cfg, rows):
     name = str(cfg["bot"].get("platform") or "discord")
     if name == "matrix" and "homeserver" in configuration:
         return False
-    return True
+    return unconfigured_install(cfg, name)
 
 
 def check(out=None):
