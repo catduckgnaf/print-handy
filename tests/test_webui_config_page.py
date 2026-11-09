@@ -485,6 +485,26 @@ class ConfigPageTests(unittest.TestCase):
             self.assertEqual(local.read_bytes(), before)
             self.assertFalse(list(Path(tmp).glob("*.bak-*")))
 
+    def test_preview_warns_when_cookie_secure_turns_on_over_plain_http(self):
+        # Access-catalog review item: a Secure cookie set over plain HTTP
+        # is dropped by browsers, so sign-ins stop sticking once the save
+        # takes effect, with no UI way back. The preview must warn before
+        # the save is confirmed; a request a proxy reports as HTTPS (the
+        # deployment cookie_secure is for) gets no warning.
+        with tempfile.TemporaryDirectory() as tmp:
+            port, _local, environ = self.start(tmp, "discord:\n  chat_id: '12345'\n")
+            _code, _body, csrf = self.get_config(port)
+            form = self.browser_form(environ, csrf,
+                                     **{"webui.cookie_secure": "true"})
+            code, body = self.post(port, "/config/preview", form)
+            self.assertEqual(code, 200, body)
+            self.assertIn("over plain HTTP", body)
+            self.assertIn("will not stick", body)
+            code, body = self.post(port, "/config/preview", form,
+                                   headers={"X-Forwarded-Proto": "https"})
+            self.assertEqual(code, 200, body)
+            self.assertNotIn("will not stick", body)
+
     def test_confirmed_post_round_trips_through_the_loader(self):
         with tempfile.TemporaryDirectory() as tmp:
             port, local, environ = self.start(tmp, "discord:\n  chat_id: '12345'\n")

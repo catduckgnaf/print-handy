@@ -995,6 +995,34 @@ class CameraWatchVisibilityTests(unittest.TestCase):
         self.assertNotIn("PRINT_HANDY__DISCORD__MENTION_STARTER", variables)
         self.assertNotIn("PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE", variables)
 
+    def test_compose_does_not_hard_default_the_webui_access_settings(self):
+        """P2-88: no Compose environment entry for the Web UI access settings.
+
+        require_auth, controls_enabled and cookie_secure are fields on the
+        Web UI Settings page. A ${...:-default} entry would be applied after
+        the mounted config, override what the page saved there and lock the
+        field. Unset, the mounted config's values stand; set in .env, the
+        env_file still carries the value into the container.
+        """
+        compose_env = COMPOSE["services"]["combined"]["environment"]
+        for name in ("PRINT_HANDY__WEBUI__REQUIRE_AUTH",
+                     "PRINT_HANDY__WEBUI__CONTROLS_ENABLED",
+                     "PRINT_HANDY__WEBUI__COOKIE_SECURE"):
+            self.assertNotIn(name, compose_env)
+        # The env_file path still works: the loader honors each variable.
+        loaded = settings.load(local=ROOT / "config" / "docker.yaml", environ={
+            "PRINT_HANDY__WEBUI__REQUIRE_AUTH": "false",
+            "PRINT_HANDY__WEBUI__CONTROLS_ENABLED": "true",
+            "PRINT_HANDY__WEBUI__COOKIE_SECURE": "true"})
+        self.assertIs(loaded["webui"]["require_auth"], False)
+        self.assertIs(loaded["webui"]["controls_enabled"], True)
+        self.assertIs(loaded["webui"]["cookie_secure"], True)
+        # Nothing set: the mounted config's values stand.
+        loaded = settings.load(local=ROOT / "config" / "docker.yaml", environ={})
+        self.assertIs(loaded["webui"]["require_auth"], True)
+        self.assertIs(loaded["webui"]["controls_enabled"], False)
+        self.assertIs(loaded["webui"]["cookie_secure"], False)
+
     def test_watchdog_is_advertised_where_users_look(self):
         readme = (ROOT / "README.md").read_text()
         self.assertIn("Camera watchdog", readme)

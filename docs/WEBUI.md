@@ -229,7 +229,7 @@ The token's value is a secret held only in the environment variable named by `we
 3. **The access token is set:** it is required on every bind, from every client.
 4. **A saved "leave it open" choice:** open — and, unlike the token, this choice never overrides a token: rule 3 wins when both exist.
 5. **Nothing set:** open and *unclaimed*, on every bind. The Web UI serves, offers the walkthrough, and shows a "no login is set" note until a login is set or the open choice is recorded.
-- **`webui.require_auth = false`** (`PRINT_HANDY__WEBUI__REQUIRE_AUTH=false`): the explicit opt-out for a network you trust. The token is neither required nor checked on any bind host, even if it is set, and there is no login page. Anyone who can reach the port gets the whole Web UI, including printer controls and configuration writes (the per-form `_csrf` check still applies). The Docker gate logs `authentication OFF` at every start. The setting is deliberately not a Web UI field: turning auth off is a file or environment decision.
+- **`webui.require_auth = false`** (`PRINT_HANDY__WEBUI__REQUIRE_AUTH=false`): the explicit opt-out for a network you trust. The token is neither required nor checked on any bind host, even if it is set, and there is no login page. Anyone who can reach the port gets the whole Web UI, including printer controls and configuration writes (the per-form `_csrf` check still applies). The Docker gate logs `authentication OFF` at every start. The setting is also a field on the Web UI Settings page.
 - Requests that need the access token send it as the `X-WebUI-Token` header. For example:
 
   ```bash
@@ -256,7 +256,7 @@ The Web UI has no HTTPS listener of its own. Put it where the network already li
 | HTTPS reverse proxy on that LAN or VPN | Yes, if the proxy is the only public name and it forwards to the Web UI over the private network. Terminate TLS at the proxy. Leave the Web UI on plain HTTP behind it. | Set `cookie_secure` true (`PRINT_HANDY__WEBUI__COOKIE_SECURE=true`). Browsers then send the session and theme cookies only on HTTPS requests to the proxy. |
 | Router port forward, or the Web UI published directly on the public internet | Possible, and it is your choice to make — but only behind a login you set deliberately first: an access token (`WEBUI_ACCESS_TOKEN`) or a saved password, set before the port is forwarded. An unclaimed or left-open Web UI on the public internet is open to the whole internet; the "no login is set" note is the warning, and plain HTTP also sends that login unencrypted, so the HTTPS reverse proxy row above is the better shape for outside access. | Set `cookie_secure` true when an HTTPS proxy fronts it; on plain public HTTP there is no cookie setting that makes the bind safe. |
 
-`cookie_secure` is a file or environment decision, not a field on the configuration page. Restart after changing it. Authentication (`require_auth`, the access token, or a saved login) is separate and stays as configured.
+`cookie_secure` is a field on the configuration page, like the other Web UI settings. Restart after changing it. Authentication (`require_auth`, the access token, or a saved login) is separate and stays as configured.
 
 ## Use the configuration page
 

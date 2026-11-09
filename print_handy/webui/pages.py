@@ -465,7 +465,7 @@ def render_config_page(field_values, *, data, form_token, errors=None,
 
 
 def render_preview_page(entries, submitted, *, form_token, theme=shell.DEFAULT_THEME,
-                        section=None, reveal=None):
+                        warnings=(), section=None, reveal=None):
     """The diff preview: exact (field, old, new) rows plus the confirm form.
 
     ``section`` is the sub-tab the preview was posted from; the confirm
@@ -476,7 +476,9 @@ def render_preview_page(entries, submitted, *, form_token, theme=shell.DEFAULT_T
 
     ``entries`` is [(field, old, new)]; ``submitted`` carries the raw form
     values the confirm form reposts as hidden inputs, so what is confirmed
-    is byte-for-byte what was previewed.
+    is byte-for-byte what was previewed. ``warnings`` are plain-language
+    notices about the change set itself (not refusals), shown above the
+    diff so they are read before the save is confirmed.
     """
     rows = "".join(
         f"<tr><th>{_esc(field.label)} ({_esc(field.id)})</th>"
@@ -510,6 +512,7 @@ def render_preview_page(entries, submitted, *, form_token, theme=shell.DEFAULT_T
             hidden.append(f'<input type="hidden" name="{_esc(field_id)}" '
                           f'value="{_esc(raw)}">')
     return _page("review changes", "".join([
+        "".join(f'<p class="notice">{_esc(warning)}</p>' for warning in warnings),
         '<p>Nothing has been written yet. Saving writes only these keys to '
         'the settings file (a timestamped backup of the current file is '
         'kept), and every change needs a restart to take effect.</p>',
