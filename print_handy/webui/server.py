@@ -813,7 +813,11 @@ class _Handler(BaseHTTPRequestHandler):
             elif path.startswith("/spools/"):
                 self._spools_page(unquote(path[len("/spools/"):]))
             elif path == "/config":
-                self._send(200, self._config_html(self._field_values(), theme=self._theme()),
+                section = (parse_qs(urlparse(self.path).query).get("section")
+                           or [None])[0]
+                self._send(200, self._config_html(self._field_values(),
+                                                  theme=self._theme(),
+                                                  section=section),
                            "text/html; charset=utf-8")
             elif path == "/chat":
                 self._chat_page()
@@ -1896,20 +1900,24 @@ class _Handler(BaseHTTPRequestHandler):
             if general:
                 errors["_general"] = general
         if errors:
-            self._send(400, self._config_html(field_values, errors=errors,
-                                              submitted=submitted, theme=self._theme()),
+            self._send(400, self._config_html(
+                field_values, errors=errors, submitted=submitted,
+                theme=self._theme(),
+                section=(form.get(pages.SECTION_FIELD) or [None])[0]),
                        "text/html; charset=utf-8")
             return
         if not changes:
             self._send(200, self._config_html(
                 field_values, submitted=submitted, theme=self._theme(),
+                section=(form.get(pages.SECTION_FIELD) or [None])[0],
                 notice="No changes: every submitted value already matches "
                        "the effective settings."), "text/html; charset=utf-8")
             return
         effective = {fv.field: fv.value for fv in field_values}
         entries = [(field, effective[field], value) for field, value in changes.items()]
         self._send(200, pages.render_preview_page(
-            entries, submitted, form_token=self.server.form_token, theme=self._theme()),
+            entries, submitted, form_token=self.server.form_token, theme=self._theme(),
+            section=(form.get(pages.SECTION_FIELD) or [None])[0]),
             "text/html; charset=utf-8")
 
     def _config_save(self):
@@ -1927,8 +1935,10 @@ class _Handler(BaseHTTPRequestHandler):
         only = {part for part in named.split(",") if part} or None
         changes, submitted, errors = pages.parse_form(form, field_values, only=only)
         if errors:
-            self._send(400, self._config_html(field_values, errors=errors,
-                                              submitted=submitted, theme=self._theme()),
+            self._send(400, self._config_html(
+                field_values, errors=errors, submitted=submitted,
+                theme=self._theme(),
+                section=(form.get(pages.SECTION_FIELD) or [None])[0]),
                        "text/html; charset=utf-8")
             return
         try:
@@ -1941,8 +1951,10 @@ class _Handler(BaseHTTPRequestHandler):
             errors = dict(field_errors)
             if general:
                 errors["_general"] = general
-            self._send(400, self._config_html(field_values, errors=errors,
-                                              submitted=submitted, theme=self._theme()),
+            self._send(400, self._config_html(
+                field_values, errors=errors, submitted=submitted,
+                theme=self._theme(),
+                section=(form.get(pages.SECTION_FIELD) or [None])[0]),
                        "text/html; charset=utf-8")
             return
         self._send(200, pages.render_result_page(changed, theme=self._theme()),
