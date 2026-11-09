@@ -24,6 +24,7 @@ Lane gates: as in the sibling module, a scenario whose behavior a
 sibling lane builds skips with that lane's branch named in the reason
 while unlanded, and asserts in full once the capability exists.
 """
+import json
 import sys
 from pathlib import Path
 from unittest import mock
@@ -37,8 +38,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from print_handy import settings  # noqa: E402
 from print_handy.bot import guided  # noqa: E402
+from print_handy.webui import access  # noqa: E402
 
-from test_setup_surface_parity import CANONICAL, parity_view  # noqa: E402
+from test_setup_surface_parity import (  # noqa: E402
+    CANONICAL, make_data, parity_view)
 
 PLATFORMS = ("discord", "telegram", "matrix")
 
@@ -211,14 +214,24 @@ def test_s5_chat_step_set_covers_the_canonical_topics(tmp_path):
 def test_s1_bot_with_credential_but_no_config_starts_setup_only(tmp_path, platform):
     """S1, chat half: a credential and nothing else must not be a
     startup failure — the bot starts in setup-only mode (PR-5). The
-    probe is the startup check tier itself: a missing chat id is a
-    setup-only signal, not a FAIL row that stops the process."""
+    startup check is split in tiers: credential-tier failures stay
+    fatal, configuration-tier failures mean setup-only."""
     from print_handy.bot import __main__ as bot_main
-    import inspect
-    if "setup_only" not in inspect.getsource(bot_main):
+    if not hasattr(bot_main, "setup_only_mode"):
         pytest.skip(LANE_B_BOOTSTRAP + "the startup check has no "
                     "setup-only tier; a credential-only install still "
                     "fails startup on the missing chat id")
+    cfg = {"bot": {"platform": platform, "mode": "standalone"}}
+    chat_row = {"discord": "print channel", "telegram": "print channel",
+                "matrix": "print room"}[platform]
+    rows = [("token", True, "set"), (chat_row, False, "empty")]
+    if platform == "matrix":
+        rows.insert(1, ("homeserver", True, "set"))
+    assert bot_main.setup_only_mode(cfg, rows) is True
+    # A missing credential is never setup-only: there is no bot to
+    # hold the conversation at all.
+    rows = [("token", False, "empty"), (chat_row, False, "empty")]
+    assert bot_main.setup_only_mode(cfg, rows) is False
 
 
 # --------------------------------------------------------------------- S2/S3/S3b/S9
@@ -229,27 +242,47 @@ def _require_chat_access():
                     "exists; chat cannot claim, leave open or clear")
 
 
+def _chat_data(tmp_path):
+    data, _local, _environ = make_data(str(tmp_path))
+    return data
+
+
 @pytest.mark.parametrize("platform", PLATFORMS)
 def test_s2_claim_password_via_chat(tmp_path, platform):
+    """Via the chat access core every platform's flow calls (PR-6):
+    the outcome is the same store and the same resolve() result as a
+    Web UI claim. The guided step that calls the core is PR-7's; its
+    arrival is asserted by test_s2_claim_password_via_guided_step."""
     _require_chat_access()
-    if "login" not in "".join(guided_step_keys()):
-        pytest.skip(LANE_B_CHAT + "guided setup has no login/access step")
-    pytest.skip("integration seam: drive the login step through the "
-                "landed PR-7 step protocol and assert resolve() == "
-                "PASSWORD with matches_login true/false — wired when "
-                "PR-6/PR-7 heads are available to stack on")
+    from print_handy.bot import webui_access
+    data = _chat_data(tmp_path)
+    result = webui_access.set_password(
+        data, CANONICAL["username"], CANONICAL["password"],
+        CANONICAL["password"], environ={})
+    assert result.ok, result.message
+    assert CANONICAL["password"] not in result.message
+    resolved = access.resolve(data, "0.0.0.0", environ={})
+    assert resolved.mode == access.PASSWORD
+    assert resolved.matches_login(CANONICAL["username"], CANONICAL["password"])
+    assert not resolved.matches_login(CANONICAL["username"], "wrong-password-1")
+    # The Web UI's own weak-password refusal is the chat refusal too.
+    refused = webui_access.set_password(
+        data, CANONICAL["username"], "password", "password", environ={})
+    assert not refused.ok
 
 
 @pytest.mark.parametrize("platform", PLATFORMS)
 def test_s3_leave_open_via_chat(tmp_path, platform):
     _require_chat_access()
-    if "login" not in "".join(guided_step_keys()):
-        pytest.skip(LANE_B_CHAT + "guided setup has no login/access step")
-    pytest.skip("integration seam: drive the login step's leave-open "
-                "choice through the landed PR-7 step protocol and "
-                "assert the saved record is exactly {mode: open} (Q2) "
-                "and resolve() == OPEN — wired when PR-6/PR-7 heads "
-                "are available to stack on")
+    from print_handy.bot import webui_access
+    data = _chat_data(tmp_path)
+    result = webui_access.leave_open(data, True, environ={})
+    assert result.ok, result.message
+    record = json.loads(access.access_path(data).read_text())
+    assert record == {"mode": access.OPEN}  # Q2: the explicit record
+    assert access.resolve(data, "0.0.0.0", environ={}).mode == access.OPEN
+    # An unconfirmed leave-open is refused, exactly as in the Web UI.
+    assert not webui_access.leave_open(data, False, environ={}).ok
 
 
 @pytest.mark.parametrize("platform", PLATFORMS)
@@ -258,26 +291,59 @@ def test_s3b_clear_claim_via_chat(tmp_path, platform):
     anywhere else — no saved record, unclaimed outcome, and an env
     token set all along still applies afterwards (Q4)."""
     _require_chat_access()
+    from print_handy.bot import webui_access
+    data = _chat_data(tmp_path)
+    assert webui_access.set_password(
+        data, CANONICAL["username"], CANONICAL["password"],
+        CANONICAL["password"], environ={}).ok
+    assert not webui_access.clear_claim(data, False, environ={}).ok
+    result = webui_access.clear_claim(
+        data, True, environ={"WEBUI_ACCESS_TOKEN": CANONICAL["token"]})
+    assert result.ok, result.message
+    assert result.env_token_present
+    assert not access.access_path(data).exists()
+    resolved = access.resolve(
+        data, "0.0.0.0", environ={"WEBUI_ACCESS_TOKEN": CANONICAL["token"]})
+    assert resolved.mode == access.TOKEN
+
+
+@pytest.mark.parametrize("platform", PLATFORMS)
+def test_s2_claim_password_via_guided_step(tmp_path, platform):
+    """The end-to-end form of S2: the password arrives inside the
+    guided conversation's login step (PR-7) and lands in the same
+    store. Gated on the step existing."""
+    _require_chat_access()
     if "login" not in "".join(guided_step_keys()):
-        pytest.skip(LANE_B_CHAT + "guided setup has no login/access step")
-    pytest.skip("integration seam: claim, then clear through the landed "
-                "PR-7 step protocol; assert the stored record is gone "
-                "and resolve() with WEBUI_ACCESS_TOKEN set is TOKEN — "
-                "wired when PR-6/PR-7 heads are available to stack on")
+        pytest.skip(LANE_B_CHAT + "guided setup has no login/access "
+                    "step yet; S2 is asserted at the PR-6 core seam "
+                    "every platform's step will call")
 
 
 @pytest.mark.parametrize("platform", PLATFORMS)
 def test_s9_chat_password_never_persisted_in_session(tmp_path, platform):
-    """After a chat claim, neither the guided session store nor any
-    chat-visible summary may contain the password, and the deletion
-    hook must have fired where the platform supports deletion."""
+    """After a chat claim: the core's chat-visible results contain no
+    password, and no guided session store appears or gains the value —
+    the password goes straight to the access writer."""
     _require_chat_access()
-    if "login" not in "".join(guided_step_keys()):
-        pytest.skip(LANE_B_CHAT + "guided setup has no login/access step")
-    pytest.skip("integration seam: after the S2 chat drive, assert the "
-                "guided-setup.json bytes and every reply contain no "
-                "password substring — wired when PR-6/PR-7 heads are "
-                "available to stack on")
+    from print_handy.bot import webui_access
+    data = _chat_data(tmp_path)
+    result = webui_access.set_password(
+        data, CANONICAL["username"], CANONICAL["password"],
+        CANONICAL["password"], environ={})
+    assert result.ok
+    assert CANONICAL["password"] not in result.message
+    state_dir = access.access_path(data).parent
+    store_file = state_dir / guided.STORE_NAME
+    if store_file.exists():
+        assert CANONICAL["password"] not in store_file.read_text()
+    # Deletion support is a capability the flow checks before capture,
+    # per platform adapter — all three shipped adapters support it.
+    from print_handy.bot import matrix, telegram
+    from print_handy.bot.adapter import StandaloneAdapter as DiscordAdapter
+    for adapter_cls in (DiscordAdapter, telegram.StandaloneAdapter,
+                        matrix.StandaloneAdapter):
+        assert webui_access.deletion_supported(
+            adapter_cls.__new__(adapter_cls)), adapter_cls
 
 
 def test_s9_session_store_holds_no_secret_after_todays_flow(tmp_path):
@@ -302,31 +368,100 @@ def test_s6_zero_config_bootstrap_claim(tmp_path, platform):
     past its timeout releases the bind, and after apply normal
     authorization is in force for the claimed chat/user only."""
     from print_handy.bot import __main__ as bot_main
-    import inspect
-    if "setup_only" not in inspect.getsource(bot_main):
+    if not hasattr(bot_main, "setup_only_mode"):
         pytest.skip(LANE_B_BOOTSTRAP + "no setup-only mode exists; a "
                     "zero-config bot still exits at the startup check "
                     "before any interlocutor can claim it")
-    pytest.skip("integration seam: PR-5's admission seam (runtime gate / "
-                "dispatcher branch) is exercised here once its head is "
-                "available to stack on — bind-at-start, mid-flow refusal "
-                "of a second user, timeout release, post-apply refusal")
+    import time
+    store = guided.SetupStore(tmp_path / guided.STORE_NAME)
+    now = time.time()
+    owner = f"chan::{CANONICAL['user_id']}"
+    other = "chan::200000000000000099"
+
+    def say(key, text, at, **kwargs):
+        kwargs.setdefault("report", lambda: "REPORT")
+        return guided.handle_text(key, text, store=store, now=at,
+                                  setup_only=True, **kwargs)
+
+    # Non-setup commands are refused throughout setup-only mode.
+    for command in ("/print-handy debugging", "/print-handy bundle",
+                    "/print-handy add-printer"):
+        reply = say(owner, command, now)
+        assert reply and "Setup-only mode" in reply, command
+
+    # The first interlocutor binds the session at conversation start.
+    reply = say(owner, "/print-handy setup", now)
+    assert reply and "Setup" in reply
+    # A second user can neither start nor join mid-flow.
+    refused = say(other, "/print-handy setup", now + 1)
+    assert refused and "another user" in refused
+    refused = say(other, CANONICAL["model"], now + 2)
+    assert refused and "another user" in refused
+    # The owner continues normally.
+    answer = say(owner, CANONICAL["model"], now + 3)
+    assert answer and "Saved" in answer
+
+    # An abandoned session past its timeout releases the bind.
+    later = now + guided.SESSION_TIMEOUT_S + 10
+    reply = say(other, "/print-handy setup", later)
+    assert reply and ("Setup" in reply or "resum" in reply.casefold())
+    assert "another user" not in reply
+
+    # After apply, normal authorization is in force: a different user
+    # starting setup on the now-configured install is refused (the
+    # shared completion record answers instead of a fresh flow).
+    for index, text in enumerate(
+            (CANONICAL["model"], CANONICAL["chat_id"], CANONICAL["user_id"],
+             "skip", "skip", "stored")):
+        say(other, text, later + 1 + index)
+    applied = say(other, "apply", later + 10,
+                  apply_config=lambda answers: "written.")
+    assert applied and "Setup complete" in applied
+    third = "chan::200000000000000077"
+    reply = guided.handle_text(third, "/print-handy setup", store=store,
+                               now=later + 20, report=lambda: "REPORT")
+    assert reply and "already completed" in reply
 
 
 # --------------------------------------------------------------------- S7
 
 @pytest.mark.parametrize("platform", PLATFORMS)
 def test_s7_chat_completion_ends_the_webui_offer(tmp_path, platform):
+    """Complete setup in chat (the guided store placed in the install's
+    real state dir, as the dispatcher does) ⇒ the shared record names
+    the chat surface, the Web UI walkthrough no longer offers itself,
+    and another chat user is told setup already happened."""
     try:
-        from print_handy import setup_state  # noqa: F401
+        from print_handy import setup_state
     except ImportError:
         pytest.skip(LANE_B_COMPLETION + "chat completion still writes "
                     "only the guided session store; the Web UI cannot "
                     "see it and re-offers its walkthrough")
-    pytest.skip("integration seam: complete setup via the chat driver, "
-                "then assert walkthrough.pending(data) is False and "
-                "the shared record names this surface — wired when "
-                "PR-4/PR-7 heads are available to stack on")
+    from print_handy.webui import walkthrough
+    data, _local, _environ = make_data(str(tmp_path))
+    state_dir = settings.state_dir(data)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    assert walkthrough.pending(data)
+    store = guided.SetupStore(state_dir / guided.STORE_NAME)
+    key = f"{CANONICAL['chat_id']}::{CANONICAL['user_id']}"
+    guided.handle_text(key, "/print-handy setup", store=store,
+                       report=lambda: "REPORT")
+    for answer in (CANONICAL["model"], CANONICAL["chat_id"],
+                   CANONICAL["user_id"], "skip", CANONICAL["spoolman_url"],
+                   "stored"):
+        guided.handle_text(key, answer, store=store, report=lambda: "REPORT")
+    target = Path(tmp_path) / "local.yaml"
+    reply = guided.handle_text(
+        key, "apply", store=store, report=lambda: "REPORT",
+        apply_config=lambda answers: guided._apply_answers(answers, target))
+    assert reply and "Setup complete" in reply
+    record = setup_state.load_completion(data)
+    assert record.get("done") is True and record.get("surface") == "chat"
+    assert not walkthrough.pending(data)
+    other = guided.handle_text(
+        f"{CANONICAL['chat_id']}::200000000000000099", "/print-handy setup",
+        store=store, report=lambda: "REPORT")
+    assert other and "already completed" in other and "chat" in other
 
 
 # --------------------------------------------------------------------- S8

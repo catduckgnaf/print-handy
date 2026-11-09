@@ -1,0 +1,14 @@
+.ssssssssssssssssss.ssssss.s.sss..s......sss                             [100%]
+=============================== warnings summary ===============================
+../../venvs/pb346/lib/python3.12/site-packages/_pytest/config/__init__.py:1464
+  /home/hatch/workspace/venvs/pb346/lib/python3.12/site-packages/_pytest/config/__init__.py:1464: PytestConfigWarning: Unknown config option: timeout
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+../../venvs/pb346/lib/python3.12/site-packages/_pytest/config/__init__.py:1464
+  /home/hatch/workspace/venvs/pb346/lib/python3.12/site-packages/_pytest/config/__init__.py:1464: PytestConfigWarning: Unknown config option: timeout_func_only
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+12 passed, 32 skipped, 2 warnings in 3.04s

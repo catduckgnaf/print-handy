@@ -1,0 +1,41 @@
+........................................................................ [ 11%]
+........................................................................ [ 22%]
+........................................................................ [ 33%]
+..............F......................................................... [ 44%]
+........................................................................ [ 55%]
+........................................................................ [ 67%]
+.............................................................sssssssssss [ 78%]
+sssssss.ssssss.......................................................... [ 89%]
+....................................................................     [100%]
+=================================== FAILURES ===================================
+_____________________ test_local_detector_row_on_and_ready _____________________
+
+cfg = {'layout': {'spacing': 'minimum', 'single_copy_edge_mm': 1.0, 'multi_copy_edge_mm': 3.0, 'arrange_gap_mm': 2.0, ...}, ...re': 'ZMod Klipper', 'start_macro': 'START_PRINT', 'end_macro': 'END_PRINT', 'zmod_delivery_format': 'auto', ...}, ...}
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7b59570fb260>
+
+    def test_local_detector_row_on_and_ready(cfg, monkeypatch):
+        cfg["vision"].update(local_detector_enabled=True, local_model_path=str(FIXTURE))
+        ok, detail = rows(cfg, monkeypatch)["local detector"]
+>       assert ok is True
+E       assert False is True
+
+tests/bot/test_local_detector_check.py:27: AssertionError
+=============================== warnings summary ===============================
+../../venvs/pb346/lib/python3.12/site-packages/_pytest/config/__init__.py:1464
+  /home/hatch/workspace/venvs/pb346/lib/python3.12/site-packages/_pytest/config/__init__.py:1464: PytestConfigWarning: Unknown config option: timeout
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+../../venvs/pb346/lib/python3.12/site-packages/_pytest/config/__init__.py:1464
+  /home/hatch/workspace/venvs/pb346/lib/python3.12/site-packages/_pytest/config/__init__.py:1464: PytestConfigWarning: Unknown config option: timeout_func_only
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+../../venvs/pb346/lib/python3.12/site-packages/discord/player.py:30
+  /home/hatch/workspace/venvs/pb346/lib/python3.12/site-packages/discord/player.py:30: DeprecationWarning: 'audioop' is deprecated and slated for removal in Python 3.13
+    import audioop
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/bot/test_local_detector_check.py::test_local_detector_row_on_and_ready
+1 failed, 619 passed, 24 skipped, 3 warnings in 28.50s

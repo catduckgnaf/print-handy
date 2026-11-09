@@ -1,0 +1,52 @@
+.Fsssssssssssssssss.ssssss.                                              [100%]
+=================================== FAILURES ===================================
+_________ test_s5_full_walkthrough_identical_config_via_chat[telegram] _________
+
+tmp_path = PosixPath('/home/hatch/workspace/.tmp-test/pytest-of-root/pytest-314/test_s5_full_walkthrough_ident1')
+platform = 'telegram'
+
+    @pytest.mark.parametrize("platform", PLATFORMS)
+    def test_s5_full_walkthrough_identical_config_via_chat(tmp_path, platform):
+        data, _driver = applied_config(tmp_path, platform)
+        view = parity_view(data)
+        answers = PLATFORM_ANSWERS[platform]
+        expected = {
+            "printer.model": CANONICAL["model"],
+            "services.moonraker_url": CANONICAL["moonraker_url"].rstrip("/"),
+            "services.spoolman_url": CANONICAL["spoolman_url"].rstrip("/"),
+            answers["platform_chat_key"]: answers["chat_id"],
+            answers["platform_user_key"]: answers["user_ids"],
+        }
+        for dotted, want in expected.items():
+            section, key = dotted.split(".", 1)
+            got = (data.get(section) or {}).get(key)
+            if isinstance(got, (list, tuple)):
+                got = ",".join(str(part) for part in got)
+>           assert str(got).rstrip("/") == want, \
+                f"{platform}: {dotted} is {got!r}, want {want!r}"
+E           AssertionError: telegram: telegram.chat_id is '', want '100000000000000001'
+E           assert '' == '100000000000000001'
+E             
+E             - 100000000000000001
+
+tests/bot/test_setup_chat_parity.py:180: AssertionError
+=============================== warnings summary ===============================
+../../venvs/pb346/lib/python3.12/site-packages/_pytest/config/__init__.py:1464
+  /home/hatch/workspace/venvs/pb346/lib/python3.12/site-packages/_pytest/config/__init__.py:1464: PytestConfigWarning: Unknown config option: timeout
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+../../venvs/pb346/lib/python3.12/site-packages/_pytest/config/__init__.py:1464
+  /home/hatch/workspace/venvs/pb346/lib/python3.12/site-packages/_pytest/config/__init__.py:1464: PytestConfigWarning: Unknown config option: timeout_func_only
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+SKIPPED [1] tests/bot/test_setup_chat_parity.py:151: Lane B PR-7 (feat/chat-setup-parity) not landed: matrix flow cannot answer steps ['chat_id'] (or a canonical answer is refused)
+SKIPPED [1] tests/bot/test_setup_chat_parity.py:200: Lane B PR-7 (feat/chat-setup-parity) not landed: guided setup has no steps for ['camera', 'login', 'platform'] yet
+SKIPPED [3] tests/bot/test_setup_chat_parity.py:215: Lane B PR-5 (feat/bootstrap-setup-only) not landed: the startup check has no setup-only tier; a credential-only install still fails startup on the missing chat id
+SKIPPED [12] tests/bot/test_setup_chat_parity.py:224: Lane B PR-6 (feat/chat-webui-access-core) not landed: no bot-side Web UI access core exists; chat cannot claim, leave open or clear
+SKIPPED [3] tests/bot/test_setup_chat_parity.py:303: Lane B PR-5 (feat/bootstrap-setup-only) not landed: no setup-only mode exists; a zero-config bot still exits at the startup check before any interlocutor can claim it
+SKIPPED [3] tests/bot/test_setup_chat_parity.py:319: Lane B PR-4 (feat/setup-completion-state) not landed: chat completion still writes only the guided session store; the Web UI cannot see it and re-offers its walkthrough
+1 failed, 3 passed, 23 skipped, 2 warnings in 0.85s
