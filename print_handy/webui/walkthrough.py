@@ -54,7 +54,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .. import settings
+from .. import settings, setup_state
 from ..core import site_accounts
 from ..setup_wizard import _atomic_write
 from . import access as access_module
@@ -156,7 +156,11 @@ def pending(data):
     it too. Skipping records ``done`` plus ``skipped``, so a skip does
     not nag."""
     try:
-        return not load_state(data).get("done")
+        if load_state(data).get("done"):
+            return False
+        # Shared completion (setup_state): finishing setup on any other
+        # surface (chat guided setup, the CLI wizard) ends this offer too.
+        return not setup_state.is_complete(data)
     except Exception:  # settings too broken to locate the state folder
         return False
 
@@ -177,6 +181,15 @@ def offer_once(data):
     except OSError:
         return False
     return True
+
+
+def _mark_done(data, state, **extra):
+    """Mark this walkthrough done and write the shared completion record."""
+    save_state(data, {**state, "done": True, **extra})
+    try:
+        setup_state.record_completion(data, "webui")
+    except Exception:  # the shared record must never break the walkthrough
+        pass
 
 
 def restart(data):
@@ -455,7 +468,7 @@ def apply_post(data, environ, form, field_values, *, form_token,
         restart(data)
         return "redirect", "/walkthrough"
     if action == "skip_setup":
-        save_state(data, {**state, "step": index, "done": True, "skipped": True})
+        _mark_done(data, {**state, "step": index}, skipped=True)
         return "redirect", "/"
     if action == "back":
         save_state(data, {**state, "step": max(0, index - 1)})
@@ -464,7 +477,7 @@ def apply_post(data, environ, form, field_values, *, form_token,
         save_state(data, {**state, "step": min(index + 1, len(STEPS) - 1)})
         return "redirect", "/walkthrough"
     if action == "finish" or step_id == "review":
-        save_state(data, {**state, "step": index, "done": True})
+        _mark_done(data, {**state, "step": index})
         return "redirect", "/"
     if step_id == "login":
         try:

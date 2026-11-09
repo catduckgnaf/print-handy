@@ -1248,6 +1248,28 @@ def default_store(cfg=None):
     return SetupStore(settings.state_dir(data) / STORE_NAME)
 
 
+def _record_shared_completion(store, surface="chat"):
+    """Write the shared setup-completion record beside the session store.
+
+    Best effort: the shared record (print_handy.setup_state) must never
+    break a flow that has already completed on its own terms.
+    """
+    try:
+        from .. import setup_state
+        setup_state.record_completion_in_state_dir(store.path.parent, surface)
+    except Exception:
+        logger.exception("shared setup-completion record could not be written")
+
+
+def shared_completion(store):
+    """The shared completion record visible from this store, or {}."""
+    try:
+        from .. import setup_state
+        return setup_state.load_completion_in_state_dir(store.path.parent)
+    except Exception:
+        return {}
+
+
 def _new_session(key, now):
     return {"key": key, "status": "in_progress", "answers": {}, "step": 0,
             "created_at": now, "updated_at": now}
@@ -1609,6 +1631,12 @@ def handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
                         "resumes it, `/print-handy cancel` pauses it, or "
                         "`/print-handy add-printer restart` discards it and starts over. "
                         "Guided setup can start once it finishes.")
+            if rest == "setup" and session is None:
+                prior = shared_completion(store)
+                if prior.get("done"):
+                    from .. import setup_state as _setup_state
+                    return (_setup_state.describe(prior) +
+                            " Run `/print-handy setup restart` to run guided setup again.")
             if rest == "setup restart" or session is None or session["status"] == "complete":
                 session = _new_session(key, now)
                 store.save(session)
@@ -1677,6 +1705,7 @@ def handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
             session["status"] = "complete"
             session["updated_at"] = now
             store.save(session)
+            _record_shared_completion(store)
             return "**Setup complete.** " + detail
         if low == "manual":
             session["status"] = "cancelled"  # finished with the flow, checklist kept for reference
