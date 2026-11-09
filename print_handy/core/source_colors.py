@@ -619,9 +619,22 @@ def _append_filament_stats(path, manifest):
                 if 'Metadata/slice_info.config' in names:
                     root = ET.fromstring(z.read('Metadata/slice_info.config'))
                     stats['plates'] = {}
-                    expected_filaments = {f.get('source_extruder') for f in manifest.get('filaments') or []
+                    expected_filaments = {int(f.get('source_extruder')) for f in manifest.get('filaments') or []
                                           if f.get('source_extruder')}
+                    model_settings = None
+                    if 'Metadata/model_settings.config' in names:
+                        model_settings = ET.fromstring(z.read('Metadata/model_settings.config'))
                     for plate_index, plate in enumerate(root.findall('.//plate'), 1):
+                        # Ignore metadata-only/empty plates: without assigned model
+                        # instances there is no source filament demand to validate.
+                        plate_index_node = plate.find("metadata[@key='index']")
+                        usage_plate_id = plate_index_node.get('value') if plate_index_node is not None else str(plate_index)
+                        if model_settings is not None:
+                            source_plate = next((candidate for candidate in model_settings.findall('.//plate')
+                                                 if any(m.get('key') == 'plater_id' and m.get('value') == usage_plate_id
+                                                        for m in candidate.findall('.//metadata'))), None)
+                            if source_plate is not None and not source_plate.findall('.//model_instance'):
+                                continue
                         # Bambu's slice_info.config reports real sliced usage per plate.
                         # Preserve its plate index and source filament IDs; do not
                         # conflate logical source colors with loaded slots/nozzles.

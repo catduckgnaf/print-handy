@@ -5878,10 +5878,15 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         with zipfile.ZipFile(src) as archive:
             actual_plates = {int(match.group(1)) for name in archive.namelist()
                              if (match := re.fullmatch(r"Metadata/plate_(\d+)\.(?:png|gcode)", name))}
+            has_slicer_plate_metadata = False
             if "Metadata/model_settings.config" in archive.namelist():
                 try:
                     settings = ET.fromstring(archive.read("Metadata/model_settings.config"))
-                    for plate in settings.iter("plate"):
+                    source_plates = [plate for plate in settings.iter("plate")
+                                     if any(m.get("key") == "plater_id" for m in plate.iter("metadata"))
+                                     and bool(plate.findall('.//model_instance'))]
+                    has_slicer_plate_metadata = bool(source_plates)
+                    for plate in source_plates:
                         for metadata in plate.iter("metadata"):
                             if metadata.get("key") == "plater_id":
                                 plate_id = metadata.get("value")
@@ -5890,7 +5895,10 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
                                 actual_plates.add(int(plate_id))
                 except (ET.ParseError, ValueError, TypeError) as exc:
                     raise RuntimeError(f"unable to inspect 3MF plate assignments: {exc}") from exc
-        multi_plate = len(actual_plates) > 1 or int(ad.get("plates", 0)) > 1
+        # Explicit slicer plate metadata establishes independent source plates;
+        # a source audit count is authoritative when metadata was stripped.
+        multi_plate = ((has_slicer_plate_metadata and len(actual_plates) > 1)
+                       or int(ad.get("plates", 0) or 0) > 1)
     from .source_colors import inventory, prompts, require_single_color, validate_decisions
     try:
         manifest = inventory(src)
@@ -5900,7 +5908,8 @@ def slice_job(job_path, brim_override=None, copies=None, scale=None, recipe_sha2
         raise
     if multi_plate:
         # Multi-plate conversion must not infer filament demand from palette or
-        # hardware slots. Require validated source usage before planning a merge/split.
+        # hardware slots. Usage must cover every source plate; missing records
+        # remain UNKNOWN and prevent slicing.
         from .source_colors import require_plate_usage_known
         require_plate_usage_known(manifest)
     # A height-color-only source (#870) is not a multi-color source: its parts

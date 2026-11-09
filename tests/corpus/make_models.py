@@ -217,6 +217,26 @@ def write_assembly_3mf(path, bodies, palette, at=(10, 10)):
             archive.writestr(info, files[name])
 
 
+def _slice_usage(plates, shapes):
+    """True-to-fixture per-plate source filament usage, not estimated model volume."""
+    rows = []
+    for index, (_name, part_indices) in enumerate(plates, 1):
+        if not part_indices:
+            continue
+        per_filament = {}
+        for part_index in part_indices:
+            extruder = int(shapes[part_index][1])
+            # Synthetic geometry fixtures use one gram/one meter per assigned
+            # shape as explicit known data; the value is only a readiness marker.
+            amount = per_filament.setdefault(extruder, [0.0, 0.0])
+            amount[0] += 1.0
+            amount[1] += 1.0
+        fils = "".join(f'<filament id="{ext}" used_g="{amount[0]}" used_m="{amount[1]}"/>'
+                       for ext, amount in sorted(per_filament.items()))
+        rows.append(f'<plate><metadata key="index" value="{index}"/>{fils}</plate>')
+    return "<config>" + "".join(rows) + "</config>"
+
+
 def write_3mf(path, shapes, plates, palette, support=False, *, omit_plate_metadata=False, extra_empty_plates=0,
               project_extra=None):
     """shapes: [(name, extruder, mesh, (x, y) or (x, y, z))]; plates: [(plate name, [shape index])].
@@ -244,6 +264,8 @@ def write_3mf(path, shapes, plates, palette, support=False, *, omit_plate_metada
         "3D/3dmodel.model": _xml(objects, items),
         "Metadata/model_settings.config": _settings(parts, plate_rows),
         "Metadata/project_settings.config": json.dumps(project, indent=2),
+        # CC0 generated fixture data: known source usage for each declared plate.
+        "Metadata/slice_info.config": _slice_usage(plates, shapes),
     }
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
