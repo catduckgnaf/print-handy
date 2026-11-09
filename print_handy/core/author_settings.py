@@ -135,6 +135,26 @@ def _read_raw_project(source):
     return {'format': 'unknown', 'settings': None, 'source_version': None}
 
 
+def _source_preset_settings(source, raw):
+    """Read exact embedded preset evidence; never infer a preset from its display name."""
+    source = Path(source)
+    if source.suffix.lower() != '.3mf' or raw.get('format') != 'orca_project':
+        return {}
+    with zipfile.ZipFile(source) as archive:
+        try:
+            profiles = json.loads(archive.read('Metadata/filament_sequence.json'))
+        except (KeyError, ValueError, UnicodeDecodeError):
+            profiles = None
+        if not isinstance(profiles, dict):
+            return {}
+        candidates = profiles.get('print', [])
+        if isinstance(candidates, list):
+            for candidate in candidates:
+                if isinstance(candidate, dict) and isinstance(candidate.get('setting'), dict):
+                    return candidate['setting']
+    return {}
+
+
 def conversion_provenance(source, target, process, author_process, author_notes):
     """Build a per-slice record without guessing intent when source preset evidence is absent."""
     raw = _read_raw_project(source)
@@ -144,6 +164,7 @@ def conversion_provenance(source, target, process, author_process, author_notes)
     project_values = raw.get('normalized_settings')
     if not isinstance(project_values, dict):
         project_values = author_process
+    source_preset = _source_preset_settings(source, raw)
     changed = (source_settings.get('different_settings_to_system')
                if isinstance(source_settings, dict) else
                [line.partition('=')[1].strip() for line in source_settings.splitlines()
@@ -163,12 +184,16 @@ def conversion_provenance(source, target, process, author_process, author_notes)
     for key in sorted(set(author_process) | set(target_settings)):
         source_value = project_values.get(key)
         target_value = target_settings.get(key)
-        deliberate = (key in explicit) if explicit is not None else None
+        preset_value = source_preset.get(key)
+        deliberate = ((key in explicit) if explicit is not None else
+                      (source_value != preset_value if key in source_preset and source_value is not None else None))
         selected = process.get(key)
-        origin = ('designer' if deliberate is True else 'unknown')
-        reason = ('different_settings_to_system' if deliberate is True else
+        origin = ('designer' if deliberate is True else 'inherited' if deliberate is False else 'unknown')
+        reason = ('different_settings_to_system' if deliberate is True and explicit is not None else
+                  'project value matches exact source preset' if deliberate is False and key in source_preset else
+                  'project differs from exact source preset' if deliberate is True else
                   'exact source preset comparison unavailable; intent unknown')
-        entries[key] = {'source_preset_value': None, 'project_value': source_value,
+        entries[key] = {'source_preset_value': preset_value, 'project_value': source_value,
                         'target_value': target_value, 'selected_value': selected,
                         'origin': origin, 'reason': reason}
         if deliberate is True and source_value is not None and target_value is not None and source_value != target_value:

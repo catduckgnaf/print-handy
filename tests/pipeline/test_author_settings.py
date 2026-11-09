@@ -72,6 +72,20 @@ def sliced_process(tmp_path, source, **kwargs):
     return json.loads(Path(configs[1]).read_text()), provenance
 
 
+def test_conversion_provenance_compares_to_exact_embedded_source_preset(tmp_path):
+    source = tmp_path / "preset.3mf"
+    bambu_project(source, {"wall_loops": "4", "different_settings_to_system": [""]},
+                  extra={"Metadata/filament_sequence.json": json.dumps(
+                      {"print": [{"setting": {"wall_loops": "4", "sparse_infill_pattern": "gyroid"}}]}).encode()})
+    result = author_settings.conversion_provenance(
+        source, {"wall_loops": "2", "sparse_infill_pattern": "grid"},
+        {"wall_loops": "4", "sparse_infill_pattern": "gyroid"},
+        {"wall_loops": "4", "sparse_infill_pattern": "gyroid"}, [])
+    assert result["settings"]["wall_loops"]["source_preset_value"] == "4"
+    assert result["settings"]["wall_loops"]["origin"] == "inherited"
+    assert result["settings"]["sparse_infill_pattern"]["origin"] == "inherited"
+
+
 # --- 6. PrusaSlicer settings translation ----------------------------------------------------------------
 
 
@@ -119,10 +133,10 @@ def test_conversion_provenance_marks_unchanged_keys_as_inherited(tmp_path):
     source = tmp_path / "inherited.3mf"
     write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
               [("#FFFFFF", "PLA")],
-              project_extra={"wall_loops": "4", "different_settings_to_system": []})
+              project_extra={"wall_loops": "4", "different_settings_to_system": [""]})
     result = author_settings.conversion_provenance(
         source, {"wall_loops": "2"}, {"wall_loops": "4"}, {"wall_loops": "4"}, [])
-    assert result["settings"]["wall_loops"]["origin"] == "unknown"
+    assert result["settings"]["wall_loops"]["origin"] == "inherited"
     assert result["unresolved_conflicts"] == []
 
 
