@@ -273,7 +273,7 @@ Open `/config`, or follow the **configuration page** link from the status page. 
 - Printers
 - Platform and chat
 - Spools
-- Model endpoints
+- AI and models
 - Camera, timelapse and images
 - Wrapped
 - Slicing and delivery
@@ -288,7 +288,7 @@ The two type pickers are explicit settings, not page-only choices, and both are 
 
 The live camera feed values in the **Camera, timelapse and images** group work as one switch. While the feed height, frame rate, bitrate cap and encoder all hold their defaults (720, 15, 2500, auto), the live view is the camera stream relayed as it arrives. Change any one and go2rtc publishes a second, transcoded stream for the live view with all four values applied — ffmpeg re-encodes the loopback restream, so the camera still gets one upstream pull, and timelapse capture and watchdog stills keep the camera's own stream. The encoder preference is resolved against a probe of the machine's ffmpeg (hardware first, CPU last), the same candidate order as the timelapse assembly encode.
 
-The **Home Assistant** group carries the MQTT event fields: the **MQTT events** switch with its broker host, port, topic root and username. The **Notifications** group carries the **ntfy events** switch with its server URL and topic. The **Spools** group carries the **Spoolman URL**. Neither channel's credential is a field — the MQTT password is `MQTT_PASSWORD` and the ntfy access token is `NTFY_ACCESS_TOKEN`, both in the environment only. The **Model endpoints** group carries the chat, design and agent endpoint URLs and model names; their API keys likewise stay in the environment. **Plate spacing** (Slicing and delivery) is the auto-layout spacing preset.
+The **Home Assistant** group carries the MQTT event fields: the **MQTT events** switch with its broker host, port, topic root and username. The **Notifications** group carries the **ntfy events** switch with its server URL and topic. The **Spools** group carries the **Spoolman URL**. Neither channel's credential is a field — the MQTT password is `MQTT_PASSWORD` and the ntfy access token is `NTFY_ACCESS_TOKEN`, both in the environment only. The **AI and models** group carries the chat, design and agent endpoint URLs and model names, the vision endpoint and model, and the AI edit gate (allowed users and the per-hour request limit); their API keys likewise stay in the environment. The [ai] tier tables are named in the group as file-only — they are edited in the settings file, not here. **Plate spacing** (Slicing and delivery) is the auto-layout spacing preset.
 
 Every field shows its effective value and a provenance badge:
 

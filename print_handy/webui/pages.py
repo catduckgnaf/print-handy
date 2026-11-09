@@ -44,7 +44,8 @@ from pathlib import Path
 from . import access as access_module
 from . import config as config_api
 from . import shell
-from .catalog import choice_label, choices_for, config_page_visible, field_by_id
+from .catalog import (GROUP_FILE_ONLY_NOTES, choice_label, choices_for,
+                    config_page_visible, field_by_id)
 
 CSRF_FIELD = "_csrf"
 CONFIRM_FIELD = "confirm"
@@ -71,7 +72,7 @@ GROUPS = (
     ("printers", "Printers"),
     ("platform", "Platform and chat"),
     ("spools", "Spools"),
-    ("endpoints", "Model endpoints"),
+    ("ai", "AI and models"),
     ("camera", "Camera, timelapse and images"),
     ("wrapped", "Wrapped"),
     ("slicing", "Slicing and delivery"),
@@ -387,6 +388,9 @@ def render_config_page(field_values, *, data, form_token, errors=None,
                      f"<summary><h2>{_esc(heading)}</h2></summary>")
         parts.extend(_field_row(fv, data=data, errors=errors, submitted=submitted)
                      for fv in rows)
+        note = GROUP_FILE_ONLY_NOTES.get(name)
+        if note:
+            parts.append(f'<p class="file-only-note">{_esc(note)}</p>')
         parts.append("</details>")
     parts.append('<p><button type="submit">Preview changes</button></p></form>')
     parts.append(
