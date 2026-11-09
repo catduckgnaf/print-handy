@@ -2828,8 +2828,11 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         if not labels or len(labels) > mj.position_limit(job_adapter) or len(set(labels)) != len(labels):
             raise ValueError('requires one to four distinct configured toolheads' if job_adapter.multi_tool
                              else 'requires one to four distinct configured slots')
-        questions = canonical_prompts(manifest)
-        grouped = grouped_prompts(manifest)
+        # A job with a plate selection is asked only about the selected
+        # plates' colors; unselected plates never prompt (#1110 Phase B).
+        selected_plates = job.get('selected_plates') or None
+        questions = canonical_prompts(manifest, selected_plate_ids=selected_plates)
+        grouped = grouped_prompts(manifest, selected_plate_ids=selected_plates)
         families = [row for row in grouped if len(row['keys']) > 1]
         tally = {}
         for p in manifest['parts']:
@@ -2947,7 +2950,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
         elif (latest.get('intake_id') != iid or latest.get('color_decisions')
                 or mj.file_sha256(latest['downloaded_file']) != decisions['source_sha256']):
             raise ValueError('source/job changed during selection; decisions not saved')
-        validated = validate_decisions(manifest, decisions, state, mj.resolve_filament_selection)
+        validated = validate_decisions(manifest, decisions, state, mj.resolve_filament_selection,
+                                       selected_plate_ids=selected_plates)
         mj.set_color_decisions(latest, validated)
         if decisions['mode'] == 'single_color':
             latest['filament_selection'] = validated['selection']
@@ -3702,7 +3706,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     # The repair changed the source bytes: rebind the saved
                     # color decisions to the repaired source, or the restarted
                     # slice refuses them for binding the old SHA256.
-                    validated = validate_decisions(manifest, decisions, state, mj.resolve_filament_selection)
+                    validated = validate_decisions(manifest, decisions, state, mj.resolve_filament_selection,
+                                       selected_plate_ids=selected_plates)
                     mj.set_color_decisions(latest, validated)
                     mj.write_job(folder, latest)
                     binding = slice_binding(latest, new_sha)
@@ -3733,7 +3738,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                     # The repair changed the source bytes: rebind the saved
                     # color decisions to the repaired source, or the restarted
                     # slice refuses them for binding the old SHA256.
-                    validated = validate_decisions(manifest, decisions, state, mj.resolve_filament_selection)
+                    validated = validate_decisions(manifest, decisions, state, mj.resolve_filament_selection,
+                                       selected_plate_ids=selected_plates)
                     mj.set_color_decisions(latest, validated)
                     mj.write_job(folder, latest)
                     binding = slice_binding(latest, new_sha)
@@ -4065,7 +4071,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 decisions.clear()
                 decisions.update(new_decisions)
                 validated = validate_decisions(manifest, decisions, state,
-                                               mj.resolve_filament_selection)
+                                               mj.resolve_filament_selection,
+                                               selected_plate_ids=selected_plates)
                 mj.set_color_decisions(latest, validated)
             if fixed_path is not None:
                 new_sha = mj.file_sha256(fixed_path)
@@ -4074,7 +4081,8 @@ async def _prepare_link(event, adapter, state, root, timeout=None, reuse=None, p
                 manifest['source_sha256'] = new_sha
                 latest['color_manifest'] = manifest
                 validated = validate_decisions(manifest, decisions, state,
-                                               mj.resolve_filament_selection)
+                                               mj.resolve_filament_selection,
+                                               selected_plate_ids=selected_plates)
                 mj.set_color_decisions(latest, validated)
                 # A pre-existing acknowledgement belongs to the old file.
                 latest.pop('clearance_acknowledgement', None)

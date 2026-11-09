@@ -36,7 +36,11 @@ async def collect(job_path, state, adapter, chat_id, session_key, metadata=None,
     schema = job.get('color_schema')
     if schema not in (None, 'part_slots_v1'):
         raise ValueError('unknown color decision schema')
-    questions = canonical_prompts(manifest) if schema == 'part_slots_v1' else prompts(manifest)
+    # A job with a plate selection is asked only about the selected plates'
+    # colors; unselected plates never prompt (#1110 Phase B).
+    selected_plates = job.get('selected_plates') or None
+    questions = (canonical_prompts(manifest, selected_plate_ids=selected_plates)
+                 if schema == 'part_slots_v1' else prompts(manifest, selected_plate_ids=selected_plates))
     if job.get('color_manifest', {}).get('source_sha256') != source_hash:
         raise ValueError('source changed before Discord presentation')
     job_adapter = _job_adapter(job)
@@ -99,14 +103,15 @@ async def collect(job_path, state, adapter, chat_id, session_key, metadata=None,
         if schema != 'part_slots_v1':
             return [await ask_one(row, taken) for row in questions]
         picked = {}
-        for row in grouped_prompts(manifest):
+        for row in grouped_prompts(manifest, selected_plate_ids=selected_plates):
             slot = await ask_one(row, taken)
             for decision_key in row['keys']:
                 picked[decision_key] = slot
         return [picked[row['key']] for row in questions]
 
     if job.get('color_decisions'):
-        validate_decisions(manifest, job['color_decisions'], state, resolve_filament_selection)
+        validate_decisions(manifest, job['color_decisions'], state, resolve_filament_selection,
+                           selected_plate_ids=selected_plates)
         if (schema != 'part_slots_v1' or job['color_decisions'].get('mode') != 'per_part'):
             raise ValueError('source-bound color decisions already exist; refusing to replace or replay them')
         old_decisions = job['color_decisions']
@@ -125,7 +130,8 @@ async def collect(job_path, state, adapter, chat_id, session_key, metadata=None,
         intake_color_choices(path, state, mode='per_part', slots=slots)
         updated = json.loads(path.read_text())
         decisions = updated.get('color_decisions')
-        validate_decisions(manifest, decisions, state, resolve_filament_selection)
+        validate_decisions(manifest, decisions, state, resolve_filament_selection,
+                           selected_plate_ids=selected_plates)
         if decisions_digest(old_decisions) == decisions_digest(decisions):
             # Restore the original job atomically; intake_color_choices is the
             # canonical validator, but the user did not make a change.
@@ -160,7 +166,8 @@ async def collect(job_path, state, adapter, chat_id, session_key, metadata=None,
         raise ValueError('concurrent color decision update; no decisions overwritten')
     intake_color_choices(path, state, mode=mode, slots=slots)
     saved = json.loads(path.read_text()).get('color_decisions')
-    validate_decisions(manifest, saved, state, resolve_filament_selection)
+    validate_decisions(manifest, saved, state, resolve_filament_selection,
+                       selected_plate_ids=selected_plates)
     return {'status': 'COLOR_CHOICES_SAVED', 'job_json': str(path),
             'source_sha256': source_hash, 'mode': mode, 'slots': slots,
             'decisions': saved, 'sliced': False, 'uploaded': False, 'started': False}
