@@ -193,6 +193,13 @@ def _remember_lock(server):
     return lock if lock is not None else contextlib.nullcontext()
 
 
+def _chat_lock(server):
+    """The server's chat-service build lock, or a no-op context when the
+    server object predates it (same rule as _remember_lock)."""
+    lock = getattr(server, "chat_service_lock", None)
+    return lock if lock is not None else contextlib.nullcontext()
+
+
 def _load_remembered_sessions(data, fingerprint):
     """{sha256(session id): expiry epoch} from SESSIONS_FILE.
 
@@ -1628,12 +1635,22 @@ class _Handler(BaseHTTPRequestHandler):
     # -- web chat -------------------------------------------------------------
 
     def _chat_service(self):
+        # Built lazily (the service spawns a BotCore and its own
+        # event-loop thread, so a server that never serves /chat must
+        # not pay for it), but the build is serialized: this server is
+        # threaded, and two concurrent first requests must not each
+        # build one — the loser's service would be orphaned when its
+        # assignment is overwritten, its replies rendered nowhere.
         service = getattr(self.server, "chat_service", None)
-        if service is None:
-            from ..bot.web import WebChatService
-            service = WebChatService(self.server.settings_data)
-            self.server.chat_service = service
-        return service
+        if service is not None:
+            return service
+        with _chat_lock(self.server):
+            service = getattr(self.server, "chat_service", None)
+            if service is None:
+                from ..bot.web import WebChatService
+                service = WebChatService(self.server.settings_data)
+                self.server.chat_service = service
+            return service
 
     def _chat_page(self, notice=None, error=None):
         ft = self.server.form_token
@@ -1948,6 +1965,10 @@ def make_server(data=None, *, environ=None, host=None, port=None, snapshot_func=
     server.access = access_module.resolve(data, bind_host, environ)
     server.bind_host = bind_host
     server.setup_lock = threading.Lock()
+    # Web chat's service, built lazily under this lock on the first
+    # /chat request (see _Handler._chat_service).
+    server.chat_service = None
+    server.chat_service_lock = threading.Lock()
     # DNS-rebinding guard (see _Handler._host_refused): only an open
     # loopback bind relies on the form token alone, so only it checks Host.
     server.allowed_hosts = ({"localhost", "127.0.0.1", "::1", str(bind_host).lower()}
