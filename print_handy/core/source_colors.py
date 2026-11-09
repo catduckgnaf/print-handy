@@ -619,6 +619,7 @@ def _append_filament_stats(path, manifest):
                 if 'Metadata/slice_info.config' in names:
                     root = ET.fromstring(z.read('Metadata/slice_info.config'))
                     stats['plates'] = {}
+                    has_slice_usage = True
                     expected_filaments = {int(f.get('source_extruder')) for f in manifest.get('filaments') or []
                                           if f.get('source_extruder')}
                     model_settings = None
@@ -693,6 +694,10 @@ def _append_filament_stats(path, manifest):
             pass
     stats['total_g'] = round(stats['total_g'], 1)
     stats['total_m'] = round(stats['total_m'], 1)
+    if path.suffix.lower() == '.3mf' and not locals().get('has_slice_usage', False):
+        stats['plates'] = {'unknown': {'extruders': {}, 'total_g': 0.0, 'total_m': 0.0,
+                                       'usage_known': False,
+                                       'usage_unknown_reason': 'source has no slicer usage metadata'}}
     manifest['filament_stats'] = stats
 
 

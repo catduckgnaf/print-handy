@@ -264,8 +264,9 @@ def write_3mf(path, shapes, plates, palette, support=False, *, omit_plate_metada
         "3D/3dmodel.model": _xml(objects, items),
         "Metadata/model_settings.config": _settings(parts, plate_rows),
         "Metadata/project_settings.config": json.dumps(project, indent=2),
-        # CC0 generated fixture data: known source usage for each declared plate.
-        "Metadata/slice_info.config": _slice_usage(plates, shapes),
+        # Test metadata-only plates as UNKNOWN; these unsliced fixture models
+        # cannot claim true slicer usage before a slice has been run.
+        **({} if omit_plate_metadata else {"Metadata/slice_info.config": _slice_usage(plates, shapes)}),
     }
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:

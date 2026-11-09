@@ -90,7 +90,16 @@ class FilamentStatsTests(unittest.TestCase):
             with self.subTest(usage=usage), self.assertRaisesRegex(RuntimeError, 'usage is unknown'):
                 sc.require_plate_usage_known({'filament_stats': {'plates': {'7': usage}}}, ['7'])
 
-    def test_stl_has_no_palette_and_is_bound_to_its_bytes(self):
+    def test_per_plate_usage_unknown_without_slicer_usage_metadata(self):
+        path = self.dir / "unsliced.3mf"
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("Metadata/model_settings.config", "<config/>")
+        manifest = {}
+        sc._append_filament_stats(path, manifest)
+        self.assertFalse(manifest["filament_stats"]["plates"]["unknown"]["usage_known"])
+        with self.assertRaisesRegex(RuntimeError, 'usage is unknown'):
+            sc.require_plate_usage_known(manifest)
+
         path = self.dir / "part.stl"
         path.write_bytes(b"solid x\nendsolid x\n")
         res = sc.inventory(path)
