@@ -216,14 +216,15 @@ def test_denied_user_ids_come_from_the_environment_and_the_file():
         settings.load(environ={"PRINT_HANDY__DISCORD__DENIED_USER_IDS": "me"})
 
 
-def test_unraid_template_ships_allowed_empty_and_surfaces_denied():
+def test_unraid_template_ships_no_access_lists():
+    """The slimmed template carries no Discord fields: the allow/deny
+    lists are config-file / environment settings (pinned by
+    test_denied_user_ids_come_from_the_environment_and_the_file above),
+    defaulting to empty — everyone in the channel, nobody denied."""
     root = ET.parse(Path(__file__).parents[2] / "docker" / "unraid" / "print-handy.xml").getroot()
     by_target = {c.get("Target"): c for c in root.iter("Config")}
-    allowed = by_target["PRINT_HANDY__DISCORD__ALLOWED_USER_IDS"]
-    assert allowed.get("Default") == ""
-    assert "everyone" in allowed.get("Description")
-    denied = by_target["PRINT_HANDY__DISCORD__DENIED_USER_IDS"]
-    assert denied.get("Default") == ""
+    assert "PRINT_HANDY__DISCORD__ALLOWED_USER_IDS" not in by_target
+    assert "PRINT_HANDY__DISCORD__DENIED_USER_IDS" not in by_target
 
 
 # ---------------------------------------------------------------------- Hermes mode semantics

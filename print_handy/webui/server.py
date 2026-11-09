@@ -150,6 +150,7 @@ from . import shell
 from . import sources as sources_module
 from . import spools as spools_module
 from . import status as status_module
+from . import upload as upload_module
 from . import walkthrough as walkthrough_module
 
 log = logging.getLogger(__name__)
@@ -740,6 +741,11 @@ class _Handler(BaseHTTPRequestHandler):
             if path == "/login":
                 self._login_page()
                 return
+            if path.startswith("/u/"):
+                # A no-login upload link: the token in the address is
+                # the whole credential, and it opens this form only.
+                self._token_upload_page(unquote(path[len("/u/"):]))
+                return
             if not self._authorized():
                 if self._browser_navigation(path):
                     # A browser following the Unraid WebUI link (or any
@@ -805,6 +811,12 @@ class _Handler(BaseHTTPRequestHandler):
                                                   theme=self._theme(),
                                                   section=section),
                            "text/html; charset=utf-8")
+            elif path == "/upload":
+                self._send(200, upload_module.render_upload_page(
+                    self.server.settings_data, form_token=self.server.form_token,
+                    theme=self._theme(),
+                    nav=data_module.nav_for(self.server.settings_data)),
+                    "text/html; charset=utf-8")
             elif path == "/sources":
                 self._send(200, sources_module.render_sources_page(
                     theme=self._theme(),
@@ -1573,8 +1585,13 @@ class _Handler(BaseHTTPRequestHandler):
             if self.server.access.setup_pending:
                 self._setup_pending_json()
                 return
+            if path.startswith("/u/"):
+                self._token_upload_submit(unquote(path[len("/u/"):]))
+                return
             if path == "/login":
                 self._login_submit()
+            elif path == "/upload":
+                self._upload_post()
             elif path == "/logout":
                 self._logout()
             elif path == "/walkthrough":
@@ -1604,6 +1621,151 @@ class _Handler(BaseHTTPRequestHandler):
                 self._read_only()
         except Exception as exc:  # a broken write is a 500, never a dropped connection
             self._json(500, {"ok": False, "reason": f"{type(exc).__name__}: {exc}"})
+
+    # -- uploads ------------------------------------------------------------
+
+    def _read_upload_body(self):
+        """(fields, files, None) or (None, None, (code, reason)).
+
+        The upload routes are the one place a multipart body is read:
+        the shared form reader's 64 KB urlencoded rule does not apply,
+        but the body is still capped before it is read — at the upload
+        module's size limit plus a small multipart overhead allowance.
+        """
+        content_type = self.headers.get("Content-Type") or ""
+        if not content_type.startswith("multipart/form-data"):
+            return None, None, (415, "uploads must be multipart/form-data")
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return None, None, (400, "bad Content-Length")
+        if length < 0 or length > upload_module.MAX_UPLOAD_BYTES + 65536:
+            return None, None, (413, "upload too large")
+        raw = self.rfile.read(length) if length else b""
+        fields, files = upload_module.parse_multipart(raw, content_type)
+        if fields is None:
+            return None, None, (400, "could not read the upload form")
+        return {name: [value] for name, value in fields.items()}, files, None
+
+    def _upload_post(self):
+        content_type = self.headers.get("Content-Type") or ""
+        if content_type.startswith("multipart/form-data"):
+            # Gate before the body is read: an upload body can run to
+            # the shared download budget (~200 MiB), so an
+            # unauthenticated client must not be able to make the
+            # server buffer and parse one. The gate is the GET rule
+            # (access open, the header token, or a login session —
+            # session first, so a browser request does not trip the
+            # header throttle); it does not replace the POST rule
+            # below, which still requires the header token or the form
+            # token once the fields are parsed. A session alone still
+            # cannot save a file.
+            if self.server.access.required and not (
+                    self._session_authorized() or self._header_authorized()):
+                self._html_refusal(403, STALE_FORM_MESSAGE, "/upload")
+                return
+            fields, files, error = self._read_upload_body()
+            if error:
+                self._html_refusal(error[0], error[1], "/upload")
+                return
+            if not self._post_authorized(fields):
+                self._html_refusal(403, STALE_FORM_MESSAGE, "/upload")
+                return
+            if not files:
+                self._html_refusal(400, "no file was attached", "/upload")
+                return
+            saved, reason = upload_module.save_upload(
+                self.server.settings_data, files[0][0], files[0][1])
+            if saved is None:
+                self._html_refusal(400, reason, "/upload")
+                return
+            self._send(200, upload_module.render_upload_page(
+                self.server.settings_data, form_token=self.server.form_token,
+                notice=f"{saved.name} is in the inbox. Pick it up in chat "
+                       "to slice and print it.",
+                theme=self._theme(),
+                nav=data_module.nav_for(self.server.settings_data)),
+                "text/html; charset=utf-8")
+            return
+        form, error = self._read_form()
+        if error:
+            self._html_refusal(error[0], error[1], "/upload")
+            return
+        if not self._post_authorized(form):
+            self._html_refusal(403, STALE_FORM_MESSAGE, "/upload")
+            return
+        action = (form.get("action") or [""])[0]
+        notice = error_text = None
+        if action == "create_link":
+            token = upload_module.create_link(self.server.settings_data)
+            notice = (f"Upload link created: /u/{token} — copy it now; "
+                      "only a digest of it is kept, so it cannot be shown again.")
+        elif action == "revoke_link":
+            if upload_module.revoke_link(self.server.settings_data,
+                                         (form.get("digest") or [""])[0]):
+                notice = "Upload link revoked."
+            else:
+                error_text = "that upload link is already gone"
+        else:
+            error_text = "unknown upload action"
+        self._send(200, upload_module.render_upload_page(
+            self.server.settings_data, form_token=self.server.form_token,
+            notice=notice, error=error_text, theme=self._theme(),
+            nav=data_module.nav_for(self.server.settings_data)),
+            "text/html; charset=utf-8")
+
+    def _token_upload_page(self, token):
+        if not upload_module.link_valid(self.server.settings_data, token):
+            self._send(404, upload_module.render_token_page(
+                error="This upload link is not valid. Ask for a fresh one."),
+                "text/html; charset=utf-8")
+            return
+        self._send(200, upload_module.render_token_page(),
+                   "text/html; charset=utf-8")
+
+    def _token_upload_submit(self, token):
+        if not upload_module.link_valid(self.server.settings_data, token):
+            self._send(404, upload_module.render_token_page(
+                error="This upload link is not valid. Ask for a fresh one."),
+                "text/html; charset=utf-8")
+            return
+        fields, files, error = self._read_upload_body()
+        if error:
+            self._send(error[0], upload_module.render_token_page(error=error[1]),
+                       "text/html; charset=utf-8")
+            return
+        # Check the token again after the read: reading a large upload
+        # can take a while, and a link revoked in that window must not
+        # still deliver a file into the inbox. This re-check is only
+        # the early refusal — the guarantee is in save_upload_for_link,
+        # which makes the final validity decision and the write one
+        # atomic step against revocation.
+        if not upload_module.link_valid(self.server.settings_data, token):
+            self._send(404, upload_module.render_token_page(
+                error="This upload link is not valid. Ask for a fresh one."),
+                "text/html; charset=utf-8")
+            return
+        if not files:
+            self._send(400, upload_module.render_token_page(
+                error="No file was attached."), "text/html; charset=utf-8")
+            return
+        saved, reason = upload_module.save_upload_for_link(
+            self.server.settings_data, token, files[0][0], files[0][1])
+        if saved is None and reason is None:
+            # Revoked after the re-check above but before the write;
+            # the atomic check-and-save refused the delivery.
+            self._send(404, upload_module.render_token_page(
+                error="This upload link is not valid. Ask for a fresh one."),
+                "text/html; charset=utf-8")
+            return
+        if saved is None:
+            self._send(400, upload_module.render_token_page(error=reason),
+                       "text/html; charset=utf-8")
+            return
+        self._send(200, upload_module.render_token_page(
+            notice=f"{saved.name} is in the inbox. It will be picked up "
+                   "and confirmed there before anything prints."),
+            "text/html; charset=utf-8")
 
     def _config_preview(self):
         got = self._config_form()

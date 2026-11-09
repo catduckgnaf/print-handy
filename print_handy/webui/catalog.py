@@ -95,7 +95,7 @@ GROUP_OF = {
     "discord.approval_all_users": "platform",
     "discord.timezone": "platform",
     "discord.chat_llm_enabled": "platform",
-    "discord.mention_starter_on_complete": "platform",
+    "discord.mention_starter": "platform",
     "telegram.chat_id": "platform",
     "telegram.allowed_user_ids": "platform",
     "telegram.approval_user_id": "platform",
@@ -273,13 +273,18 @@ CATALOG = (
            "while [llm] stays configured for /print-design. The roast and camera "
            "watchdog keep their own vision switches either way.",
            validator="settings discord check"),
-    _field("discord", "mention_starter_on_complete", "Mention who started the print", "toggle",
-           "On by default: the post that ends a print on Discord (complete, cancelled or "
-           "stopped with an error) @mentions only the user who started that print, so only "
-           "they get pinged — everyone else in the channel can use mention-only "
-           "notifications and stay unpinged by other people's prints. Off: terminal posts "
-           "mention nobody, as before. A print started outside the bot (at the printer, "
-           "from another app) has no recorded starter and never mentions anyone.",
+    _field("discord", "mention_starter", "Mention who started the print", "toggle",
+           "On by default: when a print needs its starter on Discord, the post @mentions "
+           "only the user who started that print — the post that ends it (complete, "
+           "cancelled or stopped with an error) and the alerts that need a person (the "
+           "camera watchdog, a pause or stop from an error or runout), once per problem. "
+           "Setup, slicing, progress and other routine posts never mention anyone, so "
+           "everyone else in the channel can use mention-only notifications and stay "
+           "unpinged by other people's prints. Off: no post mentions anyone, as before. "
+           "A print started outside the bot (at the printer, from another app) has no "
+           "recorded starter and never mentions anyone. (Earlier this was "
+           "mention_starter_on_complete and covered only the end-of-print post; the "
+           "old name still works and is read as this setting.)",
            validator="settings discord check"),
     _field("telegram", "chat_id", "Telegram chat", "text",
            "Telegram chat (group) ID; group and channel IDs are negative.",
@@ -413,9 +418,11 @@ CATALOG = (
     _field("agent", "model", "Agent model", "text",
            "Model the agent endpoint uses."),
     _field("ai", "allowed_users", "AI edit users", "id_list",
-           "Who may use the AI edit lane (#902): numeric user IDs, separated "
-           "by commas or spaces. Empty (the default) leaves the lane open "
-           "to every user the gateway already authorizes.",
+           "Who may use the AI edit lane: user IDs in the form your platform "
+           "uses — numeric IDs on Discord and Telegram, full Matrix IDs like "
+           "@user:server on Matrix — separated by commas or spaces. Empty "
+           "(the default) leaves the lane open to every user the gateway "
+           "already authorizes.",
            validator="settings ai check"),
     _field("ai", "edit_requests_per_hour", "AI edit requests per hour", "number",
            "How many AI edit requests each authorized user may make per "

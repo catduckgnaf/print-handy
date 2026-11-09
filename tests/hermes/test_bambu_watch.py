@@ -461,6 +461,79 @@ def test_text_alert_delivery_falls_back_to_plain_text_when_the_button_post_fails
     assert len(posts) == 1 and "Print camera check" in posts[0]
 
 
+# -- watchdog ping release: a failed delivery must not eat the ping -----------
+
+_WATCH_STARTER = "111222333444555666"
+
+
+def _watchdog_ping_rig(monkeypatch, tmp_path):
+    """Real starter-pings state in a tmp file, with the job resolvable."""
+    from print_handy.hermes import discord_print_summary as summary
+    from print_handy.hermes import starter_pings
+    job = {"title": "Widget", "gcode": "/archive/widget/plate.gcode",
+           "started_by": {"platform": "discord", "user_id": _WATCH_STARTER}}
+    monkeypatch.setattr(starter_pings, "STATE", tmp_path / "starter_pings.json")
+    monkeypatch.setattr(starter_pings, "mentions_on", lambda: True)
+    monkeypatch.setattr(summary, "find_job", lambda key: (job, None))
+    return starter_pings
+
+
+def test_visual_alert_releases_the_ping_when_every_delivery_fails(monkeypatch, tmp_path):
+    """Button post and plain fallback both failing means the recorded
+    watchdog ping never landed: it is released, so a later watchdog
+    alert for the same print can ping instead of arriving silently."""
+    from print_handy.hermes import moonraker_event_listener as mel
+    from print_handy.hermes import print_alert_buttons as pab
+    _watchdog_ping_rig(monkeypatch, tmp_path)
+    monkeypatch.setattr(pab, "post_visual_alert", lambda *args, **kwargs: False)
+    delivered = []
+    monkeypatch.setattr(mel, "post", lambda text, **kw: delivered.append(kw) or False)
+    bambu_watch.deliver_visual_alert(REMOTE, JPEG, "layer2: spaghetti; test",
+                                     token="tok", chat_id="42", buttonless=False)
+    assert delivered[-1] == {"mention_user_id": _WATCH_STARTER}
+    monkeypatch.setattr(mel, "post", lambda text, **kw: delivered.append(kw) or True)
+    bambu_watch.deliver_visual_alert(REMOTE, JPEG, "layer2: spaghetti; test",
+                                     token="tok", chat_id="42", buttonless=False)
+    assert delivered[-1] == {"mention_user_id": _WATCH_STARTER}
+
+
+def test_visual_text_alert_releases_the_ping_when_every_delivery_fails(monkeypatch, tmp_path):
+    from print_handy.hermes import moonraker_event_listener as mel
+    from print_handy.hermes import print_alert_buttons as pab
+    _watchdog_ping_rig(monkeypatch, tmp_path)
+    monkeypatch.setattr(pab, "post_visual_text_alert", lambda *args, **kwargs: False)
+    delivered = []
+    monkeypatch.setattr(mel, "post", lambda text, **kw: delivered.append(kw) or False)
+    bambu_watch.deliver_visual_text_alert(REMOTE, "periodic: camera down",
+                                          token="tok", chat_id="42", buttonless=False)
+    assert delivered[-1] == {"mention_user_id": _WATCH_STARTER}
+    monkeypatch.setattr(mel, "post", lambda text, **kw: delivered.append(kw) or True)
+    bambu_watch.deliver_visual_text_alert(REMOTE, "periodic: camera down",
+                                          token="tok", chat_id="42", buttonless=False)
+    assert delivered[-1] == {"mention_user_id": _WATCH_STARTER}
+
+
+def test_visual_alert_keeps_the_episode_when_the_fallback_delivers(monkeypatch, tmp_path):
+    """A fallback that lands is a delivered ping: the episode stays
+    recorded, so the next watchdog alert for the print does not ping
+    a second time."""
+    from print_handy.hermes import moonraker_event_listener as mel
+    from print_handy.hermes import print_alert_buttons as pab
+    _watchdog_ping_rig(monkeypatch, tmp_path)
+    monkeypatch.setattr(pab, "post_visual_alert", lambda *args, **kwargs: False)
+    delivered = []
+    monkeypatch.setattr(mel, "post", lambda text, **kw: delivered.append(kw) or True)
+    bambu_watch.deliver_visual_alert(REMOTE, JPEG, "layer2: spaghetti; test",
+                                     token="tok", chat_id="42", buttonless=False)
+    assert delivered[-1] == {"mention_user_id": _WATCH_STARTER}
+    button_kwargs = []
+    monkeypatch.setattr(pab, "post_visual_alert",
+                        lambda *args, **kw: button_kwargs.append(kw) or True)
+    bambu_watch.deliver_visual_alert(REMOTE, JPEG, "layer2: spaghetti; test",
+                                     token="tok", chat_id="42", buttonless=False)
+    assert "mention_user_id" not in button_kwargs[-1]
+
+
 # -- Stage 3: the alert's Pause button on Bambu ---------------------------------
 
 def test_pause_sends_one_lan_pause_for_the_alerted_file(monkeypatch):

@@ -79,8 +79,8 @@ cache = "~/.hermes/cache"
 ffmpeg = "ffmpeg"
 piper = "piper"
 piper_model = ""
-# Hermes checkout. Added to sys.path only when hermes_state / hermes_cli must be imported.
-# Safe gateway restart helper run by bin/restart_gateway_after_print.sh (HERMES_RESTART_HELPER overrides).
+# Hermes host locations for the home install's own tooling. The standalone
+# bot never reads them; the Hermes runtime mode they served was removed.
 
 [services]
 # Addresses are machine specific: set them in config/local.toml. Empty means not configured.

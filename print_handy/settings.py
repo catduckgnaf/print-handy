@@ -114,6 +114,9 @@ LEGACY_ENV = {
 KEY_ALIASES = {
     ("printer", "ifs_slots"): ("printer", "filament_slots"),
     ("webui", "secure_cookie"): ("webui", "cookie_secure"),
+    # #1095: the starter-mention setting outgrew its completion-only name
+    # when alert posts started pinging the starter too.
+    ("discord", "mention_starter_on_complete"): ("discord", "mention_starter"),
 }
 
 
@@ -183,7 +186,7 @@ OPTIONAL_KEYS = {("printer", "nozzle_type"): str, ("printer", "tool_count"): int
                  ("discord", "denied_user_ids"): str,
                  ("discord", "chat_llm_enabled"): bool,
                  ("discord", "approval_all_users"): bool,
-                 ("discord", "mention_starter_on_complete"): bool,
+                 ("discord", "mention_starter"): bool,
                  ("elegoo_sdcp", "host"): str,
                  ("purge", "flush_multiplier"): float}
 # List settings that may also come from the environment, as a comma- or space-separated value
@@ -1804,14 +1807,17 @@ def _validate_bot(data):
     chat_llm_enabled = discord.setdefault("chat_llm_enabled", True)
     if not isinstance(chat_llm_enabled, bool):
         raise SettingsError(f"[discord] chat_llm_enabled must be true or false, got {chat_llm_enabled!r}")
-    # Mention the starter when a print ends: on by default, so a terminal
-    # post (complete / cancelled / error) on Discord @mentions only the user
-    # who started that print — the one person who needs the notification.
-    # False restores the previous behavior: terminal posts mention nobody.
-    # Prints with no recorded starter never mention anyone either way.
-    mention_starter = discord.setdefault("mention_starter_on_complete", True)
+    # Mention the starter when a print needs them: on by default, so a
+    # terminal post (complete / cancelled / error) and an alert post that
+    # needs a person (watchdog, error pause, runout) on Discord @mention
+    # only the user who started that print — the one person who needs the
+    # notification. False restores the previous behavior: no post mentions
+    # anyone. Prints with no recorded starter never mention anyone either
+    # way. The pre-#1095 spelling mention_starter_on_complete is a
+    # KEY_ALIASES alias and lands here under the current name.
+    mention_starter = discord.setdefault("mention_starter", True)
     if not isinstance(mention_starter, bool):
-        raise SettingsError(f"[discord] mention_starter_on_complete must be true or false, got {mention_starter!r}")
+        raise SettingsError(f"[discord] mention_starter must be true or false, got {mention_starter!r}")
     _validate_telegram(data)
     _validate_matrix(data)
     llm = data.setdefault("llm", {})
@@ -2149,8 +2155,8 @@ def unknown_settings():
     """The unknown settings the most recent load() ignored, as message strings.
 
     Each entry names its source and the setting, e.g.
-    "$PRINT_HANDY__DISCORD__MENTION_STARTER_ON_COMPLETE: unknown setting
-    [discord] mention_starter_on_complete". Empty when the last load saw none.
+    "$PRINT_HANDY__DISCORD__MENTION_STARTER: unknown setting
+    [discord] mention_starter". Empty when the last load saw none.
     """
     return list(_unknown_settings)
 
