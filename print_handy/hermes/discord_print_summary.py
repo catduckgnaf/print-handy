@@ -627,7 +627,8 @@ def format_slice_summary(job, now=None):
     """Post slice summary straight from JOB.json: model, parts per plate, filament, estimates."""
     rows = plates_of(job)
     lines = [f"Sliced: {_title(job)}"]
-    conversion = job.get('conversion_provenance')
+    provenance = job.get('provenance')
+    conversion = provenance.get('conversion_provenance') if isinstance(provenance, dict) else None
     if isinstance(conversion, dict):
         unresolved = conversion.get('unresolved_conflicts') or []
         unknown = conversion.get('intent_status') == 'unknown'

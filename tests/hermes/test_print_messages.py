@@ -747,11 +747,11 @@ def test_slice_summary_is_deterministic_and_complete(job):
 
 
 def test_slice_summary_reports_only_consequential_conversion_provenance(job):
-    job.data['conversion_provenance'] = {
+    job.data['provenance'] = {'conversion_provenance': {
         'intent_status': 'unknown',
         'unresolved_conflicts': [{'key': 'wall_loops'}],
         'settings': {'wall_loops': {'project_value': '4'}},
-    }
+    }}
     text = summary.format_slice_summary(job.data)
     assert 'Conversion: designer intent unknown for some settings; 1 designer setting conflict(s) resolved by destination profile' in text
     assert 'project_value' not in text
