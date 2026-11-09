@@ -511,6 +511,29 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(field.kind, "toggle")
             self.assertEqual(field.group, "wrapped")
 
+    def test_data_enabled_explicitness_survives_the_loader(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # Unset in every layer: the loaded mapping records that the
+            # value is a followed one, not an operator choice (the
+            # mode_explicit pattern), and the Data gate keeps following
+            # wrapped_enabled on that loaded mapping — the baked value
+            # must not pin the gate after wrapped_enabled moves.
+            followed = load_settings(tmp, "timelapse:\n  wrapped_enabled: false\n")
+            self.assertIs(followed["timelapse"]["data_enabled"], False)
+            self.assertIs(followed["timelapse"]["data_enabled_explicit"], False)
+            followed["timelapse"]["wrapped_enabled"] = True
+            self.assertTrue(data_module.data_enabled(followed))
+            # The plain default load is a followed value too.
+            default = load_settings(tmp)
+            self.assertIs(default["timelapse"]["data_enabled_explicit"], False)
+            # Explicit: the flag is set, and the gate honors the pinned
+            # value even when wrapped_enabled moves on the same mapping.
+            pinned = load_settings(
+                tmp, "timelapse:\n  wrapped_enabled: false\n  data_enabled: false\n")
+            self.assertIs(pinned["timelapse"]["data_enabled_explicit"], True)
+            pinned["timelapse"]["wrapped_enabled"] = True
+            self.assertFalse(data_module.data_enabled(pinned))
+
 
 class FakeRunner:
     def __init__(self):

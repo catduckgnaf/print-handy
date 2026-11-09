@@ -1303,10 +1303,16 @@ def _validate_timelapse(data):
     # that only ever set the one combined switch keeps its meaning; an
     # explicit data_enabled pins the Data tab independently. The
     # setdefault bakes the followed value into the loaded mapping,
-    # which is what the Web UI field shows and saves.
+    # which is what the Web UI field shows; data_enabled_explicit
+    # records whether the operator actually set the key (the
+    # mode_explicit pattern), so a followed value is never mistaken
+    # for a pinned one: the Data gate keeps following wrapped_enabled
+    # while the flag is false, and a Web UI save that changes
+    # wrapped_enabled pins the shown data_enabled value explicitly.
     if "data_enabled" in timelapse and not isinstance(timelapse["data_enabled"], bool):
         raise SettingsError(
             f"[timelapse] data_enabled must be true or false, got {timelapse['data_enabled']!r}")
+    timelapse["data_enabled_explicit"] = "data_enabled" in timelapse
     timelapse.setdefault("data_enabled", timelapse["wrapped_enabled"])
     # Wrapped narration (#981 step 4): the TTS engine choice. "none" is
     # the default and keeps the video exactly as it was before narration

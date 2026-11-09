@@ -308,7 +308,9 @@ class OverrideTests(unittest.TestCase):
             "visual_watch": {"enabled", "sensitivity", "early_layers", "early_interval_s", "auto_pause_early"},
             # mode_explicit is resolved state, not a file key: it records
             # whether [timelapse] mode was named or derived, so per-printer
-            # views can re-derive a derived mode (P2-261).
+            # views can re-derive a derived mode (P2-261). The same holds
+            # for data_enabled_explicit: whether [timelapse] data_enabled
+            # was set or only follows wrapped_enabled (stage 5).
             "timelapse": {"mode", "mode_explicit", "encoder", "archive_host", "archive_dir", "ssh_key", "render_wait_s", "render_poll_s",
                           "max_bytes", "local_retention_days", "plan_clip_retention_days",
                           "vertical_short", "vertical_short_mode", "vertical_short_overlay",
@@ -316,7 +318,7 @@ class OverrideTests(unittest.TestCase):
                           "capture_interval_s", "capture_max_frames", "capture_max_bytes",
                           "capture_encoder", "target_length_s", "min_fps", "max_fps",
                           "min_length_s", "hold_last_frame_s",
-                          "wrapped_enabled", "data_enabled", "wrapped_ai_video",
+                          "wrapped_enabled", "data_enabled", "data_enabled_explicit", "wrapped_ai_video",
                           "wrapped_tts_engine", "wrapped_music_file"},
             "logging": {"level", "format", "file", "levels", "retention_days"},
             "webui": {"enabled", "host", "port", "access_token_env", "require_auth",

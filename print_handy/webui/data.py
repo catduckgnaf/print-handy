@@ -10,8 +10,9 @@ The surface is on by default (settings restructure stage 5), under
 two switches: ``[timelapse] data_enabled`` gates the Data tab and
 ``[timelapse] wrapped_enabled`` gates Wrapped. Both default true;
 while data_enabled is unset it follows wrapped_enabled (the loader
-bakes the followed value in, and :func:`data_enabled` applies the
-same fallback to a raw mapping). While a switch is off, its routes
+bakes the followed value in and stamps ``data_enabled_explicit``
+false, and :func:`data_enabled` applies the same fallback to a
+loaded or raw mapping alike). While a switch is off, its routes
 answer 403 with the reason naming that switch, and the navigation
 carries only the links whose switch is on. The video step
 additionally needs ``[timelapse] wrapped_ai_video`` (default false);
@@ -56,8 +57,20 @@ def wrapped_enabled(data) -> bool:
 
 
 def data_enabled(data) -> bool:
-    """The Data tab switch: data_enabled when set, else wrapped_enabled."""
-    value = ((data or {}).get("timelapse") or {}).get("data_enabled")
+    """The Data tab switch: data_enabled when set, else wrapped_enabled.
+
+    A loaded settings mapping carries ``data_enabled_explicit`` (the
+    loader stamps it, the ``mode_explicit`` pattern): while it is
+    false the baked ``data_enabled`` value is only the followed one,
+    so the gate keeps following ``wrapped_enabled`` on that mapping
+    instead of treating the baked value as a pin. A raw mapping
+    without the flag keeps the plain fallback: an absent
+    ``data_enabled`` follows, a present one pins.
+    """
+    timelapse = (data or {}).get("timelapse") or {}
+    if timelapse.get("data_enabled_explicit") is False:
+        return wrapped_enabled(data)
+    value = timelapse.get("data_enabled")
     if value is None:
         return wrapped_enabled(data)
     return bool(value)
