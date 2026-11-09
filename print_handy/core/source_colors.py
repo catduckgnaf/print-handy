@@ -579,6 +579,18 @@ def inventory(path):
     return res
 
 
+def require_plate_usage_known(manifest):
+    """Refuse multi-plate readiness when any source plate lacks validated usage."""
+    plates = ((manifest.get('filament_stats') or {}).get('plates'))
+    if not isinstance(plates, dict) or not plates:
+        raise RuntimeError('per-plate filament usage is unknown; no slicing attempted')
+    for plate_id, usage in plates.items():
+        if not isinstance(usage, dict) or usage.get('usage_known') is not True:
+            reason = usage.get('usage_unknown_reason') if isinstance(usage, dict) else None
+            detail = f': {reason}' if reason else ''
+            raise RuntimeError(f'per-plate filament usage is unknown for plate {plate_id}{detail}; no slicing attempted')
+
+
 def _append_filament_stats(path, manifest):
     path = Path(path)
     stats = {'total_g': 0.0, 'total_m': 0.0, 'extruders': {}}

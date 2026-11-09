@@ -65,6 +65,17 @@ class FilamentStatsTests(unittest.TestCase):
         self.assertEqual(manifest["filament_stats"]["plates"]["7"]["extruders"][3],
                          {"g": 2.5, "m": 0.8})
 
+    def test_plate_usage_gate_refuses_missing_or_unknown_usage(self):
+        with self.assertRaisesRegex(RuntimeError, 'usage is unknown'):
+            sc.require_plate_usage_known({'filament_stats': {}})
+        with self.assertRaisesRegex(RuntimeError, 'plate 9.*invalid source'):
+            sc.require_plate_usage_known({'filament_stats': {'plates': {
+                '9': {'usage_known': False, 'usage_unknown_reason': 'invalid source filament usage record'}}}})
+
+    def test_plate_usage_gate_accepts_only_fully_validated_plate_usage(self):
+        sc.require_plate_usage_known({'filament_stats': {'plates': {
+            '7': {'usage_known': True, 'extruders': {3: {'g': 2.5, 'm': .8}}}}}})
+
     def test_stl_has_no_palette_and_is_bound_to_its_bytes(self):
         path = self.dir / "part.stl"
         path.write_bytes(b"solid x\nendsolid x\n")
