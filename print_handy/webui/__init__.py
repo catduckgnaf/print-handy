@@ -20,7 +20,8 @@ from .catalog import (CATALOG, KINDS, Field, choice_label, choices_for,
                       config_page_visible, field_by_id)
 from .config import (DEFAULT, ENVIRONMENT, HOME_CONFIG, MODEL_DEFAULT, SETTINGS_FILE, USER_FILE,
                      FieldValue, WebUIConfigError, last_write_warnings,
-                     read_field, read_fields, settings_file_path, write_changes)
+                     read_field, read_fields, settings_file_path, write_changes,
+                     write_changes_reporting)
 
 __all__ = [
     "CATALOG", "KINDS", "Field", "choice_label", "choices_for",
@@ -28,4 +29,5 @@ __all__ = [
     "DEFAULT", "ENVIRONMENT", "HOME_CONFIG", "MODEL_DEFAULT", "SETTINGS_FILE", "USER_FILE",
     "FieldValue", "WebUIConfigError", "last_write_warnings", "read_field",
     "read_fields", "settings_file_path", "write_changes",
+    "write_changes_reporting",
 ]

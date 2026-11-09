@@ -741,6 +741,49 @@ class ClosedTableToleranceTests(unittest.TestCase):
         self.assertEqual(self.save_roast_off(), [])
         self.assertEqual(self.config.last_write_warnings(), [])
 
+    def test_reporting_save_keeps_its_own_warnings_through_an_interleaved_save(self):
+        # Regression (review of #1103, head ad129ac5): the save handler
+        # read last_write_warnings() after write_changes returned, so a
+        # concurrent clean save landing between the write and the read
+        # replaced the module-wide list, and the first save's result
+        # showed no restart-failure warning for a key it had left in
+        # the file. write_changes_reporting returns the warnings the
+        # save itself recorded, so they cannot be replaced. The
+        # interleave is driven from _note_tolerated — called as the
+        # first save records its warnings, before anything reads them
+        # back — so it is deterministic, with no sleeps.
+        self.local.write_text("notify:\n  mqtt_password: hunter2\n")
+        other = Path(self.tmp.name) / "other.yaml"
+        other.write_text("vision:\n  roast_enabled: true\n")
+        real_note_tolerated = self.config._note_tolerated
+        interleaved = []
+
+        def note_tolerated_then_interleave(target, tolerated):
+            recorded = real_note_tolerated(target, tolerated)
+            if tolerated and not interleaved:
+                interleaved.append(True)
+                # A concurrent clean save: it tolerates nothing, so it
+                # replaces the module-wide warnings with its empty set.
+                write_changes({"vision.roast_enabled": False},
+                              config_path=other, environ={})
+            return recorded
+
+        self.config._note_tolerated = note_tolerated_then_interleave
+        self.addCleanup(setattr, self.config, "_note_tolerated",
+                        real_note_tolerated)
+        try:
+            changed, warnings = self.config.write_changes_reporting(
+                {"vision.roast_enabled": False},
+                config_path=self.local, environ={})
+        finally:
+            self.config._note_tolerated = real_note_tolerated
+        self.assertEqual(changed, [("vision", "roast_enabled")])
+        self.assertTrue(interleaved)  # the interleave really landed mid-save
+        # It replaced the module-wide list, as the review describes...
+        self.assertEqual(self.config.last_write_warnings(), [])
+        # ...but the warnings this save reports are its own.
+        self.assertEqual(warnings, ["[notify] mqtt_password"])
+
     def test_printer_name_save_after_a_tolerated_save_clears_the_warnings(self):
         roster = ("printers:\n"
                   "  - id: garage-ad5x\n"

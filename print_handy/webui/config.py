@@ -223,7 +223,9 @@ def last_write_warnings():
     ``settings.unknown_settings_warning()``. A save that changes
     nothing writes nothing, but still validates the file it leaves in
     place, so after such a save the names are the violations that file
-    still carries.
+    still carries. A caller reporting one save's warnings takes the
+    names that save itself returns (write_changes_reporting): this
+    list is process-wide, and a later save replaces it.
     Names only, never values."""
     return list(_last_write_warnings)
 
@@ -236,15 +238,19 @@ def _note_tolerated(target, tolerated):
     unknown-settings note on the save path. The note does not reach a
     fresh startup or doctor process: the tolerated keys stay in the
     file, and a process that reloads the file refuses to load it until
-    they are removed by hand."""
+    they are removed by hand. Returns the recorded names, so the save
+    that tolerated them can report its own warnings without re-reading
+    the process-wide list."""
     global _last_write_warnings
-    _last_write_warnings = [f"[{section}] {key}" for section, key in tolerated]
+    names = [f"[{section}] {key}" for section, key in tolerated]
+    _last_write_warnings = names
     for section, key in tolerated:
         settings._note_unknown(
             f"{target}: unknown setting [{section}] {key} — already in the "
             "settings file before the Web UI save; the save left it untouched. "
             "This key is refused when a save introduces it, and the settings "
             "will not load until it is removed by hand")
+    return list(names)
 
 
 def _note_noop_write(target, *, home, environ):
@@ -269,7 +275,7 @@ def _note_noop_write(target, *, home, environ):
                                                 home=home, environ=environ)
     except WebUIConfigError:
         tolerated = []
-    _note_tolerated(target, tolerated)
+    return _note_tolerated(target, tolerated)
 
 
 def _section_violation_keys(section, values):
@@ -671,16 +677,12 @@ def write_printer_name(printer_id, name, *, config_path=None, home=None,
     return [("printers", printer_id)]
 
 
-def write_changes(changes, *, config_path=None, home=None, environ=None, timestamp=None):
-    """Apply ``{field: value}`` changes to the settings file and return the
-    changed ``(section, key)`` pairs, in the order given.
-
-    ``field`` may be a catalog Field, a ``(section, key)`` pair or a
-    ``"section.key"`` string. Only catalog fields may change. Refuses —
-    writing nothing — when a field is unknown, is currently overridden by
-    the environment, the target is a legacy TOML file, or the merged
-    result fails the real settings validation.
-    """
+def _write_changes(changes, *, config_path, home, environ, timestamp):
+    """The write_changes core: the write itself, returning
+    ``(changed, warnings)`` — the ``(section, key)`` pairs written, in
+    the order given, and the tolerated closed-table violations this
+    save left in the settings file, as ``"[section] key"`` names,
+    captured from the save's own validation."""
     environ = os.environ if environ is None else environ
     items = []
     for raw_field, value in dict(changes or {}).items():
@@ -689,7 +691,7 @@ def write_changes(changes, *, config_path=None, home=None, environ=None, timesta
             raise WebUIConfigError(f"{raw_field!r} is not a Web UI catalog field; nothing was written")
         items.append((field, list(value) if isinstance(value, tuple) else value))
     if not items:
-        return []
+        return [], []
     target = Path(config_path) if config_path is not None else settings_file_path(environ)
     if target.suffix.lower() == ".toml":
         raise WebUIConfigError(f"{target}: the Web UI writes YAML settings files; "
@@ -718,8 +720,7 @@ def write_changes(changes, *, config_path=None, home=None, environ=None, timesta
             changed.append((field.section, field.key))
         section[field.key] = value
     if not changed:
-        _note_noop_write(target, home=home, environ=environ)
-        return []
+        return [], _note_noop_write(target, home=home, environ=environ)
     for field, value in items:
         check = _CONTENT_CHECKS.get(field.id)
         if check is not None:
@@ -729,5 +730,36 @@ def write_changes(changes, *, config_path=None, home=None, environ=None, timesta
     stamp = timestamp or datetime.now().strftime("%Y%m%d-%H%M%S")
     _backup(target, stamp)
     _write_settings_file(target, text)
-    _note_tolerated(target, tolerated)
+    return changed, _note_tolerated(target, tolerated)
+
+
+def write_changes(changes, *, config_path=None, home=None, environ=None, timestamp=None):
+    """Apply ``{field: value}`` changes to the settings file and return the
+    changed ``(section, key)`` pairs, in the order given.
+
+    ``field`` may be a catalog Field, a ``(section, key)`` pair or a
+    ``"section.key"`` string. Only catalog fields may change. Refuses —
+    writing nothing — when a field is unknown, is currently overridden by
+    the environment, the target is a legacy TOML file, or the merged
+    result fails the real settings validation.
+    """
+    changed, _warnings = _write_changes(changes, config_path=config_path,
+                                        home=home, environ=environ,
+                                        timestamp=timestamp)
     return changed
+
+
+def write_changes_reporting(changes, *, config_path=None, home=None, environ=None, timestamp=None):
+    """write_changes, returning ``(changed, warnings)``: the changed
+    pairs and the tolerated closed-table violations this save itself
+    left in the settings file, as ``"[section] key"`` names.
+
+    A caller that reports a save's warnings — the save-result page —
+    must take them from here, not from last_write_warnings() after the
+    fact: that list is process-wide, and a concurrent save landing
+    between the write and the read replaces it, so the page could show
+    another save's warnings, or none, for a key this save left behind.
+    The names returned here are captured from this save's own
+    validation and cannot be replaced."""
+    return _write_changes(changes, config_path=config_path, home=home,
+                          environ=environ, timestamp=timestamp)
