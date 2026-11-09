@@ -521,6 +521,34 @@ def build_plan(w):
     users = w.ask("discord_user_ids", "Discord user IDs allowed to print (comma separated; "
                                       "blank = everyone in the print channel)", "", _ids)
     bot_name = w.ask("bot_name", "Bot name", "Print Handy")
+
+    # Web UI access (closing question): the Web UI is on by default, so
+    # the wizard does not ask about enabling it — it asks the one
+    # question that matters, who may open it. The choices write through
+    # the same access writers as the Web UI walkthrough and chat setup.
+    w.say()
+    w.say("Web UI: Print Handy's browser page is on by default. You can also protect "
+          "it with the WEBUI_ACCESS_TOKEN environment (Docker) variable instead; a "
+          "password set here and that token work side by side.")
+    webui_choice = w.menu("webui_access", "Who may open the Web UI?",
+                          ["keep", "password", "open"], "keep",
+                          ["Leave it as it is (no login set here)",
+                           "Set a Web UI username and password now",
+                           "Leave it open on purpose (a saved choice, so nothing keeps asking)"])
+    webui_access_plan = {"choice": webui_choice}
+    if webui_choice == "password":
+        def _username_error(value):
+            from .webui import access as _access
+            try:
+                _access.clean_username(value)
+            except _access.AccessError as exc:
+                return str(exc)
+            return None
+        webui_access_plan["username"] = w.ask("webui_username", "Web UI username", "",
+                                              _username_error)
+        webui_access_plan["password"] = w.secret("webui_password", "Web UI password")
+        webui_access_plan["confirm"] = w.secret("webui_password_confirm",
+                                                "Web UI password again")
     token = w.secret("discord_bot_token", "Discord bot token")
 
     # Add-a-printer loop (#337): a second printer turns the plan into a [[printers]]
@@ -647,6 +675,7 @@ def build_plan(w):
         "secrets": secrets,
         "spoolman": spool,
         "printers": roster_rows,
+        "webui_access": webui_access_plan,
     }
 
 
@@ -688,6 +717,10 @@ def summary(plan):
         f"  Discord:     channel {c['discord'].get('chat_id') or '(not set)'}, "
         f"users {c['discord'].get('allowed_user_ids') or '(everyone in the channel)'}, "
         f"token {'set' if plan['secrets']['DISCORD_BOT_TOKEN'] else 'not set'}",
+        "  Web UI:      " + {"password": "a login is set at apply (username and password, value not shown)",
+                            "open": "left open by a saved choice",
+                            }.get((plan.get("webui_access") or {}).get("choice"),
+                                  "left as it is (on by default; no login set here)"),
         "  Runs as:     standalone bot (systemd user services)",
         f"  Data folder: {plan['data_home']} (state, logs, .env with secrets)",
     ]
@@ -865,6 +898,41 @@ def effective_data_home(local, fallback):
     return fallback
 
 
+def _apply_webui_access(plan, w, data_home):
+    """The wizard's Web UI access action, through the shared writers.
+
+    Same store as every other surface (webui_access.json beside the
+    state files): a password goes through access.save_password with
+    its usual validation, the open choice through access.save_open.
+    A refusal is said plainly and never fails the rest of the install.
+    """
+    choice = (plan.get("webui_access") or {}).get("choice") or "keep"
+    if choice == "keep":
+        w.say("Web UI: left as it is. It is on by default; to protect it later, set a "
+              "login in the Web UI walkthrough, from chat setup, or put a token in the "
+              "WEBUI_ACCESS_TOKEN environment variable.")
+        return
+    from .webui import access as _access
+    data = {"paths": {"hermes_home": Path(data_home).expanduser()}}
+    try:
+        if choice == "password":
+            _access.save_password(data, plan["webui_access"].get("password") or "",
+                                  plan["webui_access"].get("confirm") or "",
+                                  username=plan["webui_access"].get("username") or "")
+            w.say("Web UI: login saved (the password itself was not stored in plain text). "
+                  "A WEBUI_ACCESS_TOKEN set in the environment keeps working alongside it.")
+        elif choice == "open":
+            _access.save_open(data, True)
+            w.say("Web UI: left open by your saved choice, so the other setup surfaces "
+                  "will not keep asking about a login.")
+    except _access.AccessError as exc:
+        w.say(f"Web UI: the login was not saved: {exc} Set it later from the Web UI "
+              "walkthrough's Login step instead.")
+    except OSError as exc:
+        w.say(f"Web UI: the login could not be saved ({exc}). Set it later from the "
+              "Web UI walkthrough's Login step instead.")
+
+
 def apply(plan, w, *, repo=REPO, python=None, dry_run=False, runner=subprocess.run, local=None):
     """Write config and secrets, then run the installs the user agreed to."""
     python = python or sys.executable
@@ -899,10 +967,22 @@ def apply(plan, w, *, repo=REPO, python=None, dry_run=False, runner=subprocess.r
         data_home = effective_data_home(local, plan["data_home"])
         changed = update_env(data_home, secrets)
         w.say(f"Saved {', '.join(changed) or 'nothing new'} to {data_home}/.env (values not shown).")
+        _apply_webui_access(plan, w, data_home)
     user = os.environ.get("USER") or "$USER"
     run("Keep the bot running after you log out", ["loginctl", "enable-linger", user], key="run_linger")
     run("Start the bot now", ["systemctl", "--user", "enable", "--now",
                               "print-handy-bot.service", "print-handy-listener.service"], key="run_start")
+    if not dry_run:
+        # Shared setup completion (setup_state), recorded last so an install
+        # that stopped partway is not reported as finished. Best effort: a
+        # state-folder problem must not fail an install that otherwise applied.
+        try:
+            from . import setup_state
+            home = effective_data_home(local, plan["data_home"])
+            setup_state.record_completion_in_state_dir(
+                Path(home).expanduser() / "state", "wizard")
+        except Exception as exc:
+            w.say(f"Could not record that setup finished ({exc}); the Web UI may offer setup again.")
     w.say(f"\nCheck it: {python} -m print_handy.bot check")
     return True
 

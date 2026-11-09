@@ -43,6 +43,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.request
 from dataclasses import dataclass, field
@@ -1227,6 +1228,9 @@ class SetupStore:
         session = self._load().get(key)
         return session if isinstance(session, dict) else None
 
+    def all_sessions(self):
+        return [s for s in self._load().values() if isinstance(s, dict)]
+
     def save(self, session):
         data = self._load()
         data[session["key"]] = session
@@ -1248,6 +1252,28 @@ def default_store(cfg=None):
     return SetupStore(settings.state_dir(data) / STORE_NAME)
 
 
+def _record_shared_completion(store, surface="chat"):
+    """Write the shared setup-completion record beside the session store.
+
+    Best effort: the shared record (print_handy.setup_state) must never
+    break a flow that has already completed on its own terms.
+    """
+    try:
+        from .. import setup_state
+        setup_state.record_completion_in_state_dir(store.path.parent, surface)
+    except Exception:
+        logger.exception("shared setup-completion record could not be written")
+
+
+def shared_completion(store):
+    """The shared completion record visible from this store, or {}."""
+    try:
+        from .. import setup_state
+        return setup_state.load_completion_in_state_dir(store.path.parent)
+    except Exception:
+        return {}
+
+
 def _new_session(key, now):
     return {"key": key, "status": "in_progress", "answers": {}, "step": 0,
             "created_at": now, "updated_at": now}
@@ -1257,6 +1283,35 @@ def _expired(session, now):
     return (session["status"] in ("in_progress", "awaiting_consent", "adding_printer",
                                    "onboarding", "onboard_review")
             and now - float(session.get("updated_at") or 0) > SESSION_TIMEOUT_S)
+
+
+SETUP_ONLY_REFUSAL = ("**Setup-only mode.** This install is not configured yet, so the bot "
+                      "answers only the guided setup conversation. Run `/print-handy setup` "
+                      "to set it up; every other command becomes available once setup is "
+                      "applied and Print Handy has restarted.")
+
+
+def active_setup_owner(store, now, exclude_key=None):
+    """The session key owning an in-progress guided setup, or None.
+
+    The Q5 binding rule: a setup conversation binds at conversation
+    start and is session-scoped — while one setup session is active
+    (not expired), no other key may start or join one. An expired
+    session releases the bind, so an abandoned flow frees the install.
+    Onboarding sessions do not hold the setup bind.
+    """
+    for session in store.all_sessions():
+        if session.get("key") == exclude_key or session.get("flow") == "onboard":
+            continue
+        if session.get("status") in ("in_progress", "awaiting_consent", "adding_printer") \
+                and not _expired(session, now):
+            return session.get("key")
+        # A finished setup keeps its bind: setup-only mode lasts until the
+        # restart, and nobody else may rewrite what its owner just applied.
+        if session.get("status") == "complete" \
+                and now - float(session.get("updated_at") or 0) <= SESSION_TIMEOUT_S:
+            return session.get("key")
+    return None
 
 
 def checklist_text(session):
@@ -1497,9 +1552,23 @@ def _start_onboarding(key, store, now, config_loader, restarted=False):
 
 # ---------------------------------------------------------------------- the flow
 
-def handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
+# Setup-only mode admits strangers, so checking who owns setup and claiming it
+# has to be one step: without this, two people starting at once could both win.
+_SETUP_ONLY_LOCK = threading.Lock()
+
+
+def handle_text(key, text, **kwargs):
+    """One message in the guided flows; see :func:`_handle_text`."""
+    if kwargs.get("setup_only"):
+        with _SETUP_ONLY_LOCK:
+            return _handle_text(key, text, **kwargs)
+    return _handle_text(key, text, **kwargs)
+
+
+def _handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
                 apply_config=None, report=None, bundle=None, debug=None,
-                probe_runner=None, onboard_apply=None, config_loader=None):
+                probe_runner=None, onboard_apply=None, config_loader=None,
+                setup_only=False):
     """One message in the guided flows. Returns the reply text, or None when not ours.
 
     ``key`` identifies one person's session in one channel/thread. ``report`` is a zero-arg
@@ -1519,6 +1588,14 @@ def handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
 
     if low.startswith("/print-handy"):
         rest = low[len("/print-handy"):].strip()
+        if setup_only and rest not in ("", "help", "setup", "setup restart", "status", "cancel"):
+            return SETUP_ONLY_REFUSAL
+        if setup_only and rest in ("setup", "setup restart"):
+            owner = active_setup_owner(store, now, exclude_key=key)
+            if owner is not None:
+                return ("A setup conversation is already in progress with another user. "
+                        "Only one setup runs at a time; it becomes available again when "
+                        "that conversation finishes, is paused, or times out.")
         if rest in ("", "help"):
             return HELP
         if rest == "debugging":
@@ -1609,6 +1686,12 @@ def handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
                         "resumes it, `/print-handy cancel` pauses it, or "
                         "`/print-handy add-printer restart` discards it and starts over. "
                         "Guided setup can start once it finishes.")
+            if rest == "setup" and session is None:
+                prior = shared_completion(store)
+                if prior.get("done") and not prior.get("skipped"):
+                    from .. import setup_state as _setup_state
+                    return (_setup_state.describe(prior) +
+                            " Run `/print-handy setup restart` to run guided setup again.")
             if rest == "setup restart" or session is None or session["status"] == "complete":
                 session = _new_session(key, now)
                 store.save(session)
@@ -1638,7 +1721,19 @@ def handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
     if session is None or session["status"] not in ("in_progress", "awaiting_consent",
                                                      "adding_printer", "onboarding",
                                                      "onboard_review"):
+        if setup_only:
+            if active_setup_owner(store, now, exclude_key=key) is not None:
+                return ("A setup conversation is already in progress with another user. "
+                        "Only one setup runs at a time; it becomes available again when "
+                        "that conversation finishes, is paused, or times out.")
+            return ("This install is not set up yet. Run `/print-handy setup` to begin "
+                    "guided setup — it is the one conversation available until setup "
+                    "is applied.")
         return None
+    if setup_only and active_setup_owner(store, now, exclude_key=key) is not None:
+        return ("A setup conversation is already in progress with another user. "
+                "Only one setup runs at a time; it becomes available again when "
+                "that conversation finishes, is paused, or times out.")
     if raw.startswith("/"):
         return None  # another command; setup stays open for a later plain reply
     if _expired(session, now):
@@ -1677,6 +1772,11 @@ def handle_text(key, text, *, store, now=None, token_env="DISCORD_BOT_TOKEN",
             session["status"] = "complete"
             session["updated_at"] = now
             store.save(session)
+            _record_shared_completion(store)
+            if setup_only:
+                return ("**Setup complete.** " + detail +
+                        "\n\nRestart Print Handy to bring the new settings live — "
+                        "setup-only mode ends at that restart.")
             return "**Setup complete.** " + detail
         if low == "manual":
             session["status"] = "cancelled"  # finished with the flow, checklist kept for reference

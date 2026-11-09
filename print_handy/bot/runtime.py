@@ -553,8 +553,16 @@ class Gateway:
     choose between by asking.
     """
 
-    def __init__(self, adapter, chat_id, channel_printers=None, shared_printers=None):
+    def __init__(self, adapter, chat_id, channel_printers=None, shared_printers=None,
+                 setup_only=False):
         self.adapter = adapter
+        # Setup-only mode (bootstrap): the install has a platform
+        # credential but no chat/users/printer configuration yet. The
+        # gateway itself still authorizes nobody new — admission is
+        # the guided dispatcher's setup-only branch, which admits only
+        # the setup surface; every other handler keeps using
+        # _is_user_authorized_for_source and stays refused.
+        self.setup_only = bool(setup_only)
         self.chat_id = str(chat_id)
         self.channel_printers = dict(channel_printers or {})
         self.shared_printers = {str(chat): [str(pid) for pid in ids]
@@ -636,7 +644,8 @@ class BotCore:
         self.channel_printers = routing.channel_map(self.cfg, self.platform_name)
         self.shared_printers = routing.shared_channel_map(self.cfg, self.platform_name)
         self.gateway = Gateway(self.adapter, self.chat_id, self.channel_printers,
-                               self.shared_printers)
+                               self.shared_printers,
+                               setup_only=bool((self.cfg.get("bot") or {}).get("setup_only")))
         self.router = router if router is not None else Router()
         self.router.attach_platform(self.platform_name, client, self.adapter)
         if client is not None and hasattr(client, "add_listener") and hasattr(self.adapter, "handle_click"):
@@ -747,11 +756,19 @@ class BotCore:
             return None
         chat_id, thread_id = channel_scope(message.channel)
         routed, printer_id = self.printer_for_chat(chat_id)
-        if not routed:
+        if not routed and not self.gateway.setup_only:
             return None
         source = make_source(author.id, chat_id, thread_id, platform_name=self.platform_name,
                              printer_id=printer_id,
                              shared_printer_ids=self.shared_ids_for_chat(chat_id))
+        if self.gateway.setup_only:
+            # Setup-only admission reaches only the guided dispatcher
+            # (the first router hook), which enforces the Q5 bind and
+            # refuses every non-setup command itself; no other handler
+            # is authorized by this branch. Nothing is downloaded here:
+            # nobody has been admitted yet, and setup takes no attachments.
+            event = make_event(source, getattr(message, "content", ""), message.id)
+            return await self.process(event)
         if not self.gateway._is_user_authorized_for_source(source):
             # In the print channel but refused by an access list: never
             # silent (#386) — an INFO log naming the user and the reason,
@@ -785,6 +802,11 @@ class BotCore:
             await self.adapter.send(chat_id=source.chat_id, content=self.help, metadata=metadata)
             return {"action": "skip", "reason": "help"}
         result = await self.router.dispatch(event, self.gateway)
+        if result is None and self.gateway.setup_only:
+            from .guided import SETUP_ONLY_REFUSAL
+            await self.adapter.send(chat_id=source.chat_id, content=SETUP_ONLY_REFUSAL,
+                                    metadata=metadata)
+            return {"action": "skip", "reason": "setup-only mode"}
         if result is not None:
             if result.get("action") == "rewrite":
                 # A rewrite hands the rest to an agent. There is none here: say so, start nothing.
@@ -1103,9 +1125,13 @@ class BotCore:
         source = make_source(user.id, chat_id, thread_id, getattr(user, "bot", False),
                              platform_name=self.platform_name, printer_id=printer_id,
                              shared_printer_ids=self.shared_ids_for_chat(chat_id))
-        if not routed:
+        if not routed and not self.gateway.setup_only:
             await interaction.response.send_message(f"{self.bot_name} only works in its print channel.", ephemeral=True)
             return None
+        if self.gateway.setup_only:
+            text = commands.as_text(name, values)
+            await interaction.response.send_message(f"`{text}`")
+            return await self.process(make_event(source, text, interaction.id), allow_llm=False)
         if not self.gateway._is_user_authorized_for_source(source):
             logger.info("refused slash command from %s user %s in channel %s: %s",
                         self.platform_name, source.user_id, source.chat_id,

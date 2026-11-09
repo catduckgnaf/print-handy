@@ -425,6 +425,11 @@ async def upload_wait_dispatch(event, gateway, **kwargs):
     return None
 
 
+# Setup-only mode answers strangers, so stray messages share one notice per chat.
+SETUP_ONLY_NOTICE_S = 600
+_SETUP_ONLY_NOTICED = {}
+
+
 async def guided_dispatch(event, gateway, **kwargs):
     """/print-handy setup|debugging|status|cancel, plus plain replies to an open setup checklist (#162).
 
@@ -435,7 +440,15 @@ async def guided_dispatch(event, gateway, **kwargs):
     if not _is_print_discord_event(event):
         return None
     source = event.source
-    if not getattr(source, 'user_id', None) or not gateway._is_user_authorized_for_source(source):
+    # Setup-only mode (bootstrap): no chat/user is configured yet, so the
+    # normal authorization cannot pass anyone. Admission here is only
+    # for the guided setup surface — guided.handle_text(setup_only=True)
+    # enforces the bind-at-start rule and refuses every non-setup
+    # command, and this dispatcher is the first router hook, so a
+    # setup-only event never reaches another handler through it.
+    setup_only = bool(getattr(gateway, 'setup_only', False))
+    if not getattr(source, 'user_id', None) or \
+            (not setup_only and not gateway._is_user_authorized_for_source(source)):
         return None
     text = str(getattr(event, 'text', '') or '').strip()
     from print_handy.bot import guided
@@ -443,12 +456,22 @@ async def guided_dispatch(event, gateway, **kwargs):
     store = guided.SetupStore(_state_dir() / guided.STORE_NAME)
     if not text.startswith('/print-handy'):
         session = store.get(key)
-        if not session or session.get('status') not in ('in_progress', 'awaiting_consent',
-                                                        'onboarding', 'onboard_review'):
+        if not setup_only and (not session or session.get('status') not in ('in_progress', 'awaiting_consent',
+                                                        'onboarding', 'onboard_review')):
             return None
     adapter = _adapter_for(gateway, source)
     if adapter is None:
         return {'action': 'skip', 'reason': 'guided UI delivery unavailable'}
+    if setup_only and not text.startswith('/print-handy'):
+        # A stray message from someone outside the setup conversation gets
+        # one notice per chat, not a reply to everything said there.
+        active = store.get(key)
+        if not active or active.get('status') not in ('in_progress', 'awaiting_consent', 'adding_printer'):
+            noticed_at = _SETUP_ONLY_NOTICED.get(str(source.chat_id))
+            moment = time.monotonic()
+            if noticed_at is not None and moment - noticed_at < SETUP_ONLY_NOTICE_S:
+                return {'action': 'skip', 'reason': 'setup-only notice throttled'}
+            _SETUP_ONLY_NOTICED[str(source.chat_id)] = moment
 
     def report():
         cfg = _config.cfg()
@@ -529,7 +552,7 @@ async def guided_dispatch(event, gateway, **kwargs):
     try:
         reply = await asyncio.to_thread(guided.handle_text, key, text, store=store,
                                         token_env=token_env, report=report, bundle=bundle,
-                                        debug=debug)
+                                        debug=debug, setup_only=setup_only)
     except Exception:
         logger.exception('guided setup/debugging failed')
         reply = 'That guided step failed and nothing was changed. Try `/print-handy status`, or `/print-handy cancel` to pause setup.'
