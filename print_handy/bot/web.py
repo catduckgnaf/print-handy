@@ -34,7 +34,7 @@ import threading
 import time
 
 from . import runtime
-from .platform import BasePlatformAdapter, SendResult
+from .platform import BasePlatformAdapter, SendResult, _prompts_guard
 
 OPERATOR_ID = "webui"
 CHAT_ID = "webui"
@@ -74,7 +74,8 @@ class WebAdapter(BasePlatformAdapter):
         return SendResult(True, message_id=str(clarify_id))
 
     async def close_prompt(self, clarify_id, note):
-        self._prompts.pop(str(clarify_id), None)
+        with _prompts_guard(self):
+            self._prompts.pop(str(clarify_id), None)
         self._outbox.append({"kind": "prompt_closed",
                              "clarify_id": str(clarify_id),
                              "note": str(note or "")})
@@ -157,7 +158,7 @@ class WebChatService:
         the registry still holds open — flows register their questions
         under their own session keys, not the chat session's.
         """
-        for cid, row in reversed(list(self.adapter._prompts.items())):
+        for cid, row in reversed(self.adapter.prompts_snapshot()):
             if self.adapter.registry.is_open(cid):
                 return {"clarify_id": str(cid),
                         "question": row.get("question") or "",

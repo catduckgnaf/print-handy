@@ -84,3 +84,60 @@ def test_adapter_records_prompts_and_answers_choices(cfg):
                      ["Small", "Large"])
     label = asyncio.run(ask_and_answer())
     assert label == "Large"
+
+
+def test_open_prompt_survives_a_prompt_arriving_mid_snapshot(cfg):
+    """open_prompt() renders while the bot loop records a new prompt.
+
+    The /chat page calls open_prompt() on a Web UI request thread while
+    _record_prompt runs on the bot event-loop thread. Building the
+    snapshot from the live prompts dict raised RuntimeError
+    ("dictionary changed size during iteration") and failed the request
+    instead of rendering the page (PR #1106 review 5821794465).
+    """
+    import threading
+
+    from print_handy.core import prompts
+
+    service = web.WebChatService(cfg)
+    adapter = service.adapter
+    for index in range(8):
+        cid = f"cid-race-{index}"
+        prompts.register(cid, "webui:webui::webui", "Which one?",
+                         ["Small", "Large"])
+        adapter._record_prompt(cid, {"choices": ["Small", "Large"],
+                                     "question": "Which one?"})
+
+    class RacyPrompts(dict):
+        """A prompts dict whose snapshot iteration is interrupted, once
+        underway, by a new prompt arriving on another thread."""
+
+        def items(self):
+            iterator = iter(super().items())
+
+            def iterate():
+                yield next(iterator)
+                prompts.register("cid-race-late", "webui:webui::webui",
+                                 "Late?", ["Yes", "No"])
+
+                def arrive():
+                    adapter._record_prompt(
+                        "cid-race-late", {"choices": ["Yes", "No"],
+                                          "question": "Late?"})
+
+                thread = threading.Thread(target=arrive)
+                thread.start()
+                # Unguarded, arrive() mutates the dict at once and the
+                # iteration below raises RuntimeError; guarded, it waits
+                # on the prompts lock until the snapshot is complete, so
+                # this join simply times out and the snapshot stands.
+                thread.join(timeout=3)
+                yield from iterator
+
+            return iterate()
+
+    adapter._prompts = RacyPrompts(adapter._prompts)
+    result = service.open_prompt()
+    assert result is not None
+    assert result["clarify_id"] == "cid-race-7"
+    assert result["choices"] == ["Small", "Large"]
