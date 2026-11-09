@@ -80,7 +80,7 @@ services:
       # Mention the starter when a print needs them (PRINT_HANDY__DISCORD__MENTION_STARTER,
       # true by default) is deliberately NOT listed here: a ${...:-true}
       # entry would be applied after the .env env_file and silently undo
-      # an opt-out an existing install recorded there under the pre-#1095
+      # an opt-out an existing install recorded there under the earlier
       # spelling (ending __MENTION_STARTER_ON_COMPLETE), which the loader
       # still honors as an alias for the renamed setting. Unset, the
       # shipped default (true) stands; set either spelling in .env to

@@ -261,7 +261,7 @@ CATALOG = (
            "everyone else in the channel can use mention-only notifications and stay "
            "unpinged by other people's prints. Off: no post mentions anyone, as before. "
            "A print started outside the bot (at the printer, from another app) has no "
-           "recorded starter and never mentions anyone. (Before #1095 this was "
+           "recorded starter and never mentions anyone. (Earlier this was "
            "mention_starter_on_complete and covered only the end-of-print post; the "
            "old name still works and is read as this setting.)",
            validator="settings discord check"),
