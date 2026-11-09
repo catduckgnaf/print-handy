@@ -577,13 +577,15 @@ class UnraidTemplateTests(unittest.TestCase):
         self.assertNotIn(":develop", repository)
         self.assertNotIn(":nightly", repository)
         self.assertEqual(UNRAID.findtext("Privileged"), "false")
-        # The bundled Spoolman API stays on loopback by default: Compose
-        # publishes no port at all (both mappings below are commented
-        # examples only), and the template's Port configs are the Web UI's
+        # Compose publishes exactly one port by default: the Web UI's
+        # 8088, so a first boot is reachable from the host. The bundled
+        # Spoolman API stays on loopback (its mapping below is a commented
+        # example only), and the template's Port configs are the Web UI's
         # (#286 stage 5) plus the advanced, opt-in Spoolman LAN mapping
         # (#443) — which answers nothing while SPOOLMAN_HOST keeps its
         # 127.0.0.1 default (see SpoolmanLanTests).
-        self.assertNotIn("ports", self.service)
+        self.assertEqual(self.service["ports"],
+                         ["8088:${PRINT_HANDY__WEBUI__PORT:-8088}"])
         self.assertNotIn("-p", self.params)
         self.assertFalse(any(p.startswith("--publish") for p in self.params))
         ports = self.configs(UNRAID, "Port")
@@ -677,16 +679,17 @@ class UnraidTemplateTests(unittest.TestCase):
 
 
 class WebuiContainerTests(unittest.TestCase):
-    """#286 stages 4-5: the optional Web UI is a gated supervised child, a
-    healthcheck row, Compose opt-in variables and Unraid template fields —
-    and stays off everywhere by default."""
+    """#286 stages 4-5: the Web UI is a gated supervised child, a
+    healthcheck row, Compose variables and Unraid template fields —
+    on by default in Compose, with its port published."""
 
     def variables(self):
         return {c.get("Target"): c for c in UNRAID.findall("Config") if c.get("Type") == "Variable"}
 
     def test_compose_webui_variables_default_to_on_8088(self):
-        # #708: on inside the container on 8088; reachable only once the port
-        # is published, and then the first-run setup page asks for a password.
+        # On inside the container on 8088, the port published by default,
+        # and the first visit serves the Web UI and its walkthrough
+        # openly — a password exists only if one is deliberately set.
         compose_env = COMPOSE["services"]["combined"]["environment"]
         self.assertEqual(compose_env["PRINT_HANDY__WEBUI__ENABLED"],
                          "${PRINT_HANDY__WEBUI__ENABLED:-true}")
@@ -696,9 +699,11 @@ class WebuiContainerTests(unittest.TestCase):
                          "${PRINT_HANDY__WEBUI__PORT:-8088}")
         # The token is a secret: .env env_file only, never a Compose default.
         self.assertNotIn("WEBUI_ACCESS_TOKEN", compose_env)
-        # The port publication stays a commented example in the file text.
+        # The port publication is active in the file text, not a comment.
         text = (ROOT / "docker-compose.yml").read_text()
-        self.assertIn('#   - "8088:${PRINT_HANDY__WEBUI__PORT:-8088}"', text)
+        self.assertIn('      - "8088:${PRINT_HANDY__WEBUI__PORT:-8088}"', text)
+        self.assertEqual(COMPOSE["services"]["combined"]["ports"],
+                         ["8088:${PRINT_HANDY__WEBUI__PORT:-8088}"])
 
     def test_unraid_webui_variables_and_masked_token(self):
         variables = self.variables()
@@ -755,8 +760,9 @@ class SpoolmanLanTests(unittest.TestCase):
 
     def test_compose_keeps_the_safe_default(self):
         service = COMPOSE["services"]["combined"]
-        # No active port mapping ships; the LAN mapping is a comment.
-        self.assertNotIn("ports", service)
+        # The only active port mapping is the Web UI's; the Spoolman LAN
+        # mapping stays a comment and Spoolman stays loopback by default.
+        self.assertEqual(service["ports"], ["8088:${PRINT_HANDY__WEBUI__PORT:-8088}"])
         self.assertEqual(service["environment"]["SPOOLMAN_HOST"],
                          "${SPOOLMAN_HOST:-127.0.0.1}")
         text = (ROOT / "docker-compose.yml").read_text()
