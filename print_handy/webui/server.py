@@ -885,10 +885,12 @@ class _Handler(BaseHTTPRequestHandler):
     def _data_route(self, path):
         """GET /data, /wrapped, /api/data and /api/wrapped (#956).
 
-        Behind the same login as every other page. While a route's
-        own switch is off ([timelapse] data_enabled for the Data
-        routes, wrapped_enabled for the Wrapped routes), it answers
-        the named 403 refusal from data.py, for pages and APIs alike.
+        Served under the Web UI's own access rules, like every other
+        page: open on an install with no login set, behind the login
+        when one is set. While a route's own switch is off ([timelapse]
+        data_enabled for the Data routes, wrapped_enabled for the
+        Wrapped routes), it answers the named 403 refusal from
+        data.py, for pages and APIs alike.
         """
         year, error = self._year_param()
         if error:
