@@ -82,6 +82,41 @@ def test_terminal_posts_are_not_episode_limited():
     assert ping("complete", now=T0 + 5) == STARTER
 
 
+# ------------------------------------------------- failed deliveries
+
+def test_a_failed_delivery_releases_the_episode():
+    """A ping decision whose delivery failed outright is not the ping:
+    releasing it lets the caller's re-send inside the episode window
+    ping, instead of the alert being silently mention-less forever."""
+    assert ping("watchdog", episode="watchdog", now=T0) == STARTER
+    starter_pings.release_ping("watchdog", job=JOB, episode="watchdog")
+    assert ping("watchdog", episode="watchdog", now=T0 + 60) == STARTER
+
+
+def test_release_keeps_other_episodes_and_their_cooldown_anchor():
+    """Releasing one episode must not erase a different problem's
+    record, and the job's last-ping anchor falls back to the surviving
+    episodes, so the cooldown is measured from the last delivered ping."""
+    assert ping("watchdog", episode="watchdog", now=T0) == STARTER
+    assert ping("paused", episode="paused", now=T0 + starter_pings.COOLDOWN_S + 1) == STARTER
+    starter_pings.release_ping("paused", job=JOB, episode="paused")
+    # The surviving watchdog episode still suppresses its own re-send.
+    assert ping("watchdog", episode="watchdog", now=T0 + starter_pings.COOLDOWN_S + 70) == ""
+    # And a new problem is measured against the watchdog ping, not the
+    # released one: the cooldown from T0 has long passed.
+    assert ping("alert", episode="alert",
+                now=T0 + starter_pings.COOLDOWN_S + 70) == STARTER
+
+
+def test_release_is_a_noop_for_terminal_kinds_and_unknown_episodes():
+    """Terminal decisions record nothing, so releasing one changes
+    nothing; releasing an episode that was never recorded is harmless."""
+    assert ping("complete", now=T0) == STARTER
+    starter_pings.release_ping("complete", job=JOB)
+    starter_pings.release_ping("watchdog", job=JOB, episode="never-recorded")
+    assert ping("complete", now=T0 + 5) == STARTER
+
+
 # ------------------------------------------- the first-layer spam window
 
 def test_first_layer_watchdog_flapping_cannot_spam():

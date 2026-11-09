@@ -135,7 +135,9 @@ def ping_for(kind, job=None, *, job_key=None, episode=None, now=None):
     itself when the caller passes none, so a watchdog alert's varying
     reason text never mints a new episode. ``now`` is injectable for
     tests. A decision that pings also records it: an alert decision is
-    the ping, so a re-sent or refreshed post asking again gets "".
+    the ping, so a re-sent or refreshed post asking again gets "". A
+    caller whose delivery then fails outright undoes the record with
+    ``release_ping``, so the re-send it makes can ping after all.
     """
     kind = str(kind or "")
     if kind not in TERMINAL_KINDS and kind not in ALERT_KINDS:
@@ -184,6 +186,43 @@ def ping_for(kind, job=None, *, job_key=None, episode=None, now=None):
             del data[k]
         _save(data)
     return user_id
+
+
+def release_ping(kind, job=None, *, job_key=None, episode=None):
+    """Undo an alert ping decision whose delivery failed outright.
+
+    ``ping_for`` records an alert ping at decision time, so a re-sent or
+    refreshed post does not ping twice. When every delivery attempt for
+    that post failed, though, the ping never happened: the send paths
+    that know (the button post and its plain-text fallback both refused)
+    release the record here, and a later re-send of the same alert can
+    ping. Only the released episode is dropped; the job's last-ping
+    anchor falls back to its surviving episodes, so another problem's
+    cooldown is still measured from the last ping that did land.
+    Terminal kinds record nothing, so releasing one is a no-op.
+    """
+    if str(kind or "") not in ALERT_KINDS:
+        return
+    key = _job_key(job, job_key)
+    if not key:
+        return
+    episode = str(episode or kind)
+    with _LOCK:
+        data = _load()
+        entry = data.get(key)
+        if not isinstance(entry, dict):
+            return
+        episodes = entry.get("episodes") or {}
+        if episode not in episodes:
+            return
+        del episodes[episode]
+        if episodes:
+            entry["episodes"] = episodes
+            entry["last_ping"] = max(float(at) for at in episodes.values())
+            data[key] = entry
+        else:
+            data.pop(key, None)
+        _save(data)
 
 
 def reset():

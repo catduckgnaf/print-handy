@@ -320,6 +320,28 @@ def test_pause_alert_pings_once_per_episode(archive, monkeypatch):
     assert calls[-1] == {}
 
 
+def test_a_fully_failed_alert_delivery_can_ping_on_resend(archive, monkeypatch):
+    """When the button post and its plain-text fallback both fail, the
+    alert was never delivered, so its ping decision is released: a
+    re-send of the same alert pings the starter instead of arriving
+    silently because the failed attempt recorded the episode."""
+    from print_handy.hermes import print_alert_buttons as pab
+    monkeypatch.setattr(pab, "post_with_buttons",
+                        lambda token, channel_id, content, kind, filename, **kw: False)
+    monkeypatch.setattr(mel, "_bot_token", lambda: "tok")
+    monkeypatch.setattr(mel, "_buttonless_standalone", lambda: False)
+    monkeypatch.setattr(mel, "log", lambda line: None)
+    fallback_kwargs = []
+    monkeypatch.setattr(mel, "post",
+                        lambda text, **kw: fallback_kwargs.append(kw) or False)
+    assert not mel.post_alert("Print paused: Widget", "paused", "plate.gcode")
+    assert fallback_kwargs[-1] == {"mention_user_id": STARTER}
+    # The re-send asks the classifier again and pings again.
+    calls = _fake_button_post(monkeypatch)
+    assert mel.post_alert("Print paused: Widget", "paused", "plate.gcode")
+    assert calls[-1] == {"mention_user_id": STARTER}
+
+
 def test_button_post_allows_only_the_named_user_to_ping(monkeypatch, tmp_path):
     from print_handy.hermes import print_alert_buttons as pab
     seen = []

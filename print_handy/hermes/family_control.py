@@ -292,21 +292,28 @@ def post_pause_alert(filename: str, connection: str, printer_id: str | None = No
     # per episode; the decision is threaded to the delivering transport.
     from . import starter_pings
     mention = starter_pings.ping_for("paused", job_key=filename, episode="paused") or None
+    delivered = None
     if mel._buttonless_standalone():
-        return mel.post(text, mention_user_id=mention)
-    try:
-        from . import moonraker_discord_announcements as announcer
-        from . import print_alert_buttons as pab
-        kwargs = {"mention_user_id": mention} if mention else {}
-        if pab.post_with_buttons(mel._bot_token(), announcer.DISCORD_CHAT_ID,
-                                 text, "paused", filename,
-                                 connection=connection, printer_id=printer_id, **kwargs):
-            log(f"post buttons kind=paused family={connection} {text.splitlines()[0][:120]!r}")
-            return True
-        log("family button post failed; falling back to plain text")
-    except Exception as exc:
-        log(f"family button post error: {exc!r}")
-    return mel.post(text, mention_user_id=mention)
+        delivered = mel.post(text, mention_user_id=mention)
+    else:
+        try:
+            from . import moonraker_discord_announcements as announcer
+            from . import print_alert_buttons as pab
+            kwargs = {"mention_user_id": mention} if mention else {}
+            if pab.post_with_buttons(mel._bot_token(), announcer.DISCORD_CHAT_ID,
+                                     text, "paused", filename,
+                                     connection=connection, printer_id=printer_id, **kwargs):
+                log(f"post buttons kind=paused family={connection} {text.splitlines()[0][:120]!r}")
+                return True
+            log("family button post failed; falling back to plain text")
+        except Exception as exc:
+            log(f"family button post error: {exc!r}")
+        delivered = mel.post(text, mention_user_id=mention)
+    if not delivered and mention:
+        # Every delivery attempt failed, so the recorded ping never
+        # landed: release it, and a re-send of this alert can ping.
+        starter_pings.release_ping("paused", job_key=filename, episode="paused")
+    return delivered
 
 
 def retire_pause_alerts(filename: str | None, headline: str = "Print ended.",

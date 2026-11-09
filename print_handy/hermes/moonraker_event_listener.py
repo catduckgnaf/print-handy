@@ -211,19 +211,26 @@ def post_alert(message, kind, filename):
     # delivers, so the button post and its plain-text fallback can never
     # ping twice for the same alert.
     mention = starter_pings.ping_for(kind, job_key=filename, episode=kind) or None
+    delivered = None
     if _buttonless_standalone():
-        return post(message, **({"mention_user_id": mention} if mention else {}))
-    try:
-        from . import print_alert_buttons as pab
-        kwargs = {"mention_user_id": mention} if mention else {}
-        if pab.post_with_buttons(_bot_token(), announcer.DISCORD_CHAT_ID,
-                                 message, kind, filename, **kwargs):
-            log(f"post buttons kind={kind} {message.splitlines()[0][:120]!r}")
-            return True
-        log("button post failed; falling back to plain text")
-    except Exception as exc:
-        log(f"button post error: {exc!r}")
-    return post(message, **({"mention_user_id": mention} if mention else {}))
+        delivered = post(message, **({"mention_user_id": mention} if mention else {}))
+    else:
+        try:
+            from . import print_alert_buttons as pab
+            kwargs = {"mention_user_id": mention} if mention else {}
+            if pab.post_with_buttons(_bot_token(), announcer.DISCORD_CHAT_ID,
+                                     message, kind, filename, **kwargs):
+                log(f"post buttons kind={kind} {message.splitlines()[0][:120]!r}")
+                return True
+            log("button post failed; falling back to plain text")
+        except Exception as exc:
+            log(f"button post error: {exc!r}")
+        delivered = post(message, **({"mention_user_id": mention} if mention else {}))
+    if not delivered and mention:
+        # Every delivery attempt failed, so the recorded ping never
+        # landed: release it, and a re-send of this alert can ping.
+        starter_pings.release_ping(kind, job_key=filename, episode=kind)
+    return delivered
 
 
 def post_plate_picker(plan_id):
@@ -1704,7 +1711,7 @@ def _plan_timelapse_post(job_key, completion_message, tl_plan):
             log(f"plan timelapse clip for {job_key!r} unavailable: {exc!r}")
             clip = None
     if stage == "more":
-        _post_completion(completion_message, completion_message)
+        _post_completion(completion_message, completion_message, job_key=job_key)
         with contextlib.suppress(Exception):
             plan_timelapse.prune()  # abandoned plans never reach a final post
         return
@@ -1714,14 +1721,14 @@ def _plan_timelapse_post(job_key, completion_message, tl_plan):
     partial = stage == "partial" or clip is None or (expected is not None and len(stored) < expected)
     try:
         if not stored:
-            _post_completion(completion_message, completion_message)
+            _post_completion(completion_message, completion_message, job_key=job_key)
             return
         note = f"{completion_message}\nPartial timelapse: {len(stored)} plate(s) so far." if partial else completion_message
         try:
             combined = plan_timelapse.combine(plan)
         except Exception as exc:
             log(f"timelapse combine failed for plan {plan!r}: {exc!r}")
-            _post_completion(completion_message, completion_message)
+            _post_completion(completion_message, completion_message, job_key=job_key)
             return
         try:
             announcer.archive_local_timelapse(plan, combined)
@@ -1736,9 +1743,9 @@ def _plan_timelapse_post(job_key, completion_message, tl_plan):
         short = _vertical_short_attachment(video, job_key or plan)
         if short is not None:
             message += f"\nMEDIA:{short}"
-        if not _post_completion(message, completion_message):
+        if not _post_completion(message, completion_message, job_key=job_key):
             log(f"combined timelapse attach failed for plan {plan!r}; posting text only")
-            _post_completion(f"{note}\n{_timelapse_fallback_text(message, combined=True)}", completion_message)
+            _post_completion(f"{note}\n{_timelapse_fallback_text(message, combined=True)}", completion_message, job_key=job_key)
     finally:
         plan_timelapse.clear(plan)
         with contextlib.suppress(Exception):
@@ -1757,10 +1764,10 @@ def _timelapse_post(job_key, completion_message):
             short = _vertical_short_attachment(captured, job_key)
             if short is not None:
                 message += f"\nMEDIA:{short}"
-            if not _post_completion(message, completion_message):
+            if not _post_completion(message, completion_message, job_key=job_key):
                 log(f"captured timelapse attach failed for {job_key!r}; posting text only")
                 _post_completion(f"{completion_message}\n{_timelapse_fallback_text(message, captured.name)}",
-                                 completion_message)
+                                 completion_message, job_key=job_key)
             return
         if not go2rtc.rendered_active(_config.cfg()):
             # [timelapse] mode closes the printer-rendered path (2.2.2):
@@ -1774,16 +1781,16 @@ def _timelapse_post(job_key, completion_message):
             if dark:
                 _post_completion(
                     f"{completion_message}\n{timelapse_capture.dark_outcome_text(dark.get('dark_frames') or 0)}",
-                    completion_message)
+                    completion_message, job_key=job_key)
                 return
             if go2rtc.timelapse_mode(_config.cfg()) == "off":
                 log(f"no timelapse for {job_key!r}: timelapse mode is off")
-                _post_completion(completion_message, completion_message)
+                _post_completion(completion_message, completion_message, job_key=job_key)
             else:
                 log(f"no timelapse for {job_key!r}: {_capture_outcome_text()}; "
                     "printer-rendered path is off in container mode")
                 _post_completion(f"{completion_message}\nTimelapse not attached: "
-                                 f"{_capture_outcome_text()}.", completion_message)
+                                 f"{_capture_outcome_text()}.", completion_message, job_key=job_key)
             return
         outcome = announcer.archive_completed_timelapse(job_key)
         archived = outcome.path if outcome.state == announcer.ARCHIVED else None
@@ -1795,7 +1802,7 @@ def _timelapse_post(job_key, completion_message):
                 # #383 principle) instead of the generic not-rendered line.
                 _post_completion(
                     f"{completion_message}\n{timelapse_capture.dark_outcome_text(dark.get('dark_frames') or 0)}",
-                    completion_message)
+                    completion_message, job_key=job_key)
                 return
             # Name each path's actual state (#540): only ARCHIVE_NOT_RENDERED
             # means a bounded wait elapsed, so only it may be described as a
@@ -1806,19 +1813,19 @@ def _timelapse_post(job_key, completion_message):
             if outcome.state == announcer.ARCHIVE_OFF:
                 log(f"no timelapse for {job_key!r}: {capture_text}; printer-rendered archive "
                     "is off (timelapse.archive_host / archive_dir not configured), lookup skipped")
-                _post_completion(completion_message, completion_message)
+                _post_completion(completion_message, completion_message, job_key=job_key)
             elif outcome.state == announcer.ARCHIVE_FAILED:
                 log(f"no timelapse for {job_key!r}: {capture_text}; printer-rendered archive "
                     f"failed: {outcome.detail}")
                 _post_completion(f"{completion_message}\nTimelapse not attached: the printer's "
                                  "rendered video was found, but archiving it failed "
-                                 "(see the listener log).", completion_message)
+                                 "(see the listener log).", completion_message, job_key=job_key)
             else:
                 log(f"timelapse not rendered for {job_key!r} within the wait"
                     + (f" ({outcome.detail})" if outcome.detail else ""))
                 _post_completion(f"{completion_message}\nTimelapse not attached: the printer's "
                                  "rendered video didn't arrive within the wait "
-                                 "(see the listener log).", completion_message)
+                                 "(see the listener log).", completion_message, job_key=job_key)
             return
         local_video = announcer.materialize_archived_timelapse(archived)
         try:
@@ -1829,13 +1836,13 @@ def _timelapse_post(job_key, completion_message):
         short = _vertical_short_attachment(local_video, job_key)
         if short is not None:
             message += f"\nMEDIA:{short}"
-        if not _post_completion(message, completion_message):
+        if not _post_completion(message, completion_message, job_key=job_key):
             # Never lose the completion notice because the platform refused the attachment.
             log(f"timelapse attach failed for {job_key!r}; posting text only")
-            _post_completion(f"{completion_message}\n{_timelapse_fallback_text(message, Path(str(archived)).name)}", completion_message)
+            _post_completion(f"{completion_message}\n{_timelapse_fallback_text(message, Path(str(archived)).name)}", completion_message, job_key=job_key)
     except Exception as exc:
         log(f"timelapse postprocess failed for {job_key!r}: {exc!r}")
-        _post_completion(completion_message, completion_message)
+        _post_completion(completion_message, completion_message, job_key=job_key)
 
 
 # paths.ffmpeg: a bare name is looked up on PATH, a path is used as is.
