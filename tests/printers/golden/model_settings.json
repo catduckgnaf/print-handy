@@ -115,10 +115,7 @@
       "archive": "~/3d-prints",
       "cache": "~/.hermes/cache",
       "ffmpeg": "ffmpeg",
-      "hermes_agent": "~/.hermes/hermes-agent",
-      "hermes_bin": "~/.local/bin/hermes",
       "hermes_home": "~/.hermes/profiles/3dprinting",
-      "hermes_restart_helper": "~/.hermes/skills/autonomous-ai-agents/hermes-safe-restart/scripts/restart_hermes.py",
       "records_vault": "~/Documents/3D Printing Records"
     },
     "prime_tower": {
@@ -283,10 +280,7 @@
       "archive": "~/3d-prints",
       "cache": "~/.hermes/cache",
       "ffmpeg": "ffmpeg",
-      "hermes_agent": "~/.hermes/hermes-agent",
-      "hermes_bin": "~/.local/bin/hermes",
       "hermes_home": "~/.hermes/profiles/3dprinting",
-      "hermes_restart_helper": "~/.hermes/skills/autonomous-ai-agents/hermes-safe-restart/scripts/restart_hermes.py",
       "records_vault": "~/Documents/3D Printing Records"
     },
     "prime_tower": {
@@ -451,10 +445,7 @@
       "archive": "~/3d-prints",
       "cache": "~/.hermes/cache",
       "ffmpeg": "ffmpeg",
-      "hermes_agent": "~/.hermes/hermes-agent",
-      "hermes_bin": "~/.local/bin/hermes",
       "hermes_home": "~/.hermes/profiles/3dprinting",
-      "hermes_restart_helper": "~/.hermes/skills/autonomous-ai-agents/hermes-safe-restart/scripts/restart_hermes.py",
       "records_vault": "~/Documents/3D Printing Records"
     },
     "prime_tower": {
@@ -619,10 +610,7 @@
       "archive": "~/3d-prints",
       "cache": "~/.hermes/cache",
       "ffmpeg": "ffmpeg",
-      "hermes_agent": "~/.hermes/hermes-agent",
-      "hermes_bin": "~/.local/bin/hermes",
       "hermes_home": "~/.hermes/profiles/3dprinting",
-      "hermes_restart_helper": "~/.hermes/skills/autonomous-ai-agents/hermes-safe-restart/scripts/restart_hermes.py",
       "records_vault": "~/Documents/3D Printing Records"
     },
     "prime_tower": {

@@ -143,7 +143,7 @@
  "runs": 91,
  "source": "91 green push runs of ci.yml on main, run ids 41372854407 to 41950941018 (2026-11-02 01:33 UTC to 2026-11-05 01:50 UTC; head 1fa86092), artifact slicer-timing-real, median of 3 repeats each",
  "spread": {
-  "plates-multicolor/hermes first_prompt_s": {
+  "plates-multicolor/direct first_prompt_s": {
    "cv": 0.157,
    "max": 0.081,
    "median": 0.063,
@@ -151,7 +151,7 @@
    "n": 91,
    "p95": 0.073
   },
-  "plates-multicolor/hermes fit_check_s": {
+  "plates-multicolor/direct fit_check_s": {
    "cv": 0.2,
    "max": 0.01,
    "median": 0.007,
@@ -159,7 +159,7 @@
    "n": 91,
    "p95": 0.009
   },
-  "plates-multicolor/hermes wall_s": {
+  "plates-multicolor/direct wall_s": {
    "cv": 0.167,
    "max": 2.13,
    "median": 1.926,
@@ -167,7 +167,7 @@
    "n": 91,
    "p95": 2.016
   },
-  "rotation-fit/hermes first_prompt_s": {
+  "rotation-fit/direct first_prompt_s": {
    "cv": 0.143,
    "max": 0.014,
    "median": 0.011,
@@ -175,7 +175,7 @@
    "n": 91,
    "p95": 0.013
   },
-  "rotation-fit/hermes fit_check_s": {
+  "rotation-fit/direct fit_check_s": {
    "cv": 0.158,
    "max": 4.604,
    "median": 3.825,
@@ -183,7 +183,7 @@
    "n": 91,
    "p95": 4.517
   },
-  "rotation-fit/hermes wall_s": {
+  "rotation-fit/direct wall_s": {
    "cv": 0.166,
    "max": 9.666,
    "median": 8.472,
@@ -191,7 +191,7 @@
    "n": 91,
    "p95": 9.419
   },
-  "single-part/hermes first_prompt_s": {
+  "single-part/direct first_prompt_s": {
    "cv": 0.143,
    "max": 0.014,
    "median": 0.011,
@@ -199,7 +199,7 @@
    "n": 91,
    "p95": 0.012
   },
-  "single-part/hermes fit_check_s": {
+  "single-part/direct fit_check_s": {
    "cv": 0.136,
    "max": 6.218,
    "median": 5.504,
@@ -207,7 +207,7 @@
    "n": 91,
    "p95": 6.049
   },
-  "single-part/hermes wall_s": {
+  "single-part/direct wall_s": {
    "cv": 0.139,
    "max": 6.962,
    "median": 6.197,
@@ -215,7 +215,7 @@
    "n": 91,
    "p95": 6.744
   },
-  "stl-single-part/hermes first_prompt_s": {
+  "stl-single-part/direct first_prompt_s": {
    "cv": 0.149,
    "max": 0.01,
    "median": 0.008,
@@ -223,7 +223,7 @@
    "n": 91,
    "p95": 0.009
   },
-  "stl-single-part/hermes fit_check_s": {
+  "stl-single-part/direct fit_check_s": {
    "cv": 0.136,
    "max": 6.25,
    "median": 5.504,
@@ -231,7 +231,7 @@
    "n": 91,
    "p95": 6.046
   },
-  "stl-single-part/hermes wall_s": {
+  "stl-single-part/direct wall_s": {
    "cv": 0.138,
    "max": 6.996,
    "median": 6.179,
@@ -239,7 +239,7 @@
    "n": 91,
    "p95": 6.754
   },
-  "witch-ghost-cults3d/hermes first_prompt_s": {
+  "witch-ghost-cults3d/direct first_prompt_s": {
    "cv": 0.163,
    "max": 0.463,
    "median": 0.398,
@@ -247,7 +247,7 @@
    "n": 91,
    "p95": 0.436
   },
-  "witch-ghost-cults3d/hermes fit_check_s": {
+  "witch-ghost-cults3d/direct fit_check_s": {
    "cv": 0.142,
    "max": 7.398,
    "median": 6.602,
@@ -255,7 +255,7 @@
    "n": 91,
    "p95": 7.112
   },
-  "witch-ghost-cults3d/hermes wall_s": {
+  "witch-ghost-cults3d/direct wall_s": {
    "cv": 0.152,
    "max": 11.989,
    "median": 10.498,

@@ -51,7 +51,6 @@ class DockerReleaseContract(unittest.TestCase):
             "bin/moonrakerctl": {"curl", "jq"},
             # Sourced by moonrakerctl for mesh-run.
             "bin/mesh-routine.sh": {"jq"},
-            "bin/restart_gateway_after_print.sh": {"curl"},
         }
         dockerfile = (ROOT / "Dockerfile").read_text()
         runtime = dockerfile.split("AS runtime", 1)[1]

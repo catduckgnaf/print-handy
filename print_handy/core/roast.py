@@ -14,10 +14,15 @@ Selection, in order:
    its status bank; success language never reaches a failed print. The
    status banks are wired to the failure, cancel and confirmed-spaghetti
    posts as well as to chat requests (#1017 batch 2).
-2. **Title reaction** (a known keyword in the title, completed prints only),
-   then **context** banks (overnight, long, heavy, repeat, short — each only
-   when the fact it talks about is actually known), then the **generic**
-   templates and one-liners.
+2. **Fact banks before the title reaction.** For a completed print the
+   outcome and context banks go first (reprint-after-failure, then
+   overnight, long, heavy, repeat, short — each only when the fact it
+   talks about is actually known), then history and color banks, then the
+   **title reaction** (a known keyword in the title), then the **generic**
+   templates and one-liners. Title-reaction entries fill from the title
+   alone — no other slot — so a bare keyword match must not outrank a
+   line built from a real fact of this print (its duration, weight,
+   color, or history) when one is available; it still outranks generic.
 3. Inside a bank: a persisted **shuffle bag** (no entry again until the bag
    empties) plus a **history window** of recent entries across all banks. An
    entry whose **family** was drawn inside the family window is passed over
@@ -678,9 +683,11 @@ def candidate_pools(ctx: Mapping[str, Any], status: str = "completed",
     if prev_fails >= 1 and corpus.get("reprint_failed", {}).get("completed"):
         pools.append(("reprint_failed:completed", corpus["reprint_failed"]["completed"]))
 
-    for k in _title_keywords(ctx, corpus):
-        pools.append((f"title:{k}", corpus["title_reactions"][k]))
-
+    # Fact banks first: every pool above the title reaction is gated on,
+    # and fills from, a real fact of this print (duration, grams, repeat
+    # count, finish hour, previous print, color). Title-reaction entries
+    # use no slot beyond the title itself, so a bare keyword match only
+    # gets its turn once no fact-using pool can produce a line.
     for name in _context_banks(ctx):
         pools.append((name, corpus["banks"][name]))
 
@@ -695,6 +702,9 @@ def candidate_pools(ctx: Mapping[str, Any], status: str = "completed",
     for ckey in color_family_keys(raw_color):
         if corpus.get("color_roasts", {}).get(ckey):
             pools.append((f"color:{ckey}", corpus["color_roasts"][ckey]))
+
+    for k in _title_keywords(ctx, corpus):
+        pools.append((f"title:{k}", corpus["title_reactions"][k]))
 
     generic_pool = (corpus["banks"]["generic"]
                     + corpus["banks"].get("dark_humor", [])

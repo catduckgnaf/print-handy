@@ -408,23 +408,16 @@ def connect_steps(site, *, renew=False, lead=""):
     return "\n".join(lines)
 
 
-# /print-source: every site Print Handy knows, in the order people meet them.
+# /print-source: every site Print Handy knows, in the order people meet
+# them. The list itself lives in the one registry (core/model_sources);
+# this tuple keeps the (site, label, kind, note) shape its readers use.
 # kind: "login" (needs a LOGIN_SITES credential to download), "open" (no
 # credential), "listing" (listing only; credential named when one is used),
 # "none" (not supported).
-SOURCES = (
-    ("makerworld", "MakerWorld", "login", ""),
-    ("printables", "Printables", "open", "no login needed"),
-    ("thingiverse", "Thingiverse", "login", ""),
-    ("myminifactory", "MyMiniFactory", "login", ""),
-    ("crealitycloud", "Creality Cloud", "login", ""),
-    ("thangs", "Thangs", "login", ""),
-    ("nexprint", "Nexprint", "login", ""),
-    ("cults3d", "Cults3D", "listing", "listing only — Cults' API never shares a model's files"),
-    ("makeronline", "MakerOnline", "listing",
-     "listing only — its downloads need a browser security check Print Handy won't fake"),
-    ("grabcad", "GrabCAD", "none", "not supported — its firewall blocks apps and its terms forbid them"),
-)
+from . import model_sources as _model_sources
+SOURCES = tuple(
+    (source.site, source.label, source.kind, source.note)
+    for source in _model_sources.SOURCES)
 
 
 def credential_state(site, *, now=None, environ=None):

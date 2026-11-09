@@ -1,7 +1,6 @@
 """Guided setup and read-only debugging for ``/print-handy`` (#162).
 
-Two flows, both driven by plain Discord messages so the standalone bot and the Hermes
-print-feedback plugin share one implementation:
+Two flows, both driven by plain Discord messages:
 
 - ``/print-handy setup`` walks a fresh install through small validated steps. Progress is a
   checklist persisted as JSON in the state folder, so cancelling, a timeout, or a bot restart
@@ -108,13 +107,6 @@ def _validate_model(value, _answers):
     if key not in printers.MODELS:
         raise ValueError(f"unknown model key {key!r}; reply with one of: {', '.join(sorted(printers.MODELS))}")
     return key
-
-
-def _validate_mode(value, _answers):
-    mode = value.strip().lower()
-    if mode not in settings.BOT_MODES:
-        raise ValueError("reply `standalone` (Print Handy runs its own bot) or `hermes` (a Hermes Agent profile)")
-    return mode
 
 
 def _one_id(value, label):
@@ -274,9 +266,6 @@ def steps(token_env="DISCORD_BOT_TOKEN"):
     return (
         Step("model", "Printer model",
              f"Which printer? Reply with its model key, one of: {model_list}.", _validate_model),
-        Step("mode", "Bot mode",
-             "How should Print Handy talk to Discord? Reply `standalone` for its own bot, or "
-             "`hermes` for a Hermes Agent profile.", _validate_mode),
         Step("chat_id", "Print channel",
              "Reply with the print channel's numeric ID. In Discord: User Settings > Advanced > "
              "Developer Mode on, then right-click the channel > Copy Channel ID.", _validate_chat_id),
@@ -1303,7 +1292,7 @@ def _review_text(session):
     answers = session["answers"]
     lines = ["**Setup is ready to review.** Nothing has been written yet.",
              f"- Printer model: `{answers.get('model')}`",
-             f"- Bot mode: `{answers.get('mode')}`",
+             "- Bot mode: `standalone`",
              "- Print channel and access: the user IDs you entered (not repeated here), "
              "or everyone in the channel if you chose `everyone`",
              f"- Printer URL: {answers.get('moonraker_url') or 'not set'}",
@@ -1348,7 +1337,7 @@ def _manual_text(session):
                      "the list itself is file-only (docs/SETTINGS.md, 'Printers list')")
     else:
         lines.append(f"   - `[printer] model` = `{answers.get('model')}`")
-    lines += [f"   - `[bot] mode` = `{answers.get('mode')}`",
+    lines += ["   - `[bot] mode` = `standalone`",
               "   - `[discord] chat_id` and `allowed_user_ids` = what you entered above "
               "(blank `allowed_user_ids` = everyone in the channel)"]
     if answers.get("moonraker_url") and not roster:
@@ -1385,7 +1374,7 @@ def _roster_config(answers):
             entry["chat_id"] = extra["chat_id"]
         _stamp_address(entry, extra.get("model"), extra.get("moonraker_url"))
         entries.append(entry)
-    config = {"printers": entries, "bot": {"mode": answers["mode"]},
+    config = {"printers": entries, "bot": {"mode": "standalone"},
               "discord": {"chat_id": answers["chat_id"], "allowed_user_ids": answers["user_ids"]}}
     if answers.get("spoolman_url"):
         config["services"] = {"spoolman_url": answers["spoolman_url"]}
@@ -1450,7 +1439,7 @@ def _apply_answers(answers, config_path):
         _refuse_unsafe_roster_target(config_path)
         config = _roster_config(answers)
     else:
-        config = {"printer": {"model": answers["model"]}, "bot": {"mode": answers["mode"]},
+        config = {"printer": {"model": answers["model"]}, "bot": {"mode": "standalone"},
                   "discord": {"chat_id": answers["chat_id"], "allowed_user_ids": answers["user_ids"]}}
         placed = _address_placement(answers.get("model"), answers.get("moonraker_url"))
         if placed:
@@ -1823,22 +1812,16 @@ def run_diagnostics(*, loader=None, token_getter=None, probe=None, login_probe=N
                                 clean(f"settings load and validate; printer model {printer.get('model')}, "
                                       f"bed {printer.get('bed_mm')}")))
 
-        # Bot mode, token presence, and (standalone only) a read-only login probe.
-        mode = str((cfg.get("bot") or {}).get("mode") or "standalone")
+        # Token presence and a read-only login probe.
         token = ""
-        if token_getter is not None or mode == "standalone":
-            try:
-                token = (token_getter or _default_token_getter)(cfg) or ""
-            except Exception:
-                token = ""
+        try:
+            token = (token_getter or _default_token_getter)(cfg) or ""
+        except Exception:
+            token = ""
         if token:
             secrets.append(token)
         token_env = str((cfg.get("discord") or {}).get("token_env") or "DISCORD_BOT_TOKEN")
-        if mode != "standalone":
-            findings.append(Finding("bot mode and login", "skip",
-                                    f"mode is {mode}; the Hermes gateway owns the Discord login",
-                                    ""))
-        elif not token:
+        if not token:
             findings.append(Finding("bot mode and login", "fail",
                                     f"mode is standalone but ${token_env} is empty",
                                     f"Store the bot token in ${token_env} in the profile/data "
@@ -1958,11 +1941,10 @@ def run_diagnostics(*, loader=None, token_getter=None, probe=None, login_probe=N
                     fresh, why = health.evaluate(heartbeat, stale_s=int(cfg["bot"]["health_stale_s"]))
                     findings.append(Finding("bot heartbeat", "ok" if fresh else "warn",
                                             clean(f"standalone heartbeat: {why}"),
-                                            "" if fresh else "Start the standalone bot, or ignore "
-                                                              "this in Hermes mode."))
+                                            "" if fresh else "Start the standalone bot."))
                 else:
                     findings.append(Finding("bot heartbeat", "skip",
-                                            "no standalone heartbeat found (expected in Hermes mode)", ""))
+                                            "no standalone heartbeat found (the bot is not running)", ""))
             except Exception:
                 pass
     return findings

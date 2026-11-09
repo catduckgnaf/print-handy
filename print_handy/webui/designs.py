@@ -176,7 +176,9 @@ def _page(title, body, *, theme=shell.DEFAULT_THEME):
 
 def render_designs_page(rows, *, theme=shell.DEFAULT_THEME):
     """The GET /designs list: one row per session, newest first."""
-    parts = ["<p>Designs made from chat with <code>/print-design</code> (or <code>/design</code>) "
+    parts = ["<p>Looking for a model to print? <a href=\"/sources\">Model sources</a> "
+             "lists every site a link can be dropped from.</p>"
+             "<p>Designs made from chat with <code>/print-design</code> (or <code>/design</code>) "
              "(<a href=\"https://github.com/catduckgnaf/print-handy/blob/main/docs/DESIGN.md\">"
              "the design guide</a>). This catalog is read-only: it shows the "
              "sessions kept on this machine (14 days) and serves their files; "

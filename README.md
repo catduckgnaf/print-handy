@@ -69,7 +69,7 @@ These are mockups built from the bot's real message text and buttons, with place
 Setup instructions do not live in this README; they live in the guides, where they can be as detailed as each route needs:
 
 - **Docker** (the easiest route: one container does everything) — the [Docker guide](docs/DOCKER.md). Pin the image by its digest, not `:latest` or `:develop`; the guide has the current digest and the rollback. On Unraid, start from `docker/unraid/print-handy.xml`.
-- **No Docker** — the [standalone bot](docs/STANDALONE.md) (Discord, or [Telegram](docs/TELEGRAM-BOT-SETUP.md) or [Matrix](docs/MATRIX-BOT-SETUP.md) instead), or the [Hermes installation](docs/INSTALL.md) for existing Hermes users.
+- **No Docker** — the [standalone bot](docs/STANDALONE.md) (Discord, or [Telegram](docs/TELEGRAM-BOT-SETUP.md) or [Matrix](docs/MATRIX-BOT-SETUP.md) instead); see the [native install](docs/INSTALL.md).
 - **Everything else** — the [documentation home](docs/README.md) indexes every guide, including configuration, multi-printer installs and troubleshooting.
 
 **You need** a 64-bit Debian or Ubuntu machine, or a Raspberry Pi 4 or 5 with 64-bit Raspberry Pi OS, for the Docker route. The image (`ghcr.io/catduckgnaf/print-handy`) is published for `linux/amd64` and `linux/arm64`.
@@ -120,7 +120,6 @@ Print Handy groups printers by **how they connect**, because that is what decide
 
 The same bot, with the same prompts and safety gates, runs on **Discord, Telegram or Matrix** — only the transport changes. Setup: [Discord](docs/DISCORD-BOT-SETUP.md) · [Telegram](docs/TELEGRAM-BOT-SETUP.md) · [Matrix](docs/MATRIX-BOT-SETUP.md).
 
-- On Discord you can alternatively run Print Handy as a Hermes plugin instead of the standalone bot. Use only one mode with a given bot token.
 - The Telegram and Matrix bots are pure bots with no LLM chat: send a message that isn't a command and you get the command list back. (Their roasts, camera checks and design still work — roasts are local, and the others use the vision and design endpoints, not chat.)
 - Discord is a choice, not a requirement: the same local-first install serves Telegram or Matrix instead, and the doctor and the local Web UI need no chat platform at all.
 
