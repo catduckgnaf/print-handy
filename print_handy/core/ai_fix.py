@@ -613,8 +613,24 @@ def remap_filament_choices(job, mapping, resolve_selection) -> int:
     resolved.
     """
     from . import source_colors
-    decisions = job.get('color_decisions') or {}
+    decisions = copy.deepcopy(job.get('color_decisions') or {})
     manifest = job.get('color_manifest') or {}
+
+    # Validate the complete mapping before resolving any selection. A partly
+    # applicable map is not a valid remap, and resolution failures must not
+    # leave the caller's decisions half rewritten.
+    prompts = source_colors.canonical_prompts(manifest)
+    known = {row.get('source_extruder') for row in prompts}
+    if decisions.get('mode') == 'single_color' and not known:
+        # Single-color jobs may omit a source manifest; the selected color is
+        # nevertheless the entire job's known mapping target.
+        if mapping and not isinstance(decisions.get('selection'), dict):
+            raise FixError('single-color filament mapping has no validated selection')
+        known.update(mapping)
+    unknown = set(mapping) - known
+    if unknown:
+        raise FixError('filament mapping includes unknown source filament(s): '
+                       + ', '.join(str(value) for value in sorted(unknown, key=str)))
 
     def _resolve(extruder, selection):
         try:
@@ -629,16 +645,22 @@ def remap_filament_choices(job, mapping, resolve_selection) -> int:
         selection = decisions.get('selection')
         if not isinstance(selection, dict) or not mapping:
             return 0
+        if not known:
+            raise FixError('single-color filament mapping cannot be validated against this job')
         extruder = 1 if 1 in mapping else next(iter(mapping))
         decisions['selection'] = _resolve(extruder, selection)
+        job['color_decisions'] = decisions
         return 1
     choices = decisions.get('choices') or {}
     changed = 0
-    for row in source_colors.canonical_prompts(manifest):
+    for row in prompts:
         extruder = row.get('source_extruder')
         if extruder in mapping and row['key'] in choices:
             choices[row['key']] = _resolve(extruder, choices[row['key']])
             changed += 1
+    if changed:
+        decisions['choices'] = choices
+        job['color_decisions'] = decisions
     return changed
 
 
