@@ -46,7 +46,8 @@ from . import access as access_module
 from . import config as config_api
 from . import shell
 from .catalog import (GROUP_FILE_ONLY_NOTES, choice_label, choices_for,
-                    config_page_visible, field_by_id)
+                    config_page_visible, field_by_id,
+                    unconfigured_chat_platforms)
 
 CSRF_FIELD = "_csrf"
 CONFIRM_FIELD = "confirm"
@@ -70,6 +71,9 @@ FIELDS_FIELD = "_fields"
 # submit came from, so a preview error re-render returns to the same
 # section instead of the first one.
 SECTION_FIELD = "_section"
+# Hidden field carrying the ?setup= chat platform reveal through a submit,
+# so a revealed Telegram or Matrix section stays open on a re-render.
+REVEAL_FIELD = "_setup"
 
 # Page groups in render order: (catalog group name, heading). The
 # headings follow the docs' grouping of the same settings.
@@ -198,10 +202,12 @@ def _hidden_inputs(field, value):
                    for item in items)
 
 
-def _field_row(field_value, *, data, errors, submitted):
+def _field_row(field_value, *, data, errors, submitted, reveal=None):
     field = field_value.field
-    if not config_page_visible(field, data):
-        return _hidden_inputs(field, _current(field, field_value, submitted))
+    if not config_page_visible(field, data, reveal=reveal):
+        # An errored field is never hidden: its message must be on screen.
+        if not (errors and field.id in errors):
+            return _hidden_inputs(field, _current(field, field_value, submitted))
     disabled = field_value.overridden
     badge = PROVENANCE_LABELS.get(field_value.provenance, field_value.provenance)
     parts = [f'<div class="field" id="row-{_esc(field.id)}">',
@@ -368,7 +374,7 @@ _TAB_GUARD = (
     "if(!form)return;var dirty=false;"
     "form.addEventListener('input',function(){dirty=true;});"
     "form.addEventListener('change',function(){dirty=true;});"
-    "document.querySelectorAll('.config-tabs a').forEach(function(link){"
+    "document.querySelectorAll('.config-tabs a, .setup-reveal a').forEach(function(link){"
     "link.addEventListener('click',function(event){"
     "if(dirty&&!confirm('Unsaved changes on this tab will be lost. Switch tabs anyway?'))"
     "event.preventDefault();});});})();</script>"
@@ -377,7 +383,7 @@ _TAB_GUARD = (
 
 def render_config_page(field_values, *, data, form_token, errors=None,
                        submitted=None, notice=None, theme=shell.DEFAULT_THEME,
-                       section=None):
+                       section=None, reveal=None):
     """The GET /config form (also the error/notice re-render target).
 
     Side sub-tabs (settings restructure stage 3): exactly one section's
@@ -452,7 +458,9 @@ def render_config_page(field_values, *, data, form_token, errors=None,
     parts.append(f'<form method="post" action="/config/preview">'
                  f'<input type="hidden" name="{CSRF_FIELD}" value="{_esc(form_token)}">'
                  f'<input type="hidden" name="{SECTION_FIELD}" '
-                 f'value="{_esc(selected or "")}">')
+                 f'value="{_esc(selected or "")}">'
+                 + (f'<input type="hidden" name="{REVEAL_FIELD}" '
+                    f'value="{_esc(reveal)}">' if reveal else ""))
     for name, heading, rows in sections:
         if name != selected:
             # Unshown sections: hidden inputs only, so the one-form save
@@ -463,8 +471,20 @@ def render_config_page(field_values, *, data, form_token, errors=None,
             continue
         parts.append(f'<section class="config-group" id="group-{_esc(name)}">'
                      f"<h2>{_esc(heading)}</h2>")
-        parts.extend(_field_row(fv, data=data, errors=errors, submitted=submitted)
+        parts.extend(_field_row(fv, data=data, errors=errors, submitted=submitted,
+                                reveal=reveal)
                      for fv in rows)
+        if name == "platform":
+            # Stage 4 reveal rows: a chat platform the rule hides gets a
+            # named way in, so first-time setup stays reachable.
+            for platform in unconfigured_chat_platforms(data):
+                if reveal == platform:
+                    continue
+                label = "Telegram" if platform == "telegram" else "Matrix"
+                parts.append(
+                    f'<p class="setup-reveal">{label} is not set up. '
+                    f'<a href="/config?section=platform&setup={platform}">'
+                    f'Set up {label}</a></p>')
         note = GROUP_FILE_ONLY_NOTES.get(name)
         if note:
             parts.append(f'<p class="file-only-note">{_esc(note)}</p>')
@@ -483,13 +503,14 @@ def render_config_page(field_values, *, data, form_token, errors=None,
 
 
 def render_preview_page(entries, submitted, *, form_token, theme=shell.DEFAULT_THEME,
-                        section=None):
+                        section=None, reveal=None):
     """The diff preview: exact (field, old, new) rows plus the confirm form.
 
     ``section`` is the sub-tab the preview was posted from; the confirm
     form reposts it as _section so a save re-render lands back on that
     tab (an errored field's own tab still outranks it — see
-    render_config_page).
+    render_config_page). ``reveal`` is the ?setup= chat platform, reposted
+    as _setup so a save re-render keeps that platform's fields open.
 
     ``entries`` is [(field, old, new)]; ``submitted`` carries the raw form
     values the confirm form reposts as hidden inputs, so what is confirmed
@@ -506,6 +527,9 @@ def render_preview_page(entries, submitted, *, form_token, theme=shell.DEFAULT_T
     if section:
         hidden.append(f'<input type="hidden" name="{SECTION_FIELD}" '
                       f'value="{_esc(section)}">')
+    if reveal:
+        hidden.append(f'<input type="hidden" name="{REVEAL_FIELD}" '
+                      f'value="{_esc(reveal)}">')
     # The whole parsed form state rides along, not just the changed keys:
     # the confirm POST parses exactly the fields the preview parsed (the
     # FIELDS_FIELD list), so an absent toggle or multi-select there means
@@ -685,7 +709,8 @@ def attribute_error(message, changes, *, environ=None):
 
 
 __all__ = [
-    "CONFIRM_FIELD", "CSRF_FIELD", "FIELDS_FIELD", "SECTION_FIELD", "GROUPS",
+    "CONFIRM_FIELD", "CSRF_FIELD", "FIELDS_FIELD", "REVEAL_FIELD", "SECTION_FIELD",
+    "GROUPS",
     "LOGIN_REMEMBER_FIELD", "LOGIN_TOKEN_FIELD", "LOGIN_USER_FIELD",
     "PROVENANCE_LABELS", "attribute_error", "parse_form",
     "render_config_page", "render_login_page", "render_preview_page",

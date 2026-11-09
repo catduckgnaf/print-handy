@@ -194,6 +194,61 @@ class ConfigPageTests(unittest.TestCase):
         self.assertIn('name="printer.zmod_delivery_format"', bodies["printers"])
         self.assertNotIn('type="hidden" name="printer.zmod_delivery_format"', bodies["printers"])
 
+    def test_unconfigured_chat_platforms_hide_behind_a_reveal_row(self):
+        # Stage 4: on a Discord install with no Telegram or Matrix
+        # identity, the platform tab hides those fields (still submitted
+        # as hidden inputs) behind named Set up rows; following one
+        # draws the fields, and the other platform stays hidden.
+        with tempfile.TemporaryDirectory() as tmp:
+            port, _local, _environ = self.start(tmp, "discord:\n  chat_id: '12345'\n")
+            _code, body, _csrf = self.get_config(port, section="platform")
+            self.assertIn('type="hidden" name="telegram.chat_id"', body)
+            self.assertNotIn('id="row-telegram.chat_id"', body)
+            self.assertIn("Set up Telegram", body)
+            self.assertIn('href="/config?section=platform&setup=telegram"', body)
+            self.assertIn("Set up Matrix", body)
+            code, body = self.request(port, "GET",
+                                      "/config?section=platform&setup=telegram")
+            self.assertEqual(code, 200)
+            self.assertIn('id="row-telegram.chat_id"', body)
+            self.assertNotIn('id="row-matrix.room_id"', body)
+            self.assertIn("Set up Matrix", body)
+
+    def test_configured_chat_platform_fields_stay_visible_and_round_trip(self):
+        # A Matrix identity in the file counts as configured even on a
+        # Discord install: its fields draw on the platform tab, and a
+        # save from that tab keeps the value.
+        with tempfile.TemporaryDirectory() as tmp:
+            port, local, environ = self.start(
+                tmp, "matrix:\n  room_id: '!room:example.org'\n")
+            _code, body, csrf = self.get_config(port, section="platform")
+            self.assertIn('id="row-matrix.room_id"', body)
+            self.assertNotIn("Set up Matrix", body)
+            code, body = self.save_flow(port, environ, csrf,
+                                        **{"discord.chat_id": "777"})
+            self.assertEqual(code, 200, body)
+            data = settings.load(local=local, environ={})
+            self.assertEqual(data["matrix"]["room_id"], "!room:example.org")
+            self.assertEqual(data["discord"]["chat_id"], "777")
+
+    def test_any_set_value_in_the_group_counts_as_configured(self):
+        # Stage-4 review item: filling only allowed_user_ids (no identity
+        # key) stored a value the page then hid again behind the reveal
+        # row after saving. Any set field in the platform's group counts
+        # as configured, so stored values are never hidden from their owner.
+        with tempfile.TemporaryDirectory() as tmp:
+            port, _local, _environ = self.start(
+                tmp, "telegram:\n  allowed_user_ids: '4242'\n")
+            _code, body, _csrf = self.get_config(port, section="platform")
+            self.assertIn('id="row-telegram.chat_id"', body)
+            self.assertNotIn("Set up Telegram", body)
+        with tempfile.TemporaryDirectory() as tmp:
+            port, _local, _environ = self.start(
+                tmp, "matrix:\n  allowed_user_ids: '@me:example.org'\n")
+            _code, body, _csrf = self.get_config(port, section="platform")
+            self.assertIn('id="row-matrix.room_id"', body)
+            self.assertNotIn("Set up Matrix", body)
+
     def test_save_from_a_non_first_tab_preserves_unshown_sections(self):
         # Stage 3's required guard: a save submitted from the camera tab
         # (the browser posts that tab's controls plus every hidden input
@@ -332,6 +387,43 @@ class ConfigPageTests(unittest.TestCase):
             _code, body, _csrf = self.get_config(port)
         self.assertIn("Unsaved changes on this tab will be lost", body)
         self.assertIn("config-tabs", body)
+        # The Set up links navigate away the same way, so the guard
+        # covers them too.
+        self.assertIn(".config-tabs a, .setup-reveal a", body)
+
+    def test_revealed_platform_stays_revealed_after_a_validation_error(self):
+        # ?setup= exists only on the GET: the form reposts it as _setup,
+        # so an error re-render keeps the revealed fields on screen with
+        # whatever the user typed instead of hiding them behind Set up.
+        with tempfile.TemporaryDirectory() as tmp:
+            port, local, environ = self.start(tmp, "discord:\n  chat_id: '12345'\n")
+            code, body = self.request(port, "GET",
+                                      "/config?section=platform&setup=telegram")
+            self.assertEqual(code, 200)
+            self.assertIn(("_setup", "telegram"), hidden_inputs(body))
+            csrf = dict(hidden_inputs(body))["_csrf"]
+            before = local.read_bytes()
+            form = self.browser_form(environ, csrf, **{"bot.platform": "nope"})
+            form += [("_section", "platform"), ("_setup", "telegram")]
+            code, body = self.post(port, "/config/preview", form)
+            self.assertEqual(code, 400, body)
+            self.assertIn('class="error"', row_segment(body, "bot.platform"))
+            self.assertIn('id="row-telegram.chat_id"', body)
+            self.assertNotIn("Set up Telegram", body)
+            self.assertNotIn('id="row-matrix.room_id"', body)
+            self.assertIn("Set up Matrix", body)
+            self.assertIn(("_setup", "telegram"), hidden_inputs(body))
+            self.assertEqual(local.read_bytes(), before)
+
+    def test_preview_confirm_form_keeps_the_reveal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            port, _local, environ = self.start(tmp, "discord:\n  chat_id: '12345'\n")
+            _code, _body, csrf = self.get_config(port, section="platform")
+            form = self.browser_form(environ, csrf, **{"discord.chat_id": "999"})
+            form += [("_section", "platform"), ("_setup", "telegram")]
+            code, body = self.post(port, "/config/preview", form)
+            self.assertEqual(code, 200, body)
+            self.assertIn(("_setup", "telegram"), hidden_inputs(body))
 
     # -- save flow -----------------------------------------------------------
 
@@ -410,6 +502,31 @@ class ConfigPageTests(unittest.TestCase):
                     self.assertIn(needle, row_segment(body, field_id))
                 self.assertEqual(local.read_bytes(), before)
                 self.assertFalse(list(Path(tmp).glob("*.bak-*")))
+
+    def test_cross_section_error_lands_on_the_errored_section(self):
+        # A save submitted from one tab carries every other section's
+        # fields as hidden inputs; an invalid hidden value errors against
+        # a field the submitted tab does not show. The error re-render
+        # must land on the errored field's section — the submitted tab
+        # renders that section as hidden inputs only, so staying on it
+        # would show no error anywhere.
+        with tempfile.TemporaryDirectory() as tmp:
+            port, local, environ = self.start(tmp)
+            _code, _body, csrf = self.get_config(port, section="printers")
+            before = local.read_bytes()
+            form = self.browser_form(environ, csrf,
+                                     **{"visual_watch.sensitivity": "9"})
+            form.append(("_section", "printers"))
+            code, body = self.post(port, "/config/preview", form)
+            self.assertEqual(code, 400)
+            self.assertIn("<h2>Camera, timelapse and images</h2>", body)
+            self.assertIn('class="error"', row_segment(body, "visual_watch.sensitivity"))
+            self.assertIn("at most 5", row_segment(body, "visual_watch.sensitivity"))
+            self.assertEqual(dict(hidden_inputs(body)).get("_section"), "camera")
+            # The previously shown section now rides along as hidden
+            # inputs, so a corrected save still cannot clear it.
+            self.assertIn('type="hidden" name="printer.model"', body)
+            self.assertEqual(local.read_bytes(), before)
 
     def test_unknown_form_keys_are_never_written(self):
         with tempfile.TemporaryDirectory() as tmp:

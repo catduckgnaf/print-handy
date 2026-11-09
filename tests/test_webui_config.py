@@ -199,6 +199,30 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(field_by_id("services.camera_source").group, "camera")
         self.assertEqual(field_by_id("printer.model").group, "printers")
 
+    def test_conditional_chat_platform_visibility(self):
+        # Stage 4: Telegram and Matrix fields hide until the platform is
+        # configured — selected as bot.platform, or carrying an identity
+        # key — and a reveal draws them anyway. Discord never hides.
+        base = {"bot": {"platform": "discord"},
+                "telegram": {"chat_id": ""},
+                "matrix": {"homeserver_url": "", "room_id": ""}}
+        self.assertFalse(config_page_visible("telegram.chat_id", base))
+        self.assertFalse(config_page_visible("telegram.allowed_user_ids", base))
+        self.assertFalse(config_page_visible("matrix.homeserver_url", base))
+        self.assertFalse(config_page_visible("matrix.room_id", base))
+        self.assertTrue(config_page_visible("discord.chat_id", base))
+        self.assertTrue(config_page_visible("telegram.chat_id", base,
+                                            reveal="telegram"))
+        self.assertTrue(config_page_visible("matrix.room_id", base,
+                                            reveal="matrix"))
+        selected = {**base, "bot": {"platform": "telegram"}}
+        self.assertTrue(config_page_visible("telegram.chat_id", selected))
+        self.assertFalse(config_page_visible("matrix.room_id", selected))
+        mid_setup = {**base, "matrix": {"homeserver_url": "https://hs.example",
+                                        "room_id": ""}}
+        self.assertTrue(config_page_visible("matrix.homeserver_url", mid_setup))
+        self.assertTrue(config_page_visible("matrix.room_id", mid_setup))
+
     def test_settings_surface_fix_fields_are_in_the_catalog(self):
         # The 2.2.2 settings-surface fix: every consumed, user-facing
         # setting the 2.2.1 audit found missing from the catalog is now
