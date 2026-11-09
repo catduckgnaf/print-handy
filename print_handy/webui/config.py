@@ -217,16 +217,21 @@ def last_write_warnings():
     retired [printer] family key — that was already in the settings
     file (or the operator's own file) before the save and that the save
     did not touch. The write left it in the file, byte for byte; the
-    names are also noted for ``settings.unknown_settings_warning()``.
+    names are also noted for this process's
+    ``settings.unknown_settings_warning()``.
     Names only, never values."""
     return list(_last_write_warnings)
 
 
 def _note_tolerated(target, tolerated):
     """Record a landed write's tolerated violations: the module-level
-    list behind last_write_warnings(), and the settings registry the
-    startup gates and doctor print (settings._note_unknown, the same
-    channel #1058's warn-and-drop keys use)."""
+    list behind last_write_warnings(), and this process's in-memory
+    settings registry (settings._note_unknown, the same channel #1058's
+    warn-and-drop keys use), so the names show in this process's
+    unknown-settings note on the save path. The note does not reach a
+    fresh startup or doctor process: the tolerated keys stay in the
+    file, and a process that reloads the file refuses to load it until
+    they are removed by hand."""
     global _last_write_warnings
     _last_write_warnings = [f"[{section}] {key}" for section, key in tolerated]
     for section, key in tolerated:
@@ -235,6 +240,15 @@ def _note_tolerated(target, tolerated):
             "settings file before the Web UI save; the save left it untouched. "
             "This key is refused when a save introduces it, and the settings "
             "will not load until it is removed by hand")
+
+
+def _clear_write_warnings():
+    """Forget the previous write's tolerated violations: a successful
+    save that writes nothing (the file already held the submitted
+    values) tolerated nothing, so last_write_warnings() reports that
+    save's empty set instead of an earlier save's names."""
+    global _last_write_warnings
+    _last_write_warnings = []
 
 
 def _section_violation_keys(section, values):
@@ -598,14 +612,14 @@ def write_printer_name(printer_id, name, *, config_path=None, home=None,
     prepared = _prepare_printer_name(printer_id, name, config_path=config_path,
                                      home=home, environ=environ)
     if prepared is None:
+        _clear_write_warnings()
         return []
     target, text, tolerated = prepared
     target.parent.mkdir(parents=True, exist_ok=True)
     stamp = timestamp or datetime.now().strftime("%Y%m%d-%H%M%S")
     _backup(target, stamp)
     _atomic_write(target, text, 0o644)
-    if tolerated:
-        _note_tolerated(target, tolerated)
+    _note_tolerated(target, tolerated)
     return [("printers", printer_id)]
 
 
@@ -656,6 +670,7 @@ def write_changes(changes, *, config_path=None, home=None, environ=None, timesta
             changed.append((field.section, field.key))
         section[field.key] = value
     if not changed:
+        _clear_write_warnings()
         return []
     for field, value in items:
         check = _CONTENT_CHECKS.get(field.id)
@@ -666,6 +681,5 @@ def write_changes(changes, *, config_path=None, home=None, environ=None, timesta
     stamp = timestamp or datetime.now().strftime("%Y%m%d-%H%M%S")
     _backup(target, stamp)
     _atomic_write(target, text, 0o644)
-    if tolerated:
-        _note_tolerated(target, tolerated)
+    _note_tolerated(target, tolerated)
     return changed

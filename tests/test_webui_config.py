@@ -700,6 +700,63 @@ class ClosedTableToleranceTests(unittest.TestCase):
         self.save_roast_off()
         self.assertEqual(self.config.last_write_warnings(), [])
 
+    def test_clean_save_after_a_tolerated_save_clears_the_warnings(self):
+        # Regression (review of #1103): the warnings describe the most
+        # recent successful write, so a clean save after a tolerated one
+        # must not keep reporting the earlier save's tolerated names.
+        self.local.write_text("notify:\n  mqtt_password: hunter2\n")
+        self.save_roast_off()
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+        # The operator removes the offending key by hand, then saves again.
+        self.local.write_text("vision:\n  roast_enabled: false\n")
+        changed = write_changes({"vision.roast_enabled": True},
+                                config_path=self.local, environ={})
+        self.assertEqual(changed, [("vision", "roast_enabled")])
+        self.assertEqual(self.config.last_write_warnings(), [])
+
+    def test_noop_save_after_a_tolerated_save_clears_the_warnings(self):
+        self.local.write_text("notify:\n  mqtt_password: hunter2\n")
+        self.save_roast_off()
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+        # Saving the values the file already holds writes nothing, and
+        # that successful save tolerated nothing new to report.
+        self.assertEqual(self.save_roast_off(), [])
+        self.assertEqual(self.config.last_write_warnings(), [])
+
+    def test_printer_name_save_after_a_tolerated_save_clears_the_warnings(self):
+        roster = ("printers:\n"
+                  "  - id: garage-ad5x\n"
+                  "    name: Garage AD5X\n"
+                  "    model: flashforge.ad5x\n"
+                  "    moonraker_url: http://192.168.1.61:7125\n")
+        self.local.write_text(roster + "notify:\n  mqtt_password: hunter2\n")
+        changed = self.config.write_printer_name(
+            "garage-ad5x", "Workshop AD5X", config_path=self.local, environ={})
+        self.assertEqual(changed, [("printers", "garage-ad5x")])
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+        # The operator removes the offending key by hand, then renames again.
+        self.local.write_text(roster.replace("Garage AD5X", "Workshop AD5X"))
+        changed = self.config.write_printer_name(
+            "garage-ad5x", "Bench AD5X", config_path=self.local, environ={})
+        self.assertEqual(changed, [("printers", "garage-ad5x")])
+        self.assertEqual(self.config.last_write_warnings(), [])
+
+    def test_printer_name_noop_after_a_tolerated_save_clears_the_warnings(self):
+        roster = ("printers:\n"
+                  "  - id: garage-ad5x\n"
+                  "    name: Garage AD5X\n"
+                  "    model: flashforge.ad5x\n"
+                  "    moonraker_url: http://192.168.1.61:7125\n")
+        self.local.write_text(roster + "notify:\n  mqtt_password: hunter2\n")
+        self.config.write_printer_name(
+            "garage-ad5x", "Workshop AD5X", config_path=self.local, environ={})
+        self.assertEqual(self.config.last_write_warnings(), ["[notify] mqtt_password"])
+        # Renaming to the name the entry already carries writes nothing,
+        # and that successful save tolerated nothing new to report.
+        self.assertEqual(self.config.write_printer_name(
+            "garage-ad5x", "Workshop AD5X", config_path=self.local, environ={}), [])
+        self.assertEqual(self.config.last_write_warnings(), [])
+
 
 if __name__ == "__main__":
     unittest.main()
