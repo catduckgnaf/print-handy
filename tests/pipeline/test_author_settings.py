@@ -86,13 +86,28 @@ def test_conversion_provenance_marks_intent_unknown_without_source_metadata(tmp_
     assert result["settings"]["wall_loops"]["source_preset_value"] is None
 
 
+def test_conversion_provenance_records_selected_value_after_enum_fallback(tmp_path):
+    source = tmp_path / "unsupported.3mf"
+    write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
+              [("#FFFFFF", "PLA")], project_extra={
+                  "sparse_infill_pattern": "made_up_pattern",
+                  "different_settings_to_system": ["sparse_infill_pattern"]})
+    author_value = {"sparse_infill_pattern": "made_up_pattern"}
+    converted, notes = author_settings.carry(
+        author_value, {"sparse_infill_pattern": "gyroid"}, author_value.keys())
+    result = author_settings.conversion_provenance(
+        source, {"sparse_infill_pattern": "gyroid"}, converted, author_value, notes)
+    assert result["settings"]["sparse_infill_pattern"]["project_value"] == "made_up_pattern"
+    assert result["settings"]["sparse_infill_pattern"]["selected_value"] == "gyroid"
+
+
 def test_conversion_provenance_uses_different_settings_to_system_without_guessing(tmp_path):
     source = tmp_path / "changed.3mf"
     write_3mf(source, [("Block", 1, box(20, 20, 10), (60, 60))], [("Plate 1", [0])],
               [("#FFFFFF", "PLA")],
               project_extra={"wall_loops": "4", "different_settings_to_system": ["wall_loops"]})
     result = author_settings.conversion_provenance(
-        source, {"wall_loops": "2"}, {"wall_loops": "4"}, {"wall_loops": "2"}, [])
+        source, {"wall_loops": "2"}, {"wall_loops": "2"}, {"wall_loops": "4"}, [])
     assert result["intent_status"] == "known"
     assert result["settings"]["wall_loops"]["origin"] == "designer"
     assert result["settings"]["wall_loops"]["selected_value"] == "2"
