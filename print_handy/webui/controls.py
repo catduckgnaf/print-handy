@@ -493,8 +493,15 @@ def power_action(data, printer_id, action, body=None, *, adapter=None, read=None
 # named heater to its target in the same KEY=VALUE shape.
 _HEATER_WORDS = {"M104": "nozzle", "M109": "nozzle", "M140": "bed", "M190": "bed"}
 _HEATER_WORD_RE = re.compile(r"^(M104|M109|M140|M190|M303)(?![0-9])", re.IGNORECASE)
-_HEATER_PARAM_RE = re.compile(r"([SR])([-+]?[0-9]+(?:\.[0-9]+)?)", re.IGNORECASE)
-_M303_EXT_RE = re.compile(r"E([-+]?[0-9]+(?:\.[0-9]+)?)", re.IGNORECASE)
+# A heater number as the loosest real parser could read it: an
+# optional sign, digits with an optional fraction (or a leading-dot
+# fraction), and an optional exponent. The scan must read the whole
+# token — stopping early, at an exponent or a leading dot, would check
+# a different number than the one a parser accepting those forms acts
+# on: ``S5e2`` is 500 °C to such a parser, not 5 °C.
+_HEATER_NUMBER = r"[-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?"
+_HEATER_PARAM_RE = re.compile(r"([SR])(" + _HEATER_NUMBER + r")", re.IGNORECASE)
+_M303_EXT_RE = re.compile(r"E(" + _HEATER_NUMBER + r")", re.IGNORECASE)
 _EXTENDED_HEATER_RE = re.compile(
     r"^(SET_HEATER_TEMPERATURE|PID_CALIBRATE)(?![A-Za-z0-9_])", re.IGNORECASE)
 # States in which a printer cannot accept commands at all, so a raw
@@ -564,7 +571,9 @@ def _script_heater_targets(script):
     any other named heater has no limit in this module and is left
     alone, exactly like a command this scan does not know. A malformed
     extended line raises ``ControlError`` (400) rather than passing
-    unchecked.
+    unchecked. Targets are read whole — sign, fraction and exponent —
+    so the number checked is the number the loosest parser that could
+    run the script would act on.
     """
     found = []
     for raw_line in str(script).splitlines():
