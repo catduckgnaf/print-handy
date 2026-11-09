@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from print_handy.core import source_colors, model_job
 from print_handy.core.color_geometry import export_color_geometry, export_single_color_plate, export_production_plate
+from print_handy.core import layer_gcode
 
 # The coupon is a shipped corpus case (three parts, three source extruders),
 # not a host-only recording: the old PRINT_HANDY_COUPONS / sol_recovery gate
@@ -60,6 +61,16 @@ def test_invalid_geometry_mapping_refused(tmp_path,failure):
   d['choices'].pop('filament:2')
  with pytest.raises(RuntimeError):export_color_geometry(src,tmp_path/'out.3mf',d)
  assert not (tmp_path/'out.3mf').exists()
+
+
+def test_layer_gcode_remaps_source_tool_to_selected_job_tool():
+    source_xml = b'''<custom_gcode_per_layer><plate><layer type="0" gcode="ColorChange" extruder="3" top_z="4.2"/></plate></custom_gcode_per_layer>'''
+    converted, report = layer_gcode.remap(source_xml, {3: 1})
+    assert report['kept'] == 1
+    assert report['dropped'] == 0
+    rows = layer_gcode.parse(converted)
+    assert rows[0]['source_extruder'] == 1
+    assert rows[0]['top_z'] == pytest.approx(4.2)
 
 
 def test_failed_remap_preserves_source_and_existing_destination_bytes(tmp_path):
