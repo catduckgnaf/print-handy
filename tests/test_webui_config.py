@@ -16,11 +16,15 @@ from print_handy.webui import (CATALOG, ENVIRONMENT, HOME_CONFIG, MODEL_DEFAULT,
 # token_stored is deliberately absent: it collects no setting (the token is
 # never written anywhere), so it must not become a catalog field.
 GUIDED_FIELDS = {
+    "platform": "bot.platform",
     "model": "printer.model",
     "chat_id": "discord.chat_id",
     "user_ids": "discord.allowed_user_ids",
+    "homeserver_url": "matrix.homeserver_url",
     "moonraker_url": "services.moonraker_url",
     "spoolman_url": "services.spoolman_url",
+    "camera_snapshot_url": "services.camera_snapshot_url",
+    "timelapse": "timelapse.capture_enabled",
 }
 
 SECRET_KEYS = {"token", "token_env", "access_token", "access_token_env", "api_key", "api_key_env",
@@ -69,7 +73,9 @@ class WebUISettingsTests(unittest.TestCase):
 class CatalogTests(unittest.TestCase):
     def test_every_guided_setup_field_is_in_the_catalog(self):
         step_keys = {step.key for step in guided.steps()}
-        self.assertEqual(set(GUIDED_FIELDS) | {"token_stored"}, step_keys)
+        self.assertEqual(set(GUIDED_FIELDS) | {"token_stored", "webui_login",
+                                               "webui_username", "webui_password",
+                                               "webui_confirm"}, step_keys)
         for step_key, field_id in GUIDED_FIELDS.items():
             with self.subTest(step=step_key):
                 self.assertIsNotNone(field_by_id(field_id))

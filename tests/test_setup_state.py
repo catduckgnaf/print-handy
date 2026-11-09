@@ -87,12 +87,13 @@ def test_guided_apply_writes_shared_record(tmp_path):
     store = guided.SetupStore(tmp_path / "state" / guided.STORE_NAME)
     key = "chan::user"
     guided.handle_text(key, "/print-handy setup", store=store, now=1000.0)
-    answers = ["ad5x", "12345", "everyone", "skip", "skip", "skip"]
+    answers = ["discord", "ad5x", "12345", "everyone", "skip", "skip", "skip", "skip",
+               "skip", "skip"]
     # model key must be a real one; discover a moonraker model dynamically
     # by replaying: first answer may fail if the key is wrong, so use the
     # first sorted model key from the registry instead.
     from print_handy import printers
-    answers[0] = sorted(printers.MODELS)[0]
+    answers[1] = sorted(printers.MODELS)[0]
     guided.handle_text(key, "/print-handy setup restart", store=store, now=1001.0)
     for index, answer in enumerate(answers):
         guided.handle_text(key, answer, store=store, now=1002.0 + index)
