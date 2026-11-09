@@ -57,6 +57,60 @@ class UploadTests(unittest.TestCase):
         self.assertEqual(second.read_bytes(), b"two")
 
 
+class ConcurrentUploadTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.mkdtemp()
+        self.data = load_settings(self.tmp)
+
+    def test_concurrent_same_name_uploads_both_land(self):
+        # The Web UI server is threaded, so two uploads with the same
+        # name can arrive together. Pause both threads right after the
+        # name-clash check so they interleave the way the race does:
+        # without protection both pass the check for the same target.
+        import threading
+        from unittest import mock
+
+        barrier = threading.Barrier(2)
+        real_exists = Path.exists
+
+        def synced_exists(path_self):
+            if path_self.name == "race.stl":
+                try:
+                    barrier.wait(timeout=2)
+                except threading.BrokenBarrierError:
+                    pass
+            return real_exists(path_self)
+
+        results, errors = {}, {}
+
+        def run(idx):
+            try:
+                results[idx] = upload.save_upload(
+                    self.data, "race.stl", f"content-{idx}".encode())
+            except Exception as exc:  # noqa: BLE001 - recorded, asserted below
+                errors[idx] = exc
+
+        threads = [threading.Thread(target=run, args=(idx,)) for idx in range(2)]
+        with mock.patch.object(Path, "exists", synced_exists):
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=30)
+        self.assertFalse(any(thread.is_alive() for thread in threads))
+        self.assertEqual(errors, {})
+        self.assertEqual(sorted(results), [0, 1])
+        paths = []
+        for idx in range(2):
+            saved, reason = results[idx]
+            self.assertIsNone(reason)
+            self.assertIsNotNone(saved)
+            self.assertEqual(saved.read_bytes(), f"content-{idx}".encode())
+            paths.append(saved)
+        self.assertNotEqual(paths[0], paths[1])
+        self.assertEqual(len(upload.list_inbox(self.data)), 2)
+
+
 class MultipartTests(unittest.TestCase):
     def test_parse_multipart_round_trip(self):
         boundary = "----ph-test"

@@ -30,6 +30,7 @@ import hashlib
 import json
 import re
 import secrets
+import threading
 import time
 from email import policy
 from email.parser import BytesParser
@@ -43,6 +44,13 @@ _esc = shell._esc
 
 LINKS_FILE_NAME = "webui_upload_links.json"
 MAX_UPLOAD_BYTES = intake_resources.MAX_DOWNLOAD_BYTES
+
+# The Web UI server is threaded, so two uploads can arrive together.
+# Name selection and the write that claims the name stay under one
+# lock: without it, two same-name uploads can both pass the clash
+# check, share one target and one temp path, and overwrite or lose
+# each other's file.
+_SAVE_UPLOAD_LOCK = threading.Lock()
 
 
 def inbox_dir(data) -> Path:
@@ -133,15 +141,19 @@ def save_upload(data, filename, content: bytes):
     if not content:
         return None, "the file is empty; nothing was saved"
     folder = inbox_dir(data)
-    folder.mkdir(parents=True, exist_ok=True)
-    target = folder / name
-    counter = 1
-    while target.exists():
-        target = folder / f"{Path(name).stem}-{counter}{suffix}"
-        counter += 1
-    tmp = target.with_suffix(target.suffix + ".tmp")
-    tmp.write_bytes(content)
-    tmp.replace(target)
+    with _SAVE_UPLOAD_LOCK:
+        folder.mkdir(parents=True, exist_ok=True)
+        target = folder / name
+        counter = 1
+        while target.exists():
+            target = folder / f"{Path(name).stem}-{counter}{suffix}"
+            counter += 1
+        # A unique temp name per call, so a temp file is never shared
+        # with another upload even outside this process's lock.
+        tmp = target.with_suffix(
+            target.suffix + f".{secrets.token_hex(8)}.tmp")
+        tmp.write_bytes(content)
+        tmp.replace(target)
     return target, None
 
 
