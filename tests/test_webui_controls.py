@@ -648,6 +648,84 @@ class SendGcodeTests(unittest.TestCase):
         self.assertIn("not supported", body["reason"])
         self.assertEqual(adapter.calls, [])
 
+    def test_above_limit_heater_commands_refuse_by_name_and_send_nothing(self):
+        # HW-1: the temperature ceiling that governs /temperature also
+        # governs heater words inside a raw script.
+        adapter = FakeFamilyAdapter(facts={"max_hotend_c": 300, "max_bed_c": 110})
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = enabled(tmp)
+            view = settings.view_for(PRINTER, data)
+            nozzle_limit = controls.temperature_limit(adapter, view, "nozzle", PRINTER)
+            bed_limit = controls.temperature_limit(adapter, view, "bed", PRINTER)
+            scripts = (
+                f"M104 S{nozzle_limit + 100:g}",
+                f"M109 S{nozzle_limit + 100:g}",
+                f"M109 R{nozzle_limit + 100:g}",
+                f"M140 S{bed_limit + 100:g}",
+                f"M190 S{bed_limit + 100:g}",
+                f"SET_HEATER_TEMPERATURE HEATER=extruder TARGET={nozzle_limit + 100:g}",
+                "G28\nM104 S500",  # one bad line refuses the whole script
+            )
+            for script in scripts:
+                code, body = controls.send_gcode(data, PRINTER, {"script": script},
+                                                 adapter=adapter, read=reads("idle"),
+                                                 send=send)
+                self.assertEqual(code, 400, script)
+                self.assertIn("outside", body["reason"])
+                self.assertIn("Nothing sent", body["reason"])
+        self.assertEqual(send.sent, [])
+
+    def test_at_limit_under_limit_and_off_heater_commands_pass(self):
+        adapter = FakeFamilyAdapter(facts={"max_hotend_c": 300, "max_bed_c": 110})
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = enabled(tmp)
+            view = settings.view_for(PRINTER, data)
+            nozzle_limit = controls.temperature_limit(adapter, view, "nozzle", PRINTER)
+            bed_limit = controls.temperature_limit(adapter, view, "bed", PRINTER)
+            scripts = (
+                f"M104 S{nozzle_limit:g}",  # at the limit is allowed, as on /temperature
+                "M104 S0",  # turning a heater off is always allowed
+                "M104 S200",
+                f"M140 S{bed_limit:g}",
+                f"SET_HEATER_TEMPERATURE HEATER=heater_bed TARGET={bed_limit:g}",
+            )
+            for script in scripts:
+                code, body = controls.send_gcode(data, PRINTER, {"script": script},
+                                                 adapter=adapter, read=reads("idle"),
+                                                 send=send)
+                self.assertEqual(code, 200, (script, body))
+        self.assertEqual(send.sent, [("gcode", script) for script in scripts])
+
+    def test_comment_words_and_unheated_scripts_are_unaffected(self):
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = enabled(tmp)
+            for script, state in (("G1 X10 ; M104 S500", "idle"),  # a comment sets nothing
+                                  ("G28\nM400", "printing"),  # unheated, mid-print
+                                  ("M1040 S500", "idle")):  # not a heater word
+                code, body = controls.send_gcode(data, PRINTER, {"script": script},
+                                                 read=reads(state), send=send)
+                self.assertEqual(code, 200, (script, body))
+        self.assertEqual(len(send.sent), 3)
+
+    def test_state_gate_refuses_states_that_cannot_accept_commands(self):
+        send = Recorder()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = enabled(tmp)
+            for state in ("unknown", "error", "shutdown", "unavailable"):
+                code, body = controls.send_gcode(data, PRINTER, {"script": "G28"},
+                                                 read=reads(state), send=send)
+                self.assertEqual(code, 409, state)
+                self.assertIn(state, body["reason"])
+                self.assertIn("Nothing sent", body["reason"])
+            for state in ("idle", "printing", "paused"):
+                code, _ = controls.send_gcode(data, PRINTER, {"script": "G28"},
+                                              read=reads(state), send=send)
+                self.assertEqual(code, 200, state)
+        self.assertEqual(send.sent, [("gcode", "G28")] * 3)
+
 
 class ExcludeObjectTests(unittest.TestCase):
     """ha-print-handy #1: exclude-object through core.exclude_object."""
