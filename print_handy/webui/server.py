@@ -1312,8 +1312,8 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _walkthrough_page(self):
         """GET /walkthrough: the current step, or / when this install
-        has no walkthrough pending (finished, skipped, or never owed
-        one — token, loopback and require_auth=false installs)."""
+        has no walkthrough pending (finished or skipped). Every install
+        owes it until then, however its access was resolved."""
         data = self._walkthrough_data()
         if not walkthrough_module.pending(data):
             self._redirect("/")

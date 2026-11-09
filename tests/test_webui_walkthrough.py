@@ -165,6 +165,36 @@ class WalkthroughServerTests(unittest.TestCase):
             self.assertEqual(reloaded["printer"]["name"], "Bench Printer")
             self.assertEqual(settings.printers(reloaded)[0]["name"], "Bench Printer")
 
+    def test_printer_step_asks_for_spoolman_and_saves_it(self):
+        # The one service chat setup asked about that this walkthrough
+        # used to skip: the Spoolman URL rides the Printer step and the
+        # Review step shows it.
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd, port, _, local, environ = self.start(tmp, setup_done=True)
+            code, _, body = self.request(port, "GET", "/walkthrough")
+            self.assertEqual(code, 200)
+            self.assertIn('name="services.spoolman_url"', body)
+            code, headers, _ = self.post_step(
+                port, environ, httpd.form_token, "printer",
+                **{"services.spoolman_url": "http://spoolman.example:7912"})
+            self.assertEqual((code, headers["location"]), (303, "/walkthrough"))
+            reloaded = settings.load(local=local, environ={})
+            self.assertEqual(reloaded["services"]["spoolman_url"],
+                             "http://spoolman.example:7912")
+            self.assertIn("services.spoolman_url", walkthrough.REVIEW_FIELDS)
+
+    def test_chat_step_does_not_ask_for_bot_mode(self):
+        # Since the Hermes removal the only legal bot.mode is
+        # "standalone": the Chat step must not offer a one-answer field.
+        self.assertNotIn("bot.mode", walkthrough.STEP_FIELDS["chat"])
+        with tempfile.TemporaryDirectory() as tmp:
+            httpd, port, data, _, _ = self.start(tmp, setup_done=True)
+            walkthrough.save_state(data, {"step": 1})
+            code, _, body = self.request(port, "GET", "/walkthrough")
+            self.assertEqual(code, 200)
+            self.assertIn('name="bot.platform"', body)
+            self.assertNotIn('name="bot.mode"', body)
+
     def test_a_bambu_install_gets_its_connection_fields_on_the_printer_step(self):
         with tempfile.TemporaryDirectory() as tmp:
             httpd, port, _, local, environ = self.start(
